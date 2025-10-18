@@ -1,0 +1,140 @@
+name: Build UKI
+
+# on:
+#   push:
+#     tags:
+#       - "v*"
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-dinit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          fi
+
+      - name: Build dinit
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-dinit.sh
+
+      - name: Upload dinit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dinit-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/dinit/
+
+  build-initramfs:
+    needs: build-dinit
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpio gzip busybox-static
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y qemu-user-static
+          fi
+
+      - name: Download dinit artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dinit-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/dinit/
+
+      - name: Make dinit executable
+        run: |
+          chmod +x output/${{ matrix.arch }}/dinit/dinit
+          chmod +x output/${{ matrix.arch }}/dinit/dinitctl
+
+      - name: Build initramfs
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-initramfs.sh
+
+      - name: Upload initramfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: initramfs-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/initramfs.cpio.gz
+
+  build-kernel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          fi
+
+      - name: Build kernel
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-kernel.sh
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/vmlinuz-*
+
+  build-uki:
+    needs: [build-initramfs, build-kernel]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install UKI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils systemd-boot-efi
+
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/
+
+      - name: Download initramfs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: initramfs-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/
+
+      - name: Build UKI
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-uki.sh
+
+      - name: Upload UKI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uki-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/muak-*.efi
