@@ -1,3 +1,4 @@
+---
 name: Build UKI
 
 # on:
@@ -13,7 +14,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [x86_64]
+        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
+        # arch: [x86_64, arm64]
 
     steps:
       - uses: actions/checkout@v5
@@ -38,7 +41,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [x86_64]
+        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
+        # arch: [x86_64, arm64]
 
     steps:
       - uses: actions/checkout@v5
@@ -73,7 +78,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [x86_64]
+        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
+        # arch: [x86_64, arm64]
 
     steps:
       - uses: actions/checkout@v5
@@ -98,7 +105,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [x86_64]
+        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
+        # arch: [x86_64, arm64]
 
     steps:
       - uses: actions/checkout@v5
