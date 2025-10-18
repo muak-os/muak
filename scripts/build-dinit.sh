@@ -34,29 +34,16 @@ fi
 
 cd "dinit-${DINIT_VERSION}"
 
-if [ "${ARCH}" = "arm64" ]; then
-    export CXX=aarch64-linux-gnu-g++
-    export CC=aarch64-linux-gnu-gcc
-    BUILD_OPTS="CXX=aarch64-linux-gnu-g++ BUILD_SHUTDOWN=no"
-else
-    BUILD_OPTS="BUILD_SHUTDOWN=no"
-fi
-
 echo -e "${YELLOW}Building dinit...${NC}"
-make ${BUILD_OPTS} -j$(nproc)
+make BUILD_SHUTDOWN=no -j$(nproc)
 
 echo -e "${YELLOW}Copying dinit binaries to output directory...${NC}"
 cp src/dinit "${OUTPUT_DIR}/dinit"
 cp src/dinitctl "${OUTPUT_DIR}/dinitctl"
 
-if [ "${ARCH}" = "x86_64" ]; then
-    echo -e "${YELLOW}Stripping symbols...${NC}"
-    strip "${OUTPUT_DIR}/dinit"
-    strip "${OUTPUT_DIR}/dinitctl"
-else
-    aarch64-linux-gnu-strip "${OUTPUT_DIR}/dinit"
-    aarch64-linux-gnu-strip "${OUTPUT_DIR}/dinitctl"
-fi
+echo -e "${YELLOW}Stripping symbols...${NC}"
+strip "${OUTPUT_DIR}/dinit"
+strip "${OUTPUT_DIR}/dinitctl"
 
 echo
 echo -e "${GREEN}==== dinit Build Complete ====${NC}"

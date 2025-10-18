@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-dinit:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -22,9 +22,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential wget
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
-          fi
 
       - name: Build dinit
         run: |
@@ -38,7 +35,7 @@ jobs:
 
   build-initramfs:
     needs: build-dinit
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -50,9 +47,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cpio gzip busybox-static
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y qemu-user-static
-          fi
 
       - name: Download dinit artifact
         uses: actions/download-artifact@v4
@@ -76,7 +70,7 @@ jobs:
           path: output/${{ matrix.arch }}/initramfs.cpio.gz
 
   build-kernel:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -88,9 +82,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-          fi
 
       - name: Build kernel
         run: |
@@ -104,7 +95,7 @@ jobs:
 
   build-uki:
     needs: [build-initramfs, build-kernel]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: [x86_64, arm64]

@@ -40,8 +40,7 @@ fi
 
 if [ "${ARCH}" = "arm64" ]; then
     export ARCH=arm64
-    export CROSS_COMPILE=aarch64-linux-gnu-
-    MAKE_ARCH="ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
+    MAKE_ARCH="ARCH=arm64"
 else
     export ARCH=x86_64
     MAKE_ARCH="ARCH=x86_64"
