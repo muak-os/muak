@@ -1,3 +1,0 @@
-type = scripted
-command = /bin/mount-essential.sh
-depends-on = early

@@ -1,86 +1,16 @@
 ---
 name: Build UKI
 
-# on:
-#   push:
-#     tags:
-#       - "v*"
 on:
   push:
   pull_request:
 
 jobs:
-  build-dinit:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    strategy:
-      matrix:
-        arch: [x86_64]
-        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
-        # arch: [x86_64, arm64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential wget
-
-      - name: Build dinit
-        run: |
-          ARCH=${{ matrix.arch }} bash scripts/build-dinit.sh
-
-      - name: Upload dinit artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dinit-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/dinit/
-
-  build-initramfs:
-    needs: build-dinit
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    strategy:
-      matrix:
-        arch: [x86_64]
-        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
-        # arch: [x86_64, arm64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cpio gzip busybox-static
-
-      - name: Download dinit artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dinit-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/dinit/
-
-      - name: Make dinit executable
-        run: |
-          chmod +x output/${{ matrix.arch }}/dinit/dinit
-          chmod +x output/${{ matrix.arch }}/dinit/dinitctl
-
-      - name: Build initramfs
-        run: |
-          ARCH=${{ matrix.arch }} bash scripts/build-initramfs.sh
-
-      - name: Upload initramfs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: initramfs-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/initramfs.cpio.gz
-
   build-kernel:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         arch: [x86_64]
-        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
-        # arch: [x86_64, arm64]
 
     steps:
       - uses: actions/checkout@v5
@@ -98,16 +28,52 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/vmlinuz-*
+          path: |
+            output/${{ matrix.arch }}/vmlinuz-*
 
-  build-uki:
-    needs: [build-initramfs, build-kernel]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+      - name: Upload kernel build tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/linux-*
+
+  build-initramfs:
+    needs: build-kernel
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         arch: [x86_64]
-        # TODO: Enable arm64 when repo is public (ARM runners only available for public repos)
-        # arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download kernel build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-build-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/
+
+      - name: Install mkinitcpio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mkinitcpio
+
+      - name: Build initramfs with mkinitcpio
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-initramfs.sh
+
+      - name: Upload initramfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: initramfs-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/initramfs.img
+
+  build-uki:
+    needs: [build-initramfs, build-kernel]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64]
 
     steps:
       - uses: actions/checkout@v5
@@ -115,7 +81,7 @@ jobs:
       - name: Install UKI build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils systemd-boot-efi
+          sudo apt-get install -y systemd-ukify
 
       - name: Download kernel artifact
         uses: actions/download-artifact@v4
