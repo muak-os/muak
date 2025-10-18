@@ -72,14 +72,6 @@ else
     cp "${BUSYBOX_PATH}" "${BUILD_DIR}/bin/busybox"
 fi
 
-echo -e "${BOLD}${GREEN}Creating essential device nodes...${NC}"
-mknod -m 600 "${BUILD_DIR}/dev/console" c 5 1
-mknod -m 666 "${BUILD_DIR}/dev/null" c 1 3
-mknod -m 666 "${BUILD_DIR}/dev/zero" c 1 5
-mknod -m 666 "${BUILD_DIR}/dev/tty" c 5 0
-mknod -m 660 "${BUILD_DIR}/dev/random" c 1 8
-mknod -m 660 "${BUILD_DIR}/dev/urandom" c 1 9
-
 echo -e "${BOLD}${BLUE}Packaging initramfs...${NC}"
 cd "${BUILD_DIR}"
 find . -print0 | cpio --null --create --verbose --format=newc | gzip --best > "${OUTPUT_DIR}/initramfs.cpio.gz"
