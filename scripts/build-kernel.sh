@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ARCH="${ARCH:-x86_64}"
-KERNEL_VERSION="${KERNEL_VERSION:-6.6.58}"
+KERNEL_VERSION="${KERNEL_VERSION:-6.15.11}"
 BUILD_DIR="$(pwd)/build/${ARCH}"
 OUTPUT_DIR="$(pwd)/output/${ARCH}"
 CONFIG_FILE="$(pwd)/kernel/config/${ARCH}/kernel.config"

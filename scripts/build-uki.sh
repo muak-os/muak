@@ -1,20 +1,24 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-ARCH="${ARCH:-x86_64}"
-KERNEL_DIR="$(pwd)/output/${ARCH}"
-INITRAMFS_FILE="${KERNEL_DIR}/initramfs.img"
-CMDLINE_FILE="$(pwd)/config/cmdline.txt"
-OUTPUT_DIR="$(pwd)/output/${ARCH}"
+ARCH="${1:-x86_64}"
+KERNEL_BUILD_DIR="$PROJECT_ROOT/build/${ARCH}"
+INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
+CMDLINE_FILE="$PROJECT_ROOT/config/cmdline.txt"
+OUTPUT_DIR="$PROJECT_ROOT/output/${ARCH}"
+STUB_FILE="$PROJECT_ROOT/config/uki/linuxx64.efi.stub"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
-echo -e "${GREEN}Kernel: ${KERNEL_DIR}/vmlinuz-*${NC}"
+echo -e "${GREEN}Kernel Build Dir: ${KERNEL_BUILD_DIR}${NC}"
 echo -e "${GREEN}Initramfs: ${INITRAMFS_FILE}${NC}"
 echo -e "${GREEN}Cmdline: ${CMDLINE_FILE}${NC}"
 echo
@@ -29,13 +33,27 @@ if [ ! -f "${CMDLINE_FILE}" ]; then
     exit 1
 fi
 
-KERNEL_IMAGE=$(ls ${KERNEL_DIR}/vmlinuz-* 2>/dev/null | head -1)
-if [ -z "${KERNEL_IMAGE}" ]; then
-    echo -e "${RED}ERROR: Kernel image not found in ${KERNEL_DIR}${NC}"
+# Find kernel bzImage in build tree
+BZIMAGE=$(find "${KERNEL_BUILD_DIR}" -path "*/arch/x86/boot/bzImage" -o -path "*/arch/x86_64/boot/bzImage" 2>/dev/null | head -1)
+if [ -z "${BZIMAGE}" ]; then
+    echo -e "${RED}ERROR: bzImage not found in ${KERNEL_BUILD_DIR}${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}Found kernel: ${KERNEL_IMAGE}${NC}"
+echo -e "${GREEN}Found kernel bzImage: ${BZIMAGE}${NC}"
+
+if ! command -v ukify &> /dev/null; then
+    echo -e "${RED}ERROR: ukify not found${NC}"
+    echo -e "${RED}Install systemd-ukify package${NC}"
+    exit 1
+fi
+
+if [ ! -f "${STUB_FILE}" ]; then
+    echo -e "${RED}ERROR: EFI stub not found at ${STUB_FILE}${NC}"
+    exit 1
+fi
+
+mkdir -p "${OUTPUT_DIR}"
 
 if [ "${ARCH}" = "arm64" ]; then
     UKI_OUTPUT="${OUTPUT_DIR}/muak-arm64.efi"
@@ -43,17 +61,19 @@ else
     UKI_OUTPUT="${OUTPUT_DIR}/muak-x86_64.efi"
 fi
 
-if ! command -v ukify &> /dev/null; then
-    echo -e "${RED}ERROR: ukify not found${NC}"
-    echo -e "${YELLOW}Install systemd-ukify package${NC}"
-    exit 1
-fi
-
 echo -e "${YELLOW}Building UKI with ukify...${NC}"
+
+# Generate os-release inline
 ukify build \
-    --linux="${KERNEL_IMAGE}" \
+    --stub="${STUB_FILE}" \
+    --linux="${BZIMAGE}" \
     --initrd="${INITRAMFS_FILE}" \
     --cmdline="@${CMDLINE_FILE}" \
+    --os-release="ID=muak
+NAME=Muak Linux
+PRETTY_NAME=Muak Linux
+VERSION_ID=0.1.0
+BUILD_ID=$(date +%Y%m%d)" \
     --output="${UKI_OUTPUT}"
 
 echo

@@ -1,5 +1,5 @@
 ---
-name: Build UKI
+name: Build images
 
 on:
   push:
@@ -38,7 +38,6 @@ jobs:
           path: build/${{ matrix.arch }}/linux-*
 
   build-initramfs:
-    needs: build-kernel
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -47,29 +46,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download kernel build tree
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-build-${{ matrix.arch }}
-          path: build/${{ matrix.arch }}/
+      - name: Install Rust toolchain
+        run: rustup update stable && rustup default stable
 
-      - name: Install mkinitcpio
+      - name: Install initramfs build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mkinitcpio
+          sudo apt-get install -y cpio zstd squashfs-tools
 
-      - name: Build initramfs with mkinitcpio
+      - name: Build initramfs
         run: |
-          ARCH=${{ matrix.arch }} bash scripts/build-initramfs.sh
+          bash scripts/build-initramfs.sh ${{ matrix.arch }}
 
       - name: Upload initramfs artifact
         uses: actions/upload-artifact@v4
         with:
           name: initramfs-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/initramfs.img
+          path: build/initramfs.img
 
   build-uki:
-    needs: [build-initramfs, build-kernel]
+    needs: [build-kernel, build-initramfs]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -81,19 +77,31 @@ jobs:
       - name: Install UKI build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y systemd-ukify
+          sudo apt-get install -y systemd-ukify python3
 
       - name: Download kernel artifact
         uses: actions/download-artifact@v4
         with:
-          name: kernel-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/
+          name: kernel-build-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/
 
       - name: Download initramfs artifact
         uses: actions/download-artifact@v4
         with:
           name: initramfs-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/
+          path: build/
+
+      - name: Restore kernel build tree structure
+        run: |
+          cd build/${{ matrix.arch }}
+          KERNEL_DIR=$(ls -d linux-* 2>/dev/null | head -1)
+          if [ -n "$KERNEL_DIR" ]; then
+            echo "Found kernel directory: $KERNEL_DIR"
+            ls -la "$KERNEL_DIR/arch/x86/boot/" || echo "bzImage not found in expected location"
+          else
+            echo "ERROR: No kernel directory found"
+            exit 1
+          fi
 
       - name: Build UKI
         run: |
@@ -104,3 +112,34 @@ jobs:
         with:
           name: uki-${{ matrix.arch }}
           path: output/${{ matrix.arch }}/muak-*.efi
+
+  build-iso:
+    needs: build-uki
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install ISO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso mtools
+
+      - name: Download UKI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uki-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/
+
+      - name: Build ISO
+        run: |
+          ARCH=${{ matrix.arch }} bash scripts/build-iso.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iso-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/muak-*.iso
