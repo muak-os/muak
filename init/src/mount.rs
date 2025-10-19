@@ -1,10 +1,24 @@
+use nix::fcntl::{open, OFlag};
 use nix::mount::{mount, MsFlags};
 use nix::sys::stat::Mode;
+use nix::unistd::close;
 use nix::unistd::mkdir;
+use serde::Deserialize;
 use std::path::Path;
 
-// Loop device ioctl constants
 const LOOP_SET_FD: u64 = 0x4C00;
+
+#[derive(Debug, Deserialize)]
+struct ExtensionManifest {
+    #[serde(default)]
+    extensions: Vec<Extension>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Extension {
+    name: String,
+    file: String,
+}
 
 pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
     create_and_mount("/dev", "devtmpfs", "devtmpfs", MsFlags::MS_NOSUID, None)?;
@@ -41,43 +55,92 @@ pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
-    use nix::fcntl::{open, OFlag};
-    use nix::unistd::close;
-
     let newroot = Path::new("/newroot");
-
     if !newroot.exists() {
         mkdir(newroot, Mode::from_bits_truncate(0o755))?;
     }
 
-    // Open the squashfs file
-    let sqsh_fd = open("/rootfs.sqsh", OFlag::O_RDONLY, Mode::empty())?;
+    let manifest = read_extensions_manifest()?;
 
-    // Find and open a free loop device
-    let loop_fd = open("/dev/loop0", OFlag::O_RDWR, Mode::empty())?;
+    let work_dir = Path::new("/overlay");
+    mkdir(work_dir, Mode::from_bits_truncate(0o755))?;
 
-    // Attach the squashfs file to the loop device
+    let mut lower_dirs = Vec::new();
+
+    let base_mount = work_dir.join("base");
+    mkdir(&base_mount, Mode::from_bits_truncate(0o755))?;
+    attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount.to_str().unwrap())?;
+    lower_dirs.push(base_mount.to_str().unwrap().to_string());
+
+    for (idx, ext) in manifest.extensions.iter().enumerate() {
+        let ext_mount = work_dir.join(&ext.name);
+        mkdir(&ext_mount, Mode::from_bits_truncate(0o755))?;
+
+        let ext_path = format!("/{}", ext.file);
+        let loop_dev = format!("/dev/loop{}", idx + 1);
+        attach_squashfs(&ext_path, &loop_dev, ext_mount.to_str().unwrap())?;
+        lower_dirs.push(ext_mount.to_str().unwrap().to_string());
+    }
+
+    if lower_dirs.len() == 1 {
+        mount(
+            Some(lower_dirs[0].as_str()),
+            "/newroot",
+            None::<&str>,
+            MsFlags::MS_BIND | MsFlags::MS_RDONLY,
+            None::<&str>,
+        )?;
+    } else {
+        lower_dirs.reverse();
+        let lowerdir = lower_dirs.join(":");
+        let options = format!("lowerdir={}", lowerdir);
+
+        mount(
+            Some("overlay"),
+            "/newroot",
+            Some("overlay"),
+            MsFlags::MS_RDONLY,
+            Some(options.as_str()),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn read_extensions_manifest() -> Result<ExtensionManifest, Box<dyn std::error::Error>> {
+    let manifest_path = "/extensions.yaml";
+    if !Path::new(manifest_path).exists() {
+        return Ok(ExtensionManifest { extensions: vec![] });
+    }
+
+    let content = std::fs::read_to_string(manifest_path)?;
+    let manifest: ExtensionManifest = serde_yaml::from_str(&content)?;
+    Ok(manifest)
+}
+
+fn attach_squashfs(
+    sqsh_path: &str,
+    loop_dev: &str,
+    mount_point: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sqsh_fd = open(sqsh_path, OFlag::O_RDONLY, Mode::empty())?;
+    let loop_fd = open(loop_dev, OFlag::O_RDWR, Mode::empty())?;
+
     unsafe {
         let ret = nix::libc::ioctl(loop_fd, LOOP_SET_FD, sqsh_fd);
         if ret < 0 {
             close(sqsh_fd).ok();
             close(loop_fd).ok();
-            return Err(format!(
-                "Failed to attach loop device: errno {}",
-                *nix::libc::__errno_location()
-            )
-            .into());
+            return Err(format!("Failed to attach {} to {}", sqsh_path, loop_dev).into());
         }
     }
 
-    // Close file descriptors - kernel keeps the loop device active
     close(sqsh_fd)?;
     close(loop_fd)?;
 
-    // Mount the loop device
     mount(
-        Some("/dev/loop0"),
-        "/newroot",
+        Some(loop_dev),
+        mount_point,
         Some("squashfs"),
         MsFlags::MS_RDONLY,
         None::<&str>,

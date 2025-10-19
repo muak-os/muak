@@ -10,13 +10,24 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 ARCH="${1:-x86_64}"
+EXTENSIONS="${2:-}"
 OUTPUT_DIR="$PROJECT_ROOT/build"
 TEMP_DIR="$(mktemp -d)"
 
 trap "rm -rf $TEMP_DIR" EXIT
 
+if [ -n "$EXTENSIONS" ]; then
+    EXT_LIST=$(echo "$EXTENSIONS" | tr ',' ' ')
+    SCHEMATIC_ID=$("$SCRIPT_DIR/hash-schematic.sh" $EXT_LIST)
+else
+    EXT_LIST=""
+    SCHEMATIC_ID="base"
+fi
+
 echo -e "${GREEN}==== Muak initramfs build ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
+echo -e "${GREEN}Schematic ID: ${SCHEMATIC_ID}${NC}"
+echo -e "${GREEN}Extensions: ${EXTENSIONS:-none}${NC}"
 echo -e "${GREEN}Output: ${OUTPUT_DIR}/initramfs.img${NC}"
 echo
 
@@ -48,18 +59,41 @@ if ! command -v mksquashfs &> /dev/null; then
 fi
 
 echo -e "${YELLOW}Creating squashfs root filesystem...${NC}"
-mksquashfs "$TEMP_DIR/rootfs_source" "$TEMP_DIR/rootfs.sqsh" -comp zstd -noappend -quiet
+mksquashfs "$TEMP_DIR/rootfs_source" "$TEMP_DIR/rootfs.sqsh" -comp xz -Xbcj x86 -b 1M -noappend -no-progress
 
 mkdir -p "$TEMP_DIR/initramfs"
 cp "$OUTPUT_DIR/init" "$TEMP_DIR/initramfs/init"
 chmod +x "$TEMP_DIR/initramfs/init"
 cp "$TEMP_DIR/rootfs.sqsh" "$TEMP_DIR/initramfs/rootfs.sqsh"
 
-echo -e "${YELLOW}Packaging initramfs with cpio and zstd...${NC}"
+if [ -n "$EXTENSIONS" ]; then
+    echo -e "${YELLOW}Building extensions...${NC}"
+    echo "extensions:" > "$TEMP_DIR/initramfs/extensions.yaml"
+
+    for ext in $EXT_LIST; do
+        echo -e "${YELLOW}  - Building extension: $ext${NC}"
+        "$SCRIPT_DIR/build-extension.sh" "$ext"
+
+        EXT_FILE="${ext}.sqsh"
+        cp "$PROJECT_ROOT/output/extensions/${EXT_FILE}" "$TEMP_DIR/initramfs/"
+
+        echo "  - name: $ext" >> "$TEMP_DIR/initramfs/extensions.yaml"
+        echo "    file: $EXT_FILE" >> "$TEMP_DIR/initramfs/extensions.yaml"
+    done
+
+    echo
+    echo -e "${YELLOW}Extensions manifest:${NC}"
+    cat "$TEMP_DIR/initramfs/extensions.yaml"
+fi
+
+echo
+echo -e "${YELLOW}Packaging initramfs with cpio and xz...${NC}"
 
 cd "$TEMP_DIR/initramfs"
-find . -print0 | cpio -o -H newc --null --quiet | zstd -19 -T0 > "$OUTPUT_DIR/initramfs.img"
+find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | xz --check=crc32 --x86 --lzma2=dict=1MiB > "$OUTPUT_DIR/initramfs.img"
 
 echo
 echo -e "${GREEN}==== initramfs Build Complete ====${NC}"
+echo -e "${GREEN}Schematic ID: ${SCHEMATIC_ID}${NC}"
 echo -e "${GREEN}initramfs: ${OUTPUT_DIR}/initramfs.img${NC}"
+ls -lh "${OUTPUT_DIR}/initramfs.img"

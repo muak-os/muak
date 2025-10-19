@@ -5,12 +5,12 @@ use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 pub fn switch(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
-    move_mounts(newroot)?;
-    chdir(newroot)?;
-    chroot(".")?;
-    chdir("/")?;
-    delete_initramfs()?;
-    exec_init()?;
+    move_mounts(newroot).map_err(|e| format!("move_mounts failed: {}", e))?;
+    chdir(newroot).map_err(|e| format!("chdir newroot failed: {}", e))?;
+    chroot(".").map_err(|e| format!("chroot failed: {}", e))?;
+    chdir("/").map_err(|e| format!("chdir / failed: {}", e))?;
+    delete_initramfs().map_err(|e| format!("delete_initramfs failed: {}", e))?;
+    exec_init().map_err(|e| format!("exec_init failed: {}", e))?;
 
     unreachable!("exec_init should never return");
 }
@@ -60,12 +60,14 @@ fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
 fn exec_init() -> Result<(), Box<dyn std::error::Error>> {
     let init_paths = ["/sbin/init", "/bin/init", "/init"];
 
+    let mut checked_paths = Vec::new();
     for init_path in &init_paths {
+        checked_paths.push(format!("{} exists={}", init_path, fs::metadata(init_path).is_ok()));
         if fs::metadata(init_path).is_ok() {
             let err = Command::new(init_path).exec();
             return Err(format!("Failed to exec {}: {}", init_path, err).into());
         }
     }
 
-    Err("No init binary found in new root".into())
+    Err(format!("No init binary found in new root. Checked: {:?}", checked_paths).into())
 }
