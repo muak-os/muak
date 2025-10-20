@@ -10,9 +10,9 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 ARCH="${1:-x86_64}"
-UKI_FILE="$PROJECT_ROOT/output/${ARCH}/muak-${ARCH}.efi"
+UKI_FILE="$PROJECT_ROOT/build/muak-${ARCH}.efi"
 ISO_DIR="$PROJECT_ROOT/build/iso"
-OUTPUT_DIR="$PROJECT_ROOT/output/${ARCH}"
+OUTPUT_DIR="$PROJECT_ROOT/build"
 ISO_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.iso"
 
 echo -e "${GREEN}==== Muak ISO Build ====${NC}"

@@ -10,10 +10,10 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 ARCH="${1:-x86_64}"
-KERNEL_BUILD_DIR="$PROJECT_ROOT/build/${ARCH}"
+KERNEL_BUILD_DIR="$PROJECT_ROOT/build/kernel/${ARCH}"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
 CMDLINE_FILE="$PROJECT_ROOT/config/cmdline.txt"
-OUTPUT_DIR="$PROJECT_ROOT/output/${ARCH}"
+OUTPUT_DIR="$PROJECT_ROOT/build"
 STUB_FILE="$PROJECT_ROOT/config/uki/linuxx64.efi.stub"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
@@ -55,11 +55,7 @@ fi
 
 mkdir -p "${OUTPUT_DIR}"
 
-if [ "${ARCH}" = "arm64" ]; then
-    UKI_OUTPUT="${OUTPUT_DIR}/muak-arm64.efi"
-else
-    UKI_OUTPUT="${OUTPUT_DIR}/muak-x86_64.efi"
-fi
+UKI_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.efi"
 
 echo -e "${YELLOW}Building UKI with ukify...${NC}"
 

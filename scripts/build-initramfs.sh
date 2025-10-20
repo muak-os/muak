@@ -75,7 +75,7 @@ if [ -n "$EXTENSIONS" ]; then
         "$SCRIPT_DIR/build-extension.sh" "$ext"
 
         EXT_FILE="${ext}.sqsh"
-        cp "$PROJECT_ROOT/output/extensions/${EXT_FILE}" "$TEMP_DIR/initramfs/"
+        cp "$PROJECT_ROOT/build/extensions/${EXT_FILE}" "$TEMP_DIR/initramfs/"
 
         echo "  - name: $ext" >> "$TEMP_DIR/initramfs/extensions.yaml"
         echo "    file: $EXT_FILE" >> "$TEMP_DIR/initramfs/extensions.yaml"

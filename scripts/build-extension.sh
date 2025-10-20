@@ -9,7 +9,7 @@ fi
 
 EXTENSION_NAME="$1"
 EXTENSION_DIR="extensions/${EXTENSION_NAME}"
-OUTPUT_DIR="output/extensions"
+OUTPUT_DIR="build/extensions"
 
 if [ ! -d "$EXTENSION_DIR" ]; then
     echo "Error: Extension directory not found: $EXTENSION_DIR"
