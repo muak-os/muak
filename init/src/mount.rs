@@ -91,7 +91,6 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             None::<&str>,
         )?;
     } else {
-        lower_dirs.reverse();
         let lowerdir = lower_dirs.join(":");
         let options = format!("lowerdir={}", lowerdir);
 
