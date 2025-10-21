@@ -26,7 +26,7 @@ Muak uses a custom build system to create a bootable ISO with a Unified Kernel I
    Examples:
    ```bash
    ./scripts/build-initramfs.sh x86_64                    # Base system (schematic: base)
-   ./scripts/build-initramfs.sh x86_64 "firecracker"     # With firecracker
+   ./scripts/build-initramfs.sh x86_64 "firecracker"      # With firecracker
    ./scripts/build-initramfs.sh x86_64 "firecracker,qemu" # With multiple extensions
    ```
 
@@ -43,19 +43,6 @@ Extensions are additional software packages (hypervisors, tools) layered on top 
 - **Schematics**: Each extension combination gets a unique ID (SHA256 hash)
 - **Build-time**: Extensions compiled to `.sqsh` files embedded in initramfs
 - **Boot-time**: Stage1 init reads `/extensions.yaml` and mounts layers with overlayfs
-- **No network**: All extensions bundled at build time, not fetched dynamically
-
-### Extension Structure
-
-```
-extensions/
-├── firecracker/
-│   ├── manifest.yaml
-│   └── rootfs/usr/bin/firecracker
-└── qemu/
-    ├── manifest.yaml
-    └── rootfs/usr/bin/qemu-system-x86_64
-```
 
 ## Boot Sequence
 
