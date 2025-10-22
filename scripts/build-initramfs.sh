@@ -36,7 +36,7 @@ echo -e "${YELLOW}Building init binary...${NC}"
 
 echo -e "${YELLOW}Building granola init system...${NC}"
 cd "$PROJECT_ROOT/granola"
-RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --quiet
+RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
 cd - > /dev/null
 
 echo
@@ -47,10 +47,29 @@ mkdir -p "$TEMP_DIR/rootfs_source/dev"
 mkdir -p "$TEMP_DIR/rootfs_source/proc"
 mkdir -p "$TEMP_DIR/rootfs_source/sys"
 mkdir -p "$TEMP_DIR/rootfs_source/run"
+mkdir -p "$TEMP_DIR/rootfs_source/etc"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
-cp "$PROJECT_ROOT/granola/target/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
+cp "$PROJECT_ROOT/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 chmod +x "$TEMP_DIR/rootfs_source/sbin/init"
+
+if [ -n "$EXTENSIONS" ]; then
+    echo -e "${YELLOW}Preparing extensions manifest...${NC}"
+    echo "extensions:" > "$TEMP_DIR/extensions.yaml"
+
+    for ext in $EXT_LIST; do
+        EXT_FILE="${ext}.sqsh"
+        echo "  - name: $ext" >> "$TEMP_DIR/extensions.yaml"
+        echo "    file: $EXT_FILE" >> "$TEMP_DIR/extensions.yaml"
+    done
+
+    cp "$TEMP_DIR/extensions.yaml" "$TEMP_DIR/rootfs_source/etc/extensions.yaml"
+
+    echo
+    echo -e "${YELLOW}Extensions manifest:${NC}"
+    cat "$TEMP_DIR/extensions.yaml"
+    echo
+fi
 
 if ! command -v mksquashfs &> /dev/null; then
     echo -e "${RED}ERROR: mksquashfs not found${NC}"
@@ -67,23 +86,12 @@ chmod +x "$TEMP_DIR/initramfs/init"
 cp "$TEMP_DIR/rootfs.sqsh" "$TEMP_DIR/initramfs/rootfs.sqsh"
 
 if [ -n "$EXTENSIONS" ]; then
-    echo -e "${YELLOW}Building extensions...${NC}"
-    echo "extensions:" > "$TEMP_DIR/initramfs/extensions.yaml"
+    cp "$TEMP_DIR/extensions.yaml" "$TEMP_DIR/initramfs/extensions.yaml"
 
     for ext in $EXT_LIST; do
-        echo -e "${YELLOW}  - Building extension: $ext${NC}"
-        "$SCRIPT_DIR/build-extension.sh" "$ext"
-
         EXT_FILE="${ext}.sqsh"
         cp "$PROJECT_ROOT/build/extensions/${EXT_FILE}" "$TEMP_DIR/initramfs/"
-
-        echo "  - name: $ext" >> "$TEMP_DIR/initramfs/extensions.yaml"
-        echo "    file: $EXT_FILE" >> "$TEMP_DIR/initramfs/extensions.yaml"
     done
-
-    echo
-    echo -e "${YELLOW}Extensions manifest:${NC}"
-    cat "$TEMP_DIR/initramfs/extensions.yaml"
 fi
 
 echo

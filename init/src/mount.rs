@@ -72,6 +72,13 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
     attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount.to_str().unwrap())?;
     lower_dirs.push(base_mount.to_str().unwrap().to_string());
 
+    if !manifest.extensions.is_empty() {
+        crate::logging::log(&format!(
+            "Loading {} extension(s)",
+            manifest.extensions.len()
+        ));
+    }
+
     for (idx, ext) in manifest.extensions.iter().enumerate() {
         let ext_mount = work_dir.join(&ext.name);
         mkdir(&ext_mount, Mode::from_bits_truncate(0o755))?;

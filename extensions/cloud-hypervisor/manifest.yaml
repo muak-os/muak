@@ -1,0 +1,3 @@
+name: cloud-hypervisor
+version: "42.0"
+description: "Cloud Hypervisor - Open source Virtual Machine Monitor (VMM)"

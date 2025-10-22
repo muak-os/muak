@@ -13,7 +13,7 @@ pub fn init() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn write_log(priority: u8, msg: &str) {
-    let formatted = format!("<{}>[muak-init] {}\n", priority, msg);
+    let formatted = format!("<{}>[init] {}\n", priority, msg);
 
     if let Some(kmsg) = KMSG.get() {
         if let Ok(mut file) = kmsg.lock() {
