@@ -1,4 +1,5 @@
 mod grpc_server;
+mod network;
 mod process;
 
 use nix::libc;
@@ -6,30 +7,16 @@ use nix::sys::signal::{signal, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use process::{ProcessManager, ProcessStatus};
+use serde::Deserialize;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::{Mutex, OnceLock};
-use std::thread;
-use std::time::Duration;
+use std::sync::OnceLock;
 
-static KMSG: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 static PROCESS_MANAGER: OnceLock<ProcessManager> = OnceLock::new();
 
-fn log(msg: &str) {
-    if let Some(kmsg) = KMSG.get() {
-        if let Ok(mut file) = kmsg.lock() {
-            let log_line = format!("<6>[granola] {}\n", msg);
-            let _ = file.write_all(log_line.as_bytes());
-        }
-    }
-}
-
-fn log_error(msg: &str) {
-    if let Some(kmsg) = KMSG.get() {
-        if let Ok(mut file) = kmsg.lock() {
-            let log_line = format!("<3>[granola] ERROR: {}\n", msg);
-            let _ = file.write_all(log_line.as_bytes());
-        }
+pub fn log(message: &str) {
+    if let Ok(mut file) = OpenOptions::new().write(true).open("/dev/kmsg") {
+        let _ = file.write_all(format!("<6>[granola] {}\n", message).as_bytes());
     }
 }
 
@@ -37,16 +24,11 @@ extern "C" fn handle_sigchld(_: libc::c_int) {
     loop {
         match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::Exited(pid, status)) => {
-                log(&format!(
-                    "<6>[granola] Process {} exited with status {}\n",
-                    pid, status
-                ));
                 if let Some(pm) = PROCESS_MANAGER.get() {
                     pm.update_status(pid.as_raw(), ProcessStatus::Exited(status));
                 }
             }
             Ok(WaitStatus::Signaled(pid, sig, _)) => {
-                log(&format!("Process {} killed by signal {:?}", pid, sig));
                 if let Some(pm) = PROCESS_MANAGER.get() {
                     pm.update_status(pid.as_raw(), ProcessStatus::Signaled(sig as i32));
                 }
@@ -59,32 +41,20 @@ extern "C" fn handle_sigchld(_: libc::c_int) {
 }
 
 extern "C" fn handle_sigterm(_: libc::c_int) {
-    log("Received SIGTERM, shutting down gracefully");
+    log("SIGTERM received, exiting");
     std::process::exit(0);
 }
 
 extern "C" fn handle_sigint(_: libc::c_int) {
-    log("Received SIGINT, shutting down gracefully");
+    log("SIGINT received, exiting");
     std::process::exit(0);
 }
 
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("Granola init failed: {}", e);
-        std::process::exit(1);
-    }
-}
-
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let kmsg = OpenOptions::new().write(true).open("/dev/kmsg")?;
-    KMSG.set(Mutex::new(kmsg))
-        .map_err(|_| "Failed to initialize kmsg")?;
-
-    log("Granola init system starting");
-
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(extensions) = read_extensions() {
         if !extensions.is_empty() {
-            log(&format!("Loaded extensions: {}", extensions.join(", ")));
+            log(&format!("Loaded extensions (count > 0): {:?}", extensions));
         }
     }
 
@@ -100,30 +70,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     log("Signal handlers installed");
-    log("PID 1 process reaping enabled");
+    log("Setting up network");
 
-    let pm = process_manager.clone();
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(async {
-            log("Starting gRPC server on 0.0.0.0:50051");
-            if let Err(e) = grpc_server::run_grpc_server(pm).await {
-                log_error(&format!("gRPC server error: {}", e));
-            }
-        });
-    });
+    let network_handle = network::setup_networking().await?;
 
-    log("System ready");
+    log("Starting gRPC server on 0.0.0.0:50051");
+    let server_result = grpc_server::run_grpc_server(process_manager).await;
 
-    loop {
-        thread::sleep(Duration::from_secs(1));
-    }
+    drop(network_handle);
+    server_result?;
+
+    Ok(())
 }
 
 fn read_extensions() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    use serde::Deserialize;
-    use std::fs;
-
     #[derive(Deserialize)]
     struct ExtensionManifest {
         #[serde(default)]
@@ -140,7 +100,7 @@ fn read_extensions() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         return Ok(vec![]);
     }
 
-    let content = fs::read_to_string(manifest_path)?;
+    let content = std::fs::read_to_string(manifest_path)?;
     let manifest: ExtensionManifest = serde_yaml::from_str(&content)?;
     Ok(manifest.extensions.into_iter().map(|e| e.name).collect())
 }

@@ -60,7 +60,7 @@ impl ProcessService for GrpcProcessService {
     async fn list_processes(
         &self,
         _request: Request<ListProcessesRequest>,
-    ) -> Result<Response<ListProcessesResponse>, Status> {
+        ) -> Result<Response<ListProcessesResponse>, Status> {
         let processes = self.process_manager.list();
 
         let process_infos: Vec<ProcessInfo> = processes
@@ -84,13 +84,17 @@ pub async fn run_grpc_server(
     process_manager: ProcessManager,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse()?;
-
+    crate::log(&format!("Starting gRPC server on {}", addr));
     let service = GrpcProcessService::new(process_manager);
 
-    Server::builder()
+    if let Err(e) = Server::builder()
         .add_service(ProcessServiceServer::new(service))
         .serve(addr)
-        .await?;
+        .await
+    {
+        crate::log(&format!("gRPC server error: {}", e));
+        return Err(e.into());
+    }
 
     Ok(())
 }
