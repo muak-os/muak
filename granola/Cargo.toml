@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nix = { version = "0.29", features = ["signal", "process"] }
+nix = { version = "0.29", features = ["signal", "process", "socket"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = "0.12"
@@ -17,6 +17,7 @@ dhcproto = "0.12"
 rand = "0.8"
 netlink-packet-route = "0.19"
 libc = "0.2"
+bincode = "1.3"
 
 [build-dependencies]
 tonic-build = "0.12"

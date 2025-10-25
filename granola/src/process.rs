@@ -1,11 +1,12 @@
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{fork, ForkResult, Pid};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Process {
     pub pid: i32,
     pub command: String,
@@ -14,7 +15,7 @@ pub struct Process {
     pub started_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ProcessStatus {
     Running,
     Exited(i32),
@@ -103,5 +104,19 @@ impl ProcessManager {
         }
     }
 
+    pub fn register(&self, pid: i32, command: String, args: Vec<String>) {
+        let process = Process {
+            pid,
+            command,
+            args,
+            status: ProcessStatus::Running,
+            started_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        };
 
+        let mut processes = self.processes.lock().unwrap();
+        processes.insert(pid, process);
+    }
 }
