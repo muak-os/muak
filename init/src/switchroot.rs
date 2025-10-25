@@ -16,7 +16,7 @@ pub fn switch(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
-    for mnt in &["/dev", "/proc", "/sys", "/run"] {
+    for mnt in &["/dev", "/proc", "/sys", "/run", "/tmp"] {
         let target = format!("{}{}", newroot, mnt);
 
         if let Err(_) = fs::create_dir_all(&target) {}
@@ -42,7 +42,7 @@ fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
 
-            if name_str == "dev" || name_str == "proc" || name_str == "sys" || name_str == "run" {
+            if name_str == "dev" || name_str == "proc" || name_str == "sys" || name_str == "run" || name_str == "tmp" {
                 continue;
             }
 

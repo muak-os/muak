@@ -48,6 +48,7 @@ mkdir -p "$TEMP_DIR/rootfs_source/proc"
 mkdir -p "$TEMP_DIR/rootfs_source/sys"
 mkdir -p "$TEMP_DIR/rootfs_source/run"
 mkdir -p "$TEMP_DIR/rootfs_source/etc"
+mkdir -p "$TEMP_DIR/rootfs_source/tmp"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
 cp "$PROJECT_ROOT/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
