@@ -45,7 +45,11 @@ async fn run_dhcp_client(
 ) -> Result<(), Box<dyn std::error::Error>> {
     log!("network", "Starting DHCP client on {}", interface);
 
-    let mut links = handle.link().get().match_name(interface.to_string()).execute();
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(interface.to_string())
+        .execute();
     let link_index = if let Some(link) = links.try_next().await? {
         let index = link.header.index;
         handle.link().set(index).up().execute().await?;
@@ -141,7 +145,13 @@ async fn run_dhcp_client(
         .map(|m| m.octets().iter().map(|b| b.count_ones()).sum::<u32>() as u8)
         .unwrap_or(24);
 
-    log!("network", "Configuring interface {} with IP {}/{}", interface, ip, prefix_len);
+    log!(
+        "network",
+        "Configuring interface {} with IP {}/{}",
+        interface,
+        ip,
+        prefix_len
+    );
 
     handle
         .address()
@@ -159,7 +169,7 @@ async fn run_dhcp_client(
     Ok(())
 }
 
-pub async fn network_manager_main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("network", "Network manager started");
 
     let (connection, handle, _) = new_connection()?;

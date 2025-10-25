@@ -63,14 +63,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ipc_server = IpcServer::new()?;
     log!("granola", "IPC server listening on /run/granola.sock");
 
-    let pid =
-        process_manager.spawn_service("network-manager", vec![], network::network_manager_main)?;
+    let pid = process_manager.spawn_service("network-manager", vec![], network::main)?;
     log!("granola", "Spawned network-manager (PID {})", pid);
 
     let pid = process_manager.spawn_service(
         "grpc-server",
         vec!["0.0.0.0:50051".to_string()],
-        grpc::grpc_server_main,
+        grpc::main,
     )?;
     log!("granola", "Spawned grpc-server (PID {})", pid);
 

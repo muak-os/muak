@@ -129,7 +129,7 @@ impl ProcessService for GrpcProcessService {
     }
 }
 
-pub async fn grpc_server_main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse()?;
     log!("grpc", "gRPC server starting on {}", addr);
 
