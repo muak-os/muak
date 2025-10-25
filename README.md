@@ -44,22 +44,11 @@ Extensions are additional software packages (hypervisors, tools) layered on top 
 - **Build-time**: Extensions compiled to `.sqsh` files embedded in initramfs
 - **Boot-time**: Stage1 init reads `/extensions.yaml` and mounts layers with overlayfs
 
-## Boot Sequence
-
-1. UEFI firmware loads UKI from ISO (`EFI/BOOT/BOOTX64.EFI`)
-2. Linux kernel boots with embedded initramfs
-3. Stage1 init (`/init`) runs:
-   - Mounts pseudo filesystems (`/dev`, `/proc`, `/sys`, `/run`)
-   - Reads `/extensions.yaml` manifest
-   - Attaches `/rootfs.sqsh` to loop0 via ioctl
-   - Attaches extension `.sqsh` files to loop1, loop2, etc.
-   - Creates overlayfs with all layers: `lowerdir=ext2:ext1:base`
-   - Mounts overlay to `/newroot`
-   - Moves pseudo filesystems to new root
-   - Executes `switch_root` to granola
-4. Granola PID 1 (`/sbin/init`) takes over from overlayfs rootfs
-
 ## TODO
 
-- Implement Granola API server to manage VM lifecycle using gRPC
 - Add SPICE extension server for remote graphical access to VMs
+- Add gRPC authentication
+- Add maintenance mode
+
+qemu-system-x86_64 -enable-kvm -cpu host -m 2G -cdrom build/muak-x86_64.iso -bios /usr/share/ovmf/x64/OVMF.4m.fd -serial stdio -netdev user,id=net0,
+hostfwd=tcp::50052-:50051 -device virtio-net-pci,netdev=net0
