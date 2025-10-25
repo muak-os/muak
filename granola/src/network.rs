@@ -3,6 +3,7 @@ use crate::log;
 use dhcproto::{v4, Decodable, Decoder, Encodable};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
+use nix::libc;
 use rand::Rng;
 use rtnetlink::{new_connection, Handle};
 use std::net::Ipv4Addr;

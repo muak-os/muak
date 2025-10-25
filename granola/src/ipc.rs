@@ -1,10 +1,9 @@
-use nix::sys::socket::{
-    accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
-};
-use nix::unistd::{read, write};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream as StdUnixStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{UnixListener, UnixStream};
 
 use crate::process::{ProcessManager, ProcessStatus};
 
@@ -37,42 +36,34 @@ pub enum IpcResponse {
 }
 
 pub struct IpcServer {
-    socket_fd: OwnedFd,
+    listener: UnixListener,
 }
 
 impl IpcServer {
     pub fn new() -> Result<Self, String> {
         let _ = std::fs::remove_file(SOCKET_PATH);
 
-        let socket_fd = socket(
-            AddressFamily::Unix,
-            SockType::Stream,
-            SockFlag::empty(),
-            None,
-        )
-        .map_err(|e| format!("Failed to create socket: {}", e))?;
+        let listener =
+            UnixListener::bind(SOCKET_PATH).map_err(|e| format!("Failed to bind socket: {}", e))?;
 
-        let addr = UnixAddr::new(SOCKET_PATH)
-            .map_err(|e| format!("Failed to create socket address: {}", e))?;
-
-        bind(socket_fd.as_raw_fd(), &addr).map_err(|e| format!("Failed to bind socket: {}", e))?;
-
-        listen(&socket_fd, Backlog::new(128).unwrap())
-            .map_err(|e| format!("Failed to listen on socket: {}", e))?;
-
-        Ok(Self { socket_fd })
+        Ok(Self { listener })
     }
 
-    pub fn accept_connection(&self) -> Result<OwnedFd, String> {
-        let raw_fd = accept(self.socket_fd.as_raw_fd())
+    pub async fn accept_connection(&self) -> Result<UnixStream, String> {
+        let (stream, _) = self
+            .listener
+            .accept()
+            .await
             .map_err(|e| format!("Failed to accept connection: {}", e))?;
-        Ok(unsafe { OwnedFd::from_raw_fd(raw_fd) })
+        Ok(stream)
     }
 
-    pub fn read_message(&self, client_fd: &OwnedFd) -> Result<IpcMessage, String> {
+    pub async fn read_message(&self, stream: &mut UnixStream) -> Result<IpcMessage, String> {
         let mut buf = [0u8; 4096];
-        let size =
-            read(client_fd.as_raw_fd(), &mut buf).map_err(|e| format!("Failed to read: {}", e))?;
+        let size = stream
+            .read(&mut buf)
+            .await
+            .map_err(|e| format!("Failed to read: {}", e))?;
 
         if size == 0 {
             return Err("Connection closed".to_string());
@@ -82,10 +73,17 @@ impl IpcServer {
         bincode::deserialize(data).map_err(|e| format!("Failed to deserialize: {}", e))
     }
 
-    pub fn send_response(&self, client_fd: &OwnedFd, response: &IpcResponse) -> Result<(), String> {
+    pub async fn send_response(
+        &self,
+        stream: &mut UnixStream,
+        response: &IpcResponse,
+    ) -> Result<(), String> {
         let data =
             bincode::serialize(response).map_err(|e| format!("Failed to serialize: {}", e))?;
-        write(client_fd.as_fd(), &data).map_err(|e| format!("Failed to write: {}", e))?;
+        stream
+            .write_all(&data)
+            .await
+            .map_err(|e| format!("Failed to write: {}", e))?;
         Ok(())
     }
 
@@ -140,41 +138,34 @@ impl IpcServer {
 }
 
 pub struct IpcClient {
-    socket_fd: Option<OwnedFd>,
+    socket: Option<StdUnixStream>,
 }
 
 impl IpcClient {
     pub fn new() -> Self {
-        Self { socket_fd: None }
+        Self { socket: None }
     }
 
     pub fn connect(&mut self) -> Result<(), String> {
-        let socket_fd = socket(
-            AddressFamily::Unix,
-            SockType::Stream,
-            SockFlag::empty(),
-            None,
-        )
-        .map_err(|e| format!("Failed to create socket: {}", e))?;
-
-        let addr = UnixAddr::new(SOCKET_PATH)
-            .map_err(|e| format!("Failed to create socket address: {}", e))?;
-
-        connect(socket_fd.as_raw_fd(), &addr).map_err(|e| format!("Failed to connect: {}", e))?;
-
-        self.socket_fd = Some(socket_fd);
+        let stream =
+            StdUnixStream::connect(SOCKET_PATH).map_err(|e| format!("Failed to connect: {}", e))?;
+        self.socket = Some(stream);
         Ok(())
     }
 
-    pub fn send_message(&self, message: &IpcMessage) -> Result<IpcResponse, String> {
-        let fd = self.socket_fd.as_ref().ok_or("Not connected")?;
+    pub fn send_message(&mut self, message: &IpcMessage) -> Result<IpcResponse, String> {
+        let socket = self.socket.as_mut().ok_or("Not connected")?;
 
         let data =
             bincode::serialize(message).map_err(|e| format!("Failed to serialize: {}", e))?;
-        write(fd.as_fd(), &data).map_err(|e| format!("Failed to write: {}", e))?;
+        socket
+            .write_all(&data)
+            .map_err(|e| format!("Failed to write: {}", e))?;
 
         let mut buf = [0u8; 65536];
-        let size = read(fd.as_raw_fd(), &mut buf).map_err(|e| format!("Failed to read: {}", e))?;
+        let size = socket
+            .read(&mut buf)
+            .map_err(|e| format!("Failed to read: {}", e))?;
 
         let response: IpcResponse = bincode::deserialize(&buf[..size])
             .map_err(|e| format!("Failed to deserialize response: {}", e))?;
@@ -185,6 +176,6 @@ impl IpcClient {
 
 impl Drop for IpcClient {
     fn drop(&mut self) {
-        self.socket_fd.take();
+        self.socket.take();
     }
 }

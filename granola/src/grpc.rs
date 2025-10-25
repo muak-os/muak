@@ -29,7 +29,7 @@ impl GrpcProcessService {
     }
 
     fn send_ipc_message(&self, message: IpcMessage) -> Result<IpcResponse, String> {
-        let client = self.ipc_client.lock().unwrap();
+        let mut client = self.ipc_client.lock().unwrap();
         client.send_message(&message)
     }
 }
