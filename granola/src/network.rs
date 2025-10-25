@@ -1,4 +1,5 @@
 use crate::ipc::IpcClient;
+use crate::log;
 use dhcproto::{v4, Decodable, Decoder, Encodable};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
@@ -9,20 +10,13 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-fn log(message: &str) {
-    if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open("/dev/kmsg") {
-        use std::io::Write;
-        let _ = file.write_all(format!("<6>[network] {}\n", message).as_bytes());
-    }
-}
-
 async fn setup_loopback(handle: &Handle) -> Result<(), Box<dyn std::error::Error>> {
-    log("Setting up loopback interface");
+    log!("network", "Setting up loopback interface");
 
     let mut links = handle.link().get().match_name("lo".to_string()).execute();
     if let Some(link) = links.try_next().await? {
         handle.link().set(link.header.index).up().execute().await?;
-        log("Loopback interface is up");
+        log!("network", "Loopback interface is up");
     }
 
     Ok(())
@@ -35,7 +29,7 @@ async fn find_ethernet_interface(handle: &Handle) -> Result<String, Box<dyn std:
         for attr in &link.attributes {
             if let LinkAttribute::IfName(name) = attr {
                 if name.starts_with("eth") || name.starts_with("enp") {
-                    log(&format!("Found ethernet interface: {}", name));
+                    log!("network", "Found ethernet interface: {}", name);
                     return Ok(name.clone());
                 }
             }
@@ -49,13 +43,13 @@ async fn run_dhcp_client(
     interface: &str,
     handle: &Handle,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log(&format!("Starting DHCP client on {}", interface));
+    log!("network", "Starting DHCP client on {}", interface);
 
     let mut links = handle.link().get().match_name(interface.to_string()).execute();
     let link_index = if let Some(link) = links.try_next().await? {
         let index = link.header.index;
         handle.link().set(index).up().execute().await?;
-        log(&format!("Interface {} is up", interface));
+        log!("network", "Interface {} is up", interface);
         index
     } else {
         return Err("Interface not found".into());
@@ -94,7 +88,7 @@ async fn run_dhcp_client(
     discover_msg.extend(&[53, 1, 1]);
     discover_msg.push(255);
 
-    log("Sending DHCPDISCOVER");
+    log!("network", "Sending DHCPDISCOVER");
     socket.send_to(&discover_msg, "255.255.255.255:67").await?;
 
     let mut buf = [0u8; 1500];
@@ -102,7 +96,7 @@ async fn run_dhcp_client(
 
     let mut decoder = Decoder::new(&buf[..len]);
     let offer = v4::Message::decode(&mut decoder)?;
-    log(&format!("Received DHCPOFFER: {}", offer.yiaddr()));
+    log!("network", "Received DHCPOFFER: {}", offer.yiaddr());
 
     let mut request_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())
@@ -115,7 +109,7 @@ async fn run_dhcp_client(
     request_msg.extend(&offer.yiaddr().octets());
     request_msg.push(255);
 
-    log("Sending DHCPREQUEST");
+    log!("network", "Sending DHCPREQUEST");
     socket.send_to(&request_msg, "255.255.255.255:67").await?;
 
     let (len, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf)).await??;
@@ -123,7 +117,7 @@ async fn run_dhcp_client(
     let mut decoder = Decoder::new(&buf[..len]);
     let ack = v4::Message::decode(&mut decoder)?;
 
-    log(&format!("Received DHCPACK: {}", ack.yiaddr()));
+    log!("network", "Received DHCPACK: {}", ack.yiaddr());
 
     let ip = ack.yiaddr();
     let mut netmask: Option<Ipv4Addr> = None;
@@ -147,10 +141,7 @@ async fn run_dhcp_client(
         .map(|m| m.octets().iter().map(|b| b.count_ones()).sum::<u32>() as u8)
         .unwrap_or(24);
 
-    log(&format!(
-        "Configuring interface {} with IP {}/{}",
-        interface, ip, prefix_len
-    ));
+    log!("network", "Configuring interface {} with IP {}/{}", interface, ip, prefix_len);
 
     handle
         .address()
@@ -159,17 +150,17 @@ async fn run_dhcp_client(
         .await?;
 
     if let Some(gw) = gateway {
-        log(&format!("Setting default gateway: {}", gw));
+        log!("network", "Setting default gateway: {}", gw);
         handle.route().add().v4().gateway(gw).execute().await?;
     }
 
-    log("Network configuration complete");
+    log!("network", "Network configuration complete");
 
     Ok(())
 }
 
 pub async fn network_manager_main() -> Result<(), Box<dyn std::error::Error>> {
-    log("Network manager started");
+    log!("network", "Network manager started");
 
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
@@ -182,7 +173,7 @@ pub async fn network_manager_main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut ipc = IpcClient::new();
     if let Err(e) = ipc.connect() {
-        log(&format!("Failed to connect to IPC: {}", e));
+        log!("network", "Failed to connect to IPC: {}", e);
     }
 
     loop {

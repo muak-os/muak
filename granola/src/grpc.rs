@@ -1,4 +1,5 @@
 use crate::ipc::{IpcClient, IpcMessage, IpcResponse};
+use crate::log;
 use crate::process::Process;
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -12,13 +13,6 @@ use process_service::{
     StartProcessResponse, StopProcessRequest, StopProcessResponse,
 };
 
-fn log(message: &str) {
-    if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open("/dev/kmsg") {
-        use std::io::Write;
-        let _ = file.write_all(format!("<6>[grpc] {}\n", message).as_bytes());
-    }
-}
-
 pub struct GrpcProcessService {
     ipc_client: std::sync::Mutex<IpcClient>,
 }
@@ -27,7 +21,7 @@ impl GrpcProcessService {
     pub fn new() -> Self {
         let mut client = IpcClient::new();
         if let Err(e) = client.connect() {
-            log(&format!("Failed to connect to IPC: {}", e));
+            log!("grpc", "Failed to connect to IPC: {}", e);
         }
         Self {
             ipc_client: std::sync::Mutex::new(client),
@@ -137,7 +131,7 @@ impl ProcessService for GrpcProcessService {
 
 pub async fn grpc_server_main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse()?;
-    log(&format!("gRPC server starting on {}", addr));
+    log!("grpc", "gRPC server starting on {}", addr);
 
     let service = GrpcProcessService::new();
 

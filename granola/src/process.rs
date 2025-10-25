@@ -44,7 +44,56 @@ impl ProcessManager {
         }
     }
 
-    pub fn spawn(
+    fn register_process(&self, pid: i32, command: String, args: Vec<String>) {
+        let process = Process {
+            pid,
+            command,
+            args,
+            status: ProcessStatus::Running,
+            started_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        };
+
+        let mut processes = self.processes.lock().unwrap();
+        processes.insert(pid, process);
+    }
+
+    pub fn spawn_service<F, Fut>(
+        &self,
+        name: &str,
+        args: Vec<String>,
+        service_main: F,
+    ) -> Result<i32, String>
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + 'static,
+    {
+        match unsafe { fork() } {
+            Ok(ForkResult::Parent { child }) => {
+                let pid = child.as_raw();
+                self.register_process(pid, name.to_string(), args);
+                Ok(pid)
+            }
+            Ok(ForkResult::Child) => {
+                let _ = std::env::set_var("PROCESS_NAME", name);
+
+                let runtime = tokio::runtime::Runtime::new().unwrap();
+                runtime.block_on(async {
+                    if let Err(e) = service_main().await {
+                        eprintln!("{} error: {}", name, e);
+                        std::process::exit(1);
+                    }
+                });
+
+                std::process::exit(0);
+            }
+            Err(e) => Err(format!("Failed to fork {}: {}", name, e)),
+        }
+    }
+
+    pub fn spawn_external(
         &self,
         command: String,
         args: Vec<String>,
@@ -53,20 +102,7 @@ impl ProcessManager {
         match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
                 let pid = child.as_raw();
-                let process = Process {
-                    pid,
-                    command: command.clone(),
-                    args: args.clone(),
-                    status: ProcessStatus::Running,
-                    started_at: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
-                };
-
-                let mut processes = self.processes.lock().unwrap();
-                processes.insert(pid, process);
-
+                self.register_process(pid, command.clone(), args);
                 Ok(pid)
             }
             Ok(ForkResult::Child) => {
@@ -102,21 +138,5 @@ impl ProcessManager {
         if let Some(process) = processes.get_mut(&pid) {
             process.status = status;
         }
-    }
-
-    pub fn register(&self, pid: i32, command: String, args: Vec<String>) {
-        let process = Process {
-            pid,
-            command,
-            args,
-            status: ProcessStatus::Running,
-            started_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64,
-        };
-
-        let mut processes = self.processes.lock().unwrap();
-        processes.insert(pid, process);
     }
 }

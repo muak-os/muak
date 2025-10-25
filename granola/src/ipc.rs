@@ -6,15 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 
+use crate::process::{ProcessManager, ProcessStatus};
+
 const SOCKET_PATH: &str = "/run/granola.sock";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IpcMessage {
-    RegisterProcess {
-        pid: i32,
-        command: String,
-        args: Vec<String>,
-    },
     UpdateStatus {
         pid: i32,
         status: String,
@@ -74,7 +71,8 @@ impl IpcServer {
 
     pub fn read_message(&self, client_fd: &OwnedFd) -> Result<IpcMessage, String> {
         let mut buf = [0u8; 4096];
-        let size = read(client_fd.as_raw_fd(), &mut buf).map_err(|e| format!("Failed to read: {}", e))?;
+        let size =
+            read(client_fd.as_raw_fd(), &mut buf).map_err(|e| format!("Failed to read: {}", e))?;
 
         if size == 0 {
             return Err("Connection closed".to_string());
@@ -89,6 +87,55 @@ impl IpcServer {
             bincode::serialize(response).map_err(|e| format!("Failed to serialize: {}", e))?;
         write(client_fd.as_fd(), &data).map_err(|e| format!("Failed to write: {}", e))?;
         Ok(())
+    }
+
+    pub fn handle_message(
+        &self,
+        message: IpcMessage,
+        process_manager: &ProcessManager,
+    ) -> IpcResponse {
+        match message {
+            IpcMessage::UpdateStatus { pid, status } => {
+                let process_status = match status.as_str() {
+                    s if s.starts_with("exited(") => {
+                        let code = s
+                            .trim_start_matches("exited(")
+                            .trim_end_matches(')')
+                            .parse::<i32>()
+                            .unwrap_or(0);
+                        ProcessStatus::Exited(code)
+                    }
+                    s if s.starts_with("signaled(") => {
+                        let sig = s
+                            .trim_start_matches("signaled(")
+                            .trim_end_matches(')')
+                            .parse::<i32>()
+                            .unwrap_or(0);
+                        ProcessStatus::Signaled(sig)
+                    }
+                    _ => ProcessStatus::Running,
+                };
+                process_manager.update_status(pid, process_status);
+                IpcResponse::Ok
+            }
+            IpcMessage::ListProcesses => {
+                let processes = process_manager.list();
+                match bincode::serialize(&processes) {
+                    Ok(data) => IpcResponse::ProcessList(data),
+                    Err(e) => IpcResponse::Error(format!("Serialization error: {}", e)),
+                }
+            }
+            IpcMessage::StartProcess { command, args, env } => {
+                match process_manager.spawn_external(command, args, env) {
+                    Ok(pid) => IpcResponse::ProcessStarted { pid },
+                    Err(e) => IpcResponse::Error(e),
+                }
+            }
+            IpcMessage::StopProcess { pid, signal } => match process_manager.stop(pid, signal) {
+                Ok(_) => IpcResponse::Ok,
+                Err(e) => IpcResponse::Error(e),
+            },
+        }
     }
 }
 
