@@ -154,6 +154,22 @@ impl IpcClient {
     }
 
     pub fn send_message(&mut self, message: &IpcMessage) -> Result<IpcResponse, String> {
+        if self.socket.is_none() {
+            self.connect()?;
+        }
+
+        let result = self.try_send_message(message);
+        
+        if result.is_err() {
+            self.socket = None;
+            self.connect()?;
+            self.try_send_message(message)
+        } else {
+            result
+        }
+    }
+
+    fn try_send_message(&mut self, message: &IpcMessage) -> Result<IpcResponse, String> {
         let socket = self.socket.as_mut().ok_or("Not connected")?;
 
         let data =
@@ -161,11 +177,16 @@ impl IpcClient {
         socket
             .write_all(&data)
             .map_err(|e| format!("Failed to write: {}", e))?;
+        socket.flush().map_err(|e| format!("Failed to flush: {}", e))?;
 
         let mut buf = [0u8; 65536];
         let size = socket
             .read(&mut buf)
-            .map_err(|e| format!("Failed to read: {}", e))?;
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        if size == 0 {
+            return Err("Connection closed by server".to_string());
+        }
 
         let response: IpcResponse = bincode::deserialize(&buf[..size])
             .map_err(|e| format!("Failed to deserialize response: {}", e))?;

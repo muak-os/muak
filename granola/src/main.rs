@@ -16,6 +16,9 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
 
+    std::fs::create_dir_all("/tmp/muak/disks")?;
+    log!("granola", "Created /tmp/muak/disks directory");
+
     let process_manager = ProcessManager::new();
     let vm_manager = VmManager::new(process_manager.clone());
 

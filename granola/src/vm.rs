@@ -17,6 +17,8 @@ pub struct Vm {
 pub struct VmConfig {
     pub cpus: i32,
     pub memory_mb: i64,
+    pub kernel: String,
+    pub cmdline: Option<String>,
     pub disks: Vec<DiskConfig>,
     pub networks: Vec<NetConfig>,
 }
@@ -72,7 +74,7 @@ impl VmManager {
 
     pub fn create(&self, name: String, config: VmConfig) -> Result<String, String> {
         let vm_id = format!("vm-{}", uuid::Uuid::new_v4());
-        
+
         let vm = Vm {
             vm_id: vm_id.clone(),
             name,
@@ -87,7 +89,7 @@ impl VmManager {
 
         let mut vms = self.vms.lock().unwrap();
         vms.insert(vm_id.clone(), vm);
-        
+
         Ok(vm_id)
     }
 
@@ -96,14 +98,28 @@ impl VmManager {
         let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
 
         if vm.state != VmState::Created && vm.state != VmState::Stopped {
-            return Err(format!("VM is in state: {}", vm.state.to_string()));
+            let err_msg = format!("Cannot start VM in state: {}", vm.state.to_string());
+            crate::log!("vm", "{}", err_msg);
+            return Err(err_msg);
         }
 
         vm.state = VmState::Starting;
+        crate::log!("vm", "Starting VM {} ({})", vm_id, vm.name);
 
         if !std::path::Path::new("/usr/bin/cloud-hypervisor").exists() {
-            vm.state = VmState::Failed("cloud-hypervisor not found".to_string());
+            let err_msg = "cloud-hypervisor binary not found at /usr/bin/cloud-hypervisor".to_string();
+            vm.state = VmState::Failed(err_msg.clone());
+            crate::log!("vm", "ERROR: {}", err_msg);
             return Err("cloud-hypervisor extension not installed".to_string());
+        }
+
+        for disk in &vm.config.disks {
+            if !std::path::Path::new(&disk.path).exists() {
+                let err_msg = format!("Disk not found: {}", disk.path);
+                vm.state = VmState::Failed(err_msg.clone());
+                crate::log!("vm", "ERROR: {}", err_msg);
+                return Err(err_msg);
+            }
         }
 
         let mut args = vec![
@@ -126,14 +142,29 @@ impl VmManager {
             args.push(format!("--net tap={},mac={}", net.tap, net.mac));
         }
 
-        let pid = self.process_manager.spawn_external(
+        crate::log!(
+            "vm",
+            "Executing: /usr/bin/cloud-hypervisor {}",
+            args.join(" ")
+        );
+
+        match self.process_manager.spawn_external(
             "/usr/bin/cloud-hypervisor".to_string(),
             args,
             HashMap::new(),
-        )?;
-
-        vm.pid = Some(pid);
-        vm.state = VmState::Running;
+        ) {
+            Ok(pid) => {
+                vm.pid = Some(pid);
+                vm.state = VmState::Running;
+                crate::log!("vm", "VM {} started successfully with PID {}", vm_id, pid);
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to spawn cloud-hypervisor process: {}", e);
+                vm.state = VmState::Failed(err_msg.clone());
+                crate::log!("vm", "ERROR: {}", err_msg);
+                return Err(err_msg);
+            }
+        }
 
         Ok(())
     }
@@ -147,7 +178,7 @@ impl VmManager {
         }
 
         let pid = vm.pid.ok_or("VM has no PID")?;
-        
+
         vm.state = VmState::Stopping;
 
         let signal = if force { 9 } else { 15 };

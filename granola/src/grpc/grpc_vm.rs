@@ -1,6 +1,7 @@
 use crate::log;
 use crate::vm::{DiskConfig, NetConfig, Vm, VmConfig, VmManager};
 use tonic::{Request, Response, Status};
+use tokio::io::AsyncWriteExt;
 
 pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
@@ -10,6 +11,7 @@ use vm_service::vm_service_server::{VmService, VmServiceServer};
 use vm_service::{
     CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, ListVmsRequest,
     ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse, VmInfo,
+    UploadDiskRequest, UploadDiskResponse,
 };
 
 pub struct GrpcVmService {
@@ -51,6 +53,12 @@ impl VmService for GrpcVmService {
         let config = VmConfig {
             cpus: req.cpus,
             memory_mb: req.memory_mb,
+            kernel: req.kernel,
+            cmdline: if req.cmdline.is_empty() {
+                None
+            } else {
+                Some(req.cmdline)
+            },
             disks,
             networks,
         };
@@ -75,19 +83,23 @@ impl VmService for GrpcVmService {
         request: Request<StartVmRequest>,
     ) -> Result<Response<StartVmResponse>, Status> {
         let req = request.into_inner();
+        log!("grpc-vm", "Attempting to start VM: {}", req.vm_id);
 
         match self.vm_manager.start(&req.vm_id) {
             Ok(_) => {
-                log!("grpc-vm", "Started VM: {}", req.vm_id);
+                log!("grpc-vm", "Successfully started VM: {}", req.vm_id);
                 Ok(Response::new(StartVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => Ok(Response::new(StartVmResponse {
-                success: false,
-                error: e,
-            })),
+            Err(e) => {
+                log!("grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
+                Ok(Response::new(StartVmResponse {
+                    success: false,
+                    error: e,
+                }))
+            }
         }
     }
 
@@ -96,19 +108,23 @@ impl VmService for GrpcVmService {
         request: Request<StopVmRequest>,
     ) -> Result<Response<StopVmResponse>, Status> {
         let req = request.into_inner();
+        log!("grpc-vm", "Attempting to stop VM: {} (force: {})", req.vm_id, req.force);
 
         match self.vm_manager.stop(&req.vm_id, req.force) {
             Ok(_) => {
-                log!("grpc-vm", "Stopped VM: {}", req.vm_id);
+                log!("grpc-vm", "Successfully stopped VM: {}", req.vm_id);
                 Ok(Response::new(StopVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => Ok(Response::new(StopVmResponse {
-                success: false,
-                error: e,
-            })),
+            Err(e) => {
+                log!("grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
+                Ok(Response::new(StopVmResponse {
+                    success: false,
+                    error: e,
+                }))
+            }
         }
     }
 
@@ -117,19 +133,23 @@ impl VmService for GrpcVmService {
         request: Request<DeleteVmRequest>,
     ) -> Result<Response<DeleteVmResponse>, Status> {
         let req = request.into_inner();
+        log!("grpc-vm", "Attempting to delete VM: {}", req.vm_id);
 
         match self.vm_manager.delete(&req.vm_id) {
             Ok(_) => {
-                log!("grpc-vm", "Deleted VM: {}", req.vm_id);
+                log!("grpc-vm", "Successfully deleted VM: {}", req.vm_id);
                 Ok(Response::new(DeleteVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => Ok(Response::new(DeleteVmResponse {
-                success: false,
-                error: e,
-            })),
+            Err(e) => {
+                log!("grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
+                Ok(Response::new(DeleteVmResponse {
+                    success: false,
+                    error: e,
+                }))
+            }
         }
     }
 
@@ -153,6 +173,83 @@ impl VmService for GrpcVmService {
             .collect();
 
         Ok(Response::new(ListVmsResponse { vms: vm_infos }))
+    }
+
+    async fn upload_disk(
+        &self,
+        request: Request<tonic::Streaming<UploadDiskRequest>>,
+    ) -> Result<Response<UploadDiskResponse>, Status> {
+        let mut stream = request.into_inner();
+        let mut file: Option<tokio::fs::File> = None;
+        let mut filepath = String::new();
+        let mut bytes_written: u64 = 0;
+
+        while let Some(req) = stream.message().await? {
+            match req.request {
+                Some(vm_service::upload_disk_request::Request::Metadata(metadata)) => {
+                    let filename = metadata.filename;
+                    filepath = format!("/tmp/muak/disks/{}", filename);
+                    
+                    log!("grpc-vm", "Starting disk upload: {} ({} bytes)", filename, metadata.size);
+                    
+                    match tokio::fs::File::create(&filepath).await {
+                        Ok(f) => {
+                            file = Some(f);
+                        }
+                        Err(e) => {
+                            let error = format!("Failed to create file: {}", e);
+                            log!("grpc-vm", "{}", error);
+                            return Ok(Response::new(UploadDiskResponse {
+                                path: String::new(),
+                                error,
+                            }));
+                        }
+                    }
+                }
+                Some(vm_service::upload_disk_request::Request::Chunk(chunk)) => {
+                    if let Some(ref mut f) = file {
+                        match f.write_all(&chunk).await {
+                            Ok(_) => {
+                                bytes_written += chunk.len() as u64;
+                            }
+                            Err(e) => {
+                                let error = format!("Failed to write chunk: {}", e);
+                                log!("grpc-vm", "{}", error);
+                                return Ok(Response::new(UploadDiskResponse {
+                                    path: String::new(),
+                                    error,
+                                }));
+                            }
+                        }
+                    } else {
+                        let error = "Received chunk before metadata".to_string();
+                        log!("grpc-vm", "{}", error);
+                        return Ok(Response::new(UploadDiskResponse {
+                            path: String::new(),
+                            error,
+                        }));
+                    }
+                }
+                None => {}
+            }
+        }
+
+        if let Some(mut f) = file {
+            if let Err(e) = f.flush().await {
+                let error = format!("Failed to flush file: {}", e);
+                log!("grpc-vm", "{}", error);
+                return Ok(Response::new(UploadDiskResponse {
+                    path: String::new(),
+                    error,
+                }));
+            }
+            log!("grpc-vm", "Disk upload complete: {} ({} bytes)", filepath, bytes_written);
+        }
+
+        Ok(Response::new(UploadDiskResponse {
+            path: filepath,
+            error: String::new(),
+        }))
     }
 }
 

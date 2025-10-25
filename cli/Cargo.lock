@@ -652,6 +652,7 @@ dependencies = [
  "hyper-util",
  "prost",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
  "tower 0.4.13",
@@ -1043,6 +1044,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

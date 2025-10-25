@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 nix = { version = "0.29", features = ["process", "signal"] }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util"] }
 tonic = "0.12"
 prost = "0.13"
 serde = { version = "1", features = ["derive"] }

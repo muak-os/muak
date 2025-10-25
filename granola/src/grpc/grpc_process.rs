@@ -30,7 +30,13 @@ impl GrpcProcessService {
 
     fn send_ipc_message(&self, message: IpcMessage) -> Result<IpcResponse, String> {
         let mut client = self.ipc_client.lock().unwrap();
-        client.send_message(&message)
+        match client.send_message(&message) {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                log!("grpc-process", "IPC error: {}", e);
+                Err(e)
+            }
+        }
     }
 }
 
@@ -41,26 +47,37 @@ impl ProcessService for GrpcProcessService {
         request: Request<StartProcessRequest>,
     ) -> Result<Response<StartProcessResponse>, Status> {
         let req = request.into_inner();
+        log!("grpc-process", "Starting process: {} {:?}", req.command, req.args);
 
         let message = IpcMessage::StartProcess {
-            command: req.command,
-            args: req.args,
+            command: req.command.clone(),
+            args: req.args.clone(),
             env: req.env,
         };
 
         match self.send_ipc_message(message) {
-            Ok(IpcResponse::ProcessStarted { pid }) => Ok(Response::new(StartProcessResponse {
-                pid,
-                error: String::new(),
-            })),
+            Ok(IpcResponse::ProcessStarted { pid }) => {
+                log!("grpc-process", "Process started: {} (PID: {})", req.command, pid);
+                Ok(Response::new(StartProcessResponse {
+                    pid,
+                    error: String::new(),
+                }))
+            }
             Ok(IpcResponse::Error(e)) => {
+                log!("grpc-process", "Failed to start process {}: {}", req.command, e);
                 Ok(Response::new(StartProcessResponse { pid: -1, error: e }))
             }
-            Err(e) => Ok(Response::new(StartProcessResponse { pid: -1, error: e })),
-            _ => Ok(Response::new(StartProcessResponse {
-                pid: -1,
-                error: "Unexpected response".to_string(),
-            })),
+            Err(e) => {
+                log!("grpc-process", "IPC error starting process {}: {}", req.command, e);
+                Ok(Response::new(StartProcessResponse { pid: -1, error: e }))
+            }
+            _ => {
+                log!("grpc-process", "Unexpected response when starting process {}", req.command);
+                Ok(Response::new(StartProcessResponse {
+                    pid: -1,
+                    error: "Unexpected response".to_string(),
+                }))
+            }
         }
     }
 
@@ -104,9 +121,15 @@ impl ProcessService for GrpcProcessService {
 
         match self.send_ipc_message(message) {
             Ok(IpcResponse::ProcessList(data)) => {
+                log!("grpc-process", "Received process list ({} bytes)", data.len());
                 let processes: Vec<Process> = bincode::deserialize(&data)
-                    .map_err(|e| Status::internal(format!("Deserialization error: {}", e)))?;
+                    .map_err(|e| {
+                        let err = format!("Deserialization error: {}", e);
+                        log!("grpc-process", "ERROR: {}", err);
+                        Status::internal(err)
+                    })?;
 
+                log!("grpc-process", "Returning {} processes", processes.len());
                 let process_infos: Vec<ProcessInfo> = processes
                     .into_iter()
                     .map(|p| ProcessInfo {
@@ -122,9 +145,18 @@ impl ProcessService for GrpcProcessService {
                     processes: process_infos,
                 }))
             }
-            Ok(IpcResponse::Error(e)) => Err(Status::internal(e)),
-            Err(e) => Err(Status::internal(e)),
-            _ => Err(Status::internal("Unexpected response")),
+            Ok(IpcResponse::Error(e)) => {
+                log!("grpc-process", "IPC returned error: {}", e);
+                Err(Status::internal(e))
+            }
+            Err(e) => {
+                log!("grpc-process", "Failed to send IPC message: {}", e);
+                Err(Status::internal(e))
+            }
+            _ => {
+                log!("grpc-process", "Unexpected IPC response");
+                Err(Status::internal("Unexpected response"))
+            }
         }
     }
 }

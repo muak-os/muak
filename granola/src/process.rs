@@ -99,10 +99,21 @@ impl ProcessManager {
         args: Vec<String>,
         env: HashMap<String, String>,
     ) -> Result<i32, String> {
+        if !std::path::Path::new(&command).exists() {
+            return Err(format!("Command not found: {}", command));
+        }
+
         match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
                 let pid = child.as_raw();
-                self.register_process(pid, command.clone(), args);
+                self.register_process(pid, command.clone(), args.clone());
+                crate::log!(
+                    "process",
+                    "Spawned external process: {} (PID: {}) with args: {:?}",
+                    command,
+                    pid,
+                    args
+                );
                 Ok(pid)
             }
             Ok(ForkResult::Child) => {
@@ -116,7 +127,8 @@ impl ProcessManager {
                     std::env::set_var(key, value);
                 }
 
-                nix::unistd::execv(&cmd, &c_args).ok();
+                let exec_result = nix::unistd::execv(&cmd, &c_args);
+                eprintln!("Failed to exec {}: {:?}", command, exec_result);
                 std::process::exit(127);
             }
             Err(e) => Err(format!("Failed to fork: {}", e)),

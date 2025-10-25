@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tonic = "0.12"
 prost = "0.13"
 clap = { version = "4", features = ["derive"] }

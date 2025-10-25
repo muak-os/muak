@@ -8,14 +8,17 @@ service VmService {
   rpc StopVm(StopVmRequest) returns (StopVmResponse);
   rpc DeleteVm(DeleteVmRequest) returns (DeleteVmResponse);
   rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+  rpc UploadDisk(stream UploadDiskRequest) returns (UploadDiskResponse);
 }
 
 message CreateVmRequest {
   string name = 1;
   int32 cpus = 2;
   int64 memory_mb = 3;
-  repeated DiskConfig disks = 4;
-  repeated NetConfig networks = 5;
+  string kernel = 4;
+  string cmdline = 5;
+  repeated DiskConfig disks = 6;
+  repeated NetConfig networks = 7;
 }
 
 message DiskConfig {
@@ -75,4 +78,21 @@ message VmInfo {
   int64 memory_mb = 5;
   int32 pid = 6;
   int64 created_at = 7;
+}
+
+message UploadDiskRequest {
+  oneof request {
+    UploadDiskMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message UploadDiskMetadata {
+  string filename = 1;
+  int64 size = 2;
+}
+
+message UploadDiskResponse {
+  string path = 1;
+  string error = 2;
 }
