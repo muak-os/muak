@@ -6,6 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::process::{ProcessManager, ProcessStatus};
+use crate::vm::{VmConfig, VmManager};
 
 const SOCKET_PATH: &str = "/run/granola.sock";
 
@@ -25,6 +26,24 @@ pub enum IpcMessage {
         pid: i32,
         signal: i32,
     },
+    CreateVm {
+        name: String,
+        config: VmConfig,
+    },
+    StartVm {
+        vm_id: String,
+    },
+    StopVm {
+        vm_id: String,
+        force: bool,
+    },
+    DeleteVm {
+        vm_id: String,
+    },
+    ListVms,
+    GetVm {
+        vm_id: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,6 +51,9 @@ pub enum IpcResponse {
     Ok,
     ProcessList(Vec<u8>),
     ProcessStarted { pid: i32 },
+    VmCreated { vm_id: String },
+    VmList(Vec<u8>),
+    Vm(Vec<u8>),
     Error(String),
 }
 
@@ -91,6 +113,7 @@ impl IpcServer {
         &self,
         message: IpcMessage,
         process_manager: &ProcessManager,
+        vm_manager: &VmManager,
     ) -> IpcResponse {
         match message {
             IpcMessage::UpdateStatus { pid, status } => {
@@ -132,6 +155,36 @@ impl IpcServer {
             IpcMessage::StopProcess { pid, signal } => match process_manager.stop(pid, signal) {
                 Ok(_) => IpcResponse::Ok,
                 Err(e) => IpcResponse::Error(e),
+            },
+            IpcMessage::CreateVm { name, config } => match vm_manager.create(name, config) {
+                Ok(vm_id) => IpcResponse::VmCreated { vm_id },
+                Err(e) => IpcResponse::Error(e),
+            },
+            IpcMessage::StartVm { vm_id } => match vm_manager.start(&vm_id) {
+                Ok(_) => IpcResponse::Ok,
+                Err(e) => IpcResponse::Error(e),
+            },
+            IpcMessage::StopVm { vm_id, force } => match vm_manager.stop(&vm_id, force) {
+                Ok(_) => IpcResponse::Ok,
+                Err(e) => IpcResponse::Error(e),
+            },
+            IpcMessage::DeleteVm { vm_id } => match vm_manager.delete(&vm_id) {
+                Ok(_) => IpcResponse::Ok,
+                Err(e) => IpcResponse::Error(e),
+            },
+            IpcMessage::ListVms => {
+                let vms = vm_manager.list();
+                match bincode::serialize(&vms) {
+                    Ok(data) => IpcResponse::VmList(data),
+                    Err(e) => IpcResponse::Error(format!("Serialization error: {}", e)),
+                }
+            }
+            IpcMessage::GetVm { vm_id } => match vm_manager.get(&vm_id) {
+                Some(vm) => match bincode::serialize(&vm) {
+                    Ok(data) => IpcResponse::Vm(data),
+                    Err(e) => IpcResponse::Error(format!("Serialization error: {}", e)),
+                },
+                None => IpcResponse::Error("VM not found".to_string()),
             },
         }
     }

@@ -30,7 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
-        let vm = vm_manager.clone();
         move || {
             let pid = pm
                 .spawn_service("network-manager", vec![], network::main)
@@ -38,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log!("granola", "Spawned network-manager (PID {})", pid);
 
             let pid = pm
-                .spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], || grpc::main(vm))
+                .spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], grpc::main)
                 .unwrap();
             log!("granola", "Spawned grpc-server (PID {})", pid);
         }
@@ -55,10 +54,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let pm = process_manager.clone();
+        let vm = vm_manager.clone();
         let ipc = ipc_server.clone();
         tokio::spawn(async move {
             if let Ok(message) = ipc.read_message(&mut stream).await {
-                let response = ipc.handle_message(message, &pm);
+                let response = ipc.handle_message(message, &pm, &vm);
                 let _ = ipc.send_response(&mut stream, &response).await;
             }
         });

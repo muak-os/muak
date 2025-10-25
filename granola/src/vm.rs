@@ -107,7 +107,8 @@ impl VmManager {
         crate::log!("vm", "Starting VM {} ({})", vm_id, vm.name);
 
         if !std::path::Path::new("/usr/bin/cloud-hypervisor").exists() {
-            let err_msg = "cloud-hypervisor binary not found at /usr/bin/cloud-hypervisor".to_string();
+            let err_msg =
+                "cloud-hypervisor binary not found at /usr/bin/cloud-hypervisor".to_string();
             vm.state = VmState::Failed(err_msg.clone());
             crate::log!("vm", "ERROR: {}", err_msg);
             return Err("cloud-hypervisor extension not installed".to_string());
@@ -148,47 +149,17 @@ impl VmManager {
             args.join(" ")
         );
 
-        let pid = if nix::unistd::getpid().as_raw() == 1 {
-            match self.process_manager.spawn_external(
-                "/usr/bin/cloud-hypervisor".to_string(),
-                args,
-                HashMap::new(),
-            ) {
-                Ok(pid) => pid,
-                Err(e) => {
-                    let err_msg = format!("Failed to spawn cloud-hypervisor process: {}", e);
-                    vm.state = VmState::Failed(err_msg.clone());
-                    crate::log!("vm", "ERROR: {}", err_msg);
-                    return Err(err_msg);
-                }
-            }
-        } else {
-            let ipc_msg = crate::ipc::IpcMessage::StartProcess {
-                command: "/usr/bin/cloud-hypervisor".to_string(),
-                args,
-                env: HashMap::new(),
-            };
-            let mut ipc_client = crate::ipc::IpcClient::new();
-            match ipc_client.send_message(&ipc_msg) {
-                Ok(crate::ipc::IpcResponse::ProcessStarted { pid }) => pid,
-                Ok(crate::ipc::IpcResponse::Error(e)) => {
-                    let err_msg = format!("Failed to spawn cloud-hypervisor via IPC: {}", e);
-                    vm.state = VmState::Failed(err_msg.clone());
-                    crate::log!("vm", "ERROR: {}", err_msg);
-                    return Err(err_msg);
-                }
-                Err(e) => {
-                    let err_msg = format!("IPC error: {}", e);
-                    vm.state = VmState::Failed(err_msg.clone());
-                    crate::log!("vm", "ERROR: {}", err_msg);
-                    return Err(err_msg);
-                }
-                _ => {
-                    let err_msg = "Unexpected IPC response".to_string();
-                    vm.state = VmState::Failed(err_msg.clone());
-                    crate::log!("vm", "ERROR: {}", err_msg);
-                    return Err(err_msg);
-                }
+        let pid = match self.process_manager.spawn_external(
+            "/usr/bin/cloud-hypervisor".to_string(),
+            args,
+            HashMap::new(),
+        ) {
+            Ok(pid) => pid,
+            Err(e) => {
+                let err_msg = format!("Failed to spawn cloud-hypervisor process: {}", e);
+                vm.state = VmState::Failed(err_msg.clone());
+                crate::log!("vm", "ERROR: {}", err_msg);
+                return Err(err_msg);
             }
         };
 

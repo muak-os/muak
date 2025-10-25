@@ -42,7 +42,8 @@ impl SignalHandler {
                     process_manager.update_status(pid.as_raw(), ProcessStatus::Exited(status));
                 }
                 Ok(WaitStatus::Signaled(pid, sig, _)) => {
-                    process_manager.update_status(pid.as_raw(), ProcessStatus::Signaled(sig as i32));
+                    process_manager
+                        .update_status(pid.as_raw(), ProcessStatus::Signaled(sig as i32));
                 }
                 Ok(WaitStatus::StillAlive) => break,
                 Err(_) => break,

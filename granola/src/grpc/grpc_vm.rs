@@ -1,5 +1,6 @@
+use crate::ipc::{IpcClient, IpcMessage, IpcResponse};
 use crate::log;
-use crate::vm::{DiskConfig, NetConfig, Vm, VmConfig, VmManager};
+use crate::vm::{DiskConfig, NetConfig, Vm, VmConfig};
 use tonic::{Request, Response, Status};
 use tokio::io::AsyncWriteExt;
 
@@ -14,13 +15,11 @@ use vm_service::{
     UploadDiskRequest, UploadDiskResponse,
 };
 
-pub struct GrpcVmService {
-    vm_manager: VmManager,
-}
+pub struct GrpcVmService {}
 
 impl GrpcVmService {
-    pub fn new(vm_manager: VmManager) -> Self {
-        Self { vm_manager }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -63,17 +62,31 @@ impl VmService for GrpcVmService {
             networks,
         };
 
-        match self.vm_manager.create(req.name, config) {
-            Ok(vm_id) => {
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::CreateVm {
+            name: req.name.clone(),
+            config,
+        };
+
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::VmCreated { vm_id }) => {
                 log!("grpc-vm", "Created VM: {}", vm_id);
                 Ok(Response::new(CreateVmResponse {
                     vm_id,
                     error: String::new(),
                 }))
             }
-            Err(e) => Ok(Response::new(CreateVmResponse {
+            Ok(IpcResponse::Error(e)) => Ok(Response::new(CreateVmResponse {
                 vm_id: String::new(),
                 error: e,
+            })),
+            Err(e) => Ok(Response::new(CreateVmResponse {
+                vm_id: String::new(),
+                error: format!("IPC error: {}", e),
+            })),
+            _ => Ok(Response::new(CreateVmResponse {
+                vm_id: String::new(),
+                error: "Unexpected IPC response".to_string(),
             })),
         }
     }
@@ -85,21 +98,37 @@ impl VmService for GrpcVmService {
         let req = request.into_inner();
         log!("grpc-vm", "Attempting to start VM: {}", req.vm_id);
 
-        match self.vm_manager.start(&req.vm_id) {
-            Ok(_) => {
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::StartVm {
+            vm_id: req.vm_id.clone(),
+        };
+
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::Ok) => {
                 log!("grpc-vm", "Successfully started VM: {}", req.vm_id);
                 Ok(Response::new(StartVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => {
+            Ok(IpcResponse::Error(e)) => {
                 log!("grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StartVmResponse {
                     success: false,
                     error: e,
                 }))
             }
+            Err(e) => {
+                log!("grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
+                Ok(Response::new(StartVmResponse {
+                    success: false,
+                    error: format!("IPC error: {}", e),
+                }))
+            }
+            _ => Ok(Response::new(StartVmResponse {
+                success: false,
+                error: "Unexpected IPC response".to_string(),
+            })),
         }
     }
 
@@ -110,21 +139,38 @@ impl VmService for GrpcVmService {
         let req = request.into_inner();
         log!("grpc-vm", "Attempting to stop VM: {} (force: {})", req.vm_id, req.force);
 
-        match self.vm_manager.stop(&req.vm_id, req.force) {
-            Ok(_) => {
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::StopVm {
+            vm_id: req.vm_id.clone(),
+            force: req.force,
+        };
+
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::Ok) => {
                 log!("grpc-vm", "Successfully stopped VM: {}", req.vm_id);
                 Ok(Response::new(StopVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => {
+            Ok(IpcResponse::Error(e)) => {
                 log!("grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StopVmResponse {
                     success: false,
                     error: e,
                 }))
             }
+            Err(e) => {
+                log!("grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
+                Ok(Response::new(StopVmResponse {
+                    success: false,
+                    error: format!("IPC error: {}", e),
+                }))
+            }
+            _ => Ok(Response::new(StopVmResponse {
+                success: false,
+                error: "Unexpected IPC response".to_string(),
+            })),
         }
     }
 
@@ -135,21 +181,37 @@ impl VmService for GrpcVmService {
         let req = request.into_inner();
         log!("grpc-vm", "Attempting to delete VM: {}", req.vm_id);
 
-        match self.vm_manager.delete(&req.vm_id) {
-            Ok(_) => {
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::DeleteVm {
+            vm_id: req.vm_id.clone(),
+        };
+
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::Ok) => {
                 log!("grpc-vm", "Successfully deleted VM: {}", req.vm_id);
                 Ok(Response::new(DeleteVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
-            Err(e) => {
+            Ok(IpcResponse::Error(e)) => {
                 log!("grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
                 Ok(Response::new(DeleteVmResponse {
                     success: false,
                     error: e,
                 }))
             }
+            Err(e) => {
+                log!("grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
+                Ok(Response::new(DeleteVmResponse {
+                    success: false,
+                    error: format!("IPC error: {}", e),
+                }))
+            }
+            _ => Ok(Response::new(DeleteVmResponse {
+                success: false,
+                error: "Unexpected IPC response".to_string(),
+            })),
         }
     }
 
@@ -157,22 +219,35 @@ impl VmService for GrpcVmService {
         &self,
         _request: Request<ListVmsRequest>,
     ) -> Result<Response<ListVmsResponse>, Status> {
-        let vms: Vec<Vm> = self.vm_manager.list();
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::ListVms;
 
-        let vm_infos: Vec<VmInfo> = vms
-            .into_iter()
-            .map(|v| VmInfo {
-                vm_id: v.vm_id,
-                name: v.name,
-                state: v.state.to_string(),
-                cpus: v.config.cpus,
-                memory_mb: v.config.memory_mb,
-                pid: v.pid.unwrap_or(-1),
-                created_at: v.created_at,
-            })
-            .collect();
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::VmList(data)) => {
+                match bincode::deserialize::<Vec<Vm>>(&data) {
+                    Ok(vms) => {
+                        let vm_infos: Vec<VmInfo> = vms
+                            .into_iter()
+                            .map(|v| VmInfo {
+                                vm_id: v.vm_id,
+                                name: v.name,
+                                state: v.state.to_string(),
+                                cpus: v.config.cpus,
+                                memory_mb: v.config.memory_mb,
+                                pid: v.pid.unwrap_or(-1),
+                                created_at: v.created_at,
+                            })
+                            .collect();
 
-        Ok(Response::new(ListVmsResponse { vms: vm_infos }))
+                        Ok(Response::new(ListVmsResponse { vms: vm_infos }))
+                    }
+                    Err(e) => Err(Status::internal(format!("Failed to deserialize VMs: {}", e))),
+                }
+            }
+            Ok(IpcResponse::Error(e)) => Err(Status::internal(e)),
+            Err(e) => Err(Status::internal(format!("IPC error: {}", e))),
+            _ => Err(Status::internal("Unexpected IPC response")),
+        }
     }
 
     async fn upload_disk(
@@ -253,6 +328,6 @@ impl VmService for GrpcVmService {
     }
 }
 
-pub fn service(vm_manager: VmManager) -> VmServiceServer<GrpcVmService> {
-    VmServiceServer::new(GrpcVmService::new(vm_manager))
+pub fn service() -> VmServiceServer<GrpcVmService> {
+    VmServiceServer::new(GrpcVmService::new())
 }
