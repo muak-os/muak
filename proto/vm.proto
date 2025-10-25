@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package muak.vm.v1;
+
+service VmService {
+  rpc CreateVm(CreateVmRequest) returns (CreateVmResponse);
+  rpc StartVm(StartVmRequest) returns (StartVmResponse);
+  rpc StopVm(StopVmRequest) returns (StopVmResponse);
+  rpc DeleteVm(DeleteVmRequest) returns (DeleteVmResponse);
+  rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+}
+
+message CreateVmRequest {
+  string name = 1;
+  int32 cpus = 2;
+  int64 memory_mb = 3;
+  repeated DiskConfig disks = 4;
+  repeated NetConfig networks = 5;
+}
+
+message DiskConfig {
+  string path = 1;
+  bool readonly = 2;
+}
+
+message NetConfig {
+  string tap = 1;
+  string mac = 2;
+}
+
+message CreateVmResponse {
+  string vm_id = 1;
+  string error = 2;
+}
+
+message StartVmRequest {
+  string vm_id = 1;
+}
+
+message StartVmResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message StopVmRequest {
+  string vm_id = 1;
+  bool force = 2;
+}
+
+message StopVmResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message DeleteVmRequest {
+  string vm_id = 1;
+}
+
+message DeleteVmResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message ListVmsRequest {}
+
+message ListVmsResponse {
+  repeated VmInfo vms = 1;
+}
+
+message VmInfo {
+  string vm_id = 1;
+  string name = 2;
+  string state = 3;
+  int32 cpus = 4;
+  int64 memory_mb = 5;
+  int32 pid = 6;
+  int64 created_at = 7;
+}

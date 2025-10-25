@@ -1,7 +1,7 @@
 use crate::ipc::{IpcClient, IpcMessage, IpcResponse};
 use crate::log;
 use crate::process::Process;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
 pub mod process_service {
     tonic::include_proto!("muak.process.v1");
@@ -129,16 +129,6 @@ impl ProcessService for GrpcProcessService {
     }
 }
 
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "0.0.0.0:50051".parse()?;
-    log!("grpc", "gRPC server starting on {}", addr);
-
-    let service = GrpcProcessService::new();
-
-    Server::builder()
-        .add_service(ProcessServiceServer::new(service))
-        .serve(addr)
-        .await?;
-
-    Ok(())
+pub fn service() -> ProcessServiceServer<GrpcProcessService> {
+    ProcessServiceServer::new(GrpcProcessService::new())
 }

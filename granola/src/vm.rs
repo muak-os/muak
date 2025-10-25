@@ -1,0 +1,183 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Vm {
+    pub vm_id: String,
+    pub name: String,
+    pub state: VmState,
+    pub config: VmConfig,
+    pub pid: Option<i32>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VmConfig {
+    pub cpus: i32,
+    pub memory_mb: i64,
+    pub disks: Vec<DiskConfig>,
+    pub networks: Vec<NetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskConfig {
+    pub path: String,
+    pub readonly: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetConfig {
+    pub tap: String,
+    pub mac: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum VmState {
+    Created,
+    Starting,
+    Running,
+    Stopping,
+    Stopped,
+    Failed(String),
+}
+
+impl ToString for VmState {
+    fn to_string(&self) -> String {
+        match self {
+            VmState::Created => "created".to_string(),
+            VmState::Starting => "starting".to_string(),
+            VmState::Running => "running".to_string(),
+            VmState::Stopping => "stopping".to_string(),
+            VmState::Stopped => "stopped".to_string(),
+            VmState::Failed(e) => format!("failed: {}", e),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct VmManager {
+    vms: Arc<Mutex<HashMap<String, Vm>>>,
+    process_manager: crate::process::ProcessManager,
+}
+
+impl VmManager {
+    pub fn new(process_manager: crate::process::ProcessManager) -> Self {
+        Self {
+            vms: Arc::new(Mutex::new(HashMap::new())),
+            process_manager,
+        }
+    }
+
+    pub fn create(&self, name: String, config: VmConfig) -> Result<String, String> {
+        let vm_id = format!("vm-{}", uuid::Uuid::new_v4());
+        
+        let vm = Vm {
+            vm_id: vm_id.clone(),
+            name,
+            state: VmState::Created,
+            config,
+            pid: None,
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        };
+
+        let mut vms = self.vms.lock().unwrap();
+        vms.insert(vm_id.clone(), vm);
+        
+        Ok(vm_id)
+    }
+
+    pub fn start(&self, vm_id: &str) -> Result<(), String> {
+        let mut vms = self.vms.lock().unwrap();
+        let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+
+        if vm.state != VmState::Created && vm.state != VmState::Stopped {
+            return Err(format!("VM is in state: {}", vm.state.to_string()));
+        }
+
+        vm.state = VmState::Starting;
+
+        if !std::path::Path::new("/usr/bin/cloud-hypervisor").exists() {
+            vm.state = VmState::Failed("cloud-hypervisor not found".to_string());
+            return Err("cloud-hypervisor extension not installed".to_string());
+        }
+
+        let mut args = vec![
+            format!("--cpus boot={}", vm.config.cpus),
+            format!("--memory size={}M", vm.config.memory_mb),
+            "--serial tty".to_string(),
+            "--console off".to_string(),
+            format!("--api-socket /run/ch-{}.sock", vm_id),
+        ];
+
+        for disk in &vm.config.disks {
+            args.push(format!(
+                "--disk path={}{}",
+                disk.path,
+                if disk.readonly { ",readonly=on" } else { "" }
+            ));
+        }
+
+        for net in &vm.config.networks {
+            args.push(format!("--net tap={},mac={}", net.tap, net.mac));
+        }
+
+        let pid = self.process_manager.spawn_external(
+            "/usr/bin/cloud-hypervisor".to_string(),
+            args,
+            HashMap::new(),
+        )?;
+
+        vm.pid = Some(pid);
+        vm.state = VmState::Running;
+
+        Ok(())
+    }
+
+    pub fn stop(&self, vm_id: &str, force: bool) -> Result<(), String> {
+        let mut vms = self.vms.lock().unwrap();
+        let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+
+        if vm.state != VmState::Running {
+            return Err(format!("VM is not running: {}", vm.state.to_string()));
+        }
+
+        let pid = vm.pid.ok_or("VM has no PID")?;
+        
+        vm.state = VmState::Stopping;
+
+        let signal = if force { 9 } else { 15 };
+        self.process_manager.stop(pid, signal)?;
+
+        vm.state = VmState::Stopped;
+        vm.pid = None;
+
+        Ok(())
+    }
+
+    pub fn delete(&self, vm_id: &str) -> Result<(), String> {
+        let mut vms = self.vms.lock().unwrap();
+        let vm = vms.get(vm_id).ok_or("VM not found")?;
+
+        if vm.state == VmState::Running || vm.state == VmState::Starting {
+            return Err("VM must be stopped before deletion".to_string());
+        }
+
+        vms.remove(vm_id);
+        Ok(())
+    }
+
+    pub fn list(&self) -> Vec<Vm> {
+        let vms = self.vms.lock().unwrap();
+        vms.values().cloned().collect()
+    }
+
+    pub fn get(&self, vm_id: &str) -> Option<Vm> {
+        let vms = self.vms.lock().unwrap();
+        vms.get(vm_id).cloned()
+    }
+}

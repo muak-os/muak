@@ -4,10 +4,12 @@ mod log;
 mod network;
 mod process;
 mod signal;
+mod vm;
 
 use ipc::IpcServer;
 use process::ProcessManager;
 use signal::SignalHandler;
+use vm::VmManager;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -15,6 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
 
     let process_manager = ProcessManager::new();
+    let vm_manager = VmManager::new(process_manager.clone());
 
     let mut signal_handler = SignalHandler::new()?;
     log!("granola", "Signal handlers installed");
@@ -24,6 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
+        let vm = vm_manager.clone();
         move || {
             let pid = pm
                 .spawn_service("network-manager", vec![], network::main)
@@ -31,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log!("granola", "Spawned network-manager (PID {})", pid);
 
             let pid = pm
-                .spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], grpc::main)
+                .spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], || grpc::main(vm))
                 .unwrap();
             log!("granola", "Spawned grpc-server (PID {})", pid);
         }
