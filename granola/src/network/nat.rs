@@ -71,11 +71,20 @@ pub async fn setup_nat(
     }
 
     // ===== Filter Table (INET for both IPv4 and IPv6) =====
-    log!("nat", "Creating filter table with forward chain");
+    log!("nat", "Creating filter table with input and forward chains");
     let filter_table = Table::new(ProtocolFamily::Inet).with_name(FILTER_TABLE_NAME);
 
     let mut filter_batch = Batch::new();
     filter_batch.add(&filter_table, MsgType::Add);
+
+    // Create INPUT chain to accept all local traffic (needed for gRPC, IPC, etc.)
+    let input_chain = Chain::new(&filter_table)
+        .with_name("input")
+        .with_type(ChainType::Filter)
+        .with_hook(Hook::new(HookClass::In, 0))
+        .with_policy(ChainPolicy::Accept);
+
+    filter_batch.add(&input_chain, MsgType::Add);
 
     let forward_chain = Chain::new(&filter_table)
         .with_name("forward")
@@ -86,9 +95,9 @@ pub async fn setup_nat(
     filter_batch.add(&forward_chain, MsgType::Add);
 
     match filter_batch.send() {
-        Ok(_) => log!("nat", "Created filter table and forward chain"),
+        Ok(_) => log!("nat", "Created filter table with input and forward chains"),
         Err(e) => {
-            log!("nat", "Failed to create filter table/chain: {:?}", e);
+            log!("nat", "Failed to create filter table/chains: {:?}", e);
             return Err(e.into());
         }
     }

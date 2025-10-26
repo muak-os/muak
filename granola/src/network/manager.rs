@@ -1,5 +1,4 @@
 use crate::log;
-use futures::stream::TryStreamExt;
 use rtnetlink::{new_connection, Handle};
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -42,15 +41,7 @@ impl NetworkManager {
 
         // Find and bring up WAN interface
         if let Ok(iface) = host::find_ethernet_interface(&self.handle).await {
-            let mut links = self.handle.link().get().match_name(iface.clone()).execute();
-            if let Some(link) = links.try_next().await? {
-                self.handle
-                    .link()
-                    .set(link.header.index)
-                    .up()
-                    .execute()
-                    .await?;
-            }
+            host::run_dhcp_client(&iface, &self.handle).await?;
             *self.wan_interface.lock().unwrap() = Some(iface);
         }
 
@@ -62,7 +53,6 @@ impl NetworkManager {
 
         nat::enable_ip_forwarding().await?;
 
-        // Setup NAT if we have a WAN interface
         if let Some(ref wan_iface) = *self.wan_interface.lock().unwrap() {
             let subnet = format!("{}/{}", BRIDGE_IP, BRIDGE_PREFIX_LEN);
             nat::setup_nat(wan_iface, BRIDGE_NAME, &subnet).await?;
