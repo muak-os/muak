@@ -83,18 +83,24 @@ impl VmManager {
             pid: None,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("FATAL: system time is before UNIX epoch")
                 .as_secs() as i64,
         };
 
-        let mut vms = self.vms.lock().unwrap();
+        let mut vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         vms.insert(vm_id.clone(), vm);
 
         Ok(vm_id)
     }
 
     pub fn start(&self, vm_id: &str) -> Result<(), String> {
-        let mut vms = self.vms.lock().unwrap();
+        let mut vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
 
         if vm.state != VmState::Created && vm.state != VmState::Stopped {
@@ -171,7 +177,10 @@ impl VmManager {
     }
 
     pub fn stop(&self, vm_id: &str, force: bool) -> Result<(), String> {
-        let mut vms = self.vms.lock().unwrap();
+        let mut vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
 
         if vm.state != VmState::Running {
@@ -192,7 +201,10 @@ impl VmManager {
     }
 
     pub fn delete(&self, vm_id: &str) -> Result<(), String> {
-        let mut vms = self.vms.lock().unwrap();
+        let mut vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         let vm = vms.get(vm_id).ok_or("VM not found")?;
 
         if vm.state == VmState::Running || vm.state == VmState::Starting {
@@ -204,12 +216,18 @@ impl VmManager {
     }
 
     pub fn list(&self) -> Vec<Vm> {
-        let vms = self.vms.lock().unwrap();
+        let vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         vms.values().cloned().collect()
     }
 
     pub fn get(&self, vm_id: &str) -> Option<Vm> {
-        let vms = self.vms.lock().unwrap();
+        let vms = self
+            .vms
+            .lock()
+            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         vms.get(vm_id).cloned()
     }
 }

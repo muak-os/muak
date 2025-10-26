@@ -50,13 +50,14 @@ impl ProcessManager {
             command,
             args,
             status: ProcessStatus::Running,
-            started_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64,
+        started_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("FATAL: system time is before UNIX epoch")
+            .as_secs() as i64,
         };
 
-        let mut processes = self.processes.lock().unwrap();
+        let mut processes = self.processes.lock()
+            .expect("FATAL: ProcessManager mutex poisoned - this is a critical PID 1 failure");
         processes.insert(pid, process);
     }
 
@@ -79,8 +80,9 @@ impl ProcessManager {
             Ok(ForkResult::Child) => {
                 let _ = std::env::set_var("PROCESS_NAME", name);
 
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                runtime.block_on(async {
+            let runtime = tokio::runtime::Runtime::new()
+                .expect("FATAL: failed to create tokio runtime in child process");
+            runtime.block_on(async {
                     if let Err(e) = service_main().await {
                         eprintln!("{} error: {}", name, e);
                         std::process::exit(1);
@@ -117,10 +119,11 @@ impl ProcessManager {
                 Ok(pid)
             }
             Ok(ForkResult::Child) => {
-                let cmd = CString::new(command.as_str()).unwrap();
+                let cmd = CString::new(command.as_str())
+                    .expect("FATAL: command contains null byte");
                 let c_args: Vec<CString> = std::iter::once(command.clone())
                     .chain(args)
-                    .map(|s| CString::new(s).unwrap())
+                    .map(|s| CString::new(s).expect("FATAL: arg contains null byte"))
                     .collect();
 
                 for (key, value) in env {
@@ -141,12 +144,14 @@ impl ProcessManager {
     }
 
     pub fn list(&self) -> Vec<Process> {
-        let processes = self.processes.lock().unwrap();
+        let processes = self.processes.lock()
+            .expect("FATAL: ProcessManager mutex poisoned - this is a critical PID 1 failure");
         processes.values().cloned().collect()
     }
 
     pub fn update_status(&self, pid: i32, status: ProcessStatus) {
-        let mut processes = self.processes.lock().unwrap();
+        let mut processes = self.processes.lock()
+            .expect("FATAL: ProcessManager mutex poisoned - this is a critical PID 1 failure");
         if let Some(process) = processes.get_mut(&pid) {
             process.status = status;
         }

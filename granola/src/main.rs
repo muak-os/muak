@@ -9,8 +9,8 @@ mod vm;
 use ipc::IpcServer;
 use process::ProcessManager;
 use signal::SignalHandler;
-use vm::VmManager;
 use std::sync::Arc;
+use vm::VmManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

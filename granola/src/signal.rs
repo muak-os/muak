@@ -1,4 +1,3 @@
-use crate::log;
 use crate::process::{ProcessManager, ProcessStatus};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
@@ -26,10 +25,10 @@ impl SignalHandler {
                     self.handle_sigchld(process_manager);
                 }
                 _ = self.sigterm.recv() => {
-                    self.handle_sigterm();
+                    panic!("PID 1 received SIGTERM");
                 }
                 _ = self.sigint.recv() => {
-                    self.handle_sigint();
+                    panic!("PID 1 received SIGINT");
                 }
             }
         }
@@ -50,15 +49,5 @@ impl SignalHandler {
                 _ => {}
             }
         }
-    }
-
-    fn handle_sigterm(&self) -> ! {
-        log!("granola", "SIGTERM received, exiting");
-        std::process::exit(0);
-    }
-
-    fn handle_sigint(&self) -> ! {
-        log!("granola", "SIGINT received, exiting");
-        std::process::exit(0);
     }
 }

@@ -81,18 +81,25 @@ impl IpcServer {
     }
 
     pub async fn read_message(&self, stream: &mut UnixStream) -> Result<IpcMessage, String> {
-        let mut buf = [0u8; 4096];
-        let size = stream
-            .read(&mut buf)
+        let mut len_buf = [0u8; 4];
+        stream
+            .read_exact(&mut len_buf)
             .await
-            .map_err(|e| format!("Failed to read: {}", e))?;
+            .map_err(|e| format!("Failed to read message length: {}", e))?;
 
-        if size == 0 {
-            return Err("Connection closed".to_string());
+        let msg_len = u32::from_le_bytes(len_buf) as usize;
+
+        if msg_len > 10 * 1024 * 1024 {
+            return Err(format!("Message too large: {} bytes", msg_len));
         }
 
-        let data = &buf[..size];
-        bincode::deserialize(data).map_err(|e| format!("Failed to deserialize: {}", e))
+        let mut buf = vec![0u8; msg_len];
+        stream
+            .read_exact(&mut buf)
+            .await
+            .map_err(|e| format!("Failed to read message: {}", e))?;
+
+        bincode::deserialize(&buf).map_err(|e| format!("Failed to deserialize: {}", e))
     }
 
     pub async fn send_response(
@@ -102,6 +109,14 @@ impl IpcServer {
     ) -> Result<(), String> {
         let data =
             bincode::serialize(response).map_err(|e| format!("Failed to serialize: {}", e))?;
+
+        let len = data.len() as u32;
+        let len_bytes = len.to_le_bytes();
+
+        stream
+            .write_all(&len_bytes)
+            .await
+            .map_err(|e| format!("Failed to write length: {}", e))?;
         stream
             .write_all(&data)
             .await
@@ -212,7 +227,7 @@ impl IpcClient {
         }
 
         let result = self.try_send_message(message);
-        
+
         if result.is_err() {
             self.socket = None;
             self.connect()?;
@@ -227,21 +242,37 @@ impl IpcClient {
 
         let data =
             bincode::serialize(message).map_err(|e| format!("Failed to serialize: {}", e))?;
+
+        let len = data.len() as u32;
+        let len_bytes = len.to_le_bytes();
+
+        socket
+            .write_all(&len_bytes)
+            .map_err(|e| format!("Failed to write length: {}", e))?;
         socket
             .write_all(&data)
             .map_err(|e| format!("Failed to write: {}", e))?;
-        socket.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        socket
+            .flush()
+            .map_err(|e| format!("Failed to flush: {}", e))?;
 
-        let mut buf = [0u8; 65536];
-        let size = socket
-            .read(&mut buf)
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+        let mut len_buf = [0u8; 4];
+        socket
+            .read_exact(&mut len_buf)
+            .map_err(|e| format!("Failed to read response length: {}", e))?;
 
-        if size == 0 {
-            return Err("Connection closed by server".to_string());
+        let msg_len = u32::from_le_bytes(len_buf) as usize;
+
+        if msg_len > 10 * 1024 * 1024 {
+            return Err(format!("Response too large: {} bytes", msg_len));
         }
 
-        let response: IpcResponse = bincode::deserialize(&buf[..size])
+        let mut buf = vec![0u8; msg_len];
+        socket
+            .read_exact(&mut buf)
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        let response: IpcResponse = bincode::deserialize(&buf)
             .map_err(|e| format!("Failed to deserialize response: {}", e))?;
 
         Ok(response)
