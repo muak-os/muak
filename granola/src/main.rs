@@ -68,7 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             if let Ok(message) = ipc.read_message(&mut stream).await {
                 let response = ipc.handle_message(message, &pm, &vm);
-                let _ = ipc.send_response(&mut stream, &response).await;
+                if let Err(e) = ipc.send_response(&mut stream, &response).await {
+                    log!("granola", "Failed to send IPC response: {}", e);
+                }
             }
         });
     }

@@ -1,4 +1,3 @@
-use crate::ipc::IpcClient;
 use crate::log;
 use dhcproto::{v4, Decodable, Decoder, Encodable};
 use futures::stream::TryStreamExt;
@@ -182,12 +181,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_dhcp_client(&interface, &handle).await?;
 
-    let mut ipc = IpcClient::new();
-    if let Err(e) = ipc.connect() {
-        log!("network", "Failed to connect to IPC: {}", e);
-    }
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(3600)).await;
-    }
+    log!("network", "Network manager exiting (no DHCP renewal implemented)");
+    Ok(())
 }

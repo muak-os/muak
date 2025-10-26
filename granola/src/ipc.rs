@@ -226,13 +226,21 @@ impl IpcClient {
 
         let result = self.try_send_message(message);
 
-        if result.is_err() {
-            self.socket = None;
-            self.connect()?;
-            self.try_send_message(message)
-        } else {
-            result
+        if let Err(ref e) = result {
+            if self.should_reconnect(e) {
+                self.socket = None;
+                self.connect()?;
+                return self.try_send_message(message);
+            }
         }
+
+        result
+    }
+
+    fn should_reconnect(&self, error: &str) -> bool {
+        error.contains("Broken pipe")
+            || error.contains("Connection reset")
+            || error.contains("Not connected")
     }
 
     fn try_send_message(&mut self, message: &IpcMessage) -> Result<IpcResponse, String> {

@@ -3,6 +3,7 @@ use nix::unistd::{fork, ForkResult, Pid};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,12 +23,12 @@ pub enum ProcessStatus {
     Signaled(i32),
 }
 
-impl ToString for ProcessStatus {
-    fn to_string(&self) -> String {
+impl fmt::Display for ProcessStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ProcessStatus::Running => "running".to_string(),
-            ProcessStatus::Exited(code) => format!("exited({})", code),
-            ProcessStatus::Signaled(sig) => format!("signaled({})", sig),
+            ProcessStatus::Running => write!(f, "running"),
+            ProcessStatus::Exited(code) => write!(f, "exited({})", code),
+            ProcessStatus::Signaled(sig) => write!(f, "signaled({})", sig),
         }
     }
 }

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,15 +46,15 @@ pub enum VmState {
     Failed(String),
 }
 
-impl ToString for VmState {
-    fn to_string(&self) -> String {
+impl fmt::Display for VmState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VmState::Created => "created".to_string(),
-            VmState::Starting => "starting".to_string(),
-            VmState::Running => "running".to_string(),
-            VmState::Stopping => "stopping".to_string(),
-            VmState::Stopped => "stopped".to_string(),
-            VmState::Failed(e) => format!("failed: {}", e),
+            VmState::Created => write!(f, "created"),
+            VmState::Starting => write!(f, "starting"),
+            VmState::Running => write!(f, "running"),
+            VmState::Stopping => write!(f, "stopping"),
+            VmState::Stopped => write!(f, "stopped"),
+            VmState::Failed(e) => write!(f, "failed: {}", e),
         }
     }
 }
@@ -108,7 +109,7 @@ impl VmManager {
             let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
 
             if vm.state != VmState::Created && vm.state != VmState::Stopped {
-                let err_msg = format!("Cannot start VM in state: {}", vm.state.to_string());
+                let err_msg = format!("Cannot start VM in state: {}", vm.state);
                 crate::log!("vm", "{}", err_msg);
                 return Err(err_msg);
             }
@@ -232,7 +233,7 @@ impl VmManager {
             let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
 
             if vm.state != VmState::Running {
-                return Err(format!("VM is not running: {}", vm.state.to_string()));
+                return Err(format!("VM is not running: {}", vm.state));
             }
 
             pid = vm.pid.ok_or("VM has no PID")?;
