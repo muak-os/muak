@@ -31,15 +31,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
         move || {
-            let pid = pm
-                .spawn_service("network-manager", vec![], network::main)
-                .unwrap();
-            log!("granola", "Spawned network-manager (PID {})", pid);
+            match pm.spawn_service("network-manager", vec![], network::main) {
+                Ok(pid) => {
+                    log!("granola", "Spawned network-manager (PID {})", pid);
+                }
+                Err(e) => {
+                    log!("granola", "ERROR: Failed to spawn network-manager: {}", e);
+                }
+            }
 
-            let pid = pm
-                .spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], grpc::main)
-                .unwrap();
-            log!("granola", "Spawned grpc-server (PID {})", pid);
+            match pm.spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], grpc::main) {
+                Ok(pid) => {
+                    log!("granola", "Spawned grpc-server (PID {})", pid);
+                }
+                Err(e) => {
+                    log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
+                }
+            }
         }
     })
     .await?;
