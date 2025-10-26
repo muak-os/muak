@@ -63,8 +63,8 @@ impl IpcServer {
     pub fn new() -> Result<Self, String> {
         let _ = std::fs::remove_file(crate::config::GRANOLA_SOCKET_PATH);
 
-        let listener =
-            UnixListener::bind(crate::config::GRANOLA_SOCKET_PATH).map_err(|e| format!("Failed to bind socket: {}", e))?;
+        let listener = UnixListener::bind(crate::config::GRANOLA_SOCKET_PATH)
+            .map_err(|e| format!("Failed to bind socket: {}", e))?;
 
         Ok(Self { listener })
     }
@@ -122,7 +122,7 @@ impl IpcServer {
         Ok(())
     }
 
-    pub fn handle_message(
+    pub async fn handle_message(
         &self,
         message: IpcMessage,
         process_manager: &ProcessManager,
@@ -173,11 +173,11 @@ impl IpcServer {
                 Ok(vm_id) => IpcResponse::VmCreated { vm_id },
                 Err(e) => IpcResponse::Error(e),
             },
-            IpcMessage::StartVm { vm_id } => match vm_manager.start(&vm_id) {
+            IpcMessage::StartVm { vm_id } => match vm_manager.start(&vm_id).await {
                 Ok(_) => IpcResponse::Ok,
                 Err(e) => IpcResponse::Error(e),
             },
-            IpcMessage::StopVm { vm_id, force } => match vm_manager.stop(&vm_id, force) {
+            IpcMessage::StopVm { vm_id, force } => match vm_manager.stop(&vm_id, force).await {
                 Ok(_) => IpcResponse::Ok,
                 Err(e) => IpcResponse::Error(e),
             },
@@ -213,8 +213,8 @@ impl IpcClient {
     }
 
     pub fn connect(&mut self) -> Result<(), String> {
-        let stream =
-            StdUnixStream::connect(crate::config::GRANOLA_SOCKET_PATH).map_err(|e| format!("Failed to connect: {}", e))?;
+        let stream = StdUnixStream::connect(crate::config::GRANOLA_SOCKET_PATH)
+            .map_err(|e| format!("Failed to connect: {}", e))?;
         self.socket = Some(stream);
         Ok(())
     }

@@ -4,13 +4,13 @@ use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
 use nix::libc;
 use rand::Rng;
-use rtnetlink::{new_connection, Handle};
+use rtnetlink::Handle;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-async fn setup_loopback(handle: &Handle) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn setup_loopback(handle: &Handle) -> Result<(), Box<dyn std::error::Error>> {
     log!("network", "Setting up loopback interface");
 
     let mut links = handle.link().get().match_name("lo".to_string()).execute();
@@ -22,7 +22,9 @@ async fn setup_loopback(handle: &Handle) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-async fn find_ethernet_interface(handle: &Handle) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn find_ethernet_interface(
+    handle: &Handle,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut links = handle.link().get().execute();
 
     while let Some(link) = links.try_next().await? {
@@ -39,7 +41,7 @@ async fn find_ethernet_interface(handle: &Handle) -> Result<String, Box<dyn std:
     Err("No ethernet interface found".into())
 }
 
-async fn run_dhcp_client(
+pub async fn run_dhcp_client(
     interface: &str,
     handle: &Handle,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -164,23 +166,5 @@ async fn run_dhcp_client(
         handle.route().add().v4().gateway(gw).execute().await?;
     }
 
-    log!("network", "Network configuration complete");
-
-    Ok(())
-}
-
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log!("network", "Network manager started");
-
-    let (connection, handle, _) = new_connection()?;
-    tokio::spawn(connection);
-
-    setup_loopback(&handle).await?;
-
-    let interface = find_ethernet_interface(&handle).await?;
-
-    run_dhcp_client(&interface, &handle).await?;
-
-    log!("network", "Network manager exiting (no DHCP renewal implemented)");
     Ok(())
 }

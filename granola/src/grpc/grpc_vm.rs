@@ -1,8 +1,8 @@
 use crate::ipc::{IpcClient, IpcMessage, IpcResponse};
 use crate::log;
 use crate::vm::{DiskConfig, NetConfig, Vm, VmConfig};
-use tonic::{Request, Response, Status};
 use tokio::io::AsyncWriteExt;
+use tonic::{Request, Response, Status};
 
 pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
@@ -11,8 +11,8 @@ pub mod vm_service {
 use vm_service::vm_service_server::{VmService, VmServiceServer};
 use vm_service::{
     CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, ListVmsRequest,
-    ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse, VmInfo,
-    UploadDiskRequest, UploadDiskResponse,
+    ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse,
+    UploadDiskRequest, UploadDiskResponse, VmInfo,
 };
 
 pub struct GrpcVmService {}
@@ -137,7 +137,12 @@ impl VmService for GrpcVmService {
         request: Request<StopVmRequest>,
     ) -> Result<Response<StopVmResponse>, Status> {
         let req = request.into_inner();
-        log!("grpc-vm", "Attempting to stop VM: {} (force: {})", req.vm_id, req.force);
+        log!(
+            "grpc-vm",
+            "Attempting to stop VM: {} (force: {})",
+            req.vm_id,
+            req.force
+        );
 
         let mut ipc_client = IpcClient::new();
         let message = IpcMessage::StopVm {
@@ -223,27 +228,28 @@ impl VmService for GrpcVmService {
         let message = IpcMessage::ListVms;
 
         match ipc_client.send_message(&message) {
-            Ok(IpcResponse::VmList(data)) => {
-                match bincode::deserialize::<Vec<Vm>>(&data) {
-                    Ok(vms) => {
-                        let vm_infos: Vec<VmInfo> = vms
-                            .into_iter()
-                            .map(|v| VmInfo {
-                                vm_id: v.vm_id,
-                                name: v.name,
-                                state: v.state.to_string(),
-                                cpus: v.config.cpus,
-                                memory_mb: v.config.memory_mb,
-                                pid: v.pid.unwrap_or(-1),
-                                created_at: v.created_at,
-                            })
-                            .collect();
+            Ok(IpcResponse::VmList(data)) => match bincode::deserialize::<Vec<Vm>>(&data) {
+                Ok(vms) => {
+                    let vm_infos: Vec<VmInfo> = vms
+                        .into_iter()
+                        .map(|v| VmInfo {
+                            vm_id: v.vm_id,
+                            name: v.name,
+                            state: v.state.to_string(),
+                            cpus: v.config.cpus,
+                            memory_mb: v.config.memory_mb,
+                            pid: v.pid.unwrap_or(-1),
+                            created_at: v.created_at,
+                        })
+                        .collect();
 
-                        Ok(Response::new(ListVmsResponse { vms: vm_infos }))
-                    }
-                    Err(e) => Err(Status::internal(format!("Failed to deserialize VMs: {}", e))),
+                    Ok(Response::new(ListVmsResponse { vms: vm_infos }))
                 }
-            }
+                Err(e) => Err(Status::internal(format!(
+                    "Failed to deserialize VMs: {}",
+                    e
+                ))),
+            },
             Ok(IpcResponse::Error(e)) => Err(Status::internal(e)),
             Err(e) => Err(Status::internal(format!("IPC error: {}", e))),
             _ => Err(Status::internal("Unexpected IPC response")),
@@ -264,9 +270,14 @@ impl VmService for GrpcVmService {
                 Some(vm_service::upload_disk_request::Request::Metadata(metadata)) => {
                     let filename = metadata.filename;
                     filepath = format!("/tmp/muak/disks/{}", filename);
-                    
-                    log!("grpc-vm", "Starting disk upload: {} ({} bytes)", filename, metadata.size);
-                    
+
+                    log!(
+                        "grpc-vm",
+                        "Starting disk upload: {} ({} bytes)",
+                        filename,
+                        metadata.size
+                    );
+
                     match tokio::fs::File::create(&filepath).await {
                         Ok(f) => {
                             file = Some(f);
@@ -318,7 +329,12 @@ impl VmService for GrpcVmService {
                     error,
                 }));
             }
-            log!("grpc-vm", "Disk upload complete: {} ({} bytes)", filepath, bytes_written);
+            log!(
+                "grpc-vm",
+                "Disk upload complete: {} ({} bytes)",
+                filepath,
+                bytes_written
+            );
         }
 
         Ok(Response::new(UploadDiskResponse {

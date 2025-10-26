@@ -20,34 +20,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
     log!("granola", "Created {} directory", config::MUAK_DISKS_DIR);
 
+    let network_manager = Arc::new(network::NetworkManager::new().await?);
+
+    network_manager.initialize_host().await?;
+    network_manager.setup_bridge().await?;
+    network_manager.start_dhcp_server().await?;
+
+    log!("granola", "Network initialized");
+
     let process_manager = ProcessManager::new();
-    let vm_manager = VmManager::new(process_manager.clone());
+    let vm_manager = VmManager::new(process_manager.clone(), network_manager.clone());
 
     let mut signal_handler = SignalHandler::new()?;
     log!("granola", "Signal handlers installed");
 
     let ipc_server = Arc::new(IpcServer::new()?);
-    log!("granola", "IPC server listening on {}", config::GRANOLA_SOCKET_PATH);
+    log!(
+        "granola",
+        "IPC server listening on {}",
+        config::GRANOLA_SOCKET_PATH
+    );
 
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
-        move || {
-            match pm.spawn_service("network-manager", vec![], network::main) {
-                Ok(pid) => {
-                    log!("granola", "Spawned network-manager (PID {})", pid);
-                }
-                Err(e) => {
-                    log!("granola", "ERROR: Failed to spawn network-manager: {}", e);
-                }
+        move || match pm.spawn_service(
+            "grpc-server",
+            vec![config::GRPC_SERVER_ADDR.to_string()],
+            grpc::main,
+        ) {
+            Ok(pid) => {
+                log!("granola", "Spawned grpc-server (PID {})", pid);
             }
-
-            match pm.spawn_service("grpc-server", vec![config::GRPC_SERVER_ADDR.to_string()], grpc::main) {
-                Ok(pid) => {
-                    log!("granola", "Spawned grpc-server (PID {})", pid);
-                }
-                Err(e) => {
-                    log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
-                }
+            Err(e) => {
+                log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
             }
         }
     })
@@ -67,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ipc = ipc_server.clone();
         tokio::spawn(async move {
             if let Ok(message) = ipc.read_message(&mut stream).await {
-                let response = ipc.handle_message(message, &pm, &vm);
+                let response = ipc.handle_message(message, &pm, &vm).await;
                 if let Err(e) = ipc.send_response(&mut stream, &response).await {
                     log!("granola", "Failed to send IPC response: {}", e);
                 }
