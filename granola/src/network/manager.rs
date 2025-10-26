@@ -1,4 +1,5 @@
 use crate::log;
+use futures::stream::TryStreamExt;
 use rtnetlink::{new_connection, Handle};
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -42,9 +43,13 @@ impl NetworkManager {
         // Find and bring up WAN interface
         if let Ok(iface) = host::find_ethernet_interface(&self.handle).await {
             let mut links = self.handle.link().get().match_name(iface.clone()).execute();
-            use futures::stream::TryStreamExt;
             if let Some(link) = links.try_next().await? {
-                self.handle.link().set(link.header.index).up().execute().await?;
+                self.handle
+                    .link()
+                    .set(link.header.index)
+                    .up()
+                    .execute()
+                    .await?;
             }
             *self.wan_interface.lock().unwrap() = Some(iface);
         }

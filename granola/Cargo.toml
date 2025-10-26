@@ -17,6 +17,8 @@ netlink-packet-route = "0.19"
 bincode = "1.3"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
+rustables = "0.8.7"
+ipnetwork = "0.21.1"
 
 [build-dependencies]
 tonic-build = "0.12"
