@@ -112,9 +112,9 @@ impl VmManager {
         vm.state = VmState::Starting;
         crate::log!("vm", "Starting VM {} ({})", vm_id, vm.name);
 
-        if !std::path::Path::new("/usr/bin/cloud-hypervisor").exists() {
+        if !std::path::Path::new(crate::config::CLOUD_HYPERVISOR_BINARY).exists() {
             let err_msg =
-                "cloud-hypervisor binary not found at /usr/bin/cloud-hypervisor".to_string();
+                format!("cloud-hypervisor binary not found at {}", crate::config::CLOUD_HYPERVISOR_BINARY);
             vm.state = VmState::Failed(err_msg.clone());
             crate::log!("vm", "ERROR: {}", err_msg);
             return Err("cloud-hypervisor extension not installed".to_string());
@@ -151,12 +151,13 @@ impl VmManager {
 
         crate::log!(
             "vm",
-            "Executing: /usr/bin/cloud-hypervisor {}",
+            "Executing: {} {}",
+            crate::config::CLOUD_HYPERVISOR_BINARY,
             args.join(" ")
         );
 
         let pid = match self.process_manager.spawn_external(
-            "/usr/bin/cloud-hypervisor".to_string(),
+            crate::config::CLOUD_HYPERVISOR_BINARY.to_string(),
             args,
             HashMap::new(),
         ) {

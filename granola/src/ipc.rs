@@ -8,8 +8,6 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::process::{ProcessManager, ProcessStatus};
 use crate::vm::{VmConfig, VmManager};
 
-const SOCKET_PATH: &str = "/run/granola.sock";
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IpcMessage {
     UpdateStatus {
@@ -63,10 +61,10 @@ pub struct IpcServer {
 
 impl IpcServer {
     pub fn new() -> Result<Self, String> {
-        let _ = std::fs::remove_file(SOCKET_PATH);
+        let _ = std::fs::remove_file(crate::config::GRANOLA_SOCKET_PATH);
 
         let listener =
-            UnixListener::bind(SOCKET_PATH).map_err(|e| format!("Failed to bind socket: {}", e))?;
+            UnixListener::bind(crate::config::GRANOLA_SOCKET_PATH).map_err(|e| format!("Failed to bind socket: {}", e))?;
 
         Ok(Self { listener })
     }
@@ -89,7 +87,7 @@ impl IpcServer {
 
         let msg_len = u32::from_le_bytes(len_buf) as usize;
 
-        if msg_len > 10 * 1024 * 1024 {
+        if msg_len > crate::config::IPC_MAX_MESSAGE_SIZE {
             return Err(format!("Message too large: {} bytes", msg_len));
         }
 
@@ -216,7 +214,7 @@ impl IpcClient {
 
     pub fn connect(&mut self) -> Result<(), String> {
         let stream =
-            StdUnixStream::connect(SOCKET_PATH).map_err(|e| format!("Failed to connect: {}", e))?;
+            StdUnixStream::connect(crate::config::GRANOLA_SOCKET_PATH).map_err(|e| format!("Failed to connect: {}", e))?;
         self.socket = Some(stream);
         Ok(())
     }
@@ -263,7 +261,7 @@ impl IpcClient {
 
         let msg_len = u32::from_le_bytes(len_buf) as usize;
 
-        if msg_len > 10 * 1024 * 1024 {
+        if msg_len > crate::config::IPC_MAX_MESSAGE_SIZE {
             return Err(format!("Response too large: {} bytes", msg_len));
         }
 

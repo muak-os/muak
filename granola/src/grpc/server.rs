@@ -2,7 +2,7 @@ use crate::log;
 use tonic::transport::Server;
 
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "0.0.0.0:50051".parse()?;
+    let addr = crate::config::GRPC_SERVER_ADDR.parse()?;
     log!("grpc", "gRPC server starting on {}", addr);
 
     let process_service = super::grpc_process::service();

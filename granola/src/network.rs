@@ -86,7 +86,7 @@ async fn run_dhcp_client(
 
     let mut discover_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())
-        .set_chaddr(&[0x52, 0x54, 0x00, 0x12, 0x34, 0x56])
+        .set_chaddr(&crate::config::DEFAULT_MAC_ADDRESS)
         .set_xid(xid)
         .set_opcode(v4::Opcode::BootRequest)
         .to_vec()?;
@@ -105,7 +105,7 @@ async fn run_dhcp_client(
 
     let mut request_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())
-        .set_chaddr(&[0x52, 0x54, 0x00, 0x12, 0x34, 0x56])
+        .set_chaddr(&crate::config::DEFAULT_MAC_ADDRESS)
         .set_xid(xid)
         .set_opcode(v4::Opcode::BootRequest)
         .to_vec()?;

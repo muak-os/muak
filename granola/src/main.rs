@@ -1,3 +1,4 @@
+mod config;
 mod grpc;
 mod ipc;
 mod log;
@@ -16,8 +17,8 @@ use vm::VmManager;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
 
-    std::fs::create_dir_all("/tmp/muak/disks")?;
-    log!("granola", "Created /tmp/muak/disks directory");
+    std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
+    log!("granola", "Created {} directory", config::MUAK_DISKS_DIR);
 
     let process_manager = ProcessManager::new();
     let vm_manager = VmManager::new(process_manager.clone());
@@ -26,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "Signal handlers installed");
 
     let ipc_server = Arc::new(IpcServer::new()?);
-    log!("granola", "IPC server listening on /run/granola.sock");
+    log!("granola", "IPC server listening on {}", config::GRANOLA_SOCKET_PATH);
 
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
@@ -40,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            match pm.spawn_service("grpc-server", vec!["0.0.0.0:50051".to_string()], grpc::main) {
+            match pm.spawn_service("grpc-server", vec![config::GRPC_SERVER_ADDR.to_string()], grpc::main) {
                 Ok(pid) => {
                     log!("granola", "Spawned grpc-server (PID {})", pid);
                 }
