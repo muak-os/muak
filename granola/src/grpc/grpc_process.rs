@@ -47,7 +47,12 @@ impl ProcessService for GrpcProcessService {
         request: Request<StartProcessRequest>,
     ) -> Result<Response<StartProcessResponse>, Status> {
         let req = request.into_inner();
-        log!("grpc-process", "Starting process: {} {:?}", req.command, req.args);
+        log!(
+            "grpc-process",
+            "Starting process: {} {:?}",
+            req.command,
+            req.args
+        );
 
         let message = IpcMessage::StartProcess {
             command: req.command.clone(),
@@ -57,22 +62,41 @@ impl ProcessService for GrpcProcessService {
 
         match self.send_ipc_message(message) {
             Ok(IpcResponse::ProcessStarted { pid }) => {
-                log!("grpc-process", "Process started: {} (PID: {})", req.command, pid);
+                log!(
+                    "grpc-process",
+                    "Process started: {} (PID: {})",
+                    req.command,
+                    pid
+                );
                 Ok(Response::new(StartProcessResponse {
                     pid,
                     error: String::new(),
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!("grpc-process", "Failed to start process {}: {}", req.command, e);
+                log!(
+                    "grpc-process",
+                    "Failed to start process {}: {}",
+                    req.command,
+                    e
+                );
                 Ok(Response::new(StartProcessResponse { pid: -1, error: e }))
             }
             Err(e) => {
-                log!("grpc-process", "IPC error starting process {}: {}", req.command, e);
+                log!(
+                    "grpc-process",
+                    "IPC error starting process {}: {}",
+                    req.command,
+                    e
+                );
                 Ok(Response::new(StartProcessResponse { pid: -1, error: e }))
             }
             _ => {
-                log!("grpc-process", "Unexpected response when starting process {}", req.command);
+                log!(
+                    "grpc-process",
+                    "Unexpected response when starting process {}",
+                    req.command
+                );
                 Ok(Response::new(StartProcessResponse {
                     pid: -1,
                     error: "Unexpected response".to_string(),
@@ -121,15 +145,12 @@ impl ProcessService for GrpcProcessService {
 
         match self.send_ipc_message(message) {
             Ok(IpcResponse::ProcessList(data)) => {
-                log!("grpc-process", "Received process list ({} bytes)", data.len());
-                let processes: Vec<Process> = bincode::deserialize(&data)
-                    .map_err(|e| {
-                        let err = format!("Deserialization error: {}", e);
-                        log!("grpc-process", "ERROR: {}", err);
-                        Status::internal(err)
-                    })?;
+                let processes: Vec<Process> = bincode::deserialize(&data).map_err(|e| {
+                    let err = format!("Deserialization error: {}", e);
+                    log!("grpc-process", "ERROR: {}", err);
+                    Status::internal(err)
+                })?;
 
-                log!("grpc-process", "Returning {} processes", processes.len());
                 let process_infos: Vec<ProcessInfo> = processes
                     .into_iter()
                     .map(|p| ProcessInfo {
