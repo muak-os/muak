@@ -97,47 +97,73 @@ impl VmManager {
     }
 
     pub fn start(&self, vm_id: &str) -> Result<(), String> {
-        let mut vms = self
-            .vms
-            .lock()
-            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-        let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+        let vm_config;
+        let vm_name;
 
-        if vm.state != VmState::Created && vm.state != VmState::Stopped {
-            let err_msg = format!("Cannot start VM in state: {}", vm.state.to_string());
-            crate::log!("vm", "{}", err_msg);
-            return Err(err_msg);
+        {
+            let mut vms = self
+                .vms
+                .lock()
+                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+            let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+
+            if vm.state != VmState::Created && vm.state != VmState::Stopped {
+                let err_msg = format!("Cannot start VM in state: {}", vm.state.to_string());
+                crate::log!("vm", "{}", err_msg);
+                return Err(err_msg);
+            }
+
+            vm.state = VmState::Starting;
+            vm_name = vm.name.clone();
+            vm_config = vm.config.clone();
         }
 
-        vm.state = VmState::Starting;
-        crate::log!("vm", "Starting VM {} ({})", vm_id, vm.name);
+        crate::log!("vm", "Starting VM {} ({})", vm_id, vm_name);
 
         if !std::path::Path::new(crate::config::CLOUD_HYPERVISOR_BINARY).exists() {
-            let err_msg =
-                format!("cloud-hypervisor binary not found at {}", crate::config::CLOUD_HYPERVISOR_BINARY);
-            vm.state = VmState::Failed(err_msg.clone());
+            let err_msg = format!(
+                "cloud-hypervisor binary not found at {}",
+                crate::config::CLOUD_HYPERVISOR_BINARY
+            );
+
+            let mut vms = self
+                .vms
+                .lock()
+                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+            if let Some(vm) = vms.get_mut(vm_id) {
+                vm.state = VmState::Failed(err_msg.clone());
+            }
+
             crate::log!("vm", "ERROR: {}", err_msg);
             return Err("cloud-hypervisor extension not installed".to_string());
         }
 
-        for disk in &vm.config.disks {
+        for disk in &vm_config.disks {
             if !std::path::Path::new(&disk.path).exists() {
                 let err_msg = format!("Disk not found: {}", disk.path);
-                vm.state = VmState::Failed(err_msg.clone());
+
+                let mut vms = self
+                    .vms
+                    .lock()
+                    .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+                if let Some(vm) = vms.get_mut(vm_id) {
+                    vm.state = VmState::Failed(err_msg.clone());
+                }
+
                 crate::log!("vm", "ERROR: {}", err_msg);
                 return Err(err_msg);
             }
         }
 
         let mut args = vec![
-            format!("--cpus boot={}", vm.config.cpus),
-            format!("--memory size={}M", vm.config.memory_mb),
+            format!("--cpus boot={}", vm_config.cpus),
+            format!("--memory size={}M", vm_config.memory_mb),
             "--serial tty".to_string(),
             "--console off".to_string(),
             format!("--api-socket /run/ch-{}.sock", vm_id),
         ];
 
-        for disk in &vm.config.disks {
+        for disk in &vm_config.disks {
             args.push(format!(
                 "--disk path={}{}",
                 disk.path,
@@ -145,7 +171,7 @@ impl VmManager {
             ));
         }
 
-        for net in &vm.config.networks {
+        for net in &vm_config.networks {
             args.push(format!("--net tap={},mac={}", net.tap, net.mac));
         }
 
@@ -164,39 +190,67 @@ impl VmManager {
             Ok(pid) => pid,
             Err(e) => {
                 let err_msg = format!("Failed to spawn cloud-hypervisor process: {}", e);
-                vm.state = VmState::Failed(err_msg.clone());
+
+                let mut vms = self
+                    .vms
+                    .lock()
+                    .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+                if let Some(vm) = vms.get_mut(vm_id) {
+                    vm.state = VmState::Failed(err_msg.clone());
+                }
+
                 crate::log!("vm", "ERROR: {}", err_msg);
                 return Err(err_msg);
             }
         };
 
-        vm.pid = Some(pid);
-        vm.state = VmState::Running;
+        {
+            let mut vms = self
+                .vms
+                .lock()
+                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+            if let Some(vm) = vms.get_mut(vm_id) {
+                vm.pid = Some(pid);
+                vm.state = VmState::Running;
+            }
+        }
+
         crate::log!("vm", "VM {} started successfully with PID {}", vm_id, pid);
 
         Ok(())
     }
 
     pub fn stop(&self, vm_id: &str, force: bool) -> Result<(), String> {
-        let mut vms = self
-            .vms
-            .lock()
-            .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-        let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+        let pid;
+        let signal = if force { 9 } else { 15 };
 
-        if vm.state != VmState::Running {
-            return Err(format!("VM is not running: {}", vm.state.to_string()));
+        {
+            let mut vms = self
+                .vms
+                .lock()
+                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+            let vm = vms.get_mut(vm_id).ok_or("VM not found")?;
+
+            if vm.state != VmState::Running {
+                return Err(format!("VM is not running: {}", vm.state.to_string()));
+            }
+
+            pid = vm.pid.ok_or("VM has no PID")?;
+            vm.state = VmState::Stopping;
         }
 
-        let pid = vm.pid.ok_or("VM has no PID")?;
-
-        vm.state = VmState::Stopping;
-
-        let signal = if force { 9 } else { 15 };
         self.process_manager.stop(pid, signal)?;
 
-        vm.state = VmState::Stopped;
-        vm.pid = None;
+        {
+            let mut vms = self
+                .vms
+                .lock()
+                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
+            if let Some(vm) = vms.get_mut(vm_id) {
+                vm.state = VmState::Stopped;
+                vm.pid = None;
+            }
+        }
 
         Ok(())
     }
