@@ -3,10 +3,9 @@ use dhcproto::{v4, Decodable, Decoder, Encodable};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
 use nix::libc;
-use rand::Rng;
 use rtnetlink::Handle;
 use std::net::Ipv4Addr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
@@ -82,8 +81,10 @@ pub async fn run_dhcp_client(
         }
     }
 
-    let mut rng = rand::thread_rng();
-    let xid: u32 = rng.gen();
+    let xid: u32 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u32;
 
     let mut discover_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())

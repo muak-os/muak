@@ -476,7 +476,6 @@ dependencies = [
  "netlink-packet-route",
  "nix 0.29.0",
  "prost",
- "rand",
  "rtnetlink",
  "rustables",
  "serde",
