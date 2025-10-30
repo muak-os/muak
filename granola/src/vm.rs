@@ -23,6 +23,7 @@ pub struct VmConfig {
     pub disks: Vec<DiskConfig>,
     pub networks: Vec<NetConfig>,
     pub vmm_type: crate::vmm::VmmType,
+    pub network_mode: crate::network::NetworkMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,11 +177,36 @@ impl VmManager {
                 return Err(err_msg);
             }
 
+            // Ensure bridge mode is set up if needed (MUST happen before attaching to bridge)
+            if vm_config.network_mode == crate::network::NetworkMode::Bridge {
+                crate::log!("vm", "Ensuring LAN bridge mode is initialized for VM {}", vm_id);
+                let err_msg_opt = match self.network_manager.ensure_bridge_mode().await {
+                    Ok(()) => None,
+                    Err(bridge_err) => Some(format!("Failed to initialize bridge mode: {}", bridge_err)),
+                };
+                if let Some(err_msg) = err_msg_opt {
+                    {
+                        let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
+                        if let Some(vm) = vms.get_mut(vm_id) {
+                            vm.state = VmState::Failed(err_msg.clone());
+                        }
+                    }
+                    crate::log!("vm", "ERROR: {}", err_msg);
+                    let _ = crate::network::delete_tap(&handle, &tap_name).await;
+                    return Err(err_msg);
+                }
+            }
+
             let err_msg = {
+                let bridge_name = match vm_config.network_mode {
+                    crate::network::NetworkMode::NAT => crate::network::BRIDGE_NAME,
+                    crate::network::NetworkMode::Bridge => crate::network::LAN_BRIDGE_NAME,
+                };
+
                 match crate::network::attach_to_bridge(
                     &handle,
                     &tap_name,
-                    crate::network::BRIDGE_NAME,
+                    bridge_name,
                 )
                 .await
                 {
