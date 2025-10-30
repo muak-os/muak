@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use super::bridge;
 use super::config::*;
+use super::dhcp;
 use super::host;
 
 pub struct NetworkManager {
@@ -32,18 +33,25 @@ impl NetworkManager {
         host::setup_loopback(&self.handle).await?;
 
         if let Ok(iface) = host::find_ethernet_interface(&self.handle).await {
-            match host::run_dhcp_client(&iface, &self.handle).await {
-                Ok(()) => {
-                    *self.wan_interface.lock().unwrap() = Some(iface);
+            match host::bring_up_interface(&iface, &self.handle).await {
+                Ok(link_index) => {
+                    match dhcp::run_dhcp_client(&iface, &self.handle, link_index).await {
+                        Ok(()) => {
+                            *self.wan_interface.lock().unwrap() = Some(iface);
+                        }
+                        Err(e) => {
+                            log!(
+                                "network",
+                                "DHCP failed on {}: {} (continuing without WAN)",
+                                iface,
+                                e
+                            );
+                            *self.wan_interface.lock().unwrap() = Some(iface);
+                        }
+                    }
                 }
                 Err(e) => {
-                    log!(
-                        "network",
-                        "DHCP failed on {}: {} (continuing without WAN)",
-                        iface,
-                        e
-                    );
-                    *self.wan_interface.lock().unwrap() = Some(iface);
+                    log!("network", "Failed to bring up interface {}: {}", iface, e);
                 }
             }
         }
