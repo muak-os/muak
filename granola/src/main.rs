@@ -24,8 +24,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let network_manager = Arc::new(network::NetworkManager::new().await?);
 
     network_manager.initialize_host().await?;
-    network_manager.setup_bridge().await?;
-    network_manager.start_dhcp_server().await?;
 
     log!("granola", "Network initialized");
 

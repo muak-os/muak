@@ -20,7 +20,6 @@ message CreateVmRequest {
   repeated DiskConfig disks = 6;
   repeated NetConfig networks = 7;
   string vmm_type = 8;  // "cloud-hypervisor", "firecracker", or "qemu"
-  string network_mode = 9;  // "nat" or "bridge"
 }
 
 message DiskConfig {

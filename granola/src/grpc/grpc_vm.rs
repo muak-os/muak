@@ -56,13 +56,6 @@ impl VmService for GrpcVmService {
             req.vmm_type.parse().unwrap_or_default()
         };
 
-        // Parse network mode from string, default to Bridge
-        let network_mode = if req.network_mode.is_empty() {
-            crate::network::NetworkMode::default()
-        } else {
-            req.network_mode.parse().unwrap_or_default()
-        };
-
         let config = VmConfig {
             cpus: req.cpus,
             memory_mb: req.memory_mb,
@@ -79,7 +72,6 @@ impl VmService for GrpcVmService {
             disks,
             networks,
             vmm_type,
-            network_mode,
         };
 
         let mut ipc_client = IpcClient::new();

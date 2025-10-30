@@ -74,8 +74,6 @@ enum VmAction {
         disk: Vec<String>,
         #[arg(long)]
         net: Vec<String>,
-        #[arg(long, default_value = "bridge")]
-        network_mode: String,
     },
     Start {
         vm_id: String,
@@ -254,7 +252,6 @@ async fn handle_vm_action(
             memory,
             disk,
             net,
-            network_mode,
         } => {
             let mut uploaded_disks = Vec::new();
 
@@ -301,7 +298,6 @@ async fn handle_vm_action(
                 disks,
                 networks,
                 vmm_type: vmm,
-                network_mode,
             });
 
             let response = client.create_vm(request).await?;
