@@ -127,7 +127,13 @@ impl VmManager {
             vmm_type = vm.config.vmm_type.clone();
         }
 
-        crate::log!("vm", "Starting VM {} ({}) using {}", vm_id, vm_name, vmm_type);
+        crate::log!(
+            "vm",
+            "Starting VM {} ({}) using {}",
+            vm_id,
+            vm_name,
+            vmm_type
+        );
 
         let mut network_configs = vm_config.networks.clone();
         if network_configs.is_empty() {
@@ -176,34 +182,16 @@ impl VmManager {
                 return Err(err_msg);
             }
 
-            // Ensure bridge mode is set up (MUST happen before attaching to bridge)
-            crate::log!("vm", "Ensuring LAN bridge mode is initialized for VM {}", vm_id);
-            let err_msg_opt = match self.network_manager.ensure_bridge_mode().await {
-                Ok(()) => None,
-                Err(bridge_err) => Some(format!("Failed to initialize bridge mode: {}", bridge_err)),
-            };
-            if let Some(err_msg) = err_msg_opt {
-                {
-                    let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-                    if let Some(vm) = vms.get_mut(vm_id) {
-                        vm.state = VmState::Failed(err_msg.clone());
-                    }
-                }
-                crate::log!("vm", "ERROR: {}", err_msg);
-                let _ = crate::network::delete_tap(&handle, &tap_name).await;
-                return Err(err_msg);
-            }
-
+            crate::log!(
+                "vm",
+                "Attaching TAP {} to bridge for VM {}",
+                tap_name,
+                vm_id
+            );
             let err_msg = {
                 let bridge_name = crate::network::LAN_BRIDGE_NAME;
 
-                match crate::network::attach_to_bridge(
-                    &handle,
-                    &tap_name,
-                    bridge_name,
-                )
-                .await
-                {
+                match crate::network::attach_to_bridge(&handle, &tap_name, bridge_name).await {
                     Ok(_) => None,
                     Err(e) => Some(format!("Failed to attach TAP to bridge: {}", e)),
                 }

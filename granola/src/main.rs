@@ -21,17 +21,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
     log!("granola", "Created {} directory", config::MUAK_DISKS_DIR);
 
+    let mut signal_handler = SignalHandler::new()?;
+    log!("granola", "Signal handlers installed");
+
     let network_manager = Arc::new(network::NetworkManager::new().await?);
 
     network_manager.initialize_host().await?;
+    log!("granola", "Host network initialized");
 
-    log!("granola", "Network initialized");
+    if let Err(e) = network_manager.initialize_bridge().await {
+        log!("granola", "WARNING: Bridge initialization failed: {}", e);
+        log!(
+            "granola",
+            "VMs will not be able to start until network is available"
+        );
+    } else {
+        log!("granola", "Network bridge initialized");
+    }
 
     let process_manager = ProcessManager::new();
     let vm_manager = VmManager::new(process_manager.clone(), network_manager.clone());
-
-    let mut signal_handler = SignalHandler::new()?;
-    log!("granola", "Signal handlers installed");
 
     let ipc_server = Arc::new(IpcServer::new()?);
     log!(

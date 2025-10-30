@@ -10,7 +10,6 @@ use super::interface;
 pub struct NetworkManager {
     handle: Handle,
     wan_interface: Arc<Mutex<Option<String>>>,
-    bridge_mode_initialized: Arc<Mutex<bool>>,
 }
 
 impl NetworkManager {
@@ -23,7 +22,6 @@ impl NetworkManager {
         Ok(Self {
             handle,
             wan_interface: Arc::new(Mutex::new(None)),
-            bridge_mode_initialized: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -63,16 +61,8 @@ impl NetworkManager {
         self.handle.clone()
     }
 
-    pub async fn ensure_bridge_mode(&self) -> Result<(), Box<dyn std::error::Error>> {
-        {
-            let initialized = self.bridge_mode_initialized.lock().unwrap();
-            if *initialized {
-                log!("network", "Bridge mode already initialized");
-                return Ok(());
-            }
-        }
-
-        log!("network", "Initializing bridge mode for the first time");
+    pub async fn initialize_bridge(&self) -> Result<(), Box<dyn std::error::Error>> {
+        log!("network", "Initializing network bridge");
 
         let wan_iface = {
             let wan_guard = self.wan_interface.lock().unwrap();
@@ -95,8 +85,7 @@ impl NetworkManager {
 
         bridge::setup_lan_bridge(&self.handle, LAN_BRIDGE_NAME, &wan_iface).await?;
 
-        *self.bridge_mode_initialized.lock().unwrap() = true;
-        log!("network", "Bridge mode initialization complete");
+        log!("network", "Network bridge initialization complete");
 
         Ok(())
     }
