@@ -18,51 +18,6 @@ pub async fn setup_lan_bridge(
         physical_iface
     );
 
-    log!(
-        "network",
-        "Checking if bridge {} already exists",
-        bridge_name
-    );
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(bridge_name.to_string())
-        .execute();
-
-    log!("network", "Executed netlink query, checking results");
-    match links.try_next().await {
-        Ok(Some(_)) => {
-            log!(
-                "network",
-                "Bridge {} already exists, skipping setup",
-                bridge_name
-            );
-            return Ok(());
-        }
-        Ok(None) => {
-            log!(
-                "network",
-                "Bridge {} does not exist, will create it",
-                bridge_name
-            );
-        }
-        Err(e) => {
-            // rtnetlink returns "No such device" error when device doesn't exist
-            // This is expected, treat it as "device doesn't exist"
-            let err_str = e.to_string();
-            if err_str.contains("No such device") {
-                log!(
-                    "network",
-                    "Bridge {} does not exist (caught 'No such device' error), will create it",
-                    bridge_name
-                );
-            } else {
-                log!("network", "ERROR during bridge check: {}", e);
-                return Err(e.into());
-            }
-        }
-    }
-
     // Get the physical interface index
     log!(
         "network",
@@ -145,7 +100,6 @@ pub async fn setup_lan_bridge(
         }
     }
 
-    // Create bridge
     log!("network", "Creating bridge {}", bridge_name);
     handle
         .link()
@@ -165,7 +119,6 @@ pub async fn setup_lan_bridge(
         return Err("Failed to find created bridge".into());
     };
 
-    // Bring up bridge
     handle.link().set(bridge_index).up().execute().await?;
     log!("network", "Bridge {} is up", bridge_name);
 
