@@ -105,15 +105,27 @@ pub async fn run_dhcp_client(
     let offer = v4::Message::decode(&mut decoder)?;
     log!("network", "Received DHCPOFFER: {}", offer.yiaddr());
 
+    // Extract server identifier from DHCPOFFER
+    let mut server_id: Option<Ipv4Addr> = None;
+    for (_code, opt) in offer.opts().iter() {
+        if let v4::DhcpOption::ServerIdentifier(sid) = opt {
+            server_id = Some(*sid);
+            break;
+        }
+    }
+    let server_id = server_id.ok_or("No server identifier in DHCPOFFER")?;
+
     let mut request_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())
         .set_chaddr(&crate::config::DEFAULT_MAC_ADDRESS)
         .set_xid(xid)
         .set_opcode(v4::Opcode::BootRequest)
         .to_vec()?;
-    request_msg.extend(&[53, 1, 3]);
-    request_msg.extend(&[50, 4]);
+    request_msg.extend(&[53, 1, 3]); // Option 53: DHCP Message Type = REQUEST
+    request_msg.extend(&[50, 4]); // Option 50: Requested IP Address
     request_msg.extend(&offer.yiaddr().octets());
+    request_msg.extend(&[54, 4]); // Option 54: Server Identifier
+    request_msg.extend(&server_id.octets());
     request_msg.push(255);
 
     log!("network", "Sending DHCPREQUEST");
