@@ -272,27 +272,6 @@ pub async fn setup_lan_bridge(
     Ok(())
 }
 
-pub async fn teardown_lan_bridge(
-    handle: &Handle,
-    bridge_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    log!("network", "Tearing down LAN bridge: {}", bridge_name);
-
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(bridge_name.to_string())
-        .execute();
-    if let Some(link) = links.try_next().await? {
-        handle.link().del(link.header.index).execute().await?;
-        log!("network", "Bridge {} deleted", bridge_name);
-    } else {
-        log!("network", "Bridge {} does not exist", bridge_name);
-    }
-
-    Ok(())
-}
-
 pub async fn attach_to_bridge(
     handle: &Handle,
     tap_name: &str,

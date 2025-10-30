@@ -100,16 +100,4 @@ impl NetworkManager {
 
         Ok(())
     }
-
-    pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
-        log!("network", "Shutting down network manager");
-
-        // Clean up bridge mode if it was initialized
-        if *self.bridge_mode_initialized.lock().unwrap() {
-            bridge::teardown_lan_bridge(&self.handle, LAN_BRIDGE_NAME).await?;
-        }
-
-        log!("network", "Network manager shutdown complete");
-        Ok(())
-    }
 }
