@@ -1,7 +1,7 @@
 # Muak
 
-Muak is a purpose built Linux distribution to run VMs using any hypervisors. It is designed to be minimal, immutable,
-API-driven, secure, and easy to use.
+Muak is a purpose built Linux distribution to run VMs using hypervisors such as QEMU, firecracker and cloud-hypervisor.
+It is designed to be minimal, immutable, API-driven, secure, and easy to use.
 
 Here are the two prerequisites to run Muak:
 
@@ -23,13 +23,6 @@ Muak uses a custom build system to create a bootable ISO with a Unified Kernel I
    - Creates schematic ID (deterministic hash of extensions)
    - Packages everything into `build/initramfs.img`
 
-   Examples:
-   ```bash
-   ./scripts/build-initramfs.sh x86_64                    # Base system (schematic: base)
-   ./scripts/build-initramfs.sh x86_64 "firecracker"      # With firecracker
-   ./scripts/build-initramfs.sh x86_64 "firecracker,qemu" # With multiple extensions
-   ```
-
 3. **UKI Build** (`scripts/build-uki.sh`)
    - Assembles kernel + initramfs + cmdline into UEFI executable using ukify
 
@@ -44,11 +37,3 @@ Extensions are additional software packages (hypervisors, tools) layered on top 
 - **Build-time**: Extensions compiled to `.sqsh` files embedded in initramfs
 - **Boot-time**: Stage1 init reads `/extensions.yaml` and mounts layers with overlayfs
 
-## TODO
-
-- Add SPICE extension server for remote graphical access to VMs
-- Add gRPC authentication
-- Add maintenance mode
-
-qemu-system-x86_64 -enable-kvm -cpu host -m 2G -cdrom build/muak-x86_64.iso -bios /usr/share/ovmf/x64/OVMF.4m.fd -serial stdio -netdev user,id=net0,
-hostfwd=tcp::50052-:50051 -device virtio-net-pci,netdev=net0

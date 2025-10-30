@@ -1,4 +1,10 @@
 pub const CLOUD_HYPERVISOR_BINARY: &str = "/usr/bin/cloud-hypervisor";
+pub const FIRECRACKER_BINARY: &str = "/usr/bin/firecracker";
+pub const QEMU_BINARY: &str = "/usr/bin/qemu-system-x86_64";
+pub const DEFAULT_KERNEL_PATH: &str = "/boot/vmlinux";
+pub const FIRECRACKER_KERNEL_PATH: &str = "/usr/share/firecracker/vmlinux";
+pub const FIRECRACKER_ROOTFS_PATH: &str = "/usr/share/firecracker/rootfs.ext4";
+pub const UEFI_FIRMWARE_PATH: &str = "/usr/share/edk2/ovmf/OVMF_CODE.fd";
 pub const GRANOLA_SOCKET_PATH: &str = "/run/granola.sock";
 pub const MUAK_DISKS_DIR: &str = "/tmp/muak/disks";
 pub const GRPC_SERVER_ADDR: &str = "0.0.0.0:50051";

@@ -6,6 +6,7 @@ mod network;
 mod process;
 mod signal;
 mod vm;
+mod vmm;
 
 use ipc::IpcServer;
 use process::ProcessManager;

@@ -1,5 +1,4 @@
 #!/bin/bash
-# Convert OCI image to SquashFS for MUAK
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
@@ -40,7 +39,6 @@ else
     exit 1
 fi
 
-# Create squashfs
 echo "  Creating SquashFS..."
 mksquashfs "$WORK_DIR" "${OUTPUT_DIR}/${EXTENSION_NAME}.sqsh" \
     -comp xz \
@@ -49,7 +47,6 @@ mksquashfs "$WORK_DIR" "${OUTPUT_DIR}/${EXTENSION_NAME}.sqsh" \
     -noappend \
     -no-progress
 
-# Cleanup
 rm -rf "$WORK_DIR"
 
 echo "✓ Created: ${OUTPUT_DIR}/${EXTENSION_NAME}.sqsh"

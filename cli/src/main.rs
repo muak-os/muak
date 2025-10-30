@@ -62,6 +62,10 @@ enum VmAction {
         name: String,
         #[arg(long)]
         cmdline: Option<String>,
+        #[arg(long)]
+        kernel: Option<String>,
+        #[arg(long, default_value = "cloud-hypervisor")]
+        vmm: String,
         #[arg(long, default_value = "1")]
         cpus: i32,
         #[arg(long, default_value = "512")]
@@ -91,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let server_addr = format!("http://{}", cli.server);
     let channel = tonic::transport::Channel::from_shared(server_addr)?
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
         .connect()
         .await?;
 
@@ -240,6 +246,8 @@ async fn handle_vm_action(
         VmAction::Create {
             name,
             cmdline,
+            kernel,
+            vmm,
             cpus,
             memory,
             disk,
@@ -283,12 +291,13 @@ async fn handle_vm_action(
 
             let request = tonic::Request::new(CreateVmRequest {
                 name: name.clone(),
-                kernel: String::new(),
+                kernel: kernel.unwrap_or_default(),
                 cmdline: cmdline.unwrap_or_default(),
                 cpus,
                 memory_mb: memory,
                 disks,
                 networks,
+                vmm_type: vmm,
             });
 
             let response = client.create_vm(request).await?;
@@ -371,8 +380,8 @@ async fn handle_vm_action(
                 println!("No VMs");
             } else {
                 println!(
-                    "{:<36} {:<20} {:<12} {:<6} {:<10} {:<8} {}",
-                    "VM ID", "NAME", "STATE", "CPUS", "MEMORY(MB)", "PID", "CREATED"
+                    "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
+                    "VM ID", "NAME", "STATE", "VMM", "CPUS", "MEMORY(MB)", "PID", "CREATED"
                 );
                 for vm in resp.vms {
                     let created = chrono::DateTime::from_timestamp(vm.created_at, 0)
@@ -386,8 +395,8 @@ async fn handle_vm_action(
                     };
 
                     println!(
-                        "{:<36} {:<20} {:<12} {:<6} {:<10} {:<8} {}",
-                        vm.vm_id, vm.name, vm.state, vm.cpus, vm.memory_mb, pid_str, created
+                        "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
+                        vm.vm_id, vm.name, vm.state, vm.vmm_type, vm.cpus, vm.memory_mb, pid_str, created
                     );
                 }
             }

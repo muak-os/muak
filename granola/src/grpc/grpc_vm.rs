@@ -49,10 +49,21 @@ impl VmService for GrpcVmService {
             })
             .collect();
 
+        // Parse VMM type from string, default to CloudHypervisor
+        let vmm_type = if req.vmm_type.is_empty() {
+            crate::vmm::VmmType::default()
+        } else {
+            req.vmm_type.parse().unwrap_or_default()
+        };
+
         let config = VmConfig {
             cpus: req.cpus,
             memory_mb: req.memory_mb,
-            kernel: req.kernel,
+            kernel: if req.kernel.is_empty() {
+                None
+            } else {
+                Some(req.kernel)
+            },
             cmdline: if req.cmdline.is_empty() {
                 None
             } else {
@@ -60,6 +71,7 @@ impl VmService for GrpcVmService {
             },
             disks,
             networks,
+            vmm_type,
         };
 
         let mut ipc_client = IpcClient::new();
@@ -240,6 +252,7 @@ impl VmService for GrpcVmService {
                             memory_mb: v.config.memory_mb,
                             pid: v.pid.unwrap_or(-1),
                             created_at: v.created_at,
+                            vmm_type: v.config.vmm_type.to_string(),
                         })
                         .collect();
 

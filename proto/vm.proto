@@ -19,6 +19,7 @@ message CreateVmRequest {
   string cmdline = 5;
   repeated DiskConfig disks = 6;
   repeated NetConfig networks = 7;
+  string vmm_type = 8;  // "cloud-hypervisor", "firecracker", or "qemu"
 }
 
 message DiskConfig {
@@ -78,6 +79,7 @@ message VmInfo {
   int64 memory_mb = 5;
   int32 pid = 6;
   int64 created_at = 7;
+  string vmm_type = 8;  // "cloud-hypervisor", "firecracker", or "qemu"
 }
 
 message UploadDiskRequest {

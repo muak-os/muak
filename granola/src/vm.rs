@@ -18,10 +18,11 @@ pub struct Vm {
 pub struct VmConfig {
     pub cpus: i32,
     pub memory_mb: i64,
-    pub kernel: String,
+    pub kernel: Option<String>,
     pub cmdline: Option<String>,
     pub disks: Vec<DiskConfig>,
     pub networks: Vec<NetConfig>,
+    pub vmm_type: crate::vmm::VmmType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +106,7 @@ impl VmManager {
     pub async fn start(&self, vm_id: &str) -> Result<(), String> {
         let vm_config;
         let vm_name;
+        let vmm_type;
 
         {
             let mut vms = self
@@ -122,9 +124,10 @@ impl VmManager {
             vm.state = VmState::Starting;
             vm_name = vm.name.clone();
             vm_config = vm.config.clone();
+            vmm_type = vm.config.vmm_type.clone();
         }
 
-        crate::log!("vm", "Starting VM {} ({})", vm_id, vm_name);
+        crate::log!("vm", "Starting VM {} ({}) using {}", vm_id, vm_name, vmm_type);
 
         let mut network_configs = vm_config.networks.clone();
         if network_configs.is_empty() {
@@ -210,76 +213,27 @@ impl VmManager {
             }
         }
 
-        if !std::path::Path::new(crate::config::CLOUD_HYPERVISOR_BINARY).exists() {
-            let err_msg = format!(
-                "cloud-hypervisor binary not found at {}",
-                crate::config::CLOUD_HYPERVISOR_BINARY
-            );
+        // Create VMM backend
+        let backend = crate::vmm::create_backend(vmm_type);
 
-            let mut vms = self
-                .vms
-                .lock()
-                .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-            if let Some(vm) = vms.get_mut(vm_id) {
-                vm.state = VmState::Failed(err_msg.clone());
-            }
+        // Prepare VMM configuration
+        let vmm_config = crate::vmm::VmmConfig {
+            vm_id: vm_id.to_string(),
+            cpus: vm_config.cpus,
+            memory_mb: vm_config.memory_mb,
+            kernel: vm_config.kernel.clone(),
+            cmdline: vm_config.cmdline.clone(),
+            disks: vm_config.disks.clone(),
+            networks: network_configs.clone(),
+        };
 
-            crate::log!("vm", "ERROR: {}", err_msg);
-            return Err("cloud-hypervisor extension not installed".to_string());
-        }
+        // Start the VM using the backend
+        let result = backend.start(vmm_config, &self.process_manager).await;
 
-        for disk in &vm_config.disks {
-            if !std::path::Path::new(&disk.path).exists() {
-                let err_msg = format!("Disk not found: {}", disk.path);
-
-                let mut vms = self
-                    .vms
-                    .lock()
-                    .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-                if let Some(vm) = vms.get_mut(vm_id) {
-                    vm.state = VmState::Failed(err_msg.clone());
-                }
-
-                crate::log!("vm", "ERROR: {}", err_msg);
-                return Err(err_msg);
-            }
-        }
-
-        let mut args = vec![
-            format!("--cpus boot={}", vm_config.cpus),
-            format!("--memory size={}M", vm_config.memory_mb),
-            "--serial tty".to_string(),
-            "--console off".to_string(),
-            format!("--api-socket /run/ch-{}.sock", vm_id),
-        ];
-
-        for disk in &vm_config.disks {
-            args.push(format!(
-                "--disk path={}{}",
-                disk.path,
-                if disk.readonly { ",readonly=on" } else { "" }
-            ));
-        }
-
-        for net in &network_configs {
-            args.push(format!("--net tap={},mac={}", net.tap, net.mac));
-        }
-
-        crate::log!(
-            "vm",
-            "Executing: {} {}",
-            crate::config::CLOUD_HYPERVISOR_BINARY,
-            args.join(" ")
-        );
-
-        let pid = match self.process_manager.spawn_external(
-            crate::config::CLOUD_HYPERVISOR_BINARY.to_string(),
-            args,
-            HashMap::new(),
-        ) {
-            Ok(pid) => pid,
+        let pid = match result {
+            Ok(start_result) => start_result.pid,
             Err(e) => {
-                let err_msg = format!("Failed to spawn cloud-hypervisor process: {}", e);
+                let err_msg = format!("Failed to start VM: {}", e);
 
                 let mut vms = self
                     .vms
