@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use super::bridge;
 use super::config::*;
 use super::dhcp;
-use super::host;
+use super::interface;
 
 pub struct NetworkManager {
     handle: Handle,
@@ -30,10 +30,10 @@ impl NetworkManager {
     pub async fn initialize_host(&self) -> Result<(), Box<dyn std::error::Error>> {
         log!("network", "Initializing host networking");
 
-        host::setup_loopback(&self.handle).await?;
+        interface::setup_loopback(&self.handle).await?;
 
-        if let Ok(iface) = host::find_ethernet_interface(&self.handle).await {
-            match host::bring_up_interface(&iface, &self.handle).await {
+        if let Ok(iface) = interface::find_ethernet_interface(&self.handle).await {
+            match interface::bring_up_interface(&iface, &self.handle).await {
                 Ok(link_index) => {
                     match dhcp::run_dhcp_client(&iface, &self.handle, link_index).await {
                         Ok(()) => {
@@ -82,7 +82,7 @@ impl NetworkManager {
         let wan_iface = if let Some(iface) = wan_iface {
             iface
         } else {
-            match host::find_ethernet_interface(&self.handle).await {
+            match interface::find_ethernet_interface(&self.handle).await {
                 Ok(iface) => {
                     *self.wan_interface.lock().unwrap() = Some(iface.clone());
                     iface
