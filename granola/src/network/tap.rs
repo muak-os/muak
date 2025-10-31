@@ -3,7 +3,7 @@ use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::AsRawFd;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const TUNSETIFF: u64 = 0x400454ca;
@@ -18,7 +18,7 @@ struct IfReq {
     _padding: [u8; 22],
 }
 
-pub async fn create_tap(tap_name: &str) -> Result<RawFd, Box<dyn std::error::Error>> {
+pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     log!("network", "Creating TAP device: {}", tap_name);
 
     let file = OpenOptions::new().read(true).write(true).open(TUN_DEVICE)?;
@@ -41,12 +41,9 @@ pub async fn create_tap(tap_name: &str) -> Result<RawFd, Box<dyn std::error::Err
         return Err("Failed to create TAP device".into());
     }
 
-    log!("network", "TAP device {} created (fd: {})", tap_name, fd);
+    log!("network", "TAP device {} created", tap_name);
 
-    // Keep the file descriptor open - it will be used by the VM
-    std::mem::forget(file);
-
-    Ok(fd)
+    Ok(())
 }
 
 pub async fn bring_up_tap(
