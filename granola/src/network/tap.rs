@@ -7,6 +7,7 @@ use std::os::unix::io::AsRawFd;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const TUNSETIFF: u64 = 0x400454ca;
+const TUNSETPERSIST: u64 = 0x400454cb;
 const IFF_TAP: i16 = 0x0002;
 const IFF_NO_PI: i16 = 0x1000;
 const IFF_VNET_HDR: i16 = 0x4000;
@@ -41,7 +42,13 @@ pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>
         return Err("Failed to create TAP device".into());
     }
 
-    log!("network", "TAP device {} created", tap_name);
+    let persist_ret = unsafe { nix::libc::ioctl(fd, TUNSETPERSIST, 1) };
+
+    if persist_ret < 0 {
+        return Err("Failed to make TAP device persistent".into());
+    }
+
+    log!("network", "Persistent TAP device {} created", tap_name);
 
     Ok(())
 }
