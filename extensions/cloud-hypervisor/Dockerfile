@@ -2,15 +2,18 @@
 
 FROM alpine:latest AS downloader
 ARG CH_VERSION=v42.0
+ARG EDK2_VERSION=ch-a54f262b09
 WORKDIR /download
 
 RUN apk add --no-cache curl && \
   curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static" -o cloud-hypervisor && \
-  chmod +x cloud-hypervisor
+  chmod +x cloud-hypervisor && \
+  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV.fd" -o CLOUDHV.fd
 
 # Final image - scratch base with only what we need
 FROM scratch
 COPY --from=downloader /download/cloud-hypervisor /usr/bin/cloud-hypervisor
+COPY --from=downloader /download/CLOUDHV.fd /usr/share/muak/CLOUDHV.fd
 COPY manifest.yaml /manifest.yaml
 
 # OCI labels for metadata
