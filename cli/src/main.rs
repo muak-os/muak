@@ -13,8 +13,8 @@ use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
-    upload_disk_request, CreateVmRequest, DeleteVmRequest, DiskConfig, ListVmsRequest, NetConfig,
-    StartVmRequest, StopVmRequest, UploadDiskRequest,
+    upload_file_request, CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest,
+    ListVmsRequest, NetConfig, StartVmRequest, StopVmRequest, UploadFileRequest,
 };
 
 #[derive(Parser)]
@@ -64,6 +64,8 @@ enum VmAction {
         cmdline: Option<String>,
         #[arg(long)]
         kernel: Option<String>,
+        #[arg(long)]
+        initrd: Option<String>,
         #[arg(long, default_value = "cloud-hypervisor")]
         vmm: String,
         #[arg(long, default_value = "1")]
@@ -85,6 +87,11 @@ enum VmAction {
     },
     Delete {
         vm_id: String,
+    },
+    Logs {
+        vm_id: String,
+        #[arg(long, short = 'n', default_value = "0")]
+        tail: i64,
     },
     List,
 }
@@ -114,27 +121,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn upload_disk(
+async fn upload_file(
     client: &mut VmServiceClient<tonic::transport::Channel>,
-    disk_path: &str,
+    file_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     use tokio::io::AsyncReadExt;
 
-    let mut file = tokio::fs::File::open(disk_path).await?;
+    let mut file = tokio::fs::File::open(file_path).await?;
     let metadata = file.metadata().await?;
     let file_size = metadata.len();
-    let filename = std::path::Path::new(disk_path)
+    let filename = std::path::Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("disk.img")
+        .unwrap_or("file")
         .to_string();
 
     let (tx, rx) = tokio::sync::mpsc::channel(128);
 
     tokio::spawn(async move {
-        let metadata_msg = UploadDiskRequest {
-            request: Some(upload_disk_request::Request::Metadata(
-                vm_service::UploadDiskMetadata {
+        let metadata_msg = UploadFileRequest {
+            request: Some(upload_file_request::Request::Metadata(
+                vm_service::UploadFileMetadata {
                     filename,
                     size: file_size as i64,
                 },
@@ -150,8 +157,8 @@ async fn upload_disk(
             match file.read(&mut buffer).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = UploadDiskRequest {
-                        request: Some(upload_disk_request::Request::Chunk(buffer[..n].to_vec())),
+                    let chunk = UploadFileRequest {
+                        request: Some(upload_file_request::Request::Chunk(buffer[..n].to_vec())),
                     };
                     if tx.send(chunk).await.is_err() {
                         break;
@@ -164,7 +171,7 @@ async fn upload_disk(
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     let request = tonic::Request::new(stream);
-    let response = client.upload_disk(request).await?;
+    let response = client.upload_file(request).await?;
     let resp = response.into_inner();
 
     if !resp.error.is_empty() {
@@ -247,18 +254,61 @@ async fn handle_vm_action(
             name,
             cmdline,
             kernel,
+            initrd,
             vmm,
             cpus,
             memory,
             disk,
             net,
         } => {
+            // Upload kernel if it exists locally
+            let kernel_path = if let Some(ref k) = kernel {
+                if std::path::Path::new(k).exists() {
+                    println!("Uploading kernel: {}", k);
+                    match upload_file(client, k).await {
+                        Ok(remote_path) => {
+                            println!("Uploaded to: {}", remote_path);
+                            Some(remote_path)
+                        }
+                        Err(e) => {
+                            eprintln!("Error uploading kernel {}: {}", k, e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    Some(k.clone())
+                }
+            } else {
+                None
+            };
+
+            // Upload initrd if it exists locally
+            let initrd_path = if let Some(ref i) = initrd {
+                if std::path::Path::new(i).exists() {
+                    println!("Uploading initrd: {}", i);
+                    match upload_file(client, i).await {
+                        Ok(remote_path) => {
+                            println!("Uploaded to: {}", remote_path);
+                            Some(remote_path)
+                        }
+                        Err(e) => {
+                            eprintln!("Error uploading initrd {}: {}", i, e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    Some(i.clone())
+                }
+            } else {
+                None
+            };
+
             let mut uploaded_disks = Vec::new();
 
             for disk_path in &disk {
                 if std::path::Path::new(disk_path).exists() {
                     println!("Uploading disk: {}", disk_path);
-                    match upload_disk(client, disk_path).await {
+                    match upload_file(client, disk_path).await {
                         Ok(remote_path) => {
                             println!("Uploaded to: {}", remote_path);
                             uploaded_disks.push(remote_path);
@@ -275,9 +325,13 @@ async fn handle_vm_action(
 
             let disks: Vec<DiskConfig> = uploaded_disks
                 .into_iter()
-                .map(|path| DiskConfig {
-                    path,
-                    readonly: false,
+                .map(|path| {
+                    // ISOs should be readonly
+                    let readonly = path.to_lowercase().ends_with(".iso");
+                    DiskConfig {
+                        path,
+                        readonly,
+                    }
                 })
                 .collect();
 
@@ -291,7 +345,8 @@ async fn handle_vm_action(
 
             let request = tonic::Request::new(CreateVmRequest {
                 name: name.clone(),
-                kernel: kernel.unwrap_or_default(),
+                kernel: kernel_path.unwrap_or_default(),
+                initrd: initrd_path.unwrap_or_default(),
                 cmdline: cmdline.unwrap_or_default(),
                 cpus,
                 memory_mb: memory,
@@ -367,6 +422,22 @@ async fn handle_vm_action(
                 println!("Deleted VM: {}", vm_id);
             } else {
                 eprintln!("Error deleting VM: {}", resp.error);
+                std::process::exit(1);
+            }
+        }
+        VmAction::Logs { vm_id, tail } => {
+            let request = tonic::Request::new(GetVmSerialLogRequest {
+                vm_id: vm_id.clone(),
+                tail_lines: tail,
+            });
+
+            let response = client.get_vm_serial_log(request).await?;
+            let resp = response.into_inner();
+
+            if resp.error.is_empty() {
+                print!("{}", resp.output);
+            } else {
+                eprintln!("Error getting VM serial log: {}", resp.error);
                 std::process::exit(1);
             }
         }

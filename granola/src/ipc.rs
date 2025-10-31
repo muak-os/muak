@@ -42,6 +42,10 @@ pub enum IpcMessage {
     GetVm {
         vm_id: String,
     },
+    GetVmSerialLog {
+        vm_id: String,
+        tail_lines: i64,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,6 +56,7 @@ pub enum IpcResponse {
     VmCreated { vm_id: String },
     VmList(Vec<u8>),
     Vm(Vec<u8>),
+    VmSerialLog(String),
     Error(String),
 }
 
@@ -199,6 +204,22 @@ impl IpcServer {
                 },
                 None => IpcResponse::Error("VM not found".to_string()),
             },
+            IpcMessage::GetVmSerialLog { vm_id, tail_lines } => {
+                let log_path = format!("/run/{}-serial.log", vm_id);
+                match std::fs::read_to_string(&log_path) {
+                    Ok(content) => {
+                        if tail_lines > 0 {
+                            let lines: Vec<&str> = content.lines().collect();
+                            let start = lines.len().saturating_sub(tail_lines as usize);
+                            let output = lines[start..].join("\n");
+                            IpcResponse::VmSerialLog(output)
+                        } else {
+                            IpcResponse::VmSerialLog(content)
+                        }
+                    }
+                    Err(e) => IpcResponse::Error(format!("Failed to read serial log: {}", e)),
+                }
+            }
         }
     }
 }

@@ -1,9 +1,13 @@
+use nix::fcntl::{open, OFlag};
 use nix::sys::signal::{kill, Signal};
-use nix::unistd::{fork, ForkResult, Pid};
+use nix::sys::stat::Mode;
+use nix::unistd::{dup2, fork, ForkResult, Pid};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
+use std::os::unix::io::RawFd;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -104,6 +108,17 @@ impl ProcessManager {
         args: Vec<String>,
         env: HashMap<String, String>,
     ) -> Result<i32, String> {
+        self.spawn_external_with_redirect(command, args, env, None, None)
+    }
+
+    pub fn spawn_external_with_redirect(
+        &self,
+        command: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+        stdout_path: Option<String>,
+        stderr_path: Option<String>,
+    ) -> Result<i32, String> {
         if !std::path::Path::new(&command).exists() {
             return Err(format!("Command not found: {}", command));
         }
@@ -122,6 +137,44 @@ impl ProcessManager {
                 Ok(pid)
             }
             Ok(ForkResult::Child) => {
+                // Redirect stdout if requested
+                if let Some(stdout_file) = stdout_path {
+                    let path = Path::new(&stdout_file);
+                    match open(
+                        path,
+                        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
+                        Mode::from_bits_truncate(0o644),
+                    ) {
+                        Ok(fd) => {
+                            let _ = dup2(fd as RawFd, 1); // Redirect stdout
+                            let _ = nix::unistd::close(fd as RawFd);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to open stdout file {}: {}", stdout_file, e);
+                            std::process::exit(127);
+                        }
+                    }
+                }
+
+                // Redirect stderr if requested
+                if let Some(stderr_file) = stderr_path {
+                    let path = Path::new(&stderr_file);
+                    match open(
+                        path,
+                        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
+                        Mode::from_bits_truncate(0o644),
+                    ) {
+                        Ok(fd) => {
+                            let _ = dup2(fd as RawFd, 2); // Redirect stderr
+                            let _ = nix::unistd::close(fd as RawFd);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to open stderr file {}: {}", stderr_file, e);
+                            std::process::exit(127);
+                        }
+                    }
+                }
+
                 let cmd =
                     CString::new(command.as_str()).expect("FATAL: command contains null byte");
                 let c_args: Vec<CString> = std::iter::once(command.clone())

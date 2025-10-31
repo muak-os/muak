@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nix = { version = "0.29", features = ["process", "signal"] }
+nix = { version = "0.29", features = ["process", "signal", "fs"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util"] }
 tonic = "0.12"
 prost = "0.13"

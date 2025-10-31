@@ -18,41 +18,66 @@ impl CloudHypervisorBackend {
         config: VmmConfig,
         process_manager: &ProcessManager,
     ) -> Result<VmmStartResult, String> {
-        // Detect if we're booting from an ISO
-        let has_iso = config.disks.iter().any(|d| {
-            d.path.to_lowercase().ends_with(".iso")
-        });
+        let boot_mode = if config.kernel.is_some() {
+            "direct kernel boot"
+        } else {
+            "UEFI firmware boot (edk2 CLOUDHV)"
+        };
+
+        crate::log!("vmm", "Starting cloud-hypervisor v42.0 with {}", boot_mode);
 
         // Build cloud-hypervisor command line arguments
         let mut args = vec![
-            format!("--cpus boot={}", config.cpus),
-            format!("--memory size={}M", config.memory_mb),
-            "--serial tty".to_string(),
-            "--console off".to_string(),
-            format!("--api-socket /run/ch-{}.sock", config.vm_id),
+            "--cpus".to_string(),
+            format!("boot={}", config.cpus),
+            "--memory".to_string(),
+            format!("size={}M", config.memory_mb),
+            "--api-socket".to_string(),
+            format!("/run/ch-{}.sock", config.vm_id),
+            "--serial".to_string(),
+            "tty".to_string(),
         ];
 
-        // If we have an ISO, we need UEFI firmware and should not specify a kernel
-        if has_iso {
-            args.push(format!("--firmware {}", crate::config::UEFI_FIRMWARE_PATH));
-        } else {
-            // Traditional boot: add kernel if specified
-            if let Some(kernel) = &config.kernel {
-                args.push(format!("--kernel {}", kernel));
-            }
-        }
+        // Choose boot mode: direct kernel or UEFI firmware
+        if let Some(kernel_path) = &config.kernel {
+            // Direct kernel boot mode
+            crate::log!(
+                "vmm",
+                "Using direct kernel boot with kernel: {}",
+                kernel_path
+            );
+            args.push("--kernel".to_string());
+            args.push(kernel_path.clone());
 
-        // Add cmdline if specified (only relevant for direct kernel boot)
-        if let Some(cmdline) = &config.cmdline {
-            if !has_iso {
-                args.push(format!("--cmdline \"{}\"", cmdline));
+            // Add initrd if provided
+            if let Some(initrd_path) = &config.initrd {
+                crate::log!("vmm", "Using initrd: {}", initrd_path);
+                args.push("--initramfs".to_string());
+                args.push(initrd_path.clone());
             }
+
+            // Add kernel command line if provided
+            if let Some(cmdline) = &config.cmdline {
+                crate::log!("vmm", "Kernel cmdline: {}", cmdline);
+                args.push("--cmdline".to_string());
+                args.push(cmdline.clone());
+            }
+        } else {
+            // UEFI firmware boot mode (default)
+            crate::log!(
+                "vmm",
+                "Using UEFI firmware: {}",
+                crate::config::UEFI_FIRMWARE_PATH
+            );
+            args.push("--kernel".to_string());
+            args.push(crate::config::UEFI_FIRMWARE_PATH.to_string());
         }
 
         // Add disks
         for disk in &config.disks {
+            args.push("--disk".to_string());
             args.push(format!(
-                "--disk path={}{}",
+                "path={}{}",
                 disk.path,
                 if disk.readonly { ",readonly=on" } else { "" }
             ));
@@ -60,13 +85,21 @@ impl CloudHypervisorBackend {
 
         // Add network interfaces
         for net in &config.networks {
-            args.push(format!("--net tap={},mac={}", net.tap, net.mac));
+            args.push("--net".to_string());
+            args.push(format!("tap={},mac={}", net.tap, net.mac));
         }
 
         crate::log!("vmm", "Executing: {} {}", self.binary_path, args.join(" "));
 
-        // Spawn the cloud-hypervisor process
-        let pid = process_manager.spawn_external(self.binary_path.clone(), args, HashMap::new())?;
+        // Spawn the cloud-hypervisor process with stdout/stderr redirected to serial log
+        let log_path = format!("/run/{}-serial.log", config.vm_id);
+        let pid = process_manager.spawn_external_with_redirect(
+            self.binary_path.clone(),
+            args,
+            HashMap::new(),
+            Some(log_path.clone()),
+            Some(log_path),
+        )?;
 
         Ok(VmmStartResult { pid })
     }

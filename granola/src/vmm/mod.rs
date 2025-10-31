@@ -45,6 +45,7 @@ pub struct VmmConfig {
     pub cpus: i32,
     pub memory_mb: i64,
     pub kernel: Option<String>,
+    pub initrd: Option<String>,
     pub cmdline: Option<String>,
     pub disks: Vec<DiskConfig>,
     pub networks: Vec<NetConfig>,

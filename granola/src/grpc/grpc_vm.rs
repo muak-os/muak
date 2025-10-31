@@ -10,9 +10,9 @@ pub mod vm_service {
 
 use vm_service::vm_service_server::{VmService, VmServiceServer};
 use vm_service::{
-    CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, ListVmsRequest,
-    ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse,
-    UploadDiskRequest, UploadDiskResponse, VmInfo,
+    CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmSerialLogRequest,
+    GetVmSerialLogResponse, ListVmsRequest, ListVmsResponse, StartVmRequest, StartVmResponse,
+    StopVmRequest, StopVmResponse, UploadFileRequest, UploadFileResponse, VmInfo,
 };
 
 pub struct GrpcVmService {}
@@ -63,6 +63,11 @@ impl VmService for GrpcVmService {
                 None
             } else {
                 Some(req.kernel)
+            },
+            initrd: if req.initrd.is_empty() {
+                None
+            } else {
+                Some(req.initrd)
             },
             cmdline: if req.cmdline.is_empty() {
                 None
@@ -269,10 +274,10 @@ impl VmService for GrpcVmService {
         }
     }
 
-    async fn upload_disk(
+    async fn upload_file(
         &self,
-        request: Request<tonic::Streaming<UploadDiskRequest>>,
-    ) -> Result<Response<UploadDiskResponse>, Status> {
+        request: Request<tonic::Streaming<UploadFileRequest>>,
+    ) -> Result<Response<UploadFileResponse>, Status> {
         let mut stream = request.into_inner();
         let mut file: Option<tokio::fs::File> = None;
         let mut filepath = String::new();
@@ -280,16 +285,26 @@ impl VmService for GrpcVmService {
 
         while let Some(req) = stream.message().await? {
             match req.request {
-                Some(vm_service::upload_disk_request::Request::Metadata(metadata)) => {
+                Some(vm_service::upload_file_request::Request::Metadata(metadata)) => {
                     let filename = metadata.filename;
                     filepath = format!("/tmp/muak/disks/{}", filename);
 
                     log!(
                         "grpc-vm",
-                        "Starting disk upload: {} ({} bytes)",
+                        "Starting file upload: {} ({} bytes)",
                         filename,
                         metadata.size
                     );
+
+                    // Ensure directory exists
+                    if let Err(e) = tokio::fs::create_dir_all("/tmp/muak/disks").await {
+                        let error = format!("Failed to create upload directory: {}", e);
+                        log!("grpc-vm", "{}", error);
+                        return Ok(Response::new(UploadFileResponse {
+                            path: String::new(),
+                            error,
+                        }));
+                    }
 
                     match tokio::fs::File::create(&filepath).await {
                         Ok(f) => {
@@ -298,14 +313,14 @@ impl VmService for GrpcVmService {
                         Err(e) => {
                             let error = format!("Failed to create file: {}", e);
                             log!("grpc-vm", "{}", error);
-                            return Ok(Response::new(UploadDiskResponse {
+                            return Ok(Response::new(UploadFileResponse {
                                 path: String::new(),
                                 error,
                             }));
                         }
                     }
                 }
-                Some(vm_service::upload_disk_request::Request::Chunk(chunk)) => {
+                Some(vm_service::upload_file_request::Request::Chunk(chunk)) => {
                     if let Some(ref mut f) = file {
                         match f.write_all(&chunk).await {
                             Ok(_) => {
@@ -314,7 +329,7 @@ impl VmService for GrpcVmService {
                             Err(e) => {
                                 let error = format!("Failed to write chunk: {}", e);
                                 log!("grpc-vm", "{}", error);
-                                return Ok(Response::new(UploadDiskResponse {
+                                return Ok(Response::new(UploadFileResponse {
                                     path: String::new(),
                                     error,
                                 }));
@@ -323,7 +338,7 @@ impl VmService for GrpcVmService {
                     } else {
                         let error = "Received chunk before metadata".to_string();
                         log!("grpc-vm", "{}", error);
-                        return Ok(Response::new(UploadDiskResponse {
+                        return Ok(Response::new(UploadFileResponse {
                             path: String::new(),
                             error,
                         }));
@@ -337,23 +352,75 @@ impl VmService for GrpcVmService {
             if let Err(e) = f.flush().await {
                 let error = format!("Failed to flush file: {}", e);
                 log!("grpc-vm", "{}", error);
-                return Ok(Response::new(UploadDiskResponse {
+                return Ok(Response::new(UploadFileResponse {
                     path: String::new(),
                     error,
                 }));
             }
             log!(
                 "grpc-vm",
-                "Disk upload complete: {} ({} bytes)",
+                "File upload complete: {} ({} bytes)",
                 filepath,
                 bytes_written
             );
         }
 
-        Ok(Response::new(UploadDiskResponse {
+        Ok(Response::new(UploadFileResponse {
             path: filepath,
             error: String::new(),
         }))
+    }
+
+    async fn get_vm_serial_log(
+        &self,
+        request: Request<GetVmSerialLogRequest>,
+    ) -> Result<Response<GetVmSerialLogResponse>, Status> {
+        let req = request.into_inner();
+        log!(
+            "grpc-vm",
+            "Fetching serial log for VM: {} (tail: {})",
+            req.vm_id,
+            req.tail_lines
+        );
+
+        let mut ipc_client = IpcClient::new();
+        let message = IpcMessage::GetVmSerialLog {
+            vm_id: req.vm_id.clone(),
+            tail_lines: req.tail_lines,
+        };
+
+        match ipc_client.send_message(&message) {
+            Ok(IpcResponse::VmSerialLog(output)) => {
+                log!(
+                    "grpc-vm",
+                    "Retrieved serial log for VM: {} ({} bytes)",
+                    req.vm_id,
+                    output.len()
+                );
+                Ok(Response::new(GetVmSerialLogResponse {
+                    output,
+                    error: String::new(),
+                }))
+            }
+            Ok(IpcResponse::Error(e)) => {
+                log!("grpc-vm", "Failed to get serial log for VM {}: {}", req.vm_id, e);
+                Ok(Response::new(GetVmSerialLogResponse {
+                    output: String::new(),
+                    error: e,
+                }))
+            }
+            Err(e) => {
+                log!("grpc-vm", "IPC error getting serial log for VM {}: {}", req.vm_id, e);
+                Ok(Response::new(GetVmSerialLogResponse {
+                    output: String::new(),
+                    error: format!("IPC error: {}", e),
+                }))
+            }
+            _ => Ok(Response::new(GetVmSerialLogResponse {
+                output: String::new(),
+                error: "Unexpected IPC response".to_string(),
+            })),
+        }
     }
 }
 
