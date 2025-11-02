@@ -1,6 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
 
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+const YELLOW: &str = "\x1b[33m";
+const BLUE: &str = "\x1b[34m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+
 pub mod process_service {
     tonic::include_proto!("muak.process.v1");
 }
@@ -197,9 +204,9 @@ async fn handle_process_action(
             let resp = response.into_inner();
 
             if resp.error.is_empty() {
-                println!("Started process with PID: {}", resp.pid);
+                println!("{}Started process with PID: {}{}", GREEN, resp.pid, RESET);
             } else {
-                eprintln!("Error starting process: {}", resp.error);
+                eprintln!("{}Error starting process: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -210,9 +217,9 @@ async fn handle_process_action(
             let resp = response.into_inner();
 
             if resp.success {
-                println!("Sent signal {} to process {}", signal, pid);
+                println!("{}Sent signal {} to process {}{}", GREEN, signal, pid, RESET);
             } else {
-                eprintln!("Error stopping process: {}", resp.error);
+                eprintln!("{}Error stopping process: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -223,11 +230,11 @@ async fn handle_process_action(
             let resp = response.into_inner();
 
             if resp.processes.is_empty() {
-                println!("No processes running");
+                println!("{}No processes running{}", YELLOW, RESET);
             } else {
                 println!(
-                    "{:<8} {:<20} {:<15} {}",
-                    "PID", "COMMAND", "STATUS", "STARTED"
+                    "{}{}{:<8} {:<20} {:<15} {}{}",
+                    BOLD, GREEN, "PID", "COMMAND", "STATUS", "STARTED", RESET
                 );
                 for p in resp.processes {
                     let started = chrono::DateTime::from_timestamp(p.started_at, 0)
@@ -264,14 +271,14 @@ async fn handle_vm_action(
             // Upload kernel if it exists locally
             let kernel_path = if let Some(ref k) = kernel {
                 if std::path::Path::new(k).exists() {
-                    println!("Uploading kernel: {}", k);
+                    println!("{}Uploading kernel: {}{}", BLUE, k, RESET);
                     match upload_file(client, k).await {
                         Ok(remote_path) => {
-                            println!("Uploaded to: {}", remote_path);
+                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
                             Some(remote_path)
                         }
                         Err(e) => {
-                            eprintln!("Error uploading kernel {}: {}", k, e);
+                            eprintln!("{}Error uploading kernel {}: {}{}", RED, k, e, RESET);
                             std::process::exit(1);
                         }
                     }
@@ -285,14 +292,14 @@ async fn handle_vm_action(
             // Upload initrd if it exists locally
             let initrd_path = if let Some(ref i) = initrd {
                 if std::path::Path::new(i).exists() {
-                    println!("Uploading initrd: {}", i);
+                    println!("{}Uploading initrd: {}{}", BLUE, i, RESET);
                     match upload_file(client, i).await {
                         Ok(remote_path) => {
-                            println!("Uploaded to: {}", remote_path);
+                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
                             Some(remote_path)
                         }
                         Err(e) => {
-                            eprintln!("Error uploading initrd {}: {}", i, e);
+                            eprintln!("{}Error uploading initrd {}: {}{}", RED, i, e, RESET);
                             std::process::exit(1);
                         }
                     }
@@ -307,14 +314,14 @@ async fn handle_vm_action(
 
             for disk_path in &disk {
                 if std::path::Path::new(disk_path).exists() {
-                    println!("Uploading disk: {}", disk_path);
+                    println!("{}Uploading disk: {}{}", BLUE, disk_path, RESET);
                     match upload_file(client, disk_path).await {
                         Ok(remote_path) => {
-                            println!("Uploaded to: {}", remote_path);
+                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
                             uploaded_disks.push(remote_path);
                         }
                         Err(e) => {
-                            eprintln!("Error uploading disk {}: {}", disk_path, e);
+                            eprintln!("{}Error uploading disk {}: {}{}", RED, disk_path, e, RESET);
                             std::process::exit(1);
                         }
                     }
@@ -360,7 +367,7 @@ async fn handle_vm_action(
 
             if resp.error.is_empty() {
                 let vm_id = resp.vm_id.clone();
-                println!("Created VM: {} (ID: {})", name, vm_id);
+                println!("{}Created VM: {} (ID: {}){}", GREEN, name, vm_id, RESET);
 
                 let start_request = tonic::Request::new(StartVmRequest {
                     vm_id: vm_id.clone(),
@@ -369,13 +376,13 @@ async fn handle_vm_action(
                 let start_resp = start_response.into_inner();
 
                 if start_resp.success {
-                    println!("Started VM: {}", vm_id);
+                    println!("{}Started VM: {}{}", GREEN, vm_id, RESET);
                 } else {
-                    eprintln!("Error starting VM: {}", start_resp.error);
+                    eprintln!("{}Error starting VM: {}{}", RED, start_resp.error, RESET);
                     std::process::exit(1);
                 }
             } else {
-                eprintln!("Error creating VM: {}", resp.error);
+                eprintln!("{}Error creating VM: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -388,9 +395,9 @@ async fn handle_vm_action(
             let resp = response.into_inner();
 
             if resp.success {
-                println!("Started VM: {}", vm_id);
+                println!("{}Started VM: {}{}", GREEN, vm_id, RESET);
             } else {
-                eprintln!("Error starting VM: {}", resp.error);
+                eprintln!("{}Error starting VM: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -404,9 +411,9 @@ async fn handle_vm_action(
             let resp = response.into_inner();
 
             if resp.success {
-                println!("Stopped VM: {}", vm_id);
+                println!("{}Stopped VM: {}{}", GREEN, vm_id, RESET);
             } else {
-                eprintln!("Error stopping VM: {}", resp.error);
+                eprintln!("{}Error stopping VM: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -419,9 +426,9 @@ async fn handle_vm_action(
             let resp = response.into_inner();
 
             if resp.success {
-                println!("Deleted VM: {}", vm_id);
+                println!("{}Deleted VM: {}{}", GREEN, vm_id, RESET);
             } else {
-                eprintln!("Error deleting VM: {}", resp.error);
+                eprintln!("{}Error deleting VM: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -437,7 +444,7 @@ async fn handle_vm_action(
             if resp.error.is_empty() {
                 print!("{}", resp.output);
             } else {
-                eprintln!("Error getting VM serial log: {}", resp.error);
+                eprintln!("{}Error getting VM serial log: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
             }
         }
@@ -448,11 +455,11 @@ async fn handle_vm_action(
             let resp = response.into_inner();
 
             if resp.vms.is_empty() {
-                println!("No VMs");
+                println!("{}No VMs{}", YELLOW, RESET);
             } else {
                 println!(
-                    "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
-                    "VM ID", "NAME", "STATE", "VMM", "CPUS", "MEMORY(MB)", "PID", "CREATED"
+                    "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}{}",
+                    BOLD, GREEN, "VM ID", "NAME", "STATE", "VMM", "CPUS", "MEMORY(MB)", "PID", "CREATED", RESET
                 );
                 for vm in resp.vms {
                     let created = chrono::DateTime::from_timestamp(vm.created_at, 0)
