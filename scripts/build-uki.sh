@@ -59,7 +59,6 @@ UKI_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.efi"
 
 echo -e "${YELLOW}Building UKI with llvm-objcopy...${NC}"
 
-# Create os-release file
 OS_RELEASE_FILE="${OUTPUT_DIR}/os-release.tmp"
 cat > "${OS_RELEASE_FILE}" << EOF
 ID=muak
@@ -69,10 +68,8 @@ VERSION_ID=0.1.0
 BUILD_ID=$(date +%Y%m%d)
 EOF
 
-# Copy EFI stub as base
 cp "${STUB_FILE}" "${UKI_OUTPUT}"
 
-# Create uname file with kernel version
 UNAME_FILE="${OUTPUT_DIR}/uname.tmp"
 echo -n "6.15.11" > "${UNAME_FILE}"
 
@@ -89,7 +86,6 @@ llvm-objcopy \
     --set-section-flags .initrd=alloc,readonly \
     "${UKI_OUTPUT}"
 
-# Clean up temporary files
 rm -f "${OS_RELEASE_FILE}" "${UNAME_FILE}"
 
 echo
