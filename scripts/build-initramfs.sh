@@ -35,7 +35,7 @@ echo -e "${YELLOW}Building init binary...${NC}"
 "$SCRIPT_DIR/build-init.sh" "$ARCH"
 
 echo -e "${YELLOW}Building granola init system...${NC}"
-cd "$PROJECT_ROOT/granola"
+cd "$PROJECT_ROOT/internal/granola"
 RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
 cd - > /dev/null
 
@@ -51,7 +51,7 @@ mkdir -p "$TEMP_DIR/rootfs_source/etc"
 mkdir -p "$TEMP_DIR/rootfs_source/tmp"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
-cp "$PROJECT_ROOT/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
+cp "$PROJECT_ROOT/internal/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 chmod +x "$TEMP_DIR/rootfs_source/sbin/init"
 
 if [ -n "$EXTENSIONS" ]; then

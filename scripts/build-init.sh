@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-INIT_DIR="$PROJECT_ROOT/init"
+INIT_DIR="$PROJECT_ROOT/internal/init"
 OUTPUT_DIR="$PROJECT_ROOT/build"
 
 ARCH="${1:-x86_64}"

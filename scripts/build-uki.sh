@@ -42,9 +42,9 @@ fi
 
 echo -e "${GREEN}Found kernel bzImage: ${BZIMAGE}${NC}"
 
-if ! command -v ukify &> /dev/null; then
-    echo -e "${RED}ERROR: ukify not found${NC}"
-    echo -e "${RED}Install systemd-ukify package${NC}"
+if ! command -v llvm-objcopy &> /dev/null; then
+    echo -e "${RED}ERROR: llvm-objcopy not found${NC}"
+    echo -e "${RED}Install llvm package${NC}"
     exit 1
 fi
 
@@ -57,20 +57,40 @@ mkdir -p "${OUTPUT_DIR}"
 
 UKI_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.efi"
 
-echo -e "${YELLOW}Building UKI with ukify...${NC}"
+echo -e "${YELLOW}Building UKI with llvm-objcopy...${NC}"
 
-# Generate os-release inline
-ukify build \
-    --stub="${STUB_FILE}" \
-    --linux="${BZIMAGE}" \
-    --initrd="${INITRAMFS_FILE}" \
-    --cmdline="@${CMDLINE_FILE}" \
-    --os-release="ID=muak
+# Create os-release file
+OS_RELEASE_FILE="${OUTPUT_DIR}/os-release.tmp"
+cat > "${OS_RELEASE_FILE}" << EOF
+ID=muak
 NAME=Muak Linux
 PRETTY_NAME=Muak Linux
 VERSION_ID=0.1.0
-BUILD_ID=$(date +%Y%m%d)" \
-    --output="${UKI_OUTPUT}"
+BUILD_ID=$(date +%Y%m%d)
+EOF
+
+# Copy EFI stub as base
+cp "${STUB_FILE}" "${UKI_OUTPUT}"
+
+# Create uname file with kernel version
+UNAME_FILE="${OUTPUT_DIR}/uname.tmp"
+echo -n "6.15.11" > "${UNAME_FILE}"
+
+llvm-objcopy \
+    --add-section .osrel="${OS_RELEASE_FILE}" \
+    --set-section-flags .osrel=alloc,readonly \
+    --add-section .cmdline="${CMDLINE_FILE}" \
+    --set-section-flags .cmdline=alloc,readonly \
+    --add-section .uname="${UNAME_FILE}" \
+    --set-section-flags .uname=alloc,readonly \
+    --add-section .linux="${BZIMAGE}" \
+    --set-section-flags .linux=alloc,readonly,code \
+    --add-section .initrd="${INITRAMFS_FILE}" \
+    --set-section-flags .initrd=alloc,readonly \
+    "${UKI_OUTPUT}"
+
+# Clean up temporary files
+rm -f "${OS_RELEASE_FILE}" "${UNAME_FILE}"
 
 echo
 echo -e "${GREEN}==== UKI Build Complete ====${NC}"
