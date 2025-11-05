@@ -52,7 +52,7 @@ jobs:
       - name: Install initramfs build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cpio zstd squashfs-tools
+          sudo apt-get install -y cpio zstd squashfs-tools protobuf-compiler
 
       - name: Build initramfs
         run: |
