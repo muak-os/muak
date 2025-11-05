@@ -57,7 +57,6 @@ impl ProcessService for GrpcProcessService {
         let message = IpcMessage::StartProcess {
             command: req.command.clone(),
             args: req.args.clone(),
-            env: req.env,
         };
 
         match self.send_ipc_message(message) {

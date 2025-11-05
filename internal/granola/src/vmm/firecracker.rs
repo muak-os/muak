@@ -1,7 +1,6 @@
 use super::{VmmConfig, VmmStartResult};
 use crate::process::ProcessManager;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub struct FirecrackerBackend {
     binary_path: String,
@@ -62,7 +61,7 @@ impl FirecrackerBackend {
             args.join(" ")
         );
 
-        let pid = process_manager.spawn_external(self.binary_path.clone(), args, HashMap::new())?;
+        let pid = process_manager.spawn_external(self.binary_path.clone(), args)?;
 
         crate::log!("vmm", "Firecracker process started with PID {}", pid);
 

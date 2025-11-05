@@ -1,6 +1,5 @@
 use super::{VmmConfig, VmmStartResult};
 use crate::process::ProcessManager;
-use std::collections::HashMap;
 
 pub struct CloudHypervisorBackend {
     binary_path: String,
@@ -96,7 +95,6 @@ impl CloudHypervisorBackend {
         let pid = process_manager.spawn_external_with_redirect(
             self.binary_path.clone(),
             args,
-            HashMap::new(),
             Some(log_path.clone()),
             Some(log_path),
         )?;

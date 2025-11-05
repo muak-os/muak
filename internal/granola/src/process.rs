@@ -1,7 +1,7 @@
-use nix::fcntl::{open, OFlag};
-use nix::sys::signal::{kill, Signal};
+use nix::fcntl::{OFlag, open};
+use nix::sys::signal::{Signal, kill};
 use nix::sys::stat::Mode;
-use nix::unistd::{dup2, fork, ForkResult, Pid};
+use nix::unistd::{ForkResult, Pid, dup2, fork};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -85,8 +85,6 @@ impl ProcessManager {
                 Ok(pid)
             }
             Ok(ForkResult::Child) => {
-                let _ = std::env::set_var("PROCESS_NAME", name);
-
                 let runtime = tokio::runtime::Runtime::new()
                     .expect("FATAL: failed to create tokio runtime in child process");
                 runtime.block_on(async {
@@ -102,20 +100,14 @@ impl ProcessManager {
         }
     }
 
-    pub fn spawn_external(
-        &self,
-        command: String,
-        args: Vec<String>,
-        env: HashMap<String, String>,
-    ) -> Result<i32, String> {
-        self.spawn_external_with_redirect(command, args, env, None, None)
+    pub fn spawn_external(&self, command: String, args: Vec<String>) -> Result<i32, String> {
+        self.spawn_external_with_redirect(command, args, None, None)
     }
 
     pub fn spawn_external_with_redirect(
         &self,
         command: String,
         args: Vec<String>,
-        env: HashMap<String, String>,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
     ) -> Result<i32, String> {
@@ -181,10 +173,6 @@ impl ProcessManager {
                     .chain(args)
                     .map(|s| CString::new(s).expect("FATAL: arg contains null byte"))
                     .collect();
-
-                for (key, value) in env {
-                    std::env::set_var(key, value);
-                }
 
                 let exec_result = nix::unistd::execv(&cmd, &c_args);
                 eprintln!("Failed to exec {}: {:?}", command, exec_result);

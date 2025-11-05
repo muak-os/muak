@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::collections::HashMap;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -20,8 +19,8 @@ use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
-    upload_file_request, CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest,
-    ListVmsRequest, NetConfig, StartVmRequest, StopVmRequest, UploadFileRequest,
+    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, ListVmsRequest, NetConfig,
+    StartVmRequest, StopVmRequest, UploadFileRequest, upload_file_request,
 };
 
 #[derive(Parser)]
@@ -197,7 +196,6 @@ async fn handle_process_action(
             let request = tonic::Request::new(StartProcessRequest {
                 command: command.clone(),
                 args: args.clone(),
-                env: HashMap::new(),
             });
 
             let response = client.start_process(request).await?;
@@ -217,7 +215,10 @@ async fn handle_process_action(
             let resp = response.into_inner();
 
             if resp.success {
-                println!("{}Sent signal {} to process {}{}", GREEN, signal, pid, RESET);
+                println!(
+                    "{}Sent signal {} to process {}{}",
+                    GREEN, signal, pid, RESET
+                );
             } else {
                 eprintln!("{}Error stopping process: {}{}", RED, resp.error, RESET);
                 std::process::exit(1);
@@ -335,10 +336,7 @@ async fn handle_vm_action(
                 .map(|path| {
                     // ISOs should be readonly
                     let readonly = path.to_lowercase().ends_with(".iso");
-                    DiskConfig {
-                        path,
-                        readonly,
-                    }
+                    DiskConfig { path, readonly }
                 })
                 .collect();
 
@@ -444,7 +442,10 @@ async fn handle_vm_action(
             if resp.error.is_empty() {
                 print!("{}", resp.output);
             } else {
-                eprintln!("{}Error getting VM serial log: {}{}", RED, resp.error, RESET);
+                eprintln!(
+                    "{}Error getting VM serial log: {}{}",
+                    RED, resp.error, RESET
+                );
                 std::process::exit(1);
             }
         }
@@ -459,7 +460,17 @@ async fn handle_vm_action(
             } else {
                 println!(
                     "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}{}",
-                    BOLD, GREEN, "VM ID", "NAME", "STATE", "VMM", "CPUS", "MEMORY(MB)", "PID", "CREATED", RESET
+                    BOLD,
+                    GREEN,
+                    "VM ID",
+                    "NAME",
+                    "STATE",
+                    "VMM",
+                    "CPUS",
+                    "MEMORY(MB)",
+                    "PID",
+                    "CREATED",
+                    RESET
                 );
                 for vm in resp.vms {
                     let created = chrono::DateTime::from_timestamp(vm.created_at, 0)
@@ -474,7 +485,14 @@ async fn handle_vm_action(
 
                     println!(
                         "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
-                        vm.vm_id, vm.name, vm.state, vm.vmm_type, vm.cpus, vm.memory_mb, pid_str, created
+                        vm.vm_id,
+                        vm.name,
+                        vm.state,
+                        vm.vmm_type,
+                        vm.cpus,
+                        vm.memory_mb,
+                        pid_str,
+                        created
                     );
                 }
             }

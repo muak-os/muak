@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream as StdUnixStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -18,7 +17,6 @@ pub enum IpcMessage {
     StartProcess {
         command: String,
         args: Vec<String>,
-        env: HashMap<String, String>,
     },
     StopProcess {
         pid: i32,
@@ -164,8 +162,8 @@ impl IpcServer {
                     Err(e) => IpcResponse::Error(format!("Serialization error: {}", e)),
                 }
             }
-            IpcMessage::StartProcess { command, args, env } => {
-                match process_manager.spawn_external(command, args, env) {
+            IpcMessage::StartProcess { command, args } => {
+                match process_manager.spawn_external(command, args) {
                     Ok(pid) => IpcResponse::ProcessStarted { pid },
                     Err(e) => IpcResponse::Error(e),
                 }
