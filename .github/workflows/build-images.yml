@@ -15,12 +15,46 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Get kernel version
+        id: kernel-version
+        run: |
+          KERNEL_VERSION=$(grep 'KERNEL_VERSION=' scripts/build-kernel.sh | cut -d'"' -f2)
+          echo "version=${KERNEL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Kernel version: ${KERNEL_VERSION}"
+
+      - name: Calculate config hash
+        id: config-hash
+        run: |
+          CONFIG_HASH=$(sha256sum config/kernel/${{ matrix.arch }}/kernel.config | cut -d' ' -f1 | cut -c1-8)
+          echo "hash=${CONFIG_HASH}" >> $GITHUB_OUTPUT
+          echo "Config hash: ${CONFIG_HASH}"
+
+      - name: Cache kernel source tarball
+        uses: actions/cache@v4
+        with:
+          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}.tar.xz
+          key: kernel-source-${{ steps.kernel-version.outputs.version }}
+          restore-keys: |
+            kernel-source-
+
+      - name: Cache kernel build
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}
+          key: kernel-build-${{ matrix.arch }}-${{ steps.kernel-version.outputs.version }}-${{ steps.config-hash.outputs.hash }}
+          restore-keys: |
+            kernel-build-${{ matrix.arch }}-${{ steps.kernel-version.outputs.version }}-
+
       - name: Install kernel build dependencies
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget
 
       - name: Build kernel
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           ARCH=${{ matrix.arch }} bash scripts/build-kernel.sh
 
@@ -35,7 +69,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-${{ matrix.arch }}
-          path: build/${{ matrix.arch }}/linux-*
+          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}
 
   build-initramfs:
     runs-on: ubuntu-latest
