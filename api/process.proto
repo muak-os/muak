@@ -11,7 +11,6 @@ service ProcessService {
 message StartProcessRequest {
   string command = 1;
   repeated string args = 2;
-  map<string, string> env = 3;
 }
 
 message StartProcessResponse {
