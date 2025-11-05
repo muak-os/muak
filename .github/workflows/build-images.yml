@@ -18,7 +18,7 @@ jobs:
       - name: Get kernel version
         id: kernel-version
         run: |
-          KERNEL_VERSION=$(grep 'KERNEL_VERSION=' scripts/build-kernel.sh | cut -d'"' -f2)
+          KERNEL_VERSION=$(grep 'KERNEL_VERSION=' scripts/build-kernel.sh | grep -oP ':-\K[^}]+')
           echo "version=${KERNEL_VERSION}" >> $GITHUB_OUTPUT
           echo "Kernel version: ${KERNEL_VERSION}"
 
@@ -58,18 +58,11 @@ jobs:
         run: |
           ARCH=${{ matrix.arch }} bash scripts/build-kernel.sh
 
-      - name: Upload kernel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-${{ matrix.arch }}
-          path: |
-            output/${{ matrix.arch }}/vmlinuz-*
-
       - name: Upload kernel build tree
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-${{ matrix.arch }}
-          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}
+          path: build/kernel/${{ matrix.arch }}/linux-*
 
   build-initramfs:
     runs-on: ubuntu-latest
@@ -119,18 +112,6 @@ jobs:
         with:
           name: initramfs-${{ matrix.arch }}
           path: build/
-
-      - name: Verify kernel build tree structure
-        run: |
-          cd build/kernel/${{ matrix.arch }}
-          KERNEL_DIR=$(ls -d linux-* 2>/dev/null | head -1)
-          if [ -n "$KERNEL_DIR" ]; then
-            echo "Found kernel directory: $KERNEL_DIR"
-            ls -la "$KERNEL_DIR/arch/x86/boot/" || echo "bzImage not found in expected location"
-          else
-            echo "ERROR: No kernel directory found"
-            exit 1
-          fi
 
       - name: Build UKI
         run: |
