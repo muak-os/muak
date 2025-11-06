@@ -1,7 +1,7 @@
 use crate::process::{ProcessManager, ProcessStatus};
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
-use tokio::signal::unix::{signal, Signal, SignalKind};
+use tokio::signal::unix::{Signal, SignalKind, signal};
 
 pub struct SignalHandler {
     sigchld: Signal,

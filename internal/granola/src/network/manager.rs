@@ -1,5 +1,5 @@
 use crate::log;
-use rtnetlink::{new_connection, Handle};
+use rtnetlink::{Handle, new_connection};
 use std::sync::{Arc, Mutex};
 
 use super::bridge;

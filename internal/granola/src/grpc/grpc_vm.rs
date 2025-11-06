@@ -403,14 +403,24 @@ impl VmService for GrpcVmService {
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!("grpc-vm", "Failed to get serial log for VM {}: {}", req.vm_id, e);
+                log!(
+                    "grpc-vm",
+                    "Failed to get serial log for VM {}: {}",
+                    req.vm_id,
+                    e
+                );
                 Ok(Response::new(GetVmSerialLogResponse {
                     output: String::new(),
                     error: e,
                 }))
             }
             Err(e) => {
-                log!("grpc-vm", "IPC error getting serial log for VM {}: {}", req.vm_id, e);
+                log!(
+                    "grpc-vm",
+                    "IPC error getting serial log for VM {}: {}",
+                    req.vm_id,
+                    e
+                );
                 Ok(Response::new(GetVmSerialLogResponse {
                     output: String::new(),
                     error: format!("IPC error: {}", e),

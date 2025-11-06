@@ -9,41 +9,17 @@ use crate::vm::{VmConfig, VmManager};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IpcMessage {
-    UpdateStatus {
-        pid: i32,
-        status: String,
-    },
+    UpdateStatus { pid: i32, status: String },
     ListProcesses,
-    StartProcess {
-        command: String,
-        args: Vec<String>,
-    },
-    StopProcess {
-        pid: i32,
-        signal: i32,
-    },
-    CreateVm {
-        name: String,
-        config: VmConfig,
-    },
-    StartVm {
-        vm_id: String,
-    },
-    StopVm {
-        vm_id: String,
-        force: bool,
-    },
-    DeleteVm {
-        vm_id: String,
-    },
+    StartProcess { command: String, args: Vec<String> },
+    StopProcess { pid: i32, signal: i32 },
+    CreateVm { name: String, config: VmConfig },
+    StartVm { vm_id: String },
+    StopVm { vm_id: String, force: bool },
+    DeleteVm { vm_id: String },
     ListVms,
-    GetVm {
-        vm_id: String,
-    },
-    GetVmSerialLog {
-        vm_id: String,
-        tail_lines: i64,
-    },
+    GetVm { vm_id: String },
+    GetVmSerialLog { vm_id: String, tail_lines: i64 },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

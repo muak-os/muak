@@ -1,5 +1,5 @@
 use crate::log;
-use dhcproto::{v4, Decodable, Decoder, Encodable};
+use dhcproto::{Decodable, Decoder, Encodable, v4};
 use nix::libc;
 use rtnetlink::Handle;
 use std::net::Ipv4Addr;

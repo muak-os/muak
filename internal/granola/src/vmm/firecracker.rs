@@ -49,10 +49,7 @@ impl FirecrackerBackend {
         let socket_path = format!("/run/firecracker-{}.sock", config.vm_id);
 
         // Start Firecracker with API socket
-        let args = vec![
-            "--api-sock".to_string(),
-            socket_path.clone(),
-        ];
+        let args = vec!["--api-sock".to_string(), socket_path.clone()];
 
         crate::log!(
             "vmm",
@@ -109,7 +106,9 @@ impl FirecrackerBackend {
     async fn configure_vm(&self, socket_path: &str, config: &VmmConfig) -> Result<(), String> {
         // 1. Set boot source
         // Use Firecracker's default kernel if no kernel is specified
-        let kernel_path = config.kernel.clone()
+        let kernel_path = config
+            .kernel
+            .clone()
             .unwrap_or_else(|| crate::config::FIRECRACKER_KERNEL_PATH.to_string());
 
         // Default boot args for console output and networking
@@ -140,8 +139,7 @@ impl FirecrackerBackend {
                 is_root_device: true,
                 is_read_only: false,
             };
-            self.put_api(socket_path, "/drives/rootfs", &drive)
-                .await?;
+            self.put_api(socket_path, "/drives/rootfs", &drive).await?;
         } else {
             for (idx, disk) in config.disks.iter().enumerate() {
                 let drive = Drive {
