@@ -221,12 +221,12 @@ impl IpcClient {
 
         let result = self.try_send_message(message);
 
-        if let Err(ref e) = result {
-            if self.should_reconnect(e) {
-                self.socket = None;
-                self.connect()?;
-                return self.try_send_message(message);
-            }
+        if let Err(ref e) = result
+            && self.should_reconnect(e)
+        {
+            self.socket = None;
+            self.connect()?;
+            return self.try_send_message(message);
         }
 
         result

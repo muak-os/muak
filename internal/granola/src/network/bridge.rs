@@ -69,18 +69,18 @@ pub async fn setup_lan_bridge(
     while let Some(addr) = addresses.try_next().await? {
         if addr.header.index == physical_index {
             for attr in addr.attributes.iter() {
-                if let AddressAttribute::Address(ipaddr) = attr {
-                    if let std::net::IpAddr::V4(ipv4) = ipaddr {
-                        ip_config = Some((*ipv4, addr.header.prefix_len));
-                        log!(
-                            "network",
-                            "Found IP {}/{} on {}",
-                            ipv4,
-                            addr.header.prefix_len,
-                            physical_iface
-                        );
-                        break;
-                    }
+                if let AddressAttribute::Address(ipaddr) = attr
+                    && let std::net::IpAddr::V4(ipv4) = ipaddr
+                {
+                    ip_config = Some((*ipv4, addr.header.prefix_len));
+                    log!(
+                        "network",
+                        "Found IP {}/{} on {}",
+                        ipv4,
+                        addr.header.prefix_len,
+                        physical_iface
+                    );
+                    break;
                 }
             }
         }
@@ -138,20 +138,19 @@ pub async fn setup_lan_bridge(
         while let Some(addr) = addresses.try_next().await? {
             if addr.header.index == physical_index {
                 for attr in addr.attributes.iter() {
-                    if let AddressAttribute::Address(ipaddr) = attr {
-                        if let std::net::IpAddr::V4(ipv4) = ipaddr {
-                            if *ipv4 == ip {
-                                handle.address().del(addr).execute().await?;
-                                log!(
-                                    "network",
-                                    "Removed IP {}/{} from {}",
-                                    ip,
-                                    prefix_len,
-                                    physical_iface
-                                );
-                                break;
-                            }
-                        }
+                    if let AddressAttribute::Address(ipaddr) = attr
+                        && let std::net::IpAddr::V4(ipv4) = ipaddr
+                        && *ipv4 == ip
+                    {
+                        handle.address().del(addr).execute().await?;
+                        log!(
+                            "network",
+                            "Removed IP {}/{} from {}",
+                            ip,
+                            prefix_len,
+                            physical_iface
+                        );
+                        break;
                     }
                 }
             }

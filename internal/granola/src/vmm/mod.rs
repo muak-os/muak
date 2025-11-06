@@ -3,17 +3,12 @@ pub mod firecracker;
 
 use crate::vm::{DiskConfig, NetConfig};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum VmmType {
+    #[default]
     CloudHypervisor,
     Firecracker,
     Qemu,
-}
-
-impl Default for VmmType {
-    fn default() -> Self {
-        VmmType::CloudHypervisor
-    }
 }
 
 impl std::fmt::Display for VmmType {

@@ -22,11 +22,11 @@ pub async fn find_ethernet_interface(
 
     while let Some(link) = links.try_next().await? {
         for attr in &link.attributes {
-            if let LinkAttribute::IfName(name) = attr {
-                if name.starts_with("eth") || name.starts_with("enp") {
-                    log!("network", "Found ethernet interface: {}", name);
-                    return Ok(name.clone());
-                }
+            if let LinkAttribute::IfName(name) = attr
+                && (name.starts_with("eth") || name.starts_with("enp"))
+            {
+                log!("network", "Found ethernet interface: {}", name);
+                return Ok(name.clone());
             }
         }
     }
