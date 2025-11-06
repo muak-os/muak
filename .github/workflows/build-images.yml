@@ -58,11 +58,11 @@ jobs:
         run: |
           ARCH=${{ matrix.arch }} bash scripts/build-kernel.sh
 
-      - name: Upload kernel build tree
+      - name: Upload kernel bzImage
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-${{ matrix.arch }}
-          path: build/kernel/${{ matrix.arch }}/linux-*
+          name: kernel-bzImage-${{ matrix.arch }}
+          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}/arch/x86/boot/bzImage
 
   build-initramfs:
     runs-on: ubuntu-latest
@@ -101,11 +101,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download kernel artifact
+      - name: Install UKI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm
+
+      - name: Download kernel bzImage
         uses: actions/download-artifact@v4
         with:
-          name: kernel-build-${{ matrix.arch }}
-          path: build/kernel/${{ matrix.arch }}/
+          name: kernel-bzImage-${{ matrix.arch }}
+          path: build/bzImage/${{ matrix.arch }}/
 
       - name: Download initramfs artifact
         uses: actions/download-artifact@v4

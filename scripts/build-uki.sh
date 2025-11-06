@@ -11,6 +11,7 @@ NC='\033[0m'
 
 ARCH="${1:-x86_64}"
 KERNEL_BUILD_DIR="$PROJECT_ROOT/build/kernel/${ARCH}"
+BZIMAGE_CI="$PROJECT_ROOT/build/bzImage/${ARCH}/bzImage"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
 CMDLINE_FILE="$PROJECT_ROOT/config/cmdline.txt"
 OUTPUT_DIR="$PROJECT_ROOT/build"
@@ -18,10 +19,21 @@ STUB_FILE="$PROJECT_ROOT/config/uki/linuxx64.efi.stub"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
-echo -e "${GREEN}Kernel Build Dir: ${KERNEL_BUILD_DIR}${NC}"
 echo -e "${GREEN}Initramfs: ${INITRAMFS_FILE}${NC}"
 echo -e "${GREEN}Cmdline: ${CMDLINE_FILE}${NC}"
 echo
+
+if [ -f "${BZIMAGE_CI}" ]; then
+    BZIMAGE_FILE="${BZIMAGE_CI}"
+    echo -e "${GREEN}Using bzImage from CI: ${BZIMAGE_FILE}${NC}"
+else
+    BZIMAGE_FILE=$(find "${KERNEL_BUILD_DIR}" -path "*/arch/x86/boot/bzImage" -o -path "*/arch/x86_64/boot/bzImage" 2>/dev/null | head -1)
+    if [ -z "${BZIMAGE_FILE}" ]; then
+        echo -e "${RED}ERROR: bzImage not found in ${KERNEL_BUILD_DIR} or ${BZIMAGE_CI}${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}Found kernel bzImage: ${BZIMAGE_FILE}${NC}"
+fi
 
 if [ ! -f "${INITRAMFS_FILE}" ]; then
     echo -e "${RED}ERROR: initramfs not found at ${INITRAMFS_FILE}${NC}"
@@ -32,15 +44,6 @@ if [ ! -f "${CMDLINE_FILE}" ]; then
     echo -e "${RED}ERROR: cmdline not found at ${CMDLINE_FILE}${NC}"
     exit 1
 fi
-
-# Find kernel bzImage in build tree
-BZIMAGE=$(find "${KERNEL_BUILD_DIR}" -path "*/arch/x86/boot/bzImage" -o -path "*/arch/x86_64/boot/bzImage" 2>/dev/null | head -1)
-if [ -z "${BZIMAGE}" ]; then
-    echo -e "${RED}ERROR: bzImage not found in ${KERNEL_BUILD_DIR}${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}Found kernel bzImage: ${BZIMAGE}${NC}"
 
 if ! command -v llvm-objcopy &> /dev/null; then
     echo -e "${RED}ERROR: llvm-objcopy not found${NC}"
@@ -80,7 +83,7 @@ llvm-objcopy \
     --set-section-flags .cmdline=alloc,readonly \
     --add-section .uname="${UNAME_FILE}" \
     --set-section-flags .uname=alloc,readonly \
-    --add-section .linux="${BZIMAGE}" \
+    --add-section .linux="${BZIMAGE_FILE}" \
     --set-section-flags .linux=alloc,readonly,code \
     --add-section .initrd="${INITRAMFS_FILE}" \
     --set-section-flags .initrd=alloc,readonly \
