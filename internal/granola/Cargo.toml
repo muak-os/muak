@@ -4,22 +4,33 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nix = { version = "0.29", features = ["process", "signal", "fs"] }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util"] }
-tonic = "0.12"
-prost = "0.13"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-rtnetlink = "0.14"
-futures = "0.3"
-dhcproto = "0.12"
-netlink-packet-route = "0.19"
-bincode = "1.3"
-uuid = { version = "1", features = ["v4"] }
-sha2 = "0.10"
+# Core async runtime
+tokio = { version = "^1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util"] }
+
+# System/platform APIs
+nix = { version = "^0.29", features = ["process", "signal", "fs"] }
+
+# RPC and serialization
+tonic = "^0.12"
+prost = "^0.13"
+
+# Serialization
+serde = { version = "^1", features = ["derive"] }
+serde_json = "^1"
+
+# Networking
+rtnetlink = "^0.14"
+netlink-packet-route = "^0.19"
+futures = "^0.3"
+dhcproto = "^0.12"
+
+# Utilities
+bincode = "^1.3"
+uuid = { version = "^1", features = ["v4"] }
+sha2 = "^0.10"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "^0.12"
 
 [profile.release]
 opt-level = "z"
