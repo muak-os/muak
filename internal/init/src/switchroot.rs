@@ -1,4 +1,4 @@
-use nix::mount::{mount, MsFlags};
+use nix::mount::{MsFlags, mount};
 use nix::unistd::{chdir, chroot};
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -42,7 +42,12 @@ fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
 
-            if name_str == "dev" || name_str == "proc" || name_str == "sys" || name_str == "run" || name_str == "tmp" {
+            if name_str == "dev"
+                || name_str == "proc"
+                || name_str == "sys"
+                || name_str == "run"
+                || name_str == "tmp"
+            {
                 continue;
             }
 
@@ -62,12 +67,20 @@ fn exec_init() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut checked_paths = Vec::new();
     for init_path in &init_paths {
-        checked_paths.push(format!("{} exists={}", init_path, fs::metadata(init_path).is_ok()));
+        checked_paths.push(format!(
+            "{} exists={}",
+            init_path,
+            fs::metadata(init_path).is_ok()
+        ));
         if fs::metadata(init_path).is_ok() {
             let err = Command::new(init_path).exec();
             return Err(format!("Failed to exec {}: {}", init_path, err).into());
         }
     }
 
-    Err(format!("No init binary found in new root. Checked: {:?}", checked_paths).into())
+    Err(format!(
+        "No init binary found in new root. Checked: {:?}",
+        checked_paths
+    )
+    .into())
 }

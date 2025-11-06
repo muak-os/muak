@@ -1,5 +1,5 @@
-use nix::fcntl::{open, OFlag};
-use nix::mount::{mount, MsFlags};
+use nix::fcntl::{OFlag, open};
+use nix::mount::{MsFlags, mount};
 use nix::sys::stat::Mode;
 use nix::unistd::close;
 use nix::unistd::mkdir;
