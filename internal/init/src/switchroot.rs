@@ -19,7 +19,7 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
     for mnt in &["/dev", "/proc", "/sys", "/run", "/tmp"] {
         let target = format!("{}{}", newroot, mnt);
 
-        if let Err(_) = fs::create_dir_all(&target) {}
+        let _ = fs::create_dir_all(&target);
 
         mount(
             Some(*mnt),
@@ -36,26 +36,24 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
 fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir("/")?;
 
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
 
-            if name_str == "dev"
-                || name_str == "proc"
-                || name_str == "sys"
-                || name_str == "run"
-                || name_str == "tmp"
-            {
-                continue;
-            }
+        if name_str == "dev"
+            || name_str == "proc"
+            || name_str == "sys"
+            || name_str == "run"
+            || name_str == "tmp"
+        {
+            continue;
+        }
 
-            if path.is_dir() {
-                let _ = fs::remove_dir_all(&path);
-            } else {
-                let _ = fs::remove_file(&path);
-            }
+        if path.is_dir() {
+            let _ = fs::remove_dir_all(&path);
+        } else {
+            let _ = fs::remove_file(&path);
         }
     }
 
