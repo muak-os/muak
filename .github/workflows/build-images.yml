@@ -147,7 +147,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: uki-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/
+          path: build/
 
       - name: Build ISO
         run: |
@@ -157,4 +157,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: iso-${{ matrix.arch }}
-          path: output/${{ matrix.arch }}/muak-*.iso
+          path: build/muak-*.iso
