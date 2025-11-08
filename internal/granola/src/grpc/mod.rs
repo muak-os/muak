@@ -1,5 +1,6 @@
-pub mod grpc_process;
-pub mod grpc_vm;
+pub mod maintenance;
+pub mod process;
 mod server;
+pub mod vm;
 
 pub use server::main;

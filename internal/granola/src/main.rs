@@ -1,5 +1,7 @@
 mod config;
+mod disk;
 mod grpc;
+mod installer;
 mod ipc;
 mod log;
 mod network;
@@ -17,6 +19,24 @@ use vm::VmManager;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
+
+    match installer::detect_status() {
+        installer::InstallationStatus::Live => {
+            log!("granola", "🔴 CURRENTLY IN MAINTENANCE MODE");
+            log!(
+                "granola",
+                "   Run 'muak install --target <disk>' to install"
+            );
+        }
+        installer::InstallationStatus::Installed => {
+            log!("granola", "🟢 Running from INSTALLED DISK");
+
+            if let Err(e) = installer::mount_partitions() {
+                log!("granola", "WARNING: Failed to mount partitions: {}", e);
+                // Continue anyway - might be recoverable
+            }
+        }
+    }
 
     std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
     log!("granola", "Created {} directory", config::MUAK_DISKS_DIR);

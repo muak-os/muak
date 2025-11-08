@@ -15,6 +15,12 @@ pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
 }
 
+pub mod maintenance_service {
+    tonic::include_proto!("muak.maintenance.v1");
+}
+
+use maintenance_service::maintenance_service_client::MaintenanceServiceClient;
+use maintenance_service::InstallRequest;
 use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
@@ -43,6 +49,12 @@ enum Commands {
     Vm {
         #[command(subcommand)]
         action: VmAction,
+    },
+    Install {
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -122,6 +134,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = VmServiceClient::new(channel);
             handle_vm_action(&mut client, action).await?;
         }
+        Commands::Install { target, force } => {
+            let mut client = MaintenanceServiceClient::new(channel);
+            handle_install(&mut client, target, force).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_install(
+    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    target_disk: String,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = tonic::Request::new(InstallRequest {
+        target_disk: target_disk.clone(),
+        force,
+    });
+
+    println!("{}Installing Muak to {}...{}", BLUE, target_disk, RESET);
+
+    let response = client.install(request).await?;
+    let resp = response.into_inner();
+
+    if resp.success {
+        println!(
+            "{}Successfully installed Muak to {}{}",
+            GREEN, target_disk, RESET
+        );
+        println!("{}Partitions created:{}", BOLD, RESET);
+        println!("  - EFI:   {}1 (512 MB)", target_disk);
+        println!("  - STATE: {}2 (1 GB)", target_disk);
+        println!("  - DATA:  {}3 (remaining)", target_disk);
+        println!(
+            "\n{}Please reboot to start the installed system{}",
+            YELLOW, RESET
+        );
+    } else {
+        eprintln!("{}Installation failed: {}{}", RED, resp.error, RESET);
+        std::process::exit(1);
     }
 
     Ok(())

@@ -8,7 +8,7 @@ edition = "2024"
 tokio = { version = "^1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util"] }
 
 # System/platform APIs
-nix = { version = "^0.29", features = ["process", "signal", "fs"] }
+nix = { version = "^0.29", features = ["process", "signal", "fs", "mount"] }
 
 # RPC and serialization
 tonic = "^0.12"
@@ -28,6 +28,11 @@ dhcproto = "^0.12"
 bincode = "^1.3"
 uuid = { version = "^1", features = ["v4"] }
 sha2 = "^0.10"
+anyhow = "^1.0"
+
+# Disk utilities
+gptman = "^2.0"
+fatfs = "^0.3"
 
 [build-dependencies]
 tonic-build = "^0.12"

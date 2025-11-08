@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package muak.maintenance.v1;
+
+service MaintenanceService {
+    rpc Install(InstallRequest) returns (InstallResponse);
+}
+
+message InstallRequest {
+    string target_disk = 1;  // e.g., "/dev/sda" or "/dev/nvme0n1"
+    bool force = 2;          // Force installation even if disk has data
+}
+
+message InstallResponse {
+    bool success = 1;
+    string error = 2;      // Error message if failed
+}
