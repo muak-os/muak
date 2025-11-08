@@ -20,7 +20,7 @@ pub mod maintenance_service {
 }
 
 use maintenance_service::maintenance_service_client::MaintenanceServiceClient;
-use maintenance_service::InstallRequest;
+use maintenance_service::{InstallRequest, ListDisksRequest};
 use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
@@ -56,6 +56,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    Disks,
 }
 
 #[derive(Subcommand)]
@@ -138,6 +139,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = MaintenanceServiceClient::new(channel);
             handle_install(&mut client, target, force).await?;
         }
+        Commands::Disks => {
+            let mut client = MaintenanceServiceClient::new(channel);
+            handle_list_disks(&mut client).await?;
+        }
     }
 
     Ok(())
@@ -177,6 +182,76 @@ async fn handle_install(
     }
 
     Ok(())
+}
+
+async fn handle_list_disks(
+    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = tonic::Request::new(ListDisksRequest {});
+
+    let response = client.list_disks(request).await?;
+    let resp = response.into_inner();
+
+    if !resp.error.is_empty() {
+        eprintln!("{}Error listing disks: {}{}", RED, resp.error, RESET);
+        std::process::exit(1);
+    }
+
+    if resp.disks.is_empty() {
+        println!("{}No disks found{}", YELLOW, RESET);
+        return Ok(());
+    }
+
+    // Print header
+    println!(
+        "{}{}{:<12} {:<10} {:<40} {:<3} {:<3} {}{}",
+        BOLD, GREEN, "DISK", "SIZE", "MODEL", "RO", "REM", "PARTITIONS", RESET
+    );
+
+    for disk in resp.disks {
+        let size_str = format_size(disk.size_bytes);
+        let ro_str = if disk.read_only { "Yes" } else { "No" };
+        let rem_str = if disk.removable { "Yes" } else { "No" };
+        let part_count = disk.partitions.len();
+
+        println!(
+            "{:<12} {:<10} {:<40} {:<3} {:<3} {}",
+            disk.name, size_str, disk.model, ro_str, rem_str, part_count
+        );
+
+        // Print partitions if any
+        for (idx, part) in disk.partitions.iter().enumerate() {
+            let is_last = idx == disk.partitions.len() - 1;
+            let prefix = if is_last { "└─" } else { "├─" };
+            let part_size_str = format_size(part.size_bytes);
+
+            println!(
+                "  {} {:<9} {:<10} Start: {}",
+                prefix, part.name, part_size_str, part.start_sector
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    const TB: u64 = 1024 * GB;
+
+    if bytes >= TB {
+        format!("{:.2}TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2}GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.0}MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0}KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{}B", bytes)
+    }
 }
 
 async fn upload_file(

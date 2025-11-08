@@ -1,4 +1,4 @@
-use crate::{installer, log};
+use crate::{disk, installer, log};
 use tonic::{Request, Response, Status};
 
 pub mod maintenance {
@@ -6,7 +6,8 @@ pub mod maintenance {
 }
 
 use maintenance::{
-    InstallRequest, InstallResponse,
+    DiskInfo as ProtoDiskInfo, InstallRequest, InstallResponse, ListDisksRequest,
+    ListDisksResponse, PartitionInfo as ProtoPartitionInfo,
     maintenance_service_server::MaintenanceService,
 };
 
@@ -48,6 +49,61 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 log!("maintenance", "Installation task failed: {}", e);
                 Ok(Response::new(InstallResponse {
                     success: false,
+                    error: format!("{}", e),
+                }))
+            }
+        }
+    }
+
+    async fn list_disks(
+        &self,
+        _request: Request<ListDisksRequest>,
+    ) -> Result<Response<ListDisksResponse>, Status> {
+        log!("maintenance", "List disks request");
+
+        let result = tokio::task::spawn_blocking(move || disk::list_disks()).await;
+
+        match result {
+            Ok(Ok(disks)) => {
+                let proto_disks: Vec<ProtoDiskInfo> = disks
+                    .into_iter()
+                    .map(|d| ProtoDiskInfo {
+                        name: d.name,
+                        path: d.path,
+                        size_bytes: d.size_bytes,
+                        model: d.model,
+                        removable: d.removable,
+                        read_only: d.read_only,
+                        partitions: d
+                            .partitions
+                            .into_iter()
+                            .map(|p| ProtoPartitionInfo {
+                                number: p.number,
+                                start_sector: p.start_sector,
+                                size_bytes: p.size_bytes,
+                                name: p.name,
+                                path: p.path,
+                            })
+                            .collect(),
+                    })
+                    .collect();
+
+                Ok(Response::new(ListDisksResponse {
+                    disks: proto_disks,
+                    error: String::new(),
+                }))
+            }
+            Ok(Err(e)) => {
+                log!("maintenance", "List disks failed: {}", e);
+                Ok(Response::new(ListDisksResponse {
+                    disks: Vec::new(),
+                    error: format!("{}", e),
+                }))
+            }
+            Err(e) => {
+                log!("maintenance", "List disks task failed: {}", e);
+                Ok(Response::new(ListDisksResponse {
+                    disks: Vec::new(),
                     error: format!("{}", e),
                 }))
             }

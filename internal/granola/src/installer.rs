@@ -166,6 +166,7 @@ fn find_uki_on_live_media() -> Result<String> {
     )
 }
 
+// TODO: understand what config files are needed and populate them
 fn initialize_state_partition(device: &str) -> Result<()> {
     log!("installer", "Initializing STATE partition");
 
@@ -180,11 +181,9 @@ fn initialize_state_partition(device: &str) -> Result<()> {
         None::<&str>,
     )?;
 
-    // Create default directory structure
     fs::create_dir_all(format!("{}/config", mount_point))?;
     fs::create_dir_all(format!("{}/network", mount_point))?;
 
-    // Write default config (placeholder)
     let default_config = "# Muak Configuration\n# TODO: Add actual config\n";
     fs::write(
         format!("{}/config/config.yaml", mount_point),

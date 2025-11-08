@@ -4,6 +4,7 @@ package muak.maintenance.v1;
 
 service MaintenanceService {
     rpc Install(InstallRequest) returns (InstallResponse);
+    rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
 }
 
 message InstallRequest {
@@ -14,4 +15,29 @@ message InstallRequest {
 message InstallResponse {
     bool success = 1;
     string error = 2;      // Error message if failed
+}
+
+message PartitionInfo {
+    uint32 number = 1;
+    uint64 start_sector = 2;
+    uint64 size_bytes = 3;
+    string name = 4;
+    string path = 5;
+}
+
+message DiskInfo {
+    string name = 1;
+    string path = 2;
+    uint64 size_bytes = 3;
+    string model = 4;
+    bool removable = 5;
+    bool read_only = 6;
+    repeated PartitionInfo partitions = 7;
+}
+
+message ListDisksRequest {}
+
+message ListDisksResponse {
+    repeated DiskInfo disks = 1;
+    string error = 2;
 }

@@ -253,3 +253,132 @@ pub fn wait_for_device(device: &str) -> Result<()> {
     }
     bail!("Timeout waiting for device {} to appear", device)
 }
+
+#[derive(Debug, Clone)]
+pub struct PartitionInfo {
+    pub number: u32,
+    pub start_sector: u64,
+    pub size_bytes: u64,
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskInfo {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub model: String,
+    pub removable: bool,
+    pub read_only: bool,
+    pub partitions: Vec<PartitionInfo>,
+}
+
+fn is_physical_disk(name: &str) -> bool {
+    !name.starts_with("loop")
+        && !name.starts_with("dm-")
+        && !name.starts_with("ram")
+        && !name.starts_with("sr") // CD-ROM
+}
+
+fn read_sysfs_u64(path: &Path) -> Result<u64> {
+    let content = fs::read_to_string(path)?;
+    Ok(content.trim().parse()?)
+}
+
+fn read_sysfs_string(path: &Path) -> Result<String> {
+    let content = fs::read_to_string(path)?;
+    Ok(content.trim().to_string())
+}
+
+fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
+    let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
+
+    let number = read_sysfs_u64(&sysfs_path.join("partition"))? as u32;
+    let start_sector = read_sysfs_u64(&sysfs_path.join("start"))?;
+    let size_sectors = read_sysfs_u64(&sysfs_path.join("size"))?;
+    let size_bytes = size_sectors * SECTOR_SIZE;
+
+    let path = format!("/dev/{}", part_name);
+
+    Ok(PartitionInfo {
+        number,
+        start_sector,
+        size_bytes,
+        name: part_name.to_string(),
+        path,
+    })
+}
+
+fn read_disk_info(name: &str) -> Result<DiskInfo> {
+    let sysfs_path = Path::new("/sys/block").join(name);
+
+    let size_sectors = read_sysfs_u64(&sysfs_path.join("size"))?;
+    let size_bytes = size_sectors * SECTOR_SIZE;
+    let removable = read_sysfs_u64(&sysfs_path.join("removable"))? != 0;
+    let read_only = read_sysfs_u64(&sysfs_path.join("ro"))? != 0;
+
+    let model =
+        read_sysfs_string(&sysfs_path.join("device/model")).unwrap_or_else(|_| name.to_string());
+
+    let path = format!("/dev/{}", name);
+
+    // Find partitions by listing subdirectories that start with the disk name
+    let mut partitions = Vec::new();
+    if let Ok(entries) = fs::read_dir(&sysfs_path) {
+        for entry in entries.flatten() {
+            let part_name = entry.file_name();
+            let part_name_str = part_name.to_string_lossy();
+
+            // Check if this is a partition
+            if part_name_str.starts_with(name) && part_name_str != name {
+                let partition_file = entry.path().join("partition");
+                if partition_file.exists() {
+                    if let Ok(part_info) = read_partition_info(name, &part_name_str) {
+                        partitions.push(part_info);
+                    }
+                }
+            }
+        }
+    }
+
+    partitions.sort_by_key(|p| p.number);
+
+    Ok(DiskInfo {
+        name: name.to_string(),
+        path,
+        size_bytes,
+        model,
+        removable,
+        read_only,
+        partitions,
+    })
+}
+
+pub fn list_disks() -> Result<Vec<DiskInfo>> {
+    let mut disks = Vec::new();
+
+    let block_dir = Path::new("/sys/block");
+    if !block_dir.exists() {
+        bail!("/sys/block does not exist - sysfs not mounted?");
+    }
+
+    let entries = fs::read_dir(block_dir)?;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        if is_physical_disk(&name_str) {
+            if let Ok(disk_info) = read_disk_info(&name_str) {
+                if disk_info.size_bytes > 0 {
+                    disks.push(disk_info);
+                }
+            }
+        }
+    }
+
+    disks.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(disks)
+}
