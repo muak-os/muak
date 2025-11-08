@@ -1,15 +1,11 @@
-use nix::fcntl::{OFlag, open};
 use nix::sys::signal::{Signal, kill};
-use nix::sys::stat::Mode;
-use nix::unistd::{ForkResult, Pid, dup2, fork};
+use nix::unistd::{ForkResult, Pid, fork};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::fmt;
-use std::os::unix::io::RawFd;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Process {
@@ -115,71 +111,49 @@ impl ProcessManager {
             return Err(format!("Command not found: {}", command));
         }
 
-        match unsafe { fork() } {
-            Ok(ForkResult::Parent { child }) => {
-                let pid = child.as_raw();
-                self.register_process(pid, command.clone(), args.clone());
-                crate::log!(
-                    "process",
-                    "Spawned external process: {} (PID: {}) with args: {:?}",
-                    command,
-                    pid,
-                    args
-                );
-                Ok(pid)
-            }
-            Ok(ForkResult::Child) => {
-                // Redirect stdout if requested
-                if let Some(stdout_file) = stdout_path {
-                    let path = Path::new(&stdout_file);
-                    match open(
-                        path,
-                        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
-                        Mode::from_bits_truncate(0o644),
-                    ) {
-                        Ok(fd) => {
-                            let _ = dup2(fd as RawFd, 1); // Redirect stdout
-                            let _ = nix::unistd::close(fd as RawFd);
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to open stdout file {}: {}", stdout_file, e);
-                            std::process::exit(127);
-                        }
-                    }
-                }
+        let mut cmd = Command::new(&command);
+        cmd.args(&args);
 
-                // Redirect stderr if requested
-                if let Some(stderr_file) = stderr_path {
-                    let path = Path::new(&stderr_file);
-                    match open(
-                        path,
-                        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
-                        Mode::from_bits_truncate(0o644),
-                    ) {
-                        Ok(fd) => {
-                            let _ = dup2(fd as RawFd, 2); // Redirect stderr
-                            let _ = nix::unistd::close(fd as RawFd);
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to open stderr file {}: {}", stderr_file, e);
-                            std::process::exit(127);
-                        }
-                    }
-                }
-
-                let cmd =
-                    CString::new(command.as_str()).expect("FATAL: command contains null byte");
-                let c_args: Vec<CString> = std::iter::once(command.clone())
-                    .chain(args)
-                    .map(|s| CString::new(s).expect("FATAL: arg contains null byte"))
-                    .collect();
-
-                let exec_result = nix::unistd::execv(&cmd, &c_args);
-                eprintln!("Failed to exec {}: {:?}", command, exec_result);
-                std::process::exit(127);
-            }
-            Err(e) => Err(format!("Failed to fork: {}", e)),
+        if let Some(stdout_file) = stdout_path {
+            use std::fs::OpenOptions;
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&stdout_file)
+                .map_err(|e| format!("Failed to open stdout file {}: {}", stdout_file, e))?;
+            cmd.stdout(file);
         }
+
+        if let Some(stderr_file) = stderr_path {
+            use std::fs::OpenOptions;
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&stderr_file)
+                .map_err(|e| format!("Failed to open stderr file {}: {}", stderr_file, e))?;
+            cmd.stderr(file);
+        }
+
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn {}: {}", command, e))?;
+
+        let pid = child.id().ok_or("Failed to get process ID")? as i32;
+
+        self.register_process(pid, command.clone(), args.clone());
+        crate::log!(
+            "process",
+            "Spawned external process: {} (PID: {}) with args: {:?}",
+            command,
+            pid,
+            args
+        );
+
+        std::mem::forget(child);
+
+        Ok(pid)
     }
 
     pub fn stop(&self, pid: i32, signal: i32) -> Result<(), String> {

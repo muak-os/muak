@@ -1,7 +1,8 @@
 use crate::log;
 use dhcproto::{Decodable, Decoder, Encodable, v4};
-use nix::libc;
+use nix::sys::socket::{setsockopt, sockopt::BindToDevice};
 use rtnetlink::Handle;
+use std::ffi::OsString;
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
@@ -19,21 +20,7 @@ pub async fn run_dhcp_client(
     let socket = UdpSocket::bind("0.0.0.0:68").await?;
     socket.set_broadcast(true)?;
 
-    unsafe {
-        use std::os::unix::io::AsRawFd;
-        let fd = socket.as_raw_fd();
-        let iface_cstr = std::ffi::CString::new(interface)?;
-        let ret = libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            iface_cstr.as_ptr() as *const libc::c_void,
-            iface_cstr.as_bytes_with_nul().len() as libc::socklen_t,
-        );
-        if ret != 0 {
-            return Err("Failed to bind socket to device".into());
-        }
-    }
+    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
 
     let xid: u32 = SystemTime::now()
         .duration_since(UNIX_EPOCH)

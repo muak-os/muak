@@ -6,8 +6,6 @@ use std::fs::OpenOptions;
 use std::os::unix::io::AsRawFd;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
-const TUNSETIFF: u64 = 0x400454ca;
-const TUNSETPERSIST: u64 = 0x400454cb;
 const IFF_TAP: i16 = 0x0002;
 const IFF_NO_PI: i16 = 0x1000;
 const IFF_VNET_HDR: i16 = 0x4000;
@@ -18,6 +16,9 @@ struct IfReq {
     ifr_flags: i16,
     _padding: [u8; 22],
 }
+
+nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq); // TUNSETIFF = 0x400454ca
+nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb); // TUNSETPERSIST = 0x400454cb
 
 pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     log!("network", "Creating TAP device: {}", tap_name);
@@ -36,17 +37,8 @@ pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>
     let copy_len = name_bytes.len().min(15);
     ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
-    let ret = unsafe { nix::libc::ioctl(fd, TUNSETIFF, &ifr as *const IfReq) };
-
-    if ret < 0 {
-        return Err("Failed to create TAP device".into());
-    }
-
-    let persist_ret = unsafe { nix::libc::ioctl(fd, TUNSETPERSIST, 1) };
-
-    if persist_ret < 0 {
-        return Err("Failed to make TAP device persistent".into());
-    }
+    unsafe { tunsetiff(fd, &ifr) }.map_err(|_| "Failed to create TAP device")?;
+    unsafe { tunsetpersist(fd, 1) }.map_err(|_| "Failed to make TAP device persistent")?;
 
     log!("network", "Persistent TAP device {} created", tap_name);
 
