@@ -59,8 +59,6 @@ impl MaintenanceService for MaintenanceServiceImpl {
         &self,
         _request: Request<ListDisksRequest>,
     ) -> Result<Response<ListDisksResponse>, Status> {
-        log!("maintenance", "List disks request");
-
         let result = tokio::task::spawn_blocking(move || disk::list_disks()).await;
 
         match result {

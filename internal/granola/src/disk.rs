@@ -370,9 +370,14 @@ pub fn list_disks() -> Result<Vec<DiskInfo>> {
         let name_str = name.to_string_lossy();
 
         if is_physical_disk(&name_str) {
-            if let Ok(disk_info) = read_disk_info(&name_str) {
-                if disk_info.size_bytes > 0 {
-                    disks.push(disk_info);
+            match read_disk_info(&name_str) {
+                Ok(disk_info) => {
+                    if disk_info.size_bytes > 0 {
+                        disks.push(disk_info);
+                    }
+                }
+                Err(e) => {
+                    log!("disk", "Failed to read disk {}: {}", name_str, e);
                 }
             }
         }
