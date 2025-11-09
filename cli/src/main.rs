@@ -216,7 +216,7 @@ async fn handle_list_disks(
 
         println!(
             "{:<12} {:<10} {:<40} {:<3} {:<3} {}",
-            disk.name, size_str, disk.model, ro_str, rem_str, part_count
+            disk.path, size_str, disk.model, ro_str, rem_str, part_count
         );
 
         // Print partitions if any
@@ -227,7 +227,7 @@ async fn handle_list_disks(
 
             println!(
                 "  {} {:<9} {:<10} Start: {}",
-                prefix, part.name, part_size_str, part.start_sector
+                prefix, part.path, part_size_str, part.start_sector
             );
         }
     }
