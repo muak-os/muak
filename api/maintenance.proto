@@ -23,7 +23,7 @@ message PartitionInfo {
     uint64 size_bytes = 3;
     string name = 4;
     string path = 5;
-    string fstype = 6;  // Filesystem type (e.g., "vfat", "ext4", "")
+    string fstype = 6;
 }
 
 message DiskInfo {

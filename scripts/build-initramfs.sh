@@ -54,6 +54,26 @@ echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
 cp "$PROJECT_ROOT/internal/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 chmod +x "$TEMP_DIR/rootfs_source/sbin/init"
 
+echo -e "${YELLOW}Downloading btrfs-progs static binaries...${NC}"
+BTRFS_VERSION="v6.17.1"
+BTRFS_CACHE_DIR="$PROJECT_ROOT/build/btrfs-tools"
+BTRFS_URL="https://github.com/kdave/btrfs-progs/releases/download/${BTRFS_VERSION}"
+
+mkdir -p "$BTRFS_CACHE_DIR"
+
+if [ ! -f "$BTRFS_CACHE_DIR/btrfs.box.static" ]; then
+    echo "  Downloading btrfs.box.static ${BTRFS_VERSION}..."
+    curl -sL "${BTRFS_URL}/btrfs.box.static" -o "$BTRFS_CACHE_DIR/btrfs.box.static"
+else
+    echo "  Using cached btrfs.box.static"
+fi
+
+echo "  Installing btrfs tools..."
+mkdir -p "$TEMP_DIR/rootfs_source/bin"
+cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/bin/btrfs"
+cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/sbin/mkfs.btrfs"
+cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/bin/btrfs-image"
+
 if [ -n "$EXTENSIONS" ]; then
     echo -e "${YELLOW}Preparing extensions manifest...${NC}"
     echo "extensions:" > "$TEMP_DIR/extensions.yaml"

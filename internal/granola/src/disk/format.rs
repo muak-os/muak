@@ -27,28 +27,28 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn format_ext4_partition(device: &str, label: &str) -> Result<()> {
+pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
     log!(
         "installer",
-        "Formatting {} as ext4 with label '{}'",
+        "Formatting {} as btrfs with label '{}'",
         device,
         label
     );
 
     wait_for_device(device)?;
 
-    let status = Command::new("mkfs.ext4")
-        .arg("-F") // Force
+    let status = Command::new("/sbin/mkfs.btrfs")
+        .arg("-f") // Force
         .arg("-L") // Label
         .arg(label)
         .arg(device)
         .status()?;
 
     if !status.success() {
-        bail!("Failed to format {} as ext4", device);
+        bail!("Failed to format {} as btrfs", device);
     }
 
-    log!("installer", "ext4 formatting complete");
+    log!("installer", "btrfs formatting complete");
 
     Ok(())
 }

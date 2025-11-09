@@ -113,6 +113,17 @@ fn detect_filesystem(device_path: &str) -> String {
         }
     }
 
+    // Check for btrfs signature
+    // btrfs superblock is at offset 0x10000 (65536 bytes)
+    // Magic bytes "_BHRfS_M" are at offset 0x40 within the superblock (so absolute offset 0x10040)
+    let mut btrfs_magic = [0u8; 8];
+    if file.seek(std::io::SeekFrom::Start(0x10040)).is_ok()
+        && file.read_exact(&mut btrfs_magic).is_ok()
+        && btrfs_magic == *b"_BHRfS_M"
+    {
+        return "btrfs".to_string();
+    }
+
     String::new()
 }
 

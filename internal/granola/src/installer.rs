@@ -42,7 +42,7 @@ pub fn mount_partitions() -> Result<()> {
     mount(
         Some(state_dev.as_str()),
         "/state",
-        Some("ext4"),
+        Some("btrfs"),
         MsFlags::empty(),
         None::<&str>,
     )
@@ -56,7 +56,7 @@ pub fn mount_partitions() -> Result<()> {
     mount(
         Some(data_dev.as_str()),
         "/var",
-        Some("ext4"),
+        Some("btrfs"),
         MsFlags::empty(),
         None::<&str>,
     )
@@ -95,8 +95,8 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
     let (efi_part, state_part, data_part) = disk::create_partitions(disk_path)?;
 
     disk::format_efi_partition(&efi_part)?;
-    disk::format_ext4_partition(&state_part, "STATE")?;
-    disk::format_ext4_partition(&data_part, "DATA")?;
+    disk::format_btrfs_partition(&state_part, "STATE")?;
+    disk::format_btrfs_partition(&data_part, "DATA")?;
 
     install_uki(&efi_part)?;
 
@@ -107,6 +107,8 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
         "installer",
         "Remove the ISO and reboot to start from installed disk."
     );
+
+    // TODO: send reboot to kernel
 
     Ok(())
 }
@@ -130,20 +132,34 @@ fn install_uki(efi_device: &str) -> Result<()> {
         Some(efi_device),
         mount_point,
         Some("vfat"),
-        MsFlags::empty(),
+        MsFlags::MS_NOATIME,
         None::<&str>,
-    )?;
+    )
+    .context("Failed to mount EFI partition")?;
 
-    fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
+    let result = (|| -> Result<()> {
+        fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
-    let dest_uki = format!("{}/EFI/BOOT/{}", mount_point, uki_filename);
-    fs::copy(&source_uki, &dest_uki)?;
+        let dest_uki = format!("{}/EFI/BOOT/{}", mount_point, uki_filename);
+        fs::copy(&source_uki, &dest_uki)
+            .with_context(|| format!("Failed to copy UKI from {} to {}", source_uki, dest_uki))?;
 
-    log!("installer", "Copied {} to {}", source_uki, dest_uki);
+        log!("installer", "Copied {} to {}", source_uki, dest_uki);
 
-    sync();
+        sync();
+        Ok(())
+    })();
 
-    umount(mount_point)?;
+    if let Err(e) = umount(mount_point) {
+        log!(
+            "installer",
+            "Warning: Failed to unmount {}: {}",
+            mount_point,
+            e
+        );
+    }
+
+    result?;
 
     log!("installer", "UKI installation complete");
 
@@ -151,7 +167,7 @@ fn install_uki(efi_device: &str) -> Result<()> {
 }
 
 fn find_uki_on_live_media() -> Result<String> {
-    let candidates = vec!["/boot/EFI/BOOT/BOOTX64.EFI", "/boot/EFI/BOOT/BOOTAA64.EFI"];
+    let candidates = vec!["/run/uki/BOOTX64.EFI", "/run/uki/BOOTAA64.EFI"];
 
     for candidate in &candidates {
         if Path::new(candidate).exists() {
@@ -161,7 +177,7 @@ fn find_uki_on_live_media() -> Result<String> {
     }
 
     bail!(
-        "Could not find UKI on live media. Searched: {:?}",
+        "Could not find UKI in /run/uki/. Stage 1 init should have copied it there. Searched: {:?}",
         candidates
     )
 }
@@ -176,22 +192,36 @@ fn initialize_state_partition(device: &str) -> Result<()> {
     mount(
         Some(device),
         mount_point,
-        Some("ext4"),
+        Some("btrfs"),
         MsFlags::empty(),
         None::<&str>,
-    )?;
+    )
+    .context("Failed to mount STATE partition")?;
 
-    fs::create_dir_all(format!("{}/config", mount_point))?;
-    fs::create_dir_all(format!("{}/network", mount_point))?;
+    let result = (|| -> Result<()> {
+        fs::create_dir_all(format!("{}/config", mount_point))?;
+        fs::create_dir_all(format!("{}/network", mount_point))?;
 
-    let default_config = "# Muak Configuration\n# TODO: Add actual config\n";
-    fs::write(
-        format!("{}/config/config.yaml", mount_point),
-        default_config,
-    )?;
+        let default_config = "# Muak Configuration\n# TODO: Add actual config\n";
+        fs::write(
+            format!("{}/config/config.yaml", mount_point),
+            default_config,
+        )?;
 
-    sync();
-    umount(mount_point)?;
+        sync();
+        Ok(())
+    })();
+
+    if let Err(e) = umount(mount_point) {
+        log!(
+            "installer",
+            "Warning: Failed to unmount {}: {}",
+            mount_point,
+            e
+        );
+    }
+
+    result?;
 
     log!("installer", "STATE partition initialized");
 
