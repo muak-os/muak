@@ -72,7 +72,6 @@ echo "  Installing btrfs tools..."
 mkdir -p "$TEMP_DIR/rootfs_source/bin"
 cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/bin/btrfs"
 cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/sbin/mkfs.btrfs"
-cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/bin/btrfs-image"
 
 if [ -n "$EXTENSIONS" ]; then
     echo -e "${YELLOW}Preparing extensions manifest...${NC}"
