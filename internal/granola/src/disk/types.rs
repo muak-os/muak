@@ -5,6 +5,7 @@ pub struct PartitionInfo {
     pub size_bytes: u64,
     pub name: String,
     pub path: String,
+    pub fstype: String,
 }
 
 #[derive(Debug, Clone)]

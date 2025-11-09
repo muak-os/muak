@@ -204,8 +204,8 @@ async fn handle_list_disks(
 
     // Print header
     println!(
-        "{}{}{:<12} {:<10} {:<40} {:<3} {:<3} {}{}",
-        BOLD, GREEN, "DISK", "SIZE", "MODEL", "RO", "REM", "PARTITIONS", RESET
+        "{}{}{:<20}  {:<8}  {:<9}  {:<11} {:<40} {:<3} {:<3} {}{}",
+        BOLD, GREEN, "DISK", "SIZE", "FS", "POSITION", "MODEL", "RO", "REM", "PARTITIONS", RESET
     );
 
     for disk in resp.disks {
@@ -215,8 +215,8 @@ async fn handle_list_disks(
         let part_count = disk.partitions.len();
 
         println!(
-            "{:<12} {:<10} {:<40} {:<3} {:<3} {}",
-            disk.path, size_str, disk.model, ro_str, rem_str, part_count
+            "{:<20}  {:<8}  {:<9}  {:<11} {:<40} {:<3} {:<3} {}",
+            disk.path, size_str, "", "", disk.model, ro_str, rem_str, part_count
         );
 
         // Print partitions if any
@@ -224,10 +224,15 @@ async fn handle_list_disks(
             let is_last = idx == disk.partitions.len() - 1;
             let prefix = if is_last { "└─" } else { "├─" };
             let part_size_str = format_size(part.size_bytes);
+            let fstype_display = if part.fstype.is_empty() {
+                "unknown".to_string()
+            } else {
+                part.fstype.clone()
+            };
 
             println!(
-                "  {} {:<9} {:<10} Start: {}",
-                prefix, part.path, part_size_str, part.start_sector
+                "  {} {:<15}  {:<8}  {:<9}  {}",
+                prefix, part.path, part_size_str, fstype_display, part.start_sector
             );
         }
     }

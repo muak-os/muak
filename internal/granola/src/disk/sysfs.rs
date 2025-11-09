@@ -1,7 +1,7 @@
 use crate::log;
 use anyhow::{Result, bail};
 use std::fs::{self, File};
-use std::io::Seek;
+use std::io::{Read, Seek};
 use std::path::Path;
 
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
@@ -73,6 +73,49 @@ fn read_sysfs_string(path: &Path) -> Result<String> {
     Ok(content.trim().to_string())
 }
 
+fn detect_filesystem(device_path: &str) -> String {
+    let mut file = match File::open(device_path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+
+    // Check for ext4 signature at offset 0x438 (superblock magic)
+    // ext4 superblock starts at offset 1024 bytes
+    // Magic bytes are at offset 0x38 within the superblock (so absolute offset 0x438)
+    let mut ext4_magic = [0u8; 2];
+    if file.seek(std::io::SeekFrom::Start(0x438)).is_ok()
+        && file.read_exact(&mut ext4_magic).is_ok()
+        && ext4_magic == [0x53, 0xEF]
+    {
+        return "ext4".to_string();
+    }
+
+    // Check for FAT32 signature
+    // FAT32 has "FAT32" at offset 82 (0x52) in the boot sector
+    if file.seek(std::io::SeekFrom::Start(0)).is_ok() {
+        let mut boot_sector = [0u8; 512];
+        if file.read_exact(&mut boot_sector).is_ok() {
+            // Check for FAT32 signature at offset 82
+            if boot_sector.len() >= 90 {
+                let fat32_sig = &boot_sector[82..90];
+                if fat32_sig.starts_with(b"FAT32   ") {
+                    return "vfat".to_string();
+                }
+            }
+
+            // Also check FAT16/FAT12 signature at offset 54
+            if boot_sector.len() >= 62 {
+                let fat16_sig = &boot_sector[54..62];
+                if fat16_sig.starts_with(b"FAT16   ") || fat16_sig.starts_with(b"FAT12   ") {
+                    return "vfat".to_string();
+                }
+            }
+        }
+    }
+
+    String::new()
+}
+
 fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
     let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
 
@@ -83,12 +126,15 @@ fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo
 
     let path = format!("/dev/{}", part_name);
 
+    let fstype = detect_filesystem(&path);
+
     Ok(PartitionInfo {
         number,
         start_sector,
         size_bytes,
         name: part_name.to_string(),
         path,
+        fstype,
     })
 }
 

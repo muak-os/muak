@@ -81,6 +81,7 @@ impl MaintenanceService for MaintenanceServiceImpl {
                                 size_bytes: p.size_bytes,
                                 name: p.name,
                                 path: p.path,
+                                fstype: p.fstype,
                             })
                             .collect(),
                     })
