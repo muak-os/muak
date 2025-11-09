@@ -85,7 +85,7 @@ impl ProcessManager {
                     .expect("FATAL: failed to create tokio runtime in child process");
                 runtime.block_on(async {
                     if let Err(e) = service_main().await {
-                        eprintln!("{} error: {}", name, e);
+                        crate::log!("process", "{} error: {}", name, e);
                         std::process::exit(1);
                     }
                 });
