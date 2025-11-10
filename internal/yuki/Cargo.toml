@@ -1,0 +1,18 @@
+[package]
+name = "yuki"
+version = "0.1.0"
+edition = "2024"
+authors = ["Sawang"]
+description = "Static UKI builder - adds PE sections to EFI stubs"
+
+[dependencies]
+object = { version = "0.36", default-features = false, features = ["read", "write", "pe"] }
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
