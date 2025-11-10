@@ -91,9 +91,9 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     result.extend_from_slice(&uki_dir.serialize(inode));
     inode += 1;
 
-    // Add /run/uki/kernel
-    log::info!("Adding /run/uki/kernel ({} bytes)", sections.kernel.len());
-    let kernel_entry = CpioEntry::new("run/uki/kernel", sections.kernel, 0o100644); // Regular file
+    // Add /run/uki/bzImage
+    log::info!("Adding /run/uki/bzImage ({} bytes)", sections.kernel.len());
+    let kernel_entry = CpioEntry::new("run/uki/bzImage", sections.kernel, 0o100644); // Regular file
     result.extend_from_slice(&kernel_entry.serialize(inode));
     inode += 1;
 
