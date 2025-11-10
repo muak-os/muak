@@ -136,23 +136,3 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
 
     Ok(result)
 }
-
-fn find_trailer(data: &[u8]) -> Option<usize> {
-    // Search for the TRAILER!!! entry in the CPIO archive
-    // Look for the pattern "070701" followed by zeros and then "TRAILER!!!"
-
-    for i in 0..data.len().saturating_sub(110 + CPIO_TRAILER.len()) {
-        if &data[i..i + 6] == CPIO_MAGIC.as_bytes() {
-            // Found a potential header, check if it's the trailer
-            // Name starts at offset 110 from magic
-            let name_start = i + 110;
-            if name_start + CPIO_TRAILER.len() < data.len() {
-                if &data[name_start..name_start + CPIO_TRAILER.len()] == CPIO_TRAILER.as_bytes() {
-                    return Some(i);
-                }
-            }
-        }
-    }
-
-    None
-}
