@@ -15,7 +15,7 @@ BZIMAGE_CI="$PROJECT_ROOT/build/bzImage/${ARCH}/bzImage"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
 CMDLINE_FILE="$PROJECT_ROOT/config/cmdline.txt"
 OUTPUT_DIR="$PROJECT_ROOT/build"
-STUB_FILE="$PROJECT_ROOT/config/uki/linuxx64.efi.stub"
+STUB_FILE="$OUTPUT_DIR/muak-stub-${ARCH}.efi"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
@@ -53,6 +53,7 @@ fi
 
 if [ ! -f "${STUB_FILE}" ]; then
     echo -e "${RED}ERROR: EFI stub not found at ${STUB_FILE}${NC}"
+    echo -e "${RED}Please run ./scripts/build-stub.sh ${ARCH} first${NC}"
     exit 1
 fi
 

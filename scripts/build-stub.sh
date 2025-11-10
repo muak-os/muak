@@ -11,7 +11,7 @@ NC='\033[0m'
 
 ARCH="${1:-x86_64}"
 STUB_DIR="$PROJECT_ROOT/internal/stub"
-OUTPUT_DIR="$PROJECT_ROOT/config/uki"
+OUTPUT_DIR="$PROJECT_ROOT/build"
 
 echo -e "${GREEN}==== Building Muak Stub ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
