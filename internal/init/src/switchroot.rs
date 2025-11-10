@@ -16,10 +16,10 @@ pub fn switch(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
-    for mnt in &["/dev", "/proc", "/sys", "/run", "/tmp"] {
+    for mnt in &["/dev", "/proc", "/sys", "/tmp"] {
         let target = format!("{}{}", newroot, mnt);
 
-        let _ = fs::create_dir_all(&target);
+        fs::create_dir_all(&target).map_err(|e| format!("Failed to create {}: {}", target, e))?;
 
         mount(
             Some(*mnt),
@@ -27,7 +27,46 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
             None::<&str>,
             MsFlags::MS_MOVE,
             None::<&str>,
-        )?;
+        )
+        .map_err(|e| format!("Failed to move mount {} to {}: {}", mnt, target, e))?;
+    }
+
+    // Create /run as tmpfs in new root and copy over the contents
+    let run_target = format!("{}/run", newroot);
+    fs::create_dir_all(&run_target)
+        .map_err(|e| format!("Failed to create /run in new root: {}", e))?;
+
+    mount(
+        Some("tmpfs"),
+        run_target.as_str(),
+        Some("tmpfs"),
+        MsFlags::empty(),
+        Some("mode=0755"),
+    )
+    .map_err(|e| format!("Failed to mount tmpfs on /run in new root: {}", e))?;
+
+    // Copy /run/uki contents from initramfs to new root
+    if let Ok(entries) = fs::read_dir("/run/uki") {
+        let uki_target = format!("{}/run/uki", newroot);
+        fs::create_dir_all(&uki_target)
+            .map_err(|e| format!("Failed to create /run/uki in new root: {}", e))?;
+
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let filename = entry.file_name();
+            let dst_path = format!("{}/{}", uki_target, filename.to_string_lossy());
+
+            if src_path.is_file() {
+                fs::copy(&src_path, &dst_path).map_err(|e| {
+                    format!(
+                        "Failed to copy {} to {}: {}",
+                        src_path.display(),
+                        dst_path,
+                        e
+                    )
+                })?;
+            }
+        }
     }
 
     Ok(())

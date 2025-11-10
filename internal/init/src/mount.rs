@@ -37,13 +37,6 @@ pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     create_and_mount(
-        "/run",
-        "tmpfs",
-        "tmpfs",
-        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-        Some("mode=0755"),
-    )?;
-    create_and_mount(
         "/tmp",
         "tmpfs",
         "tmpfs",
