@@ -7,17 +7,17 @@ This directory contains the Muak custom EFI stub implementation written in Rust.
 The custom stub provides the following features:
 
 1. **PE Section Extraction** - Reads `.linux`, `.cmdline`, and `.initrd` sections from the UKI
-2. **Enhanced Initrd** - Embeds the extracted sections into the initrd filesystem at `/uki/`:
-   - `/uki/kernel` - The kernel bzImage
-   - `/uki/cmdline.txt` - The kernel command line
-   - `/uki/initrd.img` - The original initrd
+2. **Enhanced Initrd** - Embeds the extracted sections into the initrd filesystem at `/run/uki/`:
+   - `/run/uki/kernel` - The kernel bzImage
+   - `/run/uki/cmdline.txt` - The kernel command line
+   - `/run/uki/initrd.img` - The original initrd
 
 ## Boot flow
 
 This Stub                          Linux Kernel EFI Stub
 -----------                        ---------------------
 1. Extract .linux, .initrd, .cmdline from UKI
-2. Build enhanced initrd with /uki/* files
+2. Build enhanced initrd with /run/uki/* files
 3. Allocate memory for initrd
 4. Create LoadFile2 protocol → 5. Searches for LINUX_EFI_INITRD_MEDIA_GUID
 5. Install on handle with      6. Calls LoadFile() to get size

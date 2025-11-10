@@ -73,51 +73,64 @@ impl CpioEntry {
 }
 
 pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
+    // The Linux kernel supports multiple concatenated cpio archives.
+    // Since the original initrd is compressed (xz), we need to PREPEND
+    // an uncompressed cpio archive with our files BEFORE the compressed one.
+    // The kernel will extract both in order.
+
     let mut result = Vec::new();
     let mut inode = 1u32;
 
-    // First, copy the entire original initrd
-    // The original initrd is already a complete CPIO archive
-    result.extend_from_slice(sections.initrd);
+    // Create root directory (required for CPIO)
+    let root_dir = CpioEntry::new(".", &[], 0o40755);
+    result.extend_from_slice(&root_dir.serialize(inode));
+    inode += 1;
 
-    // Remove the TRAILER!!! from the original initrd so we can append to it
-    // Find and remove the last TRAILER entry
-    if let Some(trailer_pos) = find_trailer(&result) {
-        result.truncate(trailer_pos);
-        log::info!("Removed original TRAILER at offset {}", trailer_pos);
-    } else {
-        log::warn!("Could not find TRAILER in original initrd, continuing anyway");
-    }
+    // Create /run directory
+    let run_dir = CpioEntry::new("run", &[], 0o40755); // Directory with 0755 perms
+    result.extend_from_slice(&run_dir.serialize(inode));
+    inode += 1;
 
-    // Calculate starting inode number (use a high number to avoid conflicts)
-    inode = 100000;
-
-    // Create /uki directory entry
-    let uki_dir = CpioEntry::new("uki", &[], 0o40755); // Directory with 0755 perms
+    let uki_dir = CpioEntry::new("run/uki", &[], 0o40755); // Directory with 0755 perms
     result.extend_from_slice(&uki_dir.serialize(inode));
     inode += 1;
 
-    // Add /uki/kernel
-    log::info!("Adding /uki/kernel ({} bytes)", sections.kernel.len());
-    let kernel_entry = CpioEntry::new("uki/kernel", sections.kernel, 0o100644); // Regular file
+    // Add /run/uki/kernel
+    log::info!("Adding /run/uki/kernel ({} bytes)", sections.kernel.len());
+    let kernel_entry = CpioEntry::new("run/uki/kernel", sections.kernel, 0o100644); // Regular file
     result.extend_from_slice(&kernel_entry.serialize(inode));
     inode += 1;
 
-    // Add /uki/cmdline.txt
-    log::info!("Adding /uki/cmdline.txt ({} bytes)", sections.cmdline.len());
-    let cmdline_entry = CpioEntry::new("uki/cmdline.txt", sections.cmdline, 0o100644);
+    // Add /run/uki/cmdline.txt
+    log::info!(
+        "Adding /run/uki/cmdline.txt ({} bytes)",
+        sections.cmdline.len()
+    );
+    let cmdline_entry = CpioEntry::new("run/uki/cmdline.txt", sections.cmdline, 0o100644);
     result.extend_from_slice(&cmdline_entry.serialize(inode));
     inode += 1;
 
-    // Add /uki/initrd.img (the original compressed initrd)
-    log::info!("Adding /uki/initrd.img ({} bytes)", sections.initrd.len());
-    let initrd_entry = CpioEntry::new("uki/initrd.img", sections.initrd, 0o100644);
+    // Add /run/uki/initrd.img (the original compressed initrd)
+    log::info!(
+        "Adding /run/uki/initrd.img ({} bytes)",
+        sections.initrd.len()
+    );
+    let initrd_entry = CpioEntry::new("run/uki/initrd.img", sections.initrd, 0o100644);
     result.extend_from_slice(&initrd_entry.serialize(inode));
     inode += 1;
 
-    // Add TRAILER!!!
+    // Add TRAILER!!! to end the first (uncompressed) cpio archive
     let trailer = CpioEntry::new(CPIO_TRAILER, &[], 0);
     result.extend_from_slice(&trailer.serialize(0));
+
+    log::info!(
+        "Prepended uncompressed cpio archive: {} bytes",
+        result.len()
+    );
+
+    // Now append the original compressed initrd
+    // The kernel will decompress and extract this after the first archive
+    result.extend_from_slice(sections.initrd);
 
     log::info!("Enhanced initrd built: {} bytes total", result.len());
 
