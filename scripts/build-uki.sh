@@ -63,34 +63,16 @@ UKI_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.efi"
 
 echo -e "${YELLOW}Building UKI with llvm-objcopy...${NC}"
 
-OS_RELEASE_FILE="${OUTPUT_DIR}/os-release.tmp"
-cat > "${OS_RELEASE_FILE}" << EOF
-ID=muak
-NAME=Muak Linux
-PRETTY_NAME=Muak Linux
-VERSION_ID=0.1.0
-BUILD_ID=$(date +%Y%m%d)
-EOF
-
 cp "${STUB_FILE}" "${UKI_OUTPUT}"
 
-UNAME_FILE="${OUTPUT_DIR}/uname.tmp"
-echo -n "6.15.11" > "${UNAME_FILE}"
-
 llvm-objcopy \
-    --add-section .osrel="${OS_RELEASE_FILE}" \
-    --set-section-flags .osrel=alloc,readonly \
     --add-section .cmdline="${CMDLINE_FILE}" \
     --set-section-flags .cmdline=alloc,readonly \
-    --add-section .uname="${UNAME_FILE}" \
-    --set-section-flags .uname=alloc,readonly \
     --add-section .linux="${BZIMAGE_FILE}" \
     --set-section-flags .linux=alloc,readonly,code \
     --add-section .initrd="${INITRAMFS_FILE}" \
     --set-section-flags .initrd=alloc,readonly \
     "${UKI_OUTPUT}"
-
-rm -f "${OS_RELEASE_FILE}" "${UNAME_FILE}"
 
 echo
 echo -e "${GREEN}==== UKI Build Complete ====${NC}"
