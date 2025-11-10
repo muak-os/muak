@@ -25,12 +25,3 @@ This Stub                          Linux Kernel EFI Stub
 6. Load kernel image            8. Calls LoadFile() to copy initrd
 7. Set command line             9. Boots with initrd loaded
 8. StartImage()
-
-## Future Enhancements
-
-- [ ] Add signature verification
-- [ ] Support compressed kernel sections
-- [ ] Add TPM measurements
-- [ ] Support for devicetree on ARM64
-- [ ] Splash screen support
-- [ ] Network boot support
