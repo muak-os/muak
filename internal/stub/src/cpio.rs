@@ -55,18 +55,14 @@ impl CpioEntry {
         // Align to 4-byte boundary after name
         let header_and_name_len = 110 + namesize;
         let padding = (4 - (header_and_name_len % 4)) % 4;
-        for _ in 0..padding {
-            result.push(0);
-        }
+        result.extend(core::iter::repeat_n(0, padding));
 
         // Add file data
         result.extend_from_slice(&self.data);
 
         // Align to 4-byte boundary after data
         let data_padding = (4 - (filesize % 4)) % 4;
-        for _ in 0..data_padding {
-            result.push(0);
-        }
+        result.extend(core::iter::repeat_n(0, data_padding));
 
         result
     }
@@ -117,7 +113,6 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     );
     let initrd_entry = CpioEntry::new("run/uki/initrd.img", sections.initrd, 0o100644);
     result.extend_from_slice(&initrd_entry.serialize(inode));
-    inode += 1;
 
     // Add TRAILER!!! to end the first (uncompressed) cpio archive
     let trailer = CpioEntry::new(CPIO_TRAILER, &[], 0);

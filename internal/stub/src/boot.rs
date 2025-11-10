@@ -112,7 +112,7 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     let image_handle = uefi::boot::image_handle();
 
     // Initrd memory
-    let initrd_pages = (initrd.len() + 4095) / 4096;
+    let initrd_pages = initrd.len().div_ceil(4096);
     let initrd_addr = uefi::boot::allocate_pages(
         uefi::boot::AllocateType::AnyPages,
         MemoryType::LOADER_DATA,
@@ -120,11 +120,7 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     )
     .expect("alloc initrd");
     unsafe {
-        core::ptr::copy_nonoverlapping(
-            initrd.as_ptr(),
-            initrd_addr.as_ptr() as *mut u8,
-            initrd.len(),
-        );
+        core::ptr::copy_nonoverlapping(initrd.as_ptr(), initrd_addr.as_ptr(), initrd.len());
     }
 
     // Protocol instance
@@ -188,7 +184,7 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     // Set load options
     let mut li = uefi::boot::open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(kh)
         .expect("open LoadedImage");
-    let load_opts_pages = (cmd_utf16.len() * 2 + 4095) / 4096;
+    let load_opts_pages = (cmd_utf16.len() * 2).div_ceil(4096);
     let load_opts_addr = uefi::boot::allocate_pages(
         uefi::boot::AllocateType::AnyPages,
         MemoryType::LOADER_DATA,
