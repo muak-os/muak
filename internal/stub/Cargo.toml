@@ -1,0 +1,15 @@
+[package]
+name = "muak-stub"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+uefi = { version = "0.36", features = ["alloc", "logger"] }
+log = "0.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
