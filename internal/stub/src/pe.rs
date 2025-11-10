@@ -6,6 +6,7 @@ pub struct UkiSections {
     pub kernel: &'static [u8],
     pub cmdline: &'static [u8],
     pub initrd: &'static [u8],
+    pub stub: Option<&'static [u8]>,
 }
 
 #[repr(C, packed)]
@@ -86,6 +87,7 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
     let mut kernel: Option<&'static [u8]> = None;
     let mut cmdline: Option<&'static [u8]> = None;
     let mut initrd: Option<&'static [u8]> = None;
+    let mut stub: Option<&'static [u8]> = None;
 
     for i in 0..num_sections {
         let section_header_offset =
@@ -149,6 +151,14 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
                 );
                 initrd = Some(section_data);
             }
+            ".stub" => {
+                log::info!(
+                    "Found .stub section: {} bytes at offset {:#x}",
+                    section_size,
+                    section_start
+                );
+                stub = Some(section_data);
+            }
             _ => {}
         }
     }
@@ -173,5 +183,6 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
         kernel,
         cmdline,
         initrd,
+        stub,
     })
 }

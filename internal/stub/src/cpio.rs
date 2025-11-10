@@ -113,6 +113,16 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     );
     let initrd_entry = CpioEntry::new("run/uki/initrd.img", sections.initrd, 0o100644);
     result.extend_from_slice(&initrd_entry.serialize(inode));
+    inode += 1;
+
+    // Add /run/uki/stub.efi (the stub binary itself, if available)
+    if let Some(stub_data) = sections.stub {
+        log::info!("Adding /run/uki/muak-stub.efi ({} bytes)", stub_data.len());
+        let stub_entry = CpioEntry::new("run/uki/stub.efi", stub_data, 0o100644);
+        result.extend_from_slice(&stub_entry.serialize(inode));
+    } else {
+        log::warn!(".stub section not found");
+    }
 
     // Add TRAILER!!! to end the first (uncompressed) cpio archive
     let trailer = CpioEntry::new(CPIO_TRAILER, &[], 0);
