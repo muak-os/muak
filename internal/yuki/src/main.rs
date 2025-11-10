@@ -100,6 +100,7 @@ fn main() -> Result<()> {
         (".cmdline", cmdline_data),
         (".linux", linux_data),
         (".initrd", initrd_data),
+        (".stub", stub_data.clone()),
     ];
 
     // Prepare new sections with proper alignments and flags
@@ -127,9 +128,10 @@ fn main() -> Result<()> {
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
         // Match flags:
-        // - .cmdline: alloc,readonly
+        // - .cmdline: readonly
         // - .linux:   alloc,readonly,code
-        // - .initrd:  alloc,readonly
+        // - .initrd:  readonly
+        // - .stub:    readonly
         let characteristics = match *name {
             ".linux" => IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ,
             _ => IMAGE_SCN_MEM_READ,
