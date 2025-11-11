@@ -21,23 +21,44 @@ impl MaintenanceService for MaintenanceServiceImpl {
     ) -> Result<Response<InstallResponse>, Status> {
         let req = request.into_inner();
 
+        let auto_reboot = req.auto_reboot.unwrap_or(true);
+
         log!(
             "maintenance",
-            "Install request: target={}, force={}",
+            "Install request: target={}, force={}, auto_reboot={}",
             req.target_disk,
-            req.force
+            req.force,
+            auto_reboot
         );
 
-        // Spawn blocking task for installation
         let result =
             tokio::task::spawn_blocking(move || installer::install(&req.target_disk, req.force))
                 .await;
 
         match result {
-            Ok(Ok(())) => Ok(Response::new(InstallResponse {
-                success: true,
-                error: String::new(),
-            })),
+            Ok(Ok(())) => {
+                let response = Response::new(InstallResponse {
+                    success: true,
+                    error: String::new(),
+                });
+
+                if auto_reboot {
+                    tokio::spawn(async {
+                        log!(
+                            "maintenance",
+                            "Installation successful, rebooting in 3 seconds..."
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+                        if nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT)
+                            .is_err()
+                        {
+                            log!("maintenance", "Failed to reboot");
+                        }
+                    });
+                }
+
+                Ok(response)
+            }
             Ok(Err(e)) => {
                 log!("maintenance", "Installation failed: {}", e);
                 Ok(Response::new(InstallResponse {

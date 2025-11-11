@@ -8,8 +8,9 @@ service MaintenanceService {
 }
 
 message InstallRequest {
-    string target_disk = 1;  // e.g., "/dev/sda" or "/dev/nvme0n1"
-    bool force = 2;          // Force installation even if disk has data
+    string target_disk = 1;         // e.g., "/dev/sda" or "/dev/nvme0n1"
+    bool force = 2;                 // Force installation even if disk has data
+    optional bool auto_reboot = 3;  // Automatically reboot after successful installation (default: true)
 }
 
 message InstallResponse {

@@ -1,7 +1,6 @@
 use crate::{disk, log};
 use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount, umount};
-// use nix::sys::reboot::{LINUX_REBOOT_CMD_POWER_OFF, LINUX_REBOOT_CMD_RESTART, reboot};
 use nix::unistd::sync;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,7 +76,9 @@ pub fn find_partition_by_label(label: &str) -> Result<String> {
         let device = if symlink.is_absolute() {
             symlink
         } else {
-            PathBuf::from("/dev/disk/by-label").join(&symlink).canonicalize()?
+            PathBuf::from("/dev/disk/by-label")
+                .join(&symlink)
+                .canonicalize()?
         };
         return Ok(device.to_string_lossy().to_string());
     }
@@ -123,9 +124,6 @@ pub fn mount_partitions() -> Result<()> {
 }
 
 pub fn install(disk_path: &str, force: bool) -> Result<()> {
-    // Future: take an option to auto poweroff or reboot after install.
-    // For now we just sync at end; caller can trigger reboot.
-
     log!("installer", "Starting installation to {}", disk_path);
 
     if detect_status() != InstallationStatus::Live {
@@ -163,12 +161,6 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
     sync();
 
     log!("installer", "Installation completed successfully!");
-    log!(
-        "installer",
-        "Remove the ISO and reboot to start from installed disk."
-    );
-
-    // TODO: reboot
 
     Ok(())
 }
@@ -299,7 +291,7 @@ fn build_uki(output_path: &str) -> Result<()> {
     Ok(())
 }
 
-// TODO: understand what config files are needed and populate them
+// TODO: Add authentication mechanism for cli here
 fn initialize_state_partition(device: &str) -> Result<()> {
     log!("installer", "Initializing STATE partition");
 
