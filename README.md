@@ -1,6 +1,6 @@
 # Muak
 
-Muak is a purpose built Linux distribution to run VMs using hypervisors such as QEMU, firecracker and cloud-hypervisor.
+Muak is a purpose built from scratch Linux distribution to run VMs using hypervisors such as QEMU, firecracker and cloud-hypervisor.
 It is designed to be minimal, immutable, API-driven, secure, and easy to use.
 
 Here are the two prerequisites to run Muak:
@@ -10,10 +10,10 @@ Here are the two prerequisites to run Muak:
 
 Here is a list of features:
 
-- Systemd free
-- Only two external binaries by default: `btrfs-progs` and `llvm-objcopy`
+- Only one external binaries by default: `btrfs-progs`
 - Immutable root filesystem with overlayfs for persistence
 - API driven using gRPC
+- Systemd free
 
 ## Extension System
 
