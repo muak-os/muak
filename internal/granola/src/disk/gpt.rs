@@ -2,7 +2,7 @@ use crate::log;
 use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
 use std::fs::{File, OpenOptions};
-use std::io::Seek;
+use std::io::{Seek, Write};
 use std::path::Path;
 
 use super::blkpg::add_partition_blkpg;
@@ -21,18 +21,27 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
     }
 }
 
-pub fn wipe_disk(disk: &str) -> Result<()> {
-    use super::constants::MB;
-    use std::io::Write;
+fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
+    let mut pmbr = [0u8; 512];
 
-    log!("installer", "Wiping disk {}", disk);
+    // Boot signature
+    pmbr[510] = 0x55;
+    pmbr[511] = 0xAA;
 
-    let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
+    // Partition entry at offset 446
+    pmbr[446] = 0x00; // Not bootable
+    pmbr[450] = 0xEE; // GPT protective type
 
-    // Wipe first 10MB (removes any existing partition tables)
-    let zeros = vec![0u8; (10 * MB) as usize];
-    f.write_all(&zeros)?;
-    f.sync_all()?;
+    // Starting LBA = 1
+    pmbr[454] = 0x01;
+
+    // Size in sectors (total LBAs - 1)
+    let total_lbas = disk_size / SECTOR_SIZE;
+    let part_size = if total_lbas > 0 { total_lbas - 1 } else { 0 } as u32;
+    pmbr[458..462].copy_from_slice(&part_size.to_le_bytes());
+
+    f.seek(std::io::SeekFrom::Start(0))?;
+    f.write_all(&pmbr)?;
 
     Ok(())
 }
@@ -43,7 +52,6 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
 
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
-    f.seek(std::io::SeekFrom::Start(0))?;
 
     log!("installer", "Disk size: {} GB", disk_size / GB);
 
@@ -57,8 +65,22 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     let first_usable = gpt.header.first_usable_lba;
     let last_usable = gpt.header.last_usable_lba;
 
+    // 1MiB alignment
+    let align_lba: u64 = 2048;
+    let align_up = |lba: u64| -> u64 {
+        if lba % align_lba == 0 {
+            lba
+        } else {
+            lba + (align_lba - (lba % align_lba))
+        }
+    };
+
     // Partition 1: EFI
-    let efi_start = first_usable;
+    let efi_start = if first_usable < align_lba {
+        align_lba
+    } else {
+        align_up(first_usable)
+    };
     let efi_end = efi_start + efi_sectors - 1;
 
     gpt[1] = GPTPartitionEntry {
@@ -71,7 +93,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     };
 
     // Partition 2: STATE
-    let state_start = efi_end + 1;
+    let state_start = align_up(efi_end + 1);
     let state_end = state_start + state_sectors - 1;
 
     gpt[2] = GPTPartitionEntry {
@@ -84,7 +106,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     };
 
     // Partition 3: DATA (rest of disk)
-    let data_start = state_end + 1;
+    let data_start = align_up(state_end + 1);
     let data_end = last_usable;
 
     gpt[3] = GPTPartitionEntry {
@@ -97,10 +119,11 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     };
 
     gpt.write_into(&mut f)?;
+    write_protective_mbr(&mut f, disk_size)?;
     f.sync_all()?;
     drop(f);
 
-    // Verify GPT was written by reading it back
+    // Verify GPT was written correctly
     let mut verify_f = OpenOptions::new().read(true).open(disk)?;
     match GPT::find_from(&mut verify_f) {
         Ok(verify_gpt) => {
@@ -140,9 +163,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     );
 
     for i in 0..30 {
-        let dev_exists = Path::new(&efi_part).exists();
-
-        if dev_exists {
+        if Path::new(&efi_part).exists() {
             log!(
                 "installer",
                 "Partition devices created successfully after {} attempts",

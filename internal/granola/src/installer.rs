@@ -1,9 +1,11 @@
 use crate::{disk, log};
 use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount, umount};
+// use nix::sys::reboot::{LINUX_REBOOT_CMD_POWER_OFF, LINUX_REBOOT_CMD_RESTART, reboot};
 use nix::unistd::sync;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallationStatus {
@@ -13,26 +15,79 @@ pub enum InstallationStatus {
 
 pub fn detect_status() -> InstallationStatus {
     if Path::new("/dev/disk/by-label/STATE").exists() {
+        return InstallationStatus::Installed;
+    }
+
+    // Fallback: probe partitions without relying on udev by-label symlinks
+    if probe_state_device().is_some() {
         InstallationStatus::Installed
     } else {
         InstallationStatus::Live
     }
 }
 
+fn probe_state_device() -> Option<String> {
+    probe_device_by_label("STATE")
+}
+
+fn probe_device_by_label(label: &str) -> Option<String> {
+    // Try by-partlabel symlink first
+    let by_partlabel = format!("/dev/disk/by-partlabel/{}", label);
+    if let Ok(symlink) = fs::read_link(&by_partlabel) {
+        let device = if symlink.is_absolute() {
+            symlink
+        } else {
+            PathBuf::from("/dev/disk/by-partlabel").join(&symlink)
+        };
+        if let Ok(canon) = device.canonicalize() {
+            return Some(canon.to_string_lossy().to_string());
+        }
+    }
+
+    // Scan sysfs uevent for PARTNAME
+    if let Ok(entries) = fs::read_dir("/sys/class/block") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // Only consider partitions (have a 'partition' file)
+            let part_flag = entry.path().join("partition");
+            if !part_flag.exists() {
+                continue;
+            }
+            let uevent = entry.path().join("uevent");
+            if let Ok(content) = fs::read_to_string(&uevent) {
+                for line in content.lines() {
+                    if line.trim() == format!("PARTNAME={}", label) {
+                        let dev_path = format!("/dev/{}", name);
+                        if Path::new(&dev_path).exists() {
+                            return Some(dev_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 pub fn find_partition_by_label(label: &str) -> Result<String> {
     let path = format!("/dev/disk/by-label/{}", label);
-    let symlink = fs::read_link(&path)
-        .with_context(|| format!("Partition with label '{}' not found", label))?;
+    if let Ok(symlink) = fs::read_link(&path) {
+        let device = if symlink.is_absolute() {
+            symlink
+        } else {
+            PathBuf::from("/dev/disk/by-label").join(&symlink).canonicalize()?
+        };
+        return Ok(device.to_string_lossy().to_string());
+    }
 
-    let device = if symlink.is_absolute() {
-        symlink
-    } else {
-        PathBuf::from("/dev/disk/by-label")
-            .join(&symlink)
-            .canonicalize()?
-    };
+    // Fallback to probing by partlabel/sysfs
+    if let Some(dev) = probe_device_by_label(label) {
+        return Ok(dev);
+    }
 
-    Ok(device.to_string_lossy().to_string())
+    bail!("Partition with label '{}' not found", label)
 }
 
 pub fn mount_partitions() -> Result<()> {
@@ -68,6 +123,9 @@ pub fn mount_partitions() -> Result<()> {
 }
 
 pub fn install(disk_path: &str, force: bool) -> Result<()> {
+    // Future: take an option to auto poweroff or reboot after install.
+    // For now we just sync at end; caller can trigger reboot.
+
     log!("installer", "Starting installation to {}", disk_path);
 
     if detect_status() != InstallationStatus::Live {
@@ -102,13 +160,15 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
 
     initialize_state_partition(&state_part)?;
 
+    sync();
+
     log!("installer", "Installation completed successfully!");
     log!(
         "installer",
         "Remove the ISO and reboot to start from installed disk."
     );
 
-    // TODO: send reboot to kernel
+    // TODO: reboot
 
     Ok(())
 }
@@ -123,11 +183,25 @@ fn install_uki(efi_device: &str) -> Result<()> {
         _ => bail!("Unsupported architecture: {}", arch),
     };
 
-    let source_uki = find_uki_on_live_media()?;
+    log!("installer", "EFI device: {}", efi_device);
+    log!("installer", "Checking if EFI device exists...");
+    if !Path::new(efi_device).exists() {
+        bail!("EFI device {} does not exist", efi_device);
+    }
+    log!("installer", "EFI device exists");
 
     let mount_point = "/mnt/efi";
-    fs::create_dir_all(mount_point)?;
+    log!("installer", "Creating mount point: {}", mount_point);
+    fs::create_dir_all(mount_point)
+        .with_context(|| format!("Failed to create mount point {}", mount_point))?;
+    log!("installer", "Mount point created");
 
+    log!(
+        "installer",
+        "Attempting to mount {} at {}",
+        efi_device,
+        mount_point
+    );
     mount(
         Some(efi_device),
         mount_point,
@@ -135,16 +209,20 @@ fn install_uki(efi_device: &str) -> Result<()> {
         MsFlags::MS_NOATIME,
         None::<&str>,
     )
-    .context("Failed to mount EFI partition")?;
+    .with_context(|| {
+        format!(
+            "Failed to mount EFI partition {} at {}",
+            efi_device, mount_point
+        )
+    })?;
+    log!("installer", "EFI partition mounted successfully");
 
     let result = (|| -> Result<()> {
         fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
         let dest_uki = format!("{}/EFI/BOOT/{}", mount_point, uki_filename);
-        fs::copy(&source_uki, &dest_uki)
-            .with_context(|| format!("Failed to copy UKI from {} to {}", source_uki, dest_uki))?;
 
-        log!("installer", "Copied {} to {}", source_uki, dest_uki);
+        build_uki(&dest_uki)?;
 
         sync();
         Ok(())
@@ -166,20 +244,59 @@ fn install_uki(efi_device: &str) -> Result<()> {
     Ok(())
 }
 
-fn find_uki_on_live_media() -> Result<String> {
-    let candidates = vec!["/run/uki/BOOTX64.EFI", "/run/uki/BOOTAA64.EFI"];
+fn build_uki(output_path: &str) -> Result<()> {
+    let stub_path = "/run/uki/stub.efi";
+    let kernel_path = "/run/uki/bzImage";
+    let initrd_path = "/run/uki/initrd.img";
+    let cmdline_path = "/run/uki/cmdline.txt";
 
-    for candidate in &candidates {
-        if Path::new(candidate).exists() {
-            log!("installer", "Found UKI at {}", candidate);
-            return Ok(candidate.to_string());
-        }
+    if !Path::new(stub_path).exists() {
+        bail!(
+            "Stub binary not found at {}. Cannot build UKI on-the-fly.",
+            stub_path
+        );
+    }
+    if !Path::new(kernel_path).exists() {
+        bail!(
+            "Kernel not found at {}. Cannot build UKI on-the-fly.",
+            kernel_path
+        );
+    }
+    if !Path::new(initrd_path).exists() {
+        bail!(
+            "Initrd not found at {}. Cannot build UKI on-the-fly.",
+            initrd_path
+        );
+    }
+    if !Path::new(cmdline_path).exists() {
+        bail!(
+            "Cmdline not found at {}. Cannot build UKI on-the-fly.",
+            cmdline_path
+        );
     }
 
-    bail!(
-        "Could not find UKI in /run/uki/. Stage 1 init should have copied it there. Searched: {:?}",
-        candidates
-    )
+    let output = Command::new("/bin/yuki")
+        .arg("--stub")
+        .arg(stub_path)
+        .arg("--linux")
+        .arg(kernel_path)
+        .arg("--initrd")
+        .arg(initrd_path)
+        .arg("--cmdline")
+        .arg(cmdline_path)
+        .arg("--output")
+        .arg(output_path)
+        .output()
+        .context("Failed to execute yuki")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("yuki failed to build UKI: {}", stderr);
+    }
+
+    log!("installer", "Successfully built UKI at {}", output_path);
+
+    Ok(())
 }
 
 // TODO: understand what config files are needed and populate them

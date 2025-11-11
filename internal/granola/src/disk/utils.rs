@@ -1,6 +1,10 @@
 use anyhow::{Result, bail};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 use std::time::SystemTime;
+
+use super::constants::MB;
 
 pub fn format_partition_name(disk: &str, partition: u32) -> String {
     if disk.contains("nvme") || disk.contains("mmcblk") {
@@ -31,4 +35,15 @@ pub fn wait_for_device(device: &str) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     bail!("Timeout waiting for device {} to appear", device)
+}
+
+pub fn wipe_disk(disk: &str) -> Result<()> {
+    let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
+
+    // Wipe first 10MB (removes any existing partition tables)
+    let zeros = vec![0u8; (10 * MB) as usize];
+    f.write_all(&zeros)?;
+    f.sync_all()?;
+
+    Ok(())
 }
