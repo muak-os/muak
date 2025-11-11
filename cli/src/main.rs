@@ -55,6 +55,8 @@ enum Commands {
         target: String,
         #[arg(long)]
         force: bool,
+        #[arg(long)]
+        no_reboot: bool,
     },
     Disks,
 }
@@ -135,9 +137,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = VmServiceClient::new(channel);
             handle_vm_action(&mut client, action).await?;
         }
-        Commands::Install { target, force } => {
+        Commands::Install {
+            target,
+            force,
+            no_reboot,
+        } => {
             let mut client = MaintenanceServiceClient::new(channel);
-            handle_install(&mut client, target, force).await?;
+            handle_install(&mut client, target, force, no_reboot).await?;
         }
         Commands::Disks => {
             let mut client = MaintenanceServiceClient::new(channel);
@@ -152,10 +158,12 @@ async fn handle_install(
     client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
     target_disk: String,
     force: bool,
+    no_reboot: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = tonic::Request::new(InstallRequest {
         target_disk: target_disk.clone(),
         force,
+        auto_reboot: Some(!no_reboot),
     });
 
     println!("{}Installing Muak to {}...{}", BLUE, target_disk, RESET);
@@ -168,14 +176,17 @@ async fn handle_install(
             "{}Successfully installed Muak to {}{}",
             GREEN, target_disk, RESET
         );
-        println!("{}Partitions created:{}", BOLD, RESET);
-        println!("  - EFI:   {}1 (512 MB)", target_disk);
-        println!("  - STATE: {}2 (1 GB)", target_disk);
-        println!("  - DATA:  {}3 (remaining)", target_disk);
-        println!(
-            "\n{}Please reboot to start the installed system{}",
-            YELLOW, RESET
-        );
+        if no_reboot {
+            println!(
+                "\n{}Please reboot to start the installed system{}",
+                YELLOW, RESET
+            );
+        } else {
+            println!(
+                "\n{}System will reboot automatically in 3 seconds...{}",
+                YELLOW, RESET
+            );
+        }
     } else {
         eprintln!("{}Installation failed: {}{}", RED, resp.error, RESET);
         std::process::exit(1);
