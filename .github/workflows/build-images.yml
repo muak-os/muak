@@ -126,10 +126,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install UKI build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm
+      - name: Install Rust toolchain
+        run: rustup update stable && rustup default stable
 
       - name: Download kernel bzImage
         uses: actions/download-artifact@v4

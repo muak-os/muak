@@ -45,15 +45,23 @@ if [ ! -f "${CMDLINE_FILE}" ]; then
     exit 1
 fi
 
-if ! command -v llvm-objcopy &> /dev/null; then
-    echo -e "${RED}ERROR: llvm-objcopy not found${NC}"
-    echo -e "${RED}Install llvm package${NC}"
-    exit 1
-fi
-
 if [ ! -f "${STUB_FILE}" ]; then
     echo -e "${RED}ERROR: EFI stub not found at ${STUB_FILE}${NC}"
     echo -e "${RED}Please run ./scripts/build-stub.sh ${ARCH} first${NC}"
+    exit 1
+fi
+
+YUKI_BIN="$PROJECT_ROOT/internal/yuki/target/x86_64-unknown-linux-gnu/release/yuki"
+
+if [ ! -f "${YUKI_BIN}" ]; then
+    echo -e "${YELLOW}Building yuki (UKI builder)...${NC}"
+    cd "$PROJECT_ROOT/internal/yuki"
+    RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
+    cd - > /dev/null
+fi
+
+if [ ! -f "${YUKI_BIN}" ]; then
+    echo -e "${RED}ERROR: yuki binary not found at ${YUKI_BIN}${NC}"
     exit 1
 fi
 
@@ -61,18 +69,14 @@ mkdir -p "${OUTPUT_DIR}"
 
 UKI_OUTPUT="${OUTPUT_DIR}/muak-${ARCH}.efi"
 
-echo -e "${YELLOW}Building UKI with llvm-objcopy...${NC}"
+echo -e "${YELLOW}Building UKI with yuki...${NC}"
 
-cp "${STUB_FILE}" "${UKI_OUTPUT}"
-
-llvm-objcopy \
-    --add-section .cmdline="${CMDLINE_FILE}" \
-    --set-section-flags .cmdline=alloc,readonly \
-    --add-section .linux="${BZIMAGE_FILE}" \
-    --set-section-flags .linux=alloc,readonly,code \
-    --add-section .initrd="${INITRAMFS_FILE}" \
-    --set-section-flags .initrd=alloc,readonly \
-    "${UKI_OUTPUT}"
+"${YUKI_BIN}" \
+    --stub "${STUB_FILE}" \
+    --linux "${BZIMAGE_FILE}" \
+    --initrd "${INITRAMFS_FILE}" \
+    --cmdline "${CMDLINE_FILE}" \
+    --output "${UKI_OUTPUT}"
 
 echo
 echo -e "${GREEN}==== UKI Build Complete ====${NC}"
