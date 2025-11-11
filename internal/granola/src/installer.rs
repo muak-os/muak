@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount, umount};
 use nix::unistd::sync;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,114 +13,11 @@ pub enum InstallationStatus {
 }
 
 pub fn detect_status() -> InstallationStatus {
-    if Path::new("/dev/disk/by-label/STATE").exists() {
-        return InstallationStatus::Installed;
-    }
-
-    // Fallback: probe partitions without relying on udev by-label symlinks
-    if probe_state_device().is_some() {
+    if disk::find_partition_by_partname("STATE").is_some() {
         InstallationStatus::Installed
     } else {
         InstallationStatus::Live
     }
-}
-
-fn probe_state_device() -> Option<String> {
-    probe_device_by_label("STATE")
-}
-
-fn probe_device_by_label(label: &str) -> Option<String> {
-    // Try by-partlabel symlink first
-    let by_partlabel = format!("/dev/disk/by-partlabel/{}", label);
-    if let Ok(symlink) = fs::read_link(&by_partlabel) {
-        let device = if symlink.is_absolute() {
-            symlink
-        } else {
-            PathBuf::from("/dev/disk/by-partlabel").join(&symlink)
-        };
-        if let Ok(canon) = device.canonicalize() {
-            return Some(canon.to_string_lossy().to_string());
-        }
-    }
-
-    // Scan sysfs uevent for PARTNAME
-    if let Ok(entries) = fs::read_dir("/sys/class/block") {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            // Only consider partitions (have a 'partition' file)
-            let part_flag = entry.path().join("partition");
-            if !part_flag.exists() {
-                continue;
-            }
-            let uevent = entry.path().join("uevent");
-            if let Ok(content) = fs::read_to_string(&uevent) {
-                for line in content.lines() {
-                    if line.trim() == format!("PARTNAME={}", label) {
-                        let dev_path = format!("/dev/{}", name);
-                        if Path::new(&dev_path).exists() {
-                            return Some(dev_path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-pub fn find_partition_by_label(label: &str) -> Result<String> {
-    let path = format!("/dev/disk/by-label/{}", label);
-    if let Ok(symlink) = fs::read_link(&path) {
-        let device = if symlink.is_absolute() {
-            symlink
-        } else {
-            PathBuf::from("/dev/disk/by-label")
-                .join(&symlink)
-                .canonicalize()?
-        };
-        return Ok(device.to_string_lossy().to_string());
-    }
-
-    // Fallback to probing by partlabel/sysfs
-    if let Some(dev) = probe_device_by_label(label) {
-        return Ok(dev);
-    }
-
-    bail!("Partition with label '{}' not found", label)
-}
-
-pub fn mount_partitions() -> Result<()> {
-    let state_dev = find_partition_by_label("STATE")?;
-    fs::create_dir_all("/run/state")?;
-
-    mount(
-        Some(state_dev.as_str()),
-        "/run/state",
-        Some("btrfs"),
-        MsFlags::empty(),
-        None::<&str>,
-    )
-    .context("Failed to mount STATE partition")?;
-
-    log!("installer", "Mounted STATE partition at /run/state");
-
-    let data_dev = find_partition_by_label("DATA")?;
-    fs::create_dir_all("/run/data")?;
-
-    mount(
-        Some(data_dev.as_str()),
-        "/run/data",
-        Some("btrfs"),
-        MsFlags::empty(),
-        None::<&str>,
-    )
-    .context("Failed to mount DATA partition")?;
-
-    log!("installer", "Mounted DATA partition at /run/data");
-
-    Ok(())
 }
 
 pub fn install(disk_path: &str, force: bool) -> Result<()> {
@@ -156,7 +53,7 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
 
     install_uki(&efi_part)?;
 
-    initialize_state_partition(&state_part)?;
+    init_state_partition(&state_part)?;
 
     sync();
 
@@ -292,7 +189,7 @@ fn build_uki(output_path: &str) -> Result<()> {
 }
 
 // TODO: Add authentication mechanism for cli here
-fn initialize_state_partition(device: &str) -> Result<()> {
+fn init_state_partition(device: &str) -> Result<()> {
     log!("installer", "Initializing STATE partition");
 
     let mount_point = "/mnt/state";

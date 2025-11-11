@@ -56,6 +56,33 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn find_partition_by_partname(partname: &str) -> Option<String> {
+    if let Ok(entries) = fs::read_dir("/sys/class/block") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // Only consider partitions (have a 'partition' file)
+            let part_flag = entry.path().join("partition");
+            if !part_flag.exists() {
+                continue;
+            }
+            let uevent = entry.path().join("uevent");
+            if let Ok(content) = fs::read_to_string(&uevent) {
+                for line in content.lines() {
+                    if line.trim() == format!("PARTNAME={}", partname) {
+                        let dev_path = format!("/dev/{}", name);
+                        if Path::new(&dev_path).exists() {
+                            return Some(dev_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn is_physical_disk(name: &str) -> bool {
     !name.starts_with("loop")
         && !name.starts_with("dm-")

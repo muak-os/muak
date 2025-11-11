@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         installer::InstallationStatus::Installed => {
             log!("granola", "🟢 Running from INSTALLED DISK");
 
-            if let Err(e) = installer::mount_partitions() {
+            if let Err(e) = disk::mount_partitions() {
                 log!("granola", "WARNING: Failed to mount partitions: {}", e);
                 // Continue anyway - might be recoverable
             }
