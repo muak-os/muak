@@ -14,7 +14,11 @@
   - DNS configuration
   - Network interface management (bring up/down interfaces)
 
-- Add authentication of gRPC API
+- Better gRPC communication
+  - Create own independent project in internal/ instead of having it in internal/granola
+  - Add authentication using mTLS
+  - Add permission management for different users using RBAC like system
+
 - Simple secure boot support with sbctl or native implementation
 - Add to maintenance mode:
     - Configure networking using the CLI: muak network set --interface <interface> --dhcp|--static
