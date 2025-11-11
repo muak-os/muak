@@ -1,10 +1,9 @@
-use anyhow::{Context, Result};
 use clap::Parser;
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 use object::read::pe::{ImageNtHeaders, PeFile64};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::mem;
 use std::path::PathBuf;
 
@@ -48,22 +47,21 @@ fn write_u32(buf: &mut [u8], off: usize, val: u32) {
     buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
 }
 
-fn main() -> Result<()> {
+fn main() -> io::Result<()> {
     let args = Args::parse();
 
     // Read the stub binary
     let mut stub_data = Vec::new();
-    File::open(&args.stub)
-        .context("Failed to open stub file")?
-        .read_to_end(&mut stub_data)
-        .context("Failed to read stub file")?;
+    File::open(&args.stub)?
+        .read_to_end(&mut stub_data)?;
 
-    let linux_data = fs::read(&args.linux).context("Failed to read Linux kernel")?;
-    let initrd_data = fs::read(&args.initrd).context("Failed to read initrd")?;
-    let cmdline_data = fs::read(&args.cmdline).context("Failed to read cmdline")?;
+    let linux_data = fs::read(&args.linux)?;
+    let initrd_data = fs::read(&args.initrd)?;
+    let cmdline_data = fs::read(&args.cmdline)?;
 
     // Parse PE
-    let pe = PeFile64::parse(&stub_data[..]).context("Failed to parse PE file")?;
+    let pe = PeFile64::parse(&stub_data[..])
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse PE file: {}", e)))?;
     let nt_headers = pe.nt_headers();
     let sections = pe.section_table();
 
@@ -181,10 +179,8 @@ fn main() -> Result<()> {
     let new_size_of_image = align_to(max_virtual_end, section_alignment);
     write_u32(&mut output, size_of_image_off, new_size_of_image);
 
-    let mut out_file = File::create(&args.output).context("Failed to create output file")?;
-    out_file
-        .write_all(&output)
-        .context("Failed to write output file")?;
+    let mut out_file = File::create(&args.output)?;
+    out_file.write_all(&output)?;
 
     println!(
         "Successfully created UKI at {} ({} bytes)",
