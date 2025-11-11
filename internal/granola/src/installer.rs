@@ -93,32 +93,32 @@ pub fn find_partition_by_label(label: &str) -> Result<String> {
 
 pub fn mount_partitions() -> Result<()> {
     let state_dev = find_partition_by_label("STATE")?;
-    fs::create_dir_all("/state")?;
+    fs::create_dir_all("/run/state")?;
 
     mount(
         Some(state_dev.as_str()),
-        "/state",
+        "/run/state",
         Some("btrfs"),
         MsFlags::empty(),
         None::<&str>,
     )
     .context("Failed to mount STATE partition")?;
 
-    log!("installer", "Mounted STATE partition at /state");
+    log!("installer", "Mounted STATE partition at /run/state");
 
     let data_dev = find_partition_by_label("DATA")?;
-    fs::create_dir_all("/var")?;
+    fs::create_dir_all("/run/data")?;
 
     mount(
         Some(data_dev.as_str()),
-        "/var",
+        "/run/data",
         Some("btrfs"),
         MsFlags::empty(),
         None::<&str>,
     )
     .context("Failed to mount DATA partition")?;
 
-    log!("installer", "Mounted DATA partition at /var");
+    log!("installer", "Mounted DATA partition at /run/data");
 
     Ok(())
 }
@@ -267,7 +267,7 @@ fn build_uki(output_path: &str) -> Result<()> {
         );
     }
 
-    let output = Command::new("/bin/yuki")
+    let output = Command::new("/sbin/yuki")
         .arg("--stub")
         .arg(stub_path)
         .arg("--linux")
