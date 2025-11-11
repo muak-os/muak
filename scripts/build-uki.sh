@@ -13,14 +13,13 @@ ARCH="${1:-x86_64}"
 KERNEL_BUILD_DIR="$PROJECT_ROOT/build/kernel/${ARCH}"
 BZIMAGE_CI="$PROJECT_ROOT/build/bzImage/${ARCH}/bzImage"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
-CMDLINE_FILE="$PROJECT_ROOT/config/cmdline.txt"
 OUTPUT_DIR="$PROJECT_ROOT/build"
 STUB_FILE="$OUTPUT_DIR/muak-stub-${ARCH}.efi"
+CMDLINE_FILE="$OUTPUT_DIR/cmdline.txt"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
 echo -e "${GREEN}Architecture: ${ARCH}${NC}"
 echo -e "${GREEN}Initramfs: ${INITRAMFS_FILE}${NC}"
-echo -e "${GREEN}Cmdline: ${CMDLINE_FILE}${NC}"
 echo
 
 if [ -f "${BZIMAGE_CI}" ]; then
@@ -40,10 +39,8 @@ if [ ! -f "${INITRAMFS_FILE}" ]; then
     exit 1
 fi
 
-if [ ! -f "${CMDLINE_FILE}" ]; then
-    echo -e "${RED}ERROR: cmdline not found at ${CMDLINE_FILE}${NC}"
-    exit 1
-fi
+echo -n "console=ttyS0 console=tty0 init=/init" > "${CMDLINE_FILE}"
+echo -e "${GREEN}Created cmdline: ${CMDLINE_FILE}${NC}"
 
 if [ ! -f "${STUB_FILE}" ]; then
     echo -e "${RED}ERROR: EFI stub not found at ${STUB_FILE}${NC}"
