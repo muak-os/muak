@@ -39,6 +39,11 @@ cd "$PROJECT_ROOT/internal/granola"
 RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
 cd - > /dev/null
 
+echo -e "${YELLOW}Building yuki (UKI builder)...${NC}"
+cd "$PROJECT_ROOT/internal/yuki"
+RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
+cd - > /dev/null
+
 echo
 echo -e "${YELLOW}Creating initramfs structure...${NC}"
 
@@ -49,10 +54,13 @@ mkdir -p "$TEMP_DIR/rootfs_source/sys"
 mkdir -p "$TEMP_DIR/rootfs_source/run"
 mkdir -p "$TEMP_DIR/rootfs_source/etc"
 mkdir -p "$TEMP_DIR/rootfs_source/tmp"
+mkdir -p "$TEMP_DIR/rootfs_source/mnt"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
 cp "$PROJECT_ROOT/internal/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
-chmod +x "$TEMP_DIR/rootfs_source/sbin/init"
+
+echo -e "${YELLOW}Installing yuki (UKI builder)...${NC}"
+cp "$PROJECT_ROOT/internal/yuki/target/x86_64-unknown-linux-gnu/release/yuki" "$TEMP_DIR/rootfs_source/sbin/yuki"
 
 echo -e "${YELLOW}Downloading btrfs-progs static binaries...${NC}"
 BTRFS_VERSION="v6.17.1"
@@ -69,8 +77,7 @@ else
 fi
 
 echo "  Installing btrfs tools..."
-mkdir -p "$TEMP_DIR/rootfs_source/bin"
-cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/bin/btrfs"
+cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/sbin/btrfs"
 cp "$BTRFS_CACHE_DIR/btrfs.box.static" "$TEMP_DIR/rootfs_source/sbin/mkfs.btrfs"
 
 if [ -n "$EXTENSIONS" ]; then
