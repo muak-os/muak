@@ -7,12 +7,11 @@
   - Check if there is /dev/kvm supported when starting the distro
 
 - Better networking support:
-  - Handle if no interface up when booting granola
+  - Handle if no interface up when booting
   - Handle multiple ethernet interfaces
   - Handle interface hotplugging and disconnection
   - Static IP configuration
-  - DNS configuration
-  - Network interface management (bring up/down interfaces)
+  - Network interface management (bring interfaces up/down)
 
 - Better gRPC communication
   - Create own independent project in internal/ instead of having it in internal/granola
@@ -50,15 +49,13 @@
 - Automatically update the distro using ostree or similar technology with a simple CLI command: muak update
 
 - Allow user to change kernel parameters on the fly before rebooting
-  - Use kexec with /run/uki/kernel and /run/uki/cmdline.txt
+  - Use kexec with /run/uki/kernel and /run/uki/cmdline.txt or rebuild uki and paste it efi partition
+  - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
 
 - Better logging with tracing:
   - tracing::info!(component = "vm", vm_id = %vm_id, "Starting VM");
 
-- Security features in stub:
-  - Add signature verification
-  - Add TPM measurements
-
+- Add TPM measurements in stub
 - Add supervision tree for critical services like gRPC server
 - Create a TUI interface to display critical system information
 - Add a web interface for easier management

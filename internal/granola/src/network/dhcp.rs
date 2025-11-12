@@ -82,6 +82,7 @@ pub async fn run_dhcp_client(
     let ip = ack.yiaddr();
     let mut netmask: Option<Ipv4Addr> = None;
     let mut gateway: Option<Ipv4Addr> = None;
+    let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
 
     for (_code, opt) in ack.opts().iter() {
         match opt {
@@ -92,6 +93,9 @@ pub async fn run_dhcp_client(
                 if !routers.is_empty() {
                     gateway = Some(routers[0]);
                 }
+            }
+            v4::DhcpOption::DomainNameServer(servers) => {
+                dns_servers = servers.clone();
             }
             _ => {}
         }
@@ -118,6 +122,10 @@ pub async fn run_dhcp_client(
     if let Some(gw) = gateway {
         log!("network", "Setting default gateway: {}", gw);
         handle.route().add().v4().gateway(gw).execute().await?;
+    }
+
+    if !dns_servers.is_empty() {
+        super::dns::configure_dns(&dns_servers)?;
     }
 
     Ok(())

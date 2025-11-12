@@ -56,6 +56,12 @@ mkdir -p "$TEMP_DIR/rootfs_source/etc"
 mkdir -p "$TEMP_DIR/rootfs_source/tmp"
 mkdir -p "$TEMP_DIR/rootfs_source/mnt"
 
+echo -e "${YELLOW}Creating default DNS configuration...${NC}"
+echo "nameserver 9.9.9.9" >> "$TEMP_DIR/rootfs_source/run/resolv.conf"
+
+echo -e "${YELLOW}Creating symlink /etc/resolv.conf -> /run/resolv.conf...${NC}"
+ln -sf /run/resolv.conf "$TEMP_DIR/rootfs_source/etc/resolv.conf"
+
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
 cp "$PROJECT_ROOT/internal/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 
