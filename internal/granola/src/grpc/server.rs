@@ -1,5 +1,5 @@
 use super::maintenance::{
-    MaintenanceServiceImpl, maintenance::maintenance_service_server::MaintenanceServiceServer,
+    MaintenanceServiceImpl, proto::maintenance_service_server::MaintenanceServiceServer,
 };
 use crate::log;
 use tonic::transport::Server;

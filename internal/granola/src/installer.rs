@@ -34,13 +34,11 @@ pub fn install(disk_path: &str, force: bool) -> Result<()> {
     disk::validate_block_device(disk_path)?;
     disk::validate_disk_size(disk_path)?;
 
-    if !force {
-        if disk::has_existing_partitions(disk_path)? {
-            bail!(
-                "Disk '{}' has existing partitions. Use --force to overwrite.",
-                disk_path
-            );
-        }
+    if !force && disk::has_existing_partitions(disk_path)? {
+        bail!(
+            "Disk '{}' has existing partitions. Use --force to overwrite.",
+            disk_path
+        );
     }
 
     disk::wipe_disk(disk_path)?;

@@ -68,7 +68,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     // 1MiB alignment
     let align_lba: u64 = 2048;
     let align_up = |lba: u64| -> u64 {
-        if lba % align_lba == 0 {
+        if lba.is_multiple_of(align_lba) {
             lba
         } else {
             lba + (align_lba - (lba % align_lba))
@@ -89,7 +89,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         starting_lba: efi_start,
         ending_lba: efi_end,
         attribute_bits: 0,
-        partition_name: "EFI".try_into().unwrap(),
+        partition_name: "EFI".into(),
     };
 
     // Partition 2: STATE
@@ -102,7 +102,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         starting_lba: state_start,
         ending_lba: state_end,
         attribute_bits: 0,
-        partition_name: "STATE".try_into().unwrap(),
+        partition_name: "STATE".into(),
     };
 
     // Partition 3: DATA (rest of disk)
@@ -115,7 +115,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         starting_lba: data_start,
         ending_lba: data_end,
         attribute_bits: 0,
-        partition_name: "DATA".try_into().unwrap(),
+        partition_name: "DATA".into(),
     };
 
     gpt.write_into(&mut f)?;

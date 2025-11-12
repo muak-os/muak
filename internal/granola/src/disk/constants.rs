@@ -3,7 +3,7 @@ pub const MB: u64 = 1024 * 1024;
 pub const GB: u64 = 1024 * MB;
 
 pub const EFI_SIZE: u64 = 512 * MB; // 512 MB for EFI
-pub const STATE_SIZE: u64 = 1 * GB; // 1 GB for STATE
+pub const STATE_SIZE: u64 = GB; // 1 GB for STATE
 pub const MIN_DISK_SIZE: u64 = 2 * GB; // Minimum 2 GB total
 
 // GPT Partition Type GUIDs

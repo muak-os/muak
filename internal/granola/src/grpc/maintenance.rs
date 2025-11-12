@@ -1,11 +1,11 @@
 use crate::{disk, installer, log};
 use tonic::{Request, Response, Status};
 
-pub mod maintenance {
+pub mod proto {
     tonic::include_proto!("muak.maintenance.v1");
 }
 
-use maintenance::{
+use proto::{
     DiskInfo as ProtoDiskInfo, InstallRequest, InstallResponse, ListDisksRequest,
     ListDisksResponse, PartitionInfo as ProtoPartitionInfo,
     maintenance_service_server::MaintenanceService,
@@ -80,7 +80,7 @@ impl MaintenanceService for MaintenanceServiceImpl {
         &self,
         _request: Request<ListDisksRequest>,
     ) -> Result<Response<ListDisksResponse>, Status> {
-        let result = tokio::task::spawn_blocking(move || disk::list_disks()).await;
+        let result = tokio::task::spawn_blocking(disk::list_disks).await;
 
         match result {
             Ok(Ok(disks)) => {

@@ -199,10 +199,10 @@ fn read_disk_info(name: &str) -> Result<DiskInfo> {
             // Check if this is a partition
             if part_name_str.starts_with(name) && part_name_str != name {
                 let partition_file = entry.path().join("partition");
-                if partition_file.exists() {
-                    if let Ok(part_info) = read_partition_info(name, &part_name_str) {
-                        partitions.push(part_info);
-                    }
+                if partition_file.exists()
+                    && let Ok(part_info) = read_partition_info(name, &part_name_str)
+                {
+                    partitions.push(part_info);
                 }
             }
         }
