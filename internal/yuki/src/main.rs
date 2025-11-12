@@ -52,16 +52,19 @@ fn main() -> io::Result<()> {
 
     // Read the stub binary
     let mut stub_data = Vec::new();
-    File::open(&args.stub)?
-        .read_to_end(&mut stub_data)?;
+    File::open(&args.stub)?.read_to_end(&mut stub_data)?;
 
     let linux_data = fs::read(&args.linux)?;
     let initrd_data = fs::read(&args.initrd)?;
     let cmdline_data = fs::read(&args.cmdline)?;
 
     // Parse PE
-    let pe = PeFile64::parse(&stub_data[..])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse PE file: {}", e)))?;
+    let pe = PeFile64::parse(&stub_data[..]).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to parse PE file: {}", e),
+        )
+    })?;
     let nt_headers = pe.nt_headers();
     let sections = pe.section_table();
 
@@ -140,9 +143,8 @@ fn main() -> io::Result<()> {
             .max(current_virtual_address + align_to(virtual_size, section_alignment));
 
         new_sections.push((section, data.clone()));
-        current_file_offset = current_file_offset + size_of_raw_data;
-        current_virtual_address =
-            current_virtual_address + align_to(virtual_size, section_alignment);
+        current_file_offset += size_of_raw_data;
+        current_virtual_address += align_to(virtual_size, section_alignment);
     }
 
     let mut output = stub_data.clone();
