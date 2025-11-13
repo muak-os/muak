@@ -2,8 +2,9 @@
 #![no_main]
 
 extern crate alloc;
-extern crate log;
 
+#[macro_use]
+mod log;
 mod boot;
 mod cpio;
 mod pe;
@@ -21,39 +22,39 @@ fn main() -> Status {
 
     let image_handle = uefi::boot::image_handle();
 
-    log::info!("Muak EFI Stub v0.1.0");
-    log::info!("Extracting UKI sections...");
+    info!("Muak EFI Stub v0.1.0");
+    info!("Extracting UKI sections...");
 
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .expect("Failed to get LoadedImage protocol");
 
     let sections = match pe::extract_sections(&loaded_image) {
         Ok(s) => {
-            log::info!("Successfully extracted PE sections:");
-            log::info!("  .linux:   {} bytes", s.kernel.len());
-            log::info!("  .cmdline: {} bytes", s.cmdline.len());
-            log::info!("  .initrd:  {} bytes", s.initrd.len());
+            info!("Successfully extracted PE sections:");
+            info!("  .linux:   {} bytes", s.kernel.len());
+            info!("  .cmdline: {} bytes", s.cmdline.len());
+            info!("  .initrd:  {} bytes", s.initrd.len());
             s
         }
         Err(e) => {
-            log::error!("Failed to extract PE sections: {:?}", e);
+            error!("Failed to extract PE sections: {:?}", e);
             return Status::ABORTED;
         }
     };
 
-    log::info!("Building enhanced initrd...");
+    info!("Building enhanced initrd...");
     let enhanced_initrd = match cpio::build_enhanced_initrd(&sections) {
         Ok(data) => {
-            log::info!("Enhanced initrd size: {} bytes", data.len());
+            info!("Enhanced initrd size: {} bytes", data.len());
             data
         }
         Err(e) => {
-            log::error!("Failed to build enhanced initrd: {:?}", e);
+            error!("Failed to build enhanced initrd: {:?}", e);
             return Status::ABORTED;
         }
     };
 
-    log::info!("Booting Linux kernel...");
+    info!("Booting Linux kernel...");
 
     let cmdline =
         core::str::from_utf8(sections.cmdline).unwrap_or("console=ttyS0 console=tty0 init=/init");

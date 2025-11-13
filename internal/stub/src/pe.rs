@@ -42,13 +42,13 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
     let base = loaded_image.info().0 as *const u8;
     let size = loaded_image.info().1 as usize;
 
-    log::info!("Image base: {:p}, size: {} bytes", base, size);
+    info!("Image base: {:p}, size: {} bytes", base, size);
 
     let image_data = unsafe { core::slice::from_raw_parts(base, size) };
 
     // Parse DOS header
     if image_data.len() < core::mem::size_of::<DosHeader>() {
-        log::error!("Image too small for DOS header");
+        error!("Image too small for DOS header");
         return Err(uefi::Status::LOAD_ERROR.into());
     }
 
@@ -56,7 +56,7 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
 
     // Verify DOS signature "MZ"
     if &dos_header.e_magic != b"MZ" {
-        log::error!("Invalid DOS signature");
+        error!("Invalid DOS signature");
         return Err(uefi::Status::LOAD_ERROR.into());
     }
 
@@ -64,7 +64,7 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
 
     // Parse PE header
     if image_data.len() < pe_offset + core::mem::size_of::<PeHeader>() {
-        log::error!("Image too small for PE header");
+        error!("Image too small for PE header");
         return Err(uefi::Status::LOAD_ERROR.into());
     }
 
@@ -72,12 +72,12 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
 
     // Verify PE signature "PE\0\0"
     if &pe_header.signature != b"PE\0\0" {
-        log::error!("Invalid PE signature");
+        error!("Invalid PE signature");
         return Err(uefi::Status::LOAD_ERROR.into());
     }
 
     let num_sections = pe_header.number_of_sections;
-    log::info!("Found {} PE sections", num_sections);
+    info!("Found {} PE sections", num_sections);
 
     // Section headers start after PE header + optional header
     let section_offset =
@@ -120,7 +120,7 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
         let section_size = section.virtual_size.min(section.size_of_raw_data) as usize;
 
         if section_start + section_size > size {
-            log::warn!("Section {} extends beyond image, skipping", name);
+            warn!("Section {} extends beyond image, skipping", name);
             continue;
         }
 
@@ -128,34 +128,30 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
 
         match name {
             ".linux" => {
-                log::info!(
+                info!(
                     "Found .linux section: {} bytes at offset {:#x}",
-                    section_size,
-                    section_start
+                    section_size, section_start
                 );
                 kernel = Some(section_data);
             }
             ".cmdline" => {
-                log::info!(
+                info!(
                     "Found .cmdline section: {} bytes at offset {:#x}",
-                    section_size,
-                    section_start
+                    section_size, section_start
                 );
                 cmdline = Some(section_data);
             }
             ".initrd" => {
-                log::info!(
+                info!(
                     "Found .initrd section: {} bytes at offset {:#x}",
-                    section_size,
-                    section_start
+                    section_size, section_start
                 );
                 initrd = Some(section_data);
             }
             ".stub" => {
-                log::info!(
+                info!(
                     "Found .stub section: {} bytes at offset {:#x}",
-                    section_size,
-                    section_start
+                    section_size, section_start
                 );
                 stub = Some(section_data);
             }
@@ -165,17 +161,17 @@ pub fn extract_sections(loaded_image: &LoadedImage) -> Result<UkiSections> {
 
     // Verify we found all required sections
     let kernel = kernel.ok_or_else(|| {
-        log::error!(".linux section not found");
+        error!(".linux section not found");
         uefi::Status::NOT_FOUND
     })?;
 
     let cmdline = cmdline.ok_or_else(|| {
-        log::error!(".cmdline section not found");
+        error!(".cmdline section not found");
         uefi::Status::NOT_FOUND
     })?;
 
     let initrd = initrd.ok_or_else(|| {
-        log::error!(".initrd section not found");
+        error!(".initrd section not found");
         uefi::Status::NOT_FOUND
     })?;
 

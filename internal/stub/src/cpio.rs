@@ -92,13 +92,13 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     inode += 1;
 
     // Add /run/uki/bzImage
-    log::info!("Adding /run/uki/bzImage ({} bytes)", sections.kernel.len());
+    info!("Adding /run/uki/bzImage ({} bytes)", sections.kernel.len());
     let kernel_entry = CpioEntry::new("run/uki/bzImage", sections.kernel, 0o100644); // Regular file
     result.extend_from_slice(&kernel_entry.serialize(inode));
     inode += 1;
 
     // Add /run/uki/cmdline.txt
-    log::info!(
+    info!(
         "Adding /run/uki/cmdline.txt ({} bytes)",
         sections.cmdline.len()
     );
@@ -107,7 +107,7 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     inode += 1;
 
     // Add /run/uki/initrd.img (the original compressed initrd)
-    log::info!(
+    info!(
         "Adding /run/uki/initrd.img ({} bytes)",
         sections.initrd.len()
     );
@@ -117,18 +117,18 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
 
     // Add /run/uki/stub.efi (the stub binary itself, if available)
     if let Some(stub_data) = sections.stub {
-        log::info!("Adding /run/uki/muak-stub.efi ({} bytes)", stub_data.len());
+        info!("Adding /run/uki/muak-stub.efi ({} bytes)", stub_data.len());
         let stub_entry = CpioEntry::new("run/uki/stub.efi", stub_data, 0o100644);
         result.extend_from_slice(&stub_entry.serialize(inode));
     } else {
-        log::warn!(".stub section not found");
+        warn!(".stub section not found");
     }
 
     // Add TRAILER!!! to end the first (uncompressed) cpio archive
     let trailer = CpioEntry::new(CPIO_TRAILER, &[], 0);
     result.extend_from_slice(&trailer.serialize(0));
 
-    log::info!(
+    info!(
         "Prepended uncompressed cpio archive: {} bytes",
         result.len()
     );
@@ -137,7 +137,7 @@ pub fn build_enhanced_initrd(sections: &UkiSections) -> Result<Vec<u8>> {
     // The kernel will decompress and extract this after the first archive
     result.extend_from_slice(sections.initrd);
 
-    log::info!("Enhanced initrd built: {} bytes total", result.len());
+    info!("Enhanced initrd built: {} bytes total", result.len());
 
     Ok(result)
 }
