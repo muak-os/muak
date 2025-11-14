@@ -6,7 +6,7 @@ use nix::unistd::mkdir;
 use serde::Deserialize;
 use std::path::Path;
 
-const LOOP_SET_FD: u64 = 0x4C00;
+nix::ioctl_write_int_bad!(loop_set_fd, 0x4C00);
 
 #[derive(Debug, Deserialize)]
 struct ExtensionManifest {
@@ -132,13 +132,12 @@ fn attach_squashfs(
     let sqsh_fd = open(sqsh_path, OFlag::O_RDONLY, Mode::empty())?;
     let loop_fd = open(loop_dev, OFlag::O_RDWR, Mode::empty())?;
 
-    unsafe {
-        let ret = nix::libc::ioctl(loop_fd, LOOP_SET_FD, sqsh_fd);
-        if ret < 0 {
-            close(sqsh_fd).ok();
-            close(loop_fd).ok();
-            return Err(format!("Failed to attach {} to {}", sqsh_path, loop_dev).into());
-        }
+    let result = unsafe { loop_set_fd(loop_fd, sqsh_fd) };
+
+    if result.is_err() {
+        close(sqsh_fd).ok();
+        close(loop_fd).ok();
+        return Err(format!("Failed to attach {} to {}", sqsh_path, loop_dev).into());
     }
 
     close(sqsh_fd)?;
