@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Err(e) = disk::mount_partitions() {
                 log!("granola", "WARNING: Failed to mount partitions: {}", e);
-                // Continue anyway - might be recoverable
+                // TODO: set maintenance mode here to recover
             }
         }
     }
@@ -46,18 +46,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let network_manager = Arc::new(network::NetworkManager::new().await?);
 
-    network_manager.initialize_host().await?;
-    log!("granola", "Host network initialized");
+    let network_manager_clone = network_manager.clone();
+    tokio::spawn(async move {
+        network_manager_clone.initialize_host().await;
+    });
 
-    if let Err(e) = network_manager.initialize_bridge().await {
-        log!("granola", "WARNING: Bridge initialization failed: {}", e);
-        log!(
-            "granola",
-            "VMs will not be able to start until network is available"
-        );
-    } else {
-        log!("granola", "Network bridge initialized");
-    }
+    log!(
+        "granola",
+        "Network initialization started in background (state: {})",
+        network_manager.get_state()
+    );
+
+    // Spawn bridge initialization task that waits for network to be ready
+    let network_manager_clone = network_manager.clone();
+    tokio::spawn(async move {
+        // Wait for host network to be ready
+        loop {
+            if network_manager_clone.get_state() == network::NetworkState::Ready {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+
+        // Now initialize bridge
+        match network_manager_clone.initialize_bridge().await {
+            Ok(()) => log!("granola", "Network bridge initialized successfully"),
+            Err(e) => log!("granola", "WARNING: Bridge initialization failed: {}", e),
+        }
+    });
 
     let process_manager = ProcessManager::new();
     let vm_manager = VmManager::new(process_manager.clone(), network_manager.clone());
