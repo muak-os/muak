@@ -38,18 +38,17 @@ pub async fn create_tap(tap_name: &str) -> Result<()> {
     let copy_len = name_bytes.len().min(15);
     ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
-    unsafe { tunsetiff(fd, &ifr) }.map_err(|e| anyhow::anyhow!("Failed to create TAP device: {}", e))?;
-    unsafe { tunsetpersist(fd, 1) }.map_err(|e| anyhow::anyhow!("Failed to make TAP device persistent: {}", e))?;
+    unsafe { tunsetiff(fd, &ifr) }
+        .map_err(|e| anyhow::anyhow!("Failed to create TAP device: {}", e))?;
+    unsafe { tunsetpersist(fd, 1) }
+        .map_err(|e| anyhow::anyhow!("Failed to make TAP device persistent: {}", e))?;
 
     log!("network", "Persistent TAP device {} created", tap_name);
 
     Ok(())
 }
 
-pub async fn bring_up_tap(
-    handle: &Handle,
-    tap_name: &str,
-) -> Result<()> {
+pub async fn bring_up_tap(handle: &Handle, tap_name: &str) -> Result<()> {
     log!("network", "Bringing up TAP device: {}", tap_name);
 
     let mut links = handle

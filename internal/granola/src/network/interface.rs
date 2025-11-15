@@ -8,7 +8,6 @@ use rtnetlink::Handle;
 pub enum LinkState {
     Up,
     Down,
-
 }
 
 #[derive(Debug, Clone)]
@@ -35,14 +34,11 @@ impl std::fmt::Display for LinkState {
         match self {
             LinkState::Up => write!(f, "up"),
             LinkState::Down => write!(f, "down"),
-
         }
     }
 }
 
-pub async fn discover_ethernet_interfaces(
-    handle: &Handle,
-) -> Result<Vec<Interface>> {
+pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interface>> {
     log!("network", "Discovering ethernet interfaces");
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
@@ -100,7 +96,7 @@ pub async fn discover_ethernet_interfaces(
     Ok(interfaces)
 }
 
-fn is_ethernet_interface(name: &str) -> bool {
+pub fn is_ethernet_interface(name: &str) -> bool {
     if name == "lo" || name.starts_with("wlan") || name.starts_with("wlp") {
         return false;
     }

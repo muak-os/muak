@@ -8,7 +8,6 @@ pub enum NetworkStateKind {
     Operational, // bridge not yet ready
     Ready,
     Degraded,
-    Failed,
 }
 
 #[derive(Debug, Clone)]

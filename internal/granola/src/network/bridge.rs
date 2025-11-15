@@ -3,7 +3,6 @@ use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use std::net::Ipv4Addr;
 
-/// Idempotently ensure bridge exists, is up, and primary interface is enslaved. Moves IP/gateway if needed.
 use anyhow::{Context, Result};
 
 pub async fn ensure_bridge_with_ip_transfer(
@@ -29,7 +28,11 @@ pub async fn ensure_bridge_with_ip_transfer(
 
     // Ensure bridge, with small poll after creation
     let br_index = {
-        let mut br_links = handle.link().get().match_name(bridge_name.to_string()).execute();
+        let mut br_links = handle
+            .link()
+            .get()
+            .match_name(bridge_name.to_string())
+            .execute();
         match br_links.try_next().await {
             Ok(Some(l)) => {
                 // Bridge already exists
@@ -37,25 +40,41 @@ pub async fn ensure_bridge_with_ip_transfer(
             }
             Ok(None) | Err(_) => {
                 // Bridge doesn't exist or query failed - create it
-                handle.link().add().bridge(bridge_name.to_string()).execute().await.context("create bridge")?;
+                handle
+                    .link()
+                    .add()
+                    .bridge(bridge_name.to_string())
+                    .execute()
+                    .await
+                    .context("create bridge")?;
                 // Wait up to 30x100ms for the link to appear
                 let mut found: Option<u32> = None;
                 for _ in 0..30u8 {
-                    let mut q = handle.link().get().match_name(bridge_name.to_string()).execute();
-                    if let Ok(Some(l2)) = q.try_next().await { 
-                        found = Some(l2.header.index); 
-                        break; 
+                    let mut q = handle
+                        .link()
+                        .get()
+                        .match_name(bridge_name.to_string())
+                        .execute();
+                    if let Ok(Some(l2)) = q.try_next().await {
+                        found = Some(l2.header.index);
+                        break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
-                match found { 
-                    Some(idx) => idx, 
-                    None => anyhow::bail!("bridge {} creation visible timeout", bridge_name) 
+                match found {
+                    Some(idx) => idx,
+                    None => anyhow::bail!("bridge {} creation visible timeout", bridge_name),
                 }
             }
         }
     };
-    handle.link().set(br_index).up().execute().await.context("bridge up")?;
+    handle
+        .link()
+        .set(br_index)
+        .up()
+        .execute()
+        .await
+        .context("bridge up")?;
 
     // Enslave physical first (idempotent)
     {
@@ -63,12 +82,33 @@ pub async fn ensure_bridge_with_ip_transfer(
         // If controller set fails with ENODEV due to race, retry a few times
         let mut ok = false;
         for _ in 0..5u8 {
-            if handle.link().set(phys_index).controller(br_index).execute().await.is_ok() { ok = true; break; }
+            if handle
+                .link()
+                .set(phys_index)
+                .controller(br_index)
+                .execute()
+                .await
+                .is_ok()
+            {
+                ok = true;
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        if !ok { anyhow::bail!("failed to enslave {} to {} (ENODEV race?)", physical_iface, bridge_name); }
+        if !ok {
+            anyhow::bail!(
+                "failed to enslave {} to {} (ENODEV race?)",
+                physical_iface,
+                bridge_name
+            );
+        }
         handle.link().set(phys_index).up().execute().await.ok();
-        log!("network","Ensured {} attached to bridge {}", physical_iface, bridge_name);
+        log!(
+            "network",
+            "Ensured {} attached to bridge {}",
+            physical_iface,
+            bridge_name
+        );
     }
 
     // Collect IP on physical & presence on bridge
@@ -170,11 +210,7 @@ pub async fn ensure_bridge_with_ip_transfer(
     Ok(())
 }
 
-pub async fn attach_to_bridge(
-    handle: &Handle,
-    tap_name: &str,
-    bridge_name: &str,
-) -> Result<()> {
+pub async fn attach_to_bridge(handle: &Handle, tap_name: &str, bridge_name: &str) -> Result<()> {
     log!(
         "network",
         "Attaching {} to bridge {}",

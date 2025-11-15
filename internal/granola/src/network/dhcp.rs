@@ -12,12 +12,8 @@ use super::model::{DhcpLease, IpConfig};
 
 /// Run minimal DHCPv4 discover/request cycle returning IpConfig and DhcpLease.
 /// Does NOT apply addresses/routes; caller (actor) handles idempotent netlink ops.
-pub async fn run_dhcp_client(
-    interface: &str,
-    mac: &[u8; 6],
-) -> Result<(IpConfig, DhcpLease)> {
+pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
     log!("network", "DHCP: starting on {}", interface);
-    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let socket = UdpSocket::bind("0.0.0.0:68").await?;
     socket.set_broadcast(true)?;
@@ -54,7 +50,8 @@ pub async fn run_dhcp_client(
             break;
         }
     }
-    let server_id = server_id.ok_or_else(|| anyhow::anyhow!("no server identifier in DHCPOFFER"))?;
+    let server_id =
+        server_id.ok_or_else(|| anyhow::anyhow!("no server identifier in DHCPOFFER"))?;
 
     // Build REQUEST
     let mut request_msg = v4::Message::default()
@@ -82,7 +79,7 @@ pub async fn run_dhcp_client(
     let mut netmask: Option<Ipv4Addr> = None;
     let mut gateway: Option<Ipv4Addr> = None;
     let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
-    let mut lease_seconds: u32 = 3600; // default
+    let mut lease_seconds: u32 = 3600;
 
     for (_code, opt) in ack.opts().iter() {
         match opt {

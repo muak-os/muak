@@ -27,7 +27,6 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
     }
 }
 
-
 pub async fn ensure_addr(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
     // Scan existing addresses
     let mut addrs = handle.address().get().execute();
