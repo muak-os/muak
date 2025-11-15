@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 pub enum NetworkStateKind {
     Uninitialized,
     Initializing,
+    Operational, // bridge not yet ready
     Ready,
     Degraded,
     Failed,
@@ -22,7 +23,6 @@ pub struct IpConfig {
 pub enum LinkStateKind {
     Up,
     Down,
-
 }
 
 #[derive(Debug, Clone)]

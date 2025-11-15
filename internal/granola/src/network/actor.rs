@@ -158,10 +158,12 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
         while let Some(cmd) = rx.recv().await {
             match cmd {
                 NetworkCommand::Initialize { reply } => {
+                    // Initialize network (discover interfaces + DHCP + bridge)
                     let res = initialize_impl(&handle, &mut state, &mut iface_map, &watch_tx).await;
 
                     let final_result = if res.is_ok() {
-                        if let Some(primary) = state.primary.clone() {
+                        // Try to acquire DHCP
+                        let dhcp_result = if let Some(primary) = state.primary.clone() {
                             acquire_dhcp_impl(
                                 &handle,
                                 &mut state,
@@ -171,9 +173,32 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
                                 &tx_clone,
                             )
                             .await
-                            .map(|_| ()) // Convert InterfaceSnapshot to ()
+                            .map(|_| ())
                         } else {
-                            res
+                            Ok(())
+                        };
+
+                        // If DHCP succeeded, setup bridge
+                        if dhcp_result.is_ok() {
+                            match setup_bridge_impl(&handle, &mut state).await {
+                                Ok(()) => {
+                                    state.state = NetworkStateKind::Ready;
+                                    let _ = watch_tx.send(state.clone());
+                                    log!(
+                                        "network",
+                                        "Full network initialization complete (BridgeReady)"
+                                    );
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    log!("network", "Bridge setup failed: {}", e);
+                                    state.state = NetworkStateKind::Degraded;
+                                    let _ = watch_tx.send(state.clone());
+                                    Err(e)
+                                }
+                            }
+                        } else {
+                            dhcp_result
                         }
                     } else {
                         res
@@ -266,7 +291,7 @@ async fn initialize_impl(
         );
     }
     snap.interfaces = iface_map.values().cloned().collect();
-    snap.state = NetworkStateKind::Ready;
+    snap.state = NetworkStateKind::Operational;
     let _ = watch_tx.send(snap.clone());
     log!(
         "network",
@@ -465,7 +490,6 @@ async fn acquire_dhcp_impl(
     snap.interfaces = iface_map.values().cloned().collect();
     let _ = watch_tx.send(snap.clone());
 
-    // Schedule lease renewal timers
     schedule_lease_timers(tx.clone(), iface.to_string(), lease.clone());
 
     Ok(iface_map.get(iface).unwrap().clone())

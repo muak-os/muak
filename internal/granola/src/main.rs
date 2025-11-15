@@ -47,16 +47,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let network_actor = network::start_network_actor()
         .await
         .expect("Failed to start network actor");
+
     let actor_clone = network_actor.clone();
     tokio::spawn(async move {
-        if let Err(e) = actor_clone.initialize().await {
-            log!("network", "Init failed: {}", e);
-            return;
-        }
-        if let Err(e) = actor_clone.setup_bridge().await {
-            log!("network", "Bridge setup failed: {}", e);
+        if let Err(e) = actor_clone.initialize_with_retry().await {
+            log!("network", "Fatal: Network initialization failed: {}", e);
         }
     });
+
     let mut snap_rx = network_actor.subscribe();
     tokio::spawn(async move {
         while snap_rx.changed().await.is_ok() {
