@@ -44,39 +44,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut signal_handler = SignalHandler::new()?;
     log!("granola", "Signal handlers installed");
 
-    let network_manager = Arc::new(network::NetworkManager::new().await?);
-
-    let network_manager_clone = network_manager.clone();
+    let network_actor = network::start_network_actor()
+        .await
+        .expect("Failed to start network actor");
+    let actor_clone = network_actor.clone();
     tokio::spawn(async move {
-        network_manager_clone.initialize_host().await;
-    });
-
-    log!(
-        "granola",
-        "Network initialization started in background (state: {})",
-        network_manager.get_state()
-    );
-
-    // Spawn bridge initialization task that waits for network to be ready
-    let network_manager_clone = network_manager.clone();
-    tokio::spawn(async move {
-        // Wait for host network to be ready
-        loop {
-            if network_manager_clone.get_state() == network::NetworkState::Ready {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        if let Err(e) = actor_clone.initialize().await {
+            log!("network", "Init failed: {}", e);
+            return;
         }
-
-        // Now initialize bridge
-        match network_manager_clone.initialize_bridge().await {
-            Ok(()) => log!("granola", "Network bridge initialized successfully"),
-            Err(e) => log!("granola", "WARNING: Bridge initialization failed: {}", e),
+        if let Err(e) = actor_clone.setup_bridge().await {
+            log!("network", "Bridge setup failed: {}", e);
+        }
+    });
+    let mut snap_rx = network_actor.subscribe();
+    tokio::spawn(async move {
+        while snap_rx.changed().await.is_ok() {
+            let snap = snap_rx.borrow().clone();
+            log!(
+                "network",
+                "Snapshot state={:?} primary={:?} interfaces={}",
+                snap.state,
+                snap.primary,
+                snap.interfaces.len()
+            );
         }
     });
 
     let process_manager = ProcessManager::new();
-    let vm_manager = VmManager::new(process_manager.clone(), network_manager.clone());
+    let network_arc = Arc::new(network_actor);
+    let vm_manager = VmManager::new(process_manager.clone(), network_arc.clone());
 
     let ipc_server = Arc::new(IpcServer::new()?);
     log!(

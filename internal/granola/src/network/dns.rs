@@ -22,7 +22,9 @@ pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<(), Box<dyn std::error:
         log!("network", "Adding nameserver: {}", ns);
     }
 
-    fs::write(RESOLV_CONF_PATH, content)?;
+    let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
+    fs::write(&tmp_path, content)?;
+    fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
     log!(
         "network",
         "DNS configuration written to {}",

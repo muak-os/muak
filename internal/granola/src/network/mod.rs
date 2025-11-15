@@ -3,13 +3,13 @@ pub mod config;
 pub mod dhcp;
 pub mod dns;
 pub mod interface;
-pub mod manager;
-pub mod selection;
-pub mod state;
-pub mod tap;
+pub mod tap; // still used by VM creation
 
-pub use bridge::attach_to_bridge;
-pub use config::LAN_BRIDGE_NAME;
-pub use manager::NetworkManager;
-pub use state::NetworkState;
-pub use tap::{bring_up_tap, create_tap, delete_tap, format_mac_address, generate_mac_address};
+// Refactored components
+pub mod model;
+pub mod ops;
+pub mod actor;
+
+pub use tap::{format_mac_address, generate_mac_address};
+
+pub use actor::{start_network_actor, NetworkActorHandle};

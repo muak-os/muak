@@ -65,18 +65,18 @@ impl fmt::Display for VmState {
 pub struct VmManager {
     vms: Arc<Mutex<HashMap<String, Vm>>>,
     process_manager: crate::process::ProcessManager,
-    network_manager: Arc<crate::network::NetworkManager>,
+    network: Arc<crate::network::NetworkActorHandle>,
 }
 
 impl VmManager {
     pub fn new(
         process_manager: crate::process::ProcessManager,
-        network_manager: Arc<crate::network::NetworkManager>,
+        network: Arc<crate::network::NetworkActorHandle>,
     ) -> Self {
         Self {
             vms: Arc::new(Mutex::new(HashMap::new())),
             process_manager,
-            network_manager,
+            network,
         }
     }
 
@@ -140,10 +140,7 @@ impl VmManager {
         if network_configs.is_empty() {
             crate::log!("vm", "Auto-creating network configuration for VM {}", vm_id);
 
-            // Generate TAP device name from VM ID (tap-xxxxx where xxxxx are first 5 chars of UUID)
             let tap_name = format!("tap-{}", &vm_id[3..8]);
-
-            // Generate deterministic MAC address from VM ID
             let mac_bytes = crate::network::generate_mac_address(vm_id);
             let mac_addr = crate::network::format_mac_address(&mac_bytes);
 
@@ -154,78 +151,25 @@ impl VmManager {
                 mac_addr
             );
 
-            let handle = self.network_manager.get_handle();
-            if let Err(e) = crate::network::create_tap(&tap_name).await {
-                let err_msg = format!("Failed to create TAP device: {}", e);
-                let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-                if let Some(vm) = vms.get_mut(vm_id) {
-                    vm.state = VmState::Failed(err_msg.clone());
+            match self.network.add_tap(&tap_name).await {
+                Ok(_iface) => {
+                    crate::log!("vm", "TAP device {} configured and attached", tap_name);
                 }
-                crate::log!("vm", "ERROR: {}", err_msg);
-                return Err(err_msg);
-            }
-
-            let err_msg = {
-                match crate::network::bring_up_tap(&handle, &tap_name).await {
-                    Ok(_) => None,
-                    Err(e) => Some(format!("Failed to bring up TAP device: {}", e)),
-                }
-            };
-            if let Some(err_msg) = err_msg {
-                {
+                Err(e) => {
+                    let err_msg = format!("Failed to setup TAP {}: {}", tap_name, e);
                     let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-                    if let Some(vm) = vms.get_mut(vm_id) {
-                        vm.state = VmState::Failed(err_msg.clone());
-                    }
+                    if let Some(vm) = vms.get_mut(vm_id) { vm.state = VmState::Failed(err_msg.clone()); }
+                    crate::log!("vm", "ERROR: {}", err_msg);
+                    return Err(err_msg);
                 }
-                crate::log!("vm", "ERROR: {}", err_msg);
-                let _ = crate::network::delete_tap(&handle, &tap_name).await;
-                return Err(err_msg);
             }
 
-            crate::log!(
-                "vm",
-                "Attaching TAP {} to bridge for VM {}",
-                tap_name,
-                vm_id
-            );
-            let err_msg = {
-                let bridge_name = crate::network::LAN_BRIDGE_NAME;
-
-                match crate::network::attach_to_bridge(&handle, &tap_name, bridge_name).await {
-                    Ok(_) => None,
-                    Err(e) => Some(format!("Failed to attach TAP to bridge: {}", e)),
-                }
-            };
-            if let Some(err_msg) = err_msg {
-                {
-                    let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-                    if let Some(vm) = vms.get_mut(vm_id) {
-                        vm.state = VmState::Failed(err_msg.clone());
-                    }
-                }
-                crate::log!("vm", "ERROR: {}", err_msg);
-                let _ = crate::network::delete_tap(&handle, &tap_name).await;
-                return Err(err_msg);
-            }
-
-            crate::log!("vm", "TAP device {} configured successfully", tap_name);
-
-            network_configs.push(NetConfig {
-                tap: tap_name.clone(),
-                mac: mac_addr,
-            });
-
+            network_configs.push(NetConfig { tap: tap_name.clone(), mac: mac_addr });
             let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-            if let Some(vm) = vms.get_mut(vm_id) {
-                vm.config.networks = network_configs.clone();
-            }
+            if let Some(vm) = vms.get_mut(vm_id) { vm.config.networks = network_configs.clone(); }
         }
 
-        // Create VMM backend
         let backend = crate::vmm::create_backend(vmm_type);
-
-        // Prepare VMM configuration
         let vmm_config = crate::vmm::VmmConfig {
             vm_id: vm_id.to_string(),
             cpus: vm_config.cpus,
@@ -237,22 +181,16 @@ impl VmManager {
             networks: network_configs.clone(),
         };
 
-        // Start the VM using the backend
         let result = backend.start(vmm_config, &self.process_manager).await;
-
         let pid = match result {
             Ok(start_result) => start_result.pid,
             Err(e) => {
                 let err_msg = format!("Failed to start VM: {}", e);
-
                 let mut vms = self
                     .vms
                     .lock()
                     .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-                if let Some(vm) = vms.get_mut(vm_id) {
-                    vm.state = VmState::Failed(err_msg.clone());
-                }
-
+                if let Some(vm) = vms.get_mut(vm_id) { vm.state = VmState::Failed(err_msg.clone()); }
                 crate::log!("vm", "ERROR: {}", err_msg);
                 return Err(err_msg);
             }
@@ -270,7 +208,6 @@ impl VmManager {
         }
 
         crate::log!("vm", "VM {} started successfully with PID {}", vm_id, pid);
-
         Ok(())
     }
 
@@ -292,27 +229,15 @@ impl VmManager {
 
             pid = vm.pid.ok_or("VM has no PID")?;
             vm.state = VmState::Stopping;
-
-            tap_devices = vm
-                .config
-                .networks
-                .iter()
-                .map(|n| n.tap.clone())
-                .collect::<Vec<_>>();
+            tap_devices = vm.config.networks.iter().map(|n| n.tap.clone()).collect::<Vec<_>>();
         }
 
         self.process_manager.stop(pid, signal)?;
 
-        let handle = self.network_manager.get_handle();
         for tap_name in &tap_devices {
             crate::log!("vm", "Cleaning up TAP device: {}", tap_name);
-            if let Err(e) = crate::network::delete_tap(&handle, tap_name).await {
-                crate::log!(
-                    "vm",
-                    "WARNING: Failed to delete TAP device {}: {}",
-                    tap_name,
-                    e
-                );
+            if let Err(e) = self.network.delete_tap(tap_name).await {
+                crate::log!("vm", "WARNING: Failed to delete TAP device {}: {}", tap_name, e);
             }
         }
 
@@ -336,11 +261,7 @@ impl VmManager {
             .lock()
             .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         let vm = vms.get(vm_id).ok_or("VM not found")?;
-
-        if vm.state == VmState::Running || vm.state == VmState::Starting {
-            return Err("VM must be stopped before deletion".to_string());
-        }
-
+        if vm.state == VmState::Running || vm.state == VmState::Starting { return Err("VM must be stopped before deletion".to_string()); }
         vms.remove(vm_id);
         Ok(())
     }
