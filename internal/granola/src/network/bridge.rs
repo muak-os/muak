@@ -174,7 +174,7 @@ pub async fn attach_to_bridge(
     handle: &Handle,
     tap_name: &str,
     bridge_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     log!(
         "network",
         "Attaching {} to bridge {}",
@@ -190,7 +190,7 @@ pub async fn attach_to_bridge(
     let tap_index = if let Some(link) = tap_links.try_next().await? {
         link.header.index
     } else {
-        return Err(format!("TAP device {} not found", tap_name).into());
+        anyhow::bail!("TAP device {} not found", tap_name);
     };
 
     let mut bridge_links = handle
@@ -201,7 +201,7 @@ pub async fn attach_to_bridge(
     let bridge_index = if let Some(link) = bridge_links.try_next().await? {
         link.header.index
     } else {
-        return Err(format!("Bridge {} not found", bridge_name).into());
+        anyhow::bail!("Bridge {} not found", bridge_name);
     };
 
     handle

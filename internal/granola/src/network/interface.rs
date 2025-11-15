@@ -1,4 +1,5 @@
 use crate::log;
+use anyhow::Result;
 use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
 use rtnetlink::Handle;
@@ -41,7 +42,7 @@ impl std::fmt::Display for LinkState {
 
 pub async fn discover_ethernet_interfaces(
     handle: &Handle,
-) -> Result<Vec<Interface>, Box<dyn std::error::Error>> {
+) -> Result<Vec<Interface>> {
     log!("network", "Discovering ethernet interfaces");
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();

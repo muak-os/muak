@@ -1,4 +1,5 @@
 use crate::log;
+use anyhow::Result;
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use sha2::{Digest, Sha256};
@@ -20,7 +21,7 @@ struct IfReq {
 nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq); // TUNSETIFF = 0x400454ca
 nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb); // TUNSETPERSIST = 0x400454cb
 
-pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn create_tap(tap_name: &str) -> Result<()> {
     log!("network", "Creating TAP device: {}", tap_name);
 
     let file = OpenOptions::new().read(true).write(true).open(TUN_DEVICE)?;
@@ -37,8 +38,8 @@ pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>
     let copy_len = name_bytes.len().min(15);
     ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
-    unsafe { tunsetiff(fd, &ifr) }.map_err(|_| "Failed to create TAP device")?;
-    unsafe { tunsetpersist(fd, 1) }.map_err(|_| "Failed to make TAP device persistent")?;
+    unsafe { tunsetiff(fd, &ifr) }.map_err(|e| anyhow::anyhow!("Failed to create TAP device: {}", e))?;
+    unsafe { tunsetpersist(fd, 1) }.map_err(|e| anyhow::anyhow!("Failed to make TAP device persistent: {}", e))?;
 
     log!("network", "Persistent TAP device {} created", tap_name);
 
@@ -48,7 +49,7 @@ pub async fn create_tap(tap_name: &str) -> Result<(), Box<dyn std::error::Error>
 pub async fn bring_up_tap(
     handle: &Handle,
     tap_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     log!("network", "Bringing up TAP device: {}", tap_name);
 
     let mut links = handle
@@ -61,13 +62,13 @@ pub async fn bring_up_tap(
         handle.link().set(link.header.index).up().execute().await?;
         log!("network", "TAP device {} is up", tap_name);
     } else {
-        return Err(format!("TAP device {} not found", tap_name).into());
+        anyhow::bail!("TAP device {} not found", tap_name);
     }
 
     Ok(())
 }
 
-pub async fn delete_tap(handle: &Handle, tap_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn delete_tap(handle: &Handle, tap_name: &str) -> Result<()> {
     log!("network", "Deleting TAP device: {}", tap_name);
 
     let mut links = handle

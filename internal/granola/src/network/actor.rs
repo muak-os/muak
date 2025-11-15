@@ -32,6 +32,9 @@ pub enum NetworkCommand {
         iface: String,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
+    RenewLease {
+        iface: String,
+    },
     Snapshot {
         reply: oneshot::Sender<NetworkSnapshot>,
     },
@@ -50,12 +53,53 @@ impl NetworkActorHandle {
         rx.await??;
         Ok(())
     }
+
+    pub async fn initialize_with_retry(&self) -> Result<()> {
+        let mut attempt = 0u32;
+        let base_delay = std::time::Duration::from_secs(1);
+        let max_delay = std::time::Duration::from_secs(10);
+
+        loop {
+            attempt += 1;
+
+            match self.initialize().await {
+                Ok(()) => {
+                    log!(
+                        "network",
+                        "Network initialized successfully on attempt {}",
+                        attempt
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    log!(
+                        "network",
+                        "Network initialization failed (attempt {}): {}",
+                        attempt,
+                        e
+                    );
+
+                    let delay = std::cmp::min(
+                        base_delay
+                            .checked_mul(1u32 << attempt.saturating_sub(1).min(5))
+                            .unwrap_or(max_delay),
+                        max_delay,
+                    );
+
+                    log!("network", "Retrying in {:?}...", delay);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
     pub async fn setup_bridge(&self) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(NetworkCommand::SetupBridge { reply }).await?;
         rx.await??;
         Ok(())
     }
+
     pub async fn add_tap(&self, name: &str) -> Result<InterfaceSnapshot> {
         let (reply, rx) = oneshot::channel();
         self.tx
@@ -66,6 +110,7 @@ impl NetworkActorHandle {
             .await?;
         rx.await?
     }
+
     pub async fn delete_tap(&self, name: &str) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx
@@ -77,6 +122,7 @@ impl NetworkActorHandle {
         rx.await??;
         Ok(())
     }
+
     pub async fn acquire_dhcp(&self, iface: &str) -> Result<InterfaceSnapshot> {
         let (reply, rx) = oneshot::channel();
         self.tx
@@ -87,11 +133,13 @@ impl NetworkActorHandle {
             .await?;
         rx.await?
     }
+
     pub async fn snapshot(&self) -> NetworkSnapshot {
         let (reply, rx) = oneshot::channel();
         let _ = self.tx.send(NetworkCommand::Snapshot { reply }).await;
         rx.await.unwrap_or_else(|_| self.watch_rx.borrow().clone())
     }
+
     pub fn subscribe(&self) -> watch::Receiver<NetworkSnapshot> {
         self.watch_rx.clone()
     }
@@ -103,6 +151,7 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
     let (tx, mut rx) = mpsc::channel(32);
     let (watch_tx, watch_rx) = watch::channel(NetworkSnapshot::empty());
 
+    let tx_clone = tx.clone();
     tokio::spawn(async move {
         let mut state = NetworkSnapshot::empty();
         let mut iface_map: HashMap<String, InterfaceSnapshot> = HashMap::new();
@@ -110,7 +159,27 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
             match cmd {
                 NetworkCommand::Initialize { reply } => {
                     let res = initialize_impl(&handle, &mut state, &mut iface_map, &watch_tx).await;
-                    let _ = reply.send(res);
+
+                    let final_result = if res.is_ok() {
+                        if let Some(primary) = state.primary.clone() {
+                            acquire_dhcp_impl(
+                                &handle,
+                                &mut state,
+                                &mut iface_map,
+                                &primary,
+                                &watch_tx,
+                                &tx_clone,
+                            )
+                            .await
+                            .map(|_| ()) // Convert InterfaceSnapshot to ()
+                        } else {
+                            res
+                        }
+                    } else {
+                        res
+                    };
+
+                    let _ = reply.send(final_result);
                 }
                 NetworkCommand::SetupBridge { reply } => {
                     let res = setup_bridge_impl(&handle, &mut state).await;
@@ -128,10 +197,21 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
                     let _ = reply.send(res);
                 }
                 NetworkCommand::AcquireDhcp { iface, reply } => {
-                    let res =
-                        acquire_dhcp_impl(&handle, &mut state, &mut iface_map, &iface, &watch_tx)
-                            .await;
+                    let res = acquire_dhcp_impl(
+                        &handle,
+                        &mut state,
+                        &mut iface_map,
+                        &iface,
+                        &watch_tx,
+                        &tx_clone,
+                    )
+                    .await;
                     let _ = reply.send(res);
+                }
+                NetworkCommand::RenewLease { iface } => {
+                    let _ =
+                        renew_lease_impl(&handle, &mut state, &mut iface_map, &iface, &watch_tx)
+                            .await;
                 }
                 NetworkCommand::Snapshot { reply } => {
                     let _ = reply.send(state.clone());
@@ -152,9 +232,7 @@ async fn initialize_impl(
     log!("network", "Actor: initialize start");
     snap.state = NetworkStateKind::Initializing;
     let _ = watch_tx.send(snap.clone());
-    let discovered = discover_ethernet_interfaces(handle)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let discovered = discover_ethernet_interfaces(handle).await?;
     if discovered.is_empty() {
         snap.state = NetworkStateKind::Degraded;
         let _ = watch_tx.send(snap.clone());
@@ -196,13 +274,6 @@ async fn initialize_impl(
         snap.primary
     );
 
-    // Auto DHCP on primary
-    if let Some(primary) = snap.primary.clone() {
-        if let Err(e) = acquire_dhcp_impl(handle, snap, iface_map, &primary, watch_tx).await {
-            log!("network", "DHCP acquisition failed: {}", e);
-        }
-    }
-
     Ok(())
 }
 
@@ -211,10 +282,8 @@ async fn setup_bridge_impl(handle: &Handle, snap: &mut NetworkSnapshot) -> Resul
         .primary
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no primary interface"))?;
-    // Use new bridge IP transfer helper
-    super::bridge::ensure_bridge_with_ip_transfer(handle, LAN_BRIDGE_NAME, &primary)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    super::bridge::ensure_bridge_with_ip_transfer(handle, LAN_BRIDGE_NAME, &primary).await?;
     log!(
         "network",
         "Actor: bridge ensure complete br={} primary={}",
@@ -231,15 +300,9 @@ async fn add_tap_impl(
     name: &str,
     watch_tx: &watch::Sender<NetworkSnapshot>,
 ) -> Result<InterfaceSnapshot> {
-    create_tap(name)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    bring_up_tap(handle, name)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    attach_to_bridge(handle, name, LAN_BRIDGE_NAME)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    create_tap(name).await?;
+    bring_up_tap(handle, name).await?;
+    attach_to_bridge(handle, name, LAN_BRIDGE_NAME).await?;
     let index = ensure_link_up(handle, name).await?;
     let snapshot = InterfaceSnapshot {
         name: name.to_string(),
@@ -262,21 +325,14 @@ async fn delete_tap_impl(
     name: &str,
     watch_tx: &watch::Sender<NetworkSnapshot>,
 ) -> Result<()> {
-    delete_tap(handle, name)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    delete_tap(handle, name).await?;
     iface_map.remove(name);
     snap.interfaces = iface_map.values().cloned().collect();
     let _ = watch_tx.send(snap.clone());
     Ok(())
 }
 
-fn schedule_lease_timers(
-    handle: Handle,
-    iface: String,
-    tx: watch::Sender<NetworkSnapshot>,
-    lease: DhcpLease,
-) {
+fn schedule_lease_timers(tx: mpsc::Sender<NetworkCommand>, iface: String, lease: DhcpLease) {
     let renew_deadline = lease.obtained_at + lease.renewal_time;
     let rebind_deadline = lease.obtained_at + lease.rebind_time;
     let expiry_deadline = lease.expiry();
@@ -285,7 +341,6 @@ fn schedule_lease_timers(
     tokio::spawn({
         let iface = iface.clone();
         let tx = tx.clone();
-        let handle = handle.clone();
         async move {
             let now = std::time::SystemTime::now();
             if let Ok(dur) = renew_deadline.duration_since(now) {
@@ -294,22 +349,8 @@ fn schedule_lease_timers(
                 return;
             }
             log!("network", "Lease renewal attempt for {}", iface);
-            // Re-run DHCP request (unicast ideal; for simplicity full discover again)
-            // Fetch current snapshot to get MAC
-            let snap = tx.borrow().clone();
-            let mac = snap
-                .interfaces
-                .iter()
-                .find(|i| i.name == iface)
-                .map(|i| i.mac);
-            if let Some(mac) = mac {
-                if let Ok((ip_cfg, new_lease)) = run_dhcp_client(&iface, &mac)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))
-                {
-                    apply_lease(&handle, &tx, &iface, ip_cfg, new_lease);
-                }
-            }
+            // Send renewal command to actor
+            let _ = tx.send(NetworkCommand::RenewLease { iface }).await;
         }
     });
 
@@ -317,7 +358,6 @@ fn schedule_lease_timers(
     tokio::spawn({
         let iface = iface.clone();
         let tx = tx.clone();
-        let handle = handle.clone();
         async move {
             let now = std::time::SystemTime::now();
             if let Ok(dur) = rebind_deadline.duration_since(now) {
@@ -326,20 +366,8 @@ fn schedule_lease_timers(
                 return;
             }
             log!("network", "Lease rebind attempt for {}", iface);
-            let snap = tx.borrow().clone();
-            let mac = snap
-                .interfaces
-                .iter()
-                .find(|i| i.name == iface)
-                .map(|i| i.mac);
-            if let Some(mac) = mac {
-                if let Ok((ip_cfg, new_lease)) = run_dhcp_client(&iface, &mac)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))
-                {
-                    apply_lease(&handle, &tx, &iface, ip_cfg, new_lease);
-                }
-            }
+            // Send renewal command to actor
+            let _ = tx.send(NetworkCommand::RenewLease { iface }).await;
         }
     });
 
@@ -347,7 +375,6 @@ fn schedule_lease_timers(
     tokio::spawn({
         let iface = iface.clone();
         let tx = tx.clone();
-        let handle = handle.clone();
         async move {
             let now = std::time::SystemTime::now();
             if let Ok(dur) = expiry_deadline.duration_since(now) {
@@ -356,57 +383,55 @@ fn schedule_lease_timers(
                 return;
             }
             log!("network", "Lease expired for {} - reacquiring", iface);
-            let snap = tx.borrow().clone();
-            let mac = snap
-                .interfaces
-                .iter()
-                .find(|i| i.name == iface)
-                .map(|i| i.mac);
-            if let Some(mac) = mac {
-                if let Ok((ip_cfg, new_lease)) = run_dhcp_client(&iface, &mac)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))
-                {
-                    apply_lease(&handle, &tx, &iface, ip_cfg, new_lease);
-                }
-            }
+            // Send renewal command to actor
+            let _ = tx.send(NetworkCommand::RenewLease { iface }).await;
         }
     });
 }
 
-fn apply_lease(
+async fn renew_lease_impl(
     handle: &Handle,
-    tx: &watch::Sender<NetworkSnapshot>,
+    snap: &mut NetworkSnapshot,
+    iface_map: &mut HashMap<String, InterfaceSnapshot>,
     iface: &str,
-    ip_cfg: IpConfig,
-    lease: DhcpLease,
-) {
-    let snap = tx.borrow().clone();
-    if let Some(idx) = snap.interfaces.iter().position(|i| i.name == iface) {
-        let index = snap.interfaces[idx].index;
-        tokio::spawn({
-            let handle = handle.clone();
-            let tx = tx.clone();
-            let mut snap_local = snap.clone();
-            let iface_name = iface.to_string();
-            async move {
-                if ensure_addr(&handle, index, ip_cfg.address, ip_cfg.prefix_len)
-                    .await
-                    .is_ok()
-                {
-                    if let Some(gw) = ip_cfg.gateway {
-                        let _ = ensure_default_route_v4(&handle, gw).await;
-                    }
-                    if !ip_cfg.dns.is_empty() {
-                        let _ = configure_dns(&ip_cfg.dns);
-                    }
-                    snap_local.interfaces[idx].ip = Some(ip_cfg.clone());
-                    snap_local.interfaces[idx].lease = Some(lease.clone());
-                    let _ = tx.send(snap_local.clone());
-                    schedule_lease_timers(handle.clone(), iface_name, tx.clone(), lease.clone());
-                }
+    watch_tx: &watch::Sender<NetworkSnapshot>,
+) -> Result<()> {
+    log!("network", "Renewing DHCP lease for {}", iface);
+
+    let mac = iface_map
+        .get(iface)
+        .map(|i| i.mac)
+        .ok_or_else(|| anyhow::anyhow!("interface not tracked"))?;
+
+    // Attempt to renew the lease
+    match run_dhcp_client(iface, &mac).await {
+        Ok((ip_cfg, lease)) => {
+            let index = iface_map.get(iface).unwrap().index;
+
+            // Apply the new configuration
+            ensure_addr(handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
+            if let Some(gw) = ip_cfg.gateway {
+                ensure_default_route_v4(handle, gw).await?;
             }
-        });
+            if !ip_cfg.dns.is_empty() {
+                configure_dns(&ip_cfg.dns)?;
+            }
+
+            // Update state
+            if let Some(existing) = iface_map.get_mut(iface) {
+                existing.ip = Some(ip_cfg.clone());
+                existing.lease = Some(lease.clone());
+            }
+            snap.interfaces = iface_map.values().cloned().collect();
+            let _ = watch_tx.send(snap.clone());
+
+            log!("network", "DHCP lease renewed for {}", iface);
+            Ok(())
+        }
+        Err(e) => {
+            log!("network", "DHCP renewal failed for {}: {}", iface, e);
+            Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
+        }
     }
 }
 
@@ -416,22 +441,21 @@ async fn acquire_dhcp_impl(
     iface_map: &mut HashMap<String, InterfaceSnapshot>,
     iface: &str,
     watch_tx: &watch::Sender<NetworkSnapshot>,
+    tx: &mpsc::Sender<NetworkCommand>,
 ) -> Result<InterfaceSnapshot> {
     let index = ensure_link_up(handle, iface).await?;
     let mac = iface_map
         .get(iface)
         .map(|i| i.mac)
         .ok_or_else(|| anyhow::anyhow!("interface not tracked"))?;
-    let (ip_cfg, lease) = run_dhcp_client(iface, &mac)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let (ip_cfg, lease) = run_dhcp_client(iface, &mac).await?;
 
     ensure_addr(handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
     if let Some(gw) = ip_cfg.gateway {
         ensure_default_route_v4(handle, gw).await?;
     }
     if !ip_cfg.dns.is_empty() {
-        configure_dns(&ip_cfg.dns).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        configure_dns(&ip_cfg.dns)?;
     }
 
     if let Some(existing) = iface_map.get_mut(iface) {
@@ -441,13 +465,8 @@ async fn acquire_dhcp_impl(
     snap.interfaces = iface_map.values().cloned().collect();
     let _ = watch_tx.send(snap.clone());
 
-    // Schedule real renewal + rebind timers
-    schedule_lease_timers(
-        handle.clone(),
-        iface.to_string(),
-        watch_tx.clone(),
-        lease.clone(),
-    );
+    // Schedule lease renewal timers
+    schedule_lease_timers(tx.clone(), iface.to_string(), lease.clone());
 
     Ok(iface_map.get(iface).unwrap().clone())
 }

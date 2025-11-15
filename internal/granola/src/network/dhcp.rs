@@ -1,4 +1,5 @@
 use crate::log;
+use anyhow::Result;
 use dhcproto::{Decodable, Decoder, Encodable, v4};
 use nix::sys::socket::{setsockopt, sockopt::BindToDevice};
 use std::ffi::OsString;
@@ -14,7 +15,7 @@ use super::model::{DhcpLease, IpConfig};
 pub async fn run_dhcp_client(
     interface: &str,
     mac: &[u8; 6],
-) -> Result<(IpConfig, DhcpLease), Box<dyn std::error::Error>> {
+) -> Result<(IpConfig, DhcpLease)> {
     log!("network", "DHCP: starting on {}", interface);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -53,7 +54,7 @@ pub async fn run_dhcp_client(
             break;
         }
     }
-    let server_id = server_id.ok_or("no server identifier in DHCPOFFER")?;
+    let server_id = server_id.ok_or_else(|| anyhow::anyhow!("no server identifier in DHCPOFFER"))?;
 
     // Build REQUEST
     let mut request_msg = v4::Message::default()

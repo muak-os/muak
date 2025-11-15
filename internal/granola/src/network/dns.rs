@@ -1,10 +1,11 @@
 use crate::log;
+use anyhow::Result;
 use std::fs;
 use std::net::Ipv4Addr;
 
 use super::config::RESOLV_CONF_PATH;
 
-pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     if nameservers.is_empty() {
         log!("network", "No DNS servers to configure");
         return Ok(());
