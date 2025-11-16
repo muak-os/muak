@@ -24,15 +24,7 @@ pub async fn link_exists(handle: &Handle, name: &str) -> Result<bool> {
     match links.try_next().await {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
-        Err(e) => {
-            // ENODEV (No such device) means the link doesn't exist, not an actual error
-            // rtnetlink returns this when querying for a non-existent interface
-            let error_string = e.to_string();
-            if error_string.contains("No such device") || error_string.contains("os error 19") {
-                return Ok(false);
-            }
-            Err(e.into())
-        }
+        Err(_) => Ok(false),
     }
 }
 
@@ -76,12 +68,12 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
 
 pub fn extract_mac_from_link(link: &LinkMessage) -> Option<[u8; 6]> {
     for attr in &link.attributes {
-        if let LinkAttribute::Address(addr) = attr {
-            if addr.len() == 6 {
-                let mut mac = [0u8; 6];
-                mac.copy_from_slice(&addr[..6]);
-                return Some(mac);
-            }
+        if let LinkAttribute::Address(addr) = attr
+            && addr.len() == 6
+        {
+            let mut mac = [0u8; 6];
+            mac.copy_from_slice(&addr[..6]);
+            return Some(mac);
         }
     }
     None

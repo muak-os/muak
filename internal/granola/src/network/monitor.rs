@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum NetworkEvent {
     LinkUp {
         name: String,
@@ -63,10 +64,10 @@ pub async fn start_monitor(
         }
 
         while let Some((message, _)) = messages.next().await {
-            if let NetlinkPayload::InnerMessage(route_msg) = message.payload {
-                if let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await {
-                    log!("network", "Error handling netlink message: {}", e);
-                }
+            if let NetlinkPayload::InnerMessage(route_msg) = message.payload
+                && let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await
+            {
+                log!("network", "Error handling netlink message: {}", e);
             }
         }
     });
@@ -83,18 +84,18 @@ async fn initial_scan(
 
     let mut links = handle.link().get().execute();
     while let Some(link_msg) = links.try_next().await? {
-        if let Some((name, index, _)) = extract_link_info(&link_msg) {
-            if super::interface::is_ethernet_interface(&name) {
-                let is_up = link::is_link_flag_up(&link_msg);
-                link_states.insert(index, (name.clone(), is_up));
-                log!(
-                    "network",
-                    "Initial state: {} (index {}) = {}",
-                    name,
-                    index,
-                    if is_up { "up" } else { "down" }
-                );
-            }
+        if let Some((name, index, _)) = extract_link_info(&link_msg)
+            && super::interface::is_ethernet_interface(&name)
+        {
+            let is_up = link::is_link_flag_up(&link_msg);
+            link_states.insert(index, (name.clone(), is_up));
+            log!(
+                "network",
+                "Initial state: {} (index {}) = {}",
+                name,
+                index,
+                if is_up { "up" } else { "down" }
+            );
         }
     }
     Ok(())

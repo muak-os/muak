@@ -5,10 +5,10 @@ mod state;
 
 use anyhow::Result;
 use rtnetlink::new_connection;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::log;
-use crate::network::model::NetworkSnapshot;
+use crate::network::model::{InterfaceSnapshot, NetworkSnapshot};
 use crate::network::monitor::{self, NetworkEvent};
 
 pub use commands::NetworkCommand;
@@ -68,30 +68,22 @@ impl NetworkActorHandle {
     }
 
     pub async fn setup_bridge(&self) -> Result<()> {
-        let (reply, rx) = tokio::sync::oneshot::channel();
+        let (reply, rx) = oneshot::channel();
         self.tx.send(NetworkCommand::SetupBridge { reply }).await?;
         rx.await??;
         Ok(())
     }
 
-    pub async fn add_tap(&self, name: &str) -> Result<crate::network::model::InterfaceSnapshot> {
-        let (reply, rx) = tokio::sync::oneshot::channel();
-        self.tx
-            .send(NetworkCommand::AddTap {
-                name: name.to_string(),
-                reply,
-            })
-            .await?;
+    pub async fn add_tap(&self, name: String) -> Result<InterfaceSnapshot> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(NetworkCommand::AddTap { name, reply }).await?;
         rx.await?
     }
 
-    pub async fn delete_tap(&self, name: &str) -> Result<()> {
-        let (reply, rx) = tokio::sync::oneshot::channel();
+    pub async fn delete_tap(&self, name: String) -> Result<()> {
+        let (reply, rx) = oneshot::channel();
         self.tx
-            .send(NetworkCommand::DeleteTap {
-                name: name.to_string(),
-                reply,
-            })
+            .send(NetworkCommand::DeleteTap { name, reply })
             .await?;
         rx.await??;
         Ok(())
@@ -101,7 +93,7 @@ impl NetworkActorHandle {
         &self,
         iface: &str,
     ) -> Result<crate::network::model::InterfaceSnapshot> {
-        let (reply, rx) = tokio::sync::oneshot::channel();
+        let (reply, rx) = oneshot::channel();
         self.tx
             .send(NetworkCommand::AcquireDhcp {
                 iface: iface.to_string(),

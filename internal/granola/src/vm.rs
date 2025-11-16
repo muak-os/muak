@@ -151,7 +151,7 @@ impl VmManager {
                 mac_addr
             );
 
-            match self.network.add_tap(&tap_name).await {
+            match self.network.add_tap(tap_name.clone()).await {
                 Ok(_iface) => {
                     crate::log!("vm", "TAP device {} configured and attached", tap_name);
                 }
@@ -250,7 +250,7 @@ impl VmManager {
 
         for tap_name in &tap_devices {
             crate::log!("vm", "Cleaning up TAP device: {}", tap_name);
-            if let Err(e) = self.network.delete_tap(tap_name).await {
+            if let Err(e) = self.network.delete_tap(tap_name.clone()).await {
                 crate::log!(
                     "vm",
                     "WARNING: Failed to delete TAP device {}: {}",

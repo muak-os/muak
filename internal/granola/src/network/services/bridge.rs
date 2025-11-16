@@ -117,20 +117,20 @@ async fn transfer_ip_to_bridge(
     let phys_ip = address::find_ipv4(handle, phys_index).await?;
     let has_bridge_ip = address::has_ipv4(handle, br_index).await?;
 
-    if let Some((ip, prefix)) = phys_ip {
-        if !has_bridge_ip {
-            address::remove_ipv4(handle, phys_index, ip).await?;
-            address::add_ipv4(handle, br_index, ip, prefix).await?;
-            route::restore_default_gateway(handle).await?;
+    if let Some((ip, prefix)) = phys_ip
+        && !has_bridge_ip
+    {
+        address::remove_ipv4(handle, phys_index, ip).await?;
+        address::add_ipv4(handle, br_index, ip, prefix).await?;
+        route::restore_default_gateway(handle).await?;
 
-            log!(
-                "network",
-                "Transferred IP {}/{} to bridge {}",
-                ip,
-                prefix,
-                bridge_name
-            );
-        }
+        log!(
+            "network",
+            "Transferred IP {}/{} to bridge {}",
+            ip,
+            prefix,
+            bridge_name
+        );
     }
 
     Ok(())

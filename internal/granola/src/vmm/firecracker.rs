@@ -90,6 +90,7 @@ impl FirecrackerBackend {
         Ok(VmmStartResult { pid })
     }
 
+    #[allow(dead_code)]
     pub async fn stop(&self, pid: i32, force: bool) -> Result<(), String> {
         let signal = if force {
             nix::sys::signal::Signal::SIGKILL

@@ -51,16 +51,16 @@ pub async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()
     while let Some(addr) = addrs.try_next().await? {
         if addr.header.index == index {
             for attr in &addr.attributes {
-                if let AddressAttribute::Address(IpAddr::V4(v4)) = attr {
-                    if *v4 == ip {
-                        handle
-                            .address()
-                            .del(addr)
-                            .execute()
-                            .await
-                            .context("failed to remove IPv4 address")?;
-                        return Ok(());
-                    }
+                if let AddressAttribute::Address(IpAddr::V4(v4)) = attr
+                    && *v4 == ip
+                {
+                    handle
+                        .address()
+                        .del(addr)
+                        .execute()
+                        .await
+                        .context("failed to remove IPv4 address")?;
+                    return Ok(());
                 }
             }
         }
@@ -71,10 +71,11 @@ pub async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()
 }
 
 pub async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
-    if let Some((existing_ip, existing_prefix)) = find_ipv4(handle, index).await? {
-        if existing_ip == ip && existing_prefix == prefix {
-            return Ok(());
-        }
+    if let Some((existing_ip, existing_prefix)) = find_ipv4(handle, index).await?
+        && existing_ip == ip
+        && existing_prefix == prefix
+    {
+        return Ok(());
     }
 
     add_ipv4(handle, index, ip, prefix).await

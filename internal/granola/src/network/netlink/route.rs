@@ -26,10 +26,8 @@ pub async fn find_default_gateway(handle: &Handle) -> Result<Option<Ipv4Addr>> {
         }
 
         // Check if this is a default route (destination 0.0.0.0/0)
-        if is_default {
-            if let Some(gw) = gateway {
-                return Ok(Some(gw));
-            }
+        if is_default && let Some(gw) = gateway {
+            return Ok(Some(gw));
         }
     }
 
@@ -48,10 +46,10 @@ pub async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()>
 }
 
 pub async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
-    if let Some(existing_gw) = find_default_gateway(handle).await? {
-        if existing_gw == gateway {
-            return Ok(());
-        }
+    if let Some(existing_gw) = find_default_gateway(handle).await?
+        && existing_gw == gateway
+    {
+        return Ok(());
     }
 
     add_default_route(handle, gateway).await

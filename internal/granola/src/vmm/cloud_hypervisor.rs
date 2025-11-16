@@ -102,6 +102,7 @@ impl CloudHypervisorBackend {
         Ok(VmmStartResult { pid })
     }
 
+    #[allow(dead_code)]
     pub async fn stop(&self, pid: i32, force: bool) -> Result<(), String> {
         let signal = if force { 9 } else { 15 };
         nix::sys::signal::kill(

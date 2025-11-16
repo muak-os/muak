@@ -68,6 +68,7 @@ impl VmmBackend {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn stop(&self, pid: i32, force: bool) -> Result<(), String> {
         match self {
             VmmBackend::CloudHypervisor(backend) => backend.stop(pid, force).await,

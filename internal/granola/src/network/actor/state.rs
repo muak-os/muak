@@ -59,10 +59,7 @@ impl NetworkActor {
     }
 
     pub(super) fn track_renewal_task(&mut self, iface: String, task: JoinHandle<()>) {
-        self.renewal_tasks
-            .entry(iface)
-            .or_insert_with(Vec::new)
-            .push(task);
+        self.renewal_tasks.entry(iface).or_default().push(task);
     }
 
     pub(super) fn cancel_renewal_tasks(&mut self, iface: &str) {
