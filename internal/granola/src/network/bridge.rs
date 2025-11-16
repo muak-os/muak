@@ -1,4 +1,8 @@
 use crate::log;
+use crate::network::config::{
+    BRIDGE_CREATE_RETRIES, BRIDGE_CREATE_RETRY_DELAY_MS, INTERFACE_ENSLAVE_RETRIES,
+    INTERFACE_ENSLAVE_RETRY_DELAY_MS,
+};
 use anyhow::{Context, Result};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
@@ -87,12 +91,15 @@ async fn create_bridge(handle: &Handle, bridge_name: &str) -> Result<u32> {
 }
 
 async fn wait_for_bridge_to_appear(handle: &Handle, bridge_name: &str) -> Result<u32> {
-    for _ in 0..30 {
+    for _ in 0..BRIDGE_CREATE_RETRIES {
         if let Some(index) = try_find_bridge(handle, bridge_name).await? {
             bring_link_up(handle, index).await?;
             return Ok(index);
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            BRIDGE_CREATE_RETRY_DELAY_MS,
+        ))
+        .await;
     }
 
     anyhow::bail!("bridge {} creation timeout", bridge_name)
@@ -117,7 +124,7 @@ async fn enslave_interface_to_bridge(
 ) -> Result<()> {
     handle.link().set(phys_index).down().execute().await.ok();
 
-    for _ in 0..5 {
+    for _ in 0..INTERFACE_ENSLAVE_RETRIES {
         if handle
             .link()
             .set(phys_index)
@@ -135,7 +142,10 @@ async fn enslave_interface_to_bridge(
             );
             return Ok(());
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            INTERFACE_ENSLAVE_RETRY_DELAY_MS,
+        ))
+        .await;
     }
 
     anyhow::bail!("failed to enslave {} to {}", physical_iface, bridge_name)

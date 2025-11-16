@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,19 +31,11 @@ pub struct DhcpLease {
     pub lease_time: Duration,
     pub renewal_time: Duration,
     pub rebind_time: Duration,
-    pub server_id: Ipv4Addr,
-    pub ip: IpConfig,
 }
 
 impl DhcpLease {
     pub fn expiry(&self) -> SystemTime {
         self.obtained_at + self.lease_time
-    }
-    pub fn should_renew(&self) -> bool {
-        SystemTime::now() >= self.obtained_at + self.renewal_time
-    }
-    pub fn should_rebind(&self) -> bool {
-        SystemTime::now() >= self.obtained_at + self.rebind_time
     }
 }
 
@@ -61,7 +54,7 @@ pub struct NetworkSnapshot {
     pub state: NetworkStateKind,
     pub primary: Option<String>,
     pub backups: Vec<String>,
-    pub interfaces: Vec<InterfaceSnapshot>,
+    pub interfaces: Vec<Arc<InterfaceSnapshot>>,
 }
 
 impl NetworkSnapshot {

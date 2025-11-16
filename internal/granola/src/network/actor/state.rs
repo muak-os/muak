@@ -1,5 +1,6 @@
 use rtnetlink::Handle;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -29,7 +30,11 @@ impl NetworkActor {
     }
 
     pub(super) fn sync_and_publish(&mut self) {
-        self.state.interfaces = self.iface_map.values().cloned().collect();
+        self.state.interfaces = self
+            .iface_map
+            .values()
+            .map(|iface| Arc::new(iface.clone()))
+            .collect();
         self.publish_state();
     }
 

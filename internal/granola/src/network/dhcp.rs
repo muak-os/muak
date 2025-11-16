@@ -10,8 +10,6 @@ use tokio::time::timeout;
 
 use super::model::{DhcpLease, IpConfig};
 
-/// Run minimal DHCPv4 discover/request cycle returning IpConfig and DhcpLease.
-/// Does NOT apply addresses/routes; caller (actor) handles idempotent netlink ops.
 pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
     log!("network", "DHCP: starting on {}", interface);
 
@@ -113,8 +111,6 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
         lease_time: Duration::from_secs(lease_seconds as u64),
         renewal_time: Duration::from_secs(renewal as u64),
         rebind_time: Duration::from_secs(rebind as u64),
-        server_id,
-        ip: ip_cfg.clone(),
     };
 
     Ok((ip_cfg, lease))
