@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "yuki")]
-#[command(about = "Static UKI builder - adds PE sections to EFI stubs", long_about = None)]
+#[command(about = "UKI builder - adds PE sections to EFI stubs", long_about = None)]
 struct Args {
     #[arg(short, long)]
     stub: PathBuf,
@@ -27,7 +27,6 @@ struct Args {
     output: PathBuf,
 }
 
-// PE section characteristics
 const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
 const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
 const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
