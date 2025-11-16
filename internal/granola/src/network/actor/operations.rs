@@ -2,15 +2,13 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use crate::log;
-use crate::network::bridge::attach_to_bridge;
-use crate::network::bridge::ensure_bridge_with_ip_transfer;
 use crate::network::config::LAN_BRIDGE_NAME;
 use crate::network::dhcp::run_dhcp_client;
 use crate::network::dns::configure_dns;
 use crate::network::interface::{LinkState as OldLinkState, discover_ethernet_interfaces};
 use crate::network::model::{DhcpLease, InterfaceSnapshot, LinkStateKind, NetworkStateKind};
-use crate::network::ops::{ensure_addr, ensure_default_route_v4, ensure_link_up};
-use crate::network::tap::{bring_up_tap, create_tap, delete_tap};
+use crate::network::netlink::{address, link, route};
+use crate::network::services::{bridge, tap};
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
@@ -117,7 +115,7 @@ impl NetworkActor {
     ) -> Result<InterfaceSnapshot> {
         log!("network", "Acquiring DHCP on {}", iface);
 
-        let index = ensure_link_up(&self.handle, iface).await?;
+        let index = link::ensure_link_up(&self.handle, iface).await?;
         let mac = self.get_interface_mac(iface)?;
         let (ip_cfg, lease) = run_dhcp_client(iface, &mac).await?;
 
@@ -143,10 +141,10 @@ impl NetworkActor {
         index: u32,
         ip_cfg: &crate::network::model::IpConfig,
     ) -> Result<()> {
-        ensure_addr(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
+        address::ensure_ipv4(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
 
         if let Some(gw) = ip_cfg.gateway {
-            ensure_default_route_v4(&self.handle, gw).await?;
+            route::ensure_default_route(&self.handle, gw).await?;
         }
 
         if !ip_cfg.dns.is_empty() {
@@ -252,7 +250,7 @@ impl NetworkActor {
             LAN_BRIDGE_NAME,
             primary
         );
-        ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary).await?;
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary).await?;
         log!(
             "network",
             "Bridge setup complete: {} <- {}",
@@ -311,20 +309,7 @@ impl NetworkActor {
     }
 
     async fn lookup_bridge_index(&self) -> Result<u32> {
-        use futures::stream::TryStreamExt;
-
-        let mut links = self
-            .handle
-            .link()
-            .get()
-            .match_name(LAN_BRIDGE_NAME.to_string())
-            .execute();
-
-        links
-            .try_next()
-            .await?
-            .map(|link| link.header.index)
-            .ok_or_else(|| anyhow::anyhow!("bridge not found: {}", LAN_BRIDGE_NAME))
+        link::get_link_index(&self.handle, LAN_BRIDGE_NAME).await
     }
 
     fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
@@ -353,11 +338,8 @@ impl NetworkActor {
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
         log!("network", "Adding TAP interface: {}", name);
 
-        create_tap(name).await?;
-        bring_up_tap(&self.handle, name).await?;
-        attach_to_bridge(&self.handle, name, LAN_BRIDGE_NAME).await?;
+        let index = tap::setup_tap_on_bridge(&self.handle, name, LAN_BRIDGE_NAME).await?;
 
-        let index = ensure_link_up(&self.handle, name).await?;
         let snapshot = InterfaceSnapshot {
             name: name.to_string(),
             index,
@@ -377,7 +359,7 @@ impl NetworkActor {
     pub(super) async fn delete_tap(&mut self, name: &str) -> Result<()> {
         log!("network", "Deleting TAP interface: {}", name);
 
-        delete_tap(&self.handle, name).await?;
+        tap::remove_tap_device(&self.handle, name).await?;
         self.remove_interface(name);
         self.sync_and_publish();
 

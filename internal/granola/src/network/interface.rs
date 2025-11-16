@@ -1,4 +1,4 @@
-use crate::log;
+use crate::network::netlink::link;
 use anyhow::Result;
 use futures::stream::TryStreamExt;
 use netlink_packet_route::link::LinkAttribute;
@@ -39,15 +39,15 @@ impl std::fmt::Display for LinkState {
 }
 
 pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interface>> {
-    log!("network", "Discovering ethernet interfaces");
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
 
-    while let Some(link) = links.try_next().await? {
+    while let Some(link_msg) = links.try_next().await? {
         let mut name = String::new();
         let mut mac_address = [0u8; 6];
         let mut is_virtual = false;
-        for attr in &link.attributes {
+
+        for attr in &link_msg.attributes {
             match attr {
                 LinkAttribute::IfName(n) => name = n.clone(),
                 LinkAttribute::Address(addr) if addr.len() == 6 => {
@@ -67,6 +67,7 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
                 _ => {}
             }
         }
+
         if name.is_empty() {
             continue;
         }
@@ -76,19 +77,17 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
         if is_virtual {
             continue;
         }
-        let is_up = link
-            .header
-            .flags
-            .iter()
-            .any(|flag| matches!(flag, netlink_packet_route::link::LinkFlag::Up));
+
+        let is_up = link::is_link_flag_up(&link_msg);
         let link_state = if is_up {
             LinkState::Up
         } else {
             LinkState::Down
         };
+
         interfaces.push(Interface::new(
             name,
-            link.header.index,
+            link_msg.header.index,
             mac_address,
             link_state,
         ));

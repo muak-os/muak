@@ -1,6 +1,7 @@
 use crate::log;
+use crate::network::netlink::link;
+use crate::network::services::bridge;
 use anyhow::Result;
-use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
@@ -21,7 +22,7 @@ struct IfReq {
 nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq); // TUNSETIFF = 0x400454ca
 nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb); // TUNSETPERSIST = 0x400454cb
 
-pub async fn create_tap(tap_name: &str) -> Result<()> {
+pub async fn create_tap_device(tap_name: &str) -> Result<()> {
     log!("network", "Creating TAP device: {}", tap_name);
 
     let file = OpenOptions::new().read(true).write(true).open(TUN_DEVICE)?;
@@ -35,49 +36,39 @@ pub async fn create_tap(tap_name: &str) -> Result<()> {
     };
 
     let name_bytes = tap_name.as_bytes();
-    let copy_len = name_bytes.len().min(15);
+    let copy_len = name_bytes.len().min(15); // Leave room for null terminator
     ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
     unsafe { tunsetiff(fd, &ifr) }
-        .map_err(|e| anyhow::anyhow!("Failed to create TAP device: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("failed to create TAP device: {}", e))?;
+
     unsafe { tunsetpersist(fd, 1) }
-        .map_err(|e| anyhow::anyhow!("Failed to make TAP device persistent: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("failed to make TAP device persistent: {}", e))?;
 
     log!("network", "Persistent TAP device {} created", tap_name);
 
     Ok(())
 }
 
-pub async fn bring_up_tap(handle: &Handle, tap_name: &str) -> Result<()> {
-    log!("network", "Bringing up TAP device: {}", tap_name);
+pub async fn setup_tap_on_bridge(
+    handle: &Handle,
+    tap_name: &str,
+    bridge_name: &str,
+) -> Result<u32> {
+    create_tap_device(tap_name).await?;
 
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(tap_name.to_string())
-        .execute();
+    let index = link::ensure_link_up(handle, tap_name).await?;
 
-    if let Some(link) = links.try_next().await? {
-        handle.link().set(link.header.index).up().execute().await?;
-        log!("network", "TAP device {} is up", tap_name);
-    } else {
-        anyhow::bail!("TAP device {} not found", tap_name);
-    }
+    bridge::attach_to_bridge(handle, tap_name, bridge_name).await?;
 
-    Ok(())
+    Ok(index)
 }
 
-pub async fn delete_tap(handle: &Handle, tap_name: &str) -> Result<()> {
+pub async fn remove_tap_device(handle: &Handle, tap_name: &str) -> Result<()> {
     log!("network", "Deleting TAP device: {}", tap_name);
 
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(tap_name.to_string())
-        .execute();
-
-    if let Some(link) = links.try_next().await? {
-        handle.link().del(link.header.index).execute().await?;
+    if let Ok(index) = link::get_link_index(handle, tap_name).await {
+        link::delete_link(handle, index).await?;
         log!("network", "TAP device {} deleted", tap_name);
     } else {
         log!("network", "TAP device {} does not exist", tap_name);
@@ -95,6 +86,7 @@ pub fn generate_mac_address(vm_id: &str) -> [u8; 6] {
     mac.copy_from_slice(&result[0..6]);
 
     // Set the locally administered bit and clear the multicast bit
+    // Bit 1 = locally administered, Bit 0 = unicast/multicast
     mac[0] = (mac[0] & 0xfe) | 0x02;
 
     mac
