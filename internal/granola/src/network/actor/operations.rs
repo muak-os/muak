@@ -21,7 +21,7 @@ impl NetworkActor {
 
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
-        self.setup_bridge().await?;
+        self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
         self.publish_state();
@@ -99,11 +99,7 @@ impl NetworkActor {
         &mut self,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<()> {
-        let primary = self
-            .state
-            .primary
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no primary interface"))?;
+        let primary = self.get_primary_name()?;
 
         log!(
             "network",
@@ -122,11 +118,7 @@ impl NetworkActor {
         log!("network", "Acquiring DHCP on {}", iface);
 
         let index = ensure_link_up(&self.handle, iface).await?;
-        let mac = self
-            .get_interface(iface)
-            .map(|i| i.mac)
-            .ok_or_else(|| anyhow::anyhow!("interface not tracked: {}", iface))?;
-
+        let mac = self.get_interface_mac(iface)?;
         let (ip_cfg, lease) = run_dhcp_client(iface, &mac).await?;
 
         self.apply_ip_configuration(index, &ip_cfg).await?;
@@ -135,10 +127,15 @@ impl NetworkActor {
 
         log!("network", "DHCP acquired on {}: {}", iface, ip_cfg.address);
 
-        Ok(self
-            .get_interface(iface)
-            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))?
-            .clone())
+        self.get_interface(iface)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))
+    }
+
+    fn get_interface_mac(&self, iface: &str) -> Result<[u8; 6]> {
+        self.get_interface(iface)
+            .map(|i| i.mac)
+            .ok_or_else(|| anyhow::anyhow!("interface not tracked: {}", iface))
     }
 
     async fn apply_ip_configuration(
@@ -177,7 +174,7 @@ impl NetworkActor {
     }
 
     fn schedule_lease_renewal(
-        &self,
+        &mut self,
         cmd_tx: mpsc::Sender<NetworkCommand>,
         iface: String,
         lease: DhcpLease,
@@ -186,9 +183,16 @@ impl NetworkActor {
         let rebind_deadline = lease.obtained_at + lease.rebind_time;
         let expiry_deadline = lease.expiry();
 
-        Self::spawn_renewal_task(cmd_tx.clone(), iface.clone(), renew_deadline, "renewal");
-        Self::spawn_renewal_task(cmd_tx.clone(), iface.clone(), rebind_deadline, "rebind");
-        Self::spawn_renewal_task(cmd_tx, iface, expiry_deadline, "expiry");
+        let renew_deadline_task =
+            Self::spawn_renewal_task(cmd_tx.clone(), iface.clone(), renew_deadline, "renewal");
+        let rebind_deadline_task =
+            Self::spawn_renewal_task(cmd_tx.clone(), iface.clone(), rebind_deadline, "rebind");
+        let expiry_deadline_task =
+            Self::spawn_renewal_task(cmd_tx, iface.clone(), expiry_deadline, "expiry");
+
+        self.track_renewal_task(iface.clone(), renew_deadline_task);
+        self.track_renewal_task(iface.clone(), rebind_deadline_task);
+        self.track_renewal_task(iface, expiry_deadline_task);
     }
 
     fn spawn_renewal_task(
@@ -196,7 +200,7 @@ impl NetworkActor {
         iface: String,
         deadline: std::time::SystemTime,
         task_type: &str,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let task_name = task_type.to_string();
         tokio::spawn(async move {
             let now = std::time::SystemTime::now();
@@ -208,7 +212,7 @@ impl NetworkActor {
 
             log!("network", "Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
-        });
+        })
     }
 
     pub(super) async fn renew_lease(&mut self, iface: &str) -> Result<()> {
@@ -240,11 +244,7 @@ impl NetworkActor {
     }
 
     pub(super) async fn setup_bridge(&mut self) -> Result<()> {
-        let primary = self
-            .state
-            .primary
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no primary interface"))?;
+        let primary = self.get_primary_name()?;
 
         log!(
             "network",
@@ -252,9 +252,7 @@ impl NetworkActor {
             LAN_BRIDGE_NAME,
             primary
         );
-
         ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary).await?;
-
         log!(
             "network",
             "Bridge setup complete: {} <- {}",
@@ -263,6 +261,93 @@ impl NetworkActor {
         );
 
         Ok(())
+    }
+
+    async fn setup_bridge_and_transfer_dhcp(
+        &mut self,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        let primary = self.get_primary_name()?;
+        let (lease, mac) = self.extract_lease_and_mac(&primary)?;
+
+        self.setup_bridge().await?;
+
+        self.cancel_renewal_tasks(&primary);
+
+        let br_index = self.lookup_bridge_index().await?;
+        self.track_bridge_interface(br_index, mac, lease.clone());
+        self.clear_lease_from_primary(&primary);
+        self.sync_and_publish();
+
+        log!(
+            "network",
+            "Transferring DHCP lease management from {} to {}",
+            primary,
+            LAN_BRIDGE_NAME
+        );
+        self.schedule_lease_renewal(cmd_tx.clone(), LAN_BRIDGE_NAME.to_string(), lease);
+
+        Ok(())
+    }
+
+    fn get_primary_name(&self) -> Result<String> {
+        self.state
+            .primary
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no primary interface"))
+    }
+
+    fn extract_lease_and_mac(&self, iface_name: &str) -> Result<(DhcpLease, [u8; 6])> {
+        let iface = self
+            .get_interface(iface_name)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
+
+        let lease = iface
+            .lease
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", iface_name))?;
+
+        Ok((lease, iface.mac))
+    }
+
+    async fn lookup_bridge_index(&self) -> Result<u32> {
+        use futures::stream::TryStreamExt;
+
+        let mut links = self
+            .handle
+            .link()
+            .get()
+            .match_name(LAN_BRIDGE_NAME.to_string())
+            .execute();
+
+        links
+            .try_next()
+            .await?
+            .map(|link| link.header.index)
+            .ok_or_else(|| anyhow::anyhow!("bridge not found: {}", LAN_BRIDGE_NAME))
+    }
+
+    fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
+        let primary = self.state.primary.as_ref().unwrap();
+        let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
+
+        let br_snapshot = InterfaceSnapshot {
+            name: LAN_BRIDGE_NAME.to_string(),
+            index,
+            mac,
+            link: LinkStateKind::Up,
+            ip,
+            lease: Some(lease),
+        };
+
+        self.insert_interface(br_snapshot);
+    }
+
+    fn clear_lease_from_primary(&mut self, primary: &str) {
+        if let Some(iface) = self.get_interface_mut(primary) {
+            iface.ip = None;
+            iface.lease = None;
+        }
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
