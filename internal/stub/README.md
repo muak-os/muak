@@ -4,13 +4,14 @@ This directory contains the Muak custom EFI stub implementation written in Rust.
 
 ## Purpose
 
-The custom stub provides the following features:
+The custom stub does the following:
 
 1. **PE Section Extraction** - Reads `.linux`, `.cmdline`, and `.initrd` sections from the UKI
 2. **Enhanced Initrd** - Embeds the extracted sections into the initrd filesystem at `/run/uki/`:
    - `/run/uki/kernel` - The kernel bzImage
    - `/run/uki/cmdline.txt` - The kernel command line
    - `/run/uki/initrd.img` - The original initrd
+3. **Boot the linux kernel**
 
 ## Boot flow
 

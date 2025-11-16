@@ -68,7 +68,6 @@ impl InitrdDevicePath {
     }
 }
 
-// LoadFile2 protocol type
 type LoadFile2Fn = extern "efiapi" fn(
     this: *mut LoadFile2Protocol,
     file_path: *const u8,
@@ -111,7 +110,6 @@ extern "efiapi" fn load_file2_impl(
 pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     let image_handle = uefi::boot::image_handle();
 
-    // Initrd memory
     let initrd_pages = initrd.len().div_ceil(4096);
     let initrd_addr = uefi::boot::allocate_pages(
         uefi::boot::AllocateType::AnyPages,
@@ -123,7 +121,6 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
         core::ptr::copy_nonoverlapping(initrd.as_ptr(), initrd_addr.as_ptr(), initrd.len());
     }
 
-    // Protocol instance
     let protocol_addr = uefi::boot::allocate_pages(
         uefi::boot::AllocateType::AnyPages,
         MemoryType::LOADER_DATA,
@@ -135,7 +132,6 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     proto.initrd_data = initrd_addr.as_ptr() as *const u8;
     proto.initrd_size = initrd.len();
 
-    // Device path
     let device_path_addr = uefi::boot::allocate_pages(
         uefi::boot::AllocateType::AnyPages,
         MemoryType::LOADER_DATA,
@@ -145,7 +141,6 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
     let dp = unsafe { &mut *(device_path_addr.as_ptr() as *mut InitrdDevicePath) };
     *dp = InitrdDevicePath::new();
 
-    // Install protocols
     let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
     let bs = unsafe {
         uefi::table::system_table_raw()
@@ -167,21 +162,18 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
         panic!("install LoadFile2 failed: {:?}", st);
     }
 
-    // UTF-16 cmdline
     let mut cmd_utf16 = alloc::vec::Vec::new();
     for ch in cmdline.chars() {
         cmd_utf16.push(ch as u16);
     }
     cmd_utf16.push(0);
 
-    // Load kernel image
     let source = uefi::boot::LoadImageSource::FromBuffer {
         buffer: kernel,
         file_path: None,
     };
     let kh = uefi::boot::load_image(image_handle, source).expect("load kernel");
 
-    // Set load options
     let mut li = uefi::boot::open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(kh)
         .expect("open LoadedImage");
     let load_opts_pages = (cmd_utf16.len() * 2).div_ceil(4096);
@@ -203,7 +195,6 @@ pub fn boot_linux(kernel: &[u8], initrd: &[u8], cmdline: &str) -> ! {
         );
     }
 
-    // Start kernel (it will call our LoadFile2 implementation to fetch initrd)
     let _ = uefi::boot::start_image(kh);
 
     loop {
