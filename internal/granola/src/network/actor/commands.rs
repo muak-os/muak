@@ -25,7 +25,7 @@ pub enum NetworkCommand {
         iface: String,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
-    /// Internal command trigered by timer
+    // Internal command triggered by timer
     RenewLease {
         iface: String,
     },
