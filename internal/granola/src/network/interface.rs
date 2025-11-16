@@ -106,9 +106,83 @@ pub fn is_ethernet_interface(name: &str) -> bool {
         || name.starts_with("end")
 }
 
+pub struct InterfaceSelector;
+
+impl InterfaceSelector {
+    pub fn select_primary(interfaces: &[Interface]) -> Option<&Interface> {
+        if interfaces.is_empty() {
+            return None;
+        }
+
+        interfaces
+            .iter()
+            .max_by(|a, b| Self::compare_interfaces(a, b))
+    }
+
+    pub fn select_backups<'a>(
+        interfaces: &'a [Interface],
+        primary_name: &str,
+    ) -> Vec<&'a Interface> {
+        let mut backups: Vec<&Interface> = interfaces
+            .iter()
+            .filter(|i| i.name != primary_name)
+            .collect();
+
+        backups.sort_by(|a, b| Self::compare_interfaces(a, b).reverse());
+
+        backups
+    }
+
+    fn compare_interfaces(a: &Interface, b: &Interface) -> std::cmp::Ordering {
+        let score_a = Self::score_interface(a);
+        let score_b = Self::score_interface(b);
+
+        score_a.cmp(&score_b)
+    }
+
+    fn score_interface(interface: &Interface) -> u32 {
+        let mut score = 0u32;
+
+        if interface.link_state == LinkState::Up {
+            score += 1000;
+        }
+
+        score += Self::score_naming(&interface.name);
+
+        score
+    }
+
+    fn score_naming(name: &str) -> u32 {
+        // Priority order: eno > ens > enp > end > eth
+        if name.starts_with("eno") {
+            500
+        } else if name.starts_with("ens") {
+            400
+        } else if name.starts_with("enp") {
+            300
+        } else if name.starts_with("end") {
+            200
+        } else if name.starts_with("eth") {
+            100
+        } else {
+            50
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_interface(name: &str, link_state: LinkState) -> Interface {
+        Interface {
+            name: name.to_string(),
+            index: 0,
+            mac_address: [0, 0, 0, 0, 0, 0],
+            link_state,
+        }
+    }
+
     #[test]
     fn test_is_ethernet_interface() {
         assert!(is_ethernet_interface("eth0"));
@@ -116,5 +190,93 @@ mod tests {
         assert!(!is_ethernet_interface("lo"));
         assert!(!is_ethernet_interface("wlan0"));
         assert!(!is_ethernet_interface("br0"));
+    }
+
+    #[test]
+    fn test_select_primary_prefers_up_interface() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::Down),
+            make_interface("eth1", LinkState::Up),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eth1");
+    }
+
+    #[test]
+    fn test_select_primary_prefers_better_naming() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::Up),
+            make_interface("eno1", LinkState::Up),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eno1");
+    }
+
+    #[test]
+    fn test_naming_priority_order() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::Up),
+            make_interface("enp3s0", LinkState::Up),
+            make_interface("ens1", LinkState::Up),
+            make_interface("eno1", LinkState::Up),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eno1");
+    }
+
+    #[test]
+    fn test_link_state_overrides_naming() {
+        let interfaces = vec![
+            make_interface("eno1", LinkState::Down),
+            make_interface("eth0", LinkState::Up),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eth0");
+    }
+
+    #[test]
+    fn test_select_backups_excludes_primary() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::Up),
+            make_interface("eth1", LinkState::Up),
+            make_interface("eth2", LinkState::Down),
+        ];
+
+        let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
+        assert_eq!(backups.len(), 2);
+        assert!(backups.iter().all(|i| i.name != "eth0"));
+    }
+
+    #[test]
+    fn test_select_backups_sorted_by_priority() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::Up),
+            make_interface("eth1", LinkState::Down),
+            make_interface("eno1", LinkState::Up),
+            make_interface("enp3s0", LinkState::Up),
+        ];
+
+        let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
+        assert_eq!(backups[0].name, "eno1");
+        assert_eq!(backups[1].name, "enp3s0");
+        assert_eq!(backups[2].name, "eth1");
+    }
+
+    #[test]
+    fn test_empty_interfaces() {
+        let interfaces: Vec<Interface> = vec![];
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert!(primary.is_none());
+    }
+
+    #[test]
+    fn test_single_interface() {
+        let interfaces = vec![make_interface("eth0", LinkState::Down)];
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eth0");
     }
 }

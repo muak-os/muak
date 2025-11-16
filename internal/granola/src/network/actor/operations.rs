@@ -5,6 +5,7 @@ use crate::log;
 use crate::network::config::LAN_BRIDGE_NAME;
 use crate::network::dhcp::run_dhcp_client;
 use crate::network::dns::configure_dns;
+use crate::network::interface::InterfaceSelector;
 use crate::network::interface::{LinkState as OldLinkState, discover_ethernet_interfaces};
 use crate::network::model::{DhcpLease, InterfaceSnapshot, LinkStateKind, NetworkStateKind};
 use crate::network::netlink::{address, link, route};
@@ -73,22 +74,19 @@ impl NetworkActor {
     }
 
     fn select_primary_interface(&mut self, discovered: &[crate::network::interface::Interface]) {
-        let primary = discovered
-            .iter()
-            .find(|i| i.link_state == OldLinkState::Up)
-            .unwrap_or(&discovered[0]);
+        let primary = InterfaceSelector::select_primary(discovered)
+            .expect("BUG: select_primary_interface called with empty list");
 
         self.state.primary = Some(primary.name.clone());
-        self.state.backups = discovered
-            .iter()
-            .filter(|i| i.name != primary.name)
-            .map(|i| i.name.clone())
-            .collect();
+
+        let backups = InterfaceSelector::select_backups(discovered, &primary.name);
+        self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
         log!(
             "network",
-            "Selected primary: {}, backups: {:?}",
+            "Selected primary: {} (link: {}, priority: best), backups: {:?}",
             primary.name,
+            primary.link_state,
             self.state.backups
         );
     }
