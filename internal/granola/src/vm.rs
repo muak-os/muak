@@ -158,15 +158,22 @@ impl VmManager {
                 Err(e) => {
                     let err_msg = format!("Failed to setup TAP {}: {}", tap_name, e);
                     let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-                    if let Some(vm) = vms.get_mut(vm_id) { vm.state = VmState::Failed(err_msg.clone()); }
+                    if let Some(vm) = vms.get_mut(vm_id) {
+                        vm.state = VmState::Failed(err_msg.clone());
+                    }
                     crate::log!("vm", "ERROR: {}", err_msg);
                     return Err(err_msg);
                 }
             }
 
-            network_configs.push(NetConfig { tap: tap_name.clone(), mac: mac_addr });
+            network_configs.push(NetConfig {
+                tap: tap_name.clone(),
+                mac: mac_addr,
+            });
             let mut vms = self.vms.lock().expect("FATAL: VmManager mutex poisoned");
-            if let Some(vm) = vms.get_mut(vm_id) { vm.config.networks = network_configs.clone(); }
+            if let Some(vm) = vms.get_mut(vm_id) {
+                vm.config.networks = network_configs.clone();
+            }
         }
 
         let backend = crate::vmm::create_backend(vmm_type);
@@ -190,7 +197,9 @@ impl VmManager {
                     .vms
                     .lock()
                     .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
-                if let Some(vm) = vms.get_mut(vm_id) { vm.state = VmState::Failed(err_msg.clone()); }
+                if let Some(vm) = vms.get_mut(vm_id) {
+                    vm.state = VmState::Failed(err_msg.clone());
+                }
                 crate::log!("vm", "ERROR: {}", err_msg);
                 return Err(err_msg);
             }
@@ -229,7 +238,12 @@ impl VmManager {
 
             pid = vm.pid.ok_or("VM has no PID")?;
             vm.state = VmState::Stopping;
-            tap_devices = vm.config.networks.iter().map(|n| n.tap.clone()).collect::<Vec<_>>();
+            tap_devices = vm
+                .config
+                .networks
+                .iter()
+                .map(|n| n.tap.clone())
+                .collect::<Vec<_>>();
         }
 
         self.process_manager.stop(pid, signal)?;
@@ -237,7 +251,12 @@ impl VmManager {
         for tap_name in &tap_devices {
             crate::log!("vm", "Cleaning up TAP device: {}", tap_name);
             if let Err(e) = self.network.delete_tap(tap_name).await {
-                crate::log!("vm", "WARNING: Failed to delete TAP device {}: {}", tap_name, e);
+                crate::log!(
+                    "vm",
+                    "WARNING: Failed to delete TAP device {}: {}",
+                    tap_name,
+                    e
+                );
             }
         }
 
@@ -261,7 +280,9 @@ impl VmManager {
             .lock()
             .expect("FATAL: VmManager mutex poisoned - this is a critical PID 1 failure");
         let vm = vms.get(vm_id).ok_or("VM not found")?;
-        if vm.state == VmState::Running || vm.state == VmState::Starting { return Err("VM must be stopped before deletion".to_string()); }
+        if vm.state == VmState::Running || vm.state == VmState::Starting {
+            return Err("VM must be stopped before deletion".to_string());
+        }
         vms.remove(vm_id);
         Ok(())
     }

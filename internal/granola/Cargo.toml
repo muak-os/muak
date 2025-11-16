@@ -21,6 +21,7 @@ serde_json = "^1"
 # Networking
 rtnetlink = "^0.14"
 netlink-packet-route = "^0.19"
+netlink-packet-core = "^0.7"
 futures = "^0.3"
 dhcproto = "^0.12"
 
