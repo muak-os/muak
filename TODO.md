@@ -6,14 +6,15 @@
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
 
-- Enhance networking
+- Enhance networking:
+  - Support IPv6 with DHCPv6
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
 
 - Hardened security in kernel by following KSPP guidelines
 
-- Better gRPC communication
+- Better gRPC communication:
   - Create own independent project in internal/ instead of having it in internal/granola
   - Add authentication using mTLS
     - Store certificates in STATE partition & in ~/.config/muak/ on the client side
@@ -21,7 +22,6 @@
       commands like muak disks
   - Add permission management for different users using RBAC like system
 
-- Simple secure boot support with sbctl or native implementation
 - Add to maintenance mode:
     - Use config.yaml that is a required parameter in muak install to install declaratively the system
       - muak gen-config to generate a config template
@@ -50,7 +50,6 @@
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM
-  - Disk lifecycle management
 
 - Automatically update the distro with a simple CLI command: muak update
   - Make base image with needed dependencies use the overlayfs system like extensions
@@ -66,6 +65,7 @@
   - Unit tests
   - Mock system calls etc
 
+- Simple secure boot support with sbctl or native implementation
 - Add TPM measurements in stub
 - Add supervision tree for critical services like gRPC server
 - Create a TUI interface to display critical system information
