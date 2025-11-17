@@ -17,33 +17,48 @@ COPY internal/init ./init
 COPY internal/imager ./imager
 COPY internal/stub ./stub
 
-RUN cd granola && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/granola/target \
+  cd granola && \
   RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target x86_64-unknown-linux-musl
+  cargo build --release --target x86_64-unknown-linux-musl && \
+  cp target/x86_64-unknown-linux-musl/release/granola /granola
 
-RUN cd yuki && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/yuki/target \
+  cd yuki && \
   RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target x86_64-unknown-linux-musl
+  cargo build --release --target x86_64-unknown-linux-musl && \
+  cp target/x86_64-unknown-linux-musl/release/yuki /yuki
 
-RUN cd init && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/init/target \
+  cd init && \
   RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target x86_64-unknown-linux-musl
+  cargo build --release --target x86_64-unknown-linux-musl && \
+  cp target/x86_64-unknown-linux-musl/release/muak-init /init
 
-RUN cd imager && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/imager/target \
+  cd imager && \
   RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target x86_64-unknown-linux-musl
+  cargo build --release --target x86_64-unknown-linux-musl && \
+  cp target/x86_64-unknown-linux-musl/release/muak-imager /imager
 
-RUN cd stub && \
-  cargo build --release --target x86_64-unknown-uefi
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/stub/target \
+  cd stub && \
+  cargo build --release --target x86_64-unknown-uefi && \
+  cp target/x86_64-unknown-uefi/release/muak-stub.efi /stub-bin.efi
 
 # ============================================================
 # Download static binaries
 # ============================================================
-FROM alpine:latest AS downloader
+FROM alpine:latest AS tools
 
 ARG BTRFS_VERSION=v6.17.1
 
-WORKDIR /download
+WORKDIR /tools
 
 RUN apk add --no-cache curl && \
   curl -fsSL "https://github.com/kdave/btrfs-progs/releases/download/${BTRFS_VERSION}/btrfs.box.static" \
@@ -67,11 +82,11 @@ RUN mkdir -p \
   tmp \
   mnt
 
-COPY --from=rust-builder /build/granola/target/x86_64-unknown-linux-musl/release/granola /rootfs/sbin/init
-COPY --from=rust-builder /build/yuki/target/x86_64-unknown-linux-musl/release/yuki /rootfs/sbin/yuki
-COPY --from=rust-builder /build/imager/target/x86_64-unknown-linux-musl/release/muak-imager /rootfs/sbin/muak-imager
+COPY --from=rust-builder /granola /rootfs/sbin/init
+COPY --from=rust-builder /yuki /rootfs/sbin/yuki
+COPY --from=rust-builder /imager /rootfs/sbin/muak-imager
 
-COPY --from=downloader /download/btrfs /rootfs/sbin/btrfs
+COPY --from=tools /tools/btrfs /rootfs/sbin/btrfs
 RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
 
 RUN echo "nameserver 9.9.9.9" > /rootfs/run/resolv.conf && \
@@ -101,14 +116,14 @@ RUN apk add --no-cache cpio gzip
 
 WORKDIR /initramfs
 
-COPY --from=rust-builder /build/init/target/x86_64-unknown-linux-musl/release/muak-init /initramfs/init
+COPY --from=rust-builder /init /initramfs/init
 RUN chmod +x /initramfs/init
 
 COPY --from=squashfs-builder /rootfs.sqsh /initramfs/rootfs.sqsh
 
 RUN find . -print0 | LC_ALL=c sort -z | \
   cpio -o -H newc --null --quiet --reproducible | \
-  gzip -9 > /base-initramfs.img
+  gzip -9n > /base-initramfs.img
 
 # ============================================================
 # Prepare kernel
@@ -124,8 +139,8 @@ COPY build/kernel/x86_64/linux-6.17.8/arch/x86/boot/bzImage /bzImage
 FROM scratch
 
 COPY --from=initramfs-builder /base-initramfs.img /run/install/x86_64/base-initramfs.img
-COPY --from=kernel-builder /bzImage /run/install/x86_64/bzImage
-COPY --from=rust-builder /build/stub/target/x86_64-unknown-uefi/release/muak-stub.efi /run/install/x86_64/stub.efi
+COPY --from=kernel-builder /bzImage /run/install/x86_64/vmlinuz
+COPY --from=rust-builder /stub-bin.efi /run/install/x86_64/stub.efi
 
 ARG VERSION=unknown
 COPY --from=rust-builder <<EOF /VERSION
