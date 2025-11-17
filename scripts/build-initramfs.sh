@@ -128,10 +128,10 @@ if [ -n "$EXTENSIONS" ]; then
 fi
 
 echo
-echo -e "${YELLOW}Packaging initramfs with cpio and xz...${NC}"
+echo -e "${YELLOW}Packaging initramfs with cpio and gzip...${NC}"
 
 cd "$TEMP_DIR/initramfs"
-find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | xz --check=crc32 --x86 --lzma2=dict=1MiB > "$OUTPUT_DIR/initramfs.img"
+find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | gzip -9 > "$OUTPUT_DIR/initramfs.img"
 
 echo
 echo -e "${GREEN}==== initramfs Build Complete ====${NC}"
