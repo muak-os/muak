@@ -1,0 +1,57 @@
+# Build artifacts
+target/
+**/target/
+tmp/
+
+# Rust incremental compilation
+**/incremental/
+**/.cargo/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+
+# CI/CD
+.github/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Test files
+**/tests/
+**/*_test.rs
+**/*_bench.rs
+
+# Examples
+**/examples/
+
+# Scripts (not needed in container)
+scripts/
+
+# Config files (not needed in container)
+config/
+
+# Extensions build artifacts
+extensions/
+
+# ISO and disk images
+*.iso
+*.img
+*.qcow2
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
