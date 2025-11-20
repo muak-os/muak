@@ -126,12 +126,37 @@ RUN find . -print0 | LC_ALL=c sort -z | \
   gzip -9n > /base-initramfs.img
 
 # ============================================================
-# Prepare kernel
+# Build kernel
 # ============================================================
-FROM alpine:latest AS kernel-builder
+FROM alpine:latest AS kernel-build
 
-# TODO: either build or download the asset
-COPY build/kernel/x86_64/linux-6.17.8/arch/x86/boot/bzImage /bzImage
+ARG KERNEL_VERSION=6.17.8
+
+RUN apk add --no-cache \
+  build-base \
+  bc \
+  bison \
+  flex \
+  linux-headers \
+  elfutils-dev \
+  openssl-dev \
+  perl \
+  python3 \
+  xz
+
+WORKDIR /src
+
+RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz" && \
+  tar -xJf linux-${KERNEL_VERSION}.tar.xz --strip-components=1 && \
+  rm linux-${KERNEL_VERSION}.tar.xz && \
+  make mrproper
+
+COPY config/kernel/x86_64/kernel.config .config
+
+RUN --mount=type=cache,target=/src/.cache,id=kernel-build-cache \
+  make -j$(nproc)
+
+RUN cp arch/x86/boot/bzImage /bzImage
 
 # ============================================================
 # Final installer
@@ -139,7 +164,7 @@ COPY build/kernel/x86_64/linux-6.17.8/arch/x86/boot/bzImage /bzImage
 FROM scratch
 
 COPY --from=initramfs-builder /base-initramfs.img /run/install/x86_64/base-initramfs.img
-COPY --from=kernel-builder /bzImage /run/install/x86_64/vmlinuz
+COPY --from=kernel-build /bzImage /run/install/x86_64/bzImage
 COPY --from=rust-builder /stub-bin.efi /run/install/x86_64/stub.efi
 
 ARG VERSION=unknown
