@@ -1,0 +1,35 @@
+[package]
+name = "imager"
+version = "0.1.0"
+edition = "2024"
+authors = ["Sawang"]
+description = "Build custom initramfs with OCI extensions"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+
+# CLI parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# OCI image handling
+oci-client = { version = "0.15", default-features = false, features = ["rustls-tls"] }
+tar = "0.4"
+flate2 = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+
+# Filesystem utilities
+backhand = "0.23"
+cpio = "0.4"
+walkdir = "2.5"
+tempfile = "3.14"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
