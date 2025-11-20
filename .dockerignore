@@ -40,9 +40,6 @@ tmp/
 # Scripts (not needed in container)
 scripts/
 
-# Config files (not needed in container)
-config/
-
 # Extensions build artifacts
 extensions/
 

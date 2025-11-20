@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   cd imager && \
   RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
   cargo build --release --target x86_64-unknown-linux-musl && \
-  cp target/x86_64-unknown-linux-musl/release/muak-imager /imager
+  cp target/x86_64-unknown-linux-musl/release/imager /imager
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/stub/target \
@@ -84,7 +84,7 @@ RUN mkdir -p \
 
 COPY --from=rust-builder /granola /rootfs/sbin/init
 COPY --from=rust-builder /yuki /rootfs/sbin/yuki
-COPY --from=rust-builder /imager /rootfs/sbin/muak-imager
+COPY --from=rust-builder /imager /rootfs/sbin/imager
 
 COPY --from=tools /tools/btrfs /rootfs/sbin/btrfs
 RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
