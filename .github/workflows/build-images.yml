@@ -1,189 +1,64 @@
 ---
-name: Build images
+name: Build Installer Image
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/muak-installer
 
 jobs:
-  build-kernel:
+  build-installer:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Get kernel version
-        id: kernel-version
-        run: |
-          KERNEL_VERSION=$(grep 'KERNEL_VERSION=' scripts/build-kernel.sh | grep -oP ':-\K[^}]+')
-          echo "version=${KERNEL_VERSION}" >> $GITHUB_OUTPUT
-          echo "Kernel version: ${KERNEL_VERSION}"
-
-      - name: Calculate config hash
-        id: config-hash
-        run: |
-          CONFIG_HASH=$(sha256sum config/kernel/${{ matrix.arch }}/kernel.config | cut -d' ' -f1 | cut -c1-8)
-          echo "hash=${CONFIG_HASH}" >> $GITHUB_OUTPUT
-          echo "Config hash: ${CONFIG_HASH}"
-
-      - name: Cache kernel source tarball
-        uses: actions/cache@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
         with:
-          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}.tar.xz
-          key: kernel-source-${{ steps.kernel-version.outputs.version }}
-          restore-keys: |
-            kernel-source-
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
 
-      - name: Cache kernel build
-        id: cache-kernel
-        uses: actions/cache@v4
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
         with:
-          path: |
-            build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}
-          key: kernel-build-${{ matrix.arch }}-${{ steps.kernel-version.outputs.version }}-${{ steps.config-hash.outputs.hash }}
-          restore-keys: |
-            kernel-build-${{ matrix.arch }}-${{ steps.kernel-version.outputs.version }}-
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install kernel build dependencies
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget
-
-      - name: Build kernel
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
-        run: |
-          ARCH=${{ matrix.arch }} bash scripts/build-kernel.sh
-
-      - name: Upload kernel bzImage
-        uses: actions/upload-artifact@v4
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          name: kernel-bzImage-${{ matrix.arch }}
-          path: build/kernel/${{ matrix.arch }}/linux-${{ steps.kernel-version.outputs.version }}/arch/x86/boot/bzImage
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
 
-  build-initramfs:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust toolchain
-        run: rustup update stable && rustup default stable
-
-      - name: Install initramfs build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cpio zstd squashfs-tools protobuf-compiler
-
-      - name: Build initramfs
-        run: |
-          bash scripts/build-initramfs.sh ${{ matrix.arch }}
-
-      - name: Upload initramfs artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and push installer image
+        uses: docker/build-push-action@v5
         with:
-          name: initramfs-${{ matrix.arch }}
-          path: build/initramfs.img
-
-  build-stub:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust toolchain
-        run: |
-          rustup update nightly && rustup default nightly
-          rustup target add x86_64-unknown-uefi
-          rustup component add rust-src
-
-      - name: Build EFI stub
-        run: |
-          bash scripts/build-stub.sh ${{ matrix.arch }}
-
-      - name: Upload stub artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: stub-${{ matrix.arch }}
-          path: build/muak-stub-*.efi
-
-  build-uki:
-    needs: [build-kernel, build-initramfs, build-stub]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust toolchain
-        run: rustup update stable && rustup default stable
-
-      - name: Download kernel bzImage
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-bzImage-${{ matrix.arch }}
-          path: build/bzImage/${{ matrix.arch }}/
-
-      - name: Download initramfs artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: initramfs-${{ matrix.arch }}
-          path: build/
-
-      - name: Download stub artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: stub-${{ matrix.arch }}
-          path: build/
-
-      - name: Build UKI
-        run: |
-          bash scripts/build-uki.sh ${{ matrix.arch }}
-
-      - name: Upload UKI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: uki-${{ matrix.arch }}
-          path: build/muak-*.efi
-
-  build-iso:
-    needs: build-uki
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install ISO build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xorriso mtools
-
-      - name: Download UKI artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: uki-${{ matrix.arch }}
-          path: build/
-
-      - name: Build ISO
-        run: |
-          ARCH=${{ matrix.arch }} bash scripts/build-iso.sh
-
-      - name: Upload ISO artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: iso-${{ matrix.arch }}
-          path: build/muak-*.iso
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
