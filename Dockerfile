@@ -256,7 +256,6 @@ COPY --link --from=rootfs-base /rootfs /rootfs
 RUN <<EOF
 set -euo pipefail
 mksquashfs /rootfs /rootfs.sqsh \
-  -all-time ${SOURCE_DATE_EPOCH} \
   -comp gzip \
   -Xcompression-level ${COMPRESSION_LEVEL} \
   -b 1M \
