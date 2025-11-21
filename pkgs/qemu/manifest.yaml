@@ -1,0 +1,12 @@
+name: qemu
+version: "9.2.0"
+description: "QEMU - Open source machine emulator and virtualizer with full graphics support"
+binaries:
+  - /usr/bin/qemu-system-x86_64
+  - /usr/bin/qemu-system-aarch64
+  - /usr/bin/qemu-img
+firmware:
+  - /usr/share/qemu
+libraries:
+  - /usr/lib
+  - /lib
