@@ -4,20 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-tonic = "0.12"
-prost = "0.13"
-clap = { version = "4", features = ["derive"] }
-tower = "0.4"
-chrono = "0.4"
-hyper-util = { version = "0.1", features = ["tokio"] }
+tokio = { workspace = true, features = ["macros", "io-util", "fs"] }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+clap = { workspace = true }
+tower = { workspace = true }
+chrono = { workspace = true }
+hyper-util = { workspace = true }
 
 [build-dependencies]
-tonic-build = "0.12"
-
-[profile.release]
-opt-level = "z"
-lto = true
-strip = true
-codegen-units = 1
+tonic-build = { workspace = true }

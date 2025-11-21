@@ -28,41 +28,44 @@ RUN apk add --no-cache \
 # ============================================================
 FROM rust-base AS rust-deps
 
-COPY internal/granola/Cargo.toml internal/granola/Cargo.lock ./granola/
-COPY internal/yuki/Cargo.toml internal/yuki/Cargo.lock ./yuki/
-COPY internal/init/Cargo.toml internal/init/Cargo.lock ./init/
-COPY internal/imager/Cargo.toml internal/imager/Cargo.lock ./imager/
-COPY internal/stub/Cargo.toml internal/stub/Cargo.lock ./stub/
+COPY Cargo.toml Cargo.lock ./
+
+COPY cli/Cargo.toml ./cli/
+COPY internal/granola/Cargo.toml ./internal/granola/
+COPY internal/yuki/Cargo.toml ./internal/yuki/
+COPY internal/init/Cargo.toml ./internal/init/
+COPY internal/imager/Cargo.toml ./internal/imager/
+
+COPY cli/build.rs ./cli/
+COPY internal/granola/build.rs ./internal/granola/
+COPY api ./api
 
 RUN <<EOF
 set -euo pipefail
-mkdir -p granola/src yuki/src init/src imager/src stub/src
-echo "fn main() {}" > granola/src/main.rs
-echo "fn main() {}" > yuki/src/main.rs
-echo "fn main() {}" > init/src/main.rs
-echo "fn main() {}" > imager/src/main.rs
+mkdir -p cli/src internal/granola/src internal/yuki/src internal/init/src internal/imager/src
+echo "fn main() {}" > cli/src/main.rs
+echo "fn main() {}" > internal/granola/src/main.rs
+echo "fn main() {}" > internal/yuki/src/main.rs
+echo "fn main() {}" > internal/init/src/main.rs
+echo "fn main() {}" > internal/imager/src/main.rs
+EOF
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/target \
+  cargo fetch --locked
+
+COPY internal/stub/Cargo.toml internal/stub/Cargo.lock ./stub/
+COPY internal/stub/rust-toolchain.toml ./stub/
+
+RUN <<EOF
+set -euo pipefail
+mkdir -p stub/src
 echo "fn main() {}" > stub/src/main.rs
 EOF
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/granola/target,id=granola-deps \
-  cd granola && cargo fetch
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/yuki/target,id=yuki-deps \
-  cd yuki && cargo fetch
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/init/target,id=init-deps \
-  cd init && cargo fetch
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/imager/target,id=imager-deps \
-  cd imager && cargo fetch
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/stub/target,id=stub-deps \
-  cd stub && cargo fetch
+  --mount=type=cache,target=/build/stub/target \
+  cd stub && cargo fetch --locked
 
 # ============================================================
 # Build granola binary
@@ -75,15 +78,14 @@ ARG SOURCE_DATE_EPOCH
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 COPY api ./api
-COPY internal/granola ./granola
+COPY internal/granola ./internal/granola
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/granola/target,id=granola-target \
+  --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cd granola
 RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET_MUSL}
+  cargo build --release --target ${TARGET_MUSL} -p granola
 cp target/${TARGET_MUSL}/release/granola /granola
 EOF
 
@@ -97,15 +99,14 @@ ARG SOURCE_DATE_EPOCH
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
-COPY internal/yuki ./yuki
+COPY internal/yuki ./internal/yuki
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/yuki/target,id=yuki-target \
+  --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cd yuki
 RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET_MUSL}
+  cargo build --release --target ${TARGET_MUSL} -p yuki
 cp target/${TARGET_MUSL}/release/yuki /yuki
 EOF
 
@@ -119,15 +120,14 @@ ARG SOURCE_DATE_EPOCH
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
-COPY internal/init ./init
+COPY internal/init ./internal/init
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/init/target,id=init-target \
+  --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cd init
 RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET_MUSL}
+  cargo build --release --target ${TARGET_MUSL} -p muak-init
 cp target/${TARGET_MUSL}/release/muak-init /init
 EOF
 
@@ -141,15 +141,14 @@ ARG SOURCE_DATE_EPOCH
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
-COPY internal/imager ./imager
+COPY internal/imager ./internal/imager
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/imager/target,id=imager-target \
+  --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cd imager
 RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET_MUSL}
+  cargo build --release --target ${TARGET_MUSL} -p imager
 cp target/${TARGET_MUSL}/release/imager /imager
 EOF
 
@@ -166,7 +165,7 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 COPY internal/stub ./stub
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/stub/target,id=stub-target \
+  --mount=type=cache,target=/build/stub/target \
   <<EOF
 set -euo pipefail
 cd stub
@@ -309,7 +308,7 @@ COPY --from=rust-binaries <<EOF /VERSION
 ${VERSION}
 EOF
 
-LABEL org.opencontainers.image.title="muak-installer"
+LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"

@@ -5,42 +5,41 @@ edition = "2024"
 
 [dependencies]
 # Core async runtime
-tokio = { version = "^1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "signal", "fs", "io-util", "process"] }
+tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "process"] }
 
 # System/platform APIs
-nix = { version = "^0.29", features = ["process", "signal", "fs", "mount", "socket", "ioctl", "reboot"] }
+nix = { workspace = true, features = ["process", "signal", "socket", "ioctl", "reboot"] }
 
 # RPC and serialization
-tonic = "^0.12"
-prost = "^0.13"
+tonic = { workspace = true }
+prost = { workspace = true }
 
 # Serialization
-serde = { version = "^1", features = ["derive"] }
-serde_json = "^1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 
 # Networking
-rtnetlink = "^0.14"
-netlink-packet-route = "^0.19"
-netlink-packet-core = "^0.7"
-futures = "^0.3"
-dhcproto = "^0.12"
+rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
+netlink-packet-core = { workspace = true }
+futures = { workspace = true }
+dhcproto = { workspace = true }
 
 # Utilities
-bincode = "^1.3"
-uuid = { version = "^1", features = ["v4"] }
-sha2 = "^0.10"
-anyhow = "^1.0"
+bincode = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+anyhow = { workspace = true }
 
 # Disk utilities
-gptman = "^2.0"
-fatfs = "^0.3"
+gptman = { workspace = true }
+fatfs = { workspace = true }
+
+# OCI image handling
+oci-client = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
 
 [build-dependencies]
-tonic-build = "^0.12"
-
-[profile.release]
-opt-level = "z"
-lto = true
-strip = true
-panic = "abort"
-codegen-units = 1
+tonic-build = { workspace = true }

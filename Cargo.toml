@@ -1,0 +1,77 @@
+[workspace]
+members = [
+    "cli",
+    "internal/granola",
+    "internal/imager",
+    "internal/init",
+    "internal/yuki",
+]
+exclude = [
+    "internal/stub",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+# RPC and serialization
+tonic = "0.12"
+prost = "0.13"
+tonic-build = "0.12"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# CLI parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# System/platform APIs
+nix = { version = "0.29", features = ["fs", "mount"] }
+
+# Networking
+rtnetlink = "0.14"
+netlink-packet-route = "0.19"
+netlink-packet-core = "0.7"
+futures = "0.3"
+dhcproto = "0.12"
+
+# OCI image handling
+oci-client = { version = "0.15", default-features = false, features = ["rustls-tls"] }
+tar = "0.4"
+flate2 = "1.0"
+
+# Utilities
+bincode = "1.3"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+anyhow = "1.0"
+tower = "0.4"
+chrono = "0.4"
+hyper-util = { version = "0.1", features = ["tokio"] }
+
+# Disk utilities
+gptman = "2.0"
+fatfs = "0.3"
+
+# Filesystem utilities
+backhand = "0.23"
+cpio = "0.4"
+walkdir = "2.5"
+tempfile = "3.14"
+
+# PE file handling
+object = { version = "0.36", default-features = false, features = ["read", "write", "pe"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
