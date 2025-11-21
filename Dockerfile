@@ -28,12 +28,21 @@ RUN apk add --no-cache \
 # ============================================================
 FROM rust-base AS rust-deps
 
-COPY api/Cargo.toml api/Cargo.lock ./api/
 COPY internal/granola/Cargo.toml internal/granola/Cargo.lock ./granola/
 COPY internal/yuki/Cargo.toml internal/yuki/Cargo.lock ./yuki/
 COPY internal/init/Cargo.toml internal/init/Cargo.lock ./init/
 COPY internal/imager/Cargo.toml internal/imager/Cargo.lock ./imager/
 COPY internal/stub/Cargo.toml internal/stub/Cargo.lock ./stub/
+
+RUN <<EOF
+set -euo pipefail
+mkdir -p granola/src yuki/src init/src imager/src stub/src
+echo "fn main() {}" > granola/src/main.rs
+echo "fn main() {}" > yuki/src/main.rs
+echo "fn main() {}" > init/src/main.rs
+echo "fn main() {}" > imager/src/main.rs
+echo "fn main() {}" > stub/src/main.rs
+EOF
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/granola/target,id=granola-deps \
