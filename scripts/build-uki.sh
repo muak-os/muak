@@ -48,12 +48,12 @@ if [ ! -f "${STUB_FILE}" ]; then
     exit 1
 fi
 
-YUKI_BIN="$PROJECT_ROOT/internal/yuki/target/x86_64-unknown-linux-gnu/release/yuki"
+YUKI_BIN="$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/yuki"
 
 if [ ! -f "${YUKI_BIN}" ]; then
     echo -e "${YELLOW}Building yuki (UKI builder)...${NC}"
-    cd "$PROJECT_ROOT/internal/yuki"
-    RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
+    cd "$PROJECT_ROOT"
+    RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu -p yuki --quiet
     cd - > /dev/null
 fi
 

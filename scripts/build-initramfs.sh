@@ -31,17 +31,11 @@ echo -e "${GREEN}Extensions: ${EXTENSIONS:-none}${NC}"
 echo -e "${GREEN}Output: ${OUTPUT_DIR}/initramfs.img${NC}"
 echo
 
-echo -e "${YELLOW}Building init binary...${NC}"
-"$SCRIPT_DIR/build-init.sh" "$ARCH"
-
-echo -e "${YELLOW}Building granola init system...${NC}"
-cd "$PROJECT_ROOT/internal/granola"
-RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
-cd - > /dev/null
-
-echo -e "${YELLOW}Building yuki (UKI builder)...${NC}"
-cd "$PROJECT_ROOT/internal/yuki"
-RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu --quiet
+echo -e "${YELLOW}Building workspace binaries (muak-init, granola, yuki, imager)...${NC}"
+cd "$PROJECT_ROOT"
+RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu -p muak-init -p granola -p yuki -p imager --quiet
+mkdir -p "$OUTPUT_DIR"
+cp "target/x86_64-unknown-linux-gnu/release/muak-init" "$OUTPUT_DIR/init"
 cd - > /dev/null
 
 echo
@@ -63,10 +57,13 @@ echo -e "${YELLOW}Creating symlink /etc/resolv.conf -> /run/resolv.conf...${NC}"
 ln -sf /run/resolv.conf "$TEMP_DIR/rootfs_source/etc/resolv.conf"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
-cp "$PROJECT_ROOT/internal/granola/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 
 echo -e "${YELLOW}Installing yuki (UKI builder)...${NC}"
-cp "$PROJECT_ROOT/internal/yuki/target/x86_64-unknown-linux-gnu/release/yuki" "$TEMP_DIR/rootfs_source/sbin/yuki"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/yuki" "$TEMP_DIR/rootfs_source/sbin/yuki"
+
+echo -e "${YELLOW}Installing imager...${NC}"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/imager" "$TEMP_DIR/rootfs_source/sbin/imager"
 
 echo -e "${YELLOW}Downloading btrfs-progs static binaries...${NC}"
 BTRFS_VERSION="v6.17.1"
@@ -131,7 +128,7 @@ echo
 echo -e "${YELLOW}Packaging initramfs with cpio and gzip...${NC}"
 
 cd "$TEMP_DIR/initramfs"
-find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | gzip -9 > "$OUTPUT_DIR/initramfs.img"
+find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | gzip -9n > "$OUTPUT_DIR/initramfs.img"
 
 echo
 echo -e "${GREEN}==== initramfs Build Complete ====${NC}"
