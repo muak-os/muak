@@ -27,10 +27,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set lowercase repository name
-        id: repo
-        run: echo "repository=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -46,7 +42,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}/kernel
+          images: ${{ env.REGISTRY }}/sawangg/kernel
           tags: |
             type=raw,value=${{ env.KERNEL_VERSION }}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -62,8 +58,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}/kernel:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}/kernel:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache,mode=max
           build-args: |
             KERNEL_VERSION=${{ env.KERNEL_VERSION }}
 
@@ -73,5 +69,5 @@ jobs:
           echo "### Kernel Package Built Successfully :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Kernel Version:** ${{ env.KERNEL_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}/kernel:${{ env.KERNEL_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ env.REGISTRY }}/sawangg/kernel:${{ env.KERNEL_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Platform:** linux/amd64" >> $GITHUB_STEP_SUMMARY
