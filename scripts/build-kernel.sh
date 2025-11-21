@@ -4,7 +4,7 @@ set -euo pipefail
 ARCH="${ARCH:-x86_64}"
 KERNEL_VERSION="${KERNEL_VERSION:-6.17.8}"
 BUILD_DIR="$(pwd)/build/kernel/${ARCH}"
-CONFIG_FILE="$(pwd)/config/kernel/${ARCH}/kernel.config"
+CONFIG_FILE="$(pwd)/pkgs/kernel/kernel.config"
 
 echo "==== Muak Kernel Build ===="
 echo "Architecture: ${ARCH}"

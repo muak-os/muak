@@ -1,17 +1,24 @@
 ---
-name: Build Installer Image
+name: Build Kernel Package
 
 on:
   push:
+    branches:
+      - master
+    paths:
+      - "pkgs/kernel/**"
   pull_request:
+    paths:
+      - "pkgs/kernel/**"
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/muak-installer
+  IMAGE_NAME: ${{ github.repository }}/kernel
+  KERNEL_VERSION: "6.17.8"
 
 jobs:
-  build-installer:
+  build-kernel:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,10 +30,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
-            network=host
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
@@ -42,26 +45,30 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
+            type=raw,value=${{ env.KERNEL_VERSION }}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
 
-      - name: Build and push installer image
+      - name: Build and push kernel package
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile
+          context: pkgs/kernel
+          file: pkgs/kernel/Dockerfile
+          target: kernel-package
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
           build-args: |
-            VERSION=${{ github.sha }}
-            PKG_KERNEL=${{ env.REGISTRY }}/${{ github.repository }}/kernel:6.17.8
+            KERNEL_VERSION=${{ env.KERNEL_VERSION }}
+
+      - name: Build summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "### Kernel Package Built Successfully:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Kernel Version:** ${{ env.KERNEL_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.KERNEL_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform:** linux/amd64" >> $GITHUB_STEP_SUMMARY
