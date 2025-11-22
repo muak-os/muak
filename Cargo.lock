@@ -896,7 +896,7 @@ dependencies = [
  "gptman",
  "netlink-packet-core",
  "netlink-packet-route",
- "nix 0.29.0",
+ "nix 0.30.1",
  "oci-client",
  "prost",
  "rtnetlink",
@@ -1296,6 +1296,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "init"
+version = "0.1.0"
+dependencies = [
+ "nix 0.30.1",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1514,15 +1523,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "muak-init"
-version = "0.1.0"
-dependencies = [
- "nix 0.29.0",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
 name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1586,7 +1586,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
- "memoffset",
 ]
 
 [[package]]
@@ -1599,6 +1598,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]

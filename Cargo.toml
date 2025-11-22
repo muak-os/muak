@@ -30,7 +30,7 @@ serde_yaml = "0.9"
 clap = { version = "4.5", features = ["derive"] }
 
 # System/platform APIs
-nix = { version = "0.29", features = ["fs", "mount"] }
+nix = { version = "0.30", features = ["fs", "mount"] }
 
 # Networking
 rtnetlink = "0.18"
