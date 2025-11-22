@@ -3,7 +3,7 @@
 - Properly support arm64 architecture
   - Support for devicetree on ARM64 in stub
 
-- Better error management
+- Better error management *(done)*
   - Check if there is /dev/kvm supported when starting the distro
 
 - Enhance networking:

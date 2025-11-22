@@ -3,6 +3,7 @@ mod disk;
 mod grpc;
 mod installer;
 mod ipc;
+mod kvm;
 mod log;
 mod network;
 mod process;
@@ -19,6 +20,21 @@ use vm::VmManager;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
+
+    if let Err(e) = kvm::ensure_kvm_available() {
+        log!(
+            "granola",
+            "FATAL: {}",
+            e
+        );
+        log!(
+            "granola",
+            "KVM is required to run Muak workloads. Enable virtualization (VT-x/AMD-V) and ensure /dev/kvm is accessible."
+        );
+        return Err(Box::new(e));
+    }
+
+    log!("granola", "Verified /dev/kvm availability");
 
     match installer::detect_status() {
         installer::InstallationStatus::Live => {
