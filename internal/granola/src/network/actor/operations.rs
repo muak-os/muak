@@ -364,4 +364,47 @@ impl NetworkActor {
         log!("network", "TAP interface deleted: {}", name);
         Ok(())
     }
+
+    pub(super) async fn promote_primary(
+        &mut self,
+        new_primary: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        log!("network", "Promoting {} to primary interface", new_primary);
+
+        let old_primary = self.state.primary.clone();
+        self.state.primary = Some(new_primary.to_string());
+        self.state.backups.retain(|n| n != new_primary);
+
+        if let Some(old) = &old_primary {
+            if old != new_primary {
+                self.cancel_renewal_tasks(old);
+                log!("network", "Cancelled renewal tasks for old primary: {}", old);
+            }
+        }
+
+        match self.acquire_dhcp(new_primary, cmd_tx).await {
+            Ok(_) => {
+                log!(
+                    "network",
+                    "Failover complete: {} is now primary with DHCP lease",
+                    new_primary
+                );
+                self.state.state = NetworkStateKind::Operational;
+                self.sync_and_publish();
+                Ok(())
+            }
+            Err(e) => {
+                log!(
+                    "network",
+                    "Failed to acquire DHCP on new primary {}: {}",
+                    new_primary,
+                    e
+                );
+                self.state.state = NetworkStateKind::Degraded;
+                self.publish_state();
+                Err(e)
+            }
+        }
+    }
 }

@@ -154,7 +154,7 @@ fn handle_network_actions(
     watch_tx: watch::Sender<NetworkSnapshot>,
 ) {
     tokio::spawn(async move {
-        let mut actor = NetworkActor::new(handle, watch_tx);
+        let mut actor = NetworkActor::new(handle, watch_tx, cmd_tx.clone());
 
         loop {
             tokio::select! {

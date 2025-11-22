@@ -12,16 +12,22 @@ pub struct NetworkActor {
     pub(super) iface_map: HashMap<String, InterfaceSnapshot>,
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
     pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
+    cmd_tx: tokio::sync::mpsc::Sender<super::commands::NetworkCommand>,
 }
 
 impl NetworkActor {
-    pub fn new(handle: Handle, watch_tx: watch::Sender<NetworkSnapshot>) -> Self {
+    pub fn new(
+        handle: Handle,
+        watch_tx: watch::Sender<NetworkSnapshot>,
+        cmd_tx: tokio::sync::mpsc::Sender<super::commands::NetworkCommand>,
+    ) -> Self {
         Self {
             handle,
             state: NetworkSnapshot::empty(),
             iface_map: HashMap::new(),
             watch_tx,
             renewal_tasks: HashMap::new(),
+            cmd_tx,
         }
     }
 
@@ -68,5 +74,9 @@ impl NetworkActor {
                 task.abort();
             }
         }
+    }
+
+    pub(super) fn get_command_sender(&self) -> tokio::sync::mpsc::Sender<super::commands::NetworkCommand> {
+        self.cmd_tx.clone()
     }
 }

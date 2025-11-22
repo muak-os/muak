@@ -8,7 +8,7 @@
 
 - Enhance networking:
   - Support IPv6 with DHCPv6
-  - Automatic failover when primary interface fails
+  - Automatic failover when primary interface fails *(done)*
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
 

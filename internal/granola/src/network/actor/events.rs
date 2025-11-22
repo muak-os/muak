@@ -114,13 +114,16 @@ impl NetworkActor {
         self.state.state = NetworkStateKind::Degraded;
         self.publish_state();
 
-        if !self.state.backups.is_empty() {
+        if let Some(new_primary) = self.state.backups.first().cloned() {
             log!(
                 "network",
-                "Backup interfaces available: {:?}",
-                self.state.backups
+                "Initiating automatic failover from {} to {}",
+                name,
+                new_primary
             );
-            // TODO: Implement automatic failover
+            self.trigger_failover(new_primary);
+        } else {
+            log!("network", "No backup interfaces available for failover");
         }
     }
 
@@ -150,5 +153,17 @@ impl NetworkActor {
 
     fn remove_from_backups(&mut self, name: &str) {
         self.state.backups.retain(|n| n != name);
+    }
+
+    fn trigger_failover(&mut self, new_primary: String) {
+        use super::commands::NetworkCommand;
+        use tokio::sync::mpsc;
+
+        let cmd_tx = self.get_command_sender();
+        tokio::spawn(async move {
+            let _ = cmd_tx
+                .send(NetworkCommand::PromotePrimary { new_primary })
+                .await;
+        });
     }
 }
