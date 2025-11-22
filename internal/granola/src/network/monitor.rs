@@ -1,7 +1,7 @@
 use crate::log;
 use crate::network::netlink::link;
 use anyhow::Result;
-use futures::stream::StreamExt;
+use futures::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::{RouteNetlinkMessage, link::LinkMessage};
 use rtnetlink::Handle;
@@ -80,8 +80,6 @@ async fn initial_scan(
     handle: &Handle,
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
-    use futures::stream::TryStreamExt;
-
     let mut links = handle.link().get().execute();
     while let Some(link_msg) = links.try_next().await? {
         if let Some((name, index, _)) = extract_link_info(&link_msg)
