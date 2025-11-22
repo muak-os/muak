@@ -37,7 +37,7 @@ rtnetlink = "0.14"
 netlink-packet-route = "0.19"
 netlink-packet-core = "0.7"
 futures = "0.3"
-dhcproto = "0.12"
+dhcproto = "0.14"
 
 # OCI image handling
 oci-client = { version = "0.15", default-features = false, features = ["rustls-tls"] }
