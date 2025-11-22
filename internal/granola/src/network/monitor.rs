@@ -3,7 +3,7 @@ use crate::network::netlink::link;
 use anyhow::Result;
 use futures::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
-use netlink_packet_route::{RouteNetlinkMessage, link::LinkMessage};
+use netlink_packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use rtnetlink::Handle;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -85,7 +85,7 @@ async fn initial_scan(
         if let Some((name, index, _)) = extract_link_info(&link_msg)
             && super::interface::is_ethernet_interface(&name)
         {
-            let is_up = link::is_link_flag_up(&link_msg);
+            let is_up = link_msg.header.flags.contains(LinkFlags::Up);
             link_states.insert(index, (name.clone(), is_up));
             log!(
                 "network",
@@ -141,7 +141,7 @@ async fn handle_new_link(
             return Ok(());
         }
 
-        let is_up = link::is_link_flag_up(&msg);
+        let is_up = msg.header.flags.contains(LinkFlags::Up);
 
         match link_states.get(&index) {
             Some((_existing_name, was_up)) => {

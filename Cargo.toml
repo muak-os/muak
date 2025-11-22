@@ -33,9 +33,9 @@ clap = { version = "4.5", features = ["derive"] }
 nix = { version = "0.29", features = ["fs", "mount"] }
 
 # Networking
-rtnetlink = "0.14"
-netlink-packet-route = "0.19"
-netlink-packet-core = "0.7"
+rtnetlink = "0.18"
+netlink-packet-route = "0.25"
+netlink-packet-core = "0.8"
 futures = "0.3"
 dhcproto = "0.14"
 

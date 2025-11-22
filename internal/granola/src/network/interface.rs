@@ -1,7 +1,6 @@
-use crate::network::netlink::link;
 use anyhow::Result;
 use futures::stream::TryStreamExt;
-use netlink_packet_route::link::LinkAttribute;
+use netlink_packet_route::link::{LinkAttribute, LinkFlags};
 use rtnetlink::Handle;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,8 +77,7 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
             continue;
         }
 
-        let is_up = link::is_link_flag_up(&link_msg);
-        let link_state = if is_up {
+        let link_state = if link_msg.header.flags.contains(LinkFlags::Up) {
             LinkState::Up
         } else {
             LinkState::Down

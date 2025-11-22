@@ -5,7 +5,7 @@ use crate::network::config::{
 };
 use crate::network::netlink::{address, link, retry, route};
 use anyhow::{Context, Result};
-use rtnetlink::Handle;
+use rtnetlink::{Handle, LinkBridge};
 
 pub async fn ensure_bridge_with_ip_transfer(
     handle: &Handle,
@@ -56,8 +56,7 @@ async fn ensure_bridge_exists(handle: &Handle, bridge_name: &str) -> Result<u32>
 async fn create_bridge(handle: &Handle, bridge_name: &str) -> Result<u32> {
     handle
         .link()
-        .add()
-        .bridge(bridge_name.to_string())
+        .add(LinkBridge::new(bridge_name).build())
         .execute()
         .await
         .context("failed to create bridge")?;

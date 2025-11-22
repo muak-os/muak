@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::route::{RouteAddress, RouteAttribute};
-use rtnetlink::Handle;
+use rtnetlink::{Handle, RouteMessageBuilder};
 use std::net::Ipv4Addr;
 
 pub async fn find_default_gateway(handle: &Handle) -> Result<Option<Ipv4Addr>> {
-    let mut routes = handle.route().get(rtnetlink::IpVersion::V4).execute();
+    let mut routes = handle
+        .route()
+        .get(RouteMessageBuilder::<Ipv4Addr>::new().build())
+        .execute();
 
     while let Some(route) = routes.try_next().await? {
         let mut is_default = route.header.destination_prefix_length == 0;
@@ -37,9 +40,11 @@ pub async fn find_default_gateway(handle: &Handle) -> Result<Option<Ipv4Addr>> {
 pub async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
     handle
         .route()
-        .add()
-        .v4()
-        .gateway(gateway)
+        .add(
+            RouteMessageBuilder::<Ipv4Addr>::new()
+                .gateway(gateway)
+                .build(),
+        )
         .execute()
         .await
         .context("failed to add default route")

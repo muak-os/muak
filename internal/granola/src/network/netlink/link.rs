@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use futures::stream::TryStreamExt;
-use netlink_packet_route::link::{LinkAttribute, LinkFlag, LinkMessage};
+use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::Handle;
+use rtnetlink::LinkUnspec;
 
 pub async fn find_link_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
@@ -28,18 +29,10 @@ pub async fn link_exists(handle: &Handle, name: &str) -> Result<bool> {
     }
 }
 
-pub fn is_link_flag_up(link: &LinkMessage) -> bool {
-    link.header
-        .flags
-        .iter()
-        .any(|flag| matches!(flag, LinkFlag::Up))
-}
-
 pub async fn bring_link_up(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
-        .set(index)
-        .up()
+        .set(LinkUnspec::new_with_index(index).up().build())
         .execute()
         .await
         .context("failed to bring link up")
@@ -48,8 +41,7 @@ pub async fn bring_link_up(handle: &Handle, index: u32) -> Result<()> {
 pub async fn bring_link_down(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
-        .set(index)
-        .down()
+        .set(LinkUnspec::new_with_index(index).down().build())
         .execute()
         .await
         .context("failed to bring link down")
@@ -59,7 +51,7 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
     let link = find_link_by_name(handle, name).await?;
     let index = link.header.index;
 
-    if !is_link_flag_up(&link) {
+    if !link.header.flags.contains(LinkFlags::Up) {
         bring_link_up(handle, index).await?;
     }
 
@@ -82,8 +74,11 @@ pub fn extract_mac_from_link(link: &LinkMessage) -> Option<[u8; 6]> {
 pub async fn set_link_master(handle: &Handle, slave_index: u32, master_index: u32) -> Result<()> {
     handle
         .link()
-        .set(slave_index)
-        .controller(master_index)
+        .set(
+            LinkUnspec::new_with_index(slave_index)
+                .controller(master_index)
+                .build(),
+        )
         .execute()
         .await
         .context("failed to set link master")
