@@ -28,8 +28,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cargo build --release --target ${TARGET} -p muak-init
-cp target/${TARGET}/release/muak-init /init
+cargo build --release --target ${TARGET} -p init
+cp target/${TARGET}/release/init /init
 EOF
 
 # ============================================================
