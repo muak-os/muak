@@ -15,7 +15,9 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 WORKDIR /build
 
-RUN apk add --no-cache clang lld
+RUN --mount=type=cache,target=/var/cache/apk \
+  --mount=type=cache,target=/etc/apk/cache \
+  apk add --no-cache clang lld
 
 COPY internal/stub/Cargo.toml internal/stub/Cargo.lock ./
 COPY internal/stub/rust-toolchain.toml ./
@@ -32,7 +34,7 @@ EOF
 # ============================================================
 FROM scratch AS stub-package
 
-COPY --from=builder /stub.efi /stub.efi
+COPY --link --from=builder /stub.efi /stub.efi
 
 LABEL org.opencontainers.image.title="muak-stub"
 LABEL org.opencontainers.image.description="Muak UEFI stub"

@@ -15,12 +15,13 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 WORKDIR /build
 
-RUN apk add --no-cache \
-  clang \
-  lld \
-  protoc
+RUN --mount=type=cache,target=/var/cache/apk \
+  --mount=type=cache,target=/etc/apk/cache \
+  apk add --no-cache musl-dev protoc
 
 COPY Cargo.toml Cargo.lock ./
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/granola"]' Cargo.toml
+
 COPY api ./api
 COPY internal/granola ./internal/granola
 
@@ -28,15 +29,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET} -p granola
+cargo build --release --target ${TARGET} -p granola
 cp target/${TARGET}/release/granola /granola
 EOF
 
 # ============================================================
 FROM scratch AS granola-package
 
-COPY --from=builder /granola /granola
+COPY --link --from=builder /granola /granola
 
 LABEL org.opencontainers.image.title="granola"
 LABEL org.opencontainers.image.description="Muak stage 2 init system"

@@ -15,24 +15,27 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 WORKDIR /build
 
-RUN apk add --no-cache clang lld
+RUN --mount=type=cache,target=/var/cache/apk \
+  --mount=type=cache,target=/etc/apk/cache \
+  apk add --no-cache musl-dev
 
 COPY Cargo.toml Cargo.lock ./
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/yuki"]' Cargo.toml
+
 COPY internal/yuki ./internal/yuki
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-RUSTFLAGS='-C target-feature=+crt-static -C link-arg=-fuse-ld=lld' \
-  cargo build --release --target ${TARGET} -p yuki
+cargo build --release --target ${TARGET} -p yuki
 cp target/${TARGET}/release/yuki /yuki
 EOF
 
 # ============================================================
 FROM scratch AS yuki-package
 
-COPY --from=builder /yuki /yuki
+COPY --link --from=builder /yuki /yuki
 
 LABEL org.opencontainers.image.title="yuki"
 LABEL org.opencontainers.image.description="Muak UKI builder"
