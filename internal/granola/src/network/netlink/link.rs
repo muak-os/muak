@@ -93,6 +93,16 @@ pub async fn delete_link(handle: &Handle, index: u32) -> Result<()> {
         .context("failed to delete link")
 }
 
+pub async fn unset_link_master(handle: &Handle, slave_index: u32) -> Result<()> {
+    handle
+        .link()
+        .set(slave_index)
+        .nocontroller()
+        .execute()
+        .await
+        .context("failed to unset link master")
+}
+
 pub fn extract_name_from_link(link: &LinkMessage) -> Option<String> {
     for attr in &link.attributes {
         if let LinkAttribute::IfName(name) = attr {

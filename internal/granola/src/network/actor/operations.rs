@@ -387,10 +387,26 @@ impl NetworkActor {
             Ok(_) => {
                 log!(
                     "network",
-                    "Failover complete: {} is now primary with DHCP lease",
+                    "DHCP acquired on new primary {}, migrating bridge",
                     new_primary
                 );
-                self.state.state = NetworkStateKind::Operational;
+
+                if let Some(old) = old_primary {
+                    if self.migrate_bridge_uplink(&old, new_primary).await.is_ok() {
+                        log!(
+                            "network",
+                            "Failover complete: {} is now primary with bridge migrated",
+                            new_primary
+                        );
+                        self.state.state = NetworkStateKind::Operational;
+                    } else {
+                        log!("network", "Bridge migration failed, staying in degraded state");
+                        self.state.state = NetworkStateKind::Degraded;
+                    }
+                } else {
+                    self.state.state = NetworkStateKind::Operational;
+                }
+
                 self.sync_and_publish();
                 Ok(())
             }
@@ -406,5 +422,24 @@ impl NetworkActor {
                 Err(e)
             }
         }
+    }
+
+    async fn migrate_bridge_uplink(&mut self, old_iface: &str, new_iface: &str) -> Result<()> {
+        log!(
+            "network",
+            "Migrating bridge from {} to {}",
+            old_iface,
+            new_iface
+        );
+
+        bridge::migrate_bridge_to_interface(&self.handle, LAN_BRIDGE_NAME, old_iface, new_iface)
+            .await?;
+
+        log!(
+            "network",
+            "Bridge successfully migrated to new primary: {}",
+            new_iface
+        );
+        Ok(())
     }
 }

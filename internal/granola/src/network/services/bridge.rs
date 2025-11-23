@@ -43,6 +43,49 @@ pub async fn attach_to_bridge(handle: &Handle, iface_name: &str, bridge_name: &s
     Ok(())
 }
 
+pub async fn detach_from_bridge(handle: &Handle, iface_name: &str) -> Result<()> {
+    log!("network", "Detaching {} from bridge", iface_name);
+
+    let iface_index = link::get_link_index(handle, iface_name).await?;
+    link::unset_link_master(handle, iface_index).await?;
+
+    log!("network", "{} detached from bridge", iface_name);
+    Ok(())
+}
+
+pub async fn migrate_bridge_to_interface(
+    handle: &Handle,
+    bridge_name: &str,
+    old_iface: &str,
+    new_iface: &str,
+) -> Result<()> {
+    log!(
+        "network",
+        "Migrating bridge {} from {} to {}",
+        bridge_name,
+        old_iface,
+        new_iface
+    );
+
+    detach_from_bridge(handle, old_iface).await?;
+
+    let new_index = link::get_link_index(handle, new_iface).await?;
+    let br_index = link::get_link_index(handle, bridge_name).await?;
+
+    link::bring_link_down(handle, new_index).await.ok();
+    link::set_link_master(handle, new_index, br_index).await?;
+    link::bring_link_up(handle, new_index).await?;
+
+    log!(
+        "network",
+        "Bridge migration complete: {} now attached to {}",
+        bridge_name,
+        new_iface
+    );
+    Ok(())
+}
+
+
 async fn ensure_bridge_exists(handle: &Handle, bridge_name: &str) -> Result<u32> {
     if link::link_exists(handle, bridge_name).await? {
         let index = link::get_link_index(handle, bridge_name).await?;
