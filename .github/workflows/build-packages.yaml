@@ -76,14 +76,6 @@ jobs:
             stub:
               - 'pkgs/stub/**'
               - 'internal/stub/**'
-            kernel:
-              - 'pkgs/kernel/**'
-            cloud-hypervisor:
-              - 'pkgs/cloud-hypervisor/**'
-            firecracker:
-              - 'pkgs/firecracker/**'
-            qemu:
-              - 'pkgs/qemu/**'
 
   build:
     needs: detect-changes
@@ -97,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: ${{ github.event_name == 'workflow_dispatch' && inputs.package != '' && fromJSON(format('["{0}"]', inputs.package)) || needs.detect-changes.outputs.build-all == 'true' && fromJSON('["granola", "init", "imager", "yuki", "stub", "kernel", "cloud-hypervisor", "firecracker", "qemu"]') || fromJSON(needs.detect-changes.outputs.packages) }}
+        package: ${{ github.event_name == 'workflow_dispatch' && inputs.package != '' && fromJSON(format('["{0}"]', inputs.package)) || needs.detect-changes.outputs.build-all == 'true' && fromJSON('["granola", "init", "imager", "yuki", "stub"]') || fromJSON(needs.detect-changes.outputs.packages) }}
 
     steps:
       - name: Checkout code
@@ -135,11 +127,3 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.package }}
           cache-to: type=gha,mode=max,scope=${{ matrix.package }}
           provenance: false
-
-      - name: Generate artifact attestation
-        if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
