@@ -8,6 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  KERNEL_VERSION: "6.17.8"
 
 jobs:
   build-installer:
@@ -63,4 +64,9 @@ jobs:
           cache-to: type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache,mode=max
           build-args: |
             VERSION=${{ github.sha }}
-            PKG_KERNEL=${{ env.REGISTRY }}/sawangg/kernel:6.17.8
+            PKG_KERNEL=${{ env.REGISTRY }}/sawangg/kernel:${{ env.KERNEL_VERSION }}
+            PKG_GRANOLA=${{ env.REGISTRY }}/sawangg/pkgs/granola:latest
+            PKG_INIT=${{ env.REGISTRY }}/sawangg/pkgs/init:latest
+            PKG_IMAGER=${{ env.REGISTRY }}/sawangg/pkgs/imager:latest
+            PKG_YUKI=${{ env.REGISTRY }}/sawangg/pkgs/yuki:latest
+            PKG_STUB=${{ env.REGISTRY }}/sawangg/pkgs/stub:latest
