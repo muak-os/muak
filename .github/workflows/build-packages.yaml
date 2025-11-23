@@ -37,14 +37,20 @@ jobs:
       build-all: ${{ steps.check-all.outputs.build-all }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Check if we should build all packages
         id: check-all
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && -z "${{ inputs.package }}" ]]; then
             echo "build-all=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "push" ]] && git diff --name-only HEAD^..HEAD | grep -qE '^(Cargo\.toml|Cargo\.lock)$'; then
-            echo "build-all=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            if git diff --name-only HEAD^..HEAD 2>/dev/null | grep -qE '^(Cargo\.toml|Cargo\.lock)$'; then
+              echo "build-all=true" >> $GITHUB_OUTPUT
+            else
+              echo "build-all=false" >> $GITHUB_OUTPUT
+            fi
           else
             echo "build-all=false" >> $GITHUB_OUTPUT
           fi
