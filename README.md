@@ -25,8 +25,8 @@ Add the following targets:
 ```sh
 rustup target add x86_64-unknown-linux-musl
 rustup target add aarch64-unknown-linux-musl
-rustup target add x86_64-unknown-uefi # Needs cargo nightly
-rustup target add aarch64-unknown-uefi # Needs cargo nightly
+rustup target add x86_64-unknown-uefi --toolchain nightly # Needs nightly (only useful when building UEFI stub)
+rustup target add aarch64-unknown-uefi --toolchain nightly # Needs nightly (only useful when building UEFI stub)
 ```
 
 Then build from source using the cargo workspace:
