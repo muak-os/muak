@@ -96,11 +96,14 @@ pub async fn delete_link(handle: &Handle, index: u32) -> Result<()> {
 pub async fn unset_link_master(handle: &Handle, slave_index: u32) -> Result<()> {
     handle
         .link()
-        .set(slave_index)
-        .nocontroller()
+        .set(LinkUnspec::new_with_index(slave_index).nocontroller().build())
         .execute()
         .await
         .context("failed to unset link master")
+}
+
+pub fn is_link_flag_up(link: &LinkMessage) -> bool {
+    link.header.flags.contains(LinkFlags::Up)
 }
 
 pub fn extract_name_from_link(link: &LinkMessage) -> Option<String> {

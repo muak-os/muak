@@ -1514,7 +1514,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "muakctl"
+name = "muak"
 version = "0.1.0"
 dependencies = [
  "chrono",
