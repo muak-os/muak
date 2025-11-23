@@ -31,11 +31,11 @@ echo -e "${GREEN}Extensions: ${EXTENSIONS:-none}${NC}"
 echo -e "${GREEN}Output: ${OUTPUT_DIR}/initramfs.img${NC}"
 echo
 
-echo -e "${YELLOW}Building workspace binaries (muak-init, granola, yuki, imager)...${NC}"
+echo -e "${YELLOW}Building workspace binaries (init, granola, yuki, imager)...${NC}"
 cd "$PROJECT_ROOT"
-RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu -p muak-init -p granola -p yuki -p imager --quiet
+cargo build --release --target x86_64-unknown-linux-musl -p init -p granola -p yuki -p imager --quiet
 mkdir -p "$OUTPUT_DIR"
-cp "target/x86_64-unknown-linux-gnu/release/muak-init" "$OUTPUT_DIR/init"
+cp "target/x86_64-unknown-linux-musl/release/init" "$OUTPUT_DIR/init"
 cd - > /dev/null
 
 echo
@@ -57,13 +57,13 @@ echo -e "${YELLOW}Creating symlink /etc/resolv.conf -> /run/resolv.conf...${NC}"
 ln -sf /run/resolv.conf "$TEMP_DIR/rootfs_source/etc/resolv.conf"
 
 echo -e "${YELLOW}Installing granola as /sbin/init...${NC}"
-cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-musl/release/granola" "$TEMP_DIR/rootfs_source/sbin/init"
 
 echo -e "${YELLOW}Installing yuki (UKI builder)...${NC}"
-cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/yuki" "$TEMP_DIR/rootfs_source/sbin/yuki"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-musl/release/yuki" "$TEMP_DIR/rootfs_source/sbin/yuki"
 
 echo -e "${YELLOW}Installing imager...${NC}"
-cp "$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/imager" "$TEMP_DIR/rootfs_source/sbin/imager"
+cp "$PROJECT_ROOT/target/x86_64-unknown-linux-musl/release/imager" "$TEMP_DIR/rootfs_source/sbin/imager"
 
 echo -e "${YELLOW}Downloading btrfs-progs static binaries...${NC}"
 BTRFS_VERSION="v6.17.1"
