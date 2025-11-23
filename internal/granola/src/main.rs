@@ -80,25 +80,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config::GRANOLA_SOCKET_PATH
     );
 
-    tokio::task::spawn_blocking({
+    tokio::task::spawn({
         let pm = process_manager.clone();
-        move || match pm.spawn_service(
-            "grpc-server",
-            vec![config::GRPC_SERVER_ADDR.to_string()],
-            grpc::main,
-        ) {
-            Ok(pid) => {
-                log!("granola", "Spawned grpc-server (PID {})", pid);
-            }
-            Err(e) => {
-                log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
+        async move {
+            match pm.spawn_service(
+                "grpc-server",
+                vec![config::GRPC_SERVER_ADDR.to_string()],
+                grpc::main,
+            ) {
+                Ok(pid) => {
+                    log!("granola", "Spawned grpc-server (PID {})", pid);
+                }
+                Err(e) => {
+                    log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
+                }
             }
         }
-    })
-    .await?;
+    });
 
     let pm_clone = process_manager.clone();
     tokio::spawn(async move { signal_handler.handle_signals(&pm_clone).await });
+
+    // Heartbeat to show system is alive and ready
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        log!("granola", "System ready - waiting for IPC connections");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+    });
 
     loop {
         let mut stream = match ipc_server.accept_connection().await {

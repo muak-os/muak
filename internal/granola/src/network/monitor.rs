@@ -45,23 +45,25 @@ impl Default for MonitorConfig {
 }
 
 pub async fn start_monitor(
-    _handle: Handle,
+    handle: Handle,
     config: MonitorConfig,
 ) -> Result<mpsc::Receiver<NetworkEvent>> {
     let (tx, rx) = mpsc::channel(32);
 
-    let (connection, handle, mut messages) = rtnetlink::new_connection()?;
+    log!("network", "Monitor: Creating netlink connection...");
+    let (connection, _new_handle, mut messages) = rtnetlink::new_connection()?;
+    log!("network", "Monitor: Spawning connection task...");
 
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
+    tokio::spawn(connection);
 
     let mut link_states: HashMap<u32, (String, bool)> = HashMap::new();
 
     tokio::spawn(async move {
+        log!("network", "Monitor: Starting initial scan...");
         if let Err(e) = initial_scan(&handle, &mut link_states).await {
             log!("network", "Initial interface scan failed: {}", e);
         }
+        log!("network", "Monitor: Initial scan complete, waiting for messages...");
 
         while let Some((message, _)) = messages.next().await {
             if let NetlinkPayload::InnerMessage(route_msg) = message.payload
@@ -70,6 +72,7 @@ pub async fn start_monitor(
                 log!("network", "Error handling netlink message: {}", e);
             }
         }
+        log!("network", "Monitor: Message loop ended");
     });
 
     log!("network", "Network event monitor started");
@@ -141,10 +144,12 @@ async fn handle_new_link(
             return Ok(());
         }
 
-        let is_up = msg.header.flags.contains(LinkFlags::Up);
+        let is_up = link::is_link_flag_up(&msg);
 
         match link_states.get(&index) {
             Some((_existing_name, was_up)) => {
+                // For existing interfaces, always process link state changes
+                // (even if they're now enslaved to bridges and might not be "ethernet" anymore)
                 if is_up != *was_up {
                     if is_up {
                         log!("network", "Link up detected: {} (index {})", name, index);
@@ -167,6 +172,11 @@ async fn handle_new_link(
                 }
             }
             None => {
+                // For new interfaces, only add ethernet interfaces
+                if !super::interface::is_ethernet_interface(&name) {
+                    return Ok(());
+                }
+
                 if let Some(mac_addr) = mac {
                     log!(
                         "network",

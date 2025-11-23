@@ -115,17 +115,22 @@ impl NetworkActorHandle {
 }
 
 pub async fn start_network_actor() -> Result<NetworkActorHandle> {
+    log!("network", "Starting network actor...");
     // Create netlink connection
     let (connection, handle, _) = new_connection()?;
+    log!("network", "Created netlink connection");
     tokio::spawn(connection);
 
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (watch_tx, watch_rx) = watch::channel(NetworkSnapshot::empty());
 
+    log!("network", "About to start events monitor...");
     let event_rx = start_events_monitor(handle.clone()).await;
+    log!("network", "Events monitor call completed");
 
     handle_network_actions(handle, cmd_rx, event_rx, cmd_tx.clone(), watch_tx);
 
+    log!("network", "Network actor started successfully");
     Ok(NetworkActorHandle {
         tx: cmd_tx,
         watch_rx,
@@ -133,6 +138,7 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
 }
 
 async fn start_events_monitor(handle: rtnetlink::Handle) -> Option<mpsc::Receiver<NetworkEvent>> {
+    log!("network", "Attempting to start network event monitor...");
     let config = monitor::MonitorConfig::default();
     match monitor::start_monitor(handle, config).await {
         Ok(rx) => {

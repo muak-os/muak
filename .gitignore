@@ -1,2 +1,10 @@
 **/build
 **/target
+**/Cargo.lock
+*.log
+scripts/test-failover-auto.sh
+scripts/test-failover.sh
+scripts/test-uki.sh
+TODO.md
+TODO.md
+internal/yuki/yuki
