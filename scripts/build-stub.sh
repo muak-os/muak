@@ -21,11 +21,11 @@ echo
 case "$ARCH" in
     x86_64)
         TARGET="x86_64-unknown-uefi"
-        OUTPUT_NAME="muak-stub-x86_64.efi"
+        OUTPUT_NAME="stub-x86_64.efi"
         ;;
     aarch64)
         TARGET="aarch64-unknown-uefi"
-        OUTPUT_NAME="muak-stub-aarch64.efi"
+        OUTPUT_NAME="stub-aarch64.efi"
         ;;
     *)
         echo -e "${RED}ERROR: Unsupported architecture: ${ARCH}${NC}"
@@ -34,48 +34,22 @@ case "$ARCH" in
         ;;
 esac
 
-# Check if cargo is installed
-if ! command -v cargo &> /dev/null; then
-    echo -e "${RED}ERROR: cargo not found${NC}"
-    echo -e "${RED}Please install Rust: https://rustup.rs/${NC}"
-    exit 1
-fi
-
-# Add the target if rustup is available
 if command -v rustup &> /dev/null; then
     echo -e "${YELLOW}Ensuring ${TARGET} target is installed...${NC}"
     rustup target add "$TARGET"
-    rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 else
-    echo -e "${YELLOW}Note: rustup not found, assuming ${TARGET} target is available${NC}"
+    echo -e "${RED}Error: rustup is required to build the stub${NC}"
+    exit 1
 fi
 
-# Build the stub
 echo -e "${YELLOW}Building stub for ${TARGET}...${NC}"
 cd "$STUB_DIR"
 
-# Check if we have rustup or system cargo
-if command -v rustup &> /dev/null; then
-    # Use rustup with nightly toolchain
-    cargo +nightly build \
-        --release \
-        --target "$TARGET" \
-        -Z build-std=core,alloc \
-        -Z build-std-features=compiler-builtins-mem
-else
-    # Try with system cargo
-    RUSTFLAGS="-C target-feature=+crt-static" cargo build \
-        --release \
-        --target "$TARGET" \
-        -Z build-std=core,alloc \
-        -Z build-std-features=compiler-builtins-mem
-fi
+cargo +nightly build --release --target "$TARGET" --features uefi
 
-# Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# Copy the built EFI to config directory
-BUILT_EFI="target/${TARGET}/release/muak-stub.efi"
+BUILT_EFI="${PROJECT_ROOT}/target/${TARGET}/release/stub.efi"
 OUTPUT_PATH="$OUTPUT_DIR/$OUTPUT_NAME"
 
 if [ ! -f "$BUILT_EFI" ]; then

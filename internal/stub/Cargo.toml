@@ -1,17 +1,11 @@
 [package]
-name = "muak-stub"
+name = "stub"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uefi = { version = "0.36", features = ["alloc", "logger"] }
+uefi = { workspace = true }
 
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-opt-level = "z"
-lto = true
-strip = true
-panic = "abort"
-codegen-units = 1
+[features]
+uefi = []
+required-features = ["uefi"]
