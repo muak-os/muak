@@ -81,6 +81,7 @@ jobs:
 
   build:
     needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.build-all == 'true' || needs.detect-changes.outputs.packages != '[]' || github.event.inputs.package != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
