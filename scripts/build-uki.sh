@@ -14,7 +14,7 @@ KERNEL_BUILD_DIR="$PROJECT_ROOT/build/kernel/${ARCH}"
 BZIMAGE_CI="$PROJECT_ROOT/build/bzImage/${ARCH}/bzImage"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
 OUTPUT_DIR="$PROJECT_ROOT/build"
-STUB_FILE="$OUTPUT_DIR/muak-stub-${ARCH}.efi"
+STUB_FILE="$OUTPUT_DIR/stub-${ARCH}.efi"
 CMDLINE_FILE="$OUTPUT_DIR/cmdline.txt"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
@@ -48,12 +48,12 @@ if [ ! -f "${STUB_FILE}" ]; then
     exit 1
 fi
 
-YUKI_BIN="$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/release/yuki"
+YUKI_BIN="$PROJECT_ROOT/target/x86_64-unknown-linux-musl/release/yuki"
 
 if [ ! -f "${YUKI_BIN}" ]; then
     echo -e "${YELLOW}Building yuki (UKI builder)...${NC}"
     cd "$PROJECT_ROOT"
-    RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target x86_64-unknown-linux-gnu -p yuki --quiet
+    cargo build -p yuki
     cd - > /dev/null
 fi
 
