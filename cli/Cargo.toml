@@ -10,7 +10,6 @@ tonic = { workspace = true }
 prost = { workspace = true }
 clap = { workspace = true }
 tower = { workspace = true }
-chrono = { workspace = true }
 hyper-util = { workspace = true }
 
 [build-dependencies]

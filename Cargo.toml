@@ -48,7 +48,6 @@ uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 anyhow = "1.0"
 tower = "0.4"
-chrono = "0.4"
 hyper-util = { version = "0.1", features = ["tokio"] }
 
 # Disk utilities

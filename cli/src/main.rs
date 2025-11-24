@@ -20,7 +20,7 @@ pub mod maintenance_service {
 }
 
 use maintenance_service::maintenance_service_client::MaintenanceServiceClient;
-use maintenance_service::{InstallRequest, ListDisksRequest};
+use maintenance_service::{InstallRequest, ListDisksRequest, UpdateRequest};
 use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
@@ -57,6 +57,14 @@ enum Commands {
         force: bool,
         #[arg(long)]
         no_reboot: bool,
+        #[arg(long, default_value = "v0.2.0")]
+        version: String,
+        #[arg(long)]
+        extension: Vec<String>,
+    },
+    Update {
+        #[arg(long)]
+        version: Option<String>,
     },
     Disks,
 }
@@ -141,9 +149,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             target,
             force,
             no_reboot,
+            version,
+            extension,
         } => {
             let mut client = MaintenanceServiceClient::new(channel);
-            handle_install(&mut client, target, force, no_reboot).await?;
+            handle_install(&mut client, target, force, no_reboot, version, extension).await?;
+        }
+        Commands::Update { version } => {
+            let mut client = MaintenanceServiceClient::new(channel);
+            handle_update(&mut client, version).await?;
         }
         Commands::Disks => {
             let mut client = MaintenanceServiceClient::new(channel);
@@ -159,10 +173,14 @@ async fn handle_install(
     target_disk: String,
     force: bool,
     no_reboot: bool,
+    version: String,
+    extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = tonic::Request::new(InstallRequest {
         target_disk: target_disk.clone(),
         force,
+        version,
+        extensions,
         auto_reboot: Some(!no_reboot),
     });
 
@@ -189,6 +207,40 @@ async fn handle_install(
         }
     } else {
         eprintln!("{}Installation failed: {}{}", RED, resp.error, RESET);
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+async fn handle_update(
+    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    version: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let version = version.unwrap_or_else(|| "latest".to_string());
+    let request = tonic::Request::new(UpdateRequest { version });
+
+    println!(
+        "{}Starting update to {}...{}",
+        BLUE,
+        request.get_ref().version,
+        RESET
+    );
+
+    let response = client.update(request).await?;
+    let resp = response.into_inner();
+
+    if resp.success {
+        println!(
+            "{}Update request accepted. Update ID: {}{}",
+            GREEN, resp.update_id, RESET
+        );
+        println!(
+            "{}System will kexec into the new kernel shortly.{}",
+            YELLOW, RESET
+        );
+    } else {
+        eprintln!("{}Update failed: {}{}", RED, resp.error, RESET);
         std::process::exit(1);
     }
 
@@ -268,6 +320,67 @@ fn format_size(bytes: u64) -> String {
     } else {
         format!("{}B", bytes)
     }
+}
+
+fn format_timestamp(timestamp: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let duration = Duration::from_secs(timestamp as u64);
+    let system_time = UNIX_EPOCH + duration;
+
+    // Convert to a human-readable format
+    let duration_since_epoch = system_time
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO);
+    let secs = duration_since_epoch.as_secs();
+
+    // Calculate time components (similar to strftime)
+    let days_since_epoch = secs / 86400;
+    let seconds_today = secs % 86400;
+
+    // Calculate year, month, day (simplified Gregorian calendar calculation)
+    let mut year = 1970;
+    let mut days_left = days_since_epoch;
+
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days_left >= days_in_year {
+            days_left -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1;
+    for &days_in_month in &days_in_months {
+        if days_left >= days_in_month as u64 {
+            days_left -= days_in_month as u64;
+            month += 1;
+        } else {
+            break;
+        }
+    }
+
+    let day = days_left + 1;
+    let hour = seconds_today / 3600;
+    let minute = (seconds_today % 3600) / 60;
+    let second = seconds_today % 60;
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        year, month, day, hour, minute, second
+    )
+}
+
+fn is_leap_year(year: u64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 async fn upload_file(
@@ -381,9 +494,7 @@ async fn handle_process_action(
                     BOLD, GREEN, "PID", "COMMAND", "STATUS", "STARTED", RESET
                 );
                 for p in resp.processes {
-                    let started = chrono::DateTime::from_timestamp(p.started_at, 0)
-                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let started = format_timestamp(p.started_at);
 
                     println!(
                         "{:<8} {:<20} {:<15} {}",
@@ -616,9 +727,7 @@ async fn handle_vm_action(
                     RESET
                 );
                 for vm in resp.vms {
-                    let created = chrono::DateTime::from_timestamp(vm.created_at, 0)
-                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let created = format_timestamp(vm.created_at);
 
                     let pid_str = if vm.pid == -1 {
                         "-".to_string()
