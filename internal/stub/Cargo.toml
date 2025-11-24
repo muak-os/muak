@@ -3,9 +3,13 @@ name = "stub"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "stub"
+path = "src/main.rs"
+required-features = ["uefi"]
+
 [dependencies]
 uefi = { workspace = true }
 
 [features]
 uefi = []
-required-features = ["uefi"]
