@@ -209,9 +209,12 @@ impl NetworkActor {
 
         let cmd_tx = self.get_command_sender();
         tokio::spawn(async move {
-            let _ = cmd_tx
+            if let Err(e) = cmd_tx
                 .send(NetworkCommand::PromoteSecondary { secondary })
-                .await;
+                .await
+            {
+                log!("network", "Failed to send failover command: {}", e);
+            }
         });
     }
 
@@ -220,12 +223,15 @@ impl NetworkActor {
 
         let cmd_tx = self.get_command_sender();
         tokio::spawn(async move {
-            let _ = cmd_tx
+            if let Err(e) = cmd_tx
                 .send(NetworkCommand::RecoverPrimary {
                     from_secondary,
                     to_primary,
                 })
-                .await;
+                .await
+            {
+                log!("network", "Failed to send recovery command: {}", e);
+            }
         });
     }
 }

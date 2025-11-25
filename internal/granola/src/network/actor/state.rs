@@ -84,7 +84,7 @@ impl NetworkActor {
     }
 
     /// Check if an interface is enslaved to a bridge by querying its link attributes
-    pub(super) async fn is_interface_enslaved(&self, name: &str) -> Result<bool, String> {
+    pub(super) async fn is_interface_enslaved(&self, name: &str) -> anyhow::Result<bool> {
         use futures::stream::TryStreamExt;
         
         let mut links = self.handle.link().get().match_name(name.to_string()).execute();
@@ -92,7 +92,7 @@ impl NetworkActor {
         if let Ok(Some(link_msg)) = links.try_next().await {
             Ok(super::super::netlink::link::has_master(&link_msg))
         } else {
-            Err(format!("Could not query link info for {}", name))
+            Err(anyhow::anyhow!("Could not query link info for {}", name))
         }
     }
 }
