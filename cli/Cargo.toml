@@ -8,9 +8,10 @@ tokio = { workspace = true, features = ["macros", "io-util", "fs"] }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
+tonic-prost = { workspace = true }
 clap = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }

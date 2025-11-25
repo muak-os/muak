@@ -11,17 +11,18 @@ resolver = "3"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1.48", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # RPC and serialization
-tonic = "0.12"
-prost = "0.13"
-tonic-build = "0.12"
+tonic = "0.14"
+prost = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
+serde_json = "1.0"
 serde_yaml = "0.9"
 
 # CLI parsing
@@ -40,28 +41,26 @@ dhcproto = "0.14"
 # OCI image handling
 oci-client = { version = "0.15", default-features = false, features = ["rustls-tls"] }
 tar = "0.4"
-flate2 = "1.0"
+flate2 = "1.1"
 
 # Utilities
 bincode = "1.3"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1.18", features = ["v4"] }
 sha2 = "0.10"
 anyhow = "1.0"
-tower = "0.4"
+tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
 
-# Disk utilities
+# Filesystem utilities
 gptman = "2.0"
 fatfs = "0.3"
-
-# Filesystem utilities
 backhand = "0.23"
 cpio = "0.4"
 walkdir = "2.5"
-tempfile = "3.14"
+tempfile = "3.23"
 
 # PE file handling
-object = { version = "0.36", default-features = false, features = ["read", "write", "pe"] }
+object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 
 # UEFI support
 uefi = { version = "0.36", features = ["alloc", "logger"] }
