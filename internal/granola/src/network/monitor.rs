@@ -4,6 +4,7 @@ use anyhow::Result;
 use futures::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
+use netlink_sys::AsyncSocket;
 use rtnetlink::Handle;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -51,9 +52,18 @@ pub async fn start_monitor(
     let (tx, rx) = mpsc::channel(32);
 
     log!("network", "Monitor: Creating netlink connection...");
-    let (connection, _new_handle, mut messages) = rtnetlink::new_connection()?;
+    let (mut connection, _new_handle, mut messages) = rtnetlink::new_connection()?;
+    
+    // Subscribe to RTNLGRP_LINK (group 1) multicast to receive link state changes
+    // Multicast groups use bit masks: group N = 1 << (N - 1)
+    log!("network", "Monitor: Subscribing to link state notifications...");
+    const RTNLGRP_LINK: u32 = 1;
+    connection
+        .socket_mut()
+        .socket_mut()
+        .bind(&netlink_sys::SocketAddr::new(0, 1 << (RTNLGRP_LINK - 1)))?;
+    
     log!("network", "Monitor: Spawning connection task...");
-
     tokio::spawn(connection);
 
     let mut link_states: HashMap<u32, (String, bool)> = HashMap::new();
@@ -66,6 +76,7 @@ pub async fn start_monitor(
         log!("network", "Monitor: Initial scan complete, waiting for messages...");
 
         while let Some((message, _)) = messages.next().await {
+            log!("network", "Monitor: Received netlink message");
             if let NetlinkPayload::InnerMessage(route_msg) = message.payload
                 && let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await
             {
@@ -148,8 +159,7 @@ async fn handle_new_link(
 
         match link_states.get(&index) {
             Some((_existing_name, was_up)) => {
-                // For existing interfaces, always process link state changes
-                // (even if they're now enslaved to bridges and might not be "ethernet" anymore)
+                // Process link state changes for existing interfaces
                 if is_up != *was_up {
                     if is_up {
                         log!("network", "Link up detected: {} (index {})", name, index);
@@ -169,6 +179,8 @@ async fn handle_new_link(
                             .await;
                     }
                     link_states.insert(index, (name, is_up));
+                } else {
+                    log!("network", "Monitor: Link state unchanged for {} (index {}): {}", name, index, if is_up { "up" } else { "down" });
                 }
             }
             None => {

@@ -117,18 +117,18 @@ impl InterfaceSelector {
             .max_by(|a, b| Self::compare_interfaces(a, b))
     }
 
-    pub fn select_backups<'a>(
+    pub fn select_secondaries<'a>(
         interfaces: &'a [Interface],
         primary_name: &str,
     ) -> Vec<&'a Interface> {
-        let mut backups: Vec<&Interface> = interfaces
+        let mut secondaries: Vec<&Interface> = interfaces
             .iter()
             .filter(|i| i.name != primary_name)
             .collect();
 
-        backups.sort_by(|a, b| Self::compare_interfaces(a, b).reverse());
+        secondaries.sort_by(|a, b| Self::compare_interfaces(a, b).reverse());
 
-        backups
+        secondaries
     }
 
     fn compare_interfaces(a: &Interface, b: &Interface) -> std::cmp::Ordering {
@@ -237,20 +237,20 @@ mod tests {
     }
 
     #[test]
-    fn test_select_backups_excludes_primary() {
+    fn test_select_secondaries_excludes_primary() {
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("eth1", LinkState::Up),
             make_interface("eth2", LinkState::Down),
         ];
 
-        let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
-        assert_eq!(backups.len(), 2);
-        assert!(backups.iter().all(|i| i.name != "eth0"));
+        let secondaries = InterfaceSelector::select_secondaries(&interfaces, "eth0");
+        assert_eq!(secondaries.len(), 2);
+        assert!(secondaries.iter().all(|i| i.name != "eth0"));
     }
 
     #[test]
-    fn test_select_backups_sorted_by_priority() {
+    fn test_select_secondaries_sorted_by_priority() {
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("eth1", LinkState::Down),
@@ -258,10 +258,10 @@ mod tests {
             make_interface("enp3s0", LinkState::Up),
         ];
 
-        let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
-        assert_eq!(backups[0].name, "eno1");
-        assert_eq!(backups[1].name, "enp3s0");
-        assert_eq!(backups[2].name, "eth1");
+        let secondaries = InterfaceSelector::select_secondaries(&interfaces, "eth0");
+        assert_eq!(secondaries[0].name, "eno1");
+        assert_eq!(secondaries[1].name, "enp3s0");
+        assert_eq!(secondaries[2].name, "eth1");
     }
 
     #[test]

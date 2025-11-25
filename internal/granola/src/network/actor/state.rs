@@ -13,6 +13,8 @@ pub struct NetworkActor {
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
     pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
     cmd_tx: tokio::sync::mpsc::Sender<super::commands::NetworkCommand>,
+    /// Timestamp when network became Ready - used to ignore queued init events
+    pub(super) ready_at: Option<std::time::Instant>,
 }
 
 impl NetworkActor {
@@ -28,6 +30,7 @@ impl NetworkActor {
             watch_tx,
             renewal_tasks: HashMap::new(),
             cmd_tx,
+            ready_at: None,
         }
     }
 
@@ -78,5 +81,18 @@ impl NetworkActor {
 
     pub(super) fn get_command_sender(&self) -> tokio::sync::mpsc::Sender<super::commands::NetworkCommand> {
         self.cmd_tx.clone()
+    }
+
+    /// Check if an interface is enslaved to a bridge by querying its link attributes
+    pub(super) async fn is_interface_enslaved(&self, name: &str) -> Result<bool, String> {
+        use futures::stream::TryStreamExt;
+        
+        let mut links = self.handle.link().get().match_name(name.to_string()).execute();
+        
+        if let Ok(Some(link_msg)) = links.try_next().await {
+            Ok(super::super::netlink::link::has_master(&link_msg))
+        } else {
+            Err(format!("Could not query link info for {}", name))
+        }
     }
 }

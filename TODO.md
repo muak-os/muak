@@ -10,7 +10,7 @@
   - Support IPv6 with DHCPv6
   - Automatic failover when primary interface fails *(done)*
   - Bridge migration to back-up interface *(done)*
-  - Recovery from degraded state (stays degraded)
+  - Recovery from degraded state *(done)*
 
 - Hardened security in kernel by following KSPP guidelines
 

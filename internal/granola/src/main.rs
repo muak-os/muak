@@ -61,9 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let snap = snap_rx.borrow().clone();
             log!(
                 "network",
-                "Snapshot state={:?} primary={:?} interfaces={}",
+                "Snapshot state={:?} primary={:?} active={:?} secondaries={} interfaces={}",
                 snap.state,
                 snap.primary,
+                snap.active,
+                snap.secondaries.len(),
                 snap.interfaces.len()
             );
         }

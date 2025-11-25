@@ -23,6 +23,7 @@ impl NetworkActor {
         self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
+        self.ready_at = Some(std::time::Instant::now());
         self.publish_state();
         log!("network", "Network initialization complete");
 
@@ -77,17 +78,20 @@ impl NetworkActor {
         let primary = InterfaceSelector::select_primary(discovered)
             .expect("BUG: select_primary_interface called with empty list");
 
+        // Set both primary (preferred) and active (current) to the selected interface
         self.state.primary = Some(primary.name.clone());
+        self.state.active = Some(primary.name.clone());
 
-        let backups = InterfaceSelector::select_backups(discovered, &primary.name);
-        self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
+        // Remaining interfaces become secondaries (backups for failover)
+        let secondaries = InterfaceSelector::select_secondaries(discovered, &primary.name);
+        self.state.secondaries = secondaries.iter().map(|i| i.name.clone()).collect();
 
         log!(
             "network",
-            "Selected primary: {} (link: {}, priority: best), backups: {:?}",
+            "Selected primary: {} (link: {}, priority: best), secondaries: {:?}",
             primary.name,
             primary.link_state,
-            self.state.backups
+            self.state.secondaries
         );
     }
 
@@ -365,46 +369,60 @@ impl NetworkActor {
         Ok(())
     }
 
-    pub(super) async fn promote_primary(
+    pub(super) async fn promote_secondary(
         &mut self,
-        new_primary: &str,
+        secondary_name: &str,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<()> {
-        log!("network", "Promoting {} to primary interface", new_primary);
+        log!("network", "Promoting secondary {} to active interface", secondary_name);
 
-        let old_primary = self.state.primary.clone();
-        self.state.primary = Some(new_primary.to_string());
-        self.state.backups.retain(|n| n != new_primary);
-
-        if let Some(old) = &old_primary {
-            if old != new_primary {
-                self.cancel_renewal_tasks(old);
-                log!("network", "Cancelled renewal tasks for old primary: {}", old);
+        let old_active = self.state.active.clone();
+        
+        // Update active interface (primary stays the same - it's our preference)
+        self.state.active = Some(secondary_name.to_string());
+        self.state.secondaries.retain(|n| n != secondary_name);
+        
+        // Add old active back to secondaries if it exists and isn't the primary
+        if let Some(old) = &old_active {
+            if old != secondary_name && !self.state.secondaries.contains(old) {
+                self.state.secondaries.push(old.clone());
             }
+            self.cancel_renewal_tasks(old);
+            log!("network", "Cancelled renewal tasks for previous active: {}", old);
         }
 
-        match self.acquire_dhcp(new_primary, cmd_tx).await {
+        match self.acquire_dhcp(secondary_name, cmd_tx).await {
             Ok(_) => {
                 log!(
                     "network",
-                    "DHCP acquired on new primary {}, migrating bridge",
-                    new_primary
+                    "DHCP acquired on new active {}, migrating bridge",
+                    secondary_name
                 );
 
-                if let Some(old) = old_primary {
-                    if self.migrate_bridge_uplink(&old, new_primary).await.is_ok() {
+                if let Some(old) = old_active {
+                    if self.migrate_bridge_uplink(&old, secondary_name).await.is_ok() {
                         log!(
                             "network",
-                            "Failover complete: {} is now primary with bridge migrated",
-                            new_primary
+                            "Failover complete: {} is now active with bridge migrated",
+                            secondary_name
                         );
-                        self.state.state = NetworkStateKind::Operational;
+                        // If active != primary, we're in Degraded state
+                        self.state.state = if self.state.is_on_primary() {
+                            NetworkStateKind::Ready
+                        } else {
+                            NetworkStateKind::Degraded
+                        };
                     } else {
                         log!("network", "Bridge migration failed, staying in degraded state");
                         self.state.state = NetworkStateKind::Degraded;
                     }
                 } else {
-                    self.state.state = NetworkStateKind::Operational;
+                    // If active != primary, we're in Degraded state
+                    self.state.state = if self.state.is_on_primary() {
+                        NetworkStateKind::Ready
+                    } else {
+                        NetworkStateKind::Degraded
+                    };
                 }
 
                 self.sync_and_publish();
@@ -413,8 +431,8 @@ impl NetworkActor {
             Err(e) => {
                 log!(
                     "network",
-                    "Failed to acquire DHCP on new primary {}: {}",
-                    new_primary,
+                    "Failed to acquire DHCP on new active {}: {}",
+                    secondary_name,
                     e
                 );
                 self.state.state = NetworkStateKind::Degraded;
@@ -437,9 +455,51 @@ impl NetworkActor {
 
         log!(
             "network",
-            "Bridge successfully migrated to new primary: {}",
+            "Bridge successfully migrated to active interface: {}",
             new_iface
         );
         Ok(())
+    }
+
+    pub(super) async fn recover_primary(
+        &mut self,
+        from_secondary: &str,
+        to_primary: &str,
+    ) -> Result<()> {
+        log!(
+            "network",
+            "Recovery: migrating bridge from secondary {} back to primary {}",
+            from_secondary,
+            to_primary
+        );
+
+        match self.migrate_bridge_uplink(from_secondary, to_primary).await {
+            Ok(_) => {
+                log!("network", "Primary {} recovered successfully", to_primary);
+                
+                // Update active to point back to primary
+                self.state.active = Some(to_primary.to_string());
+                
+                // Move the previous active back to secondaries
+                if from_secondary != to_primary && !self.state.secondaries.contains(&from_secondary.to_string()) {
+                    self.state.secondaries.push(from_secondary.to_string());
+                }
+                self.state.secondaries.retain(|n| n != to_primary);
+                
+                // Back on primary = Ready state
+                self.state.state = NetworkStateKind::Ready;
+                self.publish_state();
+                Ok(())
+            }
+            Err(e) => {
+                log!(
+                    "network",
+                    "Failed to recover primary {}: {}",
+                    to_primary,
+                    e
+                );
+                Err(e)
+            }
+        }
     }
 }

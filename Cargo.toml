@@ -34,6 +34,7 @@ nix = { version = "0.30", features = ["fs", "mount"] }
 rtnetlink = "0.18"
 netlink-packet-route = "0.25"
 netlink-packet-core = "0.8"
+netlink-sys = "0.8"
 futures = "0.3"
 dhcproto = "0.14"
 

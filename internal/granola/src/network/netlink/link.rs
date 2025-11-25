@@ -103,7 +103,22 @@ pub async fn unset_link_master(handle: &Handle, slave_index: u32) -> Result<()> 
 }
 
 pub fn is_link_flag_up(link: &LinkMessage) -> bool {
-    link.header.flags.contains(LinkFlags::Up)
+    // Check both IFF_UP flag and carrier state
+    // For enslaved interfaces, carrier reflects actual physical link state
+    let has_up_flag = link.header.flags.contains(LinkFlags::Up);
+    
+    // Check carrier attribute (1 = carrier present, 0 = no carrier)
+    let has_carrier = link.attributes.iter().any(|attr| {
+        matches!(attr, LinkAttribute::Carrier(1))
+    });
+    
+    // Link is considered up if it has both UP flag and carrier
+    // OR if it has UP flag and no Carrier attribute (legacy behavior)
+    has_up_flag && (has_carrier || !link.attributes.iter().any(|attr| matches!(attr, LinkAttribute::Carrier(_))))
+}
+
+pub fn has_master(link: &LinkMessage) -> bool {
+    link.attributes.iter().any(|attr| matches!(attr, LinkAttribute::Controller(_)))
 }
 
 pub fn extract_name_from_link(link: &LinkMessage) -> Option<String> {

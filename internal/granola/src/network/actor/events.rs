@@ -29,7 +29,10 @@ impl NetworkActor {
             iface.link = LinkStateKind::Up;
             self.sync_and_publish();
 
-            if self.is_primary_interface(&name) {
+            // Process recovery if:
+            // 1. We're not on the primary (active != primary) AND the primary interface is coming back up
+            if self.is_primary_interface(&name) && !self.state.is_on_primary() {
+                log!("network", "Primary interface {} is back up while running on secondary - checking recovery", name);
                 self.handle_primary_recovery(&name);
             }
         }
@@ -42,7 +45,23 @@ impl NetworkActor {
             iface.link = LinkStateKind::Down;
             self.sync_and_publish();
 
-            if self.is_primary_interface(&name) {
+            // Only process failover if network is in Ready state and this is the active interface
+            if self.state.state == NetworkStateKind::Ready && self.is_active_interface(&name) {
+                // During the first few seconds after becoming Ready, check if interface is enslaved
+                // to filter out queued events from bridge setup. After that grace period, always trigger failover.
+                let grace_period_active = self.ready_at
+                    .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+                    .unwrap_or(false);
+
+                if grace_period_active {
+                    if let Ok(is_enslaved) = self.is_interface_enslaved(&name).await {
+                        if is_enslaved {
+                            log!("network", "Ignoring link down for enslaved interface {} (grace period)", name);
+                            return;
+                        }
+                    }
+                }
+
                 self.handle_primary_failure(&name);
             }
         }
@@ -76,7 +95,7 @@ impl NetworkActor {
             if self.state.primary.is_none() {
                 self.assign_as_primary(name);
             } else {
-                self.add_to_backups(name);
+                self.add_to_secondaries(name);
             }
 
             self.sync_and_publish();
@@ -87,14 +106,18 @@ impl NetworkActor {
         log!("network", "Event: Link deleted {} (index {})", name, index);
 
         if self.remove_interface(&name).is_some() {
-            if self.is_primary_interface(&name) {
+            if self.is_active_interface(&name) {
                 self.handle_primary_removed(&name);
             } else {
-                self.remove_from_backups(&name);
+                self.remove_from_secondaries(&name);
             }
 
             self.sync_and_publish();
         }
+    }
+
+    fn is_active_interface(&self, name: &str) -> bool {
+        self.state.active.as_ref() == Some(&name.to_string())
     }
 
     fn is_primary_interface(&self, name: &str) -> bool {
@@ -102,40 +125,66 @@ impl NetworkActor {
     }
 
     fn handle_primary_recovery(&mut self, name: &str) {
-        if self.state.state == NetworkStateKind::Degraded {
-            log!("network", "Primary interface {} recovered", name);
-            self.state.state = NetworkStateKind::Operational;
-            self.publish_state();
+        // Only trigger recovery if we're not currently on the primary
+        if !self.state.is_on_primary() {
+            log!("network", "Primary interface {} recovered - initiating bridge migration", name);
+            
+            // Find current active interface to migrate from
+            if let Some(current_active) = self.state.active.clone() {
+                log!(
+                    "network",
+                    "Migrating bridge from active {} back to primary {}",
+                    current_active,
+                    name
+                );
+                self.trigger_recovery_migration(current_active, name.to_string());
+            } else {
+                // No secondary was promoted, just restore operational state
+                log!("network", "Primary {} recovered, restoring operational state", name);
+                self.state.state = NetworkStateKind::Operational;
+                self.publish_state();
+            }
         }
     }
 
     fn handle_primary_failure(&mut self, name: &str) {
-        log!("network", "Primary interface {} failed", name);
+        log!("network", "Active interface {} failed (was primary)", name);
         self.state.state = NetworkStateKind::Degraded;
+        
+        // Move failed primary to secondaries so it can be recovered later
+        if self.state.primary.as_deref() == Some(name) && !self.state.secondaries.contains(&name.to_string()) {
+            self.state.secondaries.push(name.to_string());
+            log!("network", "Moved failed primary {} to secondaries for recovery tracking", name);
+        }
+        
         self.publish_state();
 
-        if let Some(new_primary) = self.state.backups.first().cloned() {
+        if let Some(secondary) = self.state.secondaries.iter()
+            .find(|s| *s != name)
+            .cloned() {
             log!(
                 "network",
-                "Initiating automatic failover from {} to {}",
+                "Initiating automatic failover from {} to secondary {}",
                 name,
-                new_primary
+                secondary
             );
-            self.trigger_failover(new_primary);
+            self.trigger_failover(secondary);
         } else {
-            log!("network", "No backup interfaces available for failover");
+            log!("network", "No secondary interfaces available for failover");
         }
     }
 
     fn handle_primary_removed(&mut self, name: &str) {
         log!("network", "Primary interface {} removed", name);
 
-        if let Some(new_primary) = self.state.backups.first().cloned() {
-            log!("network", "Promoting {} to primary", new_primary);
-            self.state.primary = Some(new_primary.clone());
-            self.state.backups.retain(|n| n != &new_primary);
+        if let Some(new_active) = self.state.secondaries.first().cloned() {
+            log!("network", "Selecting {} as new active", new_active);
+            self.state.active = Some(new_active.clone());
+            self.state.primary = Some(new_active.clone());
+            self.state.secondaries.retain(|n| n != &new_active);
         } else {
-            log!("network", "No backup interfaces available");
+            log!("network", "No secondary interfaces available");
+            self.state.active = None;
             self.state.primary = None;
             self.state.state = NetworkStateKind::Degraded;
         }
@@ -146,23 +195,36 @@ impl NetworkActor {
         self.state.primary = Some(name);
     }
 
-    fn add_to_backups(&mut self, name: String) {
-        log!("network", "Adding {} to backup interfaces", name);
-        self.state.backups.push(name);
+    fn add_to_secondaries(&mut self, name: String) {
+        log!("network", "Adding {} to secondary interfaces", name);
+        self.state.secondaries.push(name);
     }
 
-    fn remove_from_backups(&mut self, name: &str) {
-        self.state.backups.retain(|n| n != name);
+    fn remove_from_secondaries(&mut self, name: &str) {
+        self.state.secondaries.retain(|n| n != name);
     }
 
-    fn trigger_failover(&mut self, new_primary: String) {
+    fn trigger_failover(&mut self, secondary: String) {
         use super::commands::NetworkCommand;
-        use tokio::sync::mpsc;
 
         let cmd_tx = self.get_command_sender();
         tokio::spawn(async move {
             let _ = cmd_tx
-                .send(NetworkCommand::PromotePrimary { new_primary })
+                .send(NetworkCommand::PromoteSecondary { secondary })
+                .await;
+        });
+    }
+
+    fn trigger_recovery_migration(&mut self, from_secondary: String, to_primary: String) {
+        use super::commands::NetworkCommand;
+
+        let cmd_tx = self.get_command_sender();
+        tokio::spawn(async move {
+            let _ = cmd_tx
+                .send(NetworkCommand::RecoverPrimary {
+                    from_secondary,
+                    to_primary,
+                })
                 .await;
         });
     }

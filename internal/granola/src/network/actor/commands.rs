@@ -30,8 +30,13 @@ pub enum NetworkCommand {
         iface: String,
     },
     // Internal command triggered by failover
-    PromotePrimary {
-        new_primary: String,
+    PromoteSecondary {
+        secondary: String,
+    },
+    // Internal command triggered by recovery
+    RecoverPrimary {
+        from_secondary: String,
+        to_primary: String,
     },
     Snapshot {
         reply: oneshot::Sender<NetworkSnapshot>,
@@ -68,8 +73,14 @@ impl NetworkActor {
             NetworkCommand::RenewLease { iface } => {
                 let _ = self.renew_lease(&iface).await;
             }
-            NetworkCommand::PromotePrimary { new_primary } => {
-                let _ = self.promote_primary(&new_primary, cmd_tx).await;
+            NetworkCommand::PromoteSecondary { secondary } => {
+                let _ = self.promote_secondary(&secondary, cmd_tx).await;
+            }
+            NetworkCommand::RecoverPrimary {
+                from_secondary,
+                to_primary,
+            } => {
+                let _ = self.recover_primary(&from_secondary, &to_primary).await;
             }
             NetworkCommand::Snapshot { reply } => {
                 let _ = reply.send(self.state.clone());

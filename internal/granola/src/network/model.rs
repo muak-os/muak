@@ -52,8 +52,12 @@ pub struct InterfaceSnapshot {
 #[derive(Debug, Clone)]
 pub struct NetworkSnapshot {
     pub state: NetworkStateKind,
+    /// Primary (preferred) interface - the interface we want to use (from configuration)
     pub primary: Option<String>,
-    pub backups: Vec<String>,
+    /// Active interface - the interface currently carrying traffic (runtime state)
+    pub active: Option<String>,
+    /// Secondary (backup) interfaces available for failover
+    pub secondaries: Vec<String>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
 }
 
@@ -62,8 +66,17 @@ impl NetworkSnapshot {
         Self {
             state: NetworkStateKind::Uninitialized,
             primary: None,
-            backups: Vec::new(),
+            active: None,
+            secondaries: Vec::new(),
             interfaces: Vec::new(),
+        }
+    }
+    
+    /// Check if we're running on the preferred interface (optimal state)
+    pub fn is_on_primary(&self) -> bool {
+        match (&self.primary, &self.active) {
+            (Some(p), Some(a)) => p == a,
+            _ => false,
         }
     }
 }
