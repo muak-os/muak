@@ -4,10 +4,11 @@ use tokio::sync::mpsc;
 use crate::log;
 use crate::network::config::LAN_BRIDGE_NAME;
 use crate::network::dhcp::run_dhcp_client;
-use crate::network::dns::configure_dns;
+use crate::network::dhcpv6::run_dhcpv6_client;
+use crate::network::dns::{configure_dns, configure_dns_v6};
 use crate::network::interface::InterfaceSelector;
 use crate::network::interface::{LinkState as OldLinkState, discover_ethernet_interfaces};
-use crate::network::model::{DhcpLease, InterfaceSnapshot, LinkStateKind, NetworkStateKind};
+use crate::network::model::{DhcpLease, InterfaceSnapshot, Ipv6Config, LinkStateKind, NetworkStateKind};
 use crate::network::netlink::{address, link, route};
 use crate::network::services::{bridge, tap};
 
@@ -19,7 +20,7 @@ impl NetworkActor {
         log!("network", "Initializing network");
 
         self.discover_interfaces().await?;
-        self.acquire_dhcp_on_primary(cmd_tx).await?;
+        self.acquire_dual_stack_on_primary(cmd_tx).await?;
         self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
@@ -67,7 +68,13 @@ impl NetworkActor {
                     OldLinkState::Up => LinkStateKind::Up,
                     OldLinkState::Down => LinkStateKind::Down,
                 },
+                ipv4: None,
+                ipv4_lease: None,
+                ipv6: None,
+                ipv6_lease: None,
+                #[allow(deprecated)]
                 ip: None,
+                #[allow(deprecated)]
                 lease: None,
             };
             self.insert_interface(snapshot);
@@ -95,6 +102,31 @@ impl NetworkActor {
         );
     }
 
+    async fn acquire_dual_stack_on_primary(
+        &mut self,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        let primary = self.get_primary_name()?;
+
+        log!(
+            "network",
+            "Acquiring dual-stack (IPv4 + IPv6) on primary interface: {}",
+            primary
+        );
+        
+        // Try to acquire both IPv4 and IPv6
+        // At minimum, we need IPv4 to succeed for backward compatibility
+        let result = self.acquire_dual_stack(&primary, cmd_tx).await?;
+        
+        // Check that we got at least IPv4
+        if result.ipv4.is_none() && result.ip.is_none() {
+            anyhow::bail!("Failed to acquire IPv4 address on primary interface");
+        }
+        
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     async fn acquire_dhcp_on_primary(
         &mut self,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
@@ -166,8 +198,16 @@ impl NetworkActor {
             .get_interface_mut(iface)
             .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface))?;
 
-        iface_snap.ip = Some(ip_cfg);
-        iface_snap.lease = Some(lease);
+        // Update new fields
+        iface_snap.ipv4 = Some(ip_cfg.clone());
+        iface_snap.ipv4_lease = Some(lease.clone());
+        
+        // Update deprecated fields for backward compatibility
+        #[allow(deprecated)]
+        {
+            iface_snap.ip = Some(ip_cfg);
+            iface_snap.lease = Some(lease);
+        }
         self.sync_and_publish();
 
         Ok(())
@@ -239,6 +279,201 @@ impl NetworkActor {
             Err(e) => {
                 log!("network", "DHCP renewal failed for {}: {}", iface, e);
                 Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
+            }
+        }
+    }
+
+    // ========================================================================
+    // DHCPv6 / IPv6 Operations
+    // ========================================================================
+
+    /// Acquire an IPv6 address via DHCPv6
+    pub(super) async fn acquire_dhcpv6(
+        &mut self,
+        iface: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<InterfaceSnapshot> {
+        log!("network", "Acquiring DHCPv6 on {}", iface);
+
+        let index = link::ensure_link_up(&self.handle, iface).await?;
+        let mac = self.get_interface_mac(iface)?;
+
+        let (ipv6_cfg, lease) = run_dhcpv6_client(iface, &mac).await?;
+
+        self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
+        self.update_interface_with_ipv6_lease(iface, ipv6_cfg.clone(), lease.clone())?;
+        self.schedule_lease_renewal_v6(cmd_tx.clone(), iface.to_string(), lease);
+
+        log!("network", "DHCPv6 acquired on {}: {}", iface, ipv6_cfg.address);
+
+        self.get_interface(iface)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))
+    }
+
+    /// Acquire both IPv4 and IPv6 addresses (dual-stack)
+    pub(super) async fn acquire_dual_stack(
+        &mut self,
+        iface: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<InterfaceSnapshot> {
+        log!("network", "Acquiring dual-stack (IPv4 + IPv6) on {}", iface);
+
+        let index = link::ensure_link_up(&self.handle, iface).await?;
+        let mac = self.get_interface_mac(iface)?;
+
+        // Run DHCPv4 and DHCPv6 in parallel for faster acquisition
+        let dhcp4_future = run_dhcp_client(iface, &mac);
+        let dhcp6_future = run_dhcpv6_client(iface, &mac);
+
+        let (dhcp4_result, dhcp6_result) = tokio::join!(dhcp4_future, dhcp6_future);
+
+        // Process IPv4 result
+        match dhcp4_result {
+            Ok((ip_cfg, lease)) => {
+                self.apply_ip_configuration(index, &ip_cfg).await?;
+                self.update_interface_with_lease(iface, ip_cfg.clone(), lease.clone())?;
+                self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
+                log!("network", "DHCPv4 acquired on {}: {}", iface, ip_cfg.address);
+            }
+            Err(e) => {
+                log!("network", "DHCPv4 failed on {}: {} (continuing with IPv6 only)", iface, e);
+            }
+        }
+
+        // Process IPv6 result
+        match dhcp6_result {
+            Ok((ipv6_cfg, lease)) => {
+                self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
+                self.update_interface_with_ipv6_lease(iface, ipv6_cfg.clone(), lease.clone())?;
+                self.schedule_lease_renewal_v6(cmd_tx.clone(), iface.to_string(), lease);
+                log!("network", "DHCPv6 acquired on {}: {}", iface, ipv6_cfg.address);
+            }
+            Err(e) => {
+                log!("network", "DHCPv6 failed on {}: {} (continuing with IPv4 only)", iface, e);
+            }
+        }
+
+        // Return the interface snapshot (will have whichever addresses succeeded)
+        self.get_interface(iface)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))
+    }
+
+    async fn apply_ipv6_configuration(
+        &mut self,
+        index: u32,
+        ipv6_cfg: &Ipv6Config,
+    ) -> Result<()> {
+        address::ensure_ipv6(&self.handle, index, ipv6_cfg.address, ipv6_cfg.prefix_len).await?;
+
+        if let Some(gw) = ipv6_cfg.gateway {
+            route::ensure_default_route_v6(&self.handle, gw).await?;
+        }
+
+        if !ipv6_cfg.dns.is_empty() {
+            configure_dns_v6(&ipv6_cfg.dns)?;
+        }
+
+        Ok(())
+    }
+
+    fn update_interface_with_ipv6_lease(
+        &mut self,
+        iface: &str,
+        ipv6_cfg: Ipv6Config,
+        lease: DhcpLease,
+    ) -> Result<()> {
+        let iface_snap = self
+            .get_interface_mut(iface)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface))?;
+
+        iface_snap.ipv6 = Some(ipv6_cfg);
+        iface_snap.ipv6_lease = Some(lease);
+        self.sync_and_publish();
+
+        Ok(())
+    }
+
+    fn schedule_lease_renewal_v6(
+        &mut self,
+        cmd_tx: mpsc::Sender<NetworkCommand>,
+        iface: String,
+        lease: DhcpLease,
+    ) {
+        let renew_deadline = lease.obtained_at + lease.renewal_time;
+        let rebind_deadline = lease.obtained_at + lease.rebind_time;
+        let expiry_deadline = lease.expiry();
+
+        let renew_task = Self::spawn_renewal_task_v6(
+            cmd_tx.clone(),
+            iface.clone(),
+            renew_deadline,
+            "renewal",
+        );
+        let rebind_task = Self::spawn_renewal_task_v6(
+            cmd_tx.clone(),
+            iface.clone(),
+            rebind_deadline,
+            "rebind",
+        );
+        let expiry_task = Self::spawn_renewal_task_v6(
+            cmd_tx,
+            iface.clone(),
+            expiry_deadline,
+            "expiry",
+        );
+
+        // Track IPv6 renewal tasks with a v6 suffix to differentiate
+        self.track_renewal_task(format!("{}:v6", iface), renew_task);
+        self.track_renewal_task(format!("{}:v6", iface), rebind_task);
+        self.track_renewal_task(format!("{}:v6", iface), expiry_task);
+    }
+
+    fn spawn_renewal_task_v6(
+        cmd_tx: mpsc::Sender<NetworkCommand>,
+        iface: String,
+        deadline: std::time::SystemTime,
+        task_type: &str,
+    ) -> tokio::task::JoinHandle<()> {
+        let task_name = task_type.to_string();
+        tokio::spawn(async move {
+            let now = std::time::SystemTime::now();
+            if let Ok(dur) = deadline.duration_since(now) {
+                tokio::time::sleep(dur).await;
+            } else {
+                return;
+            }
+
+            log!("network", "DHCPv6 lease {} attempt for {}", task_name, iface);
+            let _ = cmd_tx.send(NetworkCommand::RenewLeaseV6 { iface }).await;
+        })
+    }
+
+    pub(super) async fn renew_lease_v6(&mut self, iface: &str) -> Result<()> {
+        log!("network", "Renewing DHCPv6 lease for {}", iface);
+
+        let mac = self
+            .get_interface(iface)
+            .map(|i| i.mac)
+            .ok_or_else(|| anyhow::anyhow!("interface not tracked: {}", iface))?;
+
+        match run_dhcpv6_client(iface, &mac).await {
+            Ok((ipv6_cfg, lease)) => {
+                let index = self
+                    .get_interface(iface)
+                    .ok_or_else(|| anyhow::anyhow!("interface disappeared"))?
+                    .index;
+
+                self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
+                self.update_interface_with_ipv6_lease(iface, ipv6_cfg, lease)?;
+
+                log!("network", "DHCPv6 lease renewed for {}", iface);
+                Ok(())
+            }
+            Err(e) => {
+                log!("network", "DHCPv6 renewal failed for {}: {}", iface, e);
+                Err(anyhow::anyhow!("DHCPv6 renewal failed: {}", e))
             }
         }
     }
@@ -316,15 +551,22 @@ impl NetworkActor {
 
     fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
         let primary = self.state.primary.as_ref().unwrap();
-        let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
+        let ipv4 = self.get_interface(primary).and_then(|i| i.ipv4.clone());
+        let ipv6 = self.get_interface(primary).and_then(|i| i.ipv6.clone());
 
         let br_snapshot = InterfaceSnapshot {
             name: LAN_BRIDGE_NAME.to_string(),
             index,
             mac,
             link: LinkStateKind::Up,
-            ip,
-            lease: Some(lease),
+            ipv4,
+            ipv4_lease: Some(lease),
+            ipv6,
+            ipv6_lease: None,  // IPv6 lease transferred separately if exists
+            #[allow(deprecated)]
+            ip: self.get_interface(primary).and_then(|i| i.ipv4.clone()),
+            #[allow(deprecated)]
+            lease: Some(DhcpLease { obtained_at: std::time::SystemTime::now(), lease_time: std::time::Duration::from_secs(3600), renewal_time: std::time::Duration::from_secs(1800), rebind_time: std::time::Duration::from_secs(3150) }),
         };
 
         self.insert_interface(br_snapshot);
@@ -332,8 +574,15 @@ impl NetworkActor {
 
     fn clear_lease_from_primary(&mut self, primary: &str) {
         if let Some(iface) = self.get_interface_mut(primary) {
-            iface.ip = None;
-            iface.lease = None;
+            iface.ipv4 = None;
+            iface.ipv4_lease = None;
+            iface.ipv6 = None;
+            iface.ipv6_lease = None;
+            #[allow(deprecated)]
+            {
+                iface.ip = None;
+                iface.lease = None;
+            }
         }
     }
 
@@ -347,7 +596,13 @@ impl NetworkActor {
             index,
             mac: [0, 0, 0, 0, 0, 0],
             link: LinkStateKind::Up,
+            ipv4: None,
+            ipv4_lease: None,
+            ipv6: None,
+            ipv6_lease: None,
+            #[allow(deprecated)]
             ip: None,
+            #[allow(deprecated)]
             lease: None,
         };
 

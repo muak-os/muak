@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -12,12 +12,23 @@ pub enum NetworkStateKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct IpConfig {
+pub struct Ipv4Config {
     pub address: Ipv4Addr,
     pub prefix_len: u8,
     pub gateway: Option<Ipv4Addr>,
     pub dns: Vec<Ipv4Addr>,
 }
+
+#[derive(Debug, Clone)]
+pub struct Ipv6Config {
+    pub address: Ipv6Addr,
+    pub prefix_len: u8,
+    pub gateway: Option<Ipv6Addr>,
+    pub dns: Vec<Ipv6Addr>,
+}
+
+// Legacy alias for backward compatibility during transition
+pub type IpConfig = Ipv4Config;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkStateKind {
@@ -45,7 +56,19 @@ pub struct InterfaceSnapshot {
     pub index: u32,
     pub mac: [u8; 6],
     pub link: LinkStateKind,
-    pub ip: Option<IpConfig>,
+    /// IPv4 configuration (if acquired)
+    pub ipv4: Option<Ipv4Config>,
+    /// IPv4 DHCP lease (if acquired via DHCP)
+    pub ipv4_lease: Option<DhcpLease>,
+    /// IPv6 configuration (if acquired)
+    pub ipv6: Option<Ipv6Config>,
+    /// IPv6 DHCP lease (if acquired via DHCPv6)
+    pub ipv6_lease: Option<DhcpLease>,
+    
+    // Legacy fields for backward compatibility during transition
+    #[deprecated(note = "Use ipv4 field instead")]
+    pub ip: Option<Ipv4Config>,
+    #[deprecated(note = "Use ipv4_lease field instead")]
     pub lease: Option<DhcpLease>,
 }
 

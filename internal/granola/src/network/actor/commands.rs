@@ -25,8 +25,22 @@ pub enum NetworkCommand {
         iface: String,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
+    /// Acquire IPv6 address via DHCPv6
+    AcquireDhcpv6 {
+        iface: String,
+        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
+    },
+    /// Acquire both IPv4 and IPv6 addresses (dual-stack)
+    AcquireDualStack {
+        iface: String,
+        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
+    },
     // Internal command triggered by timer
     RenewLease {
+        iface: String,
+    },
+    // Internal command for IPv6 lease renewal
+    RenewLeaseV6 {
         iface: String,
     },
     // Internal command triggered by failover
@@ -70,8 +84,19 @@ impl NetworkActor {
                 let result = self.acquire_dhcp(&iface, cmd_tx).await;
                 let _ = reply.send(result);
             }
+            NetworkCommand::AcquireDhcpv6 { iface, reply } => {
+                let result = self.acquire_dhcpv6(&iface, cmd_tx).await;
+                let _ = reply.send(result);
+            }
+            NetworkCommand::AcquireDualStack { iface, reply } => {
+                let result = self.acquire_dual_stack(&iface, cmd_tx).await;
+                let _ = reply.send(result);
+            }
             NetworkCommand::RenewLease { iface } => {
                 let _ = self.renew_lease(&iface).await;
+            }
+            NetworkCommand::RenewLeaseV6 { iface } => {
+                let _ = self.renew_lease_v6(&iface).await;
             }
             NetworkCommand::PromoteSecondary { secondary } => {
                 let _ = self.promote_secondary(&secondary, cmd_tx).await;

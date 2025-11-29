@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use futures::stream::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
 use rtnetlink::Handle;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 pub async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
     let mut addrs = handle.address().get().execute();
@@ -79,4 +79,108 @@ pub async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) 
     }
 
     add_ipv4(handle, index, ip, prefix).await
+}
+
+// ============================================================================
+// IPv6 Address Operations
+// ============================================================================
+
+pub async fn find_ipv6(handle: &Handle, index: u32) -> Result<Option<(Ipv6Addr, u8)>> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await? {
+        if addr.header.index == index {
+            for attr in &addr.attributes {
+                if let AddressAttribute::Address(IpAddr::V6(v6)) = attr {
+                    // Skip link-local addresses (fe80::/10)
+                    if !v6.segments()[0] & 0xffc0 == 0xfe80 {
+                        return Ok(Some((*v6, addr.header.prefix_len)));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+pub async fn find_all_ipv6(handle: &Handle, index: u32) -> Result<Vec<(Ipv6Addr, u8)>> {
+    let mut addrs = handle.address().get().execute();
+    let mut result = Vec::new();
+
+    while let Some(addr) = addrs.try_next().await? {
+        if addr.header.index == index {
+            for attr in &addr.attributes {
+                if let AddressAttribute::Address(IpAddr::V6(v6)) = attr {
+                    result.push((*v6, addr.header.prefix_len));
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+pub async fn has_ipv6(handle: &Handle, index: u32) -> Result<bool> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await? {
+        if addr.header.index == index {
+            for attr in &addr.attributes {
+                if let AddressAttribute::Address(IpAddr::V6(v6)) = attr {
+                    // Skip link-local addresses
+                    if !v6.segments()[0] & 0xffc0 == 0xfe80 {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+pub async fn add_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
+    handle
+        .address()
+        .add(index, ip.into(), prefix)
+        .execute()
+        .await
+        .context("failed to add IPv6 address")
+}
+
+pub async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await? {
+        if addr.header.index == index {
+            for attr in &addr.attributes {
+                if let AddressAttribute::Address(IpAddr::V6(v6)) = attr
+                    && *v6 == ip
+                {
+                    handle
+                        .address()
+                        .del(addr)
+                        .execute()
+                        .await
+                        .context("failed to remove IPv6 address")?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // Address not found - this is not an error
+    Ok(())
+}
+
+pub async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
+    if let Some((existing_ip, existing_prefix)) = find_ipv6(handle, index).await?
+        && existing_ip == ip
+        && existing_prefix == prefix
+    {
+        return Ok(());
+    }
+
+    add_ipv6(handle, index, ip, prefix).await
 }

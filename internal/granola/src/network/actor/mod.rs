@@ -103,6 +103,36 @@ impl NetworkActorHandle {
         rx.await?
     }
 
+    /// Acquire an IPv6 address via DHCPv6 on the specified interface
+    pub async fn acquire_dhcpv6(
+        &self,
+        iface: &str,
+    ) -> Result<crate::network::model::InterfaceSnapshot> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(NetworkCommand::AcquireDhcpv6 {
+                iface: iface.to_string(),
+                reply,
+            })
+            .await?;
+        rx.await?
+    }
+
+    /// Acquire both IPv4 (DHCP) and IPv6 (DHCPv6) addresses on the specified interface
+    pub async fn acquire_dual_stack(
+        &self,
+        iface: &str,
+    ) -> Result<crate::network::model::InterfaceSnapshot> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(NetworkCommand::AcquireDualStack {
+                iface: iface.to_string(),
+                reply,
+            })
+            .await?;
+        rx.await?
+    }
+
     pub async fn snapshot(&self) -> NetworkSnapshot {
         let (reply, rx) = tokio::sync::oneshot::channel();
         let _ = self.tx.send(NetworkCommand::Snapshot { reply }).await;

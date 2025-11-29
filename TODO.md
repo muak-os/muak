@@ -7,7 +7,7 @@
   - Check if there is /dev/kvm supported when starting the distro
 
 - Enhance networking:
-  - Support IPv6 with DHCPv6
+  - Support IPv6 with DHCPv6 *(done)*
   - Automatic failover when primary interface fails *(done)*
   - Bridge migration to back-up interface *(done)*
   - Recovery from degraded state *(done)*

@@ -87,7 +87,13 @@ impl NetworkActor {
                 index,
                 mac,
                 link: LinkStateKind::Up,
+                ipv4: None,
+                ipv4_lease: None,
+                ipv6: None,
+                ipv6_lease: None,
+                #[allow(deprecated)]
                 ip: None,
+                #[allow(deprecated)]
                 lease: None,
             };
             self.insert_interface(snapshot);
