@@ -237,41 +237,96 @@ fn parse_response(data: &[u8]) -> Result<Dhcpv6Response> {
     Ok(response)
 }
 
-pub async fn run_dhcpv6_client(interface: &str, mac: &[u8; 6]) -> Result<(Ipv6Config, DhcpLease)> {
-    log!("network", "DHCPv6: starting on {}", interface);
+/// DHCPv6 retry configuration (based on RFC 8415)
+const DHCPV6_SOL_MAX_RT: u64 = 120;  // Max SOLICIT timeout (seconds)
+const DHCPV6_REQ_MAX_RT: u64 = 30;   // Max REQUEST timeout (seconds)
+const DHCPV6_MAX_RETRIES: u32 = 4;   // Max retry attempts
+const DHCPV6_INITIAL_TIMEOUT: u64 = 1; // Initial timeout (seconds)
+
+/// Build DHCPv6 RENEW message (type 5)
+fn build_renew_message(
+    xid: u32,
+    client_duid: &[u8],
+    server_duid: &[u8],
+    iaid: u32,
+    address: Ipv6Addr,
+    t1: u32,
+    t2: u32,
+) -> Result<Vec<u8>> {
+    // Message type: RENEW (5)
+    let mut msg = vec![0x05];
     
-    // Bind to link-local address on client port
-    // Use [::] to bind to any IPv6 address
-    let bind_addr = format!("[::]:{}", DHCPV6_CLIENT_PORT);
-    let socket = UdpSocket::bind(&bind_addr).await?;
-    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
+    // Transaction ID (3 bytes)
+    msg.push(((xid >> 16) & 0xFF) as u8);
+    msg.push(((xid >> 8) & 0xFF) as u8);
+    msg.push((xid & 0xFF) as u8);
     
-    // Generate client identifiers
+    // Option: Client Identifier (1)
+    msg.extend(&[0x00, 0x01]);
+    msg.extend(&((client_duid.len() as u16).to_be_bytes()));
+    msg.extend(client_duid);
+    
+    // Option: Server Identifier (2)
+    msg.extend(&[0x00, 0x02]);
+    msg.extend(&((server_duid.len() as u16).to_be_bytes()));
+    msg.extend(server_duid);
+    
+    // Option: IA_NA (3) with IA Address sub-option
+    let ia_addr_len = 24u16; // 16 (addr) + 4 (preferred) + 4 (valid)
+    let ia_na_len = 12 + 4 + ia_addr_len; // IAID + T1 + T2 + sub-option header + IA Address
+    
+    msg.extend(&[0x00, 0x03]); // Option code 3
+    msg.extend(&ia_na_len.to_be_bytes());
+    msg.extend(&iaid.to_be_bytes()); // IAID
+    msg.extend(&t1.to_be_bytes());   // T1
+    msg.extend(&t2.to_be_bytes());   // T2
+    
+    // Sub-option: IA Address (5)
+    msg.extend(&[0x00, 0x05]); // Option code 5
+    msg.extend(&ia_addr_len.to_be_bytes());
+    msg.extend(&address.octets());
+    msg.extend(&0u32.to_be_bytes()); // preferred-lifetime (0 = use server default)
+    msg.extend(&0u32.to_be_bytes()); // valid-lifetime (0 = use server default)
+    
+    // Option: Elapsed Time (8)
+    msg.extend(&[0x00, 0x08]);
+    msg.extend(&[0x00, 0x02]);
+    msg.extend(&[0x00, 0x00]);
+    
+    // Option: Option Request (6)
+    msg.extend(&[0x00, 0x06]);
+    msg.extend(&[0x00, 0x02]);
+    msg.extend(&[0x00, 0x17]); // DNS servers
+    
+    Ok(msg)
+}
+
+/// Internal function to perform DHCPv6 SOLICIT-ADVERTISE-REQUEST-REPLY handshake
+async fn dhcpv6_full_handshake(
+    socket: &UdpSocket,
+    interface: &str,
+    mac: &[u8; 6],
+) -> Result<(Ipv6Config, DhcpLease, Vec<u8>)> {
     let duid = generate_duid_ll(mac);
     let iaid = generate_iaid(interface);
     let xid: u32 = (SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u32) & 0x00FFFFFF; // Only 24 bits for DHCPv6 XID
+        .as_nanos() as u32) & 0x00FFFFFF;
     
-    // Build and send SOLICIT
-    let solicit_msg = build_solicit_message(xid, &duid, iaid)?;
     let server_addr = format!("[{}%{}]:{}", DHCPV6_ALL_SERVERS, interface, DHCPV6_SERVER_PORT);
     
-    log!("network", "DHCPv6: sending SOLICIT xid={:06x}", xid);
-    socket.send_to(&solicit_msg, &server_addr).await?;
-    
-    // Receive ADVERTISE
-    let mut buf = [0u8; 1500];
-    let (len, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf)).await??;
-    let advertise = parse_response(&buf[..len])?;
-    
-    if advertise.msg_type != 2 {
-        anyhow::bail!("Expected ADVERTISE (2), got message type {}", advertise.msg_type);
-    }
-    if advertise.xid != xid {
-        anyhow::bail!("XID mismatch: expected {:06x}, got {:06x}", xid, advertise.xid);
-    }
+    // Phase 1: SOLICIT with retries
+    let solicit_msg = build_solicit_message(xid, &duid, iaid)?;
+    let advertise = retry_send_receive(
+        socket,
+        &solicit_msg,
+        &server_addr,
+        xid,
+        2, // Expected: ADVERTISE
+        DHCPV6_SOL_MAX_RT,
+        "SOLICIT",
+    ).await?;
     
     let server_duid = advertise.server_duid
         .ok_or_else(|| anyhow::anyhow!("No server DUID in ADVERTISE"))?;
@@ -280,7 +335,7 @@ pub async fn run_dhcpv6_client(interface: &str, mac: &[u8; 6]) -> Result<(Ipv6Co
     
     log!("network", "DHCPv6: got ADVERTISE address={}", offered_addr);
     
-    // Build and send REQUEST
+    // Phase 2: REQUEST with retries
     let request_msg = build_request_message(
         xid,
         &duid,
@@ -291,33 +346,207 @@ pub async fn run_dhcpv6_client(interface: &str, mac: &[u8; 6]) -> Result<(Ipv6Co
         advertise.valid_lifetime,
     )?;
     
-    log!("network", "DHCPv6: sending REQUEST for {}", offered_addr);
-    socket.send_to(&request_msg, &server_addr).await?;
-    
-    // Receive REPLY
-    let (len, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf)).await??;
-    let reply = parse_response(&buf[..len])?;
-    
-    if reply.msg_type != 7 {
-        anyhow::bail!("Expected REPLY (7), got message type {}", reply.msg_type);
-    }
+    let reply = retry_send_receive(
+        socket,
+        &request_msg,
+        &server_addr,
+        xid,
+        7, // Expected: REPLY
+        DHCPV6_REQ_MAX_RT,
+        "REQUEST",
+    ).await?;
     
     let address = reply.address
         .ok_or_else(|| anyhow::anyhow!("No address in REPLY"))?;
     
     log!("network", "DHCPv6: got REPLY address={}", address);
     
-    // Build IPv6 config
-    // DHCPv6 doesn't provide prefix length directly, assume /128 for the address
-    // Gateway comes from Router Advertisement, not DHCPv6
+    // Build result
     let ipv6_cfg = Ipv6Config {
         address,
         prefix_len: 128,
-        gateway: None, // Obtained via Router Advertisement, not DHCPv6
+        gateway: None,
         dns: reply.dns_servers.clone(),
     };
     
-    // Calculate lease times
+    let valid_lifetime = reply.valid_lifetime;
+    let t1 = if reply.t1 > 0 { reply.t1 } else { valid_lifetime / 2 };
+    let t2 = if reply.t2 > 0 { reply.t2 } else { (valid_lifetime * 7) / 8 };
+    
+    let lease = DhcpLease {
+        obtained_at: SystemTime::now(),
+        lease_time: Duration::from_secs(valid_lifetime as u64),
+        renewal_time: Duration::from_secs(t1 as u64),
+        rebind_time: Duration::from_secs(t2 as u64),
+    };
+    
+    Ok((ipv6_cfg, lease, server_duid))
+}
+
+/// Retry sending a DHCPv6 message and receiving a response
+async fn retry_send_receive(
+    socket: &UdpSocket,
+    msg: &[u8],
+    server_addr: &str,
+    expected_xid: u32,
+    expected_msg_type: u8,
+    max_timeout: u64,
+    msg_name: &str,
+) -> Result<Dhcpv6Response> {
+    let mut current_timeout = DHCPV6_INITIAL_TIMEOUT;
+    let mut buf = [0u8; 1500];
+    
+    for attempt in 1..=DHCPV6_MAX_RETRIES {
+        log!("network", "DHCPv6: sending {} (attempt {}/{})", msg_name, attempt, DHCPV6_MAX_RETRIES);
+        
+        socket.send_to(msg, server_addr).await?;
+        
+        match timeout(Duration::from_secs(current_timeout), socket.recv_from(&mut buf)).await {
+            Ok(Ok((len, _))) => {
+                let response = parse_response(&buf[..len])?;
+                
+                if response.xid != expected_xid {
+                    log!("network", "DHCPv6: XID mismatch, ignoring");
+                    continue;
+                }
+                
+                if response.msg_type != expected_msg_type {
+                    log!("network", "DHCPv6: unexpected message type {}, expected {}", 
+                         response.msg_type, expected_msg_type);
+                    continue;
+                }
+                
+                return Ok(response);
+            }
+            Ok(Err(e)) => {
+                log!("network", "DHCPv6: receive error: {}", e);
+            }
+            Err(_) => {
+                log!("network", "DHCPv6: timeout waiting for response");
+            }
+        }
+        
+        // Exponential backoff with cap
+        current_timeout = (current_timeout * 2).min(max_timeout);
+    }
+    
+    anyhow::bail!("DHCPv6: {} failed after {} attempts", msg_name, DHCPV6_MAX_RETRIES)
+}
+
+pub async fn run_dhcpv6_client(interface: &str, mac: &[u8; 6]) -> Result<(Ipv6Config, DhcpLease)> {
+    log!("network", "DHCPv6: starting on {}", interface);
+    
+    let bind_addr = format!("[::]:{}", DHCPV6_CLIENT_PORT);
+    let socket = UdpSocket::bind(&bind_addr).await?;
+    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
+    
+    let (ipv6_cfg, lease, _server_duid) = dhcpv6_full_handshake(&socket, interface, mac).await?;
+    
+    log!(
+        "network",
+        "DHCPv6: acquired {} with {} DNS servers, valid for {}s",
+        ipv6_cfg.address,
+        ipv6_cfg.dns.len(),
+        lease.lease_time.as_secs()
+    );
+    
+    Ok((ipv6_cfg, lease))
+}
+
+/// Renewal context containing server info from initial lease
+#[derive(Debug, Clone)]
+pub struct Dhcpv6RenewalContext {
+    pub server_duid: Vec<u8>,
+    pub client_duid: Vec<u8>,
+    pub iaid: u32,
+}
+
+/// Extended run_dhcpv6_client that also returns renewal context
+pub async fn run_dhcpv6_client_with_context(
+    interface: &str,
+    mac: &[u8; 6],
+) -> Result<(Ipv6Config, DhcpLease, Dhcpv6RenewalContext)> {
+    log!("network", "DHCPv6: starting on {}", interface);
+    
+    let bind_addr = format!("[::]:{}", DHCPV6_CLIENT_PORT);
+    let socket = UdpSocket::bind(&bind_addr).await?;
+    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
+    
+    let client_duid = generate_duid_ll(mac);
+    let iaid = generate_iaid(interface);
+    
+    let (ipv6_cfg, lease, server_duid) = dhcpv6_full_handshake(&socket, interface, mac).await?;
+    
+    let context = Dhcpv6RenewalContext {
+        server_duid,
+        client_duid,
+        iaid,
+    };
+    
+    log!(
+        "network",
+        "DHCPv6: acquired {} with {} DNS servers, valid for {}s",
+        ipv6_cfg.address,
+        ipv6_cfg.dns.len(),
+        lease.lease_time.as_secs()
+    );
+    
+    Ok((ipv6_cfg, lease, context))
+}
+
+/// Renew an existing DHCPv6 lease using RENEW message (type 5)
+pub async fn renew_dhcpv6_lease(
+    interface: &str,
+    current_config: &Ipv6Config,
+    context: &Dhcpv6RenewalContext,
+) -> Result<(Ipv6Config, DhcpLease)> {
+    log!("network", "DHCPv6: renewing lease for {} on {}", current_config.address, interface);
+    
+    let bind_addr = format!("[::]:{}", DHCPV6_CLIENT_PORT);
+    let socket = UdpSocket::bind(&bind_addr).await?;
+    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
+    
+    let xid: u32 = (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u32) & 0x00FFFFFF;
+    
+    let server_addr = format!("[{}%{}]:{}", DHCPV6_ALL_SERVERS, interface, DHCPV6_SERVER_PORT);
+    
+    // Build RENEW message with current address info
+    let renew_msg = build_renew_message(
+        xid,
+        &context.client_duid,
+        &context.server_duid,
+        context.iaid,
+        current_config.address,
+        0, // T1 - server will provide new values
+        0, // T2
+    )?;
+    
+    // Send RENEW with retries
+    let reply = retry_send_receive(
+        &socket,
+        &renew_msg,
+        &server_addr,
+        xid,
+        7, // Expected: REPLY
+        DHCPV6_REQ_MAX_RT,
+        "RENEW",
+    ).await?;
+    
+    let address = reply.address
+        .ok_or_else(|| anyhow::anyhow!("No address in REPLY to RENEW"))?;
+    
+    log!("network", "DHCPv6: renewed lease for {}", address);
+    
+    let ipv6_cfg = Ipv6Config {
+        address,
+        prefix_len: 128,
+        gateway: current_config.gateway, // Preserve gateway from RA
+        dns: reply.dns_servers.clone(),
+    };
+    
     let valid_lifetime = reply.valid_lifetime;
     let t1 = if reply.t1 > 0 { reply.t1 } else { valid_lifetime / 2 };
     let t2 = if reply.t2 > 0 { reply.t2 } else { (valid_lifetime * 7) / 8 };
@@ -331,9 +560,7 @@ pub async fn run_dhcpv6_client(interface: &str, mac: &[u8; 6]) -> Result<(Ipv6Co
     
     log!(
         "network",
-        "DHCPv6: acquired {} with {} DNS servers, valid for {}s",
-        address,
-        reply.dns_servers.len(),
+        "DHCPv6: renewal complete, valid for {}s",
         valid_lifetime
     );
     

@@ -390,6 +390,10 @@ impl NetworkActor {
 
         iface_snap.ipv6 = Some(ipv6_cfg);
         iface_snap.ipv6_lease = Some(lease);
+        
+        // Mark IPv6 as available at network level
+        self.state.ipv6_available = true;
+        
         self.sync_and_publish();
 
         Ok(())
@@ -504,10 +508,12 @@ impl NetworkActor {
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
         let (lease, mac) = self.extract_lease_and_mac(&primary)?;
+        let ipv6_lease = self.get_interface(&primary).and_then(|i| i.ipv6_lease.clone());
 
         self.setup_bridge().await?;
 
         self.cancel_renewal_tasks(&primary);
+        self.cancel_renewal_tasks(&format!("{}:v6", primary)); // Cancel IPv6 renewal tasks too
 
         let br_index = self.lookup_bridge_index().await?;
         self.track_bridge_interface(br_index, mac, lease.clone());
@@ -521,6 +527,17 @@ impl NetworkActor {
             LAN_BRIDGE_NAME
         );
         self.schedule_lease_renewal(cmd_tx.clone(), LAN_BRIDGE_NAME.to_string(), lease);
+
+        // Also schedule IPv6 lease renewal if we have an IPv6 lease
+        if let Some(v6_lease) = ipv6_lease {
+            log!(
+                "network",
+                "Transferring DHCPv6 lease management from {} to {}",
+                primary,
+                LAN_BRIDGE_NAME
+            );
+            self.schedule_lease_renewal_v6(cmd_tx.clone(), LAN_BRIDGE_NAME.to_string(), v6_lease);
+        }
 
         Ok(())
     }
@@ -553,6 +570,7 @@ impl NetworkActor {
         let primary = self.state.primary.as_ref().unwrap();
         let ipv4 = self.get_interface(primary).and_then(|i| i.ipv4.clone());
         let ipv6 = self.get_interface(primary).and_then(|i| i.ipv6.clone());
+        let ipv6_lease = self.get_interface(primary).and_then(|i| i.ipv6_lease.clone());
 
         let br_snapshot = InterfaceSnapshot {
             name: LAN_BRIDGE_NAME.to_string(),
@@ -560,13 +578,13 @@ impl NetworkActor {
             mac,
             link: LinkStateKind::Up,
             ipv4,
-            ipv4_lease: Some(lease),
+            ipv4_lease: Some(lease.clone()),
             ipv6,
-            ipv6_lease: None,  // IPv6 lease transferred separately if exists
+            ipv6_lease,
             #[allow(deprecated)]
             ip: self.get_interface(primary).and_then(|i| i.ipv4.clone()),
             #[allow(deprecated)]
-            lease: Some(DhcpLease { obtained_at: std::time::SystemTime::now(), lease_time: std::time::Duration::from_secs(3600), renewal_time: std::time::Duration::from_secs(1800), rebind_time: std::time::Duration::from_secs(3150) }),
+            lease: Some(lease),
         };
 
         self.insert_interface(br_snapshot);
@@ -584,6 +602,9 @@ impl NetworkActor {
                 iface.lease = None;
             }
         }
+        // Clear IPv6 availability when primary loses its address
+        // It will be re-set if DHCPv6 succeeds on a new interface
+        self.state.ipv6_available = false;
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {

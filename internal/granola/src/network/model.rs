@@ -82,6 +82,8 @@ pub struct NetworkSnapshot {
     /// Secondary (backup) interfaces available for failover
     pub secondaries: Vec<String>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
+    /// Whether IPv6 connectivity is available (DHCPv6 succeeded)
+    pub ipv6_available: bool,
 }
 
 impl NetworkSnapshot {
@@ -92,6 +94,7 @@ impl NetworkSnapshot {
             active: None,
             secondaries: Vec::new(),
             interfaces: Vec::new(),
+            ipv6_available: false,
         }
     }
     
@@ -101,5 +104,23 @@ impl NetworkSnapshot {
             (Some(p), Some(a)) => p == a,
             _ => false,
         }
+    }
+    
+    /// Get the active interface snapshot if available
+    pub fn active_interface(&self) -> Option<&Arc<InterfaceSnapshot>> {
+        let active_name = self.active.as_ref()?;
+        self.interfaces.iter().find(|i| &i.name == active_name)
+    }
+    
+    /// Check if IPv4 connectivity is available on active interface
+    pub fn has_ipv4(&self) -> bool {
+        self.active_interface()
+            .map(|i| i.ipv4.is_some())
+            .unwrap_or(false)
+    }
+    
+    /// Check if dual-stack (IPv4 + IPv6) connectivity is available
+    pub fn is_dual_stack(&self) -> bool {
+        self.has_ipv4() && self.ipv6_available
     }
 }
