@@ -126,10 +126,3 @@ pub async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Resu
 
     add_default_route_v6(handle, gateway).await
 }
-
-pub async fn restore_default_gateway_v6(handle: &Handle) -> Result<()> {
-    if let Some(gateway) = find_default_gateway_v6(handle).await? {
-        let _ = add_default_route_v6(handle, gateway).await;
-    }
-    Ok(())
-}

@@ -1,16 +1,13 @@
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::network::model::{InterfaceSnapshot, NetworkSnapshot};
+use crate::network::model::InterfaceSnapshot;
 
 use super::state::NetworkActor;
 
 #[derive(Debug)]
 pub enum NetworkCommand {
     Initialize {
-        reply: oneshot::Sender<Result<()>>,
-    },
-    SetupBridge {
         reply: oneshot::Sender<Result<()>>,
     },
     AddTap {
@@ -20,20 +17,6 @@ pub enum NetworkCommand {
     DeleteTap {
         name: String,
         reply: oneshot::Sender<Result<()>>,
-    },
-    AcquireDhcp {
-        iface: String,
-        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
-    },
-    /// Acquire IPv6 address via DHCPv6
-    AcquireDhcpv6 {
-        iface: String,
-        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
-    },
-    /// Acquire both IPv4 and IPv6 addresses (dual-stack)
-    AcquireDualStack {
-        iface: String,
-        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
     // Internal command triggered by timer
     RenewLease {
@@ -52,9 +35,6 @@ pub enum NetworkCommand {
         from_secondary: String,
         to_primary: String,
     },
-    Snapshot {
-        reply: oneshot::Sender<NetworkSnapshot>,
-    },
 }
 
 impl NetworkActor {
@@ -68,28 +48,12 @@ impl NetworkActor {
                 let result = self.initialize(cmd_tx).await;
                 let _ = reply.send(result);
             }
-            NetworkCommand::SetupBridge { reply } => {
-                let result = self.setup_bridge().await;
-                let _ = reply.send(result);
-            }
             NetworkCommand::AddTap { name, reply } => {
                 let result = self.add_tap(&name).await;
                 let _ = reply.send(result);
             }
             NetworkCommand::DeleteTap { name, reply } => {
                 let result = self.delete_tap(&name).await;
-                let _ = reply.send(result);
-            }
-            NetworkCommand::AcquireDhcp { iface, reply } => {
-                let result = self.acquire_dhcp(&iface, cmd_tx).await;
-                let _ = reply.send(result);
-            }
-            NetworkCommand::AcquireDhcpv6 { iface, reply } => {
-                let result = self.acquire_dhcpv6(&iface, cmd_tx).await;
-                let _ = reply.send(result);
-            }
-            NetworkCommand::AcquireDualStack { iface, reply } => {
-                let result = self.acquire_dual_stack(&iface, cmd_tx).await;
                 let _ = reply.send(result);
             }
             NetworkCommand::RenewLease { iface } => {
@@ -106,9 +70,6 @@ impl NetworkActor {
                 to_primary,
             } => {
                 let _ = self.recover_primary(&from_secondary, &to_primary).await;
-            }
-            NetworkCommand::Snapshot { reply } => {
-                let _ = reply.send(self.state.clone());
             }
         }
     }

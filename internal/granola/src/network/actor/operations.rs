@@ -287,30 +287,6 @@ impl NetworkActor {
     // DHCPv6 / IPv6 Operations
     // ========================================================================
 
-    /// Acquire an IPv6 address via DHCPv6
-    pub(super) async fn acquire_dhcpv6(
-        &mut self,
-        iface: &str,
-        cmd_tx: &mpsc::Sender<NetworkCommand>,
-    ) -> Result<InterfaceSnapshot> {
-        log!("network", "Acquiring DHCPv6 on {}", iface);
-
-        let index = link::ensure_link_up(&self.handle, iface).await?;
-        let mac = self.get_interface_mac(iface)?;
-
-        let (ipv6_cfg, lease) = run_dhcpv6_client(iface, &mac).await?;
-
-        self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
-        self.update_interface_with_ipv6_lease(iface, ipv6_cfg.clone(), lease.clone())?;
-        self.schedule_lease_renewal_v6(cmd_tx.clone(), iface.to_string(), lease);
-
-        log!("network", "DHCPv6 acquired on {}: {}", iface, ipv6_cfg.address);
-
-        self.get_interface(iface)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))
-    }
-
     /// Acquire both IPv4 and IPv6 addresses (dual-stack)
     pub(super) async fn acquire_dual_stack(
         &mut self,

@@ -11,6 +11,11 @@
   - Automatic failover when primary interface fails *(done)*
   - Bridge migration to back-up interface *(done)*
   - Recovery from degraded state *(done)*
+  - Future improvements (deferred):
+    - Expose network state via gRPC API (snapshot, reconfiguration)
+    - Proper DHCPv6 RENEW message instead of full re-acquisition
+    - IPv6 address cleanup during failover (netlink remove_ipv6)
+    - VM-aware dual-stack detection for workload placement
 
 - Hardened security in kernel by following KSPP guidelines
 
