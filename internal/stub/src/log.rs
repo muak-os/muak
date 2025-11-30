@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! info {
+macro_rules! log_info {
     ($($arg:tt)*) => {
         {
             use uefi::println;
@@ -9,7 +9,7 @@ macro_rules! info {
 }
 
 #[macro_export]
-macro_rules! error {
+macro_rules! log_error {
     ($($arg:tt)*) => {
         {
             use uefi::println;
@@ -19,7 +19,7 @@ macro_rules! error {
 }
 
 #[macro_export]
-macro_rules! warn {
+macro_rules! log_warn {
     ($($arg:tt)*) => {
         {
             use uefi::println;
