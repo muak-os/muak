@@ -872,7 +872,7 @@ dependencies = [
  "dhcproto",
  "fatfs",
  "flate2",
- "futures",
+ "futures-util",
  "gptman",
  "netlink-packet-core",
  "netlink-packet-route",

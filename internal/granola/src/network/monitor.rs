@@ -1,7 +1,7 @@
 use crate::log;
 use crate::network::netlink::link;
 use anyhow::Result;
-use futures::stream::{StreamExt, TryStreamExt};
+use futures_util::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use rtnetlink::Handle;

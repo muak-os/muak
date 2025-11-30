@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use futures::stream::TryStreamExt;
+use futures_util::stream::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
 use rtnetlink::Handle;
 use std::net::{IpAddr, Ipv4Addr};
