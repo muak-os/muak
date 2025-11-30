@@ -14,7 +14,7 @@ KERNEL_BUILD_DIR="$PROJECT_ROOT/build/kernel/${ARCH}"
 BZIMAGE_CI="$PROJECT_ROOT/build/bzImage/${ARCH}/bzImage"
 INITRAMFS_FILE="$PROJECT_ROOT/build/initramfs.img"
 OUTPUT_DIR="$PROJECT_ROOT/build"
-STUB_FILE="$OUTPUT_DIR/stub-${ARCH}.efi"
+STUB_FILE="$PROJECT_ROOT/target/x86_64-unknown-uefi/release/stub.efi"
 CMDLINE_FILE="$OUTPUT_DIR/cmdline.txt"
 
 echo -e "${GREEN}==== Muak UKI Build ====${NC}"
@@ -39,12 +39,18 @@ if [ ! -f "${INITRAMFS_FILE}" ]; then
     exit 1
 fi
 
-echo -n "console=ttyS0 console=tty0 init=/init" > "${CMDLINE_FILE}"
+echo -n "console=tty0 console=ttyS0 init=/init" > "${CMDLINE_FILE}"
 echo -e "${GREEN}Created cmdline: ${CMDLINE_FILE}${NC}"
 
 if [ ! -f "${STUB_FILE}" ]; then
+    echo -e "${YELLOW}Building stub...${NC}"
+    cd "$PROJECT_ROOT"
+    cargo +nightly build --release --target x86_64-unknown-uefi --features uefi -p stub
+    cd - > /dev/null
+fi
+
+if [ ! -f "${STUB_FILE}" ]; then
     echo -e "${RED}ERROR: EFI stub not found at ${STUB_FILE}${NC}"
-    echo -e "${RED}Please run ./scripts/build-stub.sh ${ARCH} first${NC}"
     exit 1
 fi
 
