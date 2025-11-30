@@ -63,7 +63,7 @@ tempfile = "3.23"
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 
 # UEFI support
-uefi = { version = "0.36", features = ["alloc", "logger"] }
+uefi = { version = "0.36", features = ["alloc", "logger", "panic_handler", "global_allocator"] }
 
 [profile.release]
 opt-level = "z"
