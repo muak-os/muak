@@ -1,7 +1,5 @@
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader, compression::Compressor};
 use cpio::{NewcBuilder, newc::ModeFileType};
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use std::error::Error;
 use std::fs::File;
 use std::io::{Cursor, Write};
@@ -135,7 +133,7 @@ pub fn rebuild_initramfs(src: &Path, dest: &Path) -> Result<(), Box<dyn Error>> 
     cpio::newc::trailer(&mut cpio_data)?;
 
     let output = File::create(dest)?;
-    let mut encoder = GzEncoder::new(output, Compression::new(9));
+    let mut encoder = zstd::Encoder::new(output, 19)?;
     encoder.write_all(&cpio_data)?;
     encoder.finish()?;
 

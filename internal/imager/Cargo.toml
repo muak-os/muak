@@ -26,3 +26,4 @@ backhand = { workspace = true }
 cpio = { workspace = true }
 walkdir = { workspace = true }
 tempfile = { workspace = true }
+zstd = { workspace = true }

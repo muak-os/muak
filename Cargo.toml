@@ -58,6 +58,7 @@ backhand = "0.23"
 cpio = "0.4"
 walkdir = "2.5"
 tempfile = "3.23"
+zstd = "0.13"
 
 # PE file handling
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }

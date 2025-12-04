@@ -94,7 +94,7 @@ COPY --link --from=rootfs-base /rootfs /rootfs
 RUN <<EOF
 set -euo pipefail
 mksquashfs /rootfs /rootfs.sqsh \
-  -comp gzip \
+  -comp zstd \
   -Xcompression-level ${COMPRESSION_LEVEL} \
   -b 1M \
   -noappend \
@@ -111,7 +111,7 @@ ARG COMPRESSION_LEVEL
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
-RUN apk add --no-cache cpio gzip
+RUN apk add --no-cache cpio zstd
 
 WORKDIR /initramfs
 
@@ -125,7 +125,7 @@ set -euo pipefail
 find . -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 find . -print0 | LC_ALL=c sort -z | \
   cpio -o -H newc --null --quiet --reproducible | \
-  gzip -${COMPRESSION_LEVEL}n > /base-initramfs.img
+  zstd -${COMPRESSION_LEVEL} -T0 > /base-initramfs.img
 EOF
 
 # ============================================================

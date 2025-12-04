@@ -1241,6 +1241,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "walkdir",
+ "zstd",
 ]
 
 [[package]]

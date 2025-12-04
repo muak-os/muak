@@ -1,6 +1,5 @@
 use backhand::FilesystemReader;
 use cpio::NewcReader;
-use flate2::read::GzDecoder;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -10,7 +9,7 @@ use std::path::Path;
 pub fn extract_initramfs(src: &Path, dest: &Path) -> Result<(), Box<dyn Error>> {
     std::fs::create_dir_all(dest)?;
     let file = File::open(src)?;
-    let decoder = GzDecoder::new(BufReader::new(file));
+    let decoder = zstd::Decoder::new(BufReader::new(file))?;
     extract_cpio_newc(decoder, dest)?;
     Ok(())
 }

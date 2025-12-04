@@ -108,7 +108,7 @@ if ! command -v mksquashfs &> /dev/null; then
 fi
 
 echo -e "${YELLOW}Creating squashfs root filesystem...${NC}"
-mksquashfs "$TEMP_DIR/rootfs_source" "$TEMP_DIR/rootfs.sqsh" -comp xz -Xbcj x86 -b 1M -noappend -no-progress
+mksquashfs "$TEMP_DIR/rootfs_source" "$TEMP_DIR/rootfs.sqsh" -comp zstd -Xcompression-level 19 -b 1M -noappend -no-progress
 
 mkdir -p "$TEMP_DIR/initramfs"
 cp "$OUTPUT_DIR/init" "$TEMP_DIR/initramfs/init"
@@ -125,10 +125,10 @@ if [ -n "$EXTENSIONS" ]; then
 fi
 
 echo
-echo -e "${YELLOW}Packaging initramfs with cpio and gzip...${NC}"
+echo -e "${YELLOW}Packaging initramfs with cpio and zstd...${NC}"
 
 cd "$TEMP_DIR/initramfs"
-find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | gzip -9n > "$OUTPUT_DIR/initramfs.img"
+find . -print0 | cpio -o -H newc --null --quiet 2>/dev/null | zstd -19 -T0 > "$OUTPUT_DIR/initramfs.img"
 
 echo
 echo -e "${GREEN}==== initramfs Build Complete ====${NC}"

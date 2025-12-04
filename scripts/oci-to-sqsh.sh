@@ -41,8 +41,8 @@ fi
 
 echo "  Creating SquashFS..."
 mksquashfs "$WORK_DIR" "${OUTPUT_DIR}/${EXTENSION_NAME}.sqsh" \
-    -comp xz \
-    -Xbcj x86 \
+    -comp zstd \
+    -Xcompression-level 19 \
     -b 1M \
     -noappend \
     -no-progress
