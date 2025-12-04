@@ -51,7 +51,7 @@ echo -e "${YELLOW}Creating ISO image...${NC}"
 
 # Create ESP image for El Torito
 ESP_IMG="${ISO_DIR}/efiboot.img"
-dd if=/dev/zero of="${ESP_IMG}" bs=1M count=17
+dd if=/dev/zero of="${ESP_IMG}" bs=1M count=28
 mkfs.vfat "${ESP_IMG}"
 mmd -i "${ESP_IMG}" ::/EFI
 mmd -i "${ESP_IMG}" ::/EFI/BOOT

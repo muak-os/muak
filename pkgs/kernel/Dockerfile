@@ -1,6 +1,6 @@
 FROM alpine:latest AS kernel-build
 
-ARG KERNEL_VERSION=6.17.8
+ARG KERNEL_VERSION=6.18
 
 RUN apk add --no-cache \
   build-base \
@@ -21,7 +21,7 @@ RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION
   rm linux-${KERNEL_VERSION}.tar.xz && \
   make mrproper
 
-COPY kernel.config .config
+COPY config-amd64 .config
 
 RUN make -j$(nproc)
 
