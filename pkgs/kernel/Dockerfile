@@ -23,7 +23,7 @@ RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION
 
 COPY config-amd64 .config
 
-RUN make -j$(nproc)
+RUN make olddefconfig && make -j$(nproc)
 
 RUN cp arch/x86/boot/bzImage /bzImage
 
