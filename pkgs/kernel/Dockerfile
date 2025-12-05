@@ -9,6 +9,7 @@ RUN apk add --no-cache \
   diffutils \
   flex \
   gawk \
+  gmp-dev \
   linux-headers \
   elfutils-dev \
   openssl-dev \
