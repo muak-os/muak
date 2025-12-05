@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  KERNEL_VERSION: "6.17.8"
+  KERNEL_VERSION: "6.18"
 
 jobs:
   build-kernel:

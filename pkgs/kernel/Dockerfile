@@ -8,6 +8,7 @@ RUN apk add --no-cache \
   bison \
   diffutils \
   flex \
+  gawk \
   linux-headers \
   elfutils-dev \
   openssl-dev \
