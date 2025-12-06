@@ -59,10 +59,3 @@ pub async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<
 
     add_default_route(handle, gateway).await
 }
-
-pub async fn restore_default_gateway(handle: &Handle) -> Result<()> {
-    if let Some(gateway) = find_default_gateway(handle).await? {
-        let _ = add_default_route(handle, gateway).await;
-    }
-    Ok(())
-}

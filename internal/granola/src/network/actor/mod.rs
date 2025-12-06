@@ -8,7 +8,7 @@ use rtnetlink::new_connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::log;
-use crate::network::model::{InterfaceSnapshot, NetworkSnapshot};
+use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 use crate::network::monitor::{self, NetworkEvent};
 
 pub use commands::NetworkCommand;
@@ -111,6 +111,15 @@ impl NetworkActorHandle {
 
     pub fn subscribe(&self) -> watch::Receiver<NetworkSnapshot> {
         self.watch_rx.clone()
+    }
+
+    pub async fn check_connectivity(&self) -> ConnectivityResult {
+        let (reply, rx) = oneshot::channel();
+        let _ = self
+            .tx
+            .send(NetworkCommand::CheckConnectivity { reply })
+            .await;
+        rx.await.unwrap_or_default()
     }
 }
 

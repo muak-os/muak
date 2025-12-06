@@ -11,6 +11,35 @@ pub enum NetworkStateKind {
     Degraded,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConnectivityStatus {
+    Unknown,
+    Checking,
+    Connected,
+    Disconnected,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectivityResult {
+    pub status: ConnectivityStatus,
+    pub dns_ok: bool,
+    pub https_ok: bool,
+    pub last_check: SystemTime,
+    pub latency_ms: Option<u64>,
+}
+
+impl Default for ConnectivityResult {
+    fn default() -> Self {
+        Self {
+            status: ConnectivityStatus::Unknown,
+            dns_ok: false,
+            https_ok: false,
+            last_check: SystemTime::UNIX_EPOCH,
+            latency_ms: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IpConfig {
     pub address: Ipv4Addr,
@@ -52,6 +81,7 @@ pub struct InterfaceSnapshot {
 #[derive(Debug, Clone)]
 pub struct NetworkSnapshot {
     pub state: NetworkStateKind,
+    pub connectivity: ConnectivityResult,
     pub primary: Option<String>,
     pub backups: Vec<String>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
@@ -61,6 +91,7 @@ impl NetworkSnapshot {
     pub fn empty() -> Self {
         Self {
             state: NetworkStateKind::Uninitialized,
+            connectivity: ConnectivityResult::default(),
             primary: None,
             backups: Vec::new(),
             interfaces: Vec::new(),

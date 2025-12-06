@@ -3,11 +3,15 @@ use tokio::sync::mpsc;
 
 use crate::log;
 use crate::network::config::LAN_BRIDGE_NAME;
+use crate::network::connectivity::{self, ConnectivityConfig};
 use crate::network::dhcp::run_dhcp_client;
 use crate::network::dns::configure_dns;
 use crate::network::interface::InterfaceSelector;
 use crate::network::interface::{LinkState as OldLinkState, discover_ethernet_interfaces};
-use crate::network::model::{DhcpLease, InterfaceSnapshot, LinkStateKind, NetworkStateKind};
+use crate::network::model::{
+    ConnectivityResult, ConnectivityStatus, DhcpLease, InterfaceSnapshot, LinkStateKind,
+    NetworkStateKind,
+};
 use crate::network::netlink::{address, link, route};
 use crate::network::services::{bridge, tap};
 
@@ -24,6 +28,9 @@ impl NetworkActor {
 
         self.state.state = NetworkStateKind::Ready;
         self.publish_state();
+
+        self.start_connectivity_monitoring(cmd_tx.clone());
+
         log!("network", "Network initialization complete");
 
         Ok(())
@@ -111,8 +118,6 @@ impl NetworkActor {
         iface: &str,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<InterfaceSnapshot> {
-        log!("network", "Acquiring DHCP on {}", iface);
-
         let index = link::ensure_link_up(&self.handle, iface).await?;
         let mac = self.get_interface_mac(iface)?;
         let (ip_cfg, lease) = run_dhcp_client(iface, &mac).await?;
@@ -142,7 +147,13 @@ impl NetworkActor {
         address::ensure_ipv4(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
 
         if let Some(gw) = ip_cfg.gateway {
+            log!("network", "Setting default route via {}", gw);
             route::ensure_default_route(&self.handle, gw).await?;
+        } else {
+            log!(
+                "network",
+                "No gateway in DHCP lease, skipping default route"
+            );
         }
 
         if !ip_cfg.dns.is_empty() {
@@ -241,6 +252,10 @@ impl NetworkActor {
 
     pub(super) async fn setup_bridge(&mut self) -> Result<()> {
         let primary = self.get_primary_name()?;
+        let gateway = self
+            .get_interface(&primary)
+            .and_then(|iface| iface.ip.as_ref())
+            .and_then(|ip| ip.gateway);
 
         log!(
             "network",
@@ -248,7 +263,8 @@ impl NetworkActor {
             LAN_BRIDGE_NAME,
             primary
         );
-        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary).await?;
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
+            .await?;
         log!(
             "network",
             "Bridge setup complete: {} <- {}",
@@ -264,9 +280,9 @@ impl NetworkActor {
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
-        let (lease, mac) = self.extract_lease_and_mac(&primary)?;
+        let (lease, mac, gateway) = self.extract_lease_mac_and_gateway(&primary)?;
 
-        self.setup_bridge().await?;
+        self.setup_bridge_with_gateway(gateway).await?;
 
         self.cancel_renewal_tasks(&primary);
 
@@ -293,7 +309,10 @@ impl NetworkActor {
             .ok_or_else(|| anyhow::anyhow!("no primary interface"))
     }
 
-    fn extract_lease_and_mac(&self, iface_name: &str) -> Result<(DhcpLease, [u8; 6])> {
+    fn extract_lease_mac_and_gateway(
+        &self,
+        iface_name: &str,
+    ) -> Result<(DhcpLease, [u8; 6], Option<std::net::Ipv4Addr>)> {
         let iface = self
             .get_interface(iface_name)
             .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
@@ -303,7 +322,33 @@ impl NetworkActor {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", iface_name))?;
 
-        Ok((lease, iface.mac))
+        let gateway = iface.ip.as_ref().and_then(|ip| ip.gateway);
+
+        Ok((lease, iface.mac, gateway))
+    }
+
+    async fn setup_bridge_with_gateway(
+        &mut self,
+        gateway: Option<std::net::Ipv4Addr>,
+    ) -> Result<()> {
+        let primary = self.get_primary_name()?;
+
+        log!(
+            "network",
+            "Setting up bridge {} with primary {}",
+            LAN_BRIDGE_NAME,
+            primary
+        );
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
+            .await?;
+        log!(
+            "network",
+            "Bridge setup complete: {} <- {}",
+            LAN_BRIDGE_NAME,
+            primary
+        );
+
+        Ok(())
     }
 
     async fn lookup_bridge_index(&self) -> Result<u32> {
@@ -363,5 +408,45 @@ impl NetworkActor {
 
         log!("network", "TAP interface deleted: {}", name);
         Ok(())
+    }
+
+    fn start_connectivity_monitoring(&mut self, cmd_tx: mpsc::Sender<NetworkCommand>) {
+        let config = ConnectivityConfig::default();
+        let interval = config.check_interval;
+
+        let task = tokio::spawn(async move {
+            let mut interval_timer =
+                tokio::time::interval_at(tokio::time::Instant::now(), interval);
+
+            loop {
+                interval_timer.tick().await;
+                if cmd_tx
+                    .send(NetworkCommand::PeriodicConnectivityCheck)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        self.connectivity_task = Some(task);
+    }
+
+    pub(super) async fn check_connectivity(&mut self) -> ConnectivityResult {
+        self.state.connectivity.status = ConnectivityStatus::Checking;
+        self.publish_state();
+
+        let config = ConnectivityConfig::default();
+        let result = connectivity::check_connectivity(&config).await;
+
+        self.state.connectivity = result.clone();
+        self.publish_state();
+
+        if result.status == ConnectivityStatus::Disconnected {
+            log!("network", "No internet connectivity detected");
+        }
+
+        result
     }
 }

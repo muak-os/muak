@@ -6,17 +6,19 @@ use crate::network::config::{
 use crate::network::netlink::{address, link, retry, route};
 use anyhow::{Context, Result};
 use rtnetlink::{Handle, LinkBridge};
+use std::net::Ipv4Addr;
 
 pub async fn ensure_bridge_with_ip_transfer(
     handle: &Handle,
     bridge_name: &str,
     physical_iface: &str,
+    gateway: Option<Ipv4Addr>,
 ) -> Result<()> {
     let phys_index = link::get_link_index(handle, physical_iface).await?;
     let br_index = ensure_bridge_exists(handle, bridge_name).await?;
 
     enslave_interface_to_bridge(handle, phys_index, br_index, physical_iface, bridge_name).await?;
-    transfer_ip_to_bridge(handle, phys_index, br_index, bridge_name).await?;
+    transfer_ip_to_bridge(handle, phys_index, br_index, bridge_name, gateway).await?;
 
     Ok(())
 }
@@ -112,6 +114,7 @@ async fn transfer_ip_to_bridge(
     phys_index: u32,
     br_index: u32,
     bridge_name: &str,
+    gateway: Option<Ipv4Addr>,
 ) -> Result<()> {
     let phys_ip = address::find_ipv4(handle, phys_index).await?;
     let has_bridge_ip = address::has_ipv4(handle, br_index).await?;
@@ -121,7 +124,12 @@ async fn transfer_ip_to_bridge(
     {
         address::remove_ipv4(handle, phys_index, ip).await?;
         address::add_ipv4(handle, br_index, ip, prefix).await?;
-        route::restore_default_gateway(handle).await?;
+
+        // Restore gateway after IP is on bridge
+        if let Some(gw) = gateway {
+            route::add_default_route(handle, gw).await?;
+            log!("network", "Restored default route via {}", gw);
+        }
 
         log!(
             "network",

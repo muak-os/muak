@@ -26,6 +26,7 @@ netlink-packet-route = { workspace = true }
 netlink-packet-core = { workspace = true }
 futures-util = { workspace = true }
 dhcproto = { workspace = true }
+reqwest = { workspace = true }
 
 # Utilities
 bincode = { workspace = true }

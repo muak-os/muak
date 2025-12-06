@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::network::model::{InterfaceSnapshot, NetworkSnapshot};
+use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 
 use super::state::NetworkActor;
 
@@ -32,6 +32,11 @@ pub enum NetworkCommand {
     Snapshot {
         reply: oneshot::Sender<NetworkSnapshot>,
     },
+    CheckConnectivity {
+        reply: oneshot::Sender<ConnectivityResult>,
+    },
+    // Internal periodic connectivity check trigger
+    PeriodicConnectivityCheck,
 }
 
 impl NetworkActor {
@@ -66,6 +71,13 @@ impl NetworkActor {
             }
             NetworkCommand::Snapshot { reply } => {
                 let _ = reply.send(self.state.clone());
+            }
+            NetworkCommand::CheckConnectivity { reply } => {
+                let result = self.check_connectivity().await;
+                let _ = reply.send(result);
+            }
+            NetworkCommand::PeriodicConnectivityCheck => {
+                let _ = self.check_connectivity().await;
             }
         }
     }
