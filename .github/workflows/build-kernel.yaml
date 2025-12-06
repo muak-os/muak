@@ -51,7 +51,7 @@ jobs:
       - name: Build and push kernel package
         uses: docker/build-push-action@v5
         with:
-          context: pkgs/kernel
+          context: .
           file: pkgs/kernel/Dockerfile
           target: kernel-package
           platforms: linux/amd64
