@@ -434,6 +434,7 @@ impl NetworkActor {
     }
 
     pub(super) async fn check_connectivity(&mut self) -> ConnectivityResult {
+        let was_connected = self.state.connectivity.status == ConnectivityStatus::Connected;
         self.state.connectivity.status = ConnectivityStatus::Checking;
         self.publish_state();
 
@@ -443,8 +444,18 @@ impl NetworkActor {
         self.state.connectivity = result.clone();
         self.publish_state();
 
-        if result.status == ConnectivityStatus::Disconnected {
-            log!("network", "No internet connectivity detected");
+        match result.status {
+            ConnectivityStatus::Connected if !was_connected => {
+                log!(
+                    "network",
+                    "Connectivity OK ({}ms)",
+                    result.latency_ms.unwrap_or(0)
+                );
+            }
+            ConnectivityStatus::Disconnected => {
+                log!("network", "No internet connectivity detected");
+            }
+            _ => {}
         }
 
         result

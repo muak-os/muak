@@ -64,7 +64,6 @@ pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResu
 }
 
 async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> ConnectivityResult {
-    let start = Instant::now();
     let mut result = ConnectivityResult {
         status: ConnectivityStatus::Checking,
         last_check: SystemTime::now(),
@@ -87,11 +86,6 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
         Ok(_) => {
             result.https_ok = true;
             result.status = ConnectivityStatus::Connected;
-            log!(
-                "network",
-                "Connectivity OK ({}ms)",
-                start.elapsed().as_millis()
-            );
         }
         Err(e) => {
             log!("network", "HTTPS check failed for {}: {}", target.host, e);
