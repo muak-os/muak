@@ -6,7 +6,9 @@ RUN apk add --no-cache \
   build-base \
   bc \
   bison \
+  coreutils \
   diffutils \
+  findutils \
   flex \
   gawk \
   gmp-dev \
@@ -14,10 +16,14 @@ RUN apk add --no-cache \
   mpfr-dev \
   linux-headers \
   elfutils-dev \
+  openssl \
   openssl-dev \
+  pahole \
   perl \
   python3 \
-  xz
+  xz \
+  zstd \
+  argp-standalone
 
 WORKDIR /src
 
@@ -26,7 +32,7 @@ RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION
   rm linux-${KERNEL_VERSION}.tar.xz && \
   make mrproper
 
-COPY config-amd64 .config
+COPY pkgs/kernel/config-amd64 .config
 
 RUN make olddefconfig && make -j$(nproc)
 
