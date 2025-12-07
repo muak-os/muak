@@ -1,9 +1,9 @@
 # syntax = docker/dockerfile-upstream:1.20.0-labs
 
-ARG ALPINE_VERSION=3.22
+ARG ALPINE_VERSION=3.23
 ARG BTRFS_VERSION=v6.17.1
 ARG KERNEL_VERSION=6.18
-ARG COMPRESSION_LEVEL=9
+ARG COMPRESSION_LEVEL=18
 ARG SOURCE_DATE_EPOCH=0
 
 ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
@@ -26,7 +26,7 @@ FROM ${PKG_KERNEL} AS pkg-kernel
 # ============================================================
 # Download static binaries
 # ============================================================
-FROM alpine:${ALPINE_VERSION} AS tools
+FROM docker.io/alpine:${ALPINE_VERSION} AS tools
 
 ARG BTRFS_VERSION
 
@@ -43,7 +43,7 @@ EOF
 # ============================================================
 # Create base rootfs structure
 # ============================================================
-FROM alpine:${ALPINE_VERSION} AS rootfs-structure
+FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
 
 ARG SOURCE_DATE_EPOCH
 
@@ -80,7 +80,7 @@ RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DA
 # ============================================================
 # Create squashfs
 # ============================================================
-FROM alpine:${ALPINE_VERSION} AS squashfs-builder
+FROM docker.io/alpine:${ALPINE_VERSION} AS squashfs-builder
 
 ARG SOURCE_DATE_EPOCH
 ARG COMPRESSION_LEVEL
@@ -104,7 +104,7 @@ EOF
 # ============================================================
 # Create base initramfs
 # ============================================================
-FROM alpine:${ALPINE_VERSION} AS initramfs-builder
+FROM docker.io/alpine:${ALPINE_VERSION} AS initramfs-builder
 
 ARG SOURCE_DATE_EPOCH
 ARG COMPRESSION_LEVEL

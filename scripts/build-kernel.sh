@@ -51,9 +51,11 @@ make ${MAKE_ARCH} -j$(nproc)
 
 echo "==== Build Complete ===="
 if [ "${ARCH}" = "arm64" ]; then
-    echo "Kernel: ${BUILD_DIR}/linux-${KERNEL_VERSION}/arch/arm64/boot/Image"
+    cp arch/arm64/boot/Image "${BUILD_DIR}/bzImage"
+    echo "Kernel: ${BUILD_DIR}/bzImage"
 else
-    echo "Kernel: ${BUILD_DIR}/linux-${KERNEL_VERSION}/arch/x86/boot/bzImage"
+    cp arch/x86/boot/bzImage "${BUILD_DIR}/bzImage"
+    echo "Kernel: ${BUILD_DIR}/bzImage"
 fi
 echo "Config: ${BUILD_DIR}/linux-${KERNEL_VERSION}/.config"
 echo "System.map: ${BUILD_DIR}/linux-${KERNEL_VERSION}/System.map"
