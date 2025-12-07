@@ -31,7 +31,7 @@ use vm_service::{
 
 #[derive(Parser)]
 #[command(name = "muak")]
-#[command(about = "MUAK process management CLI", long_about = None)]
+#[command(about = env!("CARGO_PKG_DESCRIPTION"), long_about = None)]
 struct Cli {
     #[arg(long, short, default_value = "localhost:50051")]
     server: String,
