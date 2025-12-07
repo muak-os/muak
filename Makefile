@@ -7,7 +7,7 @@ PLATFORM ?= linux/amd64
 ARCH ?= x86_64
 
 # Artifacts directory
-ARTIFACTS := _out
+ARTIFACTS := build
 
 # Cargo targets
 CARGO_TARGET := x86_64-unknown-linux-musl
@@ -63,9 +63,6 @@ local-%: ## Build package and output locally to ARTIFACTS (e.g., make local-kern
 		--file pkgs/$*/Dockerfile \
 		.
 
-local-installer:
-	@$(MAKE) installer
-
 kernel: ## Build kernel and output to ARTIFACTS
 	@$(MAKE) local-kernel
 
@@ -89,6 +86,9 @@ oci-installer: ## Build installer OCI image (uses registry packages)
 		--tag $(REGISTRY)/pkgs/installer:$(TAG) \
 		--file Dockerfile \
 		.
+
+local-installer:
+	@$(MAKE) installer
 
 installer: packages $(ARTIFACTS) ## Build installer with local binaries and extract to ARTIFACTS
 	@test -f $(ARTIFACTS)/bzImage || { echo "Error: Kernel not found. Run 'make kernel' first"; exit 1; }
