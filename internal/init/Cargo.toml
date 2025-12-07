@@ -5,5 +5,3 @@ edition = "2024"
 
 [dependencies]
 nix = { workspace = true, features = ["dir", "ioctl"] }
-serde = { workspace = true }
-serde_yaml = { workspace = true }

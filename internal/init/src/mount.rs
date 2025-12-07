@@ -3,23 +3,10 @@ use nix::mount::{MsFlags, mount};
 use nix::sys::stat::Mode;
 use nix::unistd::close;
 use nix::unistd::mkdir;
-use serde::Deserialize;
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
 nix::ioctl_write_int_bad!(loop_set_fd, 0x4C00);
-
-#[derive(Debug, Deserialize)]
-struct ExtensionManifest {
-    #[serde(default)]
-    extensions: Vec<Extension>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Extension {
-    name: String,
-    file: String,
-}
 
 pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
     create_and_mount("/dev", "devtmpfs", "devtmpfs", MsFlags::MS_NOSUID, None)?;
@@ -37,6 +24,7 @@ pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
         MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
         None,
     )?;
+    // TODO: remove /tmp
     create_and_mount(
         "/tmp",
         "tmpfs",
@@ -61,8 +49,6 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
         mkdir(newroot, Mode::from_bits_truncate(0o755))?;
     }
 
-    let manifest = read_extensions_manifest()?;
-
     let work_dir = Path::new("/overlay");
     mkdir(work_dir, Mode::from_bits_truncate(0o755))?;
 
@@ -73,20 +59,23 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
     attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount.to_str().unwrap())?;
     lower_dirs.push(base_mount.to_str().unwrap().to_string());
 
-    if !manifest.extensions.is_empty() {
-        crate::logging::log(&format!(
-            "Loading {} extension(s)",
-            manifest.extensions.len()
-        ));
+    let extensions = discover_extensions();
+
+    if !extensions.is_empty() {
+        crate::logging::log(&format!("Loading {} extension(s)", extensions.len()));
     }
 
-    for (idx, ext) in manifest.extensions.iter().enumerate() {
-        let ext_mount = work_dir.join(&ext.name);
+    for (idx, ext_path) in extensions.iter().enumerate() {
+        let ext_name = Path::new(ext_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("ext");
+
+        let ext_mount = work_dir.join(ext_name);
         mkdir(&ext_mount, Mode::from_bits_truncate(0o755))?;
 
-        let ext_path = format!("/{}", ext.file);
         let loop_dev = format!("/dev/loop{}", idx + 1);
-        attach_squashfs(&ext_path, &loop_dev, ext_mount.to_str().unwrap())?;
+        attach_squashfs(ext_path, &loop_dev, ext_mount.to_str().unwrap())?;
         lower_dirs.push(ext_mount.to_str().unwrap().to_string());
     }
 
@@ -114,15 +103,25 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn read_extensions_manifest() -> Result<ExtensionManifest, Box<dyn std::error::Error>> {
-    let manifest_path = "/extensions.yaml";
-    if !Path::new(manifest_path).exists() {
-        return Ok(ExtensionManifest { extensions: vec![] });
+fn discover_extensions() -> Vec<String> {
+    let extensions_dir = Path::new("/extensions");
+    if !extensions_dir.exists() {
+        return Vec::new();
     }
 
-    let content = std::fs::read_to_string(manifest_path)?;
-    let manifest: ExtensionManifest = serde_yaml::from_str(&content)?;
-    Ok(manifest)
+    let mut extensions = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(extensions_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("sqsh") {
+                if let Some(path_str) = path.to_str() {
+                    extensions.push(path_str.to_string());
+                }
+            }
+        }
+    }
+
+    extensions
 }
 
 fn attach_squashfs(
