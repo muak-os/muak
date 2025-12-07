@@ -109,7 +109,7 @@ COPY --from=builder /output/usr/share/glib-2.0 /usr/share/glib-2.0/
 COPY --from=builder /output/usr/share/gtk-3.0 /usr/share/gtk-3.0/
 
 # Copy manifest
-COPY manifest.yaml /manifest.yaml
+COPY pkgs/qemu/manifest.yaml /manifest.yaml
 
 # OCI labels for metadata
 LABEL org.opencontainers.image.title="qemu"

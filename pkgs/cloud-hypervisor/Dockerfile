@@ -14,7 +14,7 @@ RUN apk add --no-cache curl && \
 FROM scratch
 COPY --from=downloader /download/cloud-hypervisor /usr/bin/cloud-hypervisor
 COPY --from=downloader /download/CLOUDHV.fd /usr/share/muak/CLOUDHV.fd
-COPY manifest.yaml /manifest.yaml
+COPY pkgs/cloud-hypervisor/manifest.yaml /manifest.yaml
 
 # OCI labels for metadata
 LABEL org.opencontainers.image.title="cloud-hypervisor"
