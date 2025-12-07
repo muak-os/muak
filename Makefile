@@ -1,28 +1,30 @@
-# Registry and versioning
 REGISTRY ?= ghcr.io/sawangg
 TAG ?= latest
 PLATFORM ?= linux/amd64
 
-# Architecture
 ARCH ?= x86_64
 
-# Artifacts directory
-ARTIFACTS := build
+ARTIFACTS := _out
 
-# Cargo targets
 CARGO_TARGET := x86_64-unknown-linux-musl
 UEFI_TARGET := x86_64-unknown-uefi
 RELEASE_DIR := target/$(CARGO_TARGET)/release
 UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
-# Extensions to include (space-separated OCI image refs)
 EXTENSIONS ?=
 
-# Source date for reproducible builds
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null || date +%s)
 
-# Detect container runtime (podman or docker)
 CONTAINER_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+
+PACKAGES := granola init imager yuki stub cloud-hypervisor firecracker qemu kernel
+
+BOLD := \e[1m
+CYAN := \e[36m
+GREEN := \e[32m
+YELLOW := \e[33m
+RED := \e[31m
+RESET := \e[0m
 
 ifeq ($(CONTAINER_RUNTIME),podman)
 	BUILD := podman build
@@ -36,24 +38,39 @@ else
 	COMMON_ARGS += --progress=plain
 endif
 
-# Package definitions (packages with Dockerfiles in pkgs/)
-PACKAGES := granola init imager yuki stub cloud-hypervisor firecracker qemu kernel
+define require
+	@test -f $(1) || { printf "$(RED)$(BOLD)Error:$(RESET) $(1) not found. Run $(GREEN)$(2)$(RESET) first\n"; exit 1; }
+endef
 
-.PHONY: help clean dev packages initramfs uki iso kernel-pull
+define require-pkg
+	@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
+endef
+
+.PHONY: help clean dev packages initramfs uki iso kernel
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Available packages: $(PACKAGES)"
+	@printf "\n$(BOLD)Muak$(RESET)\n\n"
+	@printf "A minimal, immutable, API-driven Linux distribution for running VMs.\n\n"
+	@printf "$(BOLD)$(CYAN)Prerequisites$(RESET)\n\n"
+	@printf "To build this project, you must have the following installed:\n\n"
+	@printf "  - rustup with musl targets (see README.md)\n"
+	@printf "  - make\n"
+	@printf "  - docker (with buildx) or podman\n\n"
+	@printf "$(BOLD)$(CYAN)Quick Start$(RESET)\n\n"
+	@printf "  $(GREEN)make kernel$(RESET)         Build the kernel locally\n"
+	@printf "  $(GREEN)make dev$(RESET)            Full build chain\n\n"
+	@printf "$(BOLD)$(CYAN)Artifacts$(RESET)\n\n"
+	@printf "All artifacts will be output to $(YELLOW)./$(ARTIFACTS)$(RESET). Images will be tagged with\n"
+	@printf "the registry $(YELLOW)$(REGISTRY)$(RESET) and tag $(YELLOW)$(TAG)$(RESET).\n\n"
+	@printf "$(BOLD)$(CYAN)Targets$(RESET)\n\n"
+	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-20s\033[0m %s\n", $$1, $$2}'
+	@printf "\n$(BOLD)$(CYAN)Available packages$(RESET): $(PACKAGES)\n\n"
 
 $(ARTIFACTS):
 	@mkdir -p $(ARTIFACTS)
 
 local-%: ## Build package and output locally to ARTIFACTS (e.g., make local-kernel)
-	@if [ ! -f "pkgs/$*/Dockerfile" ]; then \
-		echo "Error: pkgs/$*/Dockerfile not found"; \
-		exit 1; \
-	fi
+	$(call require-pkg,$*)
 	@mkdir -p $(ARTIFACTS)
 	@echo "Building $* locally (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
@@ -67,10 +84,7 @@ kernel: ## Build kernel and output to ARTIFACTS
 	@$(MAKE) local-kernel
 
 oci-%: ## Build OCI image and tag for registry (e.g., make oci-granola)
-	@if [ ! -f "pkgs/$*/Dockerfile" ]; then \
-		echo "Error: pkgs/$*/Dockerfile not found"; \
-		exit 1; \
-	fi
+	$(call require-pkg,$*)
 	@echo "Building OCI image: $* (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
 		$(COMMON_ARGS) \
@@ -91,7 +105,7 @@ local-installer:
 	@$(MAKE) installer
 
 installer: packages $(ARTIFACTS) ## Build installer with local binaries and extract to ARTIFACTS
-	@test -f $(ARTIFACTS)/bzImage || { echo "Error: Kernel not found. Run 'make kernel' first"; exit 1; }
+	$(call require,$(ARTIFACTS)/bzImage,make kernel)
 	@echo "Building installer with local binaries (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
 		$(COMMON_ARGS) \
@@ -115,8 +129,8 @@ packages: ## Build Rust packages with cargo
 	@cargo build --release --target $(CARGO_TARGET)
 	@cargo +nightly build --release --target $(UEFI_TARGET) --features uefi -p stub
 
-extensions: $(ARTIFACTS) ## Build initramfs (with extensions if EXTENSIONS is set)
-	@test -f $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img || { echo "Error: Base initramfs not found. Run 'make installer' first"; exit 1; }
+extensions: $(ARTIFACTS) ## Extend base initramfs with extension
+	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img,make installer)
 	@if [ -z "$(EXTENSIONS)" ]; then \
 		echo "No extensions specified, using base initramfs"; \
 		cp $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img $(ARTIFACTS)/initramfs.img; \
@@ -129,10 +143,10 @@ extensions: $(ARTIFACTS) ## Build initramfs (with extensions if EXTENSIONS is se
 	fi
 	@echo "Initramfs ready: $(ARTIFACTS)/initramfs.img"
 
-uki: $(ARTIFACTS) ## Build UKI from initramfs
-	@test -f $(ARTIFACTS)/run/install/$(ARCH)/stub.efi || { echo "Error: Assets not found. Run 'make installer' first"; exit 1; }
-	@test -f $(ARTIFACTS)/run/install/$(ARCH)/bzImage || { echo "Error: Assets not found. Run 'make installer' first"; exit 1; }
-	@test -f $(ARTIFACTS)/initramfs.img || { echo "Error: Initramfs not found. Run 'make initramfs' first"; exit 1; }
+uki: $(ARTIFACTS) ## Build UKI installer assets
+	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/stub.efi,make installer)
+	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/bzImage,make installer)
+	$(call require,$(ARTIFACTS)/initramfs.img,make extensions)
 	@echo -n "console=tty0 console=ttyS0 init=/init" > $(ARTIFACTS)/cmdline.txt
 	@$(RELEASE_DIR)/yuki \
 		--stub $(ARTIFACTS)/run/install/$(ARCH)/stub.efi \
@@ -143,7 +157,7 @@ uki: $(ARTIFACTS) ## Build UKI from initramfs
 	@echo "UKI built: $(ARTIFACTS)/muak-$(ARCH).efi"
 
 iso: $(ARTIFACTS) ## Builds the ISO and outputs it to the artifact directory
-	@test -f $(ARTIFACTS)/muak-$(ARCH).efi || { echo "Error: UKI not found. Run 'make uki' first"; exit 1; }
+	$(call require,$(ARTIFACTS)/muak-$(ARCH).efi,make uki)
 	@$(CONTAINER_RUNTIME) run --rm -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
 		set -euo pipefail && \
 		apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1 && \

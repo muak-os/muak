@@ -3,7 +3,7 @@ set -euo pipefail
 
 ARCH="${ARCH:-x86_64}"
 KERNEL_VERSION="${KERNEL_VERSION:-6.18}"
-BUILD_DIR="$(pwd)/build/kernel/${ARCH}"
+BUILD_DIR="$(pwd)/_out/kernel/${ARCH}"
 CONFIG_FILE="$(pwd)/pkgs/kernel/config-amd64"
 
 echo "==== Muak Kernel Build ===="
