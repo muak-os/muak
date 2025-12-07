@@ -13,7 +13,7 @@ UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
 EXTENSIONS ?=
 
-SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null || date +%s)
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
 
 CONTAINER_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
 
@@ -46,6 +46,8 @@ define require-pkg
 	@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
 endef
 
+# Help Menu
+
 .PHONY: help
 help: ## Show this help
 	@printf "\n$(BOLD)Muak$(RESET)\n\n"
@@ -54,7 +56,8 @@ help: ## Show this help
 	@printf "To build this project, you must have the following installed:\n\n"
 	@printf "  - rustup with musl targets (see README.md)\n"
 	@printf "  - make\n"
-	@printf "  - docker (with buildx) or podman\n\n"
+	@printf "  - docker (with buildx) or podman\n"
+	@printf "  - git\n\n"
 	@printf "$(BOLD)$(CYAN)Quick Start$(RESET)\n\n"
 	@printf "  $(GREEN)make kernel$(RESET)         Build the kernel locally\n"
 	@printf "  $(GREEN)make dev$(RESET)            Full build chain\n\n"
@@ -64,6 +67,8 @@ help: ## Show this help
 	@printf "$(BOLD)$(CYAN)Targets$(RESET)\n\n"
 	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-20s\033[0m %s\n", $$1, $$2}'
 	@printf "\n$(BOLD)$(CYAN)Available packages$(RESET): $(PACKAGES)\n\n"
+
+# Build Abstractions
 
 $(ARTIFACTS):
 	@mkdir -p $(ARTIFACTS)
@@ -83,13 +88,14 @@ local-%: ## Build package and output locally to ARTIFACTS (e.g., make local-kern
 kernel: ## Build kernel and output to ARTIFACTS
 	@$(MAKE) local-kernel
 
-oci-%: ## Build OCI image and tag for registry (e.g., make oci-granola)
+oci-%: ## Build OCI image and tag for registry (e.g., make oci-cloud-hypervisor)
 	$(call require-pkg,$*)
 	@echo "Building OCI image: $* (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
 		$(COMMON_ARGS) \
 		$(TARGET_ARGS) \
 		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
+		--load \
 		--file pkgs/$*/Dockerfile \
 		.
 
@@ -99,6 +105,7 @@ oci-installer: ## Build installer OCI image (uses registry packages)
 	@$(BUILD) \
 		$(COMMON_ARGS) \
 		--tag $(REGISTRY)/pkgs/installer:$(TAG) \
+		--load \
 		--file Dockerfile \
 		.
 
@@ -122,8 +129,6 @@ installer: packages $(ARTIFACTS) ## Build installer with local binaries and extr
 		--file Dockerfile \
 		.
 	@echo "Installer assets extracted to $(ARTIFACTS)/"
-
-# ======================================
 
 .PHONY: dev
 dev: packages installer extensions uki iso ## Full development build chain
