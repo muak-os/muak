@@ -46,8 +46,7 @@ define require-pkg
 	@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
 endef
 
-.PHONY: help clean dev packages initramfs uki iso kernel
-
+.PHONY: help
 help: ## Show this help
 	@printf "\n$(BOLD)Muak$(RESET)\n\n"
 	@printf "A minimal, immutable, API-driven Linux distribution for running VMs.\n\n"
@@ -80,6 +79,7 @@ local-%: ## Build package and output locally to ARTIFACTS (e.g., make local-kern
 		--file pkgs/$*/Dockerfile \
 		.
 
+.PHONY: kernel
 kernel: ## Build kernel and output to ARTIFACTS
 	@$(MAKE) local-kernel
 
@@ -93,6 +93,7 @@ oci-%: ## Build OCI image and tag for registry (e.g., make oci-granola)
 		--file pkgs/$*/Dockerfile \
 		.
 
+.PHONY: oci-installer
 oci-installer: ## Build installer OCI image (uses registry packages)
 	@echo "Building installer OCI image (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
@@ -101,9 +102,11 @@ oci-installer: ## Build installer OCI image (uses registry packages)
 		--file Dockerfile \
 		.
 
+.PHONY: local-installer
 local-installer:
 	@$(MAKE) installer
 
+.PHONY: installer
 installer: packages $(ARTIFACTS) ## Build installer with local binaries and extract to ARTIFACTS
 	$(call require,$(ARTIFACTS)/bzImage,make kernel)
 	@echo "Building installer with local binaries (using $(CONTAINER_RUNTIME))"
@@ -122,13 +125,16 @@ installer: packages $(ARTIFACTS) ## Build installer with local binaries and extr
 
 # ======================================
 
+.PHONY: dev
 dev: packages installer extensions uki iso ## Full development build chain
 	@echo "Build complete: $(ARTIFACTS)/muak-$(ARCH).iso"
 
+.PHONY: packages
 packages: ## Build Rust packages with cargo
 	@cargo build --release --target $(CARGO_TARGET)
 	@cargo +nightly build --release --target $(UEFI_TARGET) --features uefi -p stub
 
+.PHONY: extensions
 extensions: $(ARTIFACTS) ## Extend base initramfs with extension
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img,make installer)
 	@if [ -z "$(EXTENSIONS)" ]; then \
@@ -143,6 +149,7 @@ extensions: $(ARTIFACTS) ## Extend base initramfs with extension
 	fi
 	@echo "Initramfs ready: $(ARTIFACTS)/initramfs.img"
 
+.PHONY: uki
 uki: $(ARTIFACTS) ## Build UKI installer assets
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/stub.efi,make installer)
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/bzImage,make installer)
@@ -156,6 +163,7 @@ uki: $(ARTIFACTS) ## Build UKI installer assets
 		--output $(ARTIFACTS)/muak-$(ARCH).efi
 	@echo "UKI built: $(ARTIFACTS)/muak-$(ARCH).efi"
 
+.PHONY: iso
 iso: $(ARTIFACTS) ## Builds the ISO and outputs it to the artifact directory
 	$(call require,$(ARTIFACTS)/muak-$(ARCH).efi,make uki)
 	@$(CONTAINER_RUNTIME) run --rm -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
@@ -171,6 +179,7 @@ iso: $(ARTIFACTS) ## Builds the ISO and outputs it to the artifact directory
 		rm -rf /out/iso'
 	@echo "ISO built: $(ARTIFACTS)/muak-$(ARCH).iso"
 
+.PHONY: clean
 clean: ## Remove build artifacts
 	@echo "Cleaning build artifacts..."
 	@cargo clean
