@@ -1,29 +1,28 @@
 [package]
 name = "imager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Sawang"]
-description = "Build custom initramfs with OCI extensions"
+description = ""
 
 [dependencies]
-# Core async runtime
-tokio = { workspace = true, features = ["rt"] }
-
 # CLI parsing
 clap = { workspace = true }
 
-# OCI image handling
-oci-client = { workspace = true }
+# OCI layer extraction
 tar = { workspace = true }
 flate2 = { workspace = true }
 
+# HTTP client
+reqwest = { workspace = true, features = ["blocking", "json"] }
+
 # Serialization
 serde = { workspace = true }
-serde_yaml = { workspace = true }
+serde_json = { workspace = true }
 
 # Filesystem utilities
 backhand = { workspace = true }
 cpio = { workspace = true }
-walkdir = { workspace = true }
 tempfile = { workspace = true }
+walkdir = { workspace = true }
 zstd = { workspace = true }

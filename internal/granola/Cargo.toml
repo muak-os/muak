@@ -38,10 +38,5 @@ anyhow = { workspace = true }
 gptman = { workspace = true }
 fatfs = { workspace = true }
 
-# OCI image handling
-oci-client = { workspace = true }
-tar = { workspace = true }
-flate2 = { workspace = true }
-
 [build-dependencies]
 tonic-prost-build = { workspace = true }

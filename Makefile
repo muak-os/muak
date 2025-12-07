@@ -73,29 +73,40 @@ help: ## Show this help
 $(ARTIFACTS):
 	@mkdir -p $(ARTIFACTS)
 
-local-%: ## Build package and output locally to ARTIFACTS (e.g., make local-kernel)
+local-%: ## Build package as OCI layout locally (e.g. make local-cloud-hypervisor)
 	$(call require-pkg,$*)
+	@echo "Building OCI layout: $* (using $(CONTAINER_RUNTIME))"
+	@mkdir -p $(ARTIFACTS)/oci
+	@$(BUILD) \
+		$(COMMON_ARGS) \
+		$(TARGET_ARGS) \
+		--tag localhost/muak-$*:latest \
+		--load \
+		--file pkgs/$*/Dockerfile \
+		.
+	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$* localhost/muak-$*:latest
+	@$(CONTAINER_RUNTIME) rmi localhost/muak-$*:latest >/dev/null 2>&1 || true
+
+.PHONY: kernel
+kernel: ## Build kernel and output to ARTIFACTS
+	$(call require-pkg,kernel)
 	@mkdir -p $(ARTIFACTS)
-	@echo "Building $* locally (using $(CONTAINER_RUNTIME))"
+	@echo "Building kernel locally (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
 		$(COMMON_ARGS) \
 		$(TARGET_ARGS) \
 		--output type=local,dest=$(ARTIFACTS) \
-		--file pkgs/$*/Dockerfile \
+		--file pkgs/kernel/Dockerfile \
 		.
 
-.PHONY: kernel
-kernel: ## Build kernel and output to ARTIFACTS
-	@$(MAKE) local-kernel
-
-oci-%: ## Build OCI image and tag for registry (e.g., make oci-cloud-hypervisor)
+oci-%: ## Build OCI image to registry (e.g. make oci-cloud-hypervisor)
 	$(call require-pkg,$*)
-	@echo "Building OCI image: $* (using $(CONTAINER_RUNTIME))"
+	@echo "Building and pushing OCI image: $* (using $(CONTAINER_RUNTIME))"
 	@$(BUILD) \
 		$(COMMON_ARGS) \
 		$(TARGET_ARGS) \
 		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
-		--load \
+		--load
 		--file pkgs/$*/Dockerfile \
 		.
 
@@ -147,7 +158,7 @@ extensions: $(ARTIFACTS) ## Extend base initramfs with extension
 		cp $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img $(ARTIFACTS)/initramfs.img; \
 	else \
 		echo "Building initramfs with extensions: $(EXTENSIONS)"; \
-		$(RELEASE_DIR)/imager \
+		$(RELEASE_DIR)/imager build \
 			--base $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img \
 			$(foreach ext,$(EXTENSIONS),--extension $(ext)) \
 			--output $(ARTIFACTS)/initramfs.img; \
