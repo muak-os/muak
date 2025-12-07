@@ -19,7 +19,7 @@ const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca
 #[entry]
 fn main() -> Status {
     uefi::helpers::init().unwrap();
-    log_info!("Muak stub v0.2.0 starting...");
+    log_info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
 
     match run() {
         Ok(status) => status,
@@ -33,14 +33,12 @@ fn main() -> Status {
 fn run() -> StubResult<Status> {
     let image_handle = uefi::boot::image_handle();
 
-    // Get base address of loaded image
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .map_err(|_| StubError::ProtocolOpenFailed)?;
 
     let (base_addr, _image_size) = loaded_image.info();
     log_info!("Base address: {:p}", base_addr);
 
-    // Parse UKI sections
     let sections = unsafe { UkiSections::parse(base_addr as *const u8)? };
     let kernel_bytes = sections.require_kernel()?;
 
@@ -50,12 +48,10 @@ fn run() -> StubResult<Status> {
         kernel_bytes.as_ptr()
     );
 
-    // Install LoadFile2 protocol for initrd if present
     if let Some(initrd_bytes) = sections.initrd {
         loadfile2::install(initrd_bytes, &LINUX_INITRD_GUID)?;
     }
 
-    // Load and configure kernel
     let kernel_handle = loader::load_kernel(image_handle, kernel_bytes)?;
 
     if let Some(cmdline_bytes) = sections.cmdline {
