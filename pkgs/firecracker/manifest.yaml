@@ -1,3 +1,0 @@
-name: firecracker
-version: "1.0.0"
-description: "AWS Firecracker microVM hypervisor"
