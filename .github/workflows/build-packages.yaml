@@ -10,6 +10,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/build-packages.yaml"
+    tags:
+      - "v[0-9]+.*"
   pull_request:
     paths:
       - "pkgs/**"
@@ -47,9 +49,14 @@ jobs:
             echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
           fi
 
+      - name: Build all packages on tag push
+        id: tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: echo 'packages=["granola","init","imager","yuki","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+
       - name: Check for Cargo changes (rebuild all Rust packages)
         id: cargo
-        if: steps.manual.outputs.packages == ''
+        if: steps.manual.outputs.packages == '' && steps.tag.outputs.packages == ''
         run: |
           if git diff --name-only HEAD^..HEAD 2>/dev/null | grep -qE '^Cargo\.(toml|lock)$'; then
             echo "rebuild-all=true" >> $GITHUB_OUTPUT
@@ -59,7 +66,7 @@ jobs:
 
       - uses: dorny/paths-filter@v3
         id: filter
-        if: steps.manual.outputs.packages == '' && steps.cargo.outputs.rebuild-all != 'true'
+        if: steps.manual.outputs.packages == '' && steps.tag.outputs.packages == '' && steps.cargo.outputs.rebuild-all != 'true'
         with:
           filters: |
             granola:
@@ -89,11 +96,14 @@ jobs:
         id: changes
         env:
           MANUAL_PACKAGES: ${{ steps.manual.outputs.packages }}
+          TAG_PACKAGES: ${{ steps.tag.outputs.packages }}
           REBUILD_ALL: ${{ steps.cargo.outputs.rebuild-all }}
           FILTER_CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
           if [[ -n "${MANUAL_PACKAGES}" ]]; then
             echo "packages=${MANUAL_PACKAGES}" >> $GITHUB_OUTPUT
+          elif [[ -n "${TAG_PACKAGES}" ]]; then
+            echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
           elif [[ "${REBUILD_ALL}" == "true" ]]; then
             echo 'packages=["granola","init","imager","yuki","stub"]' >> $GITHUB_OUTPUT
           elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then

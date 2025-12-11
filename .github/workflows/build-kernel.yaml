@@ -6,6 +6,8 @@ on:
     paths:
       - "pkgs/kernel/**"
       - ".github/workflows/build-kernel.yaml"
+    tags:
+      - "v[0-9]+.*"
   pull_request:
     paths:
       - "pkgs/kernel/**"
