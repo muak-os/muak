@@ -1,11 +1,15 @@
 REGISTRY ?= ghcr.io/sawangg
-TAG ?= latest
-PLATFORM ?= linux/amd64
+TAG ?= $(shell git describe --tag --always --dirty --match v[0-9]\* 2>/dev/null || echo dev)
+SHA ?= $(shell git describe --match=none --always --abbrev=8 --dirty)
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
 
-ARCH ?= x86_64
+PUSH ?= false
+PLATFORM ?= linux/amd64
+PROGRESS ?= auto
+CI_ARGS ?=
 
 ARTIFACTS := _out
-
+ARCH ?= x86_64
 CARGO_TARGET := x86_64-unknown-linux-musl
 UEFI_TARGET := x86_64-unknown-uefi
 RELEASE_DIR := target/$(CARGO_TARGET)/release
@@ -13,11 +17,23 @@ UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
 EXTENSIONS ?=
 
-SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
+INTERNAL_PACKAGES := granola init imager yuki stub
+EXTENSION_PACKAGES := cloud-hypervisor firecracker qemu
+ALL_PACKAGES := $(INTERNAL_PACKAGES) $(EXTENSION_PACKAGES) kernel
 
 CONTAINER_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
 
-PACKAGES := granola init imager yuki stub cloud-hypervisor firecracker qemu kernel
+ifeq ($(CONTAINER_RUNTIME),podman)
+	BUILD := podman build
+else
+	BUILD := docker buildx build
+endif
+
+COMMON_ARGS := --platform=$(PLATFORM)
+COMMON_ARGS += --progress=$(PROGRESS)
+COMMON_ARGS += --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
+COMMON_ARGS += --build-arg TAG=$(TAG)
+COMMON_ARGS += --provenance=false
 
 BOLD := \e[1m
 CYAN := \e[36m
@@ -25,18 +41,6 @@ GREEN := \e[32m
 YELLOW := \e[33m
 RED := \e[31m
 RESET := \e[0m
-
-ifeq ($(CONTAINER_RUNTIME),podman)
-	BUILD := podman build
-	COMMON_ARGS := --platform=$(PLATFORM)
-	COMMON_ARGS += --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
-else
-	BUILD := docker buildx build
-	COMMON_ARGS := --provenance=false
-	COMMON_ARGS += --platform=$(PLATFORM)
-	COMMON_ARGS += --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
-	COMMON_ARGS += --progress=plain
-endif
 
 define require
 	@test -f $(1) || { printf "$(RED)$(BOLD)Error:$(RESET) $(1) not found. Run $(GREEN)$(2)$(RESET) first\n"; exit 1; }
@@ -47,7 +51,6 @@ define require-pkg
 endef
 
 # Help Menu
-
 .PHONY: help
 help: ## Show this help
 	@printf "\n$(BOLD)Muak$(RESET)\n\n"
@@ -66,70 +69,59 @@ help: ## Show this help
 	@printf "the registry $(YELLOW)$(REGISTRY)$(RESET) and tag $(YELLOW)$(TAG)$(RESET).\n\n"
 	@printf "$(BOLD)$(CYAN)Targets$(RESET)\n\n"
 	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-20s\033[0m %s\n", $$1, $$2}'
-	@printf "\n$(BOLD)$(CYAN)Available packages$(RESET): $(PACKAGES)\n\n"
+	@printf "\n$(BOLD)$(CYAN)Available packages$(RESET): $(ALL_PACKAGES)\n\n"
 
 # Build Abstractions
-
 $(ARTIFACTS):
 	@mkdir -p $(ARTIFACTS)
 
-local-%: ## Build package as OCI layout locally (e.g. make local-cloud-hypervisor)
+local-%: $(ARTIFACTS) ## Build package as local OCI layout (e.g. make local-granola)
 	$(call require-pkg,$*)
-	@echo "Building OCI layout: $* (using $(CONTAINER_RUNTIME))"
+	@printf "$(CYAN)Building local:$(RESET) $* -> $(ARTIFACTS)/oci/$*\n"
 	@mkdir -p $(ARTIFACTS)/oci
-	@$(BUILD) \
-		$(COMMON_ARGS) \
-		$(TARGET_ARGS) \
-		--tag localhost/muak-$*:latest \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+		--tag localhost/muak-$*:$(TAG) \
 		--load \
 		--file pkgs/$*/Dockerfile \
 		.
-	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$* localhost/muak-$*:latest
-	@$(CONTAINER_RUNTIME) rmi localhost/muak-$*:latest >/dev/null 2>&1 || true
+	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$* localhost/muak-$*:$(TAG)
+	@$(CONTAINER_RUNTIME) rmi localhost/muak-$*:$(TAG) >/dev/null 2>&1 || true
 
+oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola PUSH=true)
+	$(call require-pkg,$*)
+	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH))\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
+		--push=$(PUSH) \
+		--file pkgs/$*/Dockerfile \
+		.
+
+## Kernel
 .PHONY: kernel
-kernel: ## Build kernel and output to ARTIFACTS
+kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 	$(call require-pkg,kernel)
-	@mkdir -p $(ARTIFACTS)
-	@echo "Building kernel locally (using $(CONTAINER_RUNTIME))"
-	@$(BUILD) \
-		$(COMMON_ARGS) \
-		$(TARGET_ARGS) \
+	@printf "$(CYAN)Building kernel locally$(RESET)\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--output type=local,dest=$(ARTIFACTS) \
 		--file pkgs/kernel/Dockerfile \
 		.
 
-oci-%: ## Build OCI image to registry (e.g. make oci-cloud-hypervisor)
-	$(call require-pkg,$*)
-	@echo "Building and pushing OCI image: $* (using $(CONTAINER_RUNTIME))"
-	@$(BUILD) \
-		$(COMMON_ARGS) \
-		$(TARGET_ARGS) \
-		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
-		--load
-		--file pkgs/$*/Dockerfile \
+.PHONY: oci-kernel
+oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
+	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH))\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+		--tag $(REGISTRY)/kernel:$(TAG) \
+		--push=$(PUSH) \
+		--target kernel-package \
+		--file pkgs/kernel/Dockerfile \
 		.
 
-.PHONY: oci-installer
-oci-installer: ## Build installer OCI image (uses registry packages)
-	@echo "Building installer OCI image (using $(CONTAINER_RUNTIME))"
-	@$(BUILD) \
-		$(COMMON_ARGS) \
-		--tag $(REGISTRY)/pkgs/installer:$(TAG) \
-		--load \
-		--file Dockerfile \
-		.
-
-.PHONY: local-installer
-local-installer:
-	@$(MAKE) installer
-
+## Installer
 .PHONY: installer
-installer: packages $(ARTIFACTS) ## Build installer with local binaries and extract to ARTIFACTS
+installer: packages kernel $(ARTIFACTS) ## Build installer with local binaries
 	$(call require,$(ARTIFACTS)/bzImage,make kernel)
-	@echo "Building installer with local binaries (using $(CONTAINER_RUNTIME))"
-	@$(BUILD) \
-		$(COMMON_ARGS) \
+	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-context pkg-granola=$(RELEASE_DIR) \
 		--build-context pkg-init=$(RELEASE_DIR) \
 		--build-context pkg-yuki=$(RELEASE_DIR) \
@@ -139,37 +131,53 @@ installer: packages $(ARTIFACTS) ## Build installer with local binaries and extr
 		--output type=local,dest=$(ARTIFACTS) \
 		--file Dockerfile \
 		.
-	@echo "Installer assets extracted to $(ARTIFACTS)/"
+	@printf "$(GREEN)Installer assets extracted to $(ARTIFACTS)/$(RESET)\n"
 
-.PHONY: dev
-dev: packages installer extensions uki iso ## Full development build chain
-	@echo "Build complete: $(ARTIFACTS)/muak-$(ARCH).iso"
+.PHONY: oci-installer
+oci-installer: ## Build installer OCI image from registry packages
+	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH))\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
+		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
+		--build-arg PKG_INIT=$(REGISTRY)/pkgs/init:$(TAG) \
+		--build-arg PKG_IMAGER=$(REGISTRY)/pkgs/imager:$(TAG) \
+		--build-arg PKG_YUKI=$(REGISTRY)/pkgs/yuki:$(TAG) \
+		--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
+		--tag $(REGISTRY)/installer:$(TAG) \
+		--push=$(PUSH) \
+		--file Dockerfile \
+		.
 
+## Rust Packages
 .PHONY: packages
-packages: ## Build Rust packages with cargo
+packages: ## Build all Rust packages with cargo
+	@printf "$(CYAN)Building Rust packages$(RESET)\n"
 	@cargo build --release --target $(CARGO_TARGET)
 	@cargo +nightly build --release --target $(UEFI_TARGET) --features uefi -p stub
 
+## Extensions
 .PHONY: extensions
-extensions: $(ARTIFACTS) ## Extend base initramfs with extension
+extensions: $(ARTIFACTS) ## Extend base initramfs with specified extensions
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img,make installer)
 	@if [ -z "$(EXTENSIONS)" ]; then \
-		echo "No extensions specified, using base initramfs"; \
+		printf "$(YELLOW)No extensions specified, using base initramfs$(RESET)\n"; \
 		cp $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img $(ARTIFACTS)/initramfs.img; \
 	else \
-		echo "Building initramfs with extensions: $(EXTENSIONS)"; \
+		printf "$(CYAN)Building initramfs with extensions:$(RESET) $(EXTENSIONS)\n"; \
 		$(RELEASE_DIR)/imager build \
 			--base $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img \
 			$(foreach ext,$(EXTENSIONS),--extension $(ext)) \
 			--output $(ARTIFACTS)/initramfs.img; \
 	fi
-	@echo "Initramfs ready: $(ARTIFACTS)/initramfs.img"
+	@printf "$(GREEN)Initramfs ready:$(RESET) $(ARTIFACTS)/initramfs.img\n"
 
+## Images artifacts
 .PHONY: uki
-uki: $(ARTIFACTS) ## Build UKI installer assets
+uki: $(ARTIFACTS) ## Build UKI (Unified Kernel Image)
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/stub.efi,make installer)
 	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/bzImage,make installer)
 	$(call require,$(ARTIFACTS)/initramfs.img,make extensions)
+	@printf "$(CYAN)Building UKI$(RESET)\n"
 	@echo -n "console=tty0 console=ttyS0 init=/init" > $(ARTIFACTS)/cmdline.txt
 	@$(RELEASE_DIR)/yuki \
 		--stub $(ARTIFACTS)/run/install/$(ARCH)/stub.efi \
@@ -177,11 +185,12 @@ uki: $(ARTIFACTS) ## Build UKI installer assets
 		--initrd $(ARTIFACTS)/initramfs.img \
 		--cmdline $(ARTIFACTS)/cmdline.txt \
 		--output $(ARTIFACTS)/muak-$(ARCH).efi
-	@echo "UKI built: $(ARTIFACTS)/muak-$(ARCH).efi"
+	@printf "$(GREEN)UKI built:$(RESET) $(ARTIFACTS)/muak-$(ARCH).efi\n"
 
 .PHONY: iso
-iso: $(ARTIFACTS) ## Builds the ISO and outputs it to the artifact directory
+iso: $(ARTIFACTS) ## Build bootable ISO
 	$(call require,$(ARTIFACTS)/muak-$(ARCH).efi,make uki)
+	@printf "$(CYAN)Building ISO$(RESET)\n"
 	@$(CONTAINER_RUNTIME) run --rm -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
 		set -euo pipefail && \
 		apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1 && \
@@ -193,11 +202,18 @@ iso: $(ARTIFACTS) ## Builds the ISO and outputs it to the artifact directory
 		mcopy -i /out/iso/efiboot.img /out/muak-$(ARCH).efi ::/EFI/BOOT/BOOTX64.EFI && \
 		xorriso -as mkisofs -o /out/muak-$(ARCH).iso -e efiboot.img -no-emul-boot -V MUAK /out/iso && \
 		rm -rf /out/iso'
-	@echo "ISO built: $(ARTIFACTS)/muak-$(ARCH).iso"
+	@printf "$(GREEN)ISO built:$(RESET) $(ARTIFACTS)/muak-$(ARCH).iso\n"
 
+# Development
+.PHONY: dev
+dev: packages installer extensions uki iso ## Full local development build
+	@printf "$(GREEN)$(BOLD)Build complete:$(RESET) $(ARTIFACTS)/muak-$(ARCH).iso\n"
+
+# Cleanup
 .PHONY: clean
-clean: ## Remove build artifacts
-	@echo "Cleaning build artifacts..."
+clean: ## Remove all build artifacts
+	@printf "$(CYAN)Cleaning build artifacts$(RESET)\n"
 	@cargo clean
 	@rm -rf $(ARTIFACTS)
 	@$(CONTAINER_RUNTIME) rm -f kernel-extract 2>/dev/null || true
+	@printf "$(GREEN)Clean complete$(RESET)\n"
