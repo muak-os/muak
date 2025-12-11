@@ -33,7 +33,9 @@ COMMON_ARGS := --platform=$(PLATFORM)
 COMMON_ARGS += --progress=$(PROGRESS)
 COMMON_ARGS += --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
 COMMON_ARGS += --build-arg TAG=$(TAG)
-COMMON_ARGS += --provenance=false
+ifneq ($(CONTAINER_RUNTIME),podman)
+	COMMON_ARGS += --provenance=false
+endif
 
 BOLD := \e[1m
 CYAN := \e[36m
