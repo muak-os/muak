@@ -1,5 +1,3 @@
-# Firecracker MUAK Extension
-
 FROM alpine:latest AS downloader
 
 ARG FIRECRACKER_VERSION=v1.13.0
@@ -31,7 +29,6 @@ FROM scratch
 COPY --from=downloader /download/firecracker /usr/bin/firecracker
 COPY --from=downloader /download/vmlinux /usr/share/firecracker/vmlinux
 COPY --from=downloader /download/rootfs.ext4 /usr/share/firecracker/rootfs.ext4
-COPY pkgs/firecracker/manifest.yaml /manifest.yaml
 
 LABEL org.opencontainers.image.title="firecracker"
 LABEL org.opencontainers.image.description="AWS Firecracker microVM hypervisor with kernel and rootfs"

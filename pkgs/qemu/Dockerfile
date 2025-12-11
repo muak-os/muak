@@ -6,68 +6,68 @@ WORKDIR /build
 
 # Install QEMU and ALL runtime dependencies
 RUN apk add --no-cache \
-    qemu-system-x86_64 \
-    qemu-system-aarch64 \
-    qemu-img \
-    qemu-ui-gtk \
-    qemu-ui-sdl \
-    qemu-ui-spice-core \
-    # Core libraries
-    glib \
-    pixman \
-    gnutls \
-    zlib \
-    libpng \
-    libjpeg-turbo \
-    libsasl \
-    snappy \
-    lzo \
-    libseccomp \
-    libfdt \
-    numactl \
-    libcap-ng \
-    # Graphics and display support
-    mesa-dri-gallium \
-    mesa-gl \
-    libdrm \
-    libx11 \
-    libxext \
-    libxfixes \
-    libxrandr \
-    libxrender \
-    libxdamage \
-    libxcomposite \
-    libxcursor \
-    libxi \
-    libxinerama \
-    libxkbcommon \
-    libxshmfence \
-    gtk+3.0 \
-    sdl2 \
-    spice \
-    virglrenderer \
-    # Audio support
-    alsa-lib \
-    pulseaudio \
-    # USB support
-    libusb \
-    usbredir \
-    # Network support
-    libslirp \
-    # Additional utilities
-    coreutils \
-    bash
+  qemu-system-x86_64 \
+  qemu-system-aarch64 \
+  qemu-img \
+  qemu-ui-gtk \
+  qemu-ui-sdl \
+  qemu-ui-spice-core \
+  # Core libraries
+  glib \
+  pixman \
+  gnutls \
+  zlib \
+  libpng \
+  libjpeg-turbo \
+  libsasl \
+  snappy \
+  lzo \
+  libseccomp \
+  libfdt \
+  numactl \
+  libcap-ng \
+  # Graphics and display support
+  mesa-dri-gallium \
+  mesa-gl \
+  libdrm \
+  libx11 \
+  libxext \
+  libxfixes \
+  libxrandr \
+  libxrender \
+  libxdamage \
+  libxcomposite \
+  libxcursor \
+  libxi \
+  libxinerama \
+  libxkbcommon \
+  libxshmfence \
+  gtk+3.0 \
+  sdl2 \
+  spice \
+  virglrenderer \
+  # Audio support
+  alsa-lib \
+  pulseaudio \
+  # USB support
+  libusb \
+  usbredir \
+  # Network support
+  libslirp \
+  # Additional utilities
+  coreutils \
+  bash
 
 # Create directory structure for organized bundling
 RUN mkdir -p /output/usr/bin \
-    /output/usr/lib \
-    /output/usr/share/qemu \
-    /output/lib
+  /output/usr/lib \
+  /output/usr/share/qemu \
+  /output/lib
 
 # Copy QEMU binaries
 RUN cp /usr/bin/qemu-system-x86_64 /output/usr/bin/ && \
-    cp /usr/bin/qemu-system-aarch64 /output/usr/bin/ && \
-    cp /usr/bin/qemu-img /output/usr/bin/
+  cp /usr/bin/qemu-system-aarch64 /output/usr/bin/ && \
+  cp /usr/bin/qemu-img /output/usr/bin/
 
 # Copy ALL shared libraries (comprehensive approach)
 # This ensures we don't miss any dependencies
@@ -81,14 +81,14 @@ RUN cp -r /usr/share/qemu/* /output/usr/share/qemu/
 
 # Copy other potentially needed shared data
 RUN mkdir -p /output/usr/share/X11 && \
-    cp -r /usr/share/X11/* /output/usr/share/X11/ 2>/dev/null || true
+  cp -r /usr/share/X11/* /output/usr/share/X11/ 2>/dev/null || true
 
 # Copy GTK/GDK data for GUI support
 RUN mkdir -p /output/usr/share/glib-2.0 && \
-    cp -r /usr/share/glib-2.0/* /output/usr/share/glib-2.0/ 2>/dev/null || true
+  cp -r /usr/share/glib-2.0/* /output/usr/share/glib-2.0/ 2>/dev/null || true
 
 RUN mkdir -p /output/usr/share/gtk-3.0 && \
-    cp -r /usr/share/gtk-3.0/* /output/usr/share/gtk-3.0/ 2>/dev/null || true
+  cp -r /usr/share/gtk-3.0/* /output/usr/share/gtk-3.0/ 2>/dev/null || true
 
 # Final image - scratch base with bundled runtime
 FROM scratch
@@ -107,9 +107,6 @@ COPY --from=builder /output/usr/share/qemu /usr/share/qemu/
 COPY --from=builder /output/usr/share/X11 /usr/share/X11/
 COPY --from=builder /output/usr/share/glib-2.0 /usr/share/glib-2.0/
 COPY --from=builder /output/usr/share/gtk-3.0 /usr/share/gtk-3.0/
-
-# Copy manifest
-COPY pkgs/qemu/manifest.yaml /manifest.yaml
 
 # OCI labels for metadata
 LABEL org.opencontainers.image.title="qemu"
