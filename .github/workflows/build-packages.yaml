@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Package to build (leave empty for change detection)"
+        description: "Package to build (leave empty for change detection, 'all' for all packages)"
         required: false
         type: string
 
@@ -40,7 +40,12 @@ jobs:
       - name: Check for manual package selection
         id: manual
         if: github.event_name == 'workflow_dispatch' && inputs.package != ''
-        run: echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${{ inputs.package }}" == "all" ]]; then
+            echo 'packages=["granola","init","imager","yuki","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+          else
+            echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check for Cargo changes (rebuild all Rust packages)
         id: cargo
@@ -126,6 +131,7 @@ jobs:
       - name: Build ${{ matrix.package }}
         run: |
           make oci-${{ matrix.package }} \
+            CONTAINER_RUNTIME=docker \
             PUSH=${{ github.event_name != 'pull_request' }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
             CI_ARGS="--cache-from=type=gha,scope=${{ matrix.package }} --cache-to=type=gha,mode=max,scope=${{ matrix.package }}"
