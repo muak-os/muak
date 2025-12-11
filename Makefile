@@ -4,6 +4,7 @@ SHA ?= $(shell git describe --match=none --always --abbrev=8 --dirty)
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
 
 PUSH ?= false
+LATEST ?= false
 PLATFORM ?= linux/amd64
 PROGRESS ?= auto
 CI_ARGS ?=
@@ -100,12 +101,13 @@ local-%: $(ARTIFACTS) ## Build package as local OCI layout (e.g. make local-gran
 	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$* localhost/muak-$*:$(TAG)
 	@$(CONTAINER_RUNTIME) rmi localhost/muak-$*:$(TAG) >/dev/null 2>&1 || true
 
-oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola PUSH=true)
+oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
 	$(call require-pkg,$*)
 	$(call require-docker-for-push)
-	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH))\n"
+	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH), latest=$(LATEST))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
+		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/pkgs/$*:latest) \
 		$(PUSH_ARG) \
 		--file pkgs/$*/Dockerfile \
 		.
@@ -123,9 +125,10 @@ kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 .PHONY: oci-kernel
 oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
 	$(call require-docker-for-push)
-	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH))\n"
+	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--tag $(REGISTRY)/kernel:$(TAG) \
+		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/kernel:latest) \
 		$(PUSH_ARG) \
 		--target kernel-package \
 		--file pkgs/kernel/Dockerfile \
@@ -151,7 +154,7 @@ installer: packages kernel $(ARTIFACTS) ## Build installer with local binaries
 .PHONY: oci-installer
 oci-installer: ## Build installer OCI image from registry packages
 	$(call require-docker-for-push)
-	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH))\n"
+	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
 		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
@@ -160,6 +163,7 @@ oci-installer: ## Build installer OCI image from registry packages
 		--build-arg PKG_YUKI=$(REGISTRY)/pkgs/yuki:$(TAG) \
 		--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
 		--tag $(REGISTRY)/installer:$(TAG) \
+		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/installer:latest) \
 		$(PUSH_ARG) \
 		--file Dockerfile \
 		.

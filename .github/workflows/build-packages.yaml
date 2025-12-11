@@ -143,6 +143,7 @@ jobs:
           make oci-${{ matrix.package }} \
             CONTAINER_RUNTIME=docker \
             PUSH=${{ github.event_name != 'pull_request' }} \
+            LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
             CI_ARGS="--cache-from=type=gha,scope=${{ matrix.package }} --cache-to=type=gha,mode=max,scope=${{ matrix.package }}"
 

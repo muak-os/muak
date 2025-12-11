@@ -45,6 +45,7 @@ jobs:
           make oci-installer \
             CONTAINER_RUNTIME=docker \
             PUSH=true \
+            LATEST=true \
             TAG=${{ steps.tag.outputs.tag }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
             CI_ARGS="--cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache,mode=max"

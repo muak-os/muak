@@ -41,6 +41,7 @@ jobs:
         run: |
           make oci-kernel \
             PUSH=${{ github.event_name != 'pull_request' }} \
+            LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
             CI_ARGS="--cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache,mode=max"
 
