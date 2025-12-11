@@ -21,7 +21,7 @@ INTERNAL_PACKAGES := granola init imager yuki stub
 EXTENSION_PACKAGES := cloud-hypervisor firecracker qemu
 ALL_PACKAGES := $(INTERNAL_PACKAGES) $(EXTENSION_PACKAGES) kernel
 
-CONTAINER_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+CONTAINER_RUNTIME ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
 
 ifeq ($(CONTAINER_RUNTIME),podman)
 	BUILD := podman build
@@ -35,6 +35,9 @@ COMMON_ARGS += --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
 COMMON_ARGS += --build-arg TAG=$(TAG)
 ifneq ($(CONTAINER_RUNTIME),podman)
 	COMMON_ARGS += --provenance=false
+	PUSH_ARG := --push=$(PUSH)
+else
+	PUSH_ARG :=
 endif
 
 BOLD := \e[1m
@@ -50,6 +53,14 @@ endef
 
 define require-pkg
 	@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
+endef
+
+define require-docker-for-push
+	@if [ "$(PUSH)" = "true" ] && [ "$(CONTAINER_RUNTIME)" = "podman" ]; then \
+		printf "$(RED)$(BOLD)Error:$(RESET) PUSH=true requires Docker (podman does not support --push)\n"; \
+		printf "$(YELLOW)Hint:$(RESET) Set CONTAINER_RUNTIME=docker or use 'make local-%%' instead\n"; \
+		exit 1; \
+	fi
 endef
 
 # Help Menu
@@ -91,10 +102,11 @@ local-%: $(ARTIFACTS) ## Build package as local OCI layout (e.g. make local-gran
 
 oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola PUSH=true)
 	$(call require-pkg,$*)
+	$(call require-docker-for-push)
 	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
-		--push=$(PUSH) \
+		$(PUSH_ARG) \
 		--file pkgs/$*/Dockerfile \
 		.
 
@@ -110,10 +122,11 @@ kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 
 .PHONY: oci-kernel
 oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
+	$(call require-docker-for-push)
 	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--tag $(REGISTRY)/kernel:$(TAG) \
-		--push=$(PUSH) \
+		$(PUSH_ARG) \
 		--target kernel-package \
 		--file pkgs/kernel/Dockerfile \
 		.
@@ -137,6 +150,7 @@ installer: packages kernel $(ARTIFACTS) ## Build installer with local binaries
 
 .PHONY: oci-installer
 oci-installer: ## Build installer OCI image from registry packages
+	$(call require-docker-for-push)
 	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH))\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
@@ -146,7 +160,7 @@ oci-installer: ## Build installer OCI image from registry packages
 		--build-arg PKG_YUKI=$(REGISTRY)/pkgs/yuki:$(TAG) \
 		--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
 		--tag $(REGISTRY)/installer:$(TAG) \
-		--push=$(PUSH) \
+		$(PUSH_ARG) \
 		--file Dockerfile \
 		.
 
