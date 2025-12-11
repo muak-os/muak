@@ -12,6 +12,90 @@ use super::utils::format_partition_name;
 // #define BLKPG _IO(0x12,105)
 ioctl_write_ptr_bad!(blkpg_ioctl, 0x1269, BlkpgIoctlArg);
 
+const BLKPG_ADD_PARTITION: i32 = 1;
+const BLKPG_DEL_PARTITION: i32 = 2;
+
+pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
+    log!(
+        "installer",
+        "Removing partition {} from kernel using BLKPG ioctl",
+        partition_num
+    );
+
+    let f = OpenOptions::new().read(true).write(true).open(disk)?;
+
+    let devname = [0u8; 64];
+    let volname = [0u8; 64];
+
+    let mut blkpg_part = BlkpgPartition {
+        start: 0,
+        length: 0,
+        pno: partition_num as i32,
+        devname,
+        volname,
+    };
+
+    let blkpg_arg = BlkpgIoctlArg {
+        op: BLKPG_DEL_PARTITION,
+        flags: 0,
+        datalen: std::mem::size_of::<BlkpgPartition>() as i32,
+        data: &mut blkpg_part as *mut BlkpgPartition,
+    };
+
+    match unsafe { blkpg_ioctl(f.as_raw_fd(), &blkpg_arg) } {
+        Ok(_) => {
+            log!(
+                "installer",
+                "BLKPG: Successfully removed partition {}",
+                partition_num
+            );
+        }
+        Err(nix::errno::Errno::ENXIO) | Err(nix::errno::Errno::ENOENT) => {
+            // Partition doesn't exist in kernel, that's fine
+            log!(
+                "installer",
+                "BLKPG: Partition {} not present in kernel (OK)",
+                partition_num
+            );
+        }
+        Err(e) => {
+            log!(
+                "installer",
+                "BLKPG: Failed to remove partition {}: {}",
+                partition_num,
+                e
+            );
+            bail!(
+                "BLKPG ioctl failed to remove partition {}: {}",
+                partition_num,
+                e
+            )
+        }
+    }
+
+    drop(f);
+    Ok(())
+}
+
+pub fn delete_all_partitions_blkpg(disk: &str) -> Result<()> {
+    log!(
+        "installer",
+        "Removing all existing partitions from kernel for {}",
+        disk
+    );
+
+    for partition_num in 1..=128 {
+        let part_path = format_partition_name(disk, partition_num);
+        if !std::path::Path::new(&part_path).exists() {
+            continue;
+        }
+
+        delete_partition_blkpg(disk, partition_num)?;
+    }
+
+    Ok(())
+}
+
 pub fn add_partition_blkpg(
     disk: &str,
     partition_num: u32,
@@ -48,7 +132,7 @@ pub fn add_partition_blkpg(
     };
 
     let blkpg_arg = BlkpgIoctlArg {
-        op: 1, // add
+        op: BLKPG_ADD_PARTITION,
         flags: 0,
         datalen: std::mem::size_of::<BlkpgPartition>() as i32,
         data: &mut blkpg_part as *mut BlkpgPartition,

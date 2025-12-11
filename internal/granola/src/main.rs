@@ -1,11 +1,11 @@
 mod config;
 mod disk;
 mod grpc;
-mod installer;
 mod ipc;
 mod log;
 mod network;
 mod process;
+mod provisioning;
 mod signal;
 mod vm;
 mod vmm;
@@ -20,20 +20,26 @@ use vm::VmManager;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log!("granola", "PID 1 init started");
 
-    match installer::detect_status() {
-        installer::InstallationStatus::Live => {
-            log!("granola", "🔴 CURRENTLY IN MAINTENANCE MODE");
+    match provisioning::status() {
+        provisioning::InstallationStatus::Live => {
+            log!("granola", "CURRENTLY IN MAINTENANCE MODE");
             log!(
                 "granola",
-                "   Run 'muak install --target <disk>' to install"
+                "   Run 'muakctl install --target <disk>' to install"
             );
         }
-        installer::InstallationStatus::Installed => {
-            log!("granola", "🟢 Running from INSTALLED DISK");
+        provisioning::InstallationStatus::Installed => {
+            log!("granola", "Running from INSTALLED DISK");
 
             if let Err(e) = disk::mount_partitions() {
                 log!("granola", "WARNING: Failed to mount partitions: {}", e);
                 // TODO: set maintenance mode here to recover
+            } else if let Err(e) = provisioning::check_and_handle_pending_validation() {
+                log!(
+                    "granola",
+                    "WARNING: Update validation handling failed: {}",
+                    e
+                );
             }
         }
     }

@@ -37,15 +37,16 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
 
     wait_for_device(device)?;
 
-    let status = Command::new("/sbin/mkfs.btrfs")
+    let output = Command::new("/sbin/mkfs.btrfs")
         .arg("-f") // Force
         .arg("-L") // Label
         .arg(label)
         .arg(device)
-        .status()?;
+        .output()?;
 
-    if !status.success() {
-        bail!("Failed to format {} as btrfs", device);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to format {} as btrfs: {}", device, stderr);
     }
 
     log!("installer", "btrfs formatting complete");

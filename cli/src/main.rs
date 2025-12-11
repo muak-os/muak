@@ -55,8 +55,6 @@ enum Commands {
         target: String,
         #[arg(long)]
         force: bool,
-        #[arg(long)]
-        no_reboot: bool,
         #[arg(long, default_value = "v0.2.0")]
         version: String,
         #[arg(long)]
@@ -65,6 +63,8 @@ enum Commands {
     Update {
         #[arg(long)]
         version: Option<String>,
+        #[arg(long)]
+        extension: Vec<String>,
     },
     Disks,
 }
@@ -148,16 +148,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Install {
             target,
             force,
-            no_reboot,
             version,
             extension,
         } => {
             let mut client = MaintenanceServiceClient::new(channel);
-            handle_install(&mut client, target, force, no_reboot, version, extension).await?;
+            handle_install(&mut client, target, force, version, extension).await?;
         }
-        Commands::Update { version } => {
+        Commands::Update { version, extension } => {
             let mut client = MaintenanceServiceClient::new(channel);
-            handle_update(&mut client, version).await?;
+            handle_update(&mut client, version, extension).await?;
         }
         Commands::Disks => {
             let mut client = MaintenanceServiceClient::new(channel);
@@ -172,7 +171,6 @@ async fn handle_install(
     client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
     target_disk: String,
     force: bool,
-    no_reboot: bool,
     version: String,
     extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -181,7 +179,6 @@ async fn handle_install(
         force,
         version,
         extensions,
-        auto_reboot: Some(!no_reboot),
     });
 
     println!("{}Installing Muak to {}...{}", BLUE, target_disk, RESET);
@@ -194,17 +191,10 @@ async fn handle_install(
             "{}Successfully installed Muak to {}{}",
             GREEN, target_disk, RESET
         );
-        if no_reboot {
-            println!(
-                "\n{}Please reboot to start the installed system{}",
-                YELLOW, RESET
-            );
-        } else {
-            println!(
-                "\n{}System will reboot automatically in 3 seconds...{}",
-                YELLOW, RESET
-            );
-        }
+        println!(
+            "\n{}System will reboot automatically in 3 seconds...{}",
+            YELLOW, RESET
+        );
     } else {
         eprintln!("{}Installation failed: {}{}", RED, resp.error, RESET);
         std::process::exit(1);
@@ -216,9 +206,13 @@ async fn handle_install(
 async fn handle_update(
     client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
     version: Option<String>,
+    extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let version = version.unwrap_or_else(|| "latest".to_string());
-    let request = tonic::Request::new(UpdateRequest { version });
+    let request = tonic::Request::new(UpdateRequest {
+        version,
+        extensions,
+    });
 
     println!(
         "{}Starting update to {}...{}",

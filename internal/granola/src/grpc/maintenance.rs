@@ -1,4 +1,4 @@
-use crate::{disk, installer, log};
+use crate::{disk, log, provisioning};
 use tonic::{Request, Response, Status};
 
 pub mod proto {
@@ -6,9 +6,9 @@ pub mod proto {
 }
 
 use proto::{
-    DiskInfo as ProtoDiskInfo, InstallRequest, InstallResponse, ListDisksRequest,
-    ListDisksResponse, PartitionInfo as ProtoPartitionInfo,
-    maintenance_service_server::MaintenanceService,
+    maintenance_service_server::MaintenanceService, DiskInfo as ProtoDiskInfo, InstallRequest,
+    InstallResponse, ListDisksRequest, ListDisksResponse, PartitionInfo as ProtoPartitionInfo,
+    UpdateRequest, UpdateResponse,
 };
 
 pub struct MaintenanceServiceImpl;
@@ -21,19 +21,26 @@ impl MaintenanceService for MaintenanceServiceImpl {
     ) -> Result<Response<InstallResponse>, Status> {
         let req = request.into_inner();
 
-        let auto_reboot = req.auto_reboot.unwrap_or(true);
-
         log!(
             "maintenance",
-            "Install request: target={}, force={}, auto_reboot={}",
+            "Install request: target={}, force={}",
             req.target_disk,
-            req.force,
-            auto_reboot
+            req.force
         );
 
-        let result =
-            tokio::task::spawn_blocking(move || installer::install(&req.target_disk, req.force))
-                .await;
+        let version = if req.version.is_empty() {
+            "latest".to_string()
+        } else {
+            req.version.clone()
+        };
+        let extensions = req.extensions.clone();
+        let target_disk = req.target_disk.clone();
+        let force = req.force;
+
+        let result = tokio::task::spawn_blocking(move || {
+            provisioning::install(&target_disk, force, &version, &extensions)
+        })
+        .await;
 
         match result {
             Ok(Ok(())) => {
@@ -42,20 +49,17 @@ impl MaintenanceService for MaintenanceServiceImpl {
                     error: String::new(),
                 });
 
-                if auto_reboot {
-                    tokio::spawn(async {
-                        log!(
-                            "maintenance",
-                            "Installation successful, rebooting in 3 seconds..."
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
-                        if nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT)
-                            .is_err()
-                        {
-                            log!("maintenance", "Failed to reboot");
-                        }
-                    });
-                }
+                tokio::spawn(async {
+                    log!(
+                        "maintenance",
+                        "Installation successful, rebooting in 3 seconds..."
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+                    if nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT).is_err()
+                    {
+                        log!("maintenance", "Failed to reboot");
+                    }
+                });
 
                 Ok(response)
             }
@@ -125,6 +129,39 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 Ok(Response::new(ListDisksResponse {
                     disks: Vec::new(),
                     error: format!("{}", e),
+                }))
+            }
+        }
+    }
+
+    async fn update(
+        &self,
+        request: Request<UpdateRequest>,
+    ) -> Result<Response<UpdateResponse>, Status> {
+        let req = request.into_inner();
+
+        let version = if req.version.is_empty() {
+            "latest".to_string()
+        } else {
+            req.version.clone()
+        };
+
+        let extensions = req.extensions.clone();
+
+        let result = provisioning::update(&version, &extensions);
+
+        match result {
+            Ok(update_result) => Ok(Response::new(UpdateResponse {
+                success: true,
+                error: String::new(),
+                update_id: update_result.update_id,
+            })),
+            Err(e) => {
+                log!("maintenance", "Update failed: {}", e);
+                Ok(Response::new(UpdateResponse {
+                    success: false,
+                    error: format!("{}", e),
+                    update_id: String::new(),
                 }))
             }
         }

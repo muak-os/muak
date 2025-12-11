@@ -4,13 +4,15 @@ package muak.maintenance.v1;
 
 service MaintenanceService {
     rpc Install(InstallRequest) returns (InstallResponse);
+    rpc Update(UpdateRequest) returns (UpdateResponse);
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
 }
 
 message InstallRequest {
     string target_disk = 1;         // e.g., "/dev/sda" or "/dev/nvme0n1"
     bool force = 2;                 // Force installation even if disk has data
-    optional bool auto_reboot = 3;  // Automatically reboot after successful installation (default: true)
+    string version = 3;             // e.g., "v0.2.0" (default: latest)
+    repeated string extensions = 4; // e.g., ["ghcr.io/muak/ext-qemu:v8.2"]
 }
 
 message InstallResponse {
@@ -42,4 +44,15 @@ message ListDisksRequest {}
 message ListDisksResponse {
     repeated DiskInfo disks = 1;
     string error = 2;
+}
+
+message UpdateRequest {
+    string version = 1;             // e.g., "v0.2.0" (default: latest)
+    repeated string extensions = 2; // e.g., ["ghcr.io/muak/ext-qemu:v8.2"]
+}
+
+message UpdateResponse {
+    bool success = 1;
+    string error = 2;
+    string update_id = 3;    // e.g., "update-20251119-143045"
 }
