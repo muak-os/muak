@@ -82,13 +82,17 @@ jobs:
 
       - name: Determine packages to build
         id: changes
+        env:
+          MANUAL_PACKAGES: ${{ steps.manual.outputs.packages }}
+          REBUILD_ALL: ${{ steps.cargo.outputs.rebuild-all }}
+          FILTER_CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
-          if [[ -n "${{ steps.manual.outputs.packages }}" ]]; then
-            echo "packages=${{ steps.manual.outputs.packages }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ steps.cargo.outputs.rebuild-all }}" == "true" ]]; then
+          if [[ -n "${MANUAL_PACKAGES}" ]]; then
+            echo "packages=${MANUAL_PACKAGES}" >> $GITHUB_OUTPUT
+          elif [[ "${REBUILD_ALL}" == "true" ]]; then
             echo 'packages=["granola","init","imager","yuki","stub"]' >> $GITHUB_OUTPUT
-          elif [[ -n "${{ steps.filter.outputs.changes }}" && "${{ steps.filter.outputs.changes }}" != "[]" ]]; then
-            echo "packages=${{ steps.filter.outputs.changes }}" >> $GITHUB_OUTPUT
+          elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
+            echo "packages=${FILTER_CHANGES}" >> $GITHUB_OUTPUT
           else
             echo "packages=[]" >> $GITHUB_OUTPUT
           fi
