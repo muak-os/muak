@@ -13,7 +13,16 @@ pub fn create_squashfs_from_directory(source_dir: &Path) -> Result<Vec<u8>> {
     writer.set_compressor(compressor);
     writer.set_block_size(1024 * 1024);
 
-    for entry in WalkDir::new(source_dir).follow_links(false).sort_by_file_name() {
+    let root_metadata = std::fs::metadata(source_dir)?;
+    let root_mode = (root_metadata.mode() & 0o7777) as u16;
+    writer.set_root_mode(root_mode);
+    writer.set_root_uid(0);
+    writer.set_root_gid(0);
+
+    for entry in WalkDir::new(source_dir)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
         let entry = entry?;
         let path = entry.path();
         let rel_path = path.strip_prefix(source_dir)?;
@@ -25,19 +34,15 @@ pub fn create_squashfs_from_directory(source_dir: &Path) -> Result<Vec<u8>> {
         let archive_path = format!("/{}", rel_path.display());
         let metadata = entry.metadata()?;
 
-        let (uid, gid, mode, mtime) = (
-            metadata.uid(),
-            metadata.gid(),
-            metadata.mode(),
-            metadata.mtime(),
-        );
+        let mode = (metadata.mode() & 0o7777) as u16;
+        let mtime = metadata.mtime() as u32;
 
         if metadata.is_dir() {
-            let header = NodeHeader::new(mode as u16, uid, gid, mtime as u32);
+            let header = NodeHeader::new(mode, 0, 0, mtime);
             writer.push_dir(&archive_path, header)?;
         } else if metadata.is_symlink() {
             let link_target = std::fs::read_link(path)?;
-            let header = NodeHeader::new(0o777, uid, gid, mtime as u32);
+            let header = NodeHeader::new(0o777, 0, 0, mtime);
             writer.push_symlink(
                 link_target.to_string_lossy().into_owned(),
                 &archive_path,
@@ -45,7 +50,7 @@ pub fn create_squashfs_from_directory(source_dir: &Path) -> Result<Vec<u8>> {
             )?;
         } else if metadata.is_file() {
             let contents = std::fs::read(path)?;
-            let header = NodeHeader::new(mode as u16, uid, gid, mtime as u32);
+            let header = NodeHeader::new(mode, 0, 0, mtime);
             writer.push_file(Cursor::new(contents), &archive_path, header)?;
         }
     }
