@@ -24,14 +24,6 @@ pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
         MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
         None,
     )?;
-    // TODO: remove /tmp
-    create_and_mount(
-        "/tmp",
-        "tmpfs",
-        "tmpfs",
-        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-        Some("mode=1777"),
-    )?;
     create_and_mount(
         "/mnt",
         "tmpfs",

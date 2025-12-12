@@ -287,7 +287,7 @@ impl VmService for GrpcVmService {
             match req.request {
                 Some(vm_service::upload_file_request::Request::Metadata(metadata)) => {
                     let filename = metadata.filename;
-                    filepath = format!("/tmp/muak/disks/{}", filename);
+                    filepath = format!("{}/{}", crate::config::MUAK_DISKS_DIR, filename);
 
                     log!(
                         "grpc-vm",
@@ -297,7 +297,7 @@ impl VmService for GrpcVmService {
                     );
 
                     // Ensure directory exists
-                    if let Err(e) = tokio::fs::create_dir_all("/tmp/muak/disks").await {
+                    if let Err(e) = tokio::fs::create_dir_all(crate::config::MUAK_DISKS_DIR).await {
                         let error = format!("Failed to create upload directory: {}", e);
                         log!("grpc-vm", "{}", error);
                         return Ok(Response::new(UploadFileResponse {
