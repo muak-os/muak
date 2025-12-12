@@ -811,6 +811,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tokio",
  "tonic",
  "tonic-prost",
@@ -1139,7 +1140,6 @@ name = "imager"
 version = "0.2.0"
 dependencies = [
  "backhand",
- "base64",
  "clap",
  "cpio",
  "flate2",
@@ -1358,6 +1358,8 @@ dependencies = [
  "clap",
  "hyper-util",
  "prost",
+ "tar",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",

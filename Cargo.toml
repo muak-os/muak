@@ -45,7 +45,6 @@ bincode = "1.3"
 uuid = { version = "1.18", features = ["v4"] }
 sha2 = "0.10"
 anyhow = "1.0"
-base64 = "0.22"
 
 # Filesystem utilities
 gptman = "2.0"
