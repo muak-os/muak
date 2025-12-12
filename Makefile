@@ -136,7 +136,7 @@ oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
 
 ## Installer
 .PHONY: installer
-installer: packages kernel $(ARTIFACTS) ## Build installer with local binaries
+installer: $(ARTIFACTS) ## Build installer with local binaries
 	$(call require,$(ARTIFACTS)/bzImage,make kernel)
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
