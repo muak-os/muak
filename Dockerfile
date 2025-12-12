@@ -133,9 +133,9 @@ EOF
 # ============================================================
 FROM scratch
 
-COPY --link --from=initramfs-builder /base-initramfs.img /run/install/x86_64/base-initramfs.img
-COPY --link --from=pkg-kernel /bzImage /run/install/x86_64/bzImage
-COPY --link --from=pkg-stub /stub.efi /run/install/x86_64/stub.efi
+COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
+COPY --link --from=pkg-kernel /bzImage /bzImage
+COPY --link --from=pkg-stub /stub.efi /stub.efi
 
 ARG VERSION=unknown
 COPY --from=pkg-granola <<EOF /VERSION

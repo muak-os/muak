@@ -178,14 +178,14 @@ packages: ## Build all Rust packages with cargo
 ## Extensions
 .PHONY: extensions
 extensions: $(ARTIFACTS) ## Extend base initramfs with specified extensions
-	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img,make installer)
+	$(call require,$(ARTIFACTS)/base-initramfs.img,make installer)
 	@if [ -z "$(EXTENSIONS)" ]; then \
 		printf "$(YELLOW)No extensions specified, using base initramfs$(RESET)\n"; \
-		cp $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img $(ARTIFACTS)/initramfs.img; \
+		cp $(ARTIFACTS)/base-initramfs.img $(ARTIFACTS)/initramfs.img; \
 	else \
 		printf "$(CYAN)Building initramfs with extensions:$(RESET) $(EXTENSIONS)\n"; \
 		$(RELEASE_DIR)/imager build \
-			--base $(ARTIFACTS)/run/install/$(ARCH)/base-initramfs.img \
+			--base $(ARTIFACTS)/base-initramfs.img \
 			$(foreach ext,$(EXTENSIONS),--extension $(ext)) \
 			--output $(ARTIFACTS)/initramfs.img; \
 	fi
@@ -194,14 +194,14 @@ extensions: $(ARTIFACTS) ## Extend base initramfs with specified extensions
 ## Images artifacts
 .PHONY: uki
 uki: $(ARTIFACTS) ## Build UKI (Unified Kernel Image)
-	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/stub.efi,make installer)
-	$(call require,$(ARTIFACTS)/run/install/$(ARCH)/bzImage,make installer)
+	$(call require,$(ARTIFACTS)/stub.efi,make installer)
+	$(call require,$(ARTIFACTS)/bzImage,make installer)
 	$(call require,$(ARTIFACTS)/initramfs.img,make extensions)
 	@printf "$(CYAN)Building UKI$(RESET)\n"
 	@echo -n "console=tty0 console=ttyS0 init=/init" > $(ARTIFACTS)/cmdline.txt
 	@$(RELEASE_DIR)/yuki \
-		--stub $(ARTIFACTS)/run/install/$(ARCH)/stub.efi \
-		--linux $(ARTIFACTS)/run/install/$(ARCH)/bzImage \
+		--stub $(ARTIFACTS)/stub.efi \
+		--linux $(ARTIFACTS)/bzImage \
 		--initrd $(ARTIFACTS)/initramfs.img \
 		--cmdline $(ARTIFACTS)/cmdline.txt \
 		--output $(ARTIFACTS)/muak-$(ARCH).efi
@@ -211,7 +211,7 @@ uki: $(ARTIFACTS) ## Build UKI (Unified Kernel Image)
 iso: $(ARTIFACTS) ## Build bootable ISO
 	$(call require,$(ARTIFACTS)/muak-$(ARCH).efi,make uki)
 	@printf "$(CYAN)Building ISO$(RESET)\n"
-	@$(CONTAINER_RUNTIME) run --rm -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
+	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
 		set -euo pipefail && \
 		apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1 && \
 		rm -rf /out/iso && mkdir -p /out/iso/EFI/BOOT && \
