@@ -63,15 +63,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut snap_rx = network_actor.subscribe();
     tokio::spawn(async move {
+        let mut last_state: Option<network::model::NetworkStateKind> = None;
         while snap_rx.changed().await.is_ok() {
             let snap = snap_rx.borrow().clone();
-            log!(
-                "network",
-                "Snapshot state={:?} primary={:?} interfaces={}",
-                snap.state,
-                snap.primary,
-                snap.interfaces.len()
-            );
+            let should_log = match &last_state {
+                None => true,
+                Some(prev) => {
+                    *prev != snap.state || snap.state != network::model::NetworkStateKind::Ready
+                }
+            };
+            if should_log {
+                log!(
+                    "network",
+                    "Snapshot state={:?} primary={:?} interfaces={}",
+                    snap.state,
+                    snap.primary,
+                    snap.interfaces.len()
+                );
+            }
+            last_state = Some(snap.state);
         }
     });
 
