@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
+use tempfile::TempDir;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -77,7 +78,7 @@ impl ImageReference {
 }
 
 pub fn extract_local_oci_layout(oci_dir: &Path) -> Result<PathBuf> {
-    let temp = tempfile::tempdir()?;
+    let temp = create_temp_dir("oci-")?;
 
     let index_path = oci_dir.join("index.json");
     let index: OciIndex = serde_json::from_reader(BufReader::new(File::open(&index_path)?))?;
@@ -121,7 +122,7 @@ fn extract_tar_layer(layer_path: &Path, dest: &Path) -> Result<()> {
 }
 
 pub fn pull_to_temp(reference: &str) -> Result<PathBuf> {
-    let temp = tempfile::tempdir()?;
+    let temp = create_temp_dir("oci-")?;
     pull_to_directory(reference, temp.path())?;
     Ok(temp.keep())
 }
@@ -303,4 +304,19 @@ fn download_and_extract_layer(
     archive.unpack(dest)?;
 
     Ok(())
+}
+
+fn create_temp_dir(prefix: &str) -> Result<TempDir> {
+    const TEMP_DIRS: &[&str] = &["/run/install", "/run/state/update", "/run", "/tmp"];
+
+    for dir in TEMP_DIRS {
+        let path = Path::new(dir);
+        if path.exists() {
+            if let Ok(temp) = tempfile::Builder::new().prefix(prefix).tempdir_in(path) {
+                return Ok(temp);
+            }
+        }
+    }
+
+    Err("Failed to create temp directory in any location".into())
 }
