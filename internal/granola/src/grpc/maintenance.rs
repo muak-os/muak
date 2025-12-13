@@ -42,12 +42,7 @@ impl MaintenanceService for MaintenanceServiceImpl {
         let force = req.force;
 
         let result = tokio::task::spawn_blocking(move || {
-            provisioning::install(
-                &target_disk,
-                force,
-                &format!("ghcr.io/sawangg/installer:{}", version),
-                &extensions,
-            )
+            provisioning::install(&target_disk, force, &version, &extensions)
         })
         .await;
 
