@@ -43,7 +43,9 @@ pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String
 
 fn validate(disk_path: &str, force: bool) -> Result<()> {
     if !force && status() != InstallationStatus::Live {
-        bail!("Cannot install from an already-installed system. Boot from live ISO or use --force.");
+        bail!(
+            "Cannot install from an already-installed system. Boot from live ISO or use --force."
+        );
     }
 
     if !Path::new(disk_path).exists() {

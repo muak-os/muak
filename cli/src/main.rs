@@ -20,7 +20,7 @@ pub mod maintenance_service {
 }
 
 use maintenance_service::maintenance_service_client::MaintenanceServiceClient;
-use maintenance_service::{InstallRequest, ListDisksRequest, UpdateRequest};
+use maintenance_service::{GetLogsRequest, InstallRequest, ListDisksRequest, UpdateRequest};
 use process_service::process_service_client::ProcessServiceClient;
 use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
 use vm_service::vm_service_client::VmServiceClient;
@@ -55,7 +55,7 @@ enum Commands {
         target: String,
         #[arg(long)]
         force: bool,
-        #[arg(long, default_value = "v0.2.0")]
+        #[arg(long)]
         version: String,
         #[arg(long)]
         extension: Vec<String>,
@@ -67,6 +67,7 @@ enum Commands {
         extension: Vec<String>,
     },
     Disks,
+    Logs,
 }
 
 #[derive(Subcommand)]
@@ -161,6 +162,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Disks => {
             let mut client = MaintenanceServiceClient::new(channel);
             handle_list_disks(&mut client).await?;
+        }
+        Commands::Logs => {
+            let mut client = MaintenanceServiceClient::new(channel);
+            handle_logs(&mut client).await?;
         }
     }
 
@@ -291,6 +296,26 @@ async fn handle_list_disks(
                 "  {} {:<15}  {:<8}  {:<9}  {}",
                 prefix, part.path, part_size_str, fstype_display, part.start_sector
             );
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_logs(
+    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = tonic::Request::new(GetLogsRequest {});
+
+    let mut stream = client.get_logs(request).await?.into_inner();
+
+    while let Some(response) = stream.message().await? {
+        if !response.error.is_empty() {
+            eprintln!("{}Error: {}{}", RED, response.error, RESET);
+            std::process::exit(1);
+        }
+        if !response.line.is_empty() {
+            println!("{}", response.line);
         }
     }
 

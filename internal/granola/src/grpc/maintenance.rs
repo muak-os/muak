@@ -1,4 +1,7 @@
 use crate::{disk, log, provisioning};
+use std::pin::Pin;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
 pub mod proto {
@@ -6,9 +9,9 @@ pub mod proto {
 }
 
 use proto::{
-    maintenance_service_server::MaintenanceService, DiskInfo as ProtoDiskInfo, InstallRequest,
-    InstallResponse, ListDisksRequest, ListDisksResponse, PartitionInfo as ProtoPartitionInfo,
-    UpdateRequest, UpdateResponse,
+    DiskInfo as ProtoDiskInfo, GetLogsRequest, GetLogsResponse, InstallRequest, InstallResponse,
+    ListDisksRequest, ListDisksResponse, PartitionInfo as ProtoPartitionInfo, UpdateRequest,
+    UpdateResponse, maintenance_service_server::MaintenanceService,
 };
 
 pub struct MaintenanceServiceImpl;
@@ -33,12 +36,18 @@ impl MaintenanceService for MaintenanceServiceImpl {
         } else {
             req.version.clone()
         };
+
         let extensions = req.extensions.clone();
         let target_disk = req.target_disk.clone();
         let force = req.force;
 
         let result = tokio::task::spawn_blocking(move || {
-            provisioning::install(&target_disk, force, &version, &extensions)
+            provisioning::install(
+                &target_disk,
+                force,
+                &format!("ghcr.io/sawangg/installer:{}", version),
+                &extensions,
+            )
         })
         .await;
 
@@ -165,5 +174,81 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 }))
             }
         }
+    }
+
+    type GetLogsStream =
+        Pin<Box<dyn Stream<Item = Result<GetLogsResponse, Status>> + Send + 'static>>;
+
+    async fn get_logs(
+        &self,
+        _request: Request<GetLogsRequest>,
+    ) -> Result<Response<Self::GetLogsStream>, Status> {
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+
+        tokio::spawn(async move {
+            match tokio::fs::File::open("/dev/kmsg").await {
+                Ok(file) => {
+                    let reader = BufReader::new(file);
+                    let mut lines = reader.lines();
+
+                    loop {
+                        match lines.next_line().await {
+                            Ok(Some(line)) => {
+                                let formatted = parse_kmsg_line(&line);
+                                let response = GetLogsResponse {
+                                    line: formatted,
+                                    error: String::new(),
+                                };
+                                if tx.send(Ok(response)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(None) => {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(Ok(GetLogsResponse {
+                                        line: String::new(),
+                                        error: format!("Read error: {}", e),
+                                    }))
+                                    .await;
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(Ok(GetLogsResponse {
+                            line: String::new(),
+                            error: format!("Failed to open /dev/kmsg: {}", e),
+                        }))
+                        .await;
+                }
+            }
+        });
+
+        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(stream)))
+    }
+}
+
+fn parse_kmsg_line(line: &str) -> String {
+    if let Some(semicolon_pos) = line.find(';') {
+        let metadata = &line[..semicolon_pos];
+        let message = &line[semicolon_pos + 1..];
+
+        let parts: Vec<&str> = metadata.split(',').collect();
+        if parts.len() >= 3
+            && let Ok(timestamp_us) = parts[2].parse::<u64>()
+        {
+            let timestamp_secs = timestamp_us as f64 / 1_000_000.0;
+            return format!("[{:>12.6}] {}", timestamp_secs, message);
+        }
+
+        message.to_string()
+    } else {
+        line.to_string()
     }
 }

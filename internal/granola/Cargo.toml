@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 # Core async runtime
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "process"] }
+tokio-stream = { workspace = true }
 
 # System/platform APIs
 nix = { workspace = true, features = ["process", "signal", "socket", "ioctl", "reboot"] }
