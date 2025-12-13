@@ -9,7 +9,7 @@ use nix::unistd::sync;
 use crate::log;
 
 use super::uki::UkiComponents;
-use super::{UPDATE_WORK_DIR, ValidationMarker, prepare_uki};
+use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
 
 pub struct UpdateResult {
     pub update_id: String,
@@ -37,7 +37,7 @@ pub fn update(version: &str, extensions: &[String]) -> Result<UpdateResult> {
 }
 
 fn create_staging_directory() -> Result<PathBuf> {
-    let staging_dir = PathBuf::from(UPDATE_WORK_DIR);
+    let staging_dir = PathBuf::from(UPDATE_DIR);
     fs::create_dir_all(&staging_dir).context("Failed to create update staging dir")?;
     Ok(staging_dir)
 }

@@ -9,14 +9,19 @@ use crate::{disk, log};
 
 use super::uki;
 use super::{
-    INSTALL_WORK_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status,
-    unmount_partition,
+    INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
 };
 
 pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String]) -> Result<()> {
     log!("provisioning", "Starting installation to {}", disk_path);
 
     validate(disk_path, force)?;
+
+    let installer_image = format!("ghcr.io/sawangg/installer:{}", version);
+    let work_dir = Path::new(INSTALL_DIR);
+    let components = prepare_uki(&installer_image, extensions, work_dir)?;
+    let staged_uki = work_dir.join("staged.efi");
+    uki::build_uki(&components, &staged_uki)?;
 
     disk::delete_all_partitions_blkpg(disk_path)?;
     disk::wipe_disk(disk_path)?;
@@ -26,12 +31,10 @@ pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String
     disk::format_btrfs_partition(&state_part, "STATE")?;
     disk::format_btrfs_partition(&data_part, "DATA")?;
 
-    let installer_image = format!("ghcr.io/sawangg/installer:{}", version);
-    deploy_uki_to_efi(&efi_part, &installer_image, extensions)?;
-
+    deploy_uki_to_efi(&efi_part, &staged_uki)?;
     init_state_partition(&state_part, version)?;
 
-    if let Err(e) = uki::cleanup_dir(Path::new(INSTALL_WORK_DIR)) {
+    if let Err(e) = uki::cleanup_dir(work_dir) {
         log!("provisioning", "Warning: Failed to cleanup work dir: {}", e);
     }
 
@@ -66,7 +69,7 @@ fn validate(disk_path: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn deploy_uki_to_efi(efi_device: &str, installer_image: &str, extensions: &[String]) -> Result<()> {
+fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
     if !Path::new(efi_device).exists() {
         bail!("EFI device {} does not exist", efi_device);
     }
@@ -74,7 +77,7 @@ fn deploy_uki_to_efi(efi_device: &str, installer_image: &str, extensions: &[Stri
     let mount_point = "/mnt/efi";
     mount_efi_partition(efi_device, mount_point)?;
 
-    let result = build_and_install_uki(mount_point, installer_image, extensions);
+    let result = write_uki_to_efi(mount_point, staged_uki);
 
     unmount_partition(mount_point);
 
@@ -83,16 +86,12 @@ fn deploy_uki_to_efi(efi_device: &str, installer_image: &str, extensions: &[Stri
     Ok(())
 }
 
-fn build_and_install_uki(
-    mount_point: &str,
-    installer_image: &str,
-    extensions: &[String],
-) -> Result<()> {
+fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
     fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
-    let components = prepare_uki(installer_image, extensions, Path::new(INSTALL_WORK_DIR))?;
     let uki_path = uki::get_uki_path(Path::new(mount_point))?;
-    uki::build_uki(&components, &uki_path)?;
+    fs::copy(staged_uki, &uki_path)
+        .with_context(|| format!("Failed to copy UKI to {}", uki_path.display()))?;
 
     sync();
     Ok(())

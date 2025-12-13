@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::{disk, log};
 use uki::{UkiComponents, UkiConfig};
 
-pub(crate) const INSTALL_WORK_DIR: &str = "/run/install";
-pub(crate) const UPDATE_WORK_DIR: &str = "/run/state/update";
+pub(crate) const INSTALL_DIR: &str = "/run/install";
+pub(crate) const UPDATE_DIR: &str = "/run/state/update";
 pub(crate) const DEFAULT_CMDLINE: &str = "console=tty0 console=ttyS0 init=/init";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

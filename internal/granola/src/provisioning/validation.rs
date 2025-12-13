@@ -8,9 +8,7 @@ use nix::unistd::sync;
 use crate::log;
 
 use super::uki::{self, UkiComponents};
-use super::{
-    RollbackInfo, UPDATE_WORK_DIR, ValidationMarker, mount_efi_partition, unmount_partition,
-};
+use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
 
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let marker = match load_validation_marker()? {
@@ -27,19 +25,17 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
 
     if is_old_kernel(&marker) {
         handle_kexec_failure(&marker)?;
+    } else if let Err(e) = perform_health_checks() {
+        handle_validation_failure(&marker, e)?;
     } else {
-        if let Err(e) = perform_health_checks() {
-            handle_validation_failure(&marker, e)?;
-        } else {
-            commit_update(&marker)?;
-        }
+        commit_update(&marker)?;
     }
 
     Ok(())
 }
 
 fn load_validation_marker() -> Result<Option<ValidationMarker>> {
-    let marker_path = Path::new(UPDATE_WORK_DIR).join("pending-validation.json");
+    let marker_path = Path::new(UPDATE_DIR).join("pending-validation.json");
 
     if !marker_path.exists() {
         return Ok(None);
@@ -157,7 +153,7 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
 
 fn build_uki_components_for_commit() -> UkiComponents {
     let arch = std::env::consts::ARCH;
-    let base = Path::new(UPDATE_WORK_DIR).join(arch);
+    let base = Path::new(UPDATE_DIR).join(arch);
 
     UkiComponents {
         kernel: base.join("bzImage"),
@@ -168,7 +164,7 @@ fn build_uki_components_for_commit() -> UkiComponents {
 }
 
 fn cleanup_update_files() {
-    if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_WORK_DIR)) {
+    if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
         log!(
             "provisioning",
             "Warning: Failed to cleanup update work dir: {}",
@@ -224,7 +220,7 @@ fn save_rollback_info(marker: &ValidationMarker, reason: &str) -> Result<()> {
 }
 
 fn cleanup_failed_update() {
-    if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_WORK_DIR)) {
+    if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
         log!(
             "provisioning",
             "Warning: Failed to cleanup update work dir during rollback: {}",
