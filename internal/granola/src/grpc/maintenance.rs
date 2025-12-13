@@ -189,13 +189,14 @@ impl MaintenanceService for MaintenanceServiceImpl {
                     loop {
                         match lines.next_line().await {
                             Ok(Some(line)) => {
-                                let formatted = parse_kmsg_line(&line);
-                                let response = GetLogsResponse {
-                                    line: formatted,
-                                    error: String::new(),
-                                };
-                                if tx.send(Ok(response)).await.is_err() {
-                                    break;
+                                if let Some(formatted) = parse_kmsg_line(&line) {
+                                    let response = GetLogsResponse {
+                                        line: formatted,
+                                        error: String::new(),
+                                    };
+                                    if tx.send(Ok(response)).await.is_err() {
+                                        break;
+                                    }
                                 }
                             }
                             Ok(None) => {
@@ -229,7 +230,11 @@ impl MaintenanceService for MaintenanceServiceImpl {
     }
 }
 
-fn parse_kmsg_line(line: &str) -> String {
+fn parse_kmsg_line(line: &str) -> Option<String> {
+    if line.starts_with(' ') {
+        return None;
+    }
+
     if let Some(semicolon_pos) = line.find(';') {
         let metadata = &line[..semicolon_pos];
         let message = &line[semicolon_pos + 1..];
@@ -239,11 +244,11 @@ fn parse_kmsg_line(line: &str) -> String {
             && let Ok(timestamp_us) = parts[2].parse::<u64>()
         {
             let timestamp_secs = timestamp_us as f64 / 1_000_000.0;
-            return format!("[{:>12.6}] {}", timestamp_secs, message);
+            return Some(format!("[{:>12.6}] {}", timestamp_secs, message));
         }
 
-        message.to_string()
+        Some(message.to_string())
     } else {
-        line.to_string()
+        Some(line.to_string())
     }
 }
