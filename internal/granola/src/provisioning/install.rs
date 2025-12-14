@@ -57,7 +57,17 @@ fn validate(disk_path: &str, force: bool) -> Result<()> {
 
     disk::validate_block_device(disk_path)?;
     disk::validate_disk_size(disk_path)?;
-    disk::check_disk_not_mounted(disk_path)?;
+
+    let mounted = disk::get_disk_mounts(disk_path);
+    if !mounted.is_empty() && !force {
+        bail!(
+            "Cannot install: {} is mounted at {}. Use --force to unmount automatically.",
+            mounted[0].device,
+            mounted[0].mount_point
+        );
+    }
+    sync();
+    disk::unmount_all(&mounted)?;
 
     if !force && disk::has_existing_partitions(disk_path)? {
         bail!(

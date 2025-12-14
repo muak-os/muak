@@ -1,10 +1,16 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use nix::mount::umount;
 use std::fs::OpenOptions;
 use std::io::{Seek, Write};
 use std::path::Path;
 use std::time::SystemTime;
 
 use super::constants::MB;
+
+pub struct MountedPartition {
+    pub device: String,
+    pub mount_point: String,
+}
 
 pub fn format_partition_name(disk: &str, partition: u32) -> String {
     if disk.contains("nvme") || disk.contains("mmcblk") {
@@ -37,36 +43,35 @@ pub fn wait_for_device(device: &str) -> Result<()> {
     bail!("Timeout waiting for device {} to appear", device)
 }
 
-pub fn check_disk_not_mounted(disk: &str) -> Result<()> {
+pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
 
-    let disk_name = disk.trim_start_matches("/dev/");
+    mounts
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let device = parts.next()?;
+            let mount_point = parts.next()?;
 
-    for line in mounts.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
+            if !device.starts_with(disk) {
+                return None;
+            }
 
-        let mount_device = parts[0];
+            Some(MountedPartition {
+                device: device.to_string(),
+                mount_point: mount_point.to_string(),
+            })
+        })
+        .collect()
+}
 
-        if mount_device.starts_with(disk) {
-            let mount_point = parts.get(1).unwrap_or(&"unknown");
-            bail!(
-                "Cannot install: {} is mounted at {}. Unmount it first.",
-                mount_device,
-                mount_point
-            );
-        }
+pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
+    let mut sorted: Vec<_> = partitions.iter().collect();
+    sorted.sort_by(|a, b| b.mount_point.len().cmp(&a.mount_point.len()));
 
-        if mount_device.contains(disk_name) {
-            let mount_point = parts.get(1).unwrap_or(&"unknown");
-            bail!(
-                "Cannot install: {} is mounted at {}. Unmount it first.",
-                mount_device,
-                mount_point
-            );
-        }
+    for p in sorted {
+        umount(p.mount_point.as_str())
+            .with_context(|| format!("Failed to unmount {} from {}", p.device, p.mount_point))?;
     }
 
     Ok(())
