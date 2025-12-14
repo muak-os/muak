@@ -6,6 +6,7 @@ members = [
     "internal/init",
     "internal/yuki",
     "internal/stub",
+    "internal/shared/kmod",
 ]
 resolver = "3"
 
