@@ -94,7 +94,7 @@ fn init_module(module_data: &[u8]) -> Result<(), LoadError> {
             libc::SYS_init_module,
             module_data.as_ptr(),
             module_data.len(),
-            b"\0".as_ptr() as *const libc::c_char,
+            c"".as_ptr(),
         )
     };
 

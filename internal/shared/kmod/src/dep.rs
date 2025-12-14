@@ -89,6 +89,10 @@ impl DepDb {
     pub fn len(&self) -> usize {
         self.modules.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty()
+    }
 }
 
 pub(crate) fn get_module_name(path: &str) -> Option<String> {

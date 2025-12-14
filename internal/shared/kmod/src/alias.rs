@@ -45,6 +45,10 @@ impl AliasDb {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {

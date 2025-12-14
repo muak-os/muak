@@ -47,10 +47,10 @@ pub fn load_all_hardware_modules(modules_base: &Path) -> Result<usize, Box<dyn s
     let mut loaded = 0;
 
     for_each_modalias(|modalias| {
-        if let Some(module) = alias_db.find_module(modalias) {
-            if load_module(module, &dep_db, &mut loader).is_ok() {
-                loaded += 1;
-            }
+        if let Some(module) = alias_db.find_module(modalias)
+            && load_module(module, &dep_db, &mut loader).is_ok()
+        {
+            loaded += 1;
         }
     })?;
 
