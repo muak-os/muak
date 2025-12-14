@@ -1,4 +1,5 @@
 mod logging;
+mod modules;
 mod mount;
 mod switchroot;
 
@@ -16,6 +17,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     logging::init()?;
     logging::log("Pseudo filesystems mounted");
+
+    match modules::load() {
+        Ok(count) => logging::log(&format!("Loaded {} kernel modules", count)),
+        Err(e) => logging::log(&format!("Warning: module loading failed: {}", e)),
+    }
 
     logging::log("Mounting rootfs");
     mount::mount_rootfs()?;

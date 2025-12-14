@@ -2,8 +2,8 @@
 
 ARG ALPINE_VERSION=3.23
 ARG BTRFS_VERSION=v6.17.1
-ARG KERNEL_VERSION=6.18
-ARG COMPRESSION_LEVEL=18
+ARG KERNEL_VERSION=6.18.1
+ARG COMPRESSION_LEVEL=19
 ARG SOURCE_DATE_EPOCH=0
 
 ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
@@ -120,6 +120,8 @@ RUN chmod +x /initramfs/init
 
 COPY --link --from=squashfs-builder /rootfs.sqsh /initramfs/rootfs.sqsh
 
+COPY --link --from=pkg-kernel /lib/modules /initramfs/lib/modules
+
 RUN <<EOF
 set -euo pipefail
 find . -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
@@ -136,11 +138,6 @@ FROM scratch
 COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
 COPY --link --from=pkg-kernel /bzImage /bzImage
 COPY --link --from=pkg-stub /stub.efi /stub.efi
-
-ARG VERSION=unknown
-COPY --from=pkg-granola <<EOF /VERSION
-${VERSION}
-EOF
 
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"

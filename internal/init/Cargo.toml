@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 nix = { workspace = true, features = ["dir", "ioctl"] }
+kmod = { path = "../shared/kmod" }
