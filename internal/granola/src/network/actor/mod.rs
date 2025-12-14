@@ -20,6 +20,7 @@ pub struct NetworkActorHandle {
     watch_rx: watch::Receiver<NetworkSnapshot>,
 }
 
+#[allow(dead_code)]
 impl NetworkActorHandle {
     async fn initialize(&self) -> Result<()> {
         let (reply, rx) = tokio::sync::oneshot::channel();

@@ -266,8 +266,8 @@ async fn handle_list_disks(
 
     // Print header
     println!(
-        "{}{}{:<20}  {:<8}  {:<9}  {:<11} {:<40} {:<3} {:<3} {}{}",
-        BOLD, GREEN, "DISK", "SIZE", "FS", "POSITION", "MODEL", "RO", "REM", "PARTITIONS", RESET
+        "{}{}{:<20}  {:<8}  {:<9}  {:<11} {:<40} {:<3} {:<3} PARTITIONS{}",
+        BOLD, GREEN, "DISK", "SIZE", "FS", "POSITION", "MODEL", "RO", "REM", RESET
     );
 
     for disk in resp.disks {
@@ -399,7 +399,7 @@ fn format_timestamp(timestamp: i64) -> String {
 }
 
 fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }
 
 async fn upload_file(
@@ -509,8 +509,8 @@ async fn handle_process_action(
                 println!("{}No processes running{}", YELLOW, RESET);
             } else {
                 println!(
-                    "{}{}{:<8} {:<20} {:<15} {}{}",
-                    BOLD, GREEN, "PID", "COMMAND", "STATUS", "STARTED", RESET
+                    "{}{}{:<8} {:<20} {:<15} STARTED{}",
+                    BOLD, GREEN, "PID", "COMMAND", "STATUS", RESET
                 );
                 for p in resp.processes {
                     let started = format_timestamp(p.started_at);
@@ -732,7 +732,7 @@ async fn handle_vm_action(
                 println!("{}No VMs{}", YELLOW, RESET);
             } else {
                 println!(
-                    "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}{}",
+                    "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} CREATED{}",
                     BOLD,
                     GREEN,
                     "VM ID",
@@ -742,7 +742,6 @@ async fn handle_vm_action(
                     "CPUS",
                     "MEMORY(MB)",
                     "PID",
-                    "CREATED",
                     RESET
                 );
                 for vm in resp.vms {

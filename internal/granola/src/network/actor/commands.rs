@@ -6,6 +6,7 @@ use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapsh
 use super::state::NetworkActor;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum NetworkCommand {
     Initialize {
         reply: oneshot::Sender<Result<()>>,
