@@ -11,23 +11,21 @@ where
     }
 
     for bus_entry in fs::read_dir(sys_bus)? {
-        let bus_entry = bus_entry?;
-        let devices_dir = bus_entry.path().join("devices");
-
+        let devices_dir = bus_entry?.path().join("devices");
         if !devices_dir.exists() {
             continue;
         }
 
         for dev_entry in fs::read_dir(&devices_dir)? {
-            let dev_entry = dev_entry?;
-            let modalias_path = dev_entry.path().join("modalias");
-
-            if let Ok(modalias) = fs::read_to_string(&modalias_path) {
-                let modalias = modalias.trim();
-                if !modalias.is_empty() {
-                    f(modalias);
-                }
+            let modalias_path = dev_entry?.path().join("modalias");
+            let Ok(modalias) = fs::read_to_string(&modalias_path) else {
+                continue;
+            };
+            let modalias = modalias.trim();
+            if modalias.is_empty() {
+                continue;
             }
+            f(modalias);
         }
     }
 

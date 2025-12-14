@@ -99,15 +99,15 @@ fn init_module(module_data: &[u8]) -> Result<(), LoadError> {
     };
 
     if ret == 0 {
-        Ok(())
-    } else {
-        let errno = nix::errno::Errno::last();
-        if errno == nix::errno::Errno::EEXIST {
-            Ok(())
-        } else {
-            Err(LoadError::Syscall(errno))
-        }
+        return Ok(());
     }
+
+    let errno = nix::errno::Errno::last();
+    if errno == nix::errno::Errno::EEXIST {
+        return Ok(());
+    }
+
+    Err(LoadError::Syscall(errno))
 }
 
 pub fn load_module(

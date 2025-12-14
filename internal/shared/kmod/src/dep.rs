@@ -28,22 +28,26 @@ impl DepDb {
                 continue;
             }
 
-            if let Some((module_path, deps_str)) = line.split_once(':') {
-                let module_path = module_path.trim();
+            let Some((module_path, deps_str)) = line.split_once(':') else {
+                continue;
+            };
+            let module_path = module_path.trim();
+            let Some(name) = get_module_name(module_path) else {
+                continue;
+            };
 
-                if let Some(name) = get_module_name(module_path) {
-                    let deps: Vec<String> =
-                        deps_str.split_whitespace().map(|s| s.to_string()).collect();
+            let deps: Vec<String> = deps_str
+                .split_whitespace()
+                .filter_map(get_module_name)
+                .collect();
 
-                    modules.insert(
-                        name,
-                        ModuleInfo {
-                            path: module_path.to_string(),
-                            deps,
-                        },
-                    );
-                }
-            }
+            modules.insert(
+                name,
+                ModuleInfo {
+                    path: module_path.to_string(),
+                    deps,
+                },
+            );
         }
 
         Ok(Self { modules })
@@ -54,35 +58,32 @@ impl DepDb {
     }
 
     pub fn resolve_load_order(&self, module_name: &str) -> Option<Vec<String>> {
-        let info = self.modules.get(module_name)?;
         let mut result = Vec::new();
         let mut visited = HashSet::new();
-
-        self.resolve_deps_recursive(&info.path, &mut result, &mut visited);
-
+        self.resolve_deps_recursive(module_name, &mut result, &mut visited);
         Some(result)
     }
 
     fn resolve_deps_recursive(
         &self,
-        module_path: &str,
+        module_name: &str,
         result: &mut Vec<String>,
         visited: &mut HashSet<String>,
     ) {
-        if visited.contains(module_path) {
+        if visited.contains(module_name) {
             return;
         }
-        visited.insert(module_path.to_string());
+        visited.insert(module_name.to_string());
 
-        if let Some(name) = get_module_name(module_path) {
-            if let Some(info) = self.modules.get(&name) {
-                for dep in &info.deps {
-                    self.resolve_deps_recursive(dep, result, visited);
-                }
-            }
+        let Some(info) = self.modules.get(module_name) else {
+            return;
+        };
+
+        for dep in &info.deps {
+            self.resolve_deps_recursive(dep, result, visited);
         }
 
-        result.push(module_path.to_string());
+        result.push(info.path.clone());
     }
 
     pub fn len(&self) -> usize {

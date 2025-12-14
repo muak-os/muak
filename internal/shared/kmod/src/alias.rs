@@ -21,11 +21,13 @@ impl AliasDb {
                 continue;
             }
 
-            if let Some(rest) = line.strip_prefix("alias ") {
-                if let Some((pattern, module)) = rest.rsplit_once(' ') {
-                    entries.push((pattern.trim().to_string(), module.trim().to_string()));
-                }
-            }
+            let Some(rest) = line.strip_prefix("alias ") else {
+                continue;
+            };
+            let Some((pattern, module)) = rest.rsplit_once(' ') else {
+                continue;
+            };
+            entries.push((pattern.trim().to_string(), module.trim().to_string()));
         }
 
         Ok(Self { entries })

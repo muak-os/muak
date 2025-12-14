@@ -13,15 +13,23 @@ use std::path::Path;
 pub fn find_kernel_release(modules_base: &Path) -> std::io::Result<String> {
     for entry in std::fs::read_dir(modules_base)? {
         let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            if let Some(name) = entry.file_name().to_str() {
-                if !name.starts_with('.') && name.chars().next().is_some_and(|c| c.is_ascii_digit())
-                {
-                    return Ok(name.to_string());
-                }
-            }
+        if !entry.file_type()?.is_dir() {
+            continue;
         }
+
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        if !name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+
+        return Ok(name);
     }
+
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
         "no kernel modules directory found",
