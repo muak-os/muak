@@ -105,10 +105,10 @@ fn discover_extensions() -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(extensions_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("sqsh") {
-                if let Some(path_str) = path.to_str() {
-                    extensions.push(path_str.to_string());
-                }
+            if path.extension().and_then(|s| s.to_str()) == Some("sqsh")
+                && let Some(path_str) = path.to_str()
+            {
+                extensions.push(path_str.to_string());
             }
         }
     }
