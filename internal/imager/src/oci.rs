@@ -311,10 +311,10 @@ fn create_temp_dir(prefix: &str) -> Result<TempDir> {
 
     for dir in TEMP_DIRS {
         let path = Path::new(dir);
-        if path.exists() {
-            if let Ok(temp) = tempfile::Builder::new().prefix(prefix).tempdir_in(path) {
-                return Ok(temp);
-            }
+        if path.exists()
+            && let Ok(temp) = tempfile::Builder::new().prefix(prefix).tempdir_in(path)
+        {
+            return Ok(temp);
         }
     }
 
