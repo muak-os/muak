@@ -65,10 +65,11 @@ impl NetworkActor {
     }
 
     pub(super) fn cancel_renewal_tasks(&mut self, iface: &str) {
-        if let Some(tasks) = self.renewal_tasks.remove(iface) {
-            for task in tasks {
-                task.abort();
-            }
+        let Some(tasks) = self.renewal_tasks.remove(iface) else {
+            return;
+        };
+        for task in tasks {
+            task.abort();
         }
     }
 }

@@ -37,12 +37,10 @@ where
     for attempt in 0..max_retries {
         match operation().await {
             Ok(result) => return Ok(result),
-            Err(e) => {
-                last_error = Some(e);
-                if attempt < max_retries - 1 {
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                }
-            }
+            Err(e) => last_error = Some(e),
+        }
+        if attempt < max_retries - 1 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
     }
 

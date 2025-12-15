@@ -82,11 +82,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     for (_code, opt) in ack.opts().iter() {
         match opt {
             v4::DhcpOption::SubnetMask(mask) => netmask = Some(*mask),
-            v4::DhcpOption::Router(routers) => {
-                if !routers.is_empty() {
-                    gateway = Some(routers[0]);
-                }
-            }
+            v4::DhcpOption::Router(routers) if !routers.is_empty() => gateway = Some(routers[0]),
             v4::DhcpOption::DomainNameServer(servers) => dns_servers = servers.clone(),
             v4::DhcpOption::AddressLeaseTime(ls) => lease_seconds = *ls,
             _ => {}

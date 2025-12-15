@@ -25,26 +25,28 @@ impl NetworkActor {
     async fn on_link_up(&mut self, name: String, index: u32) {
         log!("network", "Event: Link up {} (index {})", name, index);
 
-        if let Some(iface) = self.get_interface_mut(&name) {
-            iface.link = LinkStateKind::Up;
-            self.sync_and_publish();
+        let Some(iface) = self.get_interface_mut(&name) else {
+            return;
+        };
+        iface.link = LinkStateKind::Up;
+        self.sync_and_publish();
 
-            if self.is_primary_interface(&name) {
-                self.handle_primary_recovery(&name);
-            }
+        if self.is_primary_interface(&name) {
+            self.handle_primary_recovery(&name);
         }
     }
 
     async fn on_link_down(&mut self, name: String, index: u32) {
         log!("network", "Event: Link down {} (index {})", name, index);
 
-        if let Some(iface) = self.get_interface_mut(&name) {
-            iface.link = LinkStateKind::Down;
-            self.sync_and_publish();
+        let Some(iface) = self.get_interface_mut(&name) else {
+            return;
+        };
+        iface.link = LinkStateKind::Down;
+        self.sync_and_publish();
 
-            if self.is_primary_interface(&name) {
-                self.handle_primary_failure(&name);
-            }
+        if self.is_primary_interface(&name) {
+            self.handle_primary_failure(&name);
         }
     }
 
@@ -62,39 +64,43 @@ impl NetworkActor {
             mac[5]
         );
 
-        if !self.has_interface(&name) {
-            let snapshot = InterfaceSnapshot {
-                name: name.clone(),
-                index,
-                mac,
-                link: LinkStateKind::Up,
-                ip: None,
-                lease: None,
-            };
-            self.insert_interface(snapshot);
-
-            if self.state.primary.is_none() {
-                self.assign_as_primary(name);
-            } else {
-                self.add_to_backups(name);
-            }
-
-            self.sync_and_publish();
+        if self.has_interface(&name) {
+            return;
         }
+
+        let snapshot = InterfaceSnapshot {
+            name: name.clone(),
+            index,
+            mac,
+            link: LinkStateKind::Up,
+            ip: None,
+            lease: None,
+        };
+        self.insert_interface(snapshot);
+
+        if self.state.primary.is_none() {
+            self.assign_as_primary(name);
+        } else {
+            self.add_to_backups(name);
+        }
+
+        self.sync_and_publish();
     }
 
     async fn on_link_deleted(&mut self, name: String, index: u32) {
         log!("network", "Event: Link deleted {} (index {})", name, index);
 
-        if self.remove_interface(&name).is_some() {
-            if self.is_primary_interface(&name) {
-                self.handle_primary_removed(&name);
-            } else {
-                self.remove_from_backups(&name);
-            }
-
-            self.sync_and_publish();
+        if self.remove_interface(&name).is_none() {
+            return;
         }
+
+        if self.is_primary_interface(&name) {
+            self.handle_primary_removed(&name);
+        } else {
+            self.remove_from_backups(&name);
+        }
+
+        self.sync_and_publish();
     }
 
     fn is_primary_interface(&self, name: &str) -> bool {
