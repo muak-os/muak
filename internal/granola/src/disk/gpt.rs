@@ -123,23 +123,11 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     f.sync_all()?;
     drop(f);
 
-    // Verify GPT was written correctly
     let mut verify_f = OpenOptions::new().read(true).open(disk)?;
     match GPT::find_from(&mut verify_f) {
         Ok(verify_gpt) => {
             let count = verify_gpt.iter().filter(|(_, p)| p.is_used()).count();
             log!("installer", "Verified: GPT has {} used partitions", count);
-            for (i, partition) in verify_gpt.iter() {
-                if partition.is_used() {
-                    log!(
-                        "installer",
-                        "  Partition {}: LBA {} to {}",
-                        i,
-                        partition.starting_lba,
-                        partition.ending_lba
-                    );
-                }
-            }
         }
         Err(e) => {
             log!("installer", "Warning: Could not verify GPT: {}", e);
