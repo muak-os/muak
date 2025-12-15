@@ -10,10 +10,46 @@ use tokio::time::timeout;
 
 use super::model::{DhcpLease, IpConfig};
 
+mod option {
+    pub const SUBNET_MASK: u8 = 1;
+    pub const ROUTER: u8 = 3;
+    pub const DNS_SERVER: u8 = 6;
+    pub const REQUESTED_IP: u8 = 50;
+    pub const LEASE_TIME: u8 = 51;
+    pub const MESSAGE_TYPE: u8 = 53;
+    pub const SERVER_ID: u8 = 54;
+    pub const PARAM_REQUEST_LIST: u8 = 55;
+    pub const END: u8 = 255;
+}
+
+mod message_type {
+    pub const DISCOVER: u8 = 1;
+    pub const REQUEST: u8 = 3;
+}
+
+const DHCP_CLIENT_PORT: u16 = 68;
+const DHCP_SERVER_PORT: u16 = 67;
+
+const DHCP_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_LEASE_SECS: u32 = 3600;
+const DEFAULT_PREFIX_LEN: u8 = 24;
+
+fn append_param_request_list(msg: &mut Vec<u8>) {
+    const REQUESTED_PARAMS: &[u8] = &[
+        option::SUBNET_MASK,
+        option::ROUTER,
+        option::DNS_SERVER,
+        option::LEASE_TIME,
+    ];
+    msg.push(option::PARAM_REQUEST_LIST);
+    msg.push(REQUESTED_PARAMS.len() as u8);
+    msg.extend_from_slice(REQUESTED_PARAMS);
+}
+
 pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
     log!("network", "DHCP: starting on {}", interface);
 
-    let socket = UdpSocket::bind("0.0.0.0:68").await?;
+    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
     socket.set_broadcast(true)?;
     setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
 
@@ -28,19 +64,25 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
         .set_xid(xid)
         .set_opcode(v4::Opcode::BootRequest)
         .to_vec()?;
-    discover_msg.extend(&[53, 1, 1]); // DHCPDISCOVER
-    discover_msg.push(255);
+    discover_msg.extend(&[option::MESSAGE_TYPE, 1, message_type::DISCOVER]);
+    append_param_request_list(&mut discover_msg);
+    discover_msg.push(option::END);
 
     log!("network", "DHCP: sending DISCOVER xid={}", xid);
-    socket.send_to(&discover_msg, "255.255.255.255:67").await?;
+    socket
+        .send_to(&discover_msg, ("255.255.255.255", DHCP_SERVER_PORT))
+        .await?;
 
     let mut buf = [0u8; 1500];
-    let (len, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf)).await??;
+    let (len, _) = timeout(
+        Duration::from_secs(DHCP_TIMEOUT_SECS),
+        socket.recv_from(&mut buf),
+    )
+    .await??;
     let mut decoder = Decoder::new(&buf[..len]);
     let offer = v4::Message::decode(&mut decoder)?;
     log!("network", "DHCP: got OFFER yiaddr={}", offer.yiaddr());
 
-    // Extract server identifier
     let mut server_id: Option<Ipv4Addr> = None;
     for (_code, opt) in offer.opts().iter() {
         if let v4::DhcpOption::ServerIdentifier(sid) = opt {
@@ -51,24 +93,30 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     let server_id =
         server_id.ok_or_else(|| anyhow::anyhow!("no server identifier in DHCPOFFER"))?;
 
-    // Build REQUEST
     let mut request_msg = v4::Message::default()
         .set_flags(v4::Flags::default().set_broadcast())
         .set_chaddr(mac)
         .set_xid(xid)
         .set_opcode(v4::Opcode::BootRequest)
         .to_vec()?;
-    request_msg.extend(&[53, 1, 3]); // DHCPREQUEST
-    request_msg.extend(&[50, 4]); // Requested IP option
+    request_msg.extend(&[option::MESSAGE_TYPE, 1, message_type::REQUEST]);
+    request_msg.extend(&[option::REQUESTED_IP, 4]);
     request_msg.extend(&offer.yiaddr().octets());
-    request_msg.extend(&[54, 4]); // Server ID option
+    request_msg.extend(&[option::SERVER_ID, 4]);
     request_msg.extend(&server_id.octets());
-    request_msg.push(255);
+    append_param_request_list(&mut request_msg);
+    request_msg.push(option::END);
 
     log!("network", "DHCP: sending REQUEST for {}", offer.yiaddr());
-    socket.send_to(&request_msg, "255.255.255.255:67").await?;
+    socket
+        .send_to(&request_msg, ("255.255.255.255", DHCP_SERVER_PORT))
+        .await?;
 
-    let (len, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf)).await??;
+    let (len, _) = timeout(
+        Duration::from_secs(DHCP_TIMEOUT_SECS),
+        socket.recv_from(&mut buf),
+    )
+    .await??;
     let mut decoder = Decoder::new(&buf[..len]);
     let ack = v4::Message::decode(&mut decoder)?;
     log!("network", "DHCP: got ACK yiaddr={}", ack.yiaddr());
@@ -77,7 +125,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     let mut netmask: Option<Ipv4Addr> = None;
     let mut gateway: Option<Ipv4Addr> = None;
     let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
-    let mut lease_seconds: u32 = 3600;
+    let mut lease_seconds: u32 = DEFAULT_LEASE_SECS;
 
     for (_code, opt) in ack.opts().iter() {
         match opt {
@@ -91,7 +139,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
 
     let prefix_len: u8 = netmask
         .map(|m| m.octets().iter().map(|b| b.count_ones()).sum::<u32>() as u8)
-        .unwrap_or(24);
+        .unwrap_or(DEFAULT_PREFIX_LEN);
 
     let ip_cfg = IpConfig {
         address: ip,
