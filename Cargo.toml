@@ -64,6 +64,9 @@ object = { version = "0.38", default-features = false, features = ["read", "writ
 # UEFI support
 uefi = { version = "0.36", features = ["alloc", "logger", "panic_handler", "global_allocator"] }
 
+[workspace.lints.clippy]
+unwrap_used = "deny"
+
 [profile.release]
 opt-level = "z"
 lto = true

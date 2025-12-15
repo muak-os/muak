@@ -8,3 +8,6 @@ description = "Static UKI builder - adds PE sections to EFI stubs"
 [dependencies]
 object = { workspace = true }
 clap = { workspace = true }
+
+[lints]
+workspace = true

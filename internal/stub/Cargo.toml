@@ -13,3 +13,6 @@ uefi = { workspace = true }
 
 [features]
 uefi = []
+
+[lints]
+workspace = true

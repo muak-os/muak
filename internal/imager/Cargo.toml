@@ -26,3 +26,6 @@ cpio = { workspace = true }
 tempfile = { workspace = true }
 walkdir = { workspace = true }
 zstd = { workspace = true }
+
+[lints]
+workspace = true
