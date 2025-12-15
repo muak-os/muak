@@ -48,8 +48,11 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
 
     let base_mount = work_dir.join("base");
     mkdir(&base_mount, Mode::from_bits_truncate(0o755))?;
-    attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount.to_str().unwrap())?;
-    lower_dirs.push(base_mount.to_str().unwrap().to_string());
+    let base_mount_str = base_mount
+        .to_str()
+        .ok_or("base mount path contains invalid UTF-8")?;
+    attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount_str)?;
+    lower_dirs.push(base_mount_str.to_string());
 
     let extensions = discover_extensions();
 
@@ -67,8 +70,11 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
         mkdir(&ext_mount, Mode::from_bits_truncate(0o755))?;
 
         let loop_dev = format!("/dev/loop{}", idx + 1);
-        attach_squashfs(ext_path, &loop_dev, ext_mount.to_str().unwrap())?;
-        lower_dirs.push(ext_mount.to_str().unwrap().to_string());
+        let ext_mount_str = ext_mount
+            .to_str()
+            .ok_or("extension mount path contains invalid UTF-8")?;
+        attach_squashfs(ext_path, &loop_dev, ext_mount_str)?;
+        lower_dirs.push(ext_mount_str.to_string());
     }
 
     if lower_dirs.len() == 1 {

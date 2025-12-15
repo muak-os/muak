@@ -85,7 +85,7 @@ fn process_extensions(extensions: &[String]) -> Result<Vec<(String, Vec<u8>)>> {
             println!("Processing local extension: {}", ext);
             let name = Path::new(ext)
                 .file_name()
-                .unwrap()
+                .expect("extension path has no file name")
                 .to_string_lossy()
                 .to_string();
             let dir = oci::extract_local_oci_layout(Path::new(ext))?;

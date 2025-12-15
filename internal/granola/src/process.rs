@@ -80,18 +80,7 @@ impl ProcessManager {
                 self.register_process(pid, name.to_string(), args);
                 Ok(pid)
             }
-            Ok(ForkResult::Child) => {
-                let runtime = tokio::runtime::Runtime::new()
-                    .expect("FATAL: failed to create tokio runtime in child process");
-                runtime.block_on(async {
-                    if let Err(e) = service_main().await {
-                        crate::log!("process", "{} error: {}", name, e);
-                        std::process::exit(1);
-                    }
-                });
-
-                std::process::exit(0);
-            }
+            Ok(ForkResult::Child) => run_service_in_child(name, service_main),
             Err(e) => Err(format!("Failed to fork {}: {}", name, e)),
         }
     }
@@ -178,4 +167,21 @@ impl ProcessManager {
             process.status = status;
         }
     }
+}
+
+fn run_service_in_child<F, Fut>(name: &str, service_main: F) -> Result<i32, String>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + 'static,
+{
+    let runtime = tokio::runtime::Runtime::new()
+        .expect("FATAL: failed to create tokio runtime in child process");
+    runtime.block_on(async {
+        if let Err(e) = service_main().await {
+            crate::log!("process", "{} error: {}", name, e);
+            std::process::exit(1);
+        }
+    });
+
+    std::process::exit(0);
 }

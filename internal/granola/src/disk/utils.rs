@@ -23,7 +23,7 @@ pub fn format_partition_name(disk: &str, partition: u32) -> String {
 pub fn generate_guid() -> [u8; 16] {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap();
+        .expect("system time before UNIX epoch");
 
     let mut guid = [0u8; 16];
     let nanos = now.as_nanos();

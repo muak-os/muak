@@ -42,7 +42,7 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
         );
     }
 
-    if disk.chars().last().unwrap().is_numeric()
+    if disk.chars().last().is_some_and(|c| c.is_numeric())
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
         log!(

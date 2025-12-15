@@ -19,7 +19,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
 
     let xid: u32 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("system time before UNIX epoch")
         .as_nanos() as u32;
 
     let mut discover_msg = v4::Message::default()
