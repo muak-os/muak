@@ -45,30 +45,6 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
     )
     .map_err(|e| format!("Failed to mount tmpfs on /run in new root: {}", e))?;
 
-    // Copy /run/uki contents from initramfs to new root
-    if let Ok(entries) = fs::read_dir("/run/uki") {
-        let uki_target = format!("{}/run/uki", newroot);
-        fs::create_dir_all(&uki_target)
-            .map_err(|e| format!("Failed to create /run/uki in new root: {}", e))?;
-
-        for entry in entries.flatten() {
-            let src_path = entry.path();
-            let filename = entry.file_name();
-            let dst_path = format!("{}/{}", uki_target, filename.to_string_lossy());
-
-            if src_path.is_file() {
-                fs::copy(&src_path, &dst_path).map_err(|e| {
-                    format!(
-                        "Failed to copy {} to {}: {}",
-                        src_path.display(),
-                        dst_path,
-                        e
-                    )
-                })?;
-            }
-        }
-    }
-
     Ok(())
 }
 

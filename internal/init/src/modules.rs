@@ -31,4 +31,3 @@ pub fn load() -> Result<usize, Box<dyn std::error::Error>> {
 
     Ok(total_loaded)
 }
-

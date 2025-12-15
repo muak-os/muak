@@ -101,19 +101,18 @@ fn discover_extensions() -> Vec<String> {
         return Vec::new();
     }
 
-    let mut extensions = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(extensions_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("sqsh")
-                && let Some(path_str) = path.to_str()
-            {
-                extensions.push(path_str.to_string());
-            }
-        }
-    }
+    let Ok(entries) = std::fs::read_dir(extensions_dir) else {
+        return Vec::new();
+    };
 
-    extensions
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let is_sqsh = path.extension().and_then(|s| s.to_str()) == Some("sqsh");
+            is_sqsh.then(|| path.to_str().map(String::from)).flatten()
+        })
+        .collect()
 }
 
 fn attach_squashfs(
