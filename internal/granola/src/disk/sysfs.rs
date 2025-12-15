@@ -42,7 +42,6 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
         );
     }
 
-    // Warn if it looks like a partition
     if disk.chars().last().unwrap().is_numeric()
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
@@ -57,26 +56,27 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
 }
 
 pub fn find_partition_by_partname(partname: &str) -> Option<String> {
-    if let Ok(entries) = fs::read_dir("/sys/class/block") {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            // Only consider partitions (have a 'partition' file)
-            let part_flag = entry.path().join("partition");
-            if !part_flag.exists() {
-                continue;
-            }
-            let uevent = entry.path().join("uevent");
-            if let Ok(content) = fs::read_to_string(&uevent) {
-                for line in content.lines() {
-                    if line.trim() == format!("PARTNAME={}", partname) {
-                        let dev_path = format!("/dev/{}", name);
-                        if Path::new(&dev_path).exists() {
-                            return Some(dev_path);
-                        }
-                    }
-                }
-            }
+    let entries = fs::read_dir("/sys/class/block").ok()?;
+    let target = format!("PARTNAME={}", partname);
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if !entry.path().join("partition").exists() {
+            continue;
+        }
+
+        let uevent = entry.path().join("uevent");
+        let content = fs::read_to_string(&uevent).ok()?;
+        let found = content.lines().any(|line| line.trim() == target);
+        if !found {
+            continue;
+        }
+
+        let dev_path = format!("/dev/{}", name);
+        if Path::new(&dev_path).exists() {
+            return Some(dev_path);
         }
     }
 
@@ -117,27 +117,9 @@ fn detect_filesystem(device_path: &str) -> String {
         return "ext4".to_string();
     }
 
-    // Check for FAT32 signature
-    // FAT32 has "FAT32" at offset 82 (0x52) in the boot sector
-    if file.seek(std::io::SeekFrom::Start(0)).is_ok() {
-        let mut boot_sector = [0u8; 512];
-        if file.read_exact(&mut boot_sector).is_ok() {
-            // Check for FAT32 signature at offset 82
-            if boot_sector.len() >= 90 {
-                let fat32_sig = &boot_sector[82..90];
-                if fat32_sig.starts_with(b"FAT32   ") {
-                    return "vfat".to_string();
-                }
-            }
-
-            // Also check FAT16/FAT12 signature at offset 54
-            if boot_sector.len() >= 62 {
-                let fat16_sig = &boot_sector[54..62];
-                if fat16_sig.starts_with(b"FAT16   ") || fat16_sig.starts_with(b"FAT12   ") {
-                    return "vfat".to_string();
-                }
-            }
-        }
+    // Check for FAT signatures in boot sector
+    if let Some(fstype) = detect_fat_filesystem(&mut file) {
+        return fstype;
     }
 
     // Check for btrfs signature
@@ -152,6 +134,29 @@ fn detect_filesystem(device_path: &str) -> String {
     }
 
     String::new()
+}
+
+fn detect_fat_filesystem(file: &mut File) -> Option<String> {
+    if file.seek(std::io::SeekFrom::Start(0)).is_err() {
+        return None;
+    }
+
+    let mut boot_sector = [0u8; 512];
+    if file.read_exact(&mut boot_sector).is_err() {
+        return None;
+    }
+
+    let fat32_sig = &boot_sector[82..90];
+    if fat32_sig.starts_with(b"FAT32   ") {
+        return Some("vfat".to_string());
+    }
+
+    let fat16_sig = &boot_sector[54..62];
+    if fat16_sig.starts_with(b"FAT16   ") || fat16_sig.starts_with(b"FAT12   ") {
+        return Some("vfat".to_string());
+    }
+
+    None
 }
 
 fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
@@ -189,26 +194,7 @@ fn read_disk_info(name: &str) -> Result<DiskInfo> {
 
     let path = format!("/dev/{}", name);
 
-    // Find partitions by listing subdirectories that start with the disk name
-    let mut partitions = Vec::new();
-    if let Ok(entries) = fs::read_dir(&sysfs_path) {
-        for entry in entries.flatten() {
-            let part_name = entry.file_name();
-            let part_name_str = part_name.to_string_lossy();
-
-            // Check if this is a partition
-            if part_name_str.starts_with(name) && part_name_str != name {
-                let partition_file = entry.path().join("partition");
-                if partition_file.exists()
-                    && let Ok(part_info) = read_partition_info(name, &part_name_str)
-                {
-                    partitions.push(part_info);
-                }
-            }
-        }
-    }
-
-    partitions.sort_by_key(|p| p.number);
+    let partitions = discover_partitions(&sysfs_path, name);
 
     Ok(DiskInfo {
         name: name.to_string(),
@@ -221,35 +207,65 @@ fn read_disk_info(name: &str) -> Result<DiskInfo> {
     })
 }
 
-pub fn list_disks() -> Result<Vec<DiskInfo>> {
-    let mut disks = Vec::new();
+fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
+    let Ok(entries) = fs::read_dir(sysfs_path) else {
+        return Vec::new();
+    };
 
+    let mut partitions: Vec<_> = entries
+        .flatten()
+        .filter_map(|entry| try_read_partition(entry, disk_name))
+        .collect();
+
+    partitions.sort_by_key(|p| p.number);
+    partitions
+}
+
+fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
+    let part_name = entry.file_name();
+    let part_name_str = part_name.to_string_lossy();
+
+    if !part_name_str.starts_with(disk_name) || part_name_str == disk_name {
+        return None;
+    }
+
+    if !entry.path().join("partition").exists() {
+        return None;
+    }
+
+    read_partition_info(disk_name, &part_name_str).ok()
+}
+
+pub fn list_disks() -> Result<Vec<DiskInfo>> {
     let block_dir = Path::new("/sys/block");
     if !block_dir.exists() {
         bail!("/sys/block does not exist - sysfs not mounted?");
     }
 
-    let entries = fs::read_dir(block_dir)?;
-
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        if is_physical_disk(&name_str) {
-            match read_disk_info(&name_str) {
-                Ok(disk_info) => {
-                    if disk_info.size_bytes > 0 {
-                        disks.push(disk_info);
-                    }
-                }
-                Err(e) => {
-                    log!("disk", "Failed to read disk {}: {}", name_str, e);
-                }
-            }
-        }
-    }
+    let mut disks: Vec<_> = fs::read_dir(block_dir)?
+        .flatten()
+        .filter_map(try_read_disk)
+        .collect();
 
     disks.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok(disks)
+}
+
+fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
+    let name = entry.file_name();
+    let name_str = name.to_string_lossy();
+
+    if !is_physical_disk(&name_str) {
+        return None;
+    }
+
+    match read_disk_info(&name_str) {
+        Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
+        Ok(_) => None,
+        Err(e) => {
+            log!("disk", "Failed to read disk {}: {}", name_str, e);
+            None
+        }
+    }
 }
