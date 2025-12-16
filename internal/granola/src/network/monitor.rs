@@ -64,9 +64,11 @@ pub async fn start_monitor(
         }
 
         while let Some((message, _)) = messages.next().await {
-            if let NetlinkPayload::InnerMessage(route_msg) = message.payload
-                && let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await
-            {
+            let route_msg = match message.payload {
+                NetlinkPayload::InnerMessage(msg) => msg,
+                _ => continue,
+            };
+            if let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await {
                 log!("network", "Error handling netlink message: {}", e);
             }
         }
@@ -85,14 +87,16 @@ async fn initial_scan(
         if let Some((name, index, _)) = extract_link_info(&link_msg)
             && super::interface::is_ethernet_interface(&name)
         {
-            let is_up = link_msg.header.flags.contains(LinkFlags::Up);
-            link_states.insert(index, (name.clone(), is_up));
+            let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
+            let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
+            link_states.insert(index, (name.clone(), has_carrier));
             log!(
                 "network",
-                "Initial state: {} (index {}) = {}",
+                "Initial state: {} (index {}) = admin:{} carrier:{}",
                 name,
                 index,
-                if is_up { "up" } else { "down" }
+                if is_admin_up { "up" } else { "down" },
+                if has_carrier { "yes" } else { "no" }
             );
         }
     }
@@ -136,60 +140,60 @@ async fn handle_new_link(
     tx: &mpsc::Sender<NetworkEvent>,
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
-    if let Some((name, index, mac)) = extract_link_info(&msg) {
-        if !super::interface::is_ethernet_interface(&name) {
-            return Ok(());
-        }
+    let Some((name, index, mac)) = extract_link_info(&msg) else {
+        return Ok(());
+    };
+    if !super::interface::is_ethernet_interface(&name) {
+        return Ok(());
+    }
 
-        let is_up = msg.header.flags.contains(LinkFlags::Up);
+    let has_carrier = msg.header.flags.contains(LinkFlags::LowerUp);
 
-        match link_states.get(&index) {
-            Some((_existing_name, was_up)) => {
-                if is_up != *was_up {
-                    if is_up {
-                        log!("network", "Link up detected: {} (index {})", name, index);
-                        let _ = tx
-                            .send(NetworkEvent::LinkUp {
-                                name: name.clone(),
-                                index,
-                            })
-                            .await;
-                    } else {
-                        log!("network", "Link down detected: {} (index {})", name, index);
-                        let _ = tx
-                            .send(NetworkEvent::LinkDown {
-                                name: name.clone(),
-                                index,
-                            })
-                            .await;
-                    }
-                    link_states.insert(index, (name, is_up));
-                }
-            }
-            None => {
-                if let Some(mac_addr) = mac {
-                    log!(
-                        "network",
-                        "New link added: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
-                        name,
+    match link_states.get(&index) {
+        Some((_existing_name, had_carrier)) if has_carrier != *had_carrier => {
+            if has_carrier {
+                log!("network", "Carrier detected: {} (index {})", name, index);
+                let _ = tx
+                    .send(NetworkEvent::LinkUp {
+                        name: name.to_string(),
                         index,
-                        mac_addr[0],
-                        mac_addr[1],
-                        mac_addr[2],
-                        mac_addr[3],
-                        mac_addr[4],
-                        mac_addr[5]
-                    );
-                    let _ = tx
-                        .send(NetworkEvent::LinkAdded {
-                            name: name.clone(),
-                            index,
-                            mac: mac_addr,
-                        })
-                        .await;
-                }
-                link_states.insert(index, (name, is_up));
+                    })
+                    .await;
+            } else {
+                log!("network", "Carrier lost: {} (index {})", name, index);
+                let _ = tx
+                    .send(NetworkEvent::LinkDown {
+                        name: name.to_string(),
+                        index,
+                    })
+                    .await;
             }
+            link_states.insert(index, (name, has_carrier));
+        }
+        Some(_) => {}
+        None => {
+            if let Some(mac_addr) = mac {
+                log!(
+                    "network",
+                    "New link added: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
+                    name,
+                    index,
+                    mac_addr[0],
+                    mac_addr[1],
+                    mac_addr[2],
+                    mac_addr[3],
+                    mac_addr[4],
+                    mac_addr[5]
+                );
+                let _ = tx
+                    .send(NetworkEvent::LinkAdded {
+                        name: name.to_string(),
+                        index,
+                        mac: mac_addr,
+                    })
+                    .await;
+            }
+            link_states.insert(index, (name, has_carrier));
         }
     }
     Ok(())

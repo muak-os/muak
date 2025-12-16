@@ -7,7 +7,7 @@ use crate::network::connectivity::{self, ConnectivityConfig};
 use crate::network::dhcp::run_dhcp_client;
 use crate::network::dns::configure_dns;
 use crate::network::interface::InterfaceSelector;
-use crate::network::interface::{LinkState as OldLinkState, discover_ethernet_interfaces};
+use crate::network::interface::{LinkState, discover_ethernet_interfaces};
 use crate::network::model::{
     ConnectivityResult, ConnectivityStatus, DhcpLease, InterfaceSnapshot, LinkStateKind,
     NetworkStateKind,
@@ -70,8 +70,8 @@ impl NetworkActor {
                 index: iface.index,
                 mac: iface.mac_address,
                 link: match iface.link_state {
-                    OldLinkState::Up => LinkStateKind::Up,
-                    OldLinkState::Down => LinkStateKind::Down,
+                    LinkState::Up => LinkStateKind::Up,
+                    LinkState::NoCarrier | LinkState::Down => LinkStateKind::Down,
                 },
                 ip: None,
                 lease: None,
@@ -91,9 +91,10 @@ impl NetworkActor {
 
         log!(
             "network",
-            "Selected primary: {} (link: {}, priority: best), backups: {:?}",
+            "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
             primary.name,
             primary.link_state,
+            if primary.has_carrier() { "yes" } else { "no" },
             self.state.backups
         );
     }
@@ -211,11 +212,10 @@ impl NetworkActor {
         let task_name = task_type.to_string();
         tokio::spawn(async move {
             let now = std::time::SystemTime::now();
-            if let Ok(dur) = deadline.duration_since(now) {
-                tokio::time::sleep(dur).await;
-            } else {
+            let Ok(dur) = deadline.duration_since(now) else {
                 return;
-            }
+            };
+            tokio::time::sleep(dur).await;
 
             log!("network", "Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
@@ -356,7 +356,11 @@ impl NetworkActor {
     }
 
     fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
-        let primary = self.state.primary.as_ref().unwrap();
+        let primary = self
+            .state
+            .primary
+            .as_ref()
+            .expect("BUG: no primary interface set");
         let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
 
         let br_snapshot = InterfaceSnapshot {
@@ -420,11 +424,11 @@ impl NetworkActor {
 
             loop {
                 interval_timer.tick().await;
-                if cmd_tx
+                let send_failed = cmd_tx
                     .send(NetworkCommand::PeriodicConnectivityCheck)
                     .await
-                    .is_err()
-                {
+                    .is_err();
+                if send_failed {
                     break;
                 }
             }

@@ -3,6 +3,9 @@ use futures_util::stream::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::Handle;
 use rtnetlink::LinkUnspec;
+use std::time::Duration;
+
+use crate::log;
 
 pub async fn find_link_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
@@ -52,10 +55,80 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
     let index = link.header.index;
 
     if !link.header.flags.contains(LinkFlags::Up) {
+        log!(
+            "network",
+            "Bringing up interface {} (index {})",
+            name,
+            index
+        );
         bring_link_up(handle, index).await?;
     }
 
+    wait_for_carrier(handle, name, index, Duration::from_secs(10)).await?;
+
     Ok(index)
+}
+
+pub async fn has_carrier(handle: &Handle, index: u32) -> Result<bool> {
+    let mut links = handle.link().get().execute();
+
+    while let Some(link) = links.try_next().await? {
+        if link.header.index == index {
+            return Ok(link.header.flags.contains(LinkFlags::LowerUp));
+        }
+    }
+
+    Err(anyhow::anyhow!("link index {} not found", index))
+}
+
+pub async fn wait_for_carrier(
+    handle: &Handle,
+    name: &str,
+    index: u32,
+    timeout: Duration,
+) -> Result<()> {
+    let poll_interval = Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    log!(
+        "network",
+        "Waiting for carrier on {} (timeout: {:?})",
+        name,
+        timeout
+    );
+
+    loop {
+        match has_carrier(handle, index).await {
+            Ok(true) => {
+                let elapsed = start.elapsed();
+                log!(
+                    "network",
+                    "Carrier detected on {} after {:?}",
+                    name,
+                    elapsed
+                );
+                return Ok(());
+            }
+            Ok(false) => {
+                if start.elapsed() >= timeout {
+                    log!(
+                        "network",
+                        "Carrier timeout on {} after {:?} - no physical link",
+                        name,
+                        timeout
+                    );
+                    return Err(anyhow::anyhow!(
+                        "timeout waiting for carrier on {} - check cable connection",
+                        name
+                    ));
+                }
+                tokio::time::sleep(poll_interval).await;
+            }
+            Err(e) => {
+                return Err(e.context(format!("failed to check carrier on {}", name)));
+            }
+        }
+    }
 }
 
 pub fn extract_mac_from_link(link: &LinkMessage) -> Option<[u8; 6]> {

@@ -3,9 +3,12 @@ use futures_util::stream::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkFlags};
 use rtnetlink::Handle;
 
+use crate::log;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkState {
     Up,
+    NoCarrier,
     Down,
 }
 
@@ -26,12 +29,17 @@ impl Interface {
             link_state,
         }
     }
+
+    pub fn has_carrier(&self) -> bool {
+        self.link_state == LinkState::Up
+    }
 }
 
 impl std::fmt::Display for LinkState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LinkState::Up => write!(f, "up"),
+            LinkState::NoCarrier => write!(f, "no-carrier"),
             LinkState::Down => write!(f, "down"),
         }
     }
@@ -42,46 +50,35 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
     let mut links = handle.link().get().execute();
 
     while let Some(link_msg) = links.try_next().await? {
-        let mut name = String::new();
-        let mut mac_address = [0u8; 6];
-        let mut is_virtual = false;
+        let (name, mac_address, is_virtual) = get_link_attributes(&link_msg.attributes);
 
-        for attr in &link_msg.attributes {
-            match attr {
-                LinkAttribute::IfName(n) => name = n.clone(),
-                LinkAttribute::Address(addr) if addr.len() == 6 => {
-                    mac_address.copy_from_slice(&addr[..6])
-                }
-                LinkAttribute::LinkInfo(info) => {
-                    for link_info_attr in info {
-                        if matches!(
-                            link_info_attr,
-                            netlink_packet_route::link::LinkInfo::Kind(_)
-                        ) {
-                            is_virtual = true;
-                            break;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if name.is_empty() {
-            continue;
-        }
-        if !is_ethernet_interface(&name) {
-            continue;
-        }
-        if is_virtual {
+        if name.is_empty() || !is_ethernet_interface(&name) || is_virtual {
             continue;
         }
 
-        let link_state = if link_msg.header.flags.contains(LinkFlags::Up) {
-            LinkState::Up
-        } else {
-            LinkState::Down
+        let flags = link_msg.header.flags;
+        let is_admin_up = flags.contains(LinkFlags::Up);
+        let has_carrier = flags.contains(LinkFlags::LowerUp);
+
+        let link_state = match (is_admin_up, has_carrier) {
+            (true, true) => LinkState::Up,
+            (true, false) => LinkState::NoCarrier,
+            (false, _) => LinkState::Down,
         };
+
+        log!(
+            "network",
+            "Discovered interface: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, state: {})",
+            name,
+            link_msg.header.index,
+            mac_address[0],
+            mac_address[1],
+            mac_address[2],
+            mac_address[3],
+            mac_address[4],
+            mac_address[5],
+            link_state
+        );
 
         interfaces.push(Interface::new(
             name,
@@ -91,6 +88,31 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
         ));
     }
     Ok(interfaces)
+}
+
+fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) {
+    let mut name = String::new();
+    let mut mac_address = [0u8; 6];
+    let mut is_virtual = false;
+
+    for attr in attributes {
+        match attr {
+            LinkAttribute::IfName(n) => name = n.clone(),
+            LinkAttribute::Address(addr) => {
+                if addr.len() == 6 {
+                    mac_address.copy_from_slice(&addr[..6]);
+                }
+            }
+            LinkAttribute::LinkInfo(info) => {
+                is_virtual = info
+                    .iter()
+                    .any(|attr| matches!(attr, netlink_packet_route::link::LinkInfo::Kind(_)))
+            }
+            _ => {}
+        }
+    }
+
+    (name, mac_address, is_virtual)
 }
 
 pub fn is_ethernet_interface(name: &str) -> bool {
@@ -141,7 +163,11 @@ impl InterfaceSelector {
     fn score_interface(interface: &Interface) -> u32 {
         let mut score = 0u32;
 
-        if interface.link_state == LinkState::Up {
+        if interface.has_carrier() {
+            score += 2000;
+        }
+
+        if interface.link_state != LinkState::Down {
             score += 1000;
         }
 
@@ -191,10 +217,21 @@ mod tests {
     }
 
     #[test]
-    fn test_select_primary_prefers_up_interface() {
+    fn test_select_primary_prefers_carrier() {
+        let interfaces = vec![
+            make_interface("eth0", LinkState::NoCarrier),
+            make_interface("eth1", LinkState::Up),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eth1");
+    }
+
+    #[test]
+    fn test_select_primary_prefers_no_carrier_over_down() {
         let interfaces = vec![
             make_interface("eth0", LinkState::Down),
-            make_interface("eth1", LinkState::Up),
+            make_interface("eth1", LinkState::NoCarrier),
         ];
 
         let primary = InterfaceSelector::select_primary(&interfaces);
@@ -226,9 +263,9 @@ mod tests {
     }
 
     #[test]
-    fn test_link_state_overrides_naming() {
+    fn test_carrier_overrides_naming() {
         let interfaces = vec![
-            make_interface("eno1", LinkState::Down),
+            make_interface("eno1", LinkState::NoCarrier),
             make_interface("eth0", LinkState::Up),
         ];
 
@@ -276,5 +313,12 @@ mod tests {
         let interfaces = vec![make_interface("eth0", LinkState::Down)];
         let primary = InterfaceSelector::select_primary(&interfaces);
         assert_eq!(primary.unwrap().name, "eth0");
+    }
+
+    #[test]
+    fn test_has_carrier() {
+        assert!(make_interface("eth0", LinkState::Up).has_carrier());
+        assert!(!make_interface("eth0", LinkState::NoCarrier).has_carrier());
+        assert!(!make_interface("eth0", LinkState::Down).has_carrier());
     }
 }
