@@ -8,28 +8,37 @@ pub async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, 
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await? {
-        if addr.header.index == index {
-            for attr in &addr.attributes {
-                if let AddressAttribute::Address(IpAddr::V4(v4)) = attr {
-                    return Ok(Some((*v4, addr.header.prefix_len)));
-                }
-            }
+        if addr.header.index != index {
+            continue;
+        }
+        if let Some(v4) = find_v4_in_attributes(&addr.attributes) {
+            return Ok(Some((v4, addr.header.prefix_len)));
         }
     }
 
     Ok(None)
 }
 
+fn find_v4_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv4Addr> {
+    attributes.iter().find_map(|attr| match attr {
+        AddressAttribute::Address(IpAddr::V4(v4)) => Some(*v4),
+        _ => None,
+    })
+}
+
 pub async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await? {
-        if addr.header.index == index {
-            for attr in &addr.attributes {
-                if matches!(attr, AddressAttribute::Address(IpAddr::V4(_))) {
-                    return Ok(true);
-                }
-            }
+        if addr.header.index != index {
+            continue;
+        }
+        let has_v4 = addr
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(_))));
+        if has_v4 {
+            return Ok(true);
         }
     }
 
@@ -49,20 +58,21 @@ pub async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await? {
-        if addr.header.index == index {
-            for attr in &addr.attributes {
-                if let AddressAttribute::Address(IpAddr::V4(v4)) = attr
-                    && *v4 == ip
-                {
-                    handle
-                        .address()
-                        .del(addr)
-                        .execute()
-                        .await
-                        .context("failed to remove IPv4 address")?;
-                    return Ok(());
-                }
-            }
+        if addr.header.index != index {
+            continue;
+        }
+        let matches = addr
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(v4)) if *v4 == ip));
+        if matches {
+            handle
+                .address()
+                .del(addr)
+                .execute()
+                .await
+                .context("failed to remove IPv4 address")?;
+            return Ok(());
         }
     }
 
