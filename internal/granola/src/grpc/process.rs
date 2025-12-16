@@ -3,6 +3,7 @@ use crate::log;
 use crate::process::Process;
 use tonic::{Request, Response, Status};
 
+#[allow(clippy::excessive_nesting)]
 pub mod process_service {
     tonic::include_proto!("muak.process.v1");
 }
@@ -29,7 +30,7 @@ impl GrpcProcessService {
     }
 
     fn send_ipc_message(&self, message: IpcMessage) -> Result<IpcResponse, String> {
-        let mut client = self.ipc_client.lock().unwrap();
+        let mut client = self.ipc_client.lock().expect("IPC client lock poisoned");
         match client.send_message(&message) {
             Ok(response) => Ok(response),
             Err(e) => {
