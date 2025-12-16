@@ -1,18 +1,36 @@
 ## TODO
 
-- Properly support arm64 architecture
+- Fix update kexec process to avoid unsigned PE binary
+  - Generate a persistent signing key
+  - Modify kernel Dockerfile to
+    - Accept signing key/cert as build secrets
+    - Embed public cert in kernel's trusted keyring (CONFIG_SYSTEM_TRUSTED_KEYS)
+    - Sign bzImage with sbsign after building
+  - Modify GitHub Actions workflow to inject secrets into Docker build using mount=type=secret,id=...
+  - Modify Makefile to support builds with signing (also handle local build)
+
+- Support arm64 architecture
   - Support for devicetree on ARM64 in stub
+  - Create kerel config for arm64
+  - Add arm kernel parameters support
+  - Add build in CI/CD
+  - Tweak pkgs Dockerfiles
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
 
 - Enhance networking:
+  - Fix order of things: no gateway = fail & no connectivity = fail
+  - Add way more testing to cover every edge case
   - Support IPv6 with DHCPv6
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
 
 - Hardened security in kernel by following KSPP guidelines
+
+- Add dynamic kernel module loading (dont forget to transfer /lib from initramfs to the real root)
+  - Sign kernel modules if transferring to real root
 
 - Better gRPC communication:
   - Create own independent project in internal/ instead of having it in internal/granola
@@ -23,14 +41,13 @@
   - Add permission management for different users using RBAC like system
 
 - Add to maintenance mode:
-    - Use config.yaml that is a required parameter in muak install to install declaratively the system
+    - Use config.toml that is a required parameter in muak install to install declaratively the system
       - muak gen-config to generate a config template
       - Static IP configuration
       - DNS configuration
       - Gateway configuration
       - Interface configuration
     - Configure secure boot keys
-    - Fix ISO booting not going to maintenance mode if STATE partition exists
 
 - Disk Manager Service:
   - LUKS encryption/decryption
@@ -51,23 +68,27 @@
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM
 
-- Automatically update the distro with a simple CLI command: muak update
-  - Make base image with needed dependencies use the overlayfs system like extensions
-
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
+    - muak.port = grpc server port
 
 - Better logging with tracing:
   - tracing::info!(component = "vm", vm_id = %vm_id, "Starting VM");
   - clean up debug logs
+  - move logging into shared module
 
 - Add e2e testing:
   - Unit tests
   - Mock system calls etc
 
+- Handle different cli vs server versions for gRPC client/server compatibility
+
+- Remove anyhow and use standard Rust error handling with strong typing
 - Simple secure boot support with sbctl or native implementation
 - Add TPM measurements in stub
 - Add supervision tree for critical services like gRPC server
 - Create a TUI interface to display critical system information
+
 - Add a web interface for easier management
+- Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs
 - Add custom hypervisor using the rust-vmm crates for better performance and control
