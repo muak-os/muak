@@ -7,39 +7,38 @@ pub struct AliasDb {
     entries: Vec<(String, String)>, // (pattern, module)
 }
 
+fn parse_alias_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let rest = line.strip_prefix("alias ")?;
+    let (pattern, module) = rest.rsplit_once(' ')?;
+    Some((pattern.trim().to_string(), module.trim().to_string()))
+}
+
 impl AliasDb {
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let mut entries = Vec::new();
-
-        for line in reader.lines() {
-            let line = line?;
-            let line = line.trim();
-
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            let Some(rest) = line.strip_prefix("alias ") else {
-                continue;
-            };
-            let Some((pattern, module)) = rest.rsplit_once(' ') else {
-                continue;
-            };
-            entries.push((pattern.trim().to_string(), module.trim().to_string()));
-        }
+        let entries: Vec<_> = reader
+            .lines()
+            .map_while(Result::ok)
+            .filter_map(|line| parse_alias_line(&line))
+            .collect();
 
         Ok(Self { entries })
     }
 
     pub fn find_module(&self, modalias: &str) -> Option<&str> {
-        for (pattern, module) in &self.entries {
-            if glob_match(pattern, modalias) {
-                return Some(module);
-            }
-        }
-        None
+        let modalias_lower = modalias.to_ascii_lowercase();
+        self.entries
+            .iter()
+            .find(|(pattern, _)| {
+                let pattern_lower = pattern.to_ascii_lowercase();
+                glob_match_bytes(pattern_lower.as_bytes(), modalias_lower.as_bytes())
+            })
+            .map(|(_, module)| module.as_str())
     }
 
     pub fn len(&self) -> usize {
@@ -51,45 +50,43 @@ impl AliasDb {
     }
 }
 
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let text = text.as_bytes();
-
+fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
     let mut p = 0;
     let mut t = 0;
     let mut star_p = None;
     let mut star_t = None;
 
     while t < text.len() {
-        if p < pattern.len() {
-            match pattern[p] {
-                b'*' => {
-                    star_p = Some(p);
-                    star_t = Some(t);
-                    p += 1;
-                    continue;
-                }
-                b'?' => {
-                    p += 1;
-                    t += 1;
-                    continue;
-                }
-                c if c == text[t] => {
-                    p += 1;
-                    t += 1;
-                    continue;
-                }
-                _ => {}
+        let matched = match pattern.get(p) {
+            Some(b'*') => {
+                star_p = Some(p);
+                star_t = Some(t);
+                p += 1;
+                true
             }
+            Some(b'?') => {
+                p += 1;
+                t += 1;
+                true
+            }
+            Some(&c) if c == text[t] => {
+                p += 1;
+                t += 1;
+                true
+            }
+            _ => false,
+        };
+
+        if matched {
+            continue;
         }
 
-        if let (Some(sp), Some(st)) = (star_p, star_t) {
-            p = sp + 1;
-            star_t = Some(st + 1);
-            t = st + 1;
-        } else {
+        let Some((sp, st)) = star_p.zip(star_t) else {
             return false;
-        }
+        };
+        p = sp + 1;
+        star_t = Some(st + 1);
+        t = st + 1;
     }
 
     while p < pattern.len() && pattern[p] == b'*' {
@@ -102,6 +99,16 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn glob_match(pattern: &str, text: &str) -> bool {
+        glob_match_bytes(pattern.as_bytes(), text.as_bytes())
+    }
+
+    fn glob_match_icase(pattern: &str, text: &str) -> bool {
+        let pattern_lower = pattern.to_ascii_lowercase();
+        let text_lower = text.to_ascii_lowercase();
+        glob_match_bytes(pattern_lower.as_bytes(), text_lower.as_bytes())
+    }
 
     #[test]
     fn test_glob_exact() {
@@ -139,5 +146,38 @@ mod tests {
             pattern,
             "pci:v00008086d00001522sv00001028sd00000001bc02sc00i00"
         ));
+    }
+
+    #[test]
+    fn test_intel_i226v_modalias() {
+        let pattern = "pci:v00008086d0000125Csv*sd*bc*sc*i*";
+        let modalias = "pci:v00008086d0000125Csv00001043sd000087D2bc02sc00i00";
+        assert!(glob_match(pattern, modalias));
+
+        let modalias_lower = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
+        assert!(!glob_match(pattern, modalias_lower));
+
+        assert!(glob_match_icase(
+            pattern,
+            &modalias_lower.to_ascii_lowercase()
+        ));
+    }
+
+    #[test]
+    fn test_alias_db_case_insensitive() {
+        use std::io::Write;
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_modules_alias");
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc").unwrap();
+        }
+
+        let db = AliasDb::load(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        let modalias = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
+        assert_eq!(db.find_module(modalias), Some("igc"));
     }
 }

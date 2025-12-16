@@ -1,6 +1,16 @@
 use std::fs;
 use std::path::Path;
 
+fn read_modalias(device_path: &Path) -> Option<String> {
+    let modalias_path = device_path.join("modalias");
+    let modalias = fs::read_to_string(&modalias_path).ok()?;
+    let modalias = modalias.trim();
+    if modalias.is_empty() {
+        return None;
+    }
+    Some(modalias.to_string())
+}
+
 pub fn for_each_modalias<F>(mut f: F) -> std::io::Result<()>
 where
     F: FnMut(&str),
@@ -10,22 +20,21 @@ where
         return Ok(());
     }
 
-    for bus_entry in fs::read_dir(sys_bus)? {
-        let devices_dir = bus_entry?.path().join("devices");
-        if !devices_dir.exists() {
-            continue;
-        }
+    let devices_dirs: Vec<_> = fs::read_dir(sys_bus)?
+        .filter_map(Result::ok)
+        .map(|e| e.path().join("devices"))
+        .filter(|p| p.exists())
+        .collect();
 
-        for dev_entry in fs::read_dir(&devices_dir)? {
-            let modalias_path = dev_entry?.path().join("modalias");
-            let Ok(modalias) = fs::read_to_string(&modalias_path) else {
-                continue;
-            };
-            let modalias = modalias.trim();
-            if modalias.is_empty() {
-                continue;
-            }
-            f(modalias);
+    for devices_dir in devices_dirs {
+        let Ok(entries) = fs::read_dir(&devices_dir) else {
+            continue;
+        };
+        for modalias in entries
+            .filter_map(Result::ok)
+            .filter_map(|e| read_modalias(&e.path()))
+        {
+            f(&modalias);
         }
     }
 

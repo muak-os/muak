@@ -54,12 +54,11 @@ impl NetworkActorHandle {
                         e
                     );
 
-                    let delay = std::cmp::min(
-                        base_delay
-                            .checked_mul(1u32 << attempt.saturating_sub(1).min(5))
-                            .unwrap_or(max_delay),
-                        max_delay,
-                    );
+                    let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
+                    let delay = base_delay
+                        .checked_mul(multiplier)
+                        .unwrap_or(max_delay)
+                        .min(max_delay);
 
                     log!("network", "Retrying in {:?}...", delay);
                     tokio::time::sleep(delay).await;
