@@ -36,8 +36,6 @@ rustup target add aarch64-unknown-uefi --toolchain nightly
 ```sh
 make kernel
 make dev
-
-# Boot in QEMU
 qemu-system-x86_64 -enable-kvm -cpu host -m 2G \
     -cdrom _out/muak-x86_64.iso \
     -bios /usr/share/ovmf/x64/OVMF.4m.fd \
