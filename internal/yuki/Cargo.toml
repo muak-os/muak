@@ -3,7 +3,7 @@ name = "yuki"
 version = "0.1.0"
 edition = "2024"
 authors = ["Sawang"]
-description = "Static UKI builder - adds PE sections to EFI stubs"
+description = "UKI builder - add PE sections to EFI stub"
 
 [dependencies]
 object = { workspace = true }

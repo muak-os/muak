@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "yuki")]
-#[command(about = "UKI builder - adds PE sections to EFI stubs", long_about = None)]
+#[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     #[arg(short, long)]
     stub: PathBuf,
@@ -31,6 +31,17 @@ const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
 const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
 const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
 
+const DOS_HEADER_PE_OFFSET: usize = 0x3C;
+const PE_SIGNATURE_SIZE: usize = 4;
+
+const OPT_HEADER_SECTION_ALIGNMENT: usize = 32;
+const OPT_HEADER_FILE_ALIGNMENT: usize = 36;
+const OPT_HEADER_SIZE_OF_IMAGE: usize = 56;
+
+const COFF_NUMBER_OF_SECTIONS: usize = 2;
+
+const SECTION_NAME_MAX_LEN: usize = 8;
+
 fn align_to(value: u32, alignment: u32) -> u32 {
     if alignment == 0 {
         return value;
@@ -49,7 +60,6 @@ fn write_u32(buf: &mut [u8], off: usize, val: u32) {
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    // Read the stub binary
     let mut stub_data = Vec::new();
     File::open(&args.stub)?.read_to_end(&mut stub_data)?;
 
@@ -57,7 +67,6 @@ fn main() -> io::Result<()> {
     let initrd_data = fs::read(&args.initrd)?;
     let cmdline_data = fs::read(&args.cmdline)?;
 
-    // Parse PE
     let pe = PeFile64::parse(&stub_data[..]).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -67,23 +76,20 @@ fn main() -> io::Result<()> {
     let nt_headers = pe.nt_headers();
     let sections = pe.section_table();
 
-    // COFF + Optional header offsets
     let pe_offset = u32::from_le_bytes([
-        stub_data[0x3c],
-        stub_data[0x3d],
-        stub_data[0x3e],
-        stub_data[0x3f],
+        stub_data[DOS_HEADER_PE_OFFSET],
+        stub_data[DOS_HEADER_PE_OFFSET + 1],
+        stub_data[DOS_HEADER_PE_OFFSET + 2],
+        stub_data[DOS_HEADER_PE_OFFSET + 3],
     ]) as usize;
-    let file_header_offset = pe_offset + 4; // skip PE signature
+    let file_header_offset = pe_offset + PE_SIGNATURE_SIZE;
     let optional_header_offset = file_header_offset + mem::size_of::<object::pe::ImageFileHeader>();
     let optional_header_size = nt_headers.file_header().size_of_optional_header.get(LE) as usize;
     let section_table_offset = optional_header_offset + optional_header_size;
 
-    // Read alignments from Optional Header (PE32+)
-    let section_alignment = read_u32(&stub_data, optional_header_offset + 32);
-    let file_alignment = read_u32(&stub_data, optional_header_offset + 36);
+    let section_alignment = read_u32(&stub_data, optional_header_offset + OPT_HEADER_SECTION_ALIGNMENT);
+    let file_alignment = read_u32(&stub_data, optional_header_offset + OPT_HEADER_FILE_ALIGNMENT);
 
-    // Determine last section ends
     let last_section_file_end = sections
         .iter()
         .map(|s| s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE))
@@ -103,7 +109,6 @@ fn main() -> io::Result<()> {
         (".stub", stub_data.clone()),
     ];
 
-    // Prepare new sections with proper alignments and flags
     let mut new_sections = Vec::new();
     let mut current_file_offset = align_to(last_section_file_end, file_alignment);
     let mut current_virtual_address = align_to(last_section_virtual_end, section_alignment);
@@ -117,9 +122,8 @@ fn main() -> io::Result<()> {
 
         let mut section = ImageSectionHeader::default();
 
-        // name (max 8 bytes)
         let name_bytes = name.as_bytes();
-        let name_len = name_bytes.len().min(8);
+        let name_len = name_bytes.len().min(SECTION_NAME_MAX_LEN);
         section.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
 
         section.virtual_size.set(LE, virtual_size);
@@ -127,11 +131,6 @@ fn main() -> io::Result<()> {
         section.size_of_raw_data.set(LE, size_of_raw_data);
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
-        // Match flags:
-        // - .cmdline: readonly
-        // - .linux:   alloc,readonly,code
-        // - .initrd:  readonly
-        // - .stub:    readonly
         let characteristics = match *name {
             ".linux" => IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ,
             _ => IMAGE_SCN_MEM_READ,
@@ -148,15 +147,13 @@ fn main() -> io::Result<()> {
 
     let mut output = stub_data.clone();
 
-    // Update NumberOfSections in COFF header (offset +2 in file header)
     let new_section_count = current_section_count + sections_to_add.len() as u16;
-    let section_count_offset = file_header_offset + 2;
+    let section_count_offset = file_header_offset + COFF_NUMBER_OF_SECTIONS;
     output[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 
     output.resize(current_file_offset as usize, 0);
 
-    // Write new section headers into section table
     for (i, (section_header, _)) in new_sections.iter().enumerate() {
         let offset = section_table_offset
             + (current_section_count as usize + i) * mem::size_of::<ImageSectionHeader>();
@@ -169,14 +166,12 @@ fn main() -> io::Result<()> {
         output[offset..offset + header_bytes.len()].copy_from_slice(header_bytes);
     }
 
-    // Write section data
     for (section_header, data) in &new_sections {
         let off = section_header.pointer_to_raw_data.get(LE) as usize;
         output[off..off + data.len()].copy_from_slice(data);
     }
 
-    // Update SizeOfImage in Optional Header to cover new sections
-    let size_of_image_off = optional_header_offset + 56; // DWORD SizeOfImage
+    let size_of_image_off = optional_header_offset + OPT_HEADER_SIZE_OF_IMAGE;
     let new_size_of_image = align_to(max_virtual_end, section_alignment);
     write_u32(&mut output, size_of_image_off, new_size_of_image);
 
