@@ -16,7 +16,7 @@ pub fn switch(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
-    for mnt in &["/dev", "/proc", "/sys", "/mnt"] {
+    for mnt in &["/dev", "/proc", "/sys", "/mnt", "/run"] {
         let target = format!("{}{}", newroot, mnt);
 
         fs::create_dir_all(&target).map_err(|e| format!("Failed to create {}: {}", target, e))?;
@@ -30,20 +30,6 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
         )
         .map_err(|e| format!("Failed to move mount {} to {}: {}", mnt, target, e))?;
     }
-
-    // Create /run as tmpfs in new root and copy over the contents
-    let run_target = format!("{}/run", newroot);
-    fs::create_dir_all(&run_target)
-        .map_err(|e| format!("Failed to create /run in new root: {}", e))?;
-
-    mount(
-        Some("tmpfs"),
-        run_target.as_str(),
-        Some("tmpfs"),
-        MsFlags::empty(),
-        Some("mode=0755"),
-    )
-    .map_err(|e| format!("Failed to mount tmpfs on /run in new root: {}", e))?;
 
     Ok(())
 }
