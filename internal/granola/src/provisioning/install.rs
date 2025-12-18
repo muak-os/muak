@@ -84,7 +84,7 @@ fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
         bail!("EFI device {} does not exist", efi_device);
     }
 
-    let mount_point = "/mnt/efi";
+    let mount_point = "/run/mnt/efi";
     mount_efi_partition(efi_device, mount_point)?;
 
     let result = write_uki_to_efi(mount_point, staged_uki);
@@ -110,7 +110,7 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
 fn init_state_partition(device: &str, version: &str) -> Result<()> {
     log!("provisioning", "Initializing STATE partition");
 
-    let mount_point = "/mnt/state";
+    let mount_point = "/run/mnt/state";
 
     fs::create_dir_all(mount_point)
         .with_context(|| format!("Failed to create mount point {}", mount_point))?;

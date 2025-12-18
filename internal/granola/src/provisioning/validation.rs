@@ -120,7 +120,7 @@ fn commit_update(marker: &ValidationMarker) -> Result<()> {
         anyhow::bail!("EFI device {} does not exist", efi_device);
     }
 
-    let mount_point = "/mnt/efi";
+    let mount_point = "/run/mnt/efi";
     mount_efi_partition(efi_device, mount_point)?;
 
     let result = install_new_uki_and_finalize(marker, mount_point);
