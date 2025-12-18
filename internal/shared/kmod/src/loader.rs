@@ -3,8 +3,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use nix::libc;
-
 use crate::dep;
 
 #[derive(Debug)]
@@ -90,8 +88,8 @@ fn read_module(path: &Path) -> Result<Vec<u8>, LoadError> {
 
 fn init_module(module_data: &[u8]) -> Result<(), LoadError> {
     let ret = unsafe {
-        libc::syscall(
-            libc::SYS_init_module,
+        nix::libc::syscall(
+            nix::libc::SYS_init_module,
             module_data.as_ptr(),
             module_data.len(),
             c"".as_ptr(),
