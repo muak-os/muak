@@ -1,7 +1,7 @@
 # Build artifacts
 target/
 **/target/
-tmp/
+_out/
 
 # Rust incremental compilation
 **/incremental/
@@ -37,12 +37,6 @@ tmp/
 # Examples
 **/examples/
 
-# Scripts (not needed in container)
-scripts/
-
-# Extensions build artifacts
-extensions/
-
 # ISO and disk images
 *.iso
 *.img
@@ -50,5 +44,6 @@ extensions/
 
 # Temporary files
 *.tmp
+tmp/
 *.temp
 .cache/
