@@ -9,7 +9,13 @@ use std::path::Path;
 nix::ioctl_write_int_bad!(loop_set_fd, 0x4C00);
 
 pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
-    create_and_mount("/dev", "devtmpfs", "devtmpfs", MsFlags::MS_NOSUID, None)?;
+    create_and_mount(
+        "/dev",
+        "devtmpfs",
+        "devtmpfs",
+        MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+        None,
+    )?;
     create_and_mount(
         "/proc",
         "proc",
@@ -82,7 +88,7 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             Some(lower_dirs[0].as_str()),
             "/newroot",
             None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_RDONLY,
+            MsFlags::MS_BIND | MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
             None::<&str>,
         )?;
     } else {
@@ -93,7 +99,7 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             Some("overlay"),
             "/newroot",
             Some("overlay"),
-            MsFlags::MS_RDONLY,
+            MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
             Some(options.as_str()),
         )?;
     }
