@@ -27,8 +27,6 @@
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
 
-- Hardened security in kernel by following KSPP guidelines
-
 - Add dynamic kernel module loading (dont forget to transfer /lib from initramfs to the real root)
   - Sign kernel modules if transferring to real root
 

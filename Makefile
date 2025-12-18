@@ -134,6 +134,15 @@ oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
 		--file pkgs/kernel/Dockerfile \
 		.
 
+.PHONY: kspp
+kspp: ## Check kernel config against KSPP security hardening recommendations
+	@printf "$(CYAN)Checking kernel config against KSPP recommendations$(RESET)\n"
+	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/pkgs/kernel/config-amd64:/config:ro \
+		alpine:3.23 sh -c '\
+		apk add --no-cache git python3 >/dev/null 2>&1 && \
+		git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
+		/tmp/khc/bin/kernel-hardening-checker -c /config'
+
 ## Installer
 .PHONY: installer
 installer: $(ARTIFACTS) ## Build installer with local binaries
