@@ -8,6 +8,7 @@ LATEST ?= false
 PLATFORM ?= linux/amd64
 PROGRESS ?= auto
 CI_ARGS ?=
+SIGNING_ARGS ?=
 
 ARTIFACTS := _out
 ARCH ?= x86_64
@@ -114,7 +115,7 @@ oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
 
 ## Kernel
 .PHONY: kernel
-kernel: $(ARTIFACTS) ## Build kernel to local artifacts
+kernel: $(ARTIFACTS) ## Build kernel to local artifacts (unsigned)
 	$(call require-pkg,kernel)
 	@printf "$(CYAN)Building kernel locally$(RESET)\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
@@ -123,10 +124,10 @@ kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 		.
 
 .PHONY: oci-kernel
-oci-kernel: ## Build kernel OCI image (e.g. make oci-kernel)
+oci-kernel: ## Build kernel OCI image (signed in CI)
 	$(call require-docker-for-push)
 	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) \
 		--tag $(REGISTRY)/kernel:$(TAG) \
 		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/kernel:latest) \
 		$(PUSH_ARG) \

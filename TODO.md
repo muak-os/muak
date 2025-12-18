@@ -1,14 +1,5 @@
 ## TODO
 
-- Fix update kexec process to avoid unsigned PE binary
-  - Generate a persistent signing key
-  - Modify kernel Dockerfile to
-    - Accept signing key/cert as build secrets
-    - Embed public cert in kernel's trusted keyring (CONFIG_SYSTEM_TRUSTED_KEYS)
-    - Sign bzImage with sbsign after building
-  - Modify GitHub Actions workflow to inject secrets into Docker build using mount=type=secret,id=...
-  - Modify Makefile to support builds with signing (also handle local build)
-
 - Support arm64 architecture
   - Support for devicetree on ARM64 in stub
   - Create kerel config for arm64
@@ -26,9 +17,10 @@
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
+  - Support custom proxy settings from config file
 
 - Add dynamic kernel module loading (dont forget to transfer /lib from initramfs to the real root)
-  - Sign kernel modules if transferring to real root
+  - Sign kernel modules with CONFIG_MODULE_SIG_FORCE to prevent random module loading
 
 - Better gRPC communication:
   - Create own independent project in internal/ instead of having it in internal/granola

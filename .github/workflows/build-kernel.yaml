@@ -38,6 +38,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup signing key
+        run: |
+          echo "${{ secrets.KERNEL_SIGNING_KEY }}" > /tmp/kernel-signing-key.pem
+          chmod 600 /tmp/kernel-signing-key.pem
+
       - name: Build kernel
         run: |
           make oci-kernel \
@@ -45,7 +50,12 @@ jobs:
             PUSH=true \
             LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
+            SIGNING_ARGS="--secret id=kernel_key,src=/tmp/kernel-signing-key.pem" \
             CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache,mode=max"
+
+      - name: Cleanup signing key
+        if: always()
+        run: rm -f /tmp/kernel-signing-key.pem
 
       - name: Build summary
         run: |

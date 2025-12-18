@@ -38,9 +38,11 @@ WORKDIR /src
 RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz" && \
   tar -xJf linux-${KERNEL_VERSION}.tar.xz --strip-components=1 && \
   rm linux-${KERNEL_VERSION}.tar.xz && \
+  mkdir -p certs && \
   make mrproper
 
 COPY pkgs/kernel/config-amd64 .config
+COPY pkgs/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
 
 RUN make olddefconfig
 
@@ -48,6 +50,19 @@ RUN --mount=type=cache,target=/root/.ccache \
   export PATH="/usr/lib/ccache/bin:$PATH" && \
   make -j$(nproc) CC="ccache gcc" && \
   make -j$(nproc) CC="ccache gcc" modules
+
+RUN --mount=type=secret,id=kernel_key,target=/run/secrets/kernel-signing-key.pem <<EOF
+set -euo pipefail
+if [ -f /run/secrets/kernel-signing-key.pem ]; then
+  ./scripts/sign-file sha512 \
+    /run/secrets/kernel-signing-key.pem \
+    certs/kernel-signing-cert.pem \
+    arch/x86/boot/bzImage
+  echo "bzImage signed successfully"
+else
+  echo "No signing key provided, bzImage is unsigned"
+fi
+EOF
 
 # ============================================================
 FROM kernel-build AS modules-install
