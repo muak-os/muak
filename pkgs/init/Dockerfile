@@ -20,10 +20,11 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache musl-dev
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["internal/init", "internal/shared/kmod"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/init", "internal/shared/kmod", "internal/shared/kmsg"]' Cargo.toml
 
 COPY internal/init ./internal/init
 COPY internal/shared/kmod ./internal/shared/kmod
+COPY internal/shared/kmsg ./internal/shared/kmsg
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \

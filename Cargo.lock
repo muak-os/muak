@@ -1167,6 +1167,7 @@ name = "init"
 version = "0.1.0"
 dependencies = [
  "kmod",
+ "kmsg",
  "nix 0.30.1",
 ]
 
@@ -1234,6 +1235,10 @@ dependencies = [
  "nix 0.30.1",
  "zstd",
 ]
+
+[[package]]
+name = "kmsg"
+version = "0.1.0"
 
 [[package]]
 name = "libc"

@@ -1,4 +1,3 @@
-mod logging;
 mod modules;
 mod mount;
 mod switchroot;
@@ -7,7 +6,7 @@ use std::process;
 
 fn main() {
     if let Err(e) = run() {
-        logging::error(&format!("FATAL ERROR: {}", e));
+        kmsg::error!("FATAL ERROR: {}", e);
         process::exit(1);
     }
 }
@@ -15,19 +14,19 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     mount::mount_pseudo()?;
 
-    logging::init()?;
-    logging::log("Pseudo filesystems mounted");
+    kmsg::init("init")?;
+    kmsg::info!("Pseudo filesystems mounted");
 
     match modules::load() {
-        Ok(count) => logging::log(&format!("Loaded {} kernel modules", count)),
-        Err(e) => logging::log(&format!("Warning: module loading failed: {}", e)),
+        Ok(count) => kmsg::info!("Loaded {} kernel modules", count),
+        Err(e) => kmsg::warn!("Module loading failed: {}", e),
     }
 
-    logging::log("Mounting rootfs");
+    kmsg::info!("Mounting rootfs");
     mount::mount_rootfs()?;
-    logging::log("Rootfs mounted successfully");
+    kmsg::info!("Rootfs mounted successfully");
 
-    logging::log("Switching to new root");
+    kmsg::info!("Switching to new root");
     switchroot::switch("/newroot")?;
 
     unreachable!("switch_root should never return");

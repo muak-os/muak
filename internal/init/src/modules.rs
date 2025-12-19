@@ -2,8 +2,6 @@ use std::path::Path;
 
 use kmod::{AliasDb, DepDb, ModuleLoader, find_kernel_release, for_each_modalias, load_module};
 
-use crate::logging;
-
 pub fn load() -> Result<usize, Box<dyn std::error::Error>> {
     let modules_base = Path::new("/lib/modules");
     let krel = find_kernel_release(modules_base)?;
@@ -20,7 +18,7 @@ pub fn load() -> Result<usize, Box<dyn std::error::Error>> {
         };
         match load_module(module_name, &dep_db, &mut loader) {
             Ok(count) => total_loaded += count,
-            Err(e) => logging::log(&format!("Warning: failed to load {}: {}", module_name, e)),
+            Err(e) => kmsg::warn!("Failed to load {}: {}", module_name, e),
         }
     })?;
 

@@ -63,7 +63,7 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
     let extensions = discover_extensions();
 
     if !extensions.is_empty() {
-        crate::logging::log(&format!("Loading {} extension(s)", extensions.len()));
+        kmsg::info!("Loading {} extension(s)", extensions.len());
     }
 
     for (idx, ext_path) in extensions.iter().enumerate() {

@@ -11,6 +11,7 @@
   - Check if there is /dev/kvm supported when starting the distro
 
 - Enhance networking:
+  - Move it outside of granola to its own binary
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
   - Support IPv6 with DHCPv6
@@ -61,11 +62,6 @@
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
     - muak.port = grpc server port
-
-- Better logging with tracing:
-  - tracing::info!(component = "vm", vm_id = %vm_id, "Starting VM");
-  - clean up debug logs
-  - move logging into shared module
 
 - Add e2e testing:
   - Unit tests
