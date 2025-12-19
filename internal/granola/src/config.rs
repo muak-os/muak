@@ -1,3 +1,7 @@
+// Only MUAK_DISKS_DIR is currently used by main.rs
+// Other constants are kept for when grpcd/vmd are extracted
+#![allow(dead_code)]
+
 pub const CLOUD_HYPERVISOR_BINARY: &str = "/usr/bin/cloud-hypervisor";
 pub const FIRECRACKER_BINARY: &str = "/usr/bin/firecracker";
 pub const FIRECRACKER_KERNEL_PATH: &str = "/usr/share/firecracker/vmlinux";

@@ -1,9 +1,17 @@
+// Most provisioning operations are used by install/update gRPC handlers
+// which will be called from grpcd. Only status() and check_and_handle_pending_validation()
+// are currently used from main.rs
+#![allow(dead_code)]
+
 mod install;
 mod uki;
 mod update;
 mod validation;
 
+// These will be called from grpcd when it's extracted
+#[allow(unused_imports)]
 pub use install::install;
+#[allow(unused_imports)]
 pub use update::update;
 pub use validation::check_and_handle_pending_validation;
 

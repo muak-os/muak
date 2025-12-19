@@ -8,6 +8,8 @@ members = [
     "internal/stub",
     "internal/shared/kmod",
     "internal/shared/kmsg",
+    "internal/shared/notify",
+    "internal/networkd",
 ]
 resolver = "3"
 

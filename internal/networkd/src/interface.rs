@@ -176,7 +176,7 @@ impl InterfaceSelector {
 
     fn score_naming(name: &str) -> u32 {
         // Priority order: eno > ens > enp > end > eth
-        if name.starts_with("eno") {
+        if name.starts_with("ono") {
             500
         } else if name.starts_with("ens") {
             400

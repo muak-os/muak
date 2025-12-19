@@ -1,4 +1,4 @@
-use crate::network::netlink::link;
+use crate::netlink::link;
 use anyhow::Result;
 use futures_util::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
@@ -84,7 +84,7 @@ async fn initial_scan(
     let mut links = handle.link().get().execute();
     while let Some(link_msg) = links.try_next().await? {
         if let Some((name, index, _)) = extract_link_info(&link_msg)
-            && super::interface::is_ethernet_interface(&name)
+            && crate::interface::is_ethernet_interface(&name)
         {
             let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
             let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
@@ -142,7 +142,7 @@ async fn handle_new_link(
     let Some((name, index, mac)) = extract_link_info(&msg) else {
         return Ok(());
     };
-    if !super::interface::is_ethernet_interface(&name) {
+    if !crate::interface::is_ethernet_interface(&name) {
         return Ok(());
     }
 
@@ -204,7 +204,7 @@ async fn handle_del_link(
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
     if let Some((name, index, _)) = extract_link_info(&msg) {
-        if !super::interface::is_ethernet_interface(&name) {
+        if !crate::interface::is_ethernet_interface(&name) {
             return Ok(());
         }
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::network::model::{InterfaceSnapshot, NetworkSnapshot};
+use crate::model::{InterfaceSnapshot, NetworkSnapshot};
 
 pub struct NetworkActor {
     pub(super) handle: Handle,

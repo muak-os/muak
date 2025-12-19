@@ -19,7 +19,7 @@ UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
 EXTENSIONS ?=
 
-INTERNAL_PACKAGES := granola init imager yuki stub
+INTERNAL_PACKAGES := granola networkd init imager yuki stub
 EXTENSION_PACKAGES := cloud-hypervisor firecracker qemu
 ALL_PACKAGES := $(INTERNAL_PACKAGES) $(EXTENSION_PACKAGES) kernel
 
@@ -151,6 +151,7 @@ installer: $(ARTIFACTS) ## Build installer with local binaries
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-context pkg-granola=$(RELEASE_DIR) \
+		--build-context pkg-networkd=$(RELEASE_DIR) \
 		--build-context pkg-init=$(RELEASE_DIR) \
 		--build-context pkg-yuki=$(RELEASE_DIR) \
 		--build-context pkg-imager=$(RELEASE_DIR) \
@@ -168,6 +169,7 @@ oci-installer: ## Build installer OCI image from registry packages
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
 		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
+		--build-arg PKG_NETWORKD=$(REGISTRY)/pkgs/networkd:$(TAG) \
 		--build-arg PKG_INIT=$(REGISTRY)/pkgs/init:$(TAG) \
 		--build-arg PKG_IMAGER=$(REGISTRY)/pkgs/imager:$(TAG) \
 		--build-arg PKG_YUKI=$(REGISTRY)/pkgs/yuki:$(TAG) \

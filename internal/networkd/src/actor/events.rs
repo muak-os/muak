@@ -1,5 +1,5 @@
-use crate::network::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
-use crate::network::monitor::NetworkEvent;
+use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
+use crate::monitor::NetworkEvent;
 
 use super::state::NetworkActor;
 

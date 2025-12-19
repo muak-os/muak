@@ -1,5 +1,5 @@
-use crate::network::netlink::link;
-use crate::network::services::bridge;
+use crate::netlink::link;
+use crate::services::bridge;
 use anyhow::Result;
 use rtnetlink::Handle;
 use sha2::{Digest, Sha256};

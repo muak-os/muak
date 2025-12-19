@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package muak.internal.supervisor;
+
+message Notify {
+  string service_name = 1;
+
+  oneof notification {
+    Ready ready = 2;
+    Status status = 3;
+    Stopping stopping = 4;
+    Watchdog watchdog = 5;
+  }
+}
+
+message Ready {
+  string socket_path = 1;
+  uint32 pid = 2;
+}
+
+message Status {
+  string message = 1;
+  Health health = 2;
+}
+
+enum Health {
+  HEALTHY = 0;
+  DEGRADED = 1;
+  UNHEALTHY = 2;
+}
+
+message Stopping {
+  string reason = 1;
+}
+
+message Watchdog {
+  // Empty - just a heartbeat
+}
+
+message Command {
+  oneof command {
+    Shutdown shutdown = 1;
+    Reload reload = 2;
+  }
+}
+
+message Shutdown {
+  uint32 timeout_seconds = 1;  // graceful shutdown timeout
+}
+
+message Reload {
+  // Reload configuration
+}

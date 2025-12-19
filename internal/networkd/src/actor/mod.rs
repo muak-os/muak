@@ -7,8 +7,8 @@ use anyhow::Result;
 use rtnetlink::new_connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
-use crate::network::monitor::{self, NetworkEvent};
+use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
+use crate::monitor::{self, NetworkEvent};
 
 pub use commands::NetworkCommand;
 use state::NetworkActor;
@@ -88,10 +88,7 @@ impl NetworkActorHandle {
         Ok(())
     }
 
-    pub async fn acquire_dhcp(
-        &self,
-        iface: &str,
-    ) -> Result<crate::network::model::InterfaceSnapshot> {
+    pub async fn acquire_dhcp(&self, iface: &str) -> Result<crate::model::InterfaceSnapshot> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(NetworkCommand::AcquireDhcp {

@@ -1,14 +1,13 @@
+use anyhow::Result;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime};
-
-use anyhow::Result;
 use tokio::time::timeout;
 
-use super::config::{
+use crate::config::{
     CONNECTIVITY_CHECK_INTERVAL_SECS, CONNECTIVITY_OVERALL_TIMEOUT_SECS,
     CONNECTIVITY_PROBE_TIMEOUT_SECS,
 };
-use super::model::{ConnectivityResult, ConnectivityStatus};
+use crate::model::{ConnectivityResult, ConnectivityStatus};
 
 #[derive(Debug, Clone)]
 pub struct ConnectivityConfig {

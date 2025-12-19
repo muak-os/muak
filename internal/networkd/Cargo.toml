@@ -1,0 +1,43 @@
+[package]
+name = "networkd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
+tokio-stream = { workspace = true }
+
+# System/platform APIs
+nix = { workspace = true, features = ["socket", "ioctl"] }
+
+# RPC and serialization
+tonic = { workspace = true }
+prost = { workspace = true }
+tonic-prost = { workspace = true }
+
+# Networking
+rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
+netlink-packet-core = { workspace = true }
+futures-util = { workspace = true }
+dhcproto = { workspace = true }
+reqwest = { workspace = true }
+
+# Utilities
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+
+# Unix socket support
+tower = { workspace = true }
+hyper-util = { workspace = true }
+
+# Internal
+kmsg = { path = "../shared/kmsg" }
+notify = { path = "../shared/notify" }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[lints]
+workspace = true

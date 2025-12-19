@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package muak.internal.network;
+
+service NetworkService {
+  // Initialization
+  rpc Initialize(InitializeRequest) returns (InitializeResponse);
+  rpc GetStatus(GetStatusRequest) returns (NetworkStatus);
+
+  // TAP management (called by vmd or grpcd)
+  rpc CreateTap(CreateTapRequest) returns (CreateTapResponse);
+  rpc DeleteTap(DeleteTapRequest) returns (DeleteTapResponse);
+
+  // Bridge management
+  rpc SetupBridge(SetupBridgeRequest) returns (SetupBridgeResponse);
+
+  // Health
+  rpc CheckConnectivity(CheckConnectivityRequest) returns (ConnectivityResult);
+
+  // Streaming status updates
+  rpc SubscribeStatus(SubscribeStatusRequest) returns (stream NetworkStatus);
+}
+
+message InitializeRequest {}
+message InitializeResponse {}
+
+message GetStatusRequest {}
+
+message NetworkStatus {
+  State state = 1;
+  string primary_interface = 2;
+  repeated InterfaceInfo interfaces = 3;
+}
+
+enum State {
+  INITIALIZING = 0;
+  DEGRADED = 1;
+  READY = 2;
+  FAILED = 3;
+}
+
+message InterfaceInfo {
+  string name = 1;
+  string mac = 2;
+  repeated string addresses = 3;
+  bool has_gateway = 4;
+}
+
+message CreateTapRequest {
+  string name = 1;
+  string vm_id = 2;  // for tracking/cleanup
+}
+
+message CreateTapResponse {
+  string interface_name = 1;
+  string mac_address = 2;
+  uint32 interface_index = 3;
+}
+
+message DeleteTapRequest {
+  string name = 1;
+}
+
+message DeleteTapResponse {}
+
+message SetupBridgeRequest {}
+message SetupBridgeResponse {}
+
+message CheckConnectivityRequest {}
+
+message ConnectivityResult {
+  bool dns_works = 1;
+  bool internet_reachable = 2;
+  string primary_ip = 3;
+  string gateway = 4;
+}
+
+message SubscribeStatusRequest {}

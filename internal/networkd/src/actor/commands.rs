@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
+use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 
 use super::state::NetworkActor;
 

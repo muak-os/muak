@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use super::model::{DhcpLease, IpConfig};
+use crate::model::{DhcpLease, IpConfig};
 
 mod option {
     pub const SUBNET_MASK: u8 = 1;

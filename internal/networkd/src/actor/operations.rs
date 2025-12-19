@@ -1,18 +1,18 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::network::config::LAN_BRIDGE_NAME;
-use crate::network::connectivity::{self, ConnectivityConfig};
-use crate::network::dhcp::run_dhcp_client;
-use crate::network::dns::configure_dns;
-use crate::network::interface::InterfaceSelector;
-use crate::network::interface::{LinkState, discover_ethernet_interfaces};
-use crate::network::model::{
+use crate::config::LAN_BRIDGE_NAME;
+use crate::connectivity::{self, ConnectivityConfig};
+use crate::dhcp::run_dhcp_client;
+use crate::dns::configure_dns;
+use crate::interface::InterfaceSelector;
+use crate::interface::{LinkState, discover_ethernet_interfaces};
+use crate::model::{
     ConnectivityResult, ConnectivityStatus, DhcpLease, InterfaceSnapshot, LinkStateKind,
     NetworkStateKind,
 };
-use crate::network::netlink::{address, link, route};
-use crate::network::services::{bridge, tap};
+use crate::netlink::{address, link, route};
+use crate::services::{bridge, tap};
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
@@ -62,7 +62,7 @@ impl NetworkActor {
         Ok(())
     }
 
-    fn populate_interface_map(&mut self, discovered: &[crate::network::interface::Interface]) {
+    fn populate_interface_map(&mut self, discovered: &[crate::interface::Interface]) {
         for iface in discovered {
             let snapshot = InterfaceSnapshot {
                 name: iface.name.clone(),
@@ -79,7 +79,7 @@ impl NetworkActor {
         }
     }
 
-    fn select_primary_interface(&mut self, discovered: &[crate::network::interface::Interface]) {
+    fn select_primary_interface(&mut self, discovered: &[crate::interface::Interface]) {
         let primary = InterfaceSelector::select_primary(discovered)
             .expect("BUG: select_primary_interface called with empty list");
 
@@ -142,7 +142,7 @@ impl NetworkActor {
     async fn apply_ip_configuration(
         &mut self,
         index: u32,
-        ip_cfg: &crate::network::model::IpConfig,
+        ip_cfg: &crate::model::IpConfig,
     ) -> Result<()> {
         address::ensure_ipv4(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
 
@@ -166,7 +166,7 @@ impl NetworkActor {
     fn update_interface_with_lease(
         &mut self,
         iface: &str,
-        ip_cfg: crate::network::model::IpConfig,
+        ip_cfg: crate::model::IpConfig,
         lease: DhcpLease,
     ) -> Result<()> {
         let iface_snap = self
