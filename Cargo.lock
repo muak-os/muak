@@ -802,6 +802,7 @@ dependencies = [
  "fatfs",
  "futures-util",
  "gptman",
+ "kmsg",
  "netlink-packet-core",
  "netlink-packet-route",
  "nix 0.30.1",

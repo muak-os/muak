@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::Result;
 use std::fs;
 use std::net::Ipv4Addr;
@@ -7,12 +6,12 @@ use super::config::RESOLV_CONF_PATH;
 
 pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     if nameservers.is_empty() {
-        log!("network", "No DNS servers to configure");
+        kmsg::info!(@ "network", "No DNS servers to configure");
         return Ok(());
     }
 
-    log!(
-        "network",
+    kmsg::info!(
+        @ "network",
         "Configuring DNS with {} nameserver(s)",
         nameservers.len()
     );
@@ -20,14 +19,14 @@ pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     let mut content = String::new();
     for ns in nameservers {
         content.push_str(&format!("nameserver {}\n", ns));
-        log!("network", "Adding nameserver: {}", ns);
+        kmsg::info!(@ "network", "Adding nameserver: {}", ns);
     }
 
     let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
     fs::write(&tmp_path, content)?;
     fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
-    log!(
-        "network",
+    kmsg::info!(
+        @ "network",
         "DNS configuration written to {}",
         RESOLV_CONF_PATH
     );

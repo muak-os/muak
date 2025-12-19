@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount};
 use nix::unistd::sync;
 
-use crate::{disk, log};
+use crate::disk;
 
 use super::uki;
 use super::{
@@ -13,7 +13,7 @@ use super::{
 };
 
 pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String]) -> Result<()> {
-    log!("provisioning", "Starting installation to {}", disk_path);
+    kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);
 
     validate(disk_path, force)?;
 
@@ -35,11 +35,11 @@ pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String
     init_state_partition(&state_part, version)?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
-        log!("provisioning", "Warning: Failed to cleanup work dir: {}", e);
+        kmsg::warn!(@ "provisioning", "Failed to cleanup work dir: {}", e);
     }
 
     sync();
-    log!("provisioning", "Installation completed successfully!");
+    kmsg::info!(@ "provisioning", "Installation completed successfully!");
 
     Ok(())
 }
@@ -92,7 +92,7 @@ fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
     unmount_partition(mount_point);
 
     result?;
-    log!("provisioning", "UKI deployed to EFI partition");
+    kmsg::info!(@ "provisioning", "UKI deployed to EFI partition");
     Ok(())
 }
 
@@ -108,7 +108,7 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
 }
 
 fn init_state_partition(device: &str, version: &str) -> Result<()> {
-    log!("provisioning", "Initializing STATE partition");
+    kmsg::info!(@ "provisioning", "Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
 
@@ -131,6 +131,6 @@ fn init_state_partition(device: &str, version: &str) -> Result<()> {
     sync();
     unmount_partition(mount_point);
 
-    log!("provisioning", "STATE partition initialized");
+    kmsg::info!(@ "provisioning", "STATE partition initialized");
     Ok(())
 }

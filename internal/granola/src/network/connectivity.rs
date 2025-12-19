@@ -9,7 +9,6 @@ use super::config::{
     CONNECTIVITY_PROBE_TIMEOUT_SECS,
 };
 use super::model::{ConnectivityResult, ConnectivityStatus};
-use crate::log;
 
 #[derive(Debug, Clone)]
 pub struct ConnectivityConfig {
@@ -51,7 +50,7 @@ pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResu
             r
         }
         Err(_) => {
-            log!("network", "Connectivity check timed out");
+            kmsg::warn!(@ "network", "Connectivity check timed out");
             ConnectivityResult {
                 status: ConnectivityStatus::Disconnected,
                 dns_ok: false,
@@ -75,7 +74,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.dns_ok = true;
         }
         Err(e) => {
-            log!("network", "DNS failed for {}: {}", target.host, e);
+            kmsg::warn!(@ "network", "DNS failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
             result.last_check = SystemTime::now();
             return result;
@@ -88,7 +87,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.status = ConnectivityStatus::Connected;
         }
         Err(e) => {
-            log!("network", "HTTPS check failed for {}: {}", target.host, e);
+            kmsg::warn!(@ "network", "HTTPS check failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
         }
     }

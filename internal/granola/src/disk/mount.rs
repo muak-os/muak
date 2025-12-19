@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount};
 use std::fs;
@@ -18,7 +17,7 @@ pub fn mount_partitions() -> Result<()> {
         )
         .context("Failed to mount STATE partition")?;
 
-        log!("disk", "Mounted STATE partition at /run/state");
+        kmsg::info!(@ "disk", "Mounted STATE partition at /run/state");
     } else {
         bail!("STATE partition not found");
     }
@@ -35,7 +34,7 @@ pub fn mount_partitions() -> Result<()> {
         )
         .context("Failed to mount DATA partition")?;
 
-        log!("disk", "Mounted DATA partition at /run/data");
+        kmsg::info!(@ "disk", "Mounted DATA partition at /run/data");
     } else {
         bail!("DATA partition not found");
     }

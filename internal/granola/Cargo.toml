@@ -38,6 +38,9 @@ anyhow = { workspace = true }
 gptman = { workspace = true }
 fatfs = { workspace = true }
 
+# Internal
+kmsg = { path = "../shared/kmsg" }
+
 [build-dependencies]
 tonic-prost-build = { workspace = true }
 

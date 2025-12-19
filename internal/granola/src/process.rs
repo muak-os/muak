@@ -132,8 +132,8 @@ impl ProcessManager {
         let pid = child.id().ok_or("Failed to get process ID")? as i32;
 
         self.register_process(pid, command.clone(), args.clone());
-        crate::log!(
-            "process",
+        kmsg::info!(
+            @ "process",
             "Spawned external process: {} (PID: {}) with args: {:?}",
             command,
             pid,
@@ -178,7 +178,7 @@ where
         .expect("FATAL: failed to create tokio runtime in child process");
     runtime.block_on(async {
         if let Err(e) = service_main().await {
-            crate::log!("process", "{} error: {}", name, e);
+            kmsg::error!(@ "process", "{} error: {}", name, e);
             std::process::exit(1);
         }
     });

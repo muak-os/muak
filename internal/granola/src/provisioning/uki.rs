@@ -2,8 +2,6 @@ use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::log;
-
 pub struct UkiConfig<'a> {
     pub installer_image: &'a str,
     pub extensions: &'a [String],
@@ -42,8 +40,8 @@ pub fn build_uki(components: &UkiComponents, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
     execute_yuki(components, output)?;
 
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Successfully built UKI at {}",
         output.display()
     );
@@ -64,8 +62,8 @@ pub fn build_uki_atomic(components: &UkiComponents, output: &Path) -> Result<()>
         )
     })?;
 
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Successfully built and atomically installed UKI at {}",
         output.display()
     );
@@ -89,8 +87,8 @@ pub fn cleanup_dir(work_dir: &Path) -> Result<()> {
     if work_dir.exists() {
         std::fs::remove_dir_all(work_dir)
             .with_context(|| format!("Failed to clean up work dir {}", work_dir.display()))?;
-        log!(
-            "provisioning",
+        kmsg::info!(
+            @ "provisioning",
             "Cleaned up work directory {}",
             work_dir.display()
         );
@@ -117,7 +115,7 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
 }
 
 fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
-    log!("provisioning", "Pulling installer image: {}", image);
+    kmsg::info!(@ "provisioning", "Pulling installer image: {}", image);
 
     let output = Command::new("/sbin/imager")
         .arg("pull")
@@ -139,8 +137,8 @@ fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
 
     verify_installer_files(dest_dir)?;
 
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Successfully pulled and extracted installer"
     );
     Ok(())
@@ -156,7 +154,7 @@ fn verify_installer_files(base_dir: &Path) -> Result<()> {
         }
     }
 
-    log!("provisioning", "All required installer files present");
+    kmsg::info!(@ "provisioning", "All required installer files present");
     Ok(())
 }
 
@@ -186,8 +184,8 @@ fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Res
         );
     }
 
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Successfully built initramfs with {} extensions",
         extensions.len()
     );

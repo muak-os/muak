@@ -5,8 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use nix::unistd::sync;
 
-use crate::log;
-
 use super::uki::{self, UkiComponents};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
 
@@ -16,8 +14,8 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
         None => return Ok(()),
     };
 
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Found pending validation for update {} -> {}",
         marker.current_version,
         marker.target_version
@@ -58,8 +56,8 @@ fn is_old_kernel(marker: &ValidationMarker) -> bool {
 }
 
 fn handle_kexec_failure(marker: &ValidationMarker) -> Result<()> {
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Update {} failed - new kernel did not boot successfully",
         marker.update_id
     );
@@ -68,7 +66,7 @@ fn handle_kexec_failure(marker: &ValidationMarker) -> Result<()> {
 }
 
 fn handle_validation_failure(marker: &ValidationMarker, error: anyhow::Error) -> Result<()> {
-    log!("provisioning", "Health checks failed: {}", error);
+    kmsg::info!(@ "provisioning", "Health checks failed: {}", error);
     rollback_update(marker, &format!("Health checks failed: {}", error))
 }
 
@@ -109,8 +107,8 @@ fn check_network_interfaces() -> Result<()> {
 // =============================================================================
 
 fn commit_update(marker: &ValidationMarker) -> Result<()> {
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Validation succeeded, committing update {}",
         marker.update_id
     );
@@ -165,9 +163,9 @@ fn build_uki_components_for_commit() -> UkiComponents {
 
 fn cleanup_update_files() {
     if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
-        log!(
-            "provisioning",
-            "Warning: Failed to cleanup update work dir: {}",
+        kmsg::warn!(
+            @ "provisioning",
+            "Failed to cleanup update work dir: {}",
             e
         );
     }
@@ -178,8 +176,8 @@ fn cleanup_update_files() {
 // =============================================================================
 
 fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Rolling back update {}: {}",
         marker.update_id,
         reason
@@ -221,9 +219,9 @@ fn save_rollback_info(marker: &ValidationMarker, reason: &str) -> Result<()> {
 
 fn cleanup_failed_update() {
     if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
-        log!(
-            "provisioning",
-            "Warning: Failed to cleanup update work dir during rollback: {}",
+        kmsg::warn!(
+            @ "provisioning",
+            "Failed to cleanup update work dir during rollback: {}",
             e
         );
     }

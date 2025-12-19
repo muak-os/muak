@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::Result;
 use dhcproto::{Decodable, Decoder, Encodable, v4};
 use nix::sys::socket::{setsockopt, sockopt::BindToDevice};
@@ -47,7 +46,7 @@ fn append_param_request_list(msg: &mut Vec<u8>) {
 }
 
 pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
-    log!("network", "DHCP: starting on {}", interface);
+    kmsg::info!(@ "network", "DHCP: starting on {}", interface);
 
     let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
     socket.set_broadcast(true)?;
@@ -68,7 +67,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     append_param_request_list(&mut discover_msg);
     discover_msg.push(option::END);
 
-    log!("network", "DHCP: sending DISCOVER xid={}", xid);
+    kmsg::info!(@ "network", "DHCP: sending DISCOVER xid={}", xid);
     socket
         .send_to(&discover_msg, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
@@ -81,7 +80,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     .await??;
     let mut decoder = Decoder::new(&buf[..len]);
     let offer = v4::Message::decode(&mut decoder)?;
-    log!("network", "DHCP: got OFFER yiaddr={}", offer.yiaddr());
+    kmsg::info!(@ "network", "DHCP: got OFFER yiaddr={}", offer.yiaddr());
 
     let mut server_id: Option<Ipv4Addr> = None;
     for (_code, opt) in offer.opts().iter() {
@@ -107,7 +106,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     append_param_request_list(&mut request_msg);
     request_msg.push(option::END);
 
-    log!("network", "DHCP: sending REQUEST for {}", offer.yiaddr());
+    kmsg::info!(@ "network", "DHCP: sending REQUEST for {}", offer.yiaddr());
     socket
         .send_to(&request_msg, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
@@ -119,7 +118,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     .await??;
     let mut decoder = Decoder::new(&buf[..len]);
     let ack = v4::Message::decode(&mut decoder)?;
-    log!("network", "DHCP: got ACK yiaddr={}", ack.yiaddr());
+    kmsg::info!(@ "network", "DHCP: got ACK yiaddr={}", ack.yiaddr());
 
     let ip = ack.yiaddr();
     let mut netmask: Option<Ipv4Addr> = None;

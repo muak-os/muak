@@ -1,7 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::log;
 use crate::network::config::LAN_BRIDGE_NAME;
 use crate::network::connectivity::{self, ConnectivityConfig};
 use crate::network::dhcp::run_dhcp_client;
@@ -20,7 +19,7 @@ use super::state::NetworkActor;
 
 impl NetworkActor {
     pub(super) async fn initialize(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) -> Result<()> {
-        log!("network", "Initializing network");
+        kmsg::info!(@ "network", "Initializing network");
 
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
@@ -31,13 +30,13 @@ impl NetworkActor {
 
         self.start_connectivity_monitoring(cmd_tx.clone());
 
-        log!("network", "Network initialization complete");
+        kmsg::info!(@ "network", "Network initialization complete");
 
         Ok(())
     }
 
     async fn discover_interfaces(&mut self) -> Result<()> {
-        log!("network", "Discovering ethernet interfaces");
+        kmsg::info!(@ "network", "Discovering ethernet interfaces");
         self.state.state = NetworkStateKind::Initializing;
         self.publish_state();
 
@@ -53,8 +52,8 @@ impl NetworkActor {
 
         self.state.state = NetworkStateKind::Operational;
         self.sync_and_publish();
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Discovered {} interfaces, primary={:?}",
             discovered.len(),
             self.state.primary
@@ -89,8 +88,8 @@ impl NetworkActor {
         let backups = InterfaceSelector::select_backups(discovered, &primary.name);
         self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
             primary.name,
             primary.link_state,
@@ -105,8 +104,8 @@ impl NetworkActor {
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Acquiring DHCP on primary interface: {}",
             primary
         );
@@ -127,7 +126,7 @@ impl NetworkActor {
         self.update_interface_with_lease(iface, ip_cfg.clone(), lease.clone())?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
 
-        log!("network", "DHCP acquired on {}: {}", iface, ip_cfg.address);
+        kmsg::info!(@ "network", "DHCP acquired on {}: {}", iface, ip_cfg.address);
 
         self.get_interface(iface)
             .cloned()
@@ -148,11 +147,11 @@ impl NetworkActor {
         address::ensure_ipv4(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
 
         if let Some(gw) = ip_cfg.gateway {
-            log!("network", "Setting default route via {}", gw);
+            kmsg::info!(@ "network", "Setting default route via {}", gw);
             route::ensure_default_route(&self.handle, gw).await?;
         } else {
-            log!(
-                "network",
+            kmsg::info!(
+                @ "network",
                 "No gateway in DHCP lease, skipping default route"
             );
         }
@@ -217,13 +216,13 @@ impl NetworkActor {
             };
             tokio::time::sleep(dur).await;
 
-            log!("network", "Lease {} attempt for {}", task_name, iface);
+            kmsg::info!(@ "network", "Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
         })
     }
 
     pub(super) async fn renew_lease(&mut self, iface: &str) -> Result<()> {
-        log!("network", "Renewing DHCP lease for {}", iface);
+        kmsg::info!(@ "network", "Renewing DHCP lease for {}", iface);
 
         let mac = self
             .get_interface(iface)
@@ -240,11 +239,11 @@ impl NetworkActor {
                 self.apply_ip_configuration(index, &ip_cfg).await?;
                 self.update_interface_with_lease(iface, ip_cfg, lease)?;
 
-                log!("network", "DHCP lease renewed for {}", iface);
+                kmsg::info!(@ "network", "DHCP lease renewed for {}", iface);
                 Ok(())
             }
             Err(e) => {
-                log!("network", "DHCP renewal failed for {}: {}", iface, e);
+                kmsg::warn!(@ "network", "DHCP renewal failed for {}: {}", iface, e);
                 Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
             }
         }
@@ -257,16 +256,16 @@ impl NetworkActor {
             .and_then(|iface| iface.ip.as_ref())
             .and_then(|ip| ip.gateway);
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Setting up bridge {} with primary {}",
             LAN_BRIDGE_NAME,
             primary
         );
         bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
             .await?;
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Bridge setup complete: {} <- {}",
             LAN_BRIDGE_NAME,
             primary
@@ -291,8 +290,8 @@ impl NetworkActor {
         self.clear_lease_from_primary(&primary);
         self.sync_and_publish();
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Transferring DHCP lease management from {} to {}",
             primary,
             LAN_BRIDGE_NAME
@@ -333,16 +332,16 @@ impl NetworkActor {
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Setting up bridge {} with primary {}",
             LAN_BRIDGE_NAME,
             primary
         );
         bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
             .await?;
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Bridge setup complete: {} <- {}",
             LAN_BRIDGE_NAME,
             primary
@@ -383,7 +382,7 @@ impl NetworkActor {
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
-        log!("network", "Adding TAP interface: {}", name);
+        kmsg::info!(@ "network", "Adding TAP interface: {}", name);
 
         let index = tap::setup_tap_on_bridge(&self.handle, name, LAN_BRIDGE_NAME).await?;
 
@@ -399,18 +398,18 @@ impl NetworkActor {
         self.insert_interface(snapshot.clone());
         self.sync_and_publish();
 
-        log!("network", "TAP interface added: {}", name);
+        kmsg::info!(@ "network", "TAP interface added: {}", name);
         Ok(snapshot)
     }
 
     pub(super) async fn delete_tap(&mut self, name: &str) -> Result<()> {
-        log!("network", "Deleting TAP interface: {}", name);
+        kmsg::info!(@ "network", "Deleting TAP interface: {}", name);
 
         tap::remove_tap_device(&self.handle, name).await?;
         self.remove_interface(name);
         self.sync_and_publish();
 
-        log!("network", "TAP interface deleted: {}", name);
+        kmsg::info!(@ "network", "TAP interface deleted: {}", name);
         Ok(())
     }
 
@@ -450,14 +449,14 @@ impl NetworkActor {
 
         match result.status {
             ConnectivityStatus::Connected if !was_connected => {
-                log!(
-                    "network",
+                kmsg::info!(
+                    @ "network",
                     "Connectivity OK ({}ms)",
                     result.latency_ms.unwrap_or(0)
                 );
             }
             ConnectivityStatus::Disconnected => {
-                log!("network", "No internet connectivity detected");
+                kmsg::warn!(@ "network", "No internet connectivity detected");
             }
             _ => {}
         }

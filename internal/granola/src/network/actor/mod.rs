@@ -7,7 +7,6 @@ use anyhow::Result;
 use rtnetlink::new_connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::log;
 use crate::network::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 use crate::network::monitor::{self, NetworkEvent};
 
@@ -39,16 +38,16 @@ impl NetworkActorHandle {
 
             match self.initialize().await {
                 Ok(()) => {
-                    log!(
-                        "network",
+                    kmsg::info!(
+                        @ "network",
                         "Network initialized successfully on attempt {}",
                         attempt
                     );
                     return Ok(());
                 }
                 Err(e) => {
-                    log!(
-                        "network",
+                    kmsg::warn!(
+                        @ "network",
                         "Network initialization failed (attempt {}): {}",
                         attempt,
                         e
@@ -60,7 +59,7 @@ impl NetworkActorHandle {
                         .unwrap_or(max_delay)
                         .min(max_delay);
 
-                    log!("network", "Retrying in {:?}...", delay);
+                    kmsg::info!(@ "network", "Retrying in {:?}...", delay);
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -145,11 +144,11 @@ async fn start_events_monitor(handle: rtnetlink::Handle) -> Option<mpsc::Receive
     let config = monitor::MonitorConfig::default();
     match monitor::start_monitor(handle, config).await {
         Ok(rx) => {
-            log!("network", "Network event monitoring enabled");
+            kmsg::info!(@ "network", "Network event monitoring enabled");
             Some(rx)
         }
         Err(e) => {
-            log!("network", "Failed to start network monitor: {}", e);
+            kmsg::warn!(@ "network", "Failed to start network monitor: {}", e);
             None
         }
     }
@@ -181,7 +180,7 @@ fn handle_network_actions(
                 }
 
                 else => {
-                    log!("network", "Network actor shutting down");
+                    kmsg::info!(@ "network", "Network actor shutting down");
                     break;
                 }
             }

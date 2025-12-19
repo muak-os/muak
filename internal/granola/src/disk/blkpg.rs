@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::{Result, bail};
 use nix::ioctl_write_ptr_bad;
 use std::fs::OpenOptions;
@@ -16,8 +15,8 @@ const BLKPG_ADD_PARTITION: i32 = 1;
 const BLKPG_DEL_PARTITION: i32 = 2;
 
 pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
-    log!(
-        "installer",
+    kmsg::info!(
+        @ "installer",
         "Removing partition {} from kernel using BLKPG ioctl",
         partition_num
     );
@@ -44,23 +43,23 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
 
     match unsafe { blkpg_ioctl(f.as_raw_fd(), &blkpg_arg) } {
         Ok(_) => {
-            log!(
-                "installer",
+            kmsg::info!(
+                @ "installer",
                 "BLKPG: Successfully removed partition {}",
                 partition_num
             );
         }
         Err(nix::errno::Errno::ENXIO) | Err(nix::errno::Errno::ENOENT) => {
             // Partition doesn't exist in kernel, that's fine
-            log!(
-                "installer",
+            kmsg::info!(
+                @ "installer",
                 "BLKPG: Partition {} not present in kernel (OK)",
                 partition_num
             );
         }
         Err(e) => {
-            log!(
-                "installer",
+            kmsg::error!(
+                @ "installer",
                 "BLKPG: Failed to remove partition {}: {}",
                 partition_num,
                 e
@@ -78,8 +77,8 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
 }
 
 pub fn delete_all_partitions_blkpg(disk: &str) -> Result<()> {
-    log!(
-        "installer",
+    kmsg::info!(
+        @ "installer",
         "Removing all existing partitions from kernel for {}",
         disk
     );
@@ -102,8 +101,8 @@ pub fn add_partition_blkpg(
     start_lba: u64,
     end_lba: u64,
 ) -> Result<()> {
-    log!(
-        "installer",
+    kmsg::info!(
+        @ "installer",
         "Adding partition {} using BLKPG ioctl (LBA {} to {})",
         partition_num,
         start_lba,
@@ -140,8 +139,8 @@ pub fn add_partition_blkpg(
 
     match unsafe { blkpg_ioctl(f.as_raw_fd(), &blkpg_arg) } {
         Ok(_) => {
-            log!(
-                "installer",
+            kmsg::info!(
+                @ "installer",
                 "BLKPG: Successfully added partition {}",
                 partition_num
             );
@@ -149,8 +148,8 @@ pub fn add_partition_blkpg(
             Ok(())
         }
         Err(e) => {
-            log!(
-                "installer",
+            kmsg::error!(
+                @ "installer",
                 "BLKPG: Failed to add partition {}: {}",
                 partition_num,
                 e

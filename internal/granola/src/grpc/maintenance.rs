@@ -1,4 +1,4 @@
-use crate::{disk, log, provisioning};
+use crate::{disk, provisioning};
 use std::pin::Pin;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_stream::Stream;
@@ -24,8 +24,8 @@ impl MaintenanceService for MaintenanceServiceImpl {
     ) -> Result<Response<InstallResponse>, Status> {
         let req = request.into_inner();
 
-        log!(
-            "maintenance",
+        kmsg::info!(
+            @ "maintenance",
             "Install request: target={}, force={}",
             req.target_disk,
             req.force
@@ -54,28 +54,28 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 });
 
                 tokio::spawn(async {
-                    log!(
-                        "maintenance",
+                    kmsg::info!(
+                        @ "maintenance",
                         "Installation successful, rebooting in 3 seconds..."
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
                     if nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT).is_err()
                     {
-                        log!("maintenance", "Failed to reboot");
+                        kmsg::error!(@ "maintenance", "Failed to reboot");
                     }
                 });
 
                 Ok(response)
             }
             Ok(Err(e)) => {
-                log!("maintenance", "Installation failed: {}", e);
+                kmsg::error!(@ "maintenance", "Installation failed: {}", e);
                 Ok(Response::new(InstallResponse {
                     success: false,
                     error: format!("{}", e),
                 }))
             }
             Err(e) => {
-                log!("maintenance", "Installation task failed: {}", e);
+                kmsg::error!(@ "maintenance", "Installation task failed: {}", e);
                 Ok(Response::new(InstallResponse {
                     success: false,
                     error: format!("{}", e),
@@ -122,14 +122,14 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 }))
             }
             Ok(Err(e)) => {
-                log!("maintenance", "List disks failed: {}", e);
+                kmsg::error!(@ "maintenance", "List disks failed: {}", e);
                 Ok(Response::new(ListDisksResponse {
                     disks: Vec::new(),
                     error: format!("{}", e),
                 }))
             }
             Err(e) => {
-                log!("maintenance", "List disks task failed: {}", e);
+                kmsg::error!(@ "maintenance", "List disks task failed: {}", e);
                 Ok(Response::new(ListDisksResponse {
                     disks: Vec::new(),
                     error: format!("{}", e),
@@ -161,7 +161,7 @@ impl MaintenanceService for MaintenanceServiceImpl {
                 update_id: update_result.update_id,
             })),
             Err(e) => {
-                log!("maintenance", "Update failed: {}", e);
+                kmsg::error!(@ "maintenance", "Update failed: {}", e);
                 Ok(Response::new(UpdateResponse {
                     success: false,
                     error: format!("{}", e),

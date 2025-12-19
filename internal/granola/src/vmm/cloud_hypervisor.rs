@@ -23,7 +23,7 @@ impl CloudHypervisorBackend {
             "UEFI firmware boot (edk2 CLOUDHV)"
         };
 
-        crate::log!("vmm", "Starting cloud-hypervisor v42.0 with {}", boot_mode);
+        kmsg::info!(@ "vmm", "Starting cloud-hypervisor v42.0 with {}", boot_mode);
 
         // Build cloud-hypervisor command line arguments
         let mut args = vec![
@@ -40,8 +40,8 @@ impl CloudHypervisorBackend {
         // Choose boot mode: direct kernel or UEFI firmware
         if let Some(kernel_path) = &config.kernel {
             // Direct kernel boot mode
-            crate::log!(
-                "vmm",
+            kmsg::info!(
+                @ "vmm",
                 "Using direct kernel boot with kernel: {}",
                 kernel_path
             );
@@ -50,21 +50,21 @@ impl CloudHypervisorBackend {
 
             // Add initrd if provided
             if let Some(initrd_path) = &config.initrd {
-                crate::log!("vmm", "Using initrd: {}", initrd_path);
+                kmsg::info!(@ "vmm", "Using initrd: {}", initrd_path);
                 args.push("--initramfs".to_string());
                 args.push(initrd_path.clone());
             }
 
             // Add kernel command line if provided
             if let Some(cmdline) = &config.cmdline {
-                crate::log!("vmm", "Kernel cmdline: {}", cmdline);
+                kmsg::info!(@ "vmm", "Kernel cmdline: {}", cmdline);
                 args.push("--cmdline".to_string());
                 args.push(cmdline.clone());
             }
         } else {
             // UEFI firmware boot mode (default)
-            crate::log!(
-                "vmm",
+            kmsg::info!(
+                @ "vmm",
                 "Using UEFI firmware: {}",
                 crate::config::UEFI_FIRMWARE_PATH
             );
@@ -88,7 +88,7 @@ impl CloudHypervisorBackend {
             args.push(format!("tap={},mac={}", net.tap, net.mac));
         }
 
-        crate::log!("vmm", "Executing: {} {}", self.binary_path, args.join(" "));
+        kmsg::info!(@ "vmm", "Executing: {} {}", self.binary_path, args.join(" "));
 
         // Spawn the cloud-hypervisor process with stdout/stderr redirected to serial log
         let log_path = format!("/run/{}-serial.log", config.vm_id);

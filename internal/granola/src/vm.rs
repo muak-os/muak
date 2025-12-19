@@ -118,7 +118,7 @@ impl VmManager {
 
             if vm.state != VmState::Created && vm.state != VmState::Stopped {
                 let err_msg = format!("Cannot start VM in state: {}", vm.state);
-                crate::log!("vm", "{}", err_msg);
+                kmsg::error!(@ "vm", "{}", err_msg);
                 return Err(err_msg);
             }
 
@@ -128,8 +128,8 @@ impl VmManager {
             vmm_type = vm.config.vmm_type.clone();
         }
 
-        crate::log!(
-            "vm",
+        kmsg::info!(
+            @ "vm",
             "Starting VM {} ({}) using {}",
             vm_id,
             vm_name,
@@ -138,14 +138,14 @@ impl VmManager {
 
         let mut network_configs = vm_config.networks.clone();
         if network_configs.is_empty() {
-            crate::log!("vm", "Auto-creating network configuration for VM {}", vm_id);
+            kmsg::info!(@ "vm", "Auto-creating network configuration for VM {}", vm_id);
 
             let tap_name = format!("tap-{}", &vm_id[3..8]);
             let mac_bytes = crate::network::generate_mac_address(vm_id);
             let mac_addr = crate::network::format_mac_address(&mac_bytes);
 
-            crate::log!(
-                "vm",
+            kmsg::info!(
+                @ "vm",
                 "Creating TAP device {} with MAC {}",
                 tap_name,
                 mac_addr
@@ -153,7 +153,7 @@ impl VmManager {
 
             match self.network.add_tap(tap_name.clone()).await {
                 Ok(_iface) => {
-                    crate::log!("vm", "TAP device {} configured and attached", tap_name);
+                    kmsg::info!(@ "vm", "TAP device {} configured and attached", tap_name);
                 }
                 Err(e) => {
                     let err_msg = format!("Failed to setup TAP {}: {}", tap_name, e);
@@ -161,7 +161,7 @@ impl VmManager {
                     if let Some(vm) = vms.get_mut(vm_id) {
                         vm.state = VmState::Failed(err_msg.clone());
                     }
-                    crate::log!("vm", "ERROR: {}", err_msg);
+                    kmsg::error!(@ "vm", "{}", err_msg);
                     return Err(err_msg);
                 }
             }
@@ -200,7 +200,7 @@ impl VmManager {
                 if let Some(vm) = vms.get_mut(vm_id) {
                     vm.state = VmState::Failed(err_msg.clone());
                 }
-                crate::log!("vm", "ERROR: {}", err_msg);
+                kmsg::error!(@ "vm", "{}", err_msg);
                 return Err(err_msg);
             }
         };
@@ -216,7 +216,7 @@ impl VmManager {
             }
         }
 
-        crate::log!("vm", "VM {} started successfully with PID {}", vm_id, pid);
+        kmsg::info!(@ "vm", "VM {} started successfully with PID {}", vm_id, pid);
         Ok(())
     }
 
@@ -249,11 +249,11 @@ impl VmManager {
         self.process_manager.stop(pid, signal)?;
 
         for tap_name in &tap_devices {
-            crate::log!("vm", "Cleaning up TAP device: {}", tap_name);
+            kmsg::info!(@ "vm", "Cleaning up TAP device: {}", tap_name);
             if let Err(e) = self.network.delete_tap(tap_name.clone()).await {
-                crate::log!(
-                    "vm",
-                    "WARNING: Failed to delete TAP device {}: {}",
+                kmsg::warn!(
+                    @ "vm",
+                    "Failed to delete TAP device {}: {}",
                     tap_name,
                     e
                 );

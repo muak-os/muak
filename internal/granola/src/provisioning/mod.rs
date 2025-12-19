@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use nix::mount::{MsFlags, mount, umount};
 use serde::{Deserialize, Serialize};
 
-use crate::{disk, log};
+use crate::disk;
 use uki::{UkiComponents, UkiConfig};
 
 pub(crate) const INSTALL_DIR: &str = "/run/install";
@@ -67,8 +67,8 @@ pub(crate) fn prepare_uki(
 }
 
 pub(crate) fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result<()> {
-    log!(
-        "provisioning",
+    kmsg::info!(
+        @ "provisioning",
         "Mounting EFI partition {} at {}",
         efi_device,
         mount_point
@@ -96,9 +96,9 @@ pub(crate) fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result
 
 pub(crate) fn unmount_partition(mount_point: &str) {
     if let Err(e) = umount(mount_point) {
-        log!(
-            "provisioning",
-            "Warning: Failed to unmount {}: {}",
+        kmsg::warn!(
+            @ "provisioning",
+            "Failed to unmount {}: {}",
             mount_point,
             e
         );

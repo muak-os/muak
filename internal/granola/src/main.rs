@@ -2,7 +2,6 @@ mod config;
 mod disk;
 mod grpc;
 mod ipc;
-mod log;
 mod network;
 mod process;
 mod provisioning;
@@ -18,37 +17,31 @@ use vm::VmManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log!("granola", "PID 1 init started");
+    kmsg::init("granola")?;
+    kmsg::info!("PID 1 init started");
 
     match provisioning::status() {
         provisioning::InstallationStatus::Live => {
-            log!("granola", "CURRENTLY IN MAINTENANCE MODE");
-            log!(
-                "granola",
-                "   Run 'muakctl install --target <disk>' to install"
-            );
+            kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
+            kmsg::info!("   Run 'muakctl install --target <disk>' to install");
         }
         provisioning::InstallationStatus::Installed => {
-            log!("granola", "Running from INSTALLED DISK");
+            kmsg::info!("Running from INSTALLED DISK");
 
             if let Err(e) = disk::mount_partitions() {
-                log!("granola", "WARNING: Failed to mount partitions: {}", e);
+                kmsg::warn!("Failed to mount partitions: {}", e);
                 // TODO: set maintenance mode here to recover
             } else if let Err(e) = provisioning::check_and_handle_pending_validation() {
-                log!(
-                    "granola",
-                    "WARNING: Update validation handling failed: {}",
-                    e
-                );
+                kmsg::warn!("Update validation handling failed: {}", e);
             }
         }
     }
 
     std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
-    log!("granola", "Created {} directory", config::MUAK_DISKS_DIR);
+    kmsg::info!("Created {} directory", config::MUAK_DISKS_DIR);
 
     let mut signal_handler = SignalHandler::new()?;
-    log!("granola", "Signal handlers installed");
+    kmsg::info!("Signal handlers installed");
 
     let network_actor = network::start_network_actor()
         .await
@@ -57,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actor_clone = network_actor.clone();
     tokio::spawn(async move {
         if let Err(e) = actor_clone.initialize_with_retry().await {
-            log!("network", "Fatal: Network initialization failed: {}", e);
+            kmsg::error!(@ "network", "Fatal: Network initialization failed: {}", e);
         }
     });
 
@@ -73,8 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             if should_log {
-                log!(
-                    "network",
+                kmsg::info!(
+                    @ "network",
                     "Snapshot state={:?} primary={:?} interfaces={}",
                     snap.state,
                     snap.primary,
@@ -90,11 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vm_manager = VmManager::new(process_manager.clone(), network_arc.clone());
 
     let ipc_server = Arc::new(IpcServer::new()?);
-    log!(
-        "granola",
-        "IPC server listening on {}",
-        config::GRANOLA_SOCKET_PATH
-    );
+    kmsg::info!("IPC server listening on {}", config::GRANOLA_SOCKET_PATH);
 
     tokio::task::spawn_blocking({
         let pm = process_manager.clone();
@@ -104,10 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             grpc::main,
         ) {
             Ok(pid) => {
-                log!("granola", "Spawned grpc-server (PID {})", pid);
+                kmsg::info!("Spawned grpc-server (PID {})", pid);
             }
             Err(e) => {
-                log!("granola", "ERROR: Failed to spawn grpc-server: {}", e);
+                kmsg::error!("Failed to spawn grpc-server: {}", e);
             }
         }
     })
@@ -129,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(message) = ipc.read_message(&mut stream).await {
                 let response = ipc.handle_message(message, &pm, &vm).await;
                 if let Err(e) = ipc.send_response(&mut stream, &response).await {
-                    log!("granola", "Failed to send IPC response: {}", e);
+                    kmsg::error!("Failed to send IPC response: {}", e);
                 }
             }
         });

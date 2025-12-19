@@ -3,8 +3,6 @@ use futures_util::stream::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkFlags};
 use rtnetlink::Handle;
 
-use crate::log;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkState {
     Up,
@@ -66,8 +64,8 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
             (false, _) => LinkState::Down,
         };
 
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Discovered interface: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, state: {})",
             name,
             link_msg.header.index,

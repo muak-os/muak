@@ -51,8 +51,8 @@ impl FirecrackerBackend {
         // Start Firecracker with API socket
         let args = vec!["--api-sock".to_string(), socket_path.clone()];
 
-        crate::log!(
-            "vmm",
+        kmsg::info!(
+            @ "vmm",
             "Starting Firecracker: {} {}",
             self.binary_path,
             args.join(" ")
@@ -60,7 +60,7 @@ impl FirecrackerBackend {
 
         let pid = process_manager.spawn_external(self.binary_path.clone(), args)?;
 
-        crate::log!("vmm", "Firecracker process started with PID {}", pid);
+        kmsg::info!(@ "vmm", "Firecracker process started with PID {}", pid);
 
         // Wait a bit for the API socket to be ready
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -85,7 +85,7 @@ impl FirecrackerBackend {
             return Err(format!("Failed to start Firecracker VM: {}", e));
         }
 
-        crate::log!("vmm", "Firecracker VM configured and started");
+        kmsg::info!(@ "vmm", "Firecracker VM configured and started");
 
         Ok(VmmStartResult { pid })
     }

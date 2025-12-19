@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::{Result, bail};
 use std::fs::{self, File};
 use std::io::{Read, Seek};
@@ -20,8 +19,8 @@ pub fn validate_disk_size(disk: &str) -> Result<()> {
         );
     }
 
-    log!(
-        "installer",
+    kmsg::info!(
+        @ "installer",
         "Disk size: {} GB ({} MB)",
         disk_size / GB,
         disk_size / MB
@@ -45,9 +44,9 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     if disk.chars().last().is_some_and(|c| c.is_numeric())
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
-        log!(
-            "installer",
-            "Warning: '{}' appears to be a partition. You should install to a whole disk (e.g., /dev/sda, not /dev/sda1)",
+        kmsg::warn!(
+            @ "installer",
+            "'{}' appears to be a partition. You should install to a whole disk (e.g., /dev/sda, not /dev/sda1)",
             disk
         );
     }
@@ -264,7 +263,7 @@ fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
         Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
         Ok(_) => None,
         Err(e) => {
-            log!("disk", "Failed to read disk {}: {}", name_str, e);
+            kmsg::error!(@ "disk", "Failed to read disk {}: {}", name_str, e);
             None
         }
     }

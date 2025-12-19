@@ -5,8 +5,6 @@ use rtnetlink::Handle;
 use rtnetlink::LinkUnspec;
 use std::time::Duration;
 
-use crate::log;
-
 pub async fn find_link_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
 
@@ -55,8 +53,8 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
     let index = link.header.index;
 
     if !link.header.flags.contains(LinkFlags::Up) {
-        log!(
-            "network",
+        kmsg::info!(
+            @ "network",
             "Bringing up interface {} (index {})",
             name,
             index
@@ -90,8 +88,8 @@ pub async fn wait_for_carrier(
     let poll_interval = Duration::from_millis(100);
     let start = std::time::Instant::now();
 
-    log!(
-        "network",
+    kmsg::info!(
+        @ "network",
         "Waiting for carrier on {} (timeout: {:?})",
         name,
         timeout
@@ -101,8 +99,8 @@ pub async fn wait_for_carrier(
         match has_carrier(handle, index).await {
             Ok(true) => {
                 let elapsed = start.elapsed();
-                log!(
-                    "network",
+                kmsg::info!(
+                    @ "network",
                     "Carrier detected on {} after {:?}",
                     name,
                     elapsed
@@ -111,8 +109,8 @@ pub async fn wait_for_carrier(
             }
             Ok(false) => {
                 if start.elapsed() >= timeout {
-                    log!(
-                        "network",
+                    kmsg::warn!(
+                        @ "network",
                         "Carrier timeout on {} after {:?} - no physical link",
                         name,
                         timeout

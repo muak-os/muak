@@ -1,4 +1,3 @@
-use crate::log;
 use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
 use std::fs::{File, OpenOptions};
@@ -6,7 +5,7 @@ use std::io::{Seek, Write};
 use std::path::Path;
 
 use super::blkpg::add_partition_blkpg;
-use super::constants::{EFI_GUID, EFI_SIZE, GB, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
+use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
 use super::utils::{format_partition_name, generate_guid};
 
 pub fn has_existing_partitions(disk: &str) -> Result<bool> {
@@ -47,13 +46,13 @@ fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
 }
 
 pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
-    log!("installer", "Creating GPT partition table on {}", disk);
+    kmsg::info!(@ "installer", "Creating GPT partition table on {}", disk);
 
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
 
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
 
-    log!("installer", "Disk size: {} GB", disk_size / GB);
+    kmsg::info!(@ "installer", "Disk size: {} GB", disk_size / super::constants::GB);
 
     let mut gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
 
@@ -127,10 +126,10 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     match GPT::find_from(&mut verify_f) {
         Ok(verify_gpt) => {
             let count = verify_gpt.iter().filter(|(_, p)| p.is_used()).count();
-            log!("installer", "Verified: GPT has {} used partitions", count);
+            kmsg::info!(@ "installer", "Verified: GPT has {} used partitions", count);
         }
         Err(e) => {
-            log!("installer", "Warning: Could not verify GPT: {}", e);
+            kmsg::warn!(@ "installer", "Could not verify GPT: {}", e);
         }
     }
     drop(verify_f);
@@ -139,21 +138,21 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     add_partition_blkpg(disk, 2, state_start, state_end)?;
     add_partition_blkpg(disk, 3, data_start, data_end)?;
 
-    log!("installer", "All partitions registered successfully");
+    kmsg::info!(@ "installer", "All partitions registered successfully");
 
     let efi_part = format_partition_name(disk, 1);
     let state_part = format_partition_name(disk, 2);
     let data_part = format_partition_name(disk, 3);
 
-    log!(
-        "installer",
+    kmsg::info!(
+        @ "installer",
         "Waiting for partition device nodes to appear..."
     );
 
     for i in 0..30 {
         if Path::new(&efi_part).exists() {
-            log!(
-                "installer",
+            kmsg::info!(
+                @ "installer",
                 "Partition devices created successfully after {} attempts",
                 i + 1
             );

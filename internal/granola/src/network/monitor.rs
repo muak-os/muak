@@ -1,4 +1,3 @@
-use crate::log;
 use crate::network::netlink::link;
 use anyhow::Result;
 use futures_util::stream::{StreamExt, TryStreamExt};
@@ -60,7 +59,7 @@ pub async fn start_monitor(
 
     tokio::spawn(async move {
         if let Err(e) = initial_scan(&handle, &mut link_states).await {
-            log!("network", "Initial interface scan failed: {}", e);
+            kmsg::warn!(@ "network", "Initial interface scan failed: {}", e);
         }
 
         while let Some((message, _)) = messages.next().await {
@@ -69,12 +68,12 @@ pub async fn start_monitor(
                 _ => continue,
             };
             if let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await {
-                log!("network", "Error handling netlink message: {}", e);
+                kmsg::warn!(@ "network", "Error handling netlink message: {}", e);
             }
         }
     });
 
-    log!("network", "Network event monitor started");
+    kmsg::info!(@ "network", "Network event monitor started");
     Ok(rx)
 }
 
@@ -90,8 +89,8 @@ async fn initial_scan(
             let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
             let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
             link_states.insert(index, (name.clone(), has_carrier));
-            log!(
-                "network",
+            kmsg::info!(
+                @ "network",
                 "Initial state: {} (index {}) = admin:{} carrier:{}",
                 name,
                 index,
@@ -152,7 +151,7 @@ async fn handle_new_link(
     match link_states.get(&index) {
         Some((_existing_name, had_carrier)) if has_carrier != *had_carrier => {
             if has_carrier {
-                log!("network", "Carrier detected: {} (index {})", name, index);
+                kmsg::info!(@ "network", "Carrier detected: {} (index {})", name, index);
                 let _ = tx
                     .send(NetworkEvent::LinkUp {
                         name: name.to_string(),
@@ -160,7 +159,7 @@ async fn handle_new_link(
                     })
                     .await;
             } else {
-                log!("network", "Carrier lost: {} (index {})", name, index);
+                kmsg::info!(@ "network", "Carrier lost: {} (index {})", name, index);
                 let _ = tx
                     .send(NetworkEvent::LinkDown {
                         name: name.to_string(),
@@ -173,8 +172,8 @@ async fn handle_new_link(
         Some(_) => {}
         None => {
             if let Some(mac_addr) = mac {
-                log!(
-                    "network",
+                kmsg::info!(
+                    @ "network",
                     "New link added: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
                     name,
                     index,
@@ -209,7 +208,7 @@ async fn handle_del_link(
             return Ok(());
         }
 
-        log!("network", "Link deleted: {} (index {})", name, index);
+        kmsg::info!(@ "network", "Link deleted: {} (index {})", name, index);
         let _ = tx.send(NetworkEvent::LinkDeleted { name, index }).await;
         link_states.remove(&index);
     }

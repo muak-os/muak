@@ -6,8 +6,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow};
 use nix::unistd::sync;
 
-use crate::log;
-
 use super::uki::UkiComponents;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
 
@@ -16,7 +14,7 @@ pub struct UpdateResult {
 }
 
 pub fn update(version: &str, extensions: &[String]) -> Result<UpdateResult> {
-    log!("provisioning", "Starting update to version {}", version);
+    kmsg::info!(@ "provisioning", "Starting update to version {}", version);
 
     let staging_dir = create_staging_directory()?;
     let installer_image = format!("ghcr.io/sawangg/installer:{}", version);
@@ -29,7 +27,7 @@ pub fn update(version: &str, extensions: &[String]) -> Result<UpdateResult> {
     let update_id = marker.update_id.clone();
 
     if let Err(e) = kexec(&components, &update_id) {
-        log!("provisioning", "kexec failed: {}", e);
+        kmsg::error!(@ "provisioning", "kexec failed: {}", e);
     }
 
     // We should not reach here if kexec is successful

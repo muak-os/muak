@@ -1,5 +1,4 @@
 use crate::ipc::{IpcClient, IpcMessage, IpcResponse};
-use crate::log;
 use crate::vm::{DiskConfig, NetConfig, Vm, VmConfig};
 use tokio::io::AsyncWriteExt;
 use tonic::{Request, Response, Status};
@@ -87,7 +86,7 @@ impl VmService for GrpcVmService {
 
         match ipc_client.send_message(&message) {
             Ok(IpcResponse::VmCreated { vm_id }) => {
-                log!("grpc-vm", "Created VM: {}", vm_id);
+                kmsg::info!(@ "grpc-vm", "Created VM: {}", vm_id);
                 Ok(Response::new(CreateVmResponse {
                     vm_id,
                     error: String::new(),
@@ -113,7 +112,7 @@ impl VmService for GrpcVmService {
         request: Request<StartVmRequest>,
     ) -> Result<Response<StartVmResponse>, Status> {
         let req = request.into_inner();
-        log!("grpc-vm", "Attempting to start VM: {}", req.vm_id);
+        kmsg::info!(@ "grpc-vm", "Attempting to start VM: {}", req.vm_id);
 
         let mut ipc_client = IpcClient::new();
         let message = IpcMessage::StartVm {
@@ -122,21 +121,21 @@ impl VmService for GrpcVmService {
 
         match ipc_client.send_message(&message) {
             Ok(IpcResponse::Ok) => {
-                log!("grpc-vm", "Successfully started VM: {}", req.vm_id);
+                kmsg::info!(@ "grpc-vm", "Successfully started VM: {}", req.vm_id);
                 Ok(Response::new(StartVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!("grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StartVmResponse {
                     success: false,
                     error: e,
                 }))
             }
             Err(e) => {
-                log!("grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to start VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StartVmResponse {
                     success: false,
                     error: format!("IPC error: {}", e),
@@ -154,8 +153,8 @@ impl VmService for GrpcVmService {
         request: Request<StopVmRequest>,
     ) -> Result<Response<StopVmResponse>, Status> {
         let req = request.into_inner();
-        log!(
-            "grpc-vm",
+        kmsg::info!(
+            @ "grpc-vm",
             "Attempting to stop VM: {} (force: {})",
             req.vm_id,
             req.force
@@ -169,21 +168,21 @@ impl VmService for GrpcVmService {
 
         match ipc_client.send_message(&message) {
             Ok(IpcResponse::Ok) => {
-                log!("grpc-vm", "Successfully stopped VM: {}", req.vm_id);
+                kmsg::info!(@ "grpc-vm", "Successfully stopped VM: {}", req.vm_id);
                 Ok(Response::new(StopVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!("grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StopVmResponse {
                     success: false,
                     error: e,
                 }))
             }
             Err(e) => {
-                log!("grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to stop VM {}: {}", req.vm_id, e);
                 Ok(Response::new(StopVmResponse {
                     success: false,
                     error: format!("IPC error: {}", e),
@@ -201,7 +200,7 @@ impl VmService for GrpcVmService {
         request: Request<DeleteVmRequest>,
     ) -> Result<Response<DeleteVmResponse>, Status> {
         let req = request.into_inner();
-        log!("grpc-vm", "Attempting to delete VM: {}", req.vm_id);
+        kmsg::info!(@ "grpc-vm", "Attempting to delete VM: {}", req.vm_id);
 
         let mut ipc_client = IpcClient::new();
         let message = IpcMessage::DeleteVm {
@@ -210,21 +209,21 @@ impl VmService for GrpcVmService {
 
         match ipc_client.send_message(&message) {
             Ok(IpcResponse::Ok) => {
-                log!("grpc-vm", "Successfully deleted VM: {}", req.vm_id);
+                kmsg::info!(@ "grpc-vm", "Successfully deleted VM: {}", req.vm_id);
                 Ok(Response::new(DeleteVmResponse {
                     success: true,
                     error: String::new(),
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!("grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
                 Ok(Response::new(DeleteVmResponse {
                     success: false,
                     error: e,
                 }))
             }
             Err(e) => {
-                log!("grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
+                kmsg::error!(@ "grpc-vm", "Failed to delete VM {}: {}", req.vm_id, e);
                 Ok(Response::new(DeleteVmResponse {
                     success: false,
                     error: format!("IPC error: {}", e),
@@ -289,8 +288,8 @@ impl VmService for GrpcVmService {
                     let filename = metadata.filename;
                     filepath = format!("{}/{}", crate::config::MUAK_DISKS_DIR, filename);
 
-                    log!(
-                        "grpc-vm",
+                    kmsg::info!(
+                        @ "grpc-vm",
                         "Starting file upload: {} ({} bytes)",
                         filename,
                         metadata.size
@@ -299,7 +298,7 @@ impl VmService for GrpcVmService {
                     // Ensure directory exists
                     if let Err(e) = tokio::fs::create_dir_all(crate::config::MUAK_DISKS_DIR).await {
                         let error = format!("Failed to create upload directory: {}", e);
-                        log!("grpc-vm", "{}", error);
+                        kmsg::error!(@ "grpc-vm", "{}", error);
                         return Ok(Response::new(UploadFileResponse {
                             path: String::new(),
                             error,
@@ -312,7 +311,7 @@ impl VmService for GrpcVmService {
                         }
                         Err(e) => {
                             let error = format!("Failed to create file: {}", e);
-                            log!("grpc-vm", "{}", error);
+                            kmsg::error!(@ "grpc-vm", "{}", error);
                             return Ok(Response::new(UploadFileResponse {
                                 path: String::new(),
                                 error,
@@ -328,7 +327,7 @@ impl VmService for GrpcVmService {
                             }
                             Err(e) => {
                                 let error = format!("Failed to write chunk: {}", e);
-                                log!("grpc-vm", "{}", error);
+                                kmsg::error!(@ "grpc-vm", "{}", error);
                                 return Ok(Response::new(UploadFileResponse {
                                     path: String::new(),
                                     error,
@@ -337,7 +336,7 @@ impl VmService for GrpcVmService {
                         }
                     } else {
                         let error = "Received chunk before metadata".to_string();
-                        log!("grpc-vm", "{}", error);
+                        kmsg::error!(@ "grpc-vm", "{}", error);
                         return Ok(Response::new(UploadFileResponse {
                             path: String::new(),
                             error,
@@ -351,14 +350,14 @@ impl VmService for GrpcVmService {
         if let Some(mut f) = file {
             if let Err(e) = f.flush().await {
                 let error = format!("Failed to flush file: {}", e);
-                log!("grpc-vm", "{}", error);
+                kmsg::error!(@ "grpc-vm", "{}", error);
                 return Ok(Response::new(UploadFileResponse {
                     path: String::new(),
                     error,
                 }));
             }
-            log!(
-                "grpc-vm",
+            kmsg::info!(
+                @ "grpc-vm",
                 "File upload complete: {} ({} bytes)",
                 filepath,
                 bytes_written
@@ -376,8 +375,8 @@ impl VmService for GrpcVmService {
         request: Request<GetVmSerialLogRequest>,
     ) -> Result<Response<GetVmSerialLogResponse>, Status> {
         let req = request.into_inner();
-        log!(
-            "grpc-vm",
+        kmsg::info!(
+            @ "grpc-vm",
             "Fetching serial log for VM: {} (tail: {})",
             req.vm_id,
             req.tail_lines
@@ -391,8 +390,8 @@ impl VmService for GrpcVmService {
 
         match ipc_client.send_message(&message) {
             Ok(IpcResponse::VmSerialLog(output)) => {
-                log!(
-                    "grpc-vm",
+                kmsg::info!(
+                    @ "grpc-vm",
                     "Retrieved serial log for VM: {} ({} bytes)",
                     req.vm_id,
                     output.len()
@@ -403,8 +402,8 @@ impl VmService for GrpcVmService {
                 }))
             }
             Ok(IpcResponse::Error(e)) => {
-                log!(
-                    "grpc-vm",
+                kmsg::error!(
+                    @ "grpc-vm",
                     "Failed to get serial log for VM {}: {}",
                     req.vm_id,
                     e
@@ -415,8 +414,8 @@ impl VmService for GrpcVmService {
                 }))
             }
             Err(e) => {
-                log!(
-                    "grpc-vm",
+                kmsg::error!(
+                    @ "grpc-vm",
                     "IPC error getting serial log for VM {}: {}",
                     req.vm_id,
                     e
