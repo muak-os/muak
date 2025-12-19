@@ -30,6 +30,7 @@ RUN apk add --no-cache \
   pahole \
   perl \
   python3 \
+  sbsigntool \
   xz \
   zstd
 
@@ -54,11 +55,12 @@ RUN --mount=type=cache,target=/root/.ccache \
 RUN --mount=type=secret,id=kernel_key,target=/run/secrets/kernel-signing-key.pem <<EOF
 set -euo pipefail
 if [ -f /run/secrets/kernel-signing-key.pem ]; then
-  ./scripts/sign-file sha512 \
-    /run/secrets/kernel-signing-key.pem \
-    certs/kernel-signing-cert.pem \
+  sbsign --key /run/secrets/kernel-signing-key.pem \
+    --cert certs/kernel-signing-cert.pem \
+    --output arch/x86/boot/bzImage.signed \
     arch/x86/boot/bzImage
-  echo "bzImage signed successfully"
+  mv arch/x86/boot/bzImage.signed arch/x86/boot/bzImage
+  echo "bzImage signed with PE signature successfully"
 else
   echo "No signing key provided, bzImage is unsigned"
 fi
