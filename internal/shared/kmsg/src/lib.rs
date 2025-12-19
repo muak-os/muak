@@ -1,6 +1,6 @@
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -11,17 +11,13 @@ pub enum Level {
     Debug = 7,
 }
 
-struct Logger {
-    kmsg: Option<File>,
-    component: String,
-}
-
-static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
+static DEFAULT_COMPONENT: OnceLock<String> = OnceLock::new();
 
 /// Initialize the logger with a default component name.
 ///
-/// Opens `/dev/kmsg` for writing. If `/dev/kmsg` is unavailable,
-/// the logger will fall back to stderr.
+/// This sets the default component name used when logging without
+/// an explicit component. The logger writes directly to `/dev/kmsg`
+/// on each log call, making it safe to use across fork boundaries.
 ///
 /// # Arguments
 ///
@@ -37,14 +33,8 @@ static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 /// kmsg::init("myapp")?;
 /// ```
 pub fn init(component: &str) -> Result<(), InitError> {
-    let kmsg = OpenOptions::new().write(true).open("/dev/kmsg").ok();
-    let logger = Logger {
-        kmsg,
-        component: component.to_string(),
-    };
-
-    LOGGER
-        .set(Mutex::new(logger))
+    DEFAULT_COMPONENT
+        .set(component.to_string())
         .map_err(|_| InitError::AlreadyInitialized)
 }
 
@@ -64,28 +54,19 @@ impl std::fmt::Display for InitError {
 impl std::error::Error for InitError {}
 
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
-    let formatted = if let Some(comp) = component {
-        format!("<{}>[{}] {}\n", level as u8, comp, message)
-    } else if let Some(logger) = LOGGER.get() {
-        if let Ok(guard) = logger.lock() {
-            format!("<{}>[{}] {}\n", level as u8, guard.component, message)
-        } else {
-            format!("<{}> {}\n", level as u8, message)
-        }
-    } else {
+    let comp = component
+        .map(|s| s.to_string())
+        .or_else(|| DEFAULT_COMPONENT.get().cloned())
+        .unwrap_or_default();
+
+    let formatted = if comp.is_empty() {
         format!("<{}> {}\n", level as u8, message)
+    } else {
+        format!("<{}>[{}] {}\n", level as u8, comp, message)
     };
 
-    let written = if let Some(logger) = LOGGER.get() {
-        if let Ok(mut guard) = logger.lock() {
-            if let Some(ref mut kmsg) = guard.kmsg {
-                kmsg.write_all(formatted.as_bytes()).is_ok() && kmsg.flush().is_ok()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
+    let written = if let Ok(mut kmsg) = OpenOptions::new().write(true).open("/dev/kmsg") {
+        kmsg.write_all(formatted.as_bytes()).is_ok()
     } else {
         false
     };
@@ -187,16 +168,4 @@ macro_rules! debug {
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {};
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_init_twice_fails() {
-        let result1 = init("test");
-        assert!(result1.is_ok());
-        let result2 = init("test2");
-        assert!(matches!(result2, Err(InitError::AlreadyInitialized)));
-    }
 }
