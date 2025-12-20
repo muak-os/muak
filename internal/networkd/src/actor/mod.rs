@@ -4,7 +4,6 @@ mod operations;
 mod state;
 
 use anyhow::Result;
-use rtnetlink::new_connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
@@ -19,7 +18,6 @@ pub struct NetworkActorHandle {
     watch_rx: watch::Receiver<NetworkSnapshot>,
 }
 
-#[allow(dead_code)]
 impl NetworkActorHandle {
     async fn initialize(&self) -> Result<()> {
         let (reply, rx) = tokio::sync::oneshot::channel();
@@ -88,17 +86,6 @@ impl NetworkActorHandle {
         Ok(())
     }
 
-    pub async fn acquire_dhcp(&self, iface: &str) -> Result<crate::model::InterfaceSnapshot> {
-        let (reply, rx) = oneshot::channel();
-        self.tx
-            .send(NetworkCommand::AcquireDhcp {
-                iface: iface.to_string(),
-                reply,
-            })
-            .await?;
-        rx.await?
-    }
-
     pub async fn snapshot(&self) -> NetworkSnapshot {
         let (reply, rx) = tokio::sync::oneshot::channel();
         let _ = self.tx.send(NetworkCommand::Snapshot { reply }).await;
@@ -120,8 +107,7 @@ impl NetworkActorHandle {
 }
 
 pub async fn start_network_actor() -> Result<NetworkActorHandle> {
-    // Create netlink connection
-    let (connection, handle, _) = new_connection()?;
+    let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
