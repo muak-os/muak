@@ -4,9 +4,9 @@ mod provisioning;
 mod supervisor;
 
 // NOTE: These modules are temporarily disabled pending extraction to separate services.
-// - grpc, vm, vmm -> will become grpcd and vmd in Phase 2 and 3
-// - ipc, process, signal -> will be removed once grpcd/vmd are extracted
-// TODO: Re-enable when grpcd/vmd services are ready
+// - grpc, vm, vmm -> apid is done, vmd will be Phase 3
+// - ipc, process, signal -> will be removed once vmd is extracted
+// TODO: Re-enable when vmd service is ready
 // mod grpc;
 // mod ipc;
 // mod process;
@@ -48,20 +48,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             args: vec![],
             depends_on: vec![],
         },
-        // TODO: Phase 2 - Add grpcd when extracted
-        // ServiceDef {
-        //     name: "grpcd".to_string(),
-        //     binary: "/usr/bin/grpcd".to_string(),
-        //     args: vec![
-        //         "--listen".to_string(),
-        //         config::GRPC_SERVER_ADDR.to_string(),
-        //     ],
-        //     depends_on: vec!["networkd".to_string()],
-        // },
+        ServiceDef {
+            name: "apid".to_string(),
+            binary: "/sbin/apid".to_string(),
+            args: vec![
+                "--listen".to_string(),
+                config::GRPC_SERVER_ADDR.to_string(),
+            ],
+            depends_on: vec!["networkd".to_string()],
+        },
         // TODO: Phase 3 - Add vmd when extracted
         // ServiceDef {
         //     name: "vmd".to_string(),
-        //     binary: "/usr/bin/vmd".to_string(),
+        //     binary: "/sbin/vmd".to_string(),
         //     args: vec![],
         //     depends_on: vec!["networkd".to_string()],
         // },
