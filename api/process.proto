@@ -3,29 +3,7 @@ syntax = "proto3";
 package muak.process.v1;
 
 service ProcessService {
-  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
-  rpc StopProcess(StopProcessRequest) returns (StopProcessResponse);
   rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
-}
-
-message StartProcessRequest {
-  string command = 1;
-  repeated string args = 2;
-}
-
-message StartProcessResponse {
-  int32 pid = 1;
-  string error = 2;
-}
-
-message StopProcessRequest {
-  int32 pid = 1;
-  int32 signal = 2;
-}
-
-message StopProcessResponse {
-  bool success = 1;
-  string error = 2;
 }
 
 message ListProcessesRequest {}

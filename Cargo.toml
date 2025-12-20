@@ -1,15 +1,16 @@
 [workspace]
 members = [
     "cli",
+    "internal/apid",
     "internal/granola",
     "internal/imager",
     "internal/init",
-    "internal/yuki",
+    "internal/networkd",
     "internal/stub",
+    "internal/yuki",
     "internal/shared/kmod",
     "internal/shared/kmsg",
     "internal/shared/notify",
-    "internal/networkd",
 ]
 resolver = "3"
 
@@ -45,7 +46,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Utilities
 tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
-bincode = "1.3"
 uuid = { version = "1.18", features = ["v4"] }
 sha2 = "0.10"
 anyhow = "1.0"

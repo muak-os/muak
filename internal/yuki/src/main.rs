@@ -67,57 +67,98 @@ fn main() -> io::Result<()> {
     let initrd_data = fs::read(&args.initrd)?;
     let cmdline_data = fs::read(&args.cmdline)?;
 
-    let pe = PeFile64::parse(&stub_data[..]).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to parse PE file: {}", e),
+    let original_stub_len = stub_data.len();
+
+    let (
+        file_header_offset,
+        optional_header_offset,
+        section_table_offset,
+        section_alignment,
+        file_alignment,
+        last_section_file_end,
+        last_section_virtual_end,
+        current_section_count,
+    ) = {
+        let pe = PeFile64::parse(&stub_data[..]).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to parse PE file: {}", e),
+            )
+        })?;
+        let nt_headers = pe.nt_headers();
+        let sections = pe.section_table();
+
+        let pe_offset = u32::from_le_bytes([
+            stub_data[DOS_HEADER_PE_OFFSET],
+            stub_data[DOS_HEADER_PE_OFFSET + 1],
+            stub_data[DOS_HEADER_PE_OFFSET + 2],
+            stub_data[DOS_HEADER_PE_OFFSET + 3],
+        ]) as usize;
+        let file_header_offset = pe_offset + PE_SIGNATURE_SIZE;
+        let optional_header_offset =
+            file_header_offset + mem::size_of::<object::pe::ImageFileHeader>();
+        let optional_header_size =
+            nt_headers.file_header().size_of_optional_header.get(LE) as usize;
+        let section_table_offset = optional_header_offset + optional_header_size;
+
+        let section_alignment = read_u32(
+            &stub_data,
+            optional_header_offset + OPT_HEADER_SECTION_ALIGNMENT,
+        );
+        let file_alignment = read_u32(
+            &stub_data,
+            optional_header_offset + OPT_HEADER_FILE_ALIGNMENT,
+        );
+
+        let last_section_file_end = sections
+            .iter()
+            .map(|s| s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE))
+            .max()
+            .unwrap_or(0);
+
+        let last_section_virtual_end = sections
+            .iter()
+            .map(|s| {
+                s.virtual_address.get(LE) + align_to(s.virtual_size.get(LE), section_alignment)
+            })
+            .max()
+            .unwrap_or(0);
+
+        let current_section_count = nt_headers.file_header().number_of_sections.get(LE);
+
+        (
+            file_header_offset,
+            optional_header_offset,
+            section_table_offset,
+            section_alignment,
+            file_alignment,
+            last_section_file_end,
+            last_section_virtual_end,
+            current_section_count,
         )
-    })?;
-    let nt_headers = pe.nt_headers();
-    let sections = pe.section_table();
+    };
 
-    let pe_offset = u32::from_le_bytes([
-        stub_data[DOS_HEADER_PE_OFFSET],
-        stub_data[DOS_HEADER_PE_OFFSET + 1],
-        stub_data[DOS_HEADER_PE_OFFSET + 2],
-        stub_data[DOS_HEADER_PE_OFFSET + 3],
-    ]) as usize;
-    let file_header_offset = pe_offset + PE_SIGNATURE_SIZE;
-    let optional_header_offset = file_header_offset + mem::size_of::<object::pe::ImageFileHeader>();
-    let optional_header_size = nt_headers.file_header().size_of_optional_header.get(LE) as usize;
-    let section_table_offset = optional_header_offset + optional_header_size;
-
-    let section_alignment = read_u32(&stub_data, optional_header_offset + OPT_HEADER_SECTION_ALIGNMENT);
-    let file_alignment = read_u32(&stub_data, optional_header_offset + OPT_HEADER_FILE_ALIGNMENT);
-
-    let last_section_file_end = sections
-        .iter()
-        .map(|s| s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE))
-        .max()
-        .unwrap_or(0);
-
-    let last_section_virtual_end = sections
-        .iter()
-        .map(|s| s.virtual_address.get(LE) + align_to(s.virtual_size.get(LE), section_alignment))
-        .max()
-        .unwrap_or(0);
-
-    let sections_to_add = vec![
-        (".cmdline", cmdline_data),
-        (".linux", linux_data),
-        (".initrd", initrd_data),
-        (".stub", stub_data.clone()),
+    let sections_to_add: [(&str, &[u8]); 4] = [
+        (".cmdline", &cmdline_data),
+        (".linux", &linux_data),
+        (".initrd", &initrd_data),
+        (".stub", &[]),
     ];
 
-    let mut new_sections = Vec::new();
+    let mut new_sections: Vec<(ImageSectionHeader, usize, usize)> = Vec::new();
     let mut current_file_offset = align_to(last_section_file_end, file_alignment);
     let mut current_virtual_address = align_to(last_section_virtual_end, section_alignment);
-    let current_section_count = nt_headers.file_header().number_of_sections.get(LE);
 
     let mut max_virtual_end = last_section_virtual_end;
 
     for (name, data) in &sections_to_add {
-        let virtual_size = data.len() as u32;
+        let is_stub_section = *name == ".stub";
+        let data_len = if is_stub_section {
+            original_stub_len
+        } else {
+            data.len()
+        };
+        let virtual_size = data_len as u32;
         let size_of_raw_data = align_to(virtual_size, file_alignment);
 
         let mut section = ImageSectionHeader::default();
@@ -131,30 +172,30 @@ fn main() -> io::Result<()> {
         section.size_of_raw_data.set(LE, size_of_raw_data);
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
-        let characteristics = match *name {
-            ".linux" => IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ,
-            _ => IMAGE_SCN_MEM_READ,
+        let characteristics = if is_stub_section || *name == ".linux" {
+            IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
+        } else {
+            IMAGE_SCN_MEM_READ
         };
         section.characteristics.set(LE, characteristics);
 
         max_virtual_end = max_virtual_end
             .max(current_virtual_address + align_to(virtual_size, section_alignment));
 
-        new_sections.push((section, data.clone()));
+        new_sections.push((section, current_file_offset as usize, data_len));
         current_file_offset += size_of_raw_data;
         current_virtual_address += align_to(virtual_size, section_alignment);
     }
 
-    let mut output = stub_data.clone();
-
     let new_section_count = current_section_count + sections_to_add.len() as u16;
     let section_count_offset = file_header_offset + COFF_NUMBER_OF_SECTIONS;
-    output[section_count_offset..section_count_offset + 2]
+
+    stub_data.resize(current_file_offset as usize, 0);
+
+    stub_data[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 
-    output.resize(current_file_offset as usize, 0);
-
-    for (i, (section_header, _)) in new_sections.iter().enumerate() {
+    for (i, (section_header, _, _)) in new_sections.iter().enumerate() {
         let offset = section_table_offset
             + (current_section_count as usize + i) * mem::size_of::<ImageSectionHeader>();
         let header_bytes = unsafe {
@@ -163,25 +204,29 @@ fn main() -> io::Result<()> {
                 mem::size_of::<ImageSectionHeader>(),
             )
         };
-        output[offset..offset + header_bytes.len()].copy_from_slice(header_bytes);
+        stub_data[offset..offset + header_bytes.len()].copy_from_slice(header_bytes);
     }
 
-    for (section_header, data) in &new_sections {
-        let off = section_header.pointer_to_raw_data.get(LE) as usize;
-        output[off..off + data.len()].copy_from_slice(data);
+    for (i, (_, file_offset, data_len)) in new_sections.iter().enumerate() {
+        let (name, data) = sections_to_add[i];
+        if name == ".stub" {
+            stub_data.copy_within(0..original_stub_len, *file_offset);
+        } else {
+            stub_data[*file_offset..*file_offset + *data_len].copy_from_slice(data);
+        }
     }
 
     let size_of_image_off = optional_header_offset + OPT_HEADER_SIZE_OF_IMAGE;
     let new_size_of_image = align_to(max_virtual_end, section_alignment);
-    write_u32(&mut output, size_of_image_off, new_size_of_image);
+    write_u32(&mut stub_data, size_of_image_off, new_size_of_image);
 
     let mut out_file = File::create(&args.output)?;
-    out_file.write_all(&output)?;
+    out_file.write_all(&stub_data)?;
 
     println!(
         "Successfully created UKI at {} ({} bytes)",
         args.output.display(),
-        output.len()
+        stub_data.len()
     );
 
     Ok(())

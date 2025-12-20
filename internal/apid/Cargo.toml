@@ -1,0 +1,31 @@
+[package]
+name = "apid"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
+tokio-stream = { workspace = true }
+
+# System/platform APIs
+nix = { workspace = true, features = ["signal"] }
+
+# RPC and serialization
+tonic = { workspace = true }
+prost = { workspace = true }
+tonic-prost = { workspace = true }
+
+# Utilities
+anyhow = { workspace = true }
+futures-util = { workspace = true }
+
+# Internal
+kmsg = { path = "../shared/kmsg" }
+notify = { path = "../shared/notify" }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[lints]
+workspace = true

@@ -9,6 +9,7 @@ ARG SOURCE_DATE_EPOCH=0
 ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
 ARG PKG_GRANOLA=ghcr.io/sawangg/pkgs/granola:latest
 ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
+ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
 ARG PKG_INIT=ghcr.io/sawangg/pkgs/init:latest
 ARG PKG_IMAGER=ghcr.io/sawangg/pkgs/imager:latest
 ARG PKG_YUKI=ghcr.io/sawangg/pkgs/yuki:latest
@@ -19,6 +20,7 @@ ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 # ============================================================
 FROM ${PKG_GRANOLA} AS pkg-granola
 FROM ${PKG_NETWORKD} AS pkg-networkd
+FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_IMAGER} AS pkg-imager
 FROM ${PKG_YUKI} AS pkg-yuki
@@ -71,6 +73,7 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 COPY --link --from=pkg-granola /granola /rootfs/sbin/init
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
+COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-yuki /yuki /rootfs/sbin/yuki
 COPY --link --from=pkg-imager /imager /rootfs/sbin/imager
 
