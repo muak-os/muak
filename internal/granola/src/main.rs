@@ -3,17 +3,6 @@ mod disk;
 mod provisioning;
 mod supervisor;
 
-// NOTE: These modules are temporarily disabled pending extraction to separate services.
-// - grpc, vm, vmm -> apid is done, vmd will be Phase 3
-// - ipc, process, signal -> will be removed once vmd is extracted
-// TODO: Re-enable when vmd service is ready
-// mod grpc;
-// mod ipc;
-// mod process;
-// mod signal;
-// mod vm;
-// mod vmm;
-
 use supervisor::{ServiceDef, Supervisor};
 
 #[tokio::main]
@@ -38,6 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // TODO: remove disk directory creation
     std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
     kmsg::info!("Created {} directory", config::MUAK_DISKS_DIR);
 
@@ -51,13 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ServiceDef {
             name: "apid".to_string(),
             binary: "/sbin/apid".to_string(),
-            args: vec![
-                "--listen".to_string(),
-                config::GRPC_SERVER_ADDR.to_string(),
-            ],
+            args: vec!["--listen".to_string(), config::GRPC_SERVER_ADDR.to_string()],
             depends_on: vec!["networkd".to_string()],
         },
-        // TODO: Phase 3 - Add vmd when extracted
+        // TODO:
         // ServiceDef {
         //     name: "vmd".to_string(),
         //     binary: "/sbin/vmd".to_string(),

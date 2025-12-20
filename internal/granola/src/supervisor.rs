@@ -8,7 +8,6 @@ use std::os::unix::net::UnixDatagram;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{SignalKind, signal};
 
-#[allow(dead_code)]
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
 }
@@ -29,14 +28,12 @@ pub struct ServiceDef {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub enum ServiceStatus {
     Pending,
     Starting,
     Ready,
     Degraded,
     Stopping,
-    Stopped,
     Failed,
 }
 
@@ -399,13 +396,5 @@ impl Supervisor {
         }
 
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn status(&self) -> Vec<(&str, &ServiceStatus)> {
-        self.services
-            .iter()
-            .map(|(name, state)| (name.as_str(), &state.status))
-            .collect()
     }
 }
