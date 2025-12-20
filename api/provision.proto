@@ -1,11 +1,15 @@
 syntax = "proto3";
 
-package muak.maintenance.v1;
+package muak.provision.v1;
 
-service MaintenanceService {
-    rpc Install(InstallRequest) returns (InstallResponse);
-    rpc Update(UpdateRequest) returns (UpdateResponse);
+// ProvisionService provides system observability operations.
+// Note: Install and Update operations are handled directly by granola
+// when booted from the live ISO (maintenance mode), not through this API.
+service ProvisionService {
+    // List available block devices
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
+
+    // Stream kernel logs
     rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse);
 }
 
@@ -13,18 +17,6 @@ message GetLogsRequest {}
 
 message GetLogsResponse {
     string line = 1;
-    string error = 2;
-}
-
-message InstallRequest {
-    string target_disk = 1;
-    bool force = 2;
-    string version = 3;
-    repeated string extensions = 4;
-}
-
-message InstallResponse {
-    bool success = 1;
     string error = 2;
 }
 
@@ -52,15 +44,4 @@ message ListDisksRequest {}
 message ListDisksResponse {
     repeated DiskInfo disks = 1;
     string error = 2;
-}
-
-message UpdateRequest {
-    string version = 1;
-    repeated string extensions = 2;
-}
-
-message UpdateResponse {
-    bool success = 1;
-    string error = 2;
-    string update_id = 3;
 }

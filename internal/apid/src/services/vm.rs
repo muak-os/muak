@@ -1,9 +1,3 @@
-//! VmService implementation
-//!
-//! This service provides VM lifecycle management.
-//! Note: In the full architecture, this will delegate to vmd over Unix socket.
-//! For now, VM operations are stubbed out until vmd is implemented.
-
 use tonic::{Request, Response, Status};
 
 pub mod proto {
@@ -17,7 +11,6 @@ use proto::{
     StopVmRequest, StopVmResponse, UploadFileRequest, UploadFileResponse,
 };
 
-/// Create the VmService gRPC service
 pub fn service() -> VmServiceServer<VmServiceImpl> {
     VmServiceServer::new(VmServiceImpl)
 }

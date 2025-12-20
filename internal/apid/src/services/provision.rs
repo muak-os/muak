@@ -2,61 +2,20 @@ use std::pin::Pin;
 use tonic::{Request, Response, Status};
 
 pub mod proto {
-    tonic::include_proto!("muak.maintenance.v1");
+    tonic::include_proto!("muak.provision.v1");
 }
 
-use proto::maintenance_service_server::{MaintenanceService, MaintenanceServiceServer};
-use proto::{
-    DiskInfo, GetLogsRequest, GetLogsResponse, InstallRequest, InstallResponse, ListDisksRequest,
-    ListDisksResponse, PartitionInfo, UpdateRequest, UpdateResponse,
-};
+use proto::provision_service_server::{ProvisionService, ProvisionServiceServer};
+use proto::{DiskInfo, GetLogsRequest, GetLogsResponse, ListDisksRequest, ListDisksResponse, PartitionInfo};
 
-pub fn service() -> MaintenanceServiceServer<MaintenanceServiceImpl> {
-    MaintenanceServiceServer::new(MaintenanceServiceImpl)
+pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
+    ProvisionServiceServer::new(ProvisionServiceImpl)
 }
 
-pub struct MaintenanceServiceImpl;
+pub struct ProvisionServiceImpl;
 
 #[tonic::async_trait]
-impl MaintenanceService for MaintenanceServiceImpl {
-    async fn install(
-        &self,
-        request: Request<InstallRequest>,
-    ) -> Result<Response<InstallResponse>, Status> {
-        let req = request.into_inner();
-        kmsg::info!(
-            "Install request: target_disk={}, force={}, version={}",
-            req.target_disk,
-            req.force,
-            req.version
-        );
-
-        // Installation is a privileged operation that requires direct access to disk
-        // and is performed by granola. For now, return unimplemented until we have
-        // IPC between apid and granola.
-        //
-        // In the future, this will:
-        // 1. Send a message to granola requesting installation
-        // 2. Granola performs the installation
-        // 3. Return the result
-        Err(Status::unimplemented(
-            "Installation must be performed via granola. Use the maintenance CLI when booted from live ISO.",
-        ))
-    }
-
-    async fn update(
-        &self,
-        request: Request<UpdateRequest>,
-    ) -> Result<Response<UpdateResponse>, Status> {
-        let req = request.into_inner();
-        kmsg::info!("Update request: version={}", req.version);
-
-        // Updates are also privileged operations performed by granola
-        Err(Status::unimplemented(
-            "Updates must be performed via granola. This will be implemented with granola IPC.",
-        ))
-    }
-
+impl ProvisionService for ProvisionServiceImpl {
     async fn list_disks(
         &self,
         _request: Request<ListDisksRequest>,

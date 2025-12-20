@@ -22,11 +22,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let notifier = NotifyClient::new("apid")?;
 
-    // Build gRPC services
-    let process_service = services::process::service();
-    let vm_service = services::vm::service();
-    let maintenance_service = services::maintenance::service();
-
     let addr: SocketAddr = listen_addr.parse()?;
     kmsg::info!("API daemon ready, listening on {}", addr);
     notifier.ready(&format!("tcp://{}", listen_addr))?;
@@ -35,9 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sigint = signal(SignalKind::interrupt())?;
 
     let server = Server::builder()
-        .add_service(process_service)
-        .add_service(vm_service)
-        .add_service(maintenance_service)
+        .add_service(services::process::service())
+        .add_service(services::vm::service())
+        .add_service(services::provision::service())
         .serve_with_shutdown(addr, async {
             tokio::select! {
                 _ = sigterm.recv() => {

@@ -44,7 +44,6 @@ impl ProcessService for ProcessServiceImpl {
     }
 }
 
-/// Read process information from /proc/[pid]
 async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
     let cmdline_path = format!("/proc/{}/cmdline", pid);
     let cmdline = tokio::fs::read_to_string(&cmdline_path).await?;
@@ -53,12 +52,10 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
     let command = parts.first().map(|s| s.to_string()).unwrap_or_default();
     let args: Vec<String> = parts.iter().skip(1).map(|s| s.to_string()).collect();
 
-    // Read stat for status
     let stat_path = format!("/proc/{}/stat", pid);
     let stat = tokio::fs::read_to_string(&stat_path).await?;
     let status = parse_process_status(&stat);
 
-    // Read process start time (simplified - using stat file mtime as approximation)
     let started_at = 0i64; // Would need to parse /proc/[pid]/stat properly for accurate time
 
     Ok(ProcessInfo {
@@ -70,10 +67,7 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
     })
 }
 
-/// Parse process status from /proc/[pid]/stat
 fn parse_process_status(stat: &str) -> String {
-    // Format: pid (comm) state ...
-    // Find the status character after the closing paren
     if let Some(close_paren) = stat.rfind(')') {
         if let Some(state_char) = stat.chars().nth(close_paren + 2) {
             return match state_char {
