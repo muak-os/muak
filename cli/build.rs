@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     tonic_prost_build::compile_protos(format!("{}/process.proto", api_dir))?;
     tonic_prost_build::compile_protos(format!("{}/vm.proto", api_dir))?;
-    tonic_prost_build::compile_protos(format!("{}/maintenance.proto", api_dir))?;
+    tonic_prost_build::compile_protos(format!("{}/provision.proto", api_dir))?;
 
     Ok(())
 }

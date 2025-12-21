@@ -15,14 +15,14 @@ pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
 }
 
-pub mod maintenance_service {
-    tonic::include_proto!("muak.maintenance.v1");
+pub mod provision_service {
+    tonic::include_proto!("muak.provision.v1");
 }
 
-use maintenance_service::maintenance_service_client::MaintenanceServiceClient;
-use maintenance_service::{GetLogsRequest, InstallRequest, ListDisksRequest, UpdateRequest};
+use process_service::ListProcessesRequest;
 use process_service::process_service_client::ProcessServiceClient;
-use process_service::{ListProcessesRequest, StartProcessRequest, StopProcessRequest};
+use provision_service::provision_service_client::ProvisionServiceClient;
+use provision_service::{GetLogsRequest, InstallRequest, ListDisksRequest, UpdateRequest};
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
     CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, ListVmsRequest, NetConfig,
@@ -72,16 +72,6 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ProcessAction {
-    Start {
-        command: String,
-        #[arg(trailing_var_arg = true)]
-        args: Vec<String>,
-    },
-    Stop {
-        pid: i32,
-        #[arg(short, long, default_value = "15")]
-        signal: i32,
-    },
     List,
 }
 
@@ -152,19 +142,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             version,
             extension,
         } => {
-            let mut client = MaintenanceServiceClient::new(channel);
+            let mut client = ProvisionServiceClient::new(channel);
             handle_install(&mut client, target, force, version, extension).await?;
         }
         Commands::Update { version, extension } => {
-            let mut client = MaintenanceServiceClient::new(channel);
+            let mut client = ProvisionServiceClient::new(channel);
             handle_update(&mut client, version, extension).await?;
         }
         Commands::Disks => {
-            let mut client = MaintenanceServiceClient::new(channel);
+            let mut client = ProvisionServiceClient::new(channel);
             handle_list_disks(&mut client).await?;
         }
         Commands::Logs => {
-            let mut client = MaintenanceServiceClient::new(channel);
+            let mut client = ProvisionServiceClient::new(channel);
             handle_logs(&mut client).await?;
         }
     }
@@ -173,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handle_install(
-    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
     target_disk: String,
     force: bool,
     version: String,
@@ -209,7 +199,7 @@ async fn handle_install(
 }
 
 async fn handle_update(
-    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
     version: Option<String>,
     extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -247,7 +237,7 @@ async fn handle_update(
 }
 
 async fn handle_list_disks(
-    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = tonic::Request::new(ListDisksRequest {});
 
@@ -303,7 +293,7 @@ async fn handle_list_disks(
 }
 
 async fn handle_logs(
-    client: &mut MaintenanceServiceClient<tonic::transport::Channel>,
+    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = tonic::Request::new(GetLogsRequest {});
 
@@ -467,38 +457,6 @@ async fn handle_process_action(
     action: ProcessAction,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        ProcessAction::Start { command, args } => {
-            let request = tonic::Request::new(StartProcessRequest {
-                command: command.clone(),
-                args: args.clone(),
-            });
-
-            let response = client.start_process(request).await?;
-            let resp = response.into_inner();
-
-            if resp.error.is_empty() {
-                println!("{}Started process with PID: {}{}", GREEN, resp.pid, RESET);
-            } else {
-                eprintln!("{}Error starting process: {}{}", RED, resp.error, RESET);
-                std::process::exit(1);
-            }
-        }
-        ProcessAction::Stop { pid, signal } => {
-            let request = tonic::Request::new(StopProcessRequest { pid, signal });
-
-            let response = client.stop_process(request).await?;
-            let resp = response.into_inner();
-
-            if resp.success {
-                println!(
-                    "{}Sent signal {} to process {}{}",
-                    GREEN, signal, pid, RESET
-                );
-            } else {
-                eprintln!("{}Error stopping process: {}{}", RED, resp.error, RESET);
-                std::process::exit(1);
-            }
-        }
         ProcessAction::List => {
             let request = tonic::Request::new(ListProcessesRequest {});
 

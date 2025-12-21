@@ -36,18 +36,3 @@ message Stopping {
 message Watchdog {
   // Empty - just a heartbeat
 }
-
-message Command {
-  oneof command {
-    Shutdown shutdown = 1;
-    Reload reload = 2;
-  }
-}
-
-message Shutdown {
-  uint32 timeout_seconds = 1;  // graceful shutdown timeout
-}
-
-message Reload {
-  // Reload configuration
-}
