@@ -155,10 +155,11 @@ impl Supervisor {
         kmsg::info!("Spawning service: {} ({})", name, state.def.binary);
 
         let binary = CString::new(state.def.binary.clone())?;
-        let args: Vec<CString> = std::iter::once(state.def.binary.clone())
+        let args: Result<Vec<CString>, _> = std::iter::once(state.def.binary.clone())
             .chain(state.def.args.clone())
-            .map(|s| CString::new(s).unwrap())
+            .map(CString::new)
             .collect();
+        let args = args?;
 
         match unsafe { fork() }? {
             ForkResult::Parent { child } => {
@@ -181,10 +182,10 @@ impl Supervisor {
         let mut buf = [0u8; 4096];
 
         while let Ok((len, _)) = self.notify_socket.recv_from(&mut buf) {
-            if let Ok(notify) = Notify::decode(&buf[..len]) {
-                if let Err(e) = self.handle_notification(notify) {
-                    kmsg::warn!("Error handling notification: {}", e);
-                }
+            if let Ok(notify) = Notify::decode(&buf[..len])
+                && let Err(e) = self.handle_notification(notify)
+            {
+                kmsg::warn!("Error handling notification: {}", e);
             }
         }
 
@@ -306,8 +307,6 @@ impl Supervisor {
         exit_code: Option<i32>,
         signal: Option<Signal>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let state = self.services.get_mut(name).unwrap();
-
         match (exit_code, signal) {
             (Some(code), _) => {
                 kmsg::warn!("Service {} (PID {}) exited with code {}", name, pid, code);
@@ -320,11 +319,17 @@ impl Supervisor {
             }
         }
 
+        let should_restart = self.should_restart(name);
+
+        let state = self
+            .services
+            .get_mut(name)
+            .ok_or_else(|| format!("Service not found: {}", name))?;
+
         state.pid = None;
         state.socket_path = None;
 
-        if self.should_restart(name) {
-            let state = self.services.get_mut(name).unwrap();
+        if should_restart {
             state.status = ServiceStatus::Pending;
             state.restart_count += 1;
             state.last_restart = Some(Instant::now());
@@ -340,7 +345,6 @@ impl Supervisor {
             self.pending_restarts
                 .push((name.to_string(), Instant::now() + RESTART_DELAY));
         } else {
-            let state = self.services.get_mut(name).unwrap();
             state.status = ServiceStatus::Failed;
             kmsg::error!("Service {} failed permanently", name);
         }
@@ -358,10 +362,10 @@ impl Supervisor {
             return false;
         }
 
-        if let Some(last) = state.last_restart {
-            if last.elapsed() > RESTART_WINDOW {
-                return true;
-            }
+        if let Some(last) = state.last_restart
+            && last.elapsed() > RESTART_WINDOW
+        {
+            return true;
         }
 
         state.restart_count < MAX_RESTART_ATTEMPTS
