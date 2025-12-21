@@ -33,10 +33,10 @@ impl ProcessService for ProcessServiceImpl {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
 
-            if let Ok(pid) = name_str.parse::<i32>() {
-                if let Ok(info) = read_process_info(pid).await {
-                    processes.push(info);
-                }
+            if let Ok(pid) = name_str.parse::<i32>()
+                && let Ok(info) = read_process_info(pid).await
+            {
+                processes.push(info);
             }
         }
 
@@ -68,24 +68,24 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
 }
 
 fn parse_process_status(stat: &str) -> String {
-    if let Some(close_paren) = stat.rfind(')') {
-        if let Some(state_char) = stat.chars().nth(close_paren + 2) {
-            return match state_char {
-                'R' => "running",
-                'S' => "sleeping",
-                'D' => "disk_sleep",
-                'Z' => "zombie",
-                'T' => "stopped",
-                't' => "tracing_stop",
-                'X' | 'x' => "dead",
-                'K' => "wakekill",
-                'W' => "waking",
-                'P' => "parked",
-                'I' => "idle",
-                _ => "unknown",
-            }
-            .to_string();
+    if let Some(close_paren) = stat.rfind(')')
+        && let Some(state_char) = stat.chars().nth(close_paren + 2)
+    {
+        return match state_char {
+            'R' => "running",
+            'S' => "sleeping",
+            'D' => "disk_sleep",
+            'Z' => "zombie",
+            'T' => "stopped",
+            't' => "tracing_stop",
+            'X' | 'x' => "dead",
+            'K' => "wakekill",
+            'W' => "waking",
+            'P' => "parked",
+            'I' => "idle",
+            _ => "unknown",
         }
+        .to_string();
     }
     "unknown".to_string()
 }

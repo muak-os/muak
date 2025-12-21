@@ -6,7 +6,10 @@ pub mod proto {
 }
 
 use proto::provision_service_server::{ProvisionService, ProvisionServiceServer};
-use proto::{DiskInfo, GetLogsRequest, GetLogsResponse, ListDisksRequest, ListDisksResponse, PartitionInfo};
+use proto::{
+    DiskInfo, GetLogsRequest, GetLogsResponse, InstallRequest, InstallResponse, ListDisksRequest,
+    ListDisksResponse, PartitionInfo, UpdateRequest, UpdateResponse,
+};
 
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
     ProvisionServiceServer::new(ProvisionServiceImpl)
@@ -16,6 +19,42 @@ pub struct ProvisionServiceImpl;
 
 #[tonic::async_trait]
 impl ProvisionService for ProvisionServiceImpl {
+    async fn install(
+        &self,
+        request: Request<InstallRequest>,
+    ) -> Result<Response<InstallResponse>, Status> {
+        let req = request.into_inner();
+        kmsg::info!(
+            "Install request: target_disk={}, force={}, version={}",
+            req.target_disk,
+            req.force,
+            req.version
+        );
+
+        // TODO: Implement actual installation logic
+        // This will call into granola's provisioning module
+        Ok(Response::new(InstallResponse {
+            success: false,
+            error: "Install not yet implemented".to_string(),
+        }))
+    }
+
+    async fn update(
+        &self,
+        request: Request<UpdateRequest>,
+    ) -> Result<Response<UpdateResponse>, Status> {
+        let req = request.into_inner();
+        kmsg::info!("Update request: version={}", req.version);
+
+        // TODO: Implement actual update logic
+        // This will call into granola's provisioning module
+        Ok(Response::new(UpdateResponse {
+            success: false,
+            update_id: String::new(),
+            error: "Update not yet implemented".to_string(),
+        }))
+    }
+
     async fn list_disks(
         &self,
         _request: Request<ListDisksRequest>,
@@ -137,10 +176,11 @@ async fn list_partitions(disk_name: &str) -> Result<Vec<PartitionInfo>, std::io:
         let name_str = name.to_string_lossy().to_string();
 
         // Partitions are directories that start with the disk name
-        if name_str.starts_with(disk_name) && name_str != disk_name {
-            if let Ok(info) = read_partition_info(disk_name, &name_str).await {
-                partitions.push(info);
-            }
+        if name_str.starts_with(disk_name)
+            && name_str != disk_name
+            && let Ok(info) = read_partition_info(disk_name, &name_str).await
+        {
+            partitions.push(info);
         }
     }
 

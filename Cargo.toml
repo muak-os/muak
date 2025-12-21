@@ -7,6 +7,7 @@ members = [
     "internal/init",
     "internal/networkd",
     "internal/stub",
+    "internal/vmd",
     "internal/yuki",
     "internal/shared/kmod",
     "internal/shared/kmsg",

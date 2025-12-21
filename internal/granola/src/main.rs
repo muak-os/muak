@@ -27,10 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // TODO: remove disk directory creation
-    std::fs::create_dir_all(config::MUAK_DISKS_DIR)?;
-    kmsg::info!("Created {} directory", config::MUAK_DISKS_DIR);
-
     let services = vec![
         ServiceDef {
             name: "networkd".to_string(),
@@ -44,13 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             args: vec!["--listen".to_string(), config::GRPC_SERVER_ADDR.to_string()],
             depends_on: vec!["networkd".to_string()],
         },
-        // TODO:
-        // ServiceDef {
-        //     name: "vmd".to_string(),
-        //     binary: "/sbin/vmd".to_string(),
-        //     args: vec![],
-        //     depends_on: vec!["networkd".to_string()],
-        // },
+        ServiceDef {
+            name: "vmd".to_string(),
+            binary: "/sbin/vmd".to_string(),
+            args: vec![],
+            depends_on: vec!["networkd".to_string()],
+        },
     ];
 
     let mut supervisor = Supervisor::new(services)?;
