@@ -118,7 +118,7 @@ jobs:
             echo "packages=${MANUAL_PACKAGES}" >> $GITHUB_OUTPUT
           elif [[ -n "${TAG_PACKAGES}" ]]; then
             echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
-          el          if [[ "${REBUILD_ALL}" == "true" ]]; then
+          elif [[ "${REBUILD_ALL}" == "true" ]]; then
             echo 'packages=["granola","networkd","apid","vmd","init","imager","yuki","stub"]' >> $GITHUB_OUTPUT
           elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
             echo "packages=${FILTER_CHANGES}" >> $GITHUB_OUTPUT
