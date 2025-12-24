@@ -37,7 +37,7 @@ impl NetworkActorHandle {
             match self.initialize().await {
                 Ok(()) => {
                     kmsg::info!(
-                        @ "network",
+                        @ "networkd",
                         "Network initialized successfully on attempt {}",
                         attempt
                     );
@@ -45,7 +45,7 @@ impl NetworkActorHandle {
                 }
                 Err(e) => {
                     kmsg::warn!(
-                        @ "network",
+                        @ "networkd",
                         "Network initialization failed (attempt {}): {}",
                         attempt,
                         e
@@ -57,7 +57,7 @@ impl NetworkActorHandle {
                         .unwrap_or(max_delay)
                         .min(max_delay);
 
-                    kmsg::info!(@ "network", "Retrying in {:?}...", delay);
+                    kmsg::info!(@ "networkd", "Retrying in {:?}...", delay);
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -127,11 +127,11 @@ async fn start_events_monitor(handle: rtnetlink::Handle) -> Option<mpsc::Receive
     let config = monitor::MonitorConfig::default();
     match monitor::start_monitor(handle, config).await {
         Ok(rx) => {
-            kmsg::info!(@ "network", "Network event monitoring enabled");
+            kmsg::info!(@ "networkd", "Network event monitoring enabled");
             Some(rx)
         }
         Err(e) => {
-            kmsg::warn!(@ "network", "Failed to start network monitor: {}", e);
+            kmsg::warn!(@ "networkd", "Failed to start network monitor: {}", e);
             None
         }
     }
@@ -163,7 +163,7 @@ fn handle_network_actions(
                 }
 
                 else => {
-                    kmsg::info!(@ "network", "Network actor shutting down");
+                    kmsg::info!(@ "networkd", "Network actor shutting down");
                     break;
                 }
             }

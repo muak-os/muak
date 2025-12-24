@@ -6,7 +6,7 @@ use std::process::Command;
 use super::utils::wait_for_device;
 
 pub fn format_efi_partition(device: &str) -> Result<()> {
-    kmsg::info!(@ "installer", "Formatting {} as FAT32", device);
+    kmsg::info!(@ "provisioning", "Formatting {} as FAT32", device);
 
     wait_for_device(device)?;
 
@@ -21,14 +21,14 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 
     f.sync_all()?;
 
-    kmsg::info!(@ "installer", "FAT32 formatting complete");
+    kmsg::info!(@ "provisioning", "FAT32 formatting complete");
 
     Ok(())
 }
 
 pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
     kmsg::info!(
-        @ "installer",
+        @ "provisioning",
         "Formatting {} as btrfs with label '{}'",
         device,
         label
@@ -48,7 +48,7 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
         bail!("Failed to format {} as btrfs: {}", device, stderr);
     }
 
-    kmsg::info!(@ "installer", "btrfs formatting complete");
+    kmsg::info!(@ "provisioning", "btrfs formatting complete");
 
     Ok(())
 }

@@ -65,7 +65,7 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
         };
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Discovered interface: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, state: {})",
             name,
             link_msg.header.index,

@@ -54,7 +54,7 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
 
     if !link.header.flags.contains(LinkFlags::Up) {
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Bringing up interface {} (index {})",
             name,
             index
@@ -89,7 +89,7 @@ pub async fn wait_for_carrier(
     let start = std::time::Instant::now();
 
     kmsg::info!(
-        @ "network",
+        @ "networkd",
         "Waiting for carrier on {} (timeout: {:?})",
         name,
         timeout
@@ -100,7 +100,7 @@ pub async fn wait_for_carrier(
             Ok(true) => {
                 let elapsed = start.elapsed();
                 kmsg::info!(
-                    @ "network",
+                    @ "networkd",
                     "Carrier detected on {} after {:?}",
                     name,
                     elapsed
@@ -110,7 +110,7 @@ pub async fn wait_for_carrier(
             Ok(false) => {
                 if start.elapsed() >= timeout {
                     kmsg::warn!(
-                        @ "network",
+                        @ "networkd",
                         "Carrier timeout on {} after {:?} - no physical link",
                         name,
                         timeout

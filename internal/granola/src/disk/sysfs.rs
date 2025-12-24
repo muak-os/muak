@@ -20,7 +20,7 @@ pub fn validate_disk_size(disk: &str) -> Result<()> {
     }
 
     kmsg::info!(
-        @ "installer",
+        @ "provisioning",
         "Disk size: {} GB ({} MB)",
         disk_size / GB,
         disk_size / MB
@@ -45,7 +45,7 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
         kmsg::warn!(
-            @ "installer",
+            @ "provisioning",
             "'{}' appears to be a partition. You should install to a whole disk (e.g., /dev/sda, not /dev/sda1)",
             disk
         );
@@ -263,7 +263,7 @@ fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
         Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
         Ok(_) => None,
         Err(e) => {
-            kmsg::error!(@ "disk", "Failed to read disk {}: {}", name_str, e);
+            kmsg::error!(@ "provisioning", "Failed to read disk {}: {}", name_str, e);
             None
         }
     }

@@ -17,7 +17,7 @@ pub fn mount_partitions() -> Result<()> {
         )
         .context("Failed to mount STATE partition")?;
 
-        kmsg::info!(@ "disk", "Mounted STATE partition at /run/state");
+        kmsg::info!(@ "granola", "Mounted STATE partition at /run/state");
     } else {
         bail!("STATE partition not found");
     }
@@ -34,7 +34,7 @@ pub fn mount_partitions() -> Result<()> {
         )
         .context("Failed to mount DATA partition")?;
 
-        kmsg::info!(@ "disk", "Mounted DATA partition at /run/data");
+        kmsg::info!(@ "granola", "Mounted DATA partition at /run/data");
     } else {
         bail!("DATA partition not found");
     }

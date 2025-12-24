@@ -49,7 +49,7 @@ pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResu
             r
         }
         Err(_) => {
-            kmsg::warn!(@ "network", "Connectivity check timed out");
+            kmsg::warn!(@ "networkd", "Connectivity check timed out");
             ConnectivityResult {
                 status: ConnectivityStatus::Disconnected,
                 dns_ok: false,
@@ -73,7 +73,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.dns_ok = true;
         }
         Err(e) => {
-            kmsg::warn!(@ "network", "DNS failed for {}: {}", target.host, e);
+            kmsg::warn!(@ "networkd", "DNS failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
             result.last_check = SystemTime::now();
             return result;
@@ -86,7 +86,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.status = ConnectivityStatus::Connected;
         }
         Err(e) => {
-            kmsg::warn!(@ "network", "HTTPS check failed for {}: {}", target.host, e);
+            kmsg::warn!(@ "networkd", "HTTPS check failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
         }
     }

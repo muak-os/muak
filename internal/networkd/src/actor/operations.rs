@@ -19,7 +19,7 @@ use super::state::NetworkActor;
 
 impl NetworkActor {
     pub(super) async fn initialize(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) -> Result<()> {
-        kmsg::info!(@ "network", "Initializing network");
+        kmsg::info!(@ "networkd", "Initializing network");
 
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
@@ -30,13 +30,13 @@ impl NetworkActor {
 
         self.start_connectivity_monitoring(cmd_tx.clone());
 
-        kmsg::info!(@ "network", "Network initialization complete");
+        kmsg::info!(@ "networkd", "Network initialization complete");
 
         Ok(())
     }
 
     async fn discover_interfaces(&mut self) -> Result<()> {
-        kmsg::info!(@ "network", "Discovering ethernet interfaces");
+        kmsg::info!(@ "networkd", "Discovering ethernet interfaces");
         self.state.state = NetworkStateKind::Initializing;
         self.publish_state();
 
@@ -53,7 +53,7 @@ impl NetworkActor {
         self.state.state = NetworkStateKind::Operational;
         self.sync_and_publish();
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Discovered {} interfaces, primary={:?}",
             discovered.len(),
             self.state.primary
@@ -89,7 +89,7 @@ impl NetworkActor {
         self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
             primary.name,
             primary.link_state,
@@ -105,7 +105,7 @@ impl NetworkActor {
         let primary = self.get_primary_name()?;
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Acquiring DHCP on primary interface: {}",
             primary
         );
@@ -126,7 +126,7 @@ impl NetworkActor {
         self.update_interface_with_lease(iface, ip_cfg.clone(), lease.clone())?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
 
-        kmsg::info!(@ "network", "DHCP acquired on {}: {}", iface, ip_cfg.address);
+        kmsg::info!(@ "networkd", "DHCP acquired on {}: {}", iface, ip_cfg.address);
 
         self.get_interface(iface)
             .cloned()
@@ -147,11 +147,11 @@ impl NetworkActor {
         address::ensure_ipv4(&self.handle, index, ip_cfg.address, ip_cfg.prefix_len).await?;
 
         if let Some(gw) = ip_cfg.gateway {
-            kmsg::info!(@ "network", "Setting default route via {}", gw);
+            kmsg::info!(@ "networkd", "Setting default route via {}", gw);
             route::ensure_default_route(&self.handle, gw).await?;
         } else {
             kmsg::info!(
-                @ "network",
+                @ "networkd",
                 "No gateway in DHCP lease, skipping default route"
             );
         }
@@ -216,13 +216,13 @@ impl NetworkActor {
             };
             tokio::time::sleep(dur).await;
 
-            kmsg::info!(@ "network", "Lease {} attempt for {}", task_name, iface);
+            kmsg::info!(@ "networkd", "Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
         })
     }
 
     pub(super) async fn renew_lease(&mut self, iface: &str) -> Result<()> {
-        kmsg::info!(@ "network", "Renewing DHCP lease for {}", iface);
+        kmsg::info!(@ "networkd", "Renewing DHCP lease for {}", iface);
 
         let mac = self
             .get_interface(iface)
@@ -239,11 +239,11 @@ impl NetworkActor {
                 self.apply_ip_configuration(index, &ip_cfg).await?;
                 self.update_interface_with_lease(iface, ip_cfg, lease)?;
 
-                kmsg::info!(@ "network", "DHCP lease renewed for {}", iface);
+                kmsg::info!(@ "networkd", "DHCP lease renewed for {}", iface);
                 Ok(())
             }
             Err(e) => {
-                kmsg::warn!(@ "network", "DHCP renewal failed for {}: {}", iface, e);
+                kmsg::warn!(@ "networkd", "DHCP renewal failed for {}: {}", iface, e);
                 Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
             }
         }
@@ -257,7 +257,7 @@ impl NetworkActor {
             .and_then(|ip| ip.gateway);
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Setting up bridge {} with primary {}",
             LAN_BRIDGE_NAME,
             primary
@@ -265,7 +265,7 @@ impl NetworkActor {
         bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
             .await?;
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Bridge setup complete: {} <- {}",
             LAN_BRIDGE_NAME,
             primary
@@ -291,7 +291,7 @@ impl NetworkActor {
         self.sync_and_publish();
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Transferring DHCP lease management from {} to {}",
             primary,
             LAN_BRIDGE_NAME
@@ -333,7 +333,7 @@ impl NetworkActor {
         let primary = self.get_primary_name()?;
 
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Setting up bridge {} with primary {}",
             LAN_BRIDGE_NAME,
             primary
@@ -341,7 +341,7 @@ impl NetworkActor {
         bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
             .await?;
         kmsg::info!(
-            @ "network",
+            @ "networkd",
             "Bridge setup complete: {} <- {}",
             LAN_BRIDGE_NAME,
             primary
@@ -382,7 +382,7 @@ impl NetworkActor {
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
-        kmsg::info!(@ "network", "Adding TAP interface: {}", name);
+        kmsg::info!(@ "networkd", "Adding TAP interface: {}", name);
 
         let index = tap::setup_tap_on_bridge(&self.handle, name, LAN_BRIDGE_NAME).await?;
 
@@ -398,18 +398,18 @@ impl NetworkActor {
         self.insert_interface(snapshot.clone());
         self.sync_and_publish();
 
-        kmsg::info!(@ "network", "TAP interface added: {}", name);
+        kmsg::info!(@ "networkd", "TAP interface added: {}", name);
         Ok(snapshot)
     }
 
     pub(super) async fn delete_tap(&mut self, name: &str) -> Result<()> {
-        kmsg::info!(@ "network", "Deleting TAP interface: {}", name);
+        kmsg::info!(@ "networkd", "Deleting TAP interface: {}", name);
 
         tap::remove_tap_device(&self.handle, name).await?;
         self.remove_interface(name);
         self.sync_and_publish();
 
-        kmsg::info!(@ "network", "TAP interface deleted: {}", name);
+        kmsg::info!(@ "networkd", "TAP interface deleted: {}", name);
         Ok(())
     }
 
@@ -450,13 +450,13 @@ impl NetworkActor {
         match result.status {
             ConnectivityStatus::Connected if !was_connected => {
                 kmsg::info!(
-                    @ "network",
+                    @ "networkd",
                     "Connectivity OK ({}ms)",
                     result.latency_ms.unwrap_or(0)
                 );
             }
             ConnectivityStatus::Disconnected => {
-                kmsg::warn!(@ "network", "No internet connectivity detected");
+                kmsg::warn!(@ "networkd", "No internet connectivity detected");
             }
             _ => {}
         }
