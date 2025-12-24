@@ -29,14 +29,25 @@ impl ProvisionService for ProvisionServiceImpl {
             req.version
         );
 
-        // Call into provisioning module
         match provisioning::install(&req.target_disk, req.force, &req.version, &req.extensions)
             .await
         {
-            Ok(()) => Ok(Response::new(InstallResponse {
-                success: true,
-                error: String::new(),
-            })),
+            Ok(()) => {
+                tokio::spawn(async {
+                    kmsg::info!("System will reboot in 3 seconds...");
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    kmsg::info!("Rebooting now...");
+                    nix::unistd::sync();
+                    unsafe {
+                        nix::libc::reboot(nix::libc::RB_AUTOBOOT);
+                    }
+                });
+
+                Ok(Response::new(InstallResponse {
+                    success: true,
+                    error: String::new(),
+                }))
+            }
             Err(e) => Ok(Response::new(InstallResponse {
                 success: false,
                 error: format!("{}", e),
@@ -51,7 +62,6 @@ impl ProvisionService for ProvisionServiceImpl {
         let req = request.into_inner();
         kmsg::info!("Update request: version={}", req.version);
 
-        // Call into provisioning module
         match provisioning::update(&req.version, &req.extensions).await {
             Ok(update_id) => Ok(Response::new(UpdateResponse {
                 success: true,
@@ -87,7 +97,6 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         _request: Request<GetLogsRequest>,
     ) -> Result<Response<Self::GetLogsStream>, Status> {
-        // Stream kernel logs from /dev/kmsg
         let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         tokio::spawn(async move {
@@ -101,7 +110,6 @@ impl ProvisionService for ProvisionServiceImpl {
     }
 }
 
-/// List block devices from /sys/block
 async fn list_block_devices() -> Result<Vec<DiskInfo>, std::io::Error> {
     let mut disks = Vec::new();
 
@@ -110,7 +118,6 @@ async fn list_block_devices() -> Result<Vec<DiskInfo>, std::io::Error> {
         let name = entry.file_name();
         let name_str = name.to_string_lossy().to_string();
 
-        // Skip loop, ram, and dm devices
         if name_str.starts_with("loop")
             || name_str.starts_with("ram")
             || name_str.starts_with("dm-")
@@ -126,12 +133,10 @@ async fn list_block_devices() -> Result<Vec<DiskInfo>, std::io::Error> {
     Ok(disks)
 }
 
-/// Read disk information from sysfs
 async fn read_disk_info(name: &str) -> Result<DiskInfo, std::io::Error> {
     let sys_path = format!("/sys/block/{}", name);
     let dev_path = format!("/dev/{}", name);
 
-    // Read size (in 512-byte sectors)
     let size_sectors: u64 = tokio::fs::read_to_string(format!("{}/size", sys_path))
         .await?
         .trim()
@@ -139,25 +144,21 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo, std::io::Error> {
         .unwrap_or(0);
     let size_bytes = size_sectors * 512;
 
-    // Read model (if available)
     let model = tokio::fs::read_to_string(format!("{}/device/model", sys_path))
         .await
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    // Check if removable
     let removable = tokio::fs::read_to_string(format!("{}/removable", sys_path))
         .await
         .map(|s| s.trim() == "1")
         .unwrap_or(false);
 
-    // Check if read-only
     let read_only = tokio::fs::read_to_string(format!("{}/ro", sys_path))
         .await
         .map(|s| s.trim() == "1")
         .unwrap_or(false);
 
-    // List partitions
     let partitions = list_partitions(name).await.unwrap_or_default();
 
     Ok(DiskInfo {
@@ -171,7 +172,6 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo, std::io::Error> {
     })
 }
 
-/// List partitions for a disk
 async fn list_partitions(disk_name: &str) -> Result<Vec<PartitionInfo>, std::io::Error> {
     let mut partitions = Vec::new();
 
@@ -182,7 +182,6 @@ async fn list_partitions(disk_name: &str) -> Result<Vec<PartitionInfo>, std::io:
         let name = entry.file_name();
         let name_str = name.to_string_lossy().to_string();
 
-        // Partitions are directories that start with the disk name
         if name_str.starts_with(disk_name)
             && name_str != disk_name
             && let Ok(info) = read_partition_info(disk_name, &name_str).await
@@ -191,34 +190,29 @@ async fn list_partitions(disk_name: &str) -> Result<Vec<PartitionInfo>, std::io:
         }
     }
 
-    // Sort partitions by number
     partitions.sort_by_key(|p| p.number);
 
     Ok(partitions)
 }
 
-/// Read partition information from sysfs
 async fn read_partition_info(
     disk_name: &str,
     part_name: &str,
 ) -> Result<PartitionInfo, std::io::Error> {
     let sys_path = format!("/sys/block/{}/{}", disk_name, part_name);
 
-    // Read partition number
     let number: u32 = tokio::fs::read_to_string(format!("{}/partition", sys_path))
         .await?
         .trim()
         .parse()
         .unwrap_or(0);
 
-    // Read start sector
     let start_sector: u64 = tokio::fs::read_to_string(format!("{}/start", sys_path))
         .await?
         .trim()
         .parse()
         .unwrap_or(0);
 
-    // Read size in sectors
     let size_sectors: u64 = tokio::fs::read_to_string(format!("{}/size", sys_path))
         .await?
         .trim()
@@ -226,7 +220,6 @@ async fn read_partition_info(
         .unwrap_or(0);
     let size_bytes = size_sectors * 512;
 
-    // Try to read partition name from GPT
     let name = tokio::fs::read_to_string(format!(
         "/sys/block/{}/{}/partition_name",
         disk_name, part_name
@@ -237,8 +230,8 @@ async fn read_partition_info(
 
     let dev_path = format!("/dev/{}", part_name);
 
-    // Try to detect filesystem type (simplified)
-    let fstype = String::new(); // Would need blkid or similar
+    // TODO: properly detect filesystem type
+    let fstype = String::new();
 
     Ok(PartitionInfo {
         number,
@@ -250,13 +243,11 @@ async fn read_partition_info(
     })
 }
 
-/// Stream kernel logs from /dev/kmsg
 async fn stream_kernel_logs(
     tx: tokio::sync::mpsc::Sender<Result<GetLogsResponse, Status>>,
 ) -> Result<(), std::io::Error> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    // Open /dev/kmsg for reading
     let file = tokio::fs::OpenOptions::new()
         .read(true)
         .open("/dev/kmsg")
@@ -266,7 +257,6 @@ async fn stream_kernel_logs(
     let mut lines = reader.lines();
 
     while let Some(line) = lines.next_line().await? {
-        // Parse kmsg format: priority,sequence,timestamp,flags;message
         let message = parse_kmsg_line(&line);
 
         if tx
@@ -284,10 +274,7 @@ async fn stream_kernel_logs(
     Ok(())
 }
 
-/// Parse a kmsg line and extract the message
 fn parse_kmsg_line(line: &str) -> String {
-    // Format: priority,sequence,timestamp,flags;message
-    // We want just the message part
     if let Some(idx) = line.find(';') {
         line[idx + 1..].to_string()
     } else {
