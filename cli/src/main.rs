@@ -25,8 +25,9 @@ use provision_service::provision_service_client::ProvisionServiceClient;
 use provision_service::{GetLogsRequest, InstallRequest, ListDisksRequest, UpdateRequest};
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
-    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, ListVmsRequest, NetConfig,
-    StartVmRequest, StopVmRequest, UploadFileRequest, upload_file_request,
+    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, Hypervisor,
+    ListVmsRequest, StartVmRequest, StopVmRequest, UploadFileRequest, VmConfig, VmState,
+    upload_file_request,
 };
 
 #[derive(Parser)]
@@ -86,16 +87,13 @@ enum VmAction {
         kernel: Option<String>,
         #[arg(long)]
         initrd: Option<String>,
-        #[arg(long, default_value = "cloud-hypervisor")]
         vmm: String,
         #[arg(long, default_value = "1")]
-        cpus: i32,
+        cpus: u32,
         #[arg(long, default_value = "512")]
-        memory: i64,
+        memory: u64,
         #[arg(long)]
         disk: Vec<String>,
-        #[arg(long)]
-        net: Vec<String>,
     },
     Start {
         vm_id: String,
@@ -392,6 +390,27 @@ fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }
 
+fn vm_state_to_string(state: i32) -> &'static str {
+    match VmState::try_from(state).unwrap_or(VmState::Unspecified) {
+        VmState::Unspecified => "unknown",
+        VmState::Created => "created",
+        VmState::Starting => "starting",
+        VmState::Running => "running",
+        VmState::Stopping => "stopping",
+        VmState::Stopped => "stopped",
+        VmState::Failed => "failed",
+    }
+}
+
+fn hypervisor_to_string(hypervisor: i32) -> &'static str {
+    match Hypervisor::try_from(hypervisor).unwrap_or(Hypervisor::Unspecified) {
+        Hypervisor::Unspecified => "unknown",
+        Hypervisor::Firecracker => "firecracker",
+        Hypervisor::CloudHypervisor => "cloud-hypervisor",
+        Hypervisor::Qemu => "qemu",
+    }
+}
+
 async fn upload_file(
     client: &mut VmServiceClient<tonic::transport::Channel>,
     file_path: &str,
@@ -498,7 +517,6 @@ async fn handle_vm_action(
             cpus,
             memory,
             disk,
-            net,
         } => {
             // Upload kernel if it exists locally
             let kernel_path = if let Some(ref k) = kernel {
@@ -571,24 +589,25 @@ async fn handle_vm_action(
                 })
                 .collect();
 
-            let networks: Vec<NetConfig> = net
-                .into_iter()
-                .map(|tap| NetConfig {
-                    tap: tap.clone(),
-                    mac: String::new(),
-                })
-                .collect();
+            let hypervisor = match vmm.to_lowercase().as_str() {
+                "firecracker" => Hypervisor::Firecracker,
+                "cloud-hypervisor" | "ch" => Hypervisor::CloudHypervisor,
+                "qemu" | _ => Hypervisor::Qemu,
+            };
 
-            let request = tonic::Request::new(CreateVmRequest {
+            let config = VmConfig {
                 name: name.clone(),
+                cpus,
+                memory_mb: memory,
                 kernel: kernel_path.unwrap_or_default(),
                 initrd: initrd_path.unwrap_or_default(),
                 cmdline: cmdline.unwrap_or_default(),
-                cpus,
-                memory_mb: memory,
                 disks,
-                networks,
-                vmm_type: vmm,
+                hypervisor: hypervisor.into(),
+            };
+
+            let request = tonic::Request::new(CreateVmRequest {
+                config: Some(config),
             });
 
             let response = client.create_vm(request).await?;
@@ -711,16 +730,16 @@ async fn handle_vm_action(
                         vm.pid.to_string()
                     };
 
+                    let state_str = vm_state_to_string(vm.state);
+                    let config = vm.config.as_ref();
+                    let cpus = config.map(|c| c.cpus).unwrap_or(0);
+                    let memory_mb = config.map(|c| c.memory_mb).unwrap_or(0);
+                    let hypervisor = config.map(|c| c.hypervisor).unwrap_or(0);
+                    let vmm_str = hypervisor_to_string(hypervisor);
+
                     println!(
                         "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
-                        vm.vm_id,
-                        vm.name,
-                        vm.state,
-                        vm.vmm_type,
-                        vm.cpus,
-                        vm.memory_mb,
-                        pid_str,
-                        created
+                        vm.vm_id, vm.name, state_str, vmm_str, cpus, memory_mb, pid_str, created
                     );
                 }
             }

@@ -4,9 +4,9 @@ use tonic::{Request, Response, Status, Streaming};
 use crate::actor::VmActorHandle;
 use crate::proto::vm::{
     self, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
-    GetSerialLogRequest, GetSerialLogResponse, GetVmRequest, ListVmsRequest, ListVmsResponse,
-    StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse, UploadFileChunk,
-    UploadFileResponse, VmInfo, upload_file_chunk,
+    GetVmRequest, GetVmResponse, GetVmSerialLogRequest, GetVmSerialLogResponse,
+    ListVmsRequest, ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest,
+    StopVmResponse, UploadFileRequest, UploadFileResponse, upload_file_request,
 };
 
 pub struct VmServiceImpl {
@@ -21,7 +21,7 @@ impl VmServiceImpl {
 
 #[tonic::async_trait]
 impl vm::vm_service_server::VmService for VmServiceImpl {
-    async fn create(
+    async fn create_vm(
         &self,
         request: Request<CreateVmRequest>,
     ) -> Result<Response<CreateVmResponse>, Status> {
@@ -30,70 +30,91 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             .config
             .ok_or_else(|| Status::invalid_argument("config is required"))?;
 
-        let vm_id = self
-            .handle
-            .create(config)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to create VM: {}", e)))?;
-
-        Ok(Response::new(CreateVmResponse { vm_id }))
+        match self.handle.create(config).await {
+            Ok(vm_id) => Ok(Response::new(CreateVmResponse {
+                vm_id,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(CreateVmResponse {
+                vm_id: String::new(),
+                error: format!("Failed to create VM: {}", e),
+            })),
+        }
     }
 
-    async fn start(
+    async fn start_vm(
         &self,
         request: Request<StartVmRequest>,
     ) -> Result<Response<StartVmResponse>, Status> {
         let req = request.into_inner();
 
-        self.handle
-            .start(req.vm_id)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to start VM: {}", e)))?;
-
-        Ok(Response::new(StartVmResponse {}))
+        match self.handle.start(req.vm_id).await {
+            Ok(()) => Ok(Response::new(StartVmResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(StartVmResponse {
+                success: false,
+                error: format!("Failed to start VM: {}", e),
+            })),
+        }
     }
 
-    async fn stop(
+    async fn stop_vm(
         &self,
         request: Request<StopVmRequest>,
     ) -> Result<Response<StopVmResponse>, Status> {
         let req = request.into_inner();
 
-        self.handle
-            .stop(req.vm_id, req.force)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to stop VM: {}", e)))?;
-
-        Ok(Response::new(StopVmResponse {}))
+        match self.handle.stop(req.vm_id, req.force).await {
+            Ok(()) => Ok(Response::new(StopVmResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(StopVmResponse {
+                success: false,
+                error: format!("Failed to stop VM: {}", e),
+            })),
+        }
     }
 
-    async fn delete(
+    async fn delete_vm(
         &self,
         request: Request<DeleteVmRequest>,
     ) -> Result<Response<DeleteVmResponse>, Status> {
         let req = request.into_inner();
 
-        self.handle
-            .delete(req.vm_id)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to delete VM: {}", e)))?;
-
-        Ok(Response::new(DeleteVmResponse {}))
+        match self.handle.delete(req.vm_id).await {
+            Ok(()) => Ok(Response::new(DeleteVmResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(DeleteVmResponse {
+                success: false,
+                error: format!("Failed to delete VM: {}", e),
+            })),
+        }
     }
 
-    async fn get(&self, request: Request<GetVmRequest>) -> Result<Response<VmInfo>, Status> {
+    async fn get_vm(
+        &self,
+        request: Request<GetVmRequest>,
+    ) -> Result<Response<GetVmResponse>, Status> {
         let req = request.into_inner();
 
-        let vm = self
-            .handle
-            .get(req.vm_id)
-            .await
-            .map_err(|e| Status::not_found(format!("VM not found: {}", e)))?;
-
-        Ok(Response::new(vm))
+        match self.handle.get(req.vm_id).await {
+            Ok(vm) => Ok(Response::new(GetVmResponse {
+                vm: Some(vm),
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(GetVmResponse {
+                vm: None,
+                error: format!("VM not found: {}", e),
+            })),
+        }
     }
 
-    async fn list(
+    async fn list_vms(
         &self,
         _request: Request<ListVmsRequest>,
     ) -> Result<Response<ListVmsResponse>, Status> {
@@ -108,7 +129,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
 
     async fn upload_file(
         &self,
-        request: Request<Streaming<UploadFileChunk>>,
+        request: Request<Streaming<UploadFileRequest>>,
     ) -> Result<Response<UploadFileResponse>, Status> {
         let mut stream = request.into_inner();
 
@@ -118,14 +139,14 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
 
-            match chunk.data {
-                Some(upload_file_chunk::Data::Metadata(meta)) => {
+            match chunk.request {
+                Some(upload_file_request::Request::Metadata(meta)) => {
                     filename = meta.filename;
                     if meta.size > 0 {
                         data.reserve(meta.size as usize);
                     }
                 }
-                Some(upload_file_chunk::Data::Chunk(bytes)) => {
+                Some(upload_file_request::Request::Chunk(bytes)) => {
                     data.extend_from_slice(&bytes);
                 }
                 None => {}
@@ -136,27 +157,33 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             return Err(Status::invalid_argument("filename is required"));
         }
 
-        let path = self
-            .handle
-            .upload_file(filename, data)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to upload file: {}", e)))?;
-
-        Ok(Response::new(UploadFileResponse { path }))
+        match self.handle.upload_file(filename, data).await {
+            Ok(path) => Ok(Response::new(UploadFileResponse {
+                path,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(UploadFileResponse {
+                path: String::new(),
+                error: format!("Failed to upload file: {}", e),
+            })),
+        }
     }
 
-    async fn get_serial_log(
+    async fn get_vm_serial_log(
         &self,
-        request: Request<GetSerialLogRequest>,
-    ) -> Result<Response<GetSerialLogResponse>, Status> {
+        request: Request<GetVmSerialLogRequest>,
+    ) -> Result<Response<GetVmSerialLogResponse>, Status> {
         let req = request.into_inner();
 
-        let content = self
-            .handle
-            .get_serial_log(req.vm_id, req.tail_lines)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get serial log: {}", e)))?;
-
-        Ok(Response::new(GetSerialLogResponse { content }))
+        match self.handle.get_serial_log(req.vm_id, req.tail_lines).await {
+            Ok(output) => Ok(Response::new(GetVmSerialLogResponse {
+                output,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(GetVmSerialLogResponse {
+                output: String::new(),
+                error: format!("Failed to get serial log: {}", e),
+            })),
+        }
     }
 }

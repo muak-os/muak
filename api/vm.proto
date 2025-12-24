@@ -7,21 +7,38 @@ service VmService {
   rpc StartVm(StartVmRequest) returns (StartVmResponse);
   rpc StopVm(StopVmRequest) returns (StopVmResponse);
   rpc DeleteVm(DeleteVmRequest) returns (DeleteVmResponse);
+  rpc GetVm(GetVmRequest) returns (GetVmResponse);
   rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
   rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
   rpc GetVmSerialLog(GetVmSerialLogRequest) returns (GetVmSerialLogResponse);
 }
 
-message CreateVmRequest {
+enum Hypervisor {
+  HYPERVISOR_UNSPECIFIED = 0;
+  HYPERVISOR_FIRECRACKER = 1;
+  HYPERVISOR_CLOUD_HYPERVISOR = 2;
+  HYPERVISOR_QEMU = 3;
+}
+
+enum VmState {
+  VM_STATE_UNSPECIFIED = 0;
+  VM_STATE_CREATED = 1;
+  VM_STATE_STARTING = 2;
+  VM_STATE_RUNNING = 3;
+  VM_STATE_STOPPING = 4;
+  VM_STATE_STOPPED = 5;
+  VM_STATE_FAILED = 6;
+}
+
+message VmConfig {
   string name = 1;
-  int32 cpus = 2;
-  int64 memory_mb = 3;
+  uint32 cpus = 2;
+  uint64 memory_mb = 3;
   string kernel = 4;
-  string cmdline = 5;
-  repeated DiskConfig disks = 6;
-  repeated NetConfig networks = 7;
-  string vmm_type = 8;  // "cloud-hypervisor", "firecracker", or "qemu"
-  string initrd = 9;
+  string initrd = 5;
+  string cmdline = 6;
+  repeated DiskConfig disks = 7;
+  Hypervisor hypervisor = 8;
 }
 
 message DiskConfig {
@@ -29,9 +46,8 @@ message DiskConfig {
   bool readonly = 2;
 }
 
-message NetConfig {
-  string tap = 1;
-  string mac = 2;
+message CreateVmRequest {
+  VmConfig config = 1;
 }
 
 message CreateVmResponse {
@@ -67,6 +83,15 @@ message DeleteVmResponse {
   string error = 2;
 }
 
+message GetVmRequest {
+  string vm_id = 1;
+}
+
+message GetVmResponse {
+  VmInfo vm = 1;
+  string error = 2;
+}
+
 message ListVmsRequest {}
 
 message ListVmsResponse {
@@ -76,12 +101,13 @@ message ListVmsResponse {
 message VmInfo {
   string vm_id = 1;
   string name = 2;
-  string state = 3;
-  int32 cpus = 4;
-  int64 memory_mb = 5;
-  int32 pid = 6;
-  int64 created_at = 7;
-  string vmm_type = 8;  // "cloud-hypervisor", "firecracker", or "qemu"
+  VmState state = 3;
+  VmConfig config = 4;
+  int32 pid = 5;
+  int64 created_at = 6;
+  int64 started_at = 7;
+  string tap_device = 8;
+  string mac_address = 9;
 }
 
 message UploadFileRequest {

@@ -17,7 +17,7 @@ use grpc::VmServiceImpl;
 
 pub mod proto {
     pub mod vm {
-        tonic::include_proto!("muak.internal.vm");
+        tonic::include_proto!("muak.vm.v1");
     }
     pub mod network {
         tonic::include_proto!("muak.internal.network");
