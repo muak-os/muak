@@ -167,7 +167,6 @@ impl VmActor {
 
         let start_config = VmStartConfig {
             vm_id: vm_id.to_string(),
-            name: entry.config.name.clone(),
             cpus: entry.config.cpus,
             memory_mb: entry.config.memory_mb,
             kernel: PathBuf::from(&entry.config.kernel),

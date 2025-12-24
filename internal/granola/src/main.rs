@@ -1,9 +1,16 @@
 mod config;
 mod disk;
 mod provisioning;
+mod services;
 mod supervisor;
 
+use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
+use tokio::net::UnixListener;
+use tokio_stream::wrappers::UnixListenerStream;
+use tonic::transport::Server;
+
+const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,7 +56,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let mut supervisor = Supervisor::new(services)?;
+
+    let grpc_handle = tokio::spawn(async {
+        if let Err(e) = run_grpc_server().await {
+            kmsg::error!("gRPC server error: {}", e);
+        }
+    });
+
     supervisor.run().await?;
+
+    grpc_handle.abort();
+
+    Ok(())
+}
+
+async fn run_grpc_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if Path::new(GRPC_SOCKET_PATH).exists() {
+        std::fs::remove_file(GRPC_SOCKET_PATH)?;
+    }
+
+    let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
+    let stream = UnixListenerStream::new(listener);
+
+    kmsg::info!("gRPC server listening on {}", GRPC_SOCKET_PATH);
+
+    Server::builder()
+        .add_service(services::process::service())
+        .add_service(services::provision::service())
+        .serve_with_incoming(stream)
+        .await?;
 
     Ok(())
 }

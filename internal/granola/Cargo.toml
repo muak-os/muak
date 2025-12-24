@@ -12,7 +12,9 @@ tokio-stream = { workspace = true }
 nix = { workspace = true, features = ["process", "signal", "socket", "ioctl", "reboot"] }
 
 # RPC and serialization
+tonic = { workspace = true }
 prost = { workspace = true }
+tonic-prost = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
@@ -24,6 +26,7 @@ fatfs = { workspace = true }
 
 # Utilities
 anyhow = { workspace = true }
+futures-util = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }

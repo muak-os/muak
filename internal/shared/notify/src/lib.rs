@@ -8,7 +8,7 @@ pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
 }
 
-const NOTIFY_SOCKET: &str = "/run/granola.sock";
+const NOTIFY_SOCKET: &str = "/run/granola-notify.sock";
 
 pub struct NotifyClient {
     socket: UnixDatagram,

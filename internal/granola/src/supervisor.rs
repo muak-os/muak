@@ -14,7 +14,7 @@ mod proto {
 
 use proto::{Notify, notify::Notification};
 
-const NOTIFY_SOCKET: &str = "/run/granola.sock";
+const NOTIFY_SOCKET: &str = "/run/granola-notify.sock";
 const RESTART_DELAY: Duration = Duration::from_secs(1);
 const MAX_RESTART_ATTEMPTS: u32 = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);

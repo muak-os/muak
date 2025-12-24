@@ -11,7 +11,6 @@
   - Check if there is /dev/kvm supported when starting the distro
 
 - Enhance networking:
-  - Move it outside of granola to its own binary
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
   - Support IPv6 with DHCPv6
@@ -24,7 +23,6 @@
   - Sign kernel modules with CONFIG_MODULE_SIG_FORCE to prevent random module loading
 
 - Better gRPC communication:
-  - Create own independent project in internal/ instead of having it in internal/granola
   - Add authentication using mTLS
     - Store certificates in STATE partition & in ~/.config/muak/ on the client side
     - Handle being in insecure mode (not having certificates) when in maintenance mode with --insecure flag on certain
@@ -32,13 +30,13 @@
   - Add permission management for different users using RBAC like system
 
 - Add to maintenance mode:
-    - Use config.toml that is a required parameter in muak install to install declaratively the system
-      - muak gen-config to generate a config template
-      - Static IP configuration
-      - DNS configuration
-      - Gateway configuration
-      - Interface configuration
-    - Configure secure boot keys
+  - Use config.toml that is a required parameter in muak install to install declaratively the system
+    - muak gen-config to generate a config template
+    - Static IP configuration
+    - DNS configuration
+    - Gateway configuration
+    - Interface configuration
+  - Configure secure boot keys
 
 - Disk Manager Service:
   - LUKS encryption/decryption

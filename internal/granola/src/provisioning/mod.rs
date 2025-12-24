@@ -1,18 +1,8 @@
-// Most provisioning operations are used by install/update gRPC handlers
-// which will be called from grpcd. Only status() and check_and_handle_pending_validation()
-// are currently used from main.rs
-#![allow(dead_code)]
-
 mod install;
 mod uki;
 mod update;
 mod validation;
 
-// These will be called from grpcd when it's extracted
-#[allow(unused_imports)]
-pub use install::install;
-#[allow(unused_imports)]
-pub use update::update;
 pub use validation::check_and_handle_pending_validation;
 
 use std::fs;
@@ -57,6 +47,32 @@ pub fn status() -> InstallationStatus {
     } else {
         InstallationStatus::Live
     }
+}
+
+pub async fn install(
+    disk_path: &str,
+    force: bool,
+    version: &str,
+    extensions: &[String],
+) -> Result<()> {
+    let disk_path = disk_path.to_string();
+    let version = version.to_string();
+    let extensions = extensions.to_vec();
+
+    tokio::task::spawn_blocking(move || install::install(&disk_path, force, &version, &extensions))
+        .await
+        .context("Install task panicked")?
+}
+
+pub async fn update(version: &str, extensions: &[String]) -> Result<String> {
+    let version = version.to_string();
+    let extensions = extensions.to_vec();
+
+    let result = tokio::task::spawn_blocking(move || update::update(&version, &extensions))
+        .await
+        .context("Update task panicked")??;
+
+    Ok(result.update_id)
 }
 
 pub(crate) fn prepare_uki(
