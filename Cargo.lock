@@ -87,16 +87,13 @@ name = "apid"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "kmsg",
  "nix 0.30.1",
  "notify",
- "prost",
  "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
 ]
 
 [[package]]
@@ -806,6 +803,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "fatfs",
+ "futures-util",
  "gptman",
  "kmsg",
  "nix 0.30.1",
@@ -814,6 +812,8 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-stream",
+ "tonic",
+ "tonic-prost",
  "tonic-prost-build",
 ]
 

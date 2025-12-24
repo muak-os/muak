@@ -46,7 +46,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 # Utilities
 tower = "0.5"
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper = { version = "1.6", features = ["http1", "http2", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "client", "client-legacy", "http2"] }
+http-body-util = "0.1"
 uuid = { version = "1.18", features = ["v4"] }
 sha2 = "0.10"
 anyhow = "1.0"
