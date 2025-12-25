@@ -70,10 +70,6 @@ fn handle_validation_failure(marker: &ValidationMarker, error: anyhow::Error) ->
     rollback_update(marker, &format!("Health checks failed: {}", error))
 }
 
-// =============================================================================
-// Health Checks
-// =============================================================================
-
 fn perform_health_checks() -> Result<()> {
     check_state_partition_writable()?;
     check_network_interfaces()?;
@@ -101,10 +97,6 @@ fn check_network_interfaces() -> Result<()> {
 
     Ok(())
 }
-
-// =============================================================================
-// Commit Update
-// =============================================================================
 
 fn commit_update(marker: &ValidationMarker) -> Result<()> {
     kmsg::info!(
@@ -134,15 +126,11 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
     let components = build_uki_components_for_commit();
     let uki_path = uki::get_uki_path(Path::new(mount_point))?;
 
-    // Use atomic install: write to .new file, then rename to final destination
-    // This ensures that if the system crashes during write, the old UKI remains intact
     uki::build_uki_atomic(&components, &uki_path)?;
 
-    // Update version marker
     fs::write("/run/state/VERSION", &marker.target_version)
         .context("Failed to update VERSION file")?;
 
-    // Cleanup staging directory
     cleanup_update_files();
 
     sync();
@@ -171,10 +159,6 @@ fn cleanup_update_files() {
     }
 }
 
-// =============================================================================
-// Rollback
-// =============================================================================
-
 fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
     kmsg::info!(
         @ "provisioning",
@@ -188,7 +172,6 @@ fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
 
     sync();
 
-    // Reboot to the old (still installed) UKI
     let _ = nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT);
 
     Ok(())
