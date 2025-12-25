@@ -19,10 +19,6 @@ UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
 EXTENSIONS ?=
 
-INTERNAL_PACKAGES := granola networkd apid vmd init imager yuki stub
-EXTENSION_PACKAGES := cloud-hypervisor firecracker qemu
-ALL_PACKAGES := $(INTERNAL_PACKAGES) $(EXTENSION_PACKAGES) kernel
-
 CONTAINER_RUNTIME ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
 
 ifeq ($(CONTAINER_RUNTIME),podman)
@@ -84,7 +80,6 @@ help: ## Show this help
 	@printf "the registry $(YELLOW)$(REGISTRY)$(RESET) and tag $(YELLOW)$(TAG)$(RESET).\n\n"
 	@printf "$(BOLD)$(CYAN)Targets$(RESET)\n\n"
 	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-20s\033[0m %s\n", $$1, $$2}'
-	@printf "\n$(BOLD)$(CYAN)Available packages$(RESET): $(ALL_PACKAGES)\n\n"
 
 # Build Abstractions
 $(ARTIFACTS):
