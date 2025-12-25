@@ -36,9 +36,9 @@ impl CloudHypervisorHypervisor {
         ));
 
         for disk in &config.disks {
-            let readonly = if disk.readonly { ",readonly=on" } else { "" };
-            cmd.arg("--disk")
-                .arg(format!("path={}{}", disk.path.display(), readonly));
+            let readonly_flag = if disk.readonly { ",readonly=on" } else { "" };
+            let disk_arg = format!("path={}{}", disk.path.display(), readonly_flag);
+            cmd.arg("--disk").arg(disk_arg);
         }
 
         let child = cmd.spawn()?;

@@ -96,10 +96,8 @@ fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) 
     for attr in attributes {
         match attr {
             LinkAttribute::IfName(n) => name = n.clone(),
-            LinkAttribute::Address(addr) => {
-                if addr.len() == 6 {
-                    mac_address.copy_from_slice(&addr[..6]);
-                }
+            LinkAttribute::Address(addr) if addr.len() == 6 => {
+                mac_address.copy_from_slice(&addr[..6]);
             }
             LinkAttribute::LinkInfo(info) => {
                 is_virtual = info

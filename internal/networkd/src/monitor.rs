@@ -63,11 +63,11 @@ pub async fn start_monitor(
         }
 
         while let Some((message, _)) = messages.next().await {
-            let route_msg = match message.payload {
-                NetlinkPayload::InnerMessage(msg) => msg,
-                _ => continue,
+            let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
+                continue;
             };
-            if let Err(e) = handle_message(route_msg, &tx, &config, &mut link_states).await {
+            let result = handle_message(route_msg, &tx, &config, &mut link_states).await;
+            if let Err(e) = result {
                 kmsg::warn!(@ "networkd", "Error handling netlink message: {}", e);
             }
         }

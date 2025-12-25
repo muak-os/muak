@@ -209,13 +209,12 @@ impl NetworkActor {
         task_type: &str,
     ) -> tokio::task::JoinHandle<()> {
         let task_name = task_type.to_string();
-        tokio::spawn(async move {
-            let now = std::time::SystemTime::now();
-            let Ok(dur) = deadline.duration_since(now) else {
-                return;
-            };
-            tokio::time::sleep(dur).await;
+        let now = std::time::SystemTime::now();
+        let dur = deadline.duration_since(now).ok();
 
+        tokio::spawn(async move {
+            let Some(dur) = dur else { return };
+            tokio::time::sleep(dur).await;
             kmsg::info!(@ "networkd", "Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
         })
@@ -421,16 +420,13 @@ impl NetworkActor {
             let mut interval_timer =
                 tokio::time::interval_at(tokio::time::Instant::now(), interval);
 
-            loop {
+            while {
                 interval_timer.tick().await;
-                let send_failed = cmd_tx
+                cmd_tx
                     .send(NetworkCommand::PeriodicConnectivityCheck)
                     .await
-                    .is_err();
-                if send_failed {
-                    break;
-                }
-            }
+                    .is_ok()
+            } {}
         });
 
         self.connectivity_task = Some(task);

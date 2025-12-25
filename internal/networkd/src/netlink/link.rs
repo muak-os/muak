@@ -107,19 +107,19 @@ pub async fn wait_for_carrier(
                 );
                 return Ok(());
             }
+            Ok(false) if start.elapsed() >= timeout => {
+                kmsg::warn!(
+                    @ "networkd",
+                    "Carrier timeout on {} after {:?} - no physical link",
+                    name,
+                    timeout
+                );
+                return Err(anyhow::anyhow!(
+                    "timeout waiting for carrier on {} - check cable connection",
+                    name
+                ));
+            }
             Ok(false) => {
-                if start.elapsed() >= timeout {
-                    kmsg::warn!(
-                        @ "networkd",
-                        "Carrier timeout on {} after {:?} - no physical link",
-                        name,
-                        timeout
-                    );
-                    return Err(anyhow::anyhow!(
-                        "timeout waiting for carrier on {} - check cable connection",
-                        name
-                    ));
-                }
                 tokio::time::sleep(poll_interval).await;
             }
             Err(e) => {

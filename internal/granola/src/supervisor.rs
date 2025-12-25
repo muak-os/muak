@@ -129,7 +129,8 @@ impl Supervisor {
             .collect();
 
         for name in ready_to_start {
-            if let Err(e) = self.spawn_service(&name) {
+            let result = self.spawn_service(&name);
+            if let Err(e) = result {
                 kmsg::error!("Failed to spawn service {}: {}", name, e);
             }
         }
@@ -183,9 +184,10 @@ impl Supervisor {
         let mut buf = [0u8; 4096];
 
         while let Ok((len, _)) = self.notify_socket.recv_from(&mut buf) {
-            if let Ok(notify) = Notify::decode(&buf[..len])
-                && let Err(e) = self.handle_notification(notify)
-            {
+            let Ok(notify) = Notify::decode(&buf[..len]) else {
+                continue;
+            };
+            if let Err(e) = self.handle_notification(notify) {
                 kmsg::warn!("Error handling notification: {}", e);
             }
         }
@@ -196,16 +198,17 @@ impl Supervisor {
     }
 
     fn handle_notification(&mut self, notify: Notify) -> Result<(), Box<dyn std::error::Error>> {
-        let state = match self.services.get_mut(&notify.service_name) {
-            Some(s) => s,
-            None => {
-                kmsg::warn!("Notification from unknown service: {}", notify.service_name);
-                return Ok(());
-            }
+        let Some(state) = self.services.get_mut(&notify.service_name) else {
+            kmsg::warn!("Notification from unknown service: {}", notify.service_name);
+            return Ok(());
         };
 
-        match notify.notification {
-            Some(Notification::Ready(ready)) => {
+        let Some(notification) = notify.notification else {
+            return Ok(());
+        };
+
+        match notification {
+            Notification::Ready(ready) => {
                 kmsg::info!(
                     "Service {} ready (PID {}, socket: {})",
                     notify.service_name,
@@ -216,7 +219,7 @@ impl Supervisor {
                 state.socket_path = Some(ready.socket_path);
                 state.restart_count = 0;
             }
-            Some(Notification::Status(status)) => {
+            Notification::Status(status) => {
                 let health =
                     proto::Health::try_from(status.health).unwrap_or(proto::Health::Healthy);
                 kmsg::info!(
@@ -229,7 +232,7 @@ impl Supervisor {
                     state.status = ServiceStatus::Degraded;
                 }
             }
-            Some(Notification::Stopping(stopping)) => {
+            Notification::Stopping(stopping) => {
                 kmsg::info!(
                     "Service {} stopping: {}",
                     notify.service_name,
@@ -237,11 +240,7 @@ impl Supervisor {
                 );
                 state.status = ServiceStatus::Stopping;
             }
-            Some(Notification::Watchdog(_)) => {
-                // Heartbeat received, service is alive
-                // Could implement watchdog timeout tracking here
-            }
-            None => {}
+            Notification::Watchdog(_) => {}
         }
 
         Ok(())
@@ -249,18 +248,16 @@ impl Supervisor {
 
     fn reap_children(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         loop {
-            match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
-                Ok(WaitStatus::Exited(pid, code)) => {
-                    self.handle_child_exit(pid.as_raw(), Some(code), None)?;
-                }
-                Ok(WaitStatus::Signaled(pid, signal, _)) => {
-                    self.handle_child_exit(pid.as_raw(), None, Some(signal))?;
-                }
-                Ok(WaitStatus::StillAlive) | Err(nix::errno::Errno::ECHILD) => {
-                    break;
-                }
-                _ => {}
-            }
+            let status = waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG));
+
+            let (pid, exit_code, signal) = match status {
+                Ok(WaitStatus::Exited(pid, code)) => (pid.as_raw(), Some(code), None),
+                Ok(WaitStatus::Signaled(pid, sig, _)) => (pid.as_raw(), None, Some(sig)),
+                Ok(WaitStatus::StillAlive) | Err(nix::errno::Errno::ECHILD) => break,
+                _ => continue,
+            };
+
+            self.handle_child_exit(pid, exit_code, signal)?;
         }
         Ok(())
     }
@@ -390,13 +387,15 @@ impl Supervisor {
                 .map(|s| self.dependencies_ready(&s.def))
                 .unwrap_or(false);
 
-            if deps_ready {
-                if let Err(e) = self.spawn_service(&name) {
-                    kmsg::error!("Failed to restart service {}: {}", name, e);
-                }
-            } else {
+            if !deps_ready {
                 self.pending_restarts
                     .push((name, now + Duration::from_secs(1)));
+                continue;
+            }
+
+            let result = self.spawn_service(&name);
+            if let Err(e) = result {
+                kmsg::error!("Failed to restart service {}: {}", name, e);
             }
         }
 

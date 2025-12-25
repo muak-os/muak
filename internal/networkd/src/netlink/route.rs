@@ -15,20 +15,16 @@ pub async fn find_default_gateway(handle: &Handle) -> Result<Option<Ipv4Addr>> {
         let mut gateway = None;
 
         for attr in &route.attributes {
-            match attr {
-                RouteAttribute::Destination(RouteAddress::Inet(addr)) => {
-                    if !addr.is_unspecified() {
-                        is_default = false;
-                    }
+            if let RouteAttribute::Destination(RouteAddress::Inet(addr)) = attr {
+                if !addr.is_unspecified() {
+                    is_default = false;
                 }
-                RouteAttribute::Gateway(RouteAddress::Inet(gw)) => {
-                    gateway = Some(*gw);
-                }
-                _ => {}
+            }
+            if let RouteAttribute::Gateway(RouteAddress::Inet(gw)) = attr {
+                gateway = Some(*gw);
             }
         }
 
-        // Check if this is a default route (destination 0.0.0.0/0)
         if is_default && let Some(gw) = gateway {
             return Ok(Some(gw));
         }

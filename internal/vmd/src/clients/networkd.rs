@@ -8,6 +8,11 @@ use tower::service_fn;
 use crate::proto::network::network_service_client::NetworkServiceClient;
 use crate::proto::network::{CreateTapRequest, DeleteTapRequest};
 
+async fn connect_unix(path: String) -> std::io::Result<TokioIo<UnixStream>> {
+    let stream = UnixStream::connect(path).await?;
+    Ok(TokioIo::new(stream))
+}
+
 #[derive(Clone)]
 pub struct NetworkClient {
     client: NetworkServiceClient<Channel>,
@@ -24,10 +29,7 @@ impl NetworkClient {
         let channel = Endpoint::try_from("http://[::]:50051")?
             .connect_with_connector(service_fn(move |_: Uri| {
                 let path = socket_path.clone();
-                async move {
-                    let stream = UnixStream::connect(path).await?;
-                    Ok::<_, std::io::Error>(TokioIo::new(stream))
-                }
+                connect_unix(path)
             }))
             .await?;
 

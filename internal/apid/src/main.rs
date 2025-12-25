@@ -59,38 +59,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown_clone.store(true, Ordering::SeqCst);
     });
 
-    loop {
-        if shutdown.load(Ordering::SeqCst) {
-            break;
-        }
+    while !shutdown.load(Ordering::SeqCst) {
+        let accept_future = listener.accept();
+        let timeout_result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), accept_future).await;
 
-        let accept_result =
-            tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept()).await;
-
-        match accept_result {
-            Ok(Ok((stream, peer_addr))) => {
-                let io = TokioIo::new(stream);
-
-                tokio::spawn(async move {
-                    let service = service_fn(handle_request);
-
-                    let conn =
-                        http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
-
-                    if let Err(e) = conn.await
-                        && !is_benign_error(&e)
-                    {
-                        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
-                    }
-                });
-            }
+        let (stream, peer_addr) = match timeout_result {
+            Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
                 kmsg::warn!("Accept error: {}", e);
-            }
-            Err(_) => {
                 continue;
             }
-        }
+            Err(_) => continue,
+        };
+
+        let io = TokioIo::new(stream);
+        tokio::spawn(serve_connection(io, peer_addr));
     }
 
     notifier.stopping("Graceful shutdown")?;
@@ -171,4 +155,15 @@ fn is_benign_error(e: &hyper::Error) -> bool {
     msg.contains("connection reset")
         || msg.contains("broken pipe")
         || msg.contains("connection refused")
+}
+
+async fn serve_connection(io: TokioIo<tokio::net::TcpStream>, peer_addr: SocketAddr) {
+    let service = service_fn(handle_request);
+    let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
+
+    if let Err(e) = conn.await
+        && !is_benign_error(&e)
+    {
+        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
+    }
 }

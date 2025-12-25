@@ -34,33 +34,32 @@ impl NetworkActorHandle {
         loop {
             attempt += 1;
 
-            match self.initialize().await {
-                Ok(()) => {
-                    kmsg::info!(
-                        @ "networkd",
-                        "Network initialized successfully on attempt {}",
-                        attempt
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    kmsg::warn!(
-                        @ "networkd",
-                        "Network initialization failed (attempt {}): {}",
-                        attempt,
-                        e
-                    );
-
-                    let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
-                    let delay = base_delay
-                        .checked_mul(multiplier)
-                        .unwrap_or(max_delay)
-                        .min(max_delay);
-
-                    kmsg::info!(@ "networkd", "Retrying in {:?}...", delay);
-                    tokio::time::sleep(delay).await;
-                }
+            let result = self.initialize().await;
+            if result.is_ok() {
+                kmsg::info!(
+                    @ "networkd",
+                    "Network initialized successfully on attempt {}",
+                    attempt
+                );
+                return Ok(());
             }
+
+            let e = result.unwrap_err();
+            kmsg::warn!(
+                @ "networkd",
+                "Network initialization failed (attempt {}): {}",
+                attempt,
+                e
+            );
+
+            let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
+            let delay = base_delay
+                .checked_mul(multiplier)
+                .unwrap_or(max_delay)
+                .min(max_delay);
+
+            kmsg::info!(@ "networkd", "Retrying in {:?}...", delay);
+            tokio::time::sleep(delay).await;
         }
     }
 
