@@ -15,6 +15,7 @@ use actor::start_vm_actor;
 use clients::NetworkClient;
 use grpc::VmServiceImpl;
 
+#[allow(clippy::excessive_nesting)]
 pub mod proto {
     pub mod vm {
         tonic::include_proto!("muak.vm.v1");

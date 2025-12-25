@@ -23,6 +23,7 @@ use tonic::transport::Server;
 use actor::start_network_actor;
 use grpc::NetworkServiceImpl;
 
+#[allow(clippy::excessive_nesting)]
 pub mod proto {
     tonic::include_proto!("muak.internal.network");
 }

@@ -7,14 +7,17 @@ const BLUE: &str = "\x1b[34m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
+#[allow(clippy::excessive_nesting)]
 pub mod process_service {
     tonic::include_proto!("muak.process.v1");
 }
 
+#[allow(clippy::excessive_nesting)]
 pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
 }
 
+#[allow(clippy::excessive_nesting)]
 pub mod provision_service {
     tonic::include_proto!("muak.provision.v1");
 }

@@ -8,6 +8,7 @@ use std::os::unix::net::UnixDatagram;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{SignalKind, signal};
 
+#[allow(clippy::excessive_nesting)]
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
 }

@@ -4,6 +4,7 @@ use proto::{Notify, Ready, Status, Stopping, Watchdog, notify::Notification};
 use std::io;
 use std::os::unix::net::UnixDatagram;
 
+#[allow(clippy::excessive_nesting)]
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
 }
