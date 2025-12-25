@@ -2,10 +2,22 @@ use core::ffi::c_void;
 use core::ptr;
 
 use uefi::boot::{self, MemoryType};
+use uefi::table::system_table_raw;
 use uefi::{Guid, Handle, Status};
 
 use crate::error::{StubError, StubResult};
 use crate::{log_error, log_info, log_warn};
+
+#[inline]
+unsafe fn uefi_copy_mem(dest: *mut u8, src: *const u8, len: usize) {
+    let st = system_table_raw().expect("system table not available");
+    let st = st.as_ptr();
+    // SAFETY: System table and boot services are valid during boot services phase
+    unsafe {
+        let bt = (*st).boot_services;
+        ((*bt).copy_mem)(dest, src, len);
+    }
+}
 
 const LOAD_FILE2_PROTOCOL_GUID: Guid = Guid::parse_or_panic("4006c0c1-fcb3-403e-996d-4a6c8724e06d");
 
@@ -71,13 +83,12 @@ unsafe extern "efiapi" fn load_file2_callback(
             return Status::BUFFER_TOO_SMALL;
         }
 
-        // Second call: copy the data
         log_info!(
             "[LoadFile2] Copying {} bytes to buffer {:p}",
             data_len,
             buffer
         );
-        ptr::copy_nonoverlapping(data_ptr, buffer, data_len);
+        uefi_copy_mem(buffer, data_ptr, data_len);
 
         log_info!("[LoadFile2] Copy complete, returning SUCCESS");
         Status::SUCCESS

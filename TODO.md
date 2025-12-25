@@ -10,6 +10,9 @@
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
 
+- Better support for services
+  - Supervision tree for critical services
+
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
@@ -29,7 +32,7 @@
       commands like muak disks
   - Add permission management for different users using RBAC like system
 
-- Add to maintenance mode:
+- Declarative system configuration:
   - Use config.toml that is a required parameter in muak install to install declaratively the system
     - muak gen-config to generate a config template
     - Static IP configuration
@@ -70,7 +73,6 @@
 - Remove anyhow and use standard Rust error handling with strong typing
 - Simple secure boot support with sbctl or native implementation
 - Add TPM measurements in stub
-- Add supervision tree for critical services like gRPC server
 - Create a TUI interface to display critical system information
 
 - Add a web interface for easier management
