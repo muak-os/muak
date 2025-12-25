@@ -1,4 +1,3 @@
-mod config;
 mod disk;
 mod provisioning;
 mod services;
@@ -11,6 +10,7 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
+const GRPC_SERVER_ADDR: &str = "0.0.0.0:50051";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ServiceDef {
             name: "apid".to_string(),
             binary: "/sbin/apid".to_string(),
-            args: vec!["--listen".to_string(), config::GRPC_SERVER_ADDR.to_string()],
+            args: vec!["--listen".to_string(), GRPC_SERVER_ADDR.to_string()],
             depends_on: vec!["networkd".to_string()],
         },
         ServiceDef {
