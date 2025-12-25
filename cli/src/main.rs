@@ -595,7 +595,7 @@ async fn handle_vm_action(
             let hypervisor = match vmm.to_lowercase().as_str() {
                 "firecracker" => Hypervisor::Firecracker,
                 "cloud-hypervisor" | "ch" => Hypervisor::CloudHypervisor,
-                "qemu" | _ => Hypervisor::Qemu,
+                _ => Hypervisor::Qemu,
             };
 
             let config = VmConfig {

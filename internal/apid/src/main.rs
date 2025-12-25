@@ -72,15 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let io = TokioIo::new(stream);
 
                 tokio::spawn(async move {
-                    let service = service_fn(move |req| handle_request(req));
+                    let service = service_fn(handle_request);
 
                     let conn =
                         http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
 
-                    if let Err(e) = conn.await {
-                        if !is_benign_error(&e) {
-                            kmsg::warn!("Connection error from {}: {}", peer_addr, e);
-                        }
+                    if let Err(e) = conn.await
+                        && !is_benign_error(&e)
+                    {
+                        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
                     }
                 });
             }
