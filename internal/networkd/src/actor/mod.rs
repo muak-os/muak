@@ -34,17 +34,14 @@ impl NetworkActorHandle {
         loop {
             attempt += 1;
 
-            let result = self.initialize().await;
-            if result.is_ok() {
+            let Err(e) = self.initialize().await else {
                 kmsg::info!(
                     @ "networkd",
                     "Network initialized successfully on attempt {}",
                     attempt
                 );
                 return Ok(());
-            }
-
-            let e = result.unwrap_err();
+            };
             kmsg::warn!(
                 @ "networkd",
                 "Network initialization failed (attempt {}): {}",
