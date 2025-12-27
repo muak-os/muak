@@ -1,11 +1,10 @@
 use std::path::Path;
 
-use kmod::{AliasDb, DepDb, ModuleLoader, find_kernel_release, for_each_modalias, load_module};
+use kmod::{AliasDb, DepDb, ModuleLoader, for_each_modalias, load_module};
 
 pub fn load() -> Result<usize, Box<dyn std::error::Error>> {
-    let modules_base = Path::new("/lib/modules");
-    let krel = find_kernel_release(modules_base)?;
-    let mod_dir = modules_base.join(&krel);
+    let krel = nix::sys::utsname::uname()?.release().to_string_lossy().into_owned();
+    let mod_dir = Path::new("/lib/modules").join(&krel);
 
     let alias_db = AliasDb::load(&mod_dir.join("modules.alias"))?;
     let dep_db = DepDb::load(&mod_dir.join("modules.dep"))?;

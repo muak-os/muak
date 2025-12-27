@@ -106,17 +106,294 @@ pub(crate) fn get_module_name(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
-    fn test_get_module_name() {
+    fn test_get_module_name_zst() {
         assert_eq!(
             get_module_name("kernel/drivers/net/ethernet/intel/igc/igc.ko.zst"),
             Some("igc".to_string())
         );
+    }
+
+    #[test]
+    fn test_get_module_name_ko() {
         assert_eq!(
             get_module_name("kernel/drivers/virtio/virtio.ko"),
             Some("virtio".to_string())
         );
+    }
+
+    #[test]
+    fn test_get_module_name_unsupported_extension() {
         assert_eq!(get_module_name("kernel/fs/ext4/ext4.ko.xz"), None);
+        assert_eq!(get_module_name("kernel/fs/ext4/ext4.ko.gz"), None);
+    }
+
+    #[test]
+    fn test_get_module_name_no_extension() {
+        assert_eq!(get_module_name("kernel/drivers/some_module"), None);
+    }
+
+    #[test]
+    fn test_get_module_name_empty() {
+        assert_eq!(get_module_name(""), None);
+    }
+
+    #[test]
+    fn test_depdb_load_empty_file() {
+        let file = NamedTempFile::new().expect("Failed to create temp file");
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert!(db.is_empty());
+        assert_eq!(db.len(), 0);
+    }
+
+    #[test]
+    fn test_depdb_load_single_module_no_deps() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/drivers/net/igc/igc.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(db.len(), 1);
+        assert_eq!(
+            db.get_path("igc"),
+            Some("kernel/drivers/net/igc/igc.ko.zst")
+        );
+    }
+
+    #[test]
+    fn test_depdb_load_module_with_deps() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(
+            file,
+            "kernel/drivers/net/igc/igc.ko.zst: kernel/drivers/ptp/ptp.ko.zst kernel/drivers/net/libphy.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(file, "kernel/drivers/ptp/ptp.ko.zst:").expect("write failed");
+        writeln!(file, "kernel/drivers/net/libphy.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(db.len(), 3);
+        assert!(db.get_path("igc").is_some());
+        assert!(db.get_path("ptp").is_some());
+        assert!(db.get_path("libphy").is_some());
+    }
+
+    #[test]
+    fn test_depdb_load_nonexistent_file() {
+        let result = DepDb::load(Path::new("/nonexistent/modules.dep"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_depdb_load_malformed_lines() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/drivers/broken.ko.zst").expect("write failed");
+        writeln!(file, "kernel/drivers/valid.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(db.len(), 1);
+        assert!(db.get_path("valid").is_some());
+        assert!(db.get_path("broken").is_none());
+    }
+
+    #[test]
+    fn test_depdb_get_path_exists() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/drivers/net/e1000e/e1000e.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(
+            db.get_path("e1000e"),
+            Some("kernel/drivers/net/e1000e/e1000e.ko.zst")
+        );
+    }
+
+    #[test]
+    fn test_depdb_get_path_not_exists() {
+        let file = NamedTempFile::new().expect("Failed to create temp file");
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(db.get_path("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_resolve_load_order_no_deps() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order, vec!["kernel/a.ko.zst"]);
+    }
+
+    #[test]
+    fn test_resolve_load_order_single_dep() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
+        writeln!(file, "kernel/b.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order, vec!["kernel/b.ko.zst", "kernel/a.ko.zst"]);
+    }
+
+    #[test]
+    fn test_resolve_load_order_chain() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
+        writeln!(file, "kernel/b.ko.zst: kernel/c.ko.zst").expect("write failed");
+        writeln!(file, "kernel/c.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(
+            order,
+            vec!["kernel/c.ko.zst", "kernel/b.ko.zst", "kernel/a.ko.zst"]
+        );
+    }
+
+    #[test]
+    fn test_resolve_load_order_diamond() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst kernel/c.ko.zst").expect("write failed");
+        writeln!(file, "kernel/b.ko.zst: kernel/d.ko.zst").expect("write failed");
+        writeln!(file, "kernel/c.ko.zst: kernel/d.ko.zst").expect("write failed");
+        writeln!(file, "kernel/d.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order.len(), 4);
+        assert!(order.iter().filter(|x| x.contains("/d.")).count() == 1);
+        let d_pos = order
+            .iter()
+            .position(|x| x.contains("/d."))
+            .expect("d not found");
+        let b_pos = order
+            .iter()
+            .position(|x| x.contains("/b."))
+            .expect("b not found");
+        let c_pos = order
+            .iter()
+            .position(|x| x.contains("/c."))
+            .expect("c not found");
+        let a_pos = order
+            .iter()
+            .position(|x| x.contains("/a."))
+            .expect("a not found");
+        assert!(d_pos < b_pos);
+        assert!(d_pos < c_pos);
+        assert!(b_pos < a_pos);
+        assert!(c_pos < a_pos);
+    }
+
+    #[test]
+    fn test_resolve_load_order_circular_deps() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
+        writeln!(file, "kernel/b.ko.zst: kernel/a.ko.zst").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order.len(), 2);
+        assert!(order.iter().any(|x| x.contains("/a.")));
+        assert!(order.iter().any(|x| x.contains("/b.")));
+    }
+
+    #[test]
+    fn test_resolve_load_order_missing_dep() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order, vec!["kernel/a.ko.zst"]);
+    }
+
+    #[test]
+    fn test_resolve_load_order_unknown_module() {
+        let file = NamedTempFile::new().expect("Failed to create temp file");
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db
+            .resolve_load_order("nonexistent")
+            .expect("resolve failed");
+
+        assert!(order.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_load_order_multiple_deps() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(
+            file,
+            "kernel/a.ko.zst: kernel/b.ko.zst kernel/c.ko.zst kernel/d.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(file, "kernel/b.ko.zst:").expect("write failed");
+        writeln!(file, "kernel/c.ko.zst:").expect("write failed");
+        writeln!(file, "kernel/d.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+        let order = db.resolve_load_order("a").expect("resolve failed");
+
+        assert_eq!(order.len(), 4);
+        let a_pos = order
+            .iter()
+            .position(|x| x.contains("/a."))
+            .expect("a not found");
+        assert_eq!(a_pos, 3);
+    }
+
+    #[test]
+    fn test_real_modules_dep_format() {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(
+            file,
+            "kernel/drivers/net/ethernet/intel/igc/igc.ko.zst: kernel/drivers/ptp/ptp.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(
+            file,
+            "kernel/drivers/ptp/ptp.ko.zst: kernel/drivers/pps/pps_core.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(file, "kernel/drivers/pps/pps_core.ko.zst:").expect("write failed");
+        writeln!(file, "kernel/drivers/virtio/virtio.ko.zst:").expect("write failed");
+        writeln!(
+            file,
+            "kernel/drivers/virtio/virtio_net.ko.zst: kernel/drivers/virtio/virtio.ko.zst kernel/drivers/net/net_failover.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(file, "kernel/drivers/net/net_failover.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        assert_eq!(db.len(), 6);
+
+        let igc_order = db.resolve_load_order("igc").expect("resolve failed");
+        assert_eq!(igc_order.len(), 3);
+        assert!(igc_order[0].contains("pps_core"));
+        assert!(igc_order[1].contains("ptp"));
+        assert!(igc_order[2].contains("igc"));
+
+        let vnet_order = db.resolve_load_order("virtio_net").expect("resolve failed");
+        assert_eq!(vnet_order.len(), 3);
+        let vnet_pos = vnet_order
+            .iter()
+            .position(|x| x.contains("virtio_net"))
+            .expect("virtio_net not found");
+        assert_eq!(vnet_pos, 2);
     }
 }

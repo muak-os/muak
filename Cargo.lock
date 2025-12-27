@@ -1231,6 +1231,7 @@ name = "kmod"
 version = "0.1.0"
 dependencies = [
  "nix 0.30.1",
+ "tempfile",
  "zstd",
 ]
 
