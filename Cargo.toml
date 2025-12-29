@@ -51,6 +51,7 @@ hyper = { version = "1.6", features = ["http1", "http2", "server", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "client", "http2"] }
 http-body-util = "0.1"
 uuid = { version = "1.18", features = ["v4"] }
+object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 sha2 = "0.10"
 anyhow = "1.0"
 
@@ -64,9 +65,6 @@ tempfile = "3.23"
 zstd = "0.13"
 tar = "0.4"
 flate2 = "1.1"
-
-# PE file handling
-object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
