@@ -1,7 +1,7 @@
 # QEMU MUAK Extension
 # Bundle dynamic QEMU with all dependencies for bare-metal deployment
 
-FROM alpine:latest AS builder
+FROM alpine:3.23 AS builder
 WORKDIR /build
 
 # Install QEMU and ALL runtime dependencies

@@ -1,4 +1,4 @@
-FROM alpine:latest AS downloader
+FROM alpine:3.23 AS downloader
 
 ARG FIRECRACKER_VERSION=v1.13.0
 ARG KERNEL_VERSION=6.1.141

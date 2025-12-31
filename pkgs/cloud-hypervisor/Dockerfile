@@ -1,6 +1,6 @@
 # Cloud Hypervisor MUAK Extension
 
-FROM alpine:latest AS downloader
+FROM alpine:3.23 AS downloader
 ARG CH_VERSION=v42.0
 ARG EDK2_VERSION=ch-a54f262b09
 WORKDIR /download
