@@ -3,10 +3,10 @@ use tonic::{Request, Response, Status, Streaming};
 
 use crate::actor::VmActorHandle;
 use crate::proto::vm::{
-    self, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
-    GetVmRequest, GetVmResponse, GetVmSerialLogRequest, GetVmSerialLogResponse,
-    ListVmsRequest, ListVmsResponse, StartVmRequest, StartVmResponse, StopVmRequest,
-    StopVmResponse, UploadFileRequest, UploadFileResponse, upload_file_request,
+    self, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
+    GetVmResponse, GetVmSerialLogRequest, GetVmSerialLogResponse, ListVmsRequest, ListVmsResponse,
+    StartVmRequest, StartVmResponse, StopVmRequest, StopVmResponse, UploadFileRequest,
+    UploadFileResponse, upload_file_request,
 };
 
 pub struct VmServiceImpl {
