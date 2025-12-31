@@ -3,7 +3,10 @@ use std::path::Path;
 use kmod::{AliasDb, DepDb, ModuleLoader, for_each_modalias, load_module};
 
 pub fn load() -> Result<usize, Box<dyn std::error::Error>> {
-    let krel = nix::sys::utsname::uname()?.release().to_string_lossy().into_owned();
+    let krel = nix::sys::utsname::uname()?
+        .release()
+        .to_string_lossy()
+        .into_owned();
     let mod_dir = Path::new("/lib/modules").join(&krel);
 
     let alias_db = AliasDb::load(&mod_dir.join("modules.alias"))?;

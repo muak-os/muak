@@ -1,8 +1,7 @@
 use nix::fcntl::{OFlag, open};
 use nix::mount::{MsFlags, mount};
 use nix::sys::stat::Mode;
-use nix::unistd::close;
-use nix::unistd::mkdir;
+use nix::unistd::{close, mkdir};
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
