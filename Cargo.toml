@@ -5,6 +5,7 @@ members = [
     "internal/granola",
     "internal/imager",
     "internal/init",
+    "internal/modd",
     "internal/networkd",
     "internal/stub",
     "internal/vmd",

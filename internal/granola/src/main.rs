@@ -36,6 +36,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let services = vec![
         ServiceDef {
+            name: "modd".to_string(),
+            binary: "/sbin/modd".to_string(),
+            args: vec![],
+            depends_on: vec![],
+        },
+        ServiceDef {
             name: "networkd".to_string(),
             binary: "/sbin/networkd".to_string(),
             args: vec![],

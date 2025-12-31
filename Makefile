@@ -146,6 +146,7 @@ installer: $(ARTIFACTS) ## Build installer with local binaries
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-context pkg-granola=$(RELEASE_DIR) \
+		--build-context pkg-modd=$(RELEASE_DIR) \
 		--build-context pkg-networkd=$(RELEASE_DIR) \
 		--build-context pkg-apid=$(RELEASE_DIR) \
 		--build-context pkg-vmd=$(RELEASE_DIR) \
@@ -166,6 +167,7 @@ oci-installer: ## Build installer OCI image from registry packages
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
 		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
 		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
+		--build-arg PKG_MODD=$(REGISTRY)/pkgs/modd:$(TAG) \
 		--build-arg PKG_NETWORKD=$(REGISTRY)/pkgs/networkd:$(TAG) \
 		--build-arg PKG_APID=$(REGISTRY)/pkgs/apid:$(TAG) \
 		--build-arg PKG_VMD=$(REGISTRY)/pkgs/vmd:$(TAG) \

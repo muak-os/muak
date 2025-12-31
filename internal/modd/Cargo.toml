@@ -1,0 +1,19 @@
+[package]
+name = "modd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# System/platform APIs
+nix = { workspace = true, features = ["socket", "feature"] }
+
+# Compression
+zstd = { workspace = true }
+
+# Internal
+kmod = { path = "../shared/kmod" }
+kmsg = { path = "../shared/kmsg" }
+notify = { path = "../shared/notify" }
+
+[lints]
+workspace = true

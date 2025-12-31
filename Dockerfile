@@ -8,6 +8,7 @@ ARG SOURCE_DATE_EPOCH=0
 
 ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
 ARG PKG_GRANOLA=ghcr.io/sawangg/pkgs/granola:latest
+ARG PKG_MODD=ghcr.io/sawangg/pkgs/modd:latest
 ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
 ARG PKG_VMD=ghcr.io/sawangg/pkgs/vmd:latest
@@ -20,6 +21,7 @@ ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 # Import packages
 # ============================================================
 FROM ${PKG_GRANOLA} AS pkg-granola
+FROM ${PKG_MODD} AS pkg-modd
 FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_VMD} AS pkg-vmd
@@ -74,6 +76,7 @@ ARG SOURCE_DATE_EPOCH
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 COPY --link --from=pkg-granola /granola /rootfs/sbin/init
+COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
@@ -81,6 +84,7 @@ COPY --link --from=pkg-yuki /yuki /rootfs/sbin/yuki
 COPY --link --from=pkg-imager /imager /rootfs/sbin/imager
 
 COPY --link --from=tools /tools/btrfs /rootfs/sbin/btrfs
+COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
 
 RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
 
@@ -128,7 +132,6 @@ COPY --link --from=pkg-init /init /initramfs/init
 RUN chmod +x /initramfs/init
 
 COPY --link --from=squashfs-builder /rootfs.sqsh /initramfs/rootfs.sqsh
-
 COPY --link --from=pkg-kernel /lib/modules /initramfs/lib/modules
 
 RUN <<EOF
