@@ -229,7 +229,7 @@ iso: $(ARTIFACTS) ## Build bootable ISO
 		apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1 && \
 		rm -rf /out/iso && mkdir -p /out/iso/EFI/BOOT && \
 		cp /out/muak-$(ARCH).efi /out/iso/EFI/BOOT/BOOTX64.EFI && \
-		dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=42 2>/dev/null && \
+		dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=65 2>/dev/null && \
 		mkfs.vfat /out/iso/efiboot.img >/dev/null && \
 		mmd -i /out/iso/efiboot.img ::/EFI ::/EFI/BOOT && \
 		mcopy -i /out/iso/efiboot.img /out/muak-$(ARCH).efi ::/EFI/BOOT/BOOTX64.EFI && \
