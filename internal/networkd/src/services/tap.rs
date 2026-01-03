@@ -56,7 +56,10 @@ pub async fn setup_tap_on_bridge(
 ) -> Result<u32> {
     create_tap_device(tap_name).await?;
 
-    let index = link::ensure_link_up(handle, tap_name).await?;
+    let link = link::find_link_by_name(handle, tap_name).await?;
+    let index = link.header.index;
+
+    link::bring_link_up(handle, index).await?;
 
     bridge::attach_to_bridge(handle, tap_name, bridge_name).await?;
 
