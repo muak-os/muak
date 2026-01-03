@@ -18,8 +18,8 @@ struct IfReq {
     _padding: [u8; 22],
 }
 
-nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq); // TUNSETIFF = 0x400454ca
-nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb); // TUNSETPERSIST = 0x400454cb
+nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq);
+nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb);
 
 pub async fn create_tap_device(tap_name: &str) -> Result<()> {
     kmsg::info!(@ "networkd", "Creating TAP device: {}", tap_name);
