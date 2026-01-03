@@ -7,10 +7,9 @@ mod interface;
 mod model;
 mod monitor;
 
+mod actor;
 mod netlink;
 mod services;
-
-mod actor;
 
 use anyhow::Result;
 use notify::{Health, NotifyClient};
@@ -73,8 +72,6 @@ async fn main() -> Result<()> {
             }
         });
 
-    let notifier_clone = NotifyClient::new("networkd")?;
-
     tokio::select! {
         result = server => {
             if let Err(e) = result {
@@ -84,7 +81,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    notifier_clone.stopping("Graceful shutdown")?;
+    notifier.stopping("Graceful shutdown")?;
     kmsg::info!(@ "networkd", "Shutdown complete");
 
     Ok(())
