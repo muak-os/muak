@@ -1,3 +1,5 @@
+mod config;
+
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http2;
@@ -11,15 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::net::{TcpListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 
-const DEFAULT_LISTEN_ADDR: &str = "0.0.0.0:50051";
-
-const VMD_SOCKET: &str = "/run/vmd.sock";
-const GRANOLA_SOCKET: &str = "/run/granola.sock";
-
-const VM_SERVICE_PREFIX: &str = "/muak.vm.v1.VmService/";
-const PROCESS_SERVICE_PREFIX: &str = "/muak.process.v1.ProcessService/";
-const PROVISION_SERVICE_PREFIX: &str = "/muak.provision.v1.ProvisionService/";
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("apid")?;
@@ -31,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .position(|a| a == "--listen")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
-        .unwrap_or(DEFAULT_LISTEN_ADDR);
+        .unwrap_or(config::DEFAULT_LISTEN_ADDR);
 
     let notifier = NotifyClient::new("apid")?;
 
@@ -86,11 +79,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let path = req.uri().path();
 
-    let socket_path = if path.starts_with(VM_SERVICE_PREFIX) {
-        VMD_SOCKET
-    } else if path.starts_with(PROCESS_SERVICE_PREFIX) || path.starts_with(PROVISION_SERVICE_PREFIX)
+    let socket_path = if path.starts_with(config::VM_SERVICE_PREFIX) {
+        config::VMD_SOCKET
+    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
+        || path.starts_with(config::PROVISION_SERVICE_PREFIX)
     {
-        GRANOLA_SOCKET
+        config::GRANOLA_SOCKET
     } else {
         kmsg::warn!("Unknown service path: {}", path);
         return Ok(Response::builder()
