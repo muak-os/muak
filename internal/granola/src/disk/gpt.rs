@@ -16,7 +16,7 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
             let count = gpt.iter().count();
             Ok(count > 0)
         }
-        Err(_) => Ok(false), // No valid GPT = no partitions
+        Err(_) => Ok(false),
     }
 }
 
@@ -74,7 +74,6 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         }
     };
 
-    // Partition 1: EFI
     let efi_start = if first_usable < align_lba {
         align_lba
     } else {
@@ -91,7 +90,6 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         partition_name: "EFI".into(),
     };
 
-    // Partition 2: STATE
     let state_start = align_up(efi_end + 1);
     let state_end = state_start + state_sectors - 1;
 
@@ -104,7 +102,6 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         partition_name: "STATE".into(),
     };
 
-    // Partition 3: DATA (rest of disk)
     let data_start = align_up(state_end + 1);
     let data_end = last_usable;
 

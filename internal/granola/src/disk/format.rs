@@ -37,8 +37,8 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
     wait_for_device(device)?;
 
     let output = Command::new("/sbin/mkfs.btrfs")
-        .arg("-f") // Force
-        .arg("-L") // Label
+        .arg("-f")
+        .arg("-L")
         .arg(label)
         .arg(device)
         .output()?;
