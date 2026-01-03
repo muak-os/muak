@@ -4,6 +4,9 @@ mod grpc;
 mod hypervisor;
 
 use anyhow::Result;
+use nix::libc;
+use nix::sys::wait::{WaitStatus, waitpid};
+use nix::unistd::Pid;
 use notify::{Health, NotifyClient};
 use std::path::Path;
 use tokio::net::UnixListener;
@@ -79,8 +82,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    let notifier_clone = NotifyClient::new("vmd")?;
-
     tokio::select! {
         result = server => {
             if let Err(e) = result {
@@ -91,14 +92,13 @@ async fn main() -> Result<()> {
     }
 
     sigchld_handle.abort();
-    notifier_clone.stopping("Graceful shutdown")?;
+    notifier.stopping("Graceful shutdown")?;
     kmsg::info!(@ "vmd", "Shutdown complete");
 
     Ok(())
 }
 
 fn set_child_subreaper() -> Result<()> {
-    use nix::libc;
     let result = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
     if result != 0 {
         anyhow::bail!(
@@ -111,9 +111,6 @@ fn set_child_subreaper() -> Result<()> {
 }
 
 fn reap_children() {
-    use nix::sys::wait::{WaitStatus, waitpid};
-    use nix::unistd::Pid;
-
     loop {
         match waitpid(
             Pid::from_raw(-1),
