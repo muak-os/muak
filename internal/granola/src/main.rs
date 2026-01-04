@@ -82,14 +82,11 @@ async fn run_grpc_server() -> Result<(), Box<dyn std::error::Error + Send + Sync
     }
 
     let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
-    let stream = UnixListenerStream::new(listener);
-
-    kmsg::info!("gRPC server listening on {}", GRPC_SOCKET_PATH);
 
     Server::builder()
         .add_service(services::process::service())
         .add_service(services::provision::service())
-        .serve_with_incoming(stream)
+        .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 
     Ok(())
