@@ -14,41 +14,40 @@ struct ModuleInfo {
     deps: Vec<String>,
 }
 
+fn parse_dep_line(line: &str) -> Option<(String, ModuleInfo)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    let (module_path, deps_str) = line.split_once(':')?;
+    let module_path = module_path.trim();
+    let name = get_module_name(module_path)?;
+
+    let deps: Vec<String> = deps_str
+        .split_whitespace()
+        .filter_map(get_module_name)
+        .collect();
+
+    Some((
+        name,
+        ModuleInfo {
+            path: module_path.to_string(),
+            deps,
+        },
+    ))
+}
+
 impl DepDb {
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let mut modules = HashMap::new();
 
-        for line in reader.lines() {
-            let line = line?;
-            let line = line.trim();
-
-            if line.is_empty() {
-                continue;
-            }
-
-            let Some((module_path, deps_str)) = line.split_once(':') else {
-                continue;
-            };
-            let module_path = module_path.trim();
-            let Some(name) = get_module_name(module_path) else {
-                continue;
-            };
-
-            let deps: Vec<String> = deps_str
-                .split_whitespace()
-                .filter_map(get_module_name)
-                .collect();
-
-            modules.insert(
-                name,
-                ModuleInfo {
-                    path: module_path.to_string(),
-                    deps,
-                },
-            );
-        }
+        let modules = reader
+            .lines()
+            .map_while(Result::ok)
+            .filter_map(|line| parse_dep_line(&line))
+            .collect();
 
         Ok(Self { modules })
     }
