@@ -154,12 +154,15 @@ fn verify_installer_files(base_dir: &Path) -> Result<()> {
         }
     }
 
-    kmsg::info!(@ "provisioning", "All required installer files present");
     Ok(())
 }
 
 fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
     let base_initramfs = base_dir.join("base-initramfs.img");
+
+    if !base_initramfs.exists() {
+        bail!("Base initramfs not found at {}", base_initramfs.display());
+    }
 
     let mut cmd = Command::new("/sbin/imager");
     cmd.arg("build")
@@ -181,6 +184,13 @@ fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Res
             "imager build failed:\nstdout: {}\nstderr: {}",
             stdout,
             stderr
+        );
+    }
+
+    if !output.exists() {
+        bail!(
+            "imager build completed but output file not found: {}",
+            output.display()
         );
     }
 
