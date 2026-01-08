@@ -80,6 +80,19 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
     let path = req.uri().path();
 
     let socket_path = if path.starts_with(config::VM_SERVICE_PREFIX) {
+        if !std::path::Path::new(config::VMD_SOCKET).exists() {
+            kmsg::warn!("VM service not available in maintenance mode. Install the system first.");
+            return Ok(Response::builder()
+                .status(503)
+                .header("content-type", "application/grpc")
+                .header("grpc-status", "14") // UNAVAILABLE
+                .header(
+                    "grpc-message",
+                    "VM service not available in maintenance mode. Install the system first.",
+                )
+                .body(Full::new(Bytes::new()))
+                .expect("building response should not fail"));
+        }
         config::VMD_SOCKET
     } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
         || path.starts_with(config::PROVISION_SERVICE_PREFIX)

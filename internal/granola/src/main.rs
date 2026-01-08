@@ -17,10 +17,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    match provisioning::status() {
+    let is_installed = match provisioning::status() {
         provisioning::InstallationStatus::Live => {
             kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
             kmsg::info!("   Run 'muakctl install --target <disk>' to install");
+            false
         }
         provisioning::InstallationStatus::Installed => {
             kmsg::info!("Running from INSTALLED DISK");
@@ -28,13 +29,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = disk::mount_partitions() {
                 kmsg::warn!("Failed to mount partitions: {}", e);
                 // TODO: set maintenance mode here to recover
+                false
             } else if let Err(e) = provisioning::check_and_handle_pending_validation() {
                 kmsg::warn!("Update validation handling failed: {}", e);
+                true
+            } else {
+                true
             }
         }
-    }
+    };
 
-    let services = vec![
+    let mut services = vec![
         ServiceDef {
             name: "modd".to_string(),
             binary: "/sbin/modd".to_string(),
@@ -53,13 +58,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             args: vec!["--listen".to_string(), GRPC_SERVER_ADDR.to_string()],
             depends_on: vec!["networkd".to_string()],
         },
-        ServiceDef {
+    ];
+
+    if is_installed {
+        services.push(ServiceDef {
             name: "vmd".to_string(),
             binary: "/sbin/vmd".to_string(),
             args: vec![],
             depends_on: vec!["networkd".to_string()],
-        },
-    ];
+        });
+    } else {
+        kmsg::info!("VM service disabled in maintenance mode");
+    }
 
     let mut supervisor = Supervisor::new(services)?;
 
