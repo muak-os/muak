@@ -344,22 +344,37 @@ impl VmActor {
             persistent_disk: Some(disk::get_image_path(vm_id)),
         };
 
-        let process = hypervisor.start(&start_config).await?;
+        match hypervisor.start(&start_config).await {
+            Ok(process) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+                entry.pid = Some(process.pid);
+                entry.state = VmState::Running;
+                entry.started_at = Some(now);
 
-        entry.pid = Some(process.pid);
-        entry.state = VmState::Running;
-        entry.started_at = Some(now);
+                persistence::save_vm(vm_id, &entry.to_persisted())?;
 
-        persistence::save_vm(vm_id, &entry.to_persisted())?;
+                kmsg::info!(@ "vmd", "VM {} started with PID {}", entry.config.name, process.pid);
+                Ok(())
+            }
+            Err(e) => {
+                kmsg::error!(@ "vmd", "Failed to start VM {}: {}", entry.config.name, e);
 
-        kmsg::info!(@ "vmd", "VM {} started with PID {}", entry.config.name, process.pid);
+                if let Some(tap) = entry.tap_device.take() {
+                    if let Err(tap_err) = self.network_client.delete_tap(&tap.name).await {
+                        kmsg::warn!(@ "vmd", "Failed to cleanup TAP device {}: {}", tap.name, tap_err);
+                    }
+                }
 
-        Ok(())
+                entry.state = VmState::Created;
+                persistence::save_vm(vm_id, &entry.to_persisted())?;
+
+                Err(e)
+            }
+        }
     }
 
     async fn handle_stop(&mut self, vm_id: &str, force: bool) -> anyhow::Result<()> {
