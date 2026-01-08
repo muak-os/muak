@@ -26,11 +26,8 @@ pub fn update(version: &str, extensions: &[String]) -> Result<UpdateResult> {
 
     let update_id = marker.update_id.clone();
 
-    if let Err(e) = kexec(&components, &update_id) {
-        kmsg::error!(@ "provisioning", "kexec failed: {}", e);
-    }
+    kexec(&components, &update_id)?;
 
-    // We should not reach here if kexec is successful
     Ok(UpdateResult { update_id })
 }
 
