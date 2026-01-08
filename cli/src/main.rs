@@ -97,6 +97,8 @@ enum VmAction {
         memory: u64,
         #[arg(long)]
         disk: Vec<String>,
+        #[arg(long, default_value = "1024")]
+        disk_size: u64,
     },
     Start {
         vm_id: String,
@@ -122,9 +124,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let server_addr = format!("http://{}", cli.server);
+
+    // Determine timeout based on command - provisioning operations need longer timeouts
+    let timeout_secs = match &cli.command {
+        Commands::Install { .. } | Commands::Update { .. } => 600, // 10 minutes
+        _ => 30,
+    };
+
     let channel = tonic::transport::Channel::from_shared(server_addr)?
         .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .connect()
         .await?;
 
@@ -520,6 +529,7 @@ async fn handle_vm_action(
             cpus,
             memory,
             disk,
+            disk_size,
         } => {
             // Upload kernel if it exists locally
             let kernel_path = if let Some(ref k) = kernel {
@@ -593,9 +603,16 @@ async fn handle_vm_action(
                 .collect();
 
             let hypervisor = match vmm.to_lowercase().as_str() {
-                "firecracker" => Hypervisor::Firecracker,
-                "cloud-hypervisor" | "ch" => Hypervisor::CloudHypervisor,
-                _ => Hypervisor::Qemu,
+                "firecracker" | "fc" => Hypervisor::Firecracker,
+                "cloud-hypervisor" | "cloud_hypervisor" | "ch" => Hypervisor::CloudHypervisor,
+                "qemu" | "kvm" => Hypervisor::Qemu,
+                other => {
+                    eprintln!(
+                        "{}Warning: Unknown hypervisor '{}', defaulting to QEMU{}",
+                        YELLOW, other, RESET
+                    );
+                    Hypervisor::Qemu
+                }
             };
 
             let config = VmConfig {
@@ -607,6 +624,7 @@ async fn handle_vm_action(
                 cmdline: cmdline.unwrap_or_default(),
                 disks,
                 hypervisor: hypervisor.into(),
+                root_disk_size_mb: disk_size,
             };
 
             let request = tonic::Request::new(CreateVmRequest {
@@ -712,7 +730,7 @@ async fn handle_vm_action(
                 println!("{}No VMs{}", YELLOW, RESET);
             } else {
                 println!(
-                    "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} CREATED{}",
+                    "{}{}{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<12} {:<8} CREATED{}",
                     BOLD,
                     GREEN,
                     "VM ID",
@@ -721,6 +739,7 @@ async fn handle_vm_action(
                     "VMM",
                     "CPUS",
                     "MEMORY(MB)",
+                    "DISK",
                     "PID",
                     RESET
                 );
@@ -740,9 +759,27 @@ async fn handle_vm_action(
                     let hypervisor = config.map(|c| c.hypervisor).unwrap_or(0);
                     let vmm_str = hypervisor_to_string(hypervisor);
 
+                    let disk_str = if let Some(usage) = &vm.disk_usage {
+                        format!(
+                            "{}/{}",
+                            format_size(usage.used_bytes),
+                            format_size(usage.quota_bytes)
+                        )
+                    } else {
+                        "-".to_string()
+                    };
+
                     println!(
-                        "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<8} {}",
-                        vm.vm_id, vm.name, state_str, vmm_str, cpus, memory_mb, pid_str, created
+                        "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<12} {:<8} {}",
+                        vm.vm_id,
+                        vm.name,
+                        state_str,
+                        vmm_str,
+                        cpus,
+                        memory_mb,
+                        disk_str,
+                        pid_str,
+                        created
                     );
                 }
             }

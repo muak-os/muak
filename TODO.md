@@ -2,16 +2,19 @@
 
 - Support arm64 architecture
   - Support for devicetree on ARM64 in stub
-  - Create kerel config for arm64
+  - Create kernel config for arm64
   - Add arm kernel parameters support
   - Add build in CI/CD
   - Tweak pkgs Dockerfiles
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
+  - Better handling of network error when installing/updating
 
 - Better support for services
   - Supervision tree for critical services
+
+- Fix init always booting to install disk even when booting from live install
 
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
@@ -20,10 +23,7 @@
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
-  - Support custom proxy settings from config file
-
-- Add dynamic kernel module loading (dont forget to transfer /lib from initramfs to the real root)
-  - Sign kernel modules with CONFIG_MODULE_SIG_FORCE to prevent random module loading
+  - Support custom proxy
 
 - Better gRPC communication:
   - Add authentication using mTLS
@@ -39,42 +39,38 @@
     - DNS configuration
     - Gateway configuration
     - Interface configuration
+    - Proxy configuration
   - Configure secure boot keys
 
 - Disk Manager Service:
   - LUKS encryption/decryption
-  - Quota enforcement (per-VM limits) with btrfs qgroups:
-    - Set size limits on subvolumes (each VM disk can be a subvolume)
-    - Use btrfs qgroup limit to enforce hard limits
-    - Monitor usage with btrfs qgroup show
-  - Path isolation (VMs can't access other VM disks)
-    - Each VM disk is a separate subvolume
-    - Subvolumes can be mounted independently at different paths and act as independent filesystem trees
-  - Integrity verification
-    - Automatically computes and verifies checksums for all data blocks
-    - Uses CRC32C by default
-    - Detects silent data corruption automatically
-    - Can use btrfs scrub to verify integrity of all data
+  - Handle uploading iso/img securely
   - Copy-on-Write disk creation from templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM
+  - Use btrfs scrub to verify integrity of all data (/var issue)
 
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
     - muak.port = grpc server port
+    - muak.dns = main dns server (might already be in talos inspired params)
 
 - Add e2e testing:
   - Unit tests
   - Mock system calls etc
+  - Target 80% coverage
 
 - Handle different cli vs server versions for gRPC client/server compatibility
+
+- Rework the module loading to not duplicate modules in initramfs and rootfs
 
 - Remove anyhow and use standard Rust error handling with strong typing
 - Simple secure boot support with sbctl or native implementation
 - Add TPM measurements in stub
 - Create a TUI interface to display critical system information
 
+- Support Apple M1/M2 using Asahi Linux
 - Add a web interface for easier management
 - Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs
 - Add custom hypervisor using the rust-vmm crates for better performance and control

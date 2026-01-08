@@ -1,7 +1,9 @@
 mod actor;
 mod clients;
+mod disk;
 mod grpc;
 mod hypervisor;
+mod persistence;
 
 use anyhow::Result;
 use nix::libc;
@@ -30,6 +32,7 @@ pub mod proto {
 
 const SOCKET_PATH: &str = "/run/vmd.sock";
 const NETWORKD_SOCKET: &str = "/run/networkd.sock";
+const STATE_DIR: &str = "/run/state/vmd";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,6 +42,8 @@ async fn main() -> Result<()> {
 
     let notifier = NotifyClient::new("vmd")?;
     notifier.status("Initializing VM daemon", Health::Healthy)?;
+
+    tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
 
     let network_client = NetworkClient::connect(NETWORKD_SOCKET).await?;
     kmsg::info!(@ "vmd", "Connected to networkd");

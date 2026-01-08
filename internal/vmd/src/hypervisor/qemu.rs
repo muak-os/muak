@@ -52,6 +52,17 @@ impl QemuHypervisor {
                 .arg(format!("virtio-blk-pci,drive=disk{}", i));
         }
 
+        if let Some(persistent_disk) = &config.persistent_disk {
+            let disk_idx = config.disks.len();
+            cmd.arg("-drive").arg(format!(
+                "file={},format=raw,if=none,id=disk{}",
+                persistent_disk.display(),
+                disk_idx
+            ));
+            cmd.arg("-device")
+                .arg(format!("virtio-blk-pci,drive=disk{}", disk_idx));
+        }
+
         cmd.arg("-no-reboot");
 
         let child = cmd.spawn()?;

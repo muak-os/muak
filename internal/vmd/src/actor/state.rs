@@ -5,17 +5,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 use crate::clients::{NetworkClient, TapDevice};
+use crate::disk::{self, DiskUsage};
 use crate::hypervisor::{self, DiskConfig, VmStartConfig};
-use crate::proto::vm::{Hypervisor as HypervisorType, VmConfig, VmInfo, VmState};
+use crate::persistence::{self, DiskConfigPersisted, VmPersisted};
+use crate::proto::vm::{
+    DiskUsage as ProtoDiskUsage, Hypervisor as HypervisorType, VmConfig, VmInfo, VmState,
+};
 
 use super::VmCommand;
 
 const VM_DATA_DIR: &str = "/run/vmd";
 const UPLOAD_DIR: &str = "/run/vmd/uploads";
+const DEFAULT_DISK_SIZE_MB: u64 = 1024;
 
 pub struct VmActor {
     network_client: NetworkClient,
     vms: HashMap<String, VmEntry>,
+    pending_restarts: Vec<String>,
 }
 
 struct VmEntry {
@@ -29,6 +35,8 @@ struct VmEntry {
 
 impl VmEntry {
     fn to_info(&self, vm_id: &str) -> VmInfo {
+        let disk_usage = disk::get_usage(vm_id).ok().map(|u| u.into());
+
         VmInfo {
             vm_id: vm_id.to_string(),
             name: self.config.name.clone(),
@@ -47,21 +55,138 @@ impl VmEntry {
                 .as_ref()
                 .map(|t| t.mac_address.clone())
                 .unwrap_or_default(),
+            disk_usage,
+        }
+    }
+
+    fn to_persisted(&self) -> VmPersisted {
+        VmPersisted {
+            name: self.config.name.clone(),
+            cpus: self.config.cpus,
+            memory_mb: self.config.memory_mb,
+            kernel: self.config.kernel.clone(),
+            initrd: self.config.initrd.clone(),
+            cmdline: self.config.cmdline.clone(),
+            disks: self
+                .config
+                .disks
+                .iter()
+                .map(|d| DiskConfigPersisted {
+                    path: d.path.clone(),
+                    readonly: d.readonly,
+                })
+                .collect(),
+            hypervisor: self.config.hypervisor,
+            root_disk_size_mb: self.config.root_disk_size_mb,
+            state: self.state.into(),
+            created_at: self.created_at,
+            started_at: self.started_at,
+            tap_device: self.tap_device.as_ref().map(|t| t.name.clone()),
+            mac_address: self.tap_device.as_ref().map(|t| t.mac_address.clone()),
+        }
+    }
+
+    fn from_persisted(persisted: VmPersisted) -> Self {
+        let config = VmConfig {
+            name: persisted.name,
+            cpus: persisted.cpus,
+            memory_mb: persisted.memory_mb,
+            kernel: persisted.kernel,
+            initrd: persisted.initrd,
+            cmdline: persisted.cmdline,
+            disks: persisted
+                .disks
+                .into_iter()
+                .map(|d| crate::proto::vm::DiskConfig {
+                    path: d.path,
+                    readonly: d.readonly,
+                })
+                .collect(),
+            hypervisor: persisted.hypervisor,
+            root_disk_size_mb: persisted.root_disk_size_mb,
+        };
+
+        let tap_device = match (&persisted.tap_device, &persisted.mac_address) {
+            (Some(name), Some(mac)) => Some(TapDevice {
+                name: name.clone(),
+                mac_address: mac.clone(),
+            }),
+            _ => None,
+        };
+
+        Self {
+            config,
+            state: VmState::try_from(persisted.state).unwrap_or(VmState::Stopped),
+            pid: None,
+            tap_device,
+            created_at: persisted.created_at,
+            started_at: persisted.started_at,
+        }
+    }
+}
+
+impl From<DiskUsage> for ProtoDiskUsage {
+    fn from(usage: DiskUsage) -> Self {
+        Self {
+            used_bytes: usage.used_bytes,
+            quota_bytes: usage.quota_bytes,
+            usage_percent: usage.usage_percent,
         }
     }
 }
 
 impl VmActor {
     pub fn new(network_client: NetworkClient) -> Self {
+        let (vms, pending_restarts) = Self::load_persisted_state();
+        Self::cleanup_orphaned_disks(&vms);
+
         Self {
             network_client,
-            vms: HashMap::new(),
+            vms,
+            pending_restarts,
+        }
+    }
+
+    fn load_persisted_state() -> (HashMap<String, VmEntry>, Vec<String>) {
+        let persisted = persistence::load_vms().unwrap_or_default();
+        let mut vms = HashMap::new();
+        let mut pending_restarts = Vec::new();
+
+        for (vm_id, persisted_vm) in persisted {
+            let was_running = persisted_vm.state == VmState::Running as i32;
+            let mut entry = VmEntry::from_persisted(persisted_vm);
+
+            if was_running {
+                entry.state = VmState::Stopped;
+                entry.tap_device = None;
+                pending_restarts.push(vm_id.clone());
+                kmsg::info!(@ "vmd", "VM {} was running, will restart", entry.config.name);
+            }
+
+            vms.insert(vm_id, entry);
+        }
+
+        (vms, pending_restarts)
+    }
+
+    fn cleanup_orphaned_disks(vms: &HashMap<String, VmEntry>) {
+        let disk_vms = disk::list_subvolumes().unwrap_or_default();
+
+        for vm_id in disk_vms {
+            if !vms.contains_key(&vm_id) {
+                kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
+                if let Err(e) = disk::delete_subvolume(&vm_id) {
+                    kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
+                }
+            }
         }
     }
 
     pub async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
         let _ = tokio::fs::create_dir_all(VM_DATA_DIR).await;
         let _ = tokio::fs::create_dir_all(UPLOAD_DIR).await;
+
+        self.process_pending_restarts().await;
 
         while let Some(cmd) = cmd_rx.recv().await {
             match cmd {
@@ -113,15 +238,42 @@ impl VmActor {
         }
     }
 
+    async fn process_pending_restarts(&mut self) {
+        let restarts = std::mem::take(&mut self.pending_restarts);
+
+        for vm_id in restarts {
+            kmsg::info!(@ "vmd", "Auto-restarting VM {}", vm_id);
+            if let Err(e) = self.handle_start(&vm_id).await {
+                kmsg::error!(@ "vmd", "Failed to auto-restart VM {}: {}", vm_id, e);
+            }
+        }
+    }
+
     async fn handle_create(&mut self, config: VmConfig) -> anyhow::Result<String> {
         let vm_id = uuid::Uuid::new_v4().to_string();
 
         kmsg::info!(@ "vmd", "Creating VM {} ({})", config.name, vm_id);
 
+        let size_mb = if config.root_disk_size_mb == 0 {
+            DEFAULT_DISK_SIZE_MB
+        } else {
+            config.root_disk_size_mb
+        };
+        let size_bytes = size_mb * 1024 * 1024;
+
+        disk::create_subvolume(&vm_id)?;
+        disk::set_quota(&vm_id, size_bytes)?;
+        disk::create_raw_image(&vm_id, size_bytes)?;
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
+
+        let mut config = config;
+        if config.root_disk_size_mb == 0 {
+            config.root_disk_size_mb = DEFAULT_DISK_SIZE_MB;
+        }
 
         let entry = VmEntry {
             config,
@@ -132,6 +284,7 @@ impl VmActor {
             started_at: None,
         };
 
+        persistence::save_vm(&vm_id, &entry.to_persisted())?;
         self.vms.insert(vm_id.clone(), entry);
 
         let vm_dir = PathBuf::from(VM_DATA_DIR).join(&vm_id);
@@ -188,6 +341,7 @@ impl VmActor {
             tap_device: tap.name.clone(),
             mac_address: tap.mac_address.clone(),
             serial_log_path,
+            persistent_disk: Some(disk::get_image_path(vm_id)),
         };
 
         let process = hypervisor.start(&start_config).await?;
@@ -200,6 +354,8 @@ impl VmActor {
         entry.pid = Some(process.pid);
         entry.state = VmState::Running;
         entry.started_at = Some(now);
+
+        persistence::save_vm(vm_id, &entry.to_persisted())?;
 
         kmsg::info!(@ "vmd", "VM {} started with PID {}", entry.config.name, process.pid);
 
@@ -235,6 +391,8 @@ impl VmActor {
         entry.state = VmState::Stopped;
         entry.pid = None;
 
+        persistence::save_vm(vm_id, &entry.to_persisted())?;
+
         Ok(())
     }
 
@@ -249,6 +407,14 @@ impl VmActor {
         }
 
         kmsg::info!(@ "vmd", "Deleting VM {}", vm_id);
+
+        if let Err(e) = disk::delete_subvolume(vm_id) {
+            kmsg::warn!(@ "vmd", "Failed to delete disk subvolume: {}", e);
+        }
+
+        if let Err(e) = persistence::delete_vm(vm_id) {
+            kmsg::warn!(@ "vmd", "Failed to delete VM state file: {}", e);
+        }
 
         let vm_dir = PathBuf::from(VM_DATA_DIR).join(vm_id);
         if vm_dir.exists() {

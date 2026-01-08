@@ -39,6 +39,7 @@ message VmConfig {
   string cmdline = 6;
   repeated DiskConfig disks = 7;
   Hypervisor hypervisor = 8;
+  uint64 root_disk_size_mb = 9;
 }
 
 message DiskConfig {
@@ -98,6 +99,12 @@ message ListVmsResponse {
   repeated VmInfo vms = 1;
 }
 
+message DiskUsage {
+  uint64 used_bytes = 1;
+  uint64 quota_bytes = 2;
+  float usage_percent = 3;
+}
+
 message VmInfo {
   string vm_id = 1;
   string name = 2;
@@ -108,6 +115,7 @@ message VmInfo {
   int64 started_at = 7;
   string tap_device = 8;
   string mac_address = 9;
+  DiskUsage disk_usage = 10;
 }
 
 message UploadFileRequest {

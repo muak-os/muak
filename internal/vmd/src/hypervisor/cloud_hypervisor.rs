@@ -15,6 +15,39 @@ impl CloudHypervisorHypervisor {
     }
 
     pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+        // Check all required files exist before spawning
+        if !std::path::Path::new(&self.binary_path).exists() {
+            anyhow::bail!("cloud-hypervisor binary not found at {}", self.binary_path);
+        }
+
+        if !config.kernel.exists() {
+            anyhow::bail!("Kernel not found at {}", config.kernel.display());
+        }
+
+        if let Some(initrd) = &config.initrd {
+            if !initrd.exists() {
+                anyhow::bail!("Initrd not found at {}", initrd.display());
+            }
+        }
+
+        if let Some(parent) = config.serial_log_path.parent() {
+            if !parent.exists() {
+                anyhow::bail!("Serial log directory not found: {}", parent.display());
+            }
+        }
+
+        for disk in &config.disks {
+            if !disk.path.exists() {
+                anyhow::bail!("Disk not found at {}", disk.path.display());
+            }
+        }
+
+        if let Some(persistent_disk) = &config.persistent_disk {
+            if !persistent_disk.exists() {
+                anyhow::bail!("Persistent disk not found at {}", persistent_disk.display());
+            }
+        }
+
         let mut cmd = Command::new(&self.binary_path);
 
         cmd.arg("--kernel").arg(&config.kernel);
@@ -41,7 +74,19 @@ impl CloudHypervisorHypervisor {
             cmd.arg("--disk").arg(disk_arg);
         }
 
-        let child = cmd.spawn()?;
+        if let Some(persistent_disk) = &config.persistent_disk {
+            cmd.arg("--disk")
+                .arg(format!("path={}", persistent_disk.display()));
+        }
+
+        let child = cmd.spawn().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to spawn cloud-hypervisor: {} (binary: {}, kernel: {})",
+                e,
+                self.binary_path,
+                config.kernel.display()
+            )
+        })?;
         let pid = child
             .id()
             .ok_or_else(|| anyhow::anyhow!("Failed to get child PID"))?;

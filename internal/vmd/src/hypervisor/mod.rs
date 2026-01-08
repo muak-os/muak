@@ -23,6 +23,7 @@ pub struct VmStartConfig {
     pub tap_device: String,
     pub mac_address: String,
     pub serial_log_path: PathBuf,
+    pub persistent_disk: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]

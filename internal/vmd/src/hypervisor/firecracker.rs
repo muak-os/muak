@@ -17,6 +17,29 @@ impl FirecrackerHypervisor {
     pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         let config_path = format!("/run/vmd/{}/config.json", config.vm_id);
 
+        let mut drives: Vec<_> = config
+            .disks
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                serde_json::json!({
+                    "drive_id": format!("disk{}", i),
+                    "path_on_host": d.path.to_string_lossy(),
+                    "is_root_device": i == 0,
+                    "is_read_only": d.readonly,
+                })
+            })
+            .collect();
+
+        if let Some(persistent_disk) = &config.persistent_disk {
+            drives.push(serde_json::json!({
+                "drive_id": "persistent",
+                "path_on_host": persistent_disk.to_string_lossy(),
+                "is_root_device": false,
+                "is_read_only": false,
+            }));
+        }
+
         let fc_config = serde_json::json!({
             "boot-source": {
                 "kernel_image_path": config.kernel.to_string_lossy(),
@@ -32,14 +55,7 @@ impl FirecrackerHypervisor {
                 "guest_mac": config.mac_address,
                 "host_dev_name": config.tap_device,
             }],
-            "drives": config.disks.iter().enumerate().map(|(i, d)| {
-                serde_json::json!({
-                    "drive_id": format!("disk{}", i),
-                    "path_on_host": d.path.to_string_lossy(),
-                    "is_root_device": i == 0,
-                    "is_read_only": d.readonly,
-                })
-            }).collect::<Vec<_>>(),
+            "drives": drives,
         });
 
         let config_dir = std::path::Path::new(&config_path)
