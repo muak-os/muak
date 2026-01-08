@@ -75,6 +75,19 @@ impl ImageReference {
             .unwrap_or("extension")
             .to_string()
     }
+
+    pub fn scheme(&self) -> &'static str {
+        if self.registry.starts_with("192.168.")
+            || self.registry.starts_with("10.")
+            || self.registry.starts_with("172.")
+            || self.registry.starts_with("127.")
+            || self.registry.starts_with("localhost")
+        {
+            "http"
+        } else {
+            "https"
+        }
+    }
 }
 
 pub fn extract_local_oci_layout(oci_dir: &Path) -> Result<PathBuf> {
@@ -187,8 +200,11 @@ fn fetch_manifest_layers(
     token: Option<&str>,
 ) -> Result<Vec<OciDescriptor>> {
     let manifest_url = format!(
-        "https://{}/v2/{}/manifests/{}",
-        image_ref.registry, image_ref.name, image_ref.tag
+        "{}://{}/v2/{}/manifests/{}",
+        image_ref.scheme(),
+        image_ref.registry,
+        image_ref.name,
+        image_ref.tag
     );
 
     let mut request = client
@@ -251,8 +267,11 @@ fn fetch_platform_manifest_layers(
         .ok_or("No suitable manifest found in manifest list")?;
 
     let manifest_url = format!(
-        "https://{}/v2/{}/manifests/{}",
-        image_ref.registry, image_ref.name, amd64_manifest.digest
+        "{}://{}/v2/{}/manifests/{}",
+        image_ref.scheme(),
+        image_ref.registry,
+        image_ref.name,
+        amd64_manifest.digest
     );
 
     let mut request = client
@@ -284,8 +303,11 @@ fn download_and_extract_layer(
     dest: &Path,
 ) -> Result<()> {
     let blob_url = format!(
-        "https://{}/v2/{}/blobs/{}",
-        image_ref.registry, image_ref.name, digest
+        "{}://{}/v2/{}/blobs/{}",
+        image_ref.scheme(),
+        image_ref.registry,
+        image_ref.name,
+        digest
     );
 
     let mut request = client.get(&blob_url);
