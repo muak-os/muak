@@ -648,6 +648,14 @@ async fn handle_vm_action(
                     println!("{}Started VM: {}{}", GREEN, vm_id, RESET);
                 } else {
                     eprintln!("{}Error starting VM: {}{}", RED, start_resp.error, RESET);
+
+                    let delete_request = tonic::Request::new(DeleteVmRequest {
+                        vm_id: vm_id.clone(),
+                    });
+                    if let Err(e) = client.delete_vm(delete_request).await {
+                        eprintln!("{}Warning: Failed to clean up VM: {}{}", YELLOW, e, RESET);
+                    }
+
                     std::process::exit(1);
                 }
             } else {
