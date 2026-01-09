@@ -4,7 +4,7 @@ mod provisioning;
 mod services;
 mod supervisor;
 
-use config::MuakConfig;
+use config::HostConfig;
 use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
 use tokio::net::UnixListener;
@@ -40,12 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let config = match MuakConfig::load() {
+    let config = match HostConfig::load() {
         Ok(cfg) => cfg,
         Err(e) => {
             kmsg::error!("Failed to load config: {}", e);
             kmsg::info!("Falling back to default config");
-            MuakConfig::default()
+            HostConfig::default()
         }
     };
 

@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use nix::mount::{MsFlags, mount, umount};
 use serde::{Deserialize, Serialize};
 
-use crate::config::MuakConfig;
+use crate::config::HostConfig;
 use crate::disk;
 use uki::{UkiComponents, UkiConfig};
 
@@ -50,7 +50,7 @@ pub fn status() -> InstallationStatus {
     }
 }
 
-pub async fn install(force: bool, config: MuakConfig) -> Result<()> {
+pub async fn install(force: bool, config: HostConfig) -> Result<()> {
     let disk_path = config.system.disk.clone();
 
     tokio::task::spawn_blocking(move || install::install(&disk_path, force, &config))

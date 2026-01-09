@@ -8,7 +8,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct MuakConfig {
+pub struct HostConfig {
     pub system: SystemConfig,
     pub network: NetworkConfig,
 }
@@ -37,7 +37,7 @@ pub struct ConnectivityConfig {
     pub overall_timeout_secs: u64,
 }
 
-impl Default for MuakConfig {
+impl Default for HostConfig {
     fn default() -> Self {
         Self {
             system: SystemConfig::default(),
@@ -76,26 +76,26 @@ impl Default for ConnectivityConfig {
     }
 }
 
-impl MuakConfig {
+impl HostConfig {
     pub fn load() -> Result<Self> {
         let path = Path::new(CONFIG_PATH);
 
         if path.exists() {
             let contents = std::fs::read_to_string(path)
                 .with_context(|| format!("Failed to read config from {}", CONFIG_PATH))?;
-            let config: MuakConfig = toml::from_str(&contents)
+            let config: HostConfig = toml::from_str(&contents)
                 .with_context(|| format!("Failed to parse config from {}", CONFIG_PATH))?;
             config.validate()?;
             Ok(config)
         } else {
-            let config: MuakConfig =
+            let config: HostConfig =
                 toml::from_str(DEFAULT_CONFIG).context("Failed to parse default config")?;
             Ok(config)
         }
     }
 
     pub fn from_toml(contents: &str) -> Result<Self> {
-        let config: MuakConfig = toml::from_str(contents).context("Failed to parse config")?;
+        let config: HostConfig = toml::from_str(contents).context("Failed to parse config")?;
         config.validate()?;
         Ok(config)
     }

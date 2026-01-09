@@ -8,7 +8,7 @@ use nix::unistd::sync;
 
 use super::uki::UkiComponents;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
-use crate::config::{CONFIG_PATH, MuakConfig};
+use crate::config::{CONFIG_PATH, HostConfig};
 
 pub struct UpdateResult {
     pub update_id: String,
@@ -40,7 +40,7 @@ fn create_staging_directory() -> Result<PathBuf> {
 fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
     let current_image = fs::read_to_string(CONFIG_PATH)
         .ok()
-        .and_then(|contents| toml::from_str::<MuakConfig>(&contents).ok())
+        .and_then(|contents| toml::from_str::<HostConfig>(&contents).ok())
         .map(|config| config.system.image)
         .unwrap_or_default();
 

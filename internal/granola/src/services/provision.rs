@@ -7,7 +7,7 @@ use super::proto::provision::{
     ListDisksResponse, PartitionInfo, UpdateRequest, UpdateResponse,
 };
 
-use crate::config::MuakConfig;
+use crate::config::HostConfig;
 use crate::provisioning;
 
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
@@ -27,7 +27,7 @@ impl ProvisionService for ProvisionServiceImpl {
         let config_toml = String::from_utf8(req.config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config = MuakConfig::from_toml(&config_toml)
+        let config = HostConfig::from_toml(&config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config

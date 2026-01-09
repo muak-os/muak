@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount};
 use nix::unistd::sync;
 
-use crate::config::MuakConfig;
+use crate::config::HostConfig;
 use crate::disk;
 
 use super::uki;
@@ -13,7 +13,7 @@ use super::{
     INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
 };
 
-pub fn install(disk_path: &str, force: bool, config: &MuakConfig) -> Result<()> {
+pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> {
     kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);
 
     validate(disk_path, force)?;
@@ -108,7 +108,7 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
     Ok(())
 }
 
-fn init_state_partition(device: &str, config: &MuakConfig) -> Result<()> {
+fn init_state_partition(device: &str, config: &HostConfig) -> Result<()> {
     kmsg::info!(@ "provisioning", "Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
