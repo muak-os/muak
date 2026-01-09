@@ -51,7 +51,6 @@ impl NetworkConfig {
     pub fn load() -> Self {
         let path = Path::new(CONFIG_PATH);
         if !path.exists() {
-            kmsg::info!(@ "networkd", "No config file found, using defaults");
             return Self::default();
         }
 
@@ -81,8 +80,6 @@ impl NetworkConfig {
             probe_timeout_secs: None,
             overall_timeout_secs: None,
         });
-
-        kmsg::info!(@ "networkd", "Loaded config from {}", CONFIG_PATH);
 
         Self {
             bridge: network.bridge.unwrap_or(defaults.bridge),
