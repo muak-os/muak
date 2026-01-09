@@ -18,15 +18,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    let config = match MuakConfig::load() {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            kmsg::error!("Failed to load config: {}", e);
-            kmsg::info!("Falling back to default config");
-            MuakConfig::default()
-        }
-    };
-
     let is_installed = match provisioning::status() {
         provisioning::InstallationStatus::Live => {
             kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
@@ -46,6 +37,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 true
             }
+        }
+    };
+
+    let config = match MuakConfig::load() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            kmsg::error!("Failed to load config: {}", e);
+            kmsg::info!("Falling back to default config");
+            MuakConfig::default()
         }
     };
 
