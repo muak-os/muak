@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut supervisor = Supervisor::new(services)?;
 
-    let grpc_handle = tokio::spawn(async {
+    tokio::spawn(async {
         if let Err(e) = run_grpc_server().await {
             kmsg::error!("gRPC server error: {}", e);
         }
@@ -81,9 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     supervisor.run().await?;
 
-    grpc_handle.abort();
-
-    Ok(())
+    unreachable!("If we're here, something went very wrong");
 }
 
 async fn run_grpc_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
