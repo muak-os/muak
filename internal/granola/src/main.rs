@@ -1,8 +1,10 @@
+mod config;
 mod disk;
 mod provisioning;
 mod services;
 mod supervisor;
 
+use config::MuakConfig;
 use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
 use tokio::net::UnixListener;
@@ -10,17 +12,25 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
-const GRPC_SERVER_ADDR: &str = "0.0.0.0:50051";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
+    let config = match MuakConfig::load() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            kmsg::error!("Failed to load config: {}", e);
+            kmsg::info!("Falling back to default config");
+            MuakConfig::default()
+        }
+    };
+
     let is_installed = match provisioning::status() {
         provisioning::InstallationStatus::Live => {
             kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
-            kmsg::info!("   Run 'muakctl install --target <disk>' to install");
+            kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
             false
         }
         provisioning::InstallationStatus::Installed => {
@@ -55,7 +65,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ServiceDef {
             name: "apid".to_string(),
             binary: "/sbin/apid".to_string(),
-            args: vec!["--listen".to_string(), GRPC_SERVER_ADDR.to_string()],
+            args: vec![
+                "--listen".to_string(),
+                format!("0.0.0.0:{}", config.system.api_port),
+            ],
+
             depends_on: vec!["networkd".to_string()],
         },
     ];

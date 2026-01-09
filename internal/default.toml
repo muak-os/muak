@@ -1,0 +1,26 @@
+# Muak System Configuration
+#
+# This is the default configuration template.
+# Generate a copy with: muakctl gen-config > config.toml
+# Install with:         muakctl install --server <ip>:50051 --config config.toml
+#
+# When no config is present (maintenance/live mode), these defaults are used.
+
+[system]
+disk = ""
+image = "ghcr.io/sawangg/installer:latest"
+extensions = []
+api_port = 50051
+
+[network]
+bridge = "br0"
+
+[network.connectivity]
+check_interval_secs = 60
+probe_timeout_secs = 5
+overall_timeout_secs = 15
+
+[services]
+max_restart_attempts = 5
+restart_delay_secs = 1
+restart_window_secs = 60

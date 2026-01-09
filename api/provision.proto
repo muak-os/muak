@@ -10,10 +10,8 @@ service ProvisionService {
 }
 
 message InstallRequest {
-    string target_disk = 1;
-    bool force = 2;
-    string version = 3;
-    repeated string extensions = 4;
+    bool force = 1;
+    bytes config_toml = 2;
 }
 
 message InstallResponse {
@@ -22,7 +20,7 @@ message InstallResponse {
 }
 
 message UpdateRequest {
-    string version = 1;
+    string image = 1;
     repeated string extensions = 2;
 }
 

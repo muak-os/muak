@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -6,6 +7,8 @@ const YELLOW: &str = "\x1b[33m";
 const BLUE: &str = "\x1b[34m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
+
+const DEFAULT_CONFIG: &str = include_str!("../../internal/default.toml");
 
 #[allow(clippy::excessive_nesting)]
 pub mod process_service {
@@ -37,7 +40,7 @@ use vm_service::{
 #[command(name = "muak")]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"), long_about = None)]
 struct Cli {
-    #[arg(long, short, default_value = "localhost:50051")]
+    #[arg(long, short, global = true, default_value = "localhost:50051")]
     server: String,
 
     #[command(subcommand)]
@@ -54,19 +57,16 @@ enum Commands {
         #[command(subcommand)]
         action: VmAction,
     },
+    GenConfig,
     Install {
-        #[arg(long)]
-        target: String,
         #[arg(long)]
         force: bool,
         #[arg(long)]
-        version: String,
-        #[arg(long)]
-        extension: Vec<String>,
+        config: PathBuf,
     },
     Update {
         #[arg(long)]
-        version: Option<String>,
+        image: Option<String>,
         #[arg(long)]
         extension: Vec<String>,
     },
@@ -128,6 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Determine timeout based on command - provisioning operations need longer timeouts
     let timeout_secs = match &cli.command {
         Commands::Install { .. } | Commands::Update { .. } => 600, // 10 minutes
+        Commands::GenConfig => {
+            print!("{}", DEFAULT_CONFIG);
+            return Ok(());
+        }
         _ => 30,
     };
 
@@ -146,18 +150,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = VmServiceClient::new(channel);
             handle_vm_action(&mut client, action).await?;
         }
-        Commands::Install {
-            target,
-            force,
-            version,
-            extension,
-        } => {
+        Commands::Install { force, config } => {
             let mut client = ProvisionServiceClient::new(channel);
-            handle_install(&mut client, target, force, version, extension).await?;
+            handle_install(&mut client, force, config).await?;
         }
-        Commands::Update { version, extension } => {
+        Commands::Update { image, extension } => {
             let mut client = ProvisionServiceClient::new(channel);
-            handle_update(&mut client, version, extension).await?;
+            handle_update(&mut client, image, extension).await?;
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
@@ -167,6 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = ProvisionServiceClient::new(channel);
             handle_logs(&mut client).await?;
         }
+        Commands::GenConfig => unreachable!(),
     }
 
     Ok(())
@@ -174,16 +174,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn handle_install(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-    target_disk: String,
     force: bool,
-    version: String,
-    extensions: Vec<String>,
+    config_path: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let config_toml = std::fs::read_to_string(&config_path).map_err(|e| {
+        format!(
+            "Failed to read config file '{}': {}",
+            config_path.display(),
+            e
+        )
+    })?;
+
+    let config: toml::Value = toml::from_str(&config_toml).map_err(|e| {
+        format!(
+            "Invalid TOML in config file '{}': {}",
+            config_path.display(),
+            e
+        )
+    })?;
+
+    let target_disk = config
+        .get("system")
+        .and_then(|s| s.get("disk"))
+        .and_then(|d| d.as_str())
+        .ok_or("Missing or invalid 'system.disk' in config file")?;
+
+    if target_disk.is_empty() {
+        return Err("'system.disk' cannot be empty in config file".into());
+    }
+
     let request = tonic::Request::new(InstallRequest {
-        target_disk: target_disk.clone(),
         force,
-        version,
-        extensions,
+        config_toml: config_toml.into_bytes(),
     });
 
     println!("{}Installing Muak to {}...{}", BLUE, target_disk, RESET);
@@ -210,19 +232,16 @@ async fn handle_install(
 
 async fn handle_update(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-    version: Option<String>,
+    image: Option<String>,
     extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let version = version.unwrap_or_else(|| "latest".to_string());
-    let request = tonic::Request::new(UpdateRequest {
-        version,
-        extensions,
-    });
+    let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
+    let request = tonic::Request::new(UpdateRequest { image, extensions });
 
     println!(
         "{}Starting update to {}...{}",
         BLUE,
-        request.get_ref().version,
+        request.get_ref().image,
         RESET
     );
 

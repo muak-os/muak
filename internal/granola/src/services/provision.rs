@@ -7,6 +7,7 @@ use super::proto::provision::{
     ListDisksResponse, PartitionInfo, UpdateRequest, UpdateResponse,
 };
 
+use crate::config::MuakConfig;
 use crate::provisioning;
 
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
@@ -22,16 +23,25 @@ impl ProvisionService for ProvisionServiceImpl {
         request: Request<InstallRequest>,
     ) -> Result<Response<InstallResponse>, Status> {
         let req = request.into_inner();
+
+        let config_toml = String::from_utf8(req.config_toml)
+            .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
+
+        let config = MuakConfig::from_toml(&config_toml)
+            .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
+
+        config
+            .validate_for_install()
+            .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {}", e)))?;
+
         kmsg::info!(
-            "Install request: target_disk={}, force={}, version={}",
-            req.target_disk,
+            "Install request: disk={}, force={}, image={}",
+            config.system.disk,
             req.force,
-            req.version
+            config.system.image
         );
 
-        match provisioning::install(&req.target_disk, req.force, &req.version, &req.extensions)
-            .await
-        {
+        match provisioning::install(req.force, config).await {
             Ok(()) => {
                 tokio::spawn(async {
                     kmsg::info!("System will reboot in 3 seconds...");
@@ -60,9 +70,9 @@ impl ProvisionService for ProvisionServiceImpl {
         request: Request<UpdateRequest>,
     ) -> Result<Response<UpdateResponse>, Status> {
         let req = request.into_inner();
-        kmsg::info!("Update request: version={}", req.version);
+        kmsg::info!("Update request: image={}", req.image);
 
-        match provisioning::update(&req.version, &req.extensions).await {
+        match provisioning::update(&req.image, &req.extensions).await {
             Ok(update_id) => Ok(Response::new(UpdateResponse {
                 success: true,
                 update_id,

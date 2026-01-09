@@ -1,11 +1,15 @@
 ## TODO
 
+- Allow for /run/data to be on a different disk
+
 - Support arm64 architecture
-  - Support for devicetree on ARM64 in stub
+  - Support for devicetree in stub
   - Create kernel config for arm64
   - Add arm kernel parameters support
   - Add build in CI/CD
   - Tweak pkgs Dockerfiles
+
+- Properly structure the CLI
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
@@ -24,17 +28,16 @@
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
   - Support custom proxy
+  - Allow creation of multiple bridges
 
 - Better gRPC communication:
   - Add authentication using mTLS
     - Store certificates in STATE partition & in ~/.config/muak/ on the client side
-    - Handle being in insecure mode (not having certificates) when in maintenance mode with --insecure flag on certain
-      commands like muak disks
+    - Allow some commands like listing disks in maintenance mode without authentication
   - Add permission management for different users using RBAC like system
 
 - Declarative system configuration:
-  - Use config.toml that is a required parameter in muak install to install declaratively the system
-    - muak gen-config to generate a config template
+  - Better configuration for the network
     - Static IP configuration
     - DNS configuration
     - Gateway configuration

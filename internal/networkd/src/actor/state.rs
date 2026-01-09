@@ -4,10 +4,12 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::config::NetworkConfig;
 use crate::model::{InterfaceSnapshot, NetworkSnapshot};
 
 pub struct NetworkActor {
     pub(super) handle: Handle,
+    pub(super) config: NetworkConfig,
     pub(super) state: NetworkSnapshot,
     pub(super) iface_map: HashMap<String, InterfaceSnapshot>,
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
@@ -16,9 +18,14 @@ pub struct NetworkActor {
 }
 
 impl NetworkActor {
-    pub fn new(handle: Handle, watch_tx: watch::Sender<NetworkSnapshot>) -> Self {
+    pub fn new(
+        handle: Handle,
+        watch_tx: watch::Sender<NetworkSnapshot>,
+        config: NetworkConfig,
+    ) -> Self {
         Self {
             handle,
+            config,
             state: NetworkSnapshot::empty(),
             iface_map: HashMap::new(),
             watch_tx,

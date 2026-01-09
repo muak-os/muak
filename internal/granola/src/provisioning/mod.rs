@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use nix::mount::{MsFlags, mount, umount};
 use serde::{Deserialize, Serialize};
 
+use crate::config::MuakConfig;
 use crate::disk;
 use uki::{UkiComponents, UkiConfig};
 
@@ -28,15 +29,15 @@ pub enum InstallationStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationMarker {
     pub update_id: String,
-    pub target_version: String,
-    pub current_version: String,
+    pub target_image: String,
+    pub current_image: String,
     pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RollbackInfo {
     pub update_id: String,
-    pub failed_version: String,
+    pub failed_image: String,
     pub reason: String,
     pub rolled_back_at: i64,
 }
@@ -49,26 +50,19 @@ pub fn status() -> InstallationStatus {
     }
 }
 
-pub async fn install(
-    disk_path: &str,
-    force: bool,
-    version: &str,
-    extensions: &[String],
-) -> Result<()> {
-    let disk_path = disk_path.to_string();
-    let version = version.to_string();
-    let extensions = extensions.to_vec();
+pub async fn install(force: bool, config: MuakConfig) -> Result<()> {
+    let disk_path = config.system.disk.clone();
 
-    tokio::task::spawn_blocking(move || install::install(&disk_path, force, &version, &extensions))
+    tokio::task::spawn_blocking(move || install::install(&disk_path, force, &config))
         .await
         .context("Install task panicked")?
 }
 
-pub async fn update(version: &str, extensions: &[String]) -> Result<String> {
-    let version = version.to_string();
+pub async fn update(image: &str, extensions: &[String]) -> Result<String> {
+    let image = image.to_string();
     let extensions = extensions.to_vec();
 
-    let result = tokio::task::spawn_blocking(move || update::update(&version, &extensions))
+    let result = tokio::task::spawn_blocking(move || update::update(&image, &extensions))
         .await
         .context("Update task panicked")??;
 

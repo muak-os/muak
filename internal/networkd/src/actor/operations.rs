@@ -1,7 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::config::LAN_BRIDGE_NAME;
 use crate::connectivity::{self, ConnectivityConfig};
 use crate::dhcp::run_dhcp_client;
 use crate::dns::configure_dns;
@@ -255,18 +254,19 @@ impl NetworkActor {
             .and_then(|iface| iface.ip.as_ref())
             .and_then(|ip| ip.gateway);
 
+        let bridge_name = &self.config.bridge;
         kmsg::info!(
             @ "networkd",
             "Setting up bridge {} with primary {}",
-            LAN_BRIDGE_NAME,
+            bridge_name,
             primary
         );
-        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, bridge_name, &primary, gateway)
             .await?;
         kmsg::info!(
             @ "networkd",
             "Bridge setup complete: {} <- {}",
-            LAN_BRIDGE_NAME,
+            bridge_name,
             primary
         );
 
@@ -289,13 +289,14 @@ impl NetworkActor {
         self.clear_lease_from_primary(&primary);
         self.sync_and_publish();
 
+        let bridge_name = self.config.bridge.clone();
         kmsg::info!(
             @ "networkd",
             "Transferring DHCP lease management from {} to {}",
             primary,
-            LAN_BRIDGE_NAME
+            bridge_name
         );
-        self.schedule_lease_renewal(cmd_tx.clone(), LAN_BRIDGE_NAME.to_string(), lease);
+        self.schedule_lease_renewal(cmd_tx.clone(), bridge_name, lease);
 
         Ok(())
     }
@@ -330,19 +331,20 @@ impl NetworkActor {
         gateway: Option<std::net::Ipv4Addr>,
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
+        let bridge_name = &self.config.bridge;
 
         kmsg::info!(
             @ "networkd",
             "Setting up bridge {} with primary {}",
-            LAN_BRIDGE_NAME,
+            bridge_name,
             primary
         );
-        bridge::ensure_bridge_with_ip_transfer(&self.handle, LAN_BRIDGE_NAME, &primary, gateway)
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, bridge_name, &primary, gateway)
             .await?;
         kmsg::info!(
             @ "networkd",
             "Bridge setup complete: {} <- {}",
-            LAN_BRIDGE_NAME,
+            bridge_name,
             primary
         );
 
@@ -350,7 +352,7 @@ impl NetworkActor {
     }
 
     async fn lookup_bridge_index(&self) -> Result<u32> {
-        link::get_link_index(&self.handle, LAN_BRIDGE_NAME).await
+        link::get_link_index(&self.handle, &self.config.bridge).await
     }
 
     fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
@@ -362,7 +364,7 @@ impl NetworkActor {
         let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
 
         let br_snapshot = InterfaceSnapshot {
-            name: LAN_BRIDGE_NAME.to_string(),
+            name: self.config.bridge.clone(),
             index,
             mac,
             link: LinkStateKind::Up,
@@ -383,7 +385,7 @@ impl NetworkActor {
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
         kmsg::info!(@ "networkd", "Adding TAP interface: {}", name);
 
-        let index = tap::setup_tap_on_bridge(&self.handle, name, LAN_BRIDGE_NAME).await?;
+        let index = tap::setup_tap_on_bridge(&self.handle, name, &self.config.bridge).await?;
 
         let snapshot = InterfaceSnapshot {
             name: name.to_string(),
@@ -413,8 +415,7 @@ impl NetworkActor {
     }
 
     fn start_connectivity_monitoring(&mut self, cmd_tx: mpsc::Sender<NetworkCommand>) {
-        let config = ConnectivityConfig::default();
-        let interval = config.check_interval;
+        let interval = std::time::Duration::from_secs(self.config.check_interval_secs);
 
         let task = tokio::spawn(async move {
             let mut interval_timer =
@@ -437,7 +438,10 @@ impl NetworkActor {
         self.state.connectivity.status = ConnectivityStatus::Checking;
         self.publish_state();
 
-        let config = ConnectivityConfig::default();
+        let config = ConnectivityConfig::new(
+            self.config.probe_timeout_secs,
+            self.config.overall_timeout_secs,
+        );
         let result = connectivity::check_connectivity(&config).await;
 
         self.state.connectivity = result.clone();

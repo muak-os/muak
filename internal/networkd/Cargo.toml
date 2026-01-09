@@ -15,6 +15,8 @@ nix = { workspace = true, features = ["socket", "ioctl"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tonic-prost = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

@@ -3,10 +3,6 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time::timeout;
 
-use crate::config::{
-    CONNECTIVITY_CHECK_INTERVAL_SECS, CONNECTIVITY_OVERALL_TIMEOUT_SECS,
-    CONNECTIVITY_PROBE_TIMEOUT_SECS,
-};
 use crate::model::{ConnectivityResult, ConnectivityStatus};
 
 #[derive(Debug, Clone)]
@@ -14,19 +10,23 @@ pub struct ConnectivityConfig {
     pub target: ConnectivityTarget,
     pub probe_timeout: Duration,
     pub overall_timeout: Duration,
-    pub check_interval: Duration,
 }
 
-impl Default for ConnectivityConfig {
-    fn default() -> Self {
+impl ConnectivityConfig {
+    pub fn new(probe_timeout_secs: u64, overall_timeout_secs: u64) -> Self {
         Self {
             target: ConnectivityTarget {
                 host: "leomercier.dev".to_string(),
             },
-            probe_timeout: Duration::from_secs(CONNECTIVITY_PROBE_TIMEOUT_SECS),
-            overall_timeout: Duration::from_secs(CONNECTIVITY_OVERALL_TIMEOUT_SECS),
-            check_interval: Duration::from_secs(CONNECTIVITY_CHECK_INTERVAL_SECS),
+            probe_timeout: Duration::from_secs(probe_timeout_secs),
+            overall_timeout: Duration::from_secs(overall_timeout_secs),
         }
+    }
+}
+
+impl Default for ConnectivityConfig {
+    fn default() -> Self {
+        Self::new(5, 15)
     }
 }
 

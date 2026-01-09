@@ -7,6 +7,7 @@ use nix::unistd::sync;
 
 use super::uki::{self, UkiComponents};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
+use crate::config::{CONFIG_PATH, MuakConfig};
 
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let marker = match load_validation_marker()? {
@@ -17,8 +18,8 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     kmsg::info!(
         @ "provisioning",
         "Found pending validation for update {} -> {}",
-        marker.current_version,
-        marker.target_version
+        marker.current_image,
+        marker.target_image
     );
 
     if is_old_kernel(&marker) {
@@ -128,12 +129,24 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
 
     uki::build_uki_atomic(&components, &uki_path)?;
 
-    fs::write("/run/state/VERSION", &marker.target_version)
-        .context("Failed to update VERSION file")?;
+    update_config_image(&marker.target_image)?;
 
     cleanup_update_files();
 
     sync();
+    Ok(())
+}
+
+fn update_config_image(new_image: &str) -> Result<()> {
+    let contents = fs::read_to_string(CONFIG_PATH).context("Failed to read config.toml")?;
+    let mut config: MuakConfig =
+        toml::from_str(&contents).context("Failed to parse config.toml")?;
+
+    config.system.image = new_image.to_string();
+
+    let updated_toml = toml::to_string_pretty(&config).context("Failed to serialize config")?;
+    fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
+
     Ok(())
 }
 
@@ -188,7 +201,7 @@ fn save_rollback_info(marker: &ValidationMarker, reason: &str) -> Result<()> {
 
     let info = RollbackInfo {
         update_id: marker.update_id.clone(),
-        failed_version: marker.target_version.clone(),
+        failed_image: marker.target_image.clone(),
         reason: reason.to_string(),
         rolled_back_at: now,
     };

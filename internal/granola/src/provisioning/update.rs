@@ -8,20 +8,20 @@ use nix::unistd::sync;
 
 use super::uki::UkiComponents;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
+use crate::config::{CONFIG_PATH, MuakConfig};
 
 pub struct UpdateResult {
     pub update_id: String,
 }
 
-pub fn update(version: &str, extensions: &[String]) -> Result<UpdateResult> {
-    kmsg::info!(@ "provisioning", "Starting update to version {}", version);
+pub fn update(image: &str, extensions: &[String]) -> Result<UpdateResult> {
+    kmsg::info!(@ "provisioning", "Starting update to image {}", image);
 
     let staging_dir = create_staging_directory()?;
-    let installer_image = format!("ghcr.io/sawangg/installer:{}", version);
 
-    let components = prepare_uki(&installer_image, extensions, &staging_dir)?;
+    let components = prepare_uki(image, extensions, &staging_dir)?;
 
-    let marker = create_validation_marker(version)?;
+    let marker = create_validation_marker(image)?;
     save_validation_marker(&staging_dir, &marker)?;
 
     let update_id = marker.update_id.clone();
@@ -37,11 +37,12 @@ fn create_staging_directory() -> Result<PathBuf> {
     Ok(staging_dir)
 }
 
-fn create_validation_marker(target_version: &str) -> Result<ValidationMarker> {
-    let current_version = fs::read_to_string("/run/state/VERSION")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
+    let current_image = fs::read_to_string(CONFIG_PATH)
+        .ok()
+        .and_then(|contents| toml::from_str::<MuakConfig>(&contents).ok())
+        .map(|config| config.system.image)
+        .unwrap_or_default();
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -52,8 +53,8 @@ fn create_validation_marker(target_version: &str) -> Result<ValidationMarker> {
 
     Ok(ValidationMarker {
         update_id,
-        target_version: target_version.to_string(),
-        current_version,
+        target_image: target_image.to_string(),
+        current_image,
         timestamp,
     })
 }

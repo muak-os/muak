@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount};
 use nix::unistd::sync;
 
+use crate::config::MuakConfig;
 use crate::disk;
 
 use super::uki;
@@ -12,15 +13,15 @@ use super::{
     INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
 };
 
-pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String]) -> Result<()> {
+pub fn install(disk_path: &str, force: bool, config: &MuakConfig) -> Result<()> {
     kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);
 
     validate(disk_path, force)?;
 
-    let installer_image = format!("ghcr.io/sawangg/installer:{}", version);
     let work_dir = Path::new(INSTALL_DIR);
-    let components = prepare_uki(&installer_image, extensions, work_dir)?;
+    let components = prepare_uki(&config.system.image, &config.system.extensions, work_dir)?;
     let staged_uki = work_dir.join("staged.efi");
+
     uki::build_uki(&components, &staged_uki)?;
 
     disk::delete_all_partitions_blkpg(disk_path)?;
@@ -32,7 +33,7 @@ pub fn install(disk_path: &str, force: bool, version: &str, extensions: &[String
     disk::format_btrfs_partition(&data_part, "DATA")?;
 
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
-    init_state_partition(&state_part, version)?;
+    init_state_partition(&state_part, config)?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
         kmsg::warn!(@ "provisioning", "Failed to cleanup work dir: {}", e);
@@ -107,7 +108,7 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
     Ok(())
 }
 
-fn init_state_partition(device: &str, version: &str) -> Result<()> {
+fn init_state_partition(device: &str, config: &MuakConfig) -> Result<()> {
     kmsg::info!(@ "provisioning", "Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
@@ -124,9 +125,9 @@ fn init_state_partition(device: &str, version: &str) -> Result<()> {
     )
     .context("Failed to mount STATE partition")?;
 
-    fs::create_dir_all(format!("{}/config", mount_point))?;
-    fs::write(format!("{}/VERSION", mount_point), version)
-        .context("Failed to write VERSION file")?;
+    let config_toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
+    fs::write(format!("{}/config.toml", mount_point), config_toml)
+        .context("Failed to write config.toml")?;
 
     sync();
     unmount_partition(mount_point);

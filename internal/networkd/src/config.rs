@@ -1,11 +1,100 @@
-pub const LAN_BRIDGE_NAME: &str = "br0";
-pub const RESOLV_CONF_PATH: &str = "/run/resolv.conf";
+use std::path::Path;
 
+use serde::Deserialize;
+
+const CONFIG_PATH: &str = "/run/state/config.toml";
+
+pub const RESOLV_CONF_PATH: &str = "/run/resolv.conf";
 pub const BRIDGE_CREATE_RETRIES: u8 = 30;
 pub const BRIDGE_CREATE_RETRY_DELAY_MS: u64 = 100;
 pub const INTERFACE_ENSLAVE_RETRIES: u8 = 5;
 pub const INTERFACE_ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
-pub const CONNECTIVITY_CHECK_INTERVAL_SECS: u64 = 60;
-pub const CONNECTIVITY_PROBE_TIMEOUT_SECS: u64 = 5;
-pub const CONNECTIVITY_OVERALL_TIMEOUT_SECS: u64 = 15;
+#[derive(Debug, Clone)]
+pub struct NetworkConfig {
+    pub bridge: String,
+    pub check_interval_secs: u64,
+    pub probe_timeout_secs: u64,
+    pub overall_timeout_secs: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfigFile {
+    network: Option<NetworkSection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NetworkSection {
+    bridge: Option<String>,
+    connectivity: Option<ConnectivitySection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConnectivitySection {
+    check_interval_secs: Option<u64>,
+    probe_timeout_secs: Option<u64>,
+    overall_timeout_secs: Option<u64>,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            bridge: "br0".to_string(),
+            check_interval_secs: 60,
+            probe_timeout_secs: 5,
+            overall_timeout_secs: 15,
+        }
+    }
+}
+
+impl NetworkConfig {
+    pub fn load() -> Self {
+        let path = Path::new(CONFIG_PATH);
+        if !path.exists() {
+            kmsg::info!(@ "networkd", "No config file found, using defaults");
+            return Self::default();
+        }
+
+        let contents = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                kmsg::warn!(@ "networkd", "Failed to read config: {}, using defaults", e);
+                return Self::default();
+            }
+        };
+
+        let config: ConfigFile = match toml::from_str(&contents) {
+            Ok(c) => c,
+            Err(e) => {
+                kmsg::warn!(@ "networkd", "Failed to parse config: {}, using defaults", e);
+                return Self::default();
+            }
+        };
+
+        let defaults = Self::default();
+        let network = config.network.unwrap_or(NetworkSection {
+            bridge: None,
+            connectivity: None,
+        });
+        let connectivity = network.connectivity.unwrap_or(ConnectivitySection {
+            check_interval_secs: None,
+            probe_timeout_secs: None,
+            overall_timeout_secs: None,
+        });
+
+        kmsg::info!(@ "networkd", "Loaded config from {}", CONFIG_PATH);
+
+        Self {
+            bridge: network.bridge.unwrap_or(defaults.bridge),
+            check_interval_secs: connectivity
+                .check_interval_secs
+                .unwrap_or(defaults.check_interval_secs),
+            probe_timeout_secs: connectivity
+                .probe_timeout_secs
+                .unwrap_or(defaults.probe_timeout_secs),
+            overall_timeout_secs: connectivity
+                .overall_timeout_secs
+                .unwrap_or(defaults.overall_timeout_secs),
+        }
+    }
+}
