@@ -8,7 +8,7 @@
 disk = ""
 image = "ghcr.io/sawangg/installer:latest"
 extensions = []
-api_port = 50051
+port = 50051
 
 [network]
 bridge = "br0"

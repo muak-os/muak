@@ -19,7 +19,7 @@ pub struct SystemConfig {
     pub disk: String,
     pub image: String,
     pub extensions: Vec<String>,
-    pub api_port: u16,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ impl Default for SystemConfig {
             disk: String::new(),
             image: "ghcr.io/sawangg/installer:latest".to_string(),
             extensions: vec![],
-            api_port: 50051,
+            port: 50051,
         }
     }
 }
@@ -101,8 +101,8 @@ impl HostConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.system.api_port == 0 {
-            bail!("api_port must be greater than 0");
+        if self.system.port == 0 {
+            bail!("port must be greater than 0");
         }
         if self.network.bridge.is_empty() {
             bail!("bridge name cannot be empty");

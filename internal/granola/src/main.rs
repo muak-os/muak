@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             binary: "/sbin/apid".to_string(),
             args: vec![
                 "--listen".to_string(),
-                format!("0.0.0.0:{}", config.system.api_port),
+                format!("0.0.0.0:{}", config.system.port),
             ],
 
             depends_on: vec!["networkd".to_string()],
