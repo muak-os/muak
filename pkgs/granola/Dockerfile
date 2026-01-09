@@ -23,6 +23,7 @@ COPY Cargo.toml Cargo.lock ./
 RUN sed -i '/members = \[/,/\]/c\members = ["internal/granola", "internal/shared/kmsg"]' Cargo.toml
 
 COPY api ./api
+COPY internal/default.toml ./internal/default.toml
 COPY internal/granola ./internal/granola
 COPY internal/shared/kmsg ./internal/shared/kmsg
 
