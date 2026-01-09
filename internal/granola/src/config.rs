@@ -11,7 +11,6 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 pub struct MuakConfig {
     pub system: SystemConfig,
     pub network: NetworkConfig,
-    pub services: ServicesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,20 +37,11 @@ pub struct ConnectivityConfig {
     pub overall_timeout_secs: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ServicesConfig {
-    pub max_restart_attempts: u32,
-    pub restart_delay_secs: u64,
-    pub restart_window_secs: u64,
-}
-
 impl Default for MuakConfig {
     fn default() -> Self {
         Self {
             system: SystemConfig::default(),
             network: NetworkConfig::default(),
-            services: ServicesConfig::default(),
         }
     }
 }
@@ -82,16 +72,6 @@ impl Default for ConnectivityConfig {
             check_interval_secs: 60,
             probe_timeout_secs: 5,
             overall_timeout_secs: 15,
-        }
-    }
-}
-
-impl Default for ServicesConfig {
-    fn default() -> Self {
-        Self {
-            max_restart_attempts: 5,
-            restart_delay_secs: 1,
-            restart_window_secs: 60,
         }
     }
 }
