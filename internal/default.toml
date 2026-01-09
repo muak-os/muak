@@ -3,8 +3,6 @@
 # This is the default configuration template.
 # Generate a copy with: muakctl gen-config > config.toml
 # Install with:         muakctl install --server <ip>:50051 --config config.toml
-#
-# When no config is present (maintenance/live mode), these defaults are used.
 
 [system]
 disk = ""
