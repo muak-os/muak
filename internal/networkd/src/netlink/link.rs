@@ -184,3 +184,16 @@ pub fn extract_name_from_link(link: &LinkMessage) -> Option<String> {
     }
     None
 }
+
+/// Check if an interface is enslaved to a bridge (has a master/controller)
+pub async fn is_interface_enslaved(handle: &Handle, name: &str) -> Result<bool> {
+    let link = find_link_by_name(handle, name).await?;
+
+    for attr in &link.attributes {
+        if let LinkAttribute::Controller(_) = attr {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}

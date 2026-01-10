@@ -5,12 +5,13 @@ use tokio::sync::mpsc;
 
 use crate::connectivity::{self, ConnectivityConfig};
 use crate::dhcp::run_dhcp_client;
+use crate::dhcpv6::run_dhcpv6_client;
 use crate::dns::configure_dns;
 use crate::interface::InterfaceSelector;
 use crate::interface::{LinkState, discover_ethernet_interfaces};
 use crate::model::{
-    ConnectivityResult, ConnectivityStatus, DhcpLease, InterfaceSnapshot, LinkStateKind,
-    NetworkStateKind,
+    ConnectivityResult, ConnectivityStatus, DhcpLease, InterfaceSnapshot, Ipv6Config,
+    LinkStateKind, NetworkStateKind,
 };
 use crate::netlink::{address, link, route};
 use crate::services::{bridge, tap};
@@ -24,9 +25,16 @@ impl NetworkActor {
 
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
+
+        // Try to acquire IPv6 address if enabled
+        if self.config.ipv6_enabled {
+            self.try_acquire_dhcpv6_on_primary(cmd_tx).await;
+        }
+
         self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
+        self.ready_at = Some(std::time::Instant::now());
         self.publish_state();
 
         self.start_connectivity_monitoring(cmd_tx.clone());
@@ -109,6 +117,8 @@ impl NetworkActor {
                 },
                 ip: None,
                 lease: None,
+                ipv6: None,
+                ipv6_lease: None,
             };
             self.insert_interface(snapshot);
         }
@@ -172,6 +182,113 @@ impl NetworkActor {
         self.get_interface(iface)
             .map(|i| i.mac)
             .ok_or_else(|| anyhow::anyhow!("interface not tracked: {}", iface))
+    }
+
+    /// Try to acquire an IPv6 address via DHCPv6 on the primary interface.
+    /// This is non-fatal - if it fails, we continue with IPv4 only.
+    async fn try_acquire_dhcpv6_on_primary(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) {
+        let Ok(primary) = self.get_primary_name() else {
+            return;
+        };
+
+        kmsg::info!(@ "networkd", "Attempting DHCPv6 on primary interface: {}", primary);
+
+        match self.acquire_dhcpv6(&primary, cmd_tx).await {
+            Ok(_) => {
+                self.state.ipv6_available = true;
+                kmsg::info!(@ "networkd", "IPv6 connectivity available via DHCPv6");
+            }
+            Err(e) => {
+                kmsg::info!(@ "networkd", "DHCPv6 not available: {} (continuing with IPv4)", e);
+            }
+        }
+    }
+
+    /// Acquire an IPv6 address via DHCPv6 on the specified interface.
+    pub(super) async fn acquire_dhcpv6(
+        &mut self,
+        iface: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<InterfaceSnapshot> {
+        let index = link::ensure_link_up(&self.handle, iface).await?;
+        let mac = self.get_interface_mac(iface)?;
+
+        let (ipv6_cfg, lease) = run_dhcpv6_client(iface, &mac).await?;
+
+        self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
+        self.update_interface_with_ipv6_lease(iface, ipv6_cfg.clone(), lease.clone())?;
+        self.schedule_ipv6_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
+
+        kmsg::info!(@ "networkd", "DHCPv6 acquired on {}: {}", iface, ipv6_cfg.address);
+
+        self.get_interface(iface)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("interface disappeared"))
+    }
+
+    async fn apply_ipv6_configuration(&mut self, index: u32, ipv6_cfg: &Ipv6Config) -> Result<()> {
+        address::ensure_ipv6(&self.handle, index, ipv6_cfg.address, ipv6_cfg.prefix_len).await?;
+
+        // Note: DHCPv6 typically uses link-local for gateway, handled by router advertisements
+        // We don't set a default route here as it's managed separately
+
+        // Configure IPv6 DNS if provided
+        if !ipv6_cfg.dns.is_empty() {
+            kmsg::info!(
+                @ "networkd",
+                "DHCPv6 provided {} DNS servers",
+                ipv6_cfg.dns.len()
+            );
+            // Note: For now we only use IPv4 DNS in resolv.conf
+            // IPv6 DNS integration can be added later
+        }
+
+        Ok(())
+    }
+
+    fn update_interface_with_ipv6_lease(
+        &mut self,
+        iface: &str,
+        ipv6_cfg: Ipv6Config,
+        lease: DhcpLease,
+    ) -> Result<()> {
+        let iface_snap = self
+            .get_interface_mut(iface)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface))?;
+
+        iface_snap.ipv6 = Some(ipv6_cfg);
+        iface_snap.ipv6_lease = Some(lease);
+        self.sync_and_publish();
+
+        Ok(())
+    }
+
+    fn schedule_ipv6_lease_renewal(
+        &mut self,
+        cmd_tx: mpsc::Sender<NetworkCommand>,
+        iface: String,
+        lease: DhcpLease,
+    ) {
+        let renew_deadline = lease.obtained_at + lease.renewal_time;
+
+        let task = Self::spawn_ipv6_renewal_task(cmd_tx, iface.clone(), renew_deadline);
+        self.track_renewal_task(format!("{}_ipv6", iface), task);
+    }
+
+    fn spawn_ipv6_renewal_task(
+        cmd_tx: mpsc::Sender<NetworkCommand>,
+        iface: String,
+        deadline: std::time::SystemTime,
+    ) -> tokio::task::JoinHandle<()> {
+        let now = std::time::SystemTime::now();
+        let dur = deadline.duration_since(now).ok();
+
+        tokio::spawn(async move {
+            let Some(dur) = dur else { return };
+            tokio::time::sleep(dur).await;
+            kmsg::info!(@ "networkd", "DHCPv6 lease renewal attempt for {}", iface);
+            let _ = cmd_tx.send(NetworkCommand::RenewIpv6Lease { iface }).await;
+        })
     }
 
     async fn apply_ip_configuration(
@@ -279,6 +396,41 @@ impl NetworkActor {
             Err(e) => {
                 kmsg::warn!(@ "networkd", "DHCP renewal failed for {}: {}", iface, e);
                 Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
+            }
+        }
+    }
+
+    pub(super) async fn renew_ipv6_lease(
+        &mut self,
+        iface: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        kmsg::info!(@ "networkd", "Renewing DHCPv6 lease for {}", iface);
+
+        let mac = self
+            .get_interface(iface)
+            .map(|i| i.mac)
+            .ok_or_else(|| anyhow::anyhow!("interface not tracked: {}", iface))?;
+
+        match run_dhcpv6_client(iface, &mac).await {
+            Ok((ipv6_cfg, lease)) => {
+                let index = self
+                    .get_interface(iface)
+                    .ok_or_else(|| anyhow::anyhow!("interface disappeared"))?
+                    .index;
+
+                self.apply_ipv6_configuration(index, &ipv6_cfg).await?;
+                self.update_interface_with_ipv6_lease(iface, ipv6_cfg, lease.clone())?;
+                self.schedule_ipv6_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
+
+                kmsg::info!(@ "networkd", "DHCPv6 lease renewed for {}", iface);
+                Ok(())
+            }
+            Err(e) => {
+                kmsg::warn!(@ "networkd", "DHCPv6 renewal failed for {}: {}", iface, e);
+                self.state.ipv6_available = false;
+                self.publish_state();
+                Err(anyhow::anyhow!("DHCPv6 renewal failed: {}", e))
             }
         }
     }
@@ -406,6 +558,8 @@ impl NetworkActor {
             link: LinkStateKind::Up,
             ip,
             lease: Some(lease),
+            ipv6: None,
+            ipv6_lease: None,
         };
 
         self.insert_interface(br_snapshot);
@@ -430,6 +584,8 @@ impl NetworkActor {
             link: LinkStateKind::Up,
             ip: None,
             lease: None,
+            ipv6: None,
+            ipv6_lease: None,
         };
 
         self.insert_interface(snapshot.clone());

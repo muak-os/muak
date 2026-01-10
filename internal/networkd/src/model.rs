@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -48,6 +48,14 @@ pub struct IpConfig {
     pub dns: Vec<Ipv4Addr>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Ipv6Config {
+    pub address: Ipv6Addr,
+    pub prefix_len: u8,
+    pub gateway: Option<Ipv6Addr>,
+    pub dns: Vec<Ipv6Addr>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkStateKind {
     Up,
@@ -76,6 +84,8 @@ pub struct InterfaceSnapshot {
     pub link: LinkStateKind,
     pub ip: Option<IpConfig>,
     pub lease: Option<DhcpLease>,
+    pub ipv6: Option<Ipv6Config>,
+    pub ipv6_lease: Option<DhcpLease>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +95,7 @@ pub struct NetworkSnapshot {
     pub primary: Option<String>,
     pub backups: Vec<String>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
+    pub ipv6_available: bool,
 }
 
 impl NetworkSnapshot {
@@ -95,6 +106,7 @@ impl NetworkSnapshot {
             primary: None,
             backups: Vec::new(),
             interfaces: Vec::new(),
+            ipv6_available: false,
         }
     }
 }

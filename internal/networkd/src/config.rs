@@ -17,6 +17,7 @@ pub struct NetworkConfig {
     pub check_interval_secs: u64,
     pub probe_timeout_secs: u64,
     pub overall_timeout_secs: u64,
+    pub ipv6_enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,6 +30,7 @@ struct NetworkSection {
     bridge: Option<String>,
     carrier_timeout: Option<u64>,
     connectivity: Option<ConnectivitySection>,
+    ipv6_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +48,7 @@ impl Default for NetworkConfig {
             check_interval_secs: 60,
             probe_timeout_secs: 5,
             overall_timeout_secs: 15,
+            ipv6_enabled: true,
         }
     }
 }
@@ -78,6 +81,7 @@ impl NetworkConfig {
             bridge: None,
             carrier_timeout: None,
             connectivity: None,
+            ipv6_enabled: None,
         });
         let connectivity = network.connectivity.unwrap_or(ConnectivitySection {
             check_interval_secs: None,
@@ -97,6 +101,7 @@ impl NetworkConfig {
             overall_timeout_secs: connectivity
                 .overall_timeout_secs
                 .unwrap_or(defaults.overall_timeout_secs),
+            ipv6_enabled: network.ipv6_enabled.unwrap_or(defaults.ipv6_enabled),
         }
     }
 }

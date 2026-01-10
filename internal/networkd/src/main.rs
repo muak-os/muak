@@ -1,6 +1,7 @@
 mod config;
 mod connectivity;
 mod dhcp;
+mod dhcpv6;
 mod dns;
 mod grpc;
 mod interface;

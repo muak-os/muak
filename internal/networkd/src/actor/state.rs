@@ -1,11 +1,16 @@
 use rtnetlink::Handle;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::config::NetworkConfig;
 use crate::model::{InterfaceSnapshot, NetworkSnapshot};
+
+/// Grace period after becoming Ready to filter spurious failover events
+/// from queued bridge setup events
+pub const READY_GRACE_PERIOD_SECS: u64 = 5;
 
 pub struct NetworkActor {
     pub(super) handle: Handle,
@@ -15,6 +20,8 @@ pub struct NetworkActor {
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
     pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
     pub(super) connectivity_task: Option<JoinHandle<()>>,
+    /// Timestamp when network became Ready - used to ignore queued init events
+    pub(super) ready_at: Option<Instant>,
 }
 
 impl NetworkActor {
@@ -31,6 +38,7 @@ impl NetworkActor {
             watch_tx,
             renewal_tasks: HashMap::new(),
             connectivity_task: None,
+            ready_at: None,
         }
     }
 

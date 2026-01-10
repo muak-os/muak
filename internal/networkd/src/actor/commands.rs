@@ -30,6 +30,10 @@ pub enum NetworkCommand {
     RenewLease {
         iface: String,
     },
+    // Internal command triggered by timer for IPv6
+    RenewIpv6Lease {
+        iface: String,
+    },
     Snapshot {
         reply: oneshot::Sender<NetworkSnapshot>,
     },
@@ -69,6 +73,9 @@ impl NetworkActor {
             }
             NetworkCommand::RenewLease { iface } => {
                 let _ = self.renew_lease(&iface).await;
+            }
+            NetworkCommand::RenewIpv6Lease { iface } => {
+                let _ = self.renew_ipv6_lease(&iface, cmd_tx).await;
             }
             NetworkCommand::Snapshot { reply } => {
                 let _ = reply.send(self.state.clone());
