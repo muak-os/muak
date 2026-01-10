@@ -57,12 +57,18 @@ impl VmActorHandle {
         rx.await?
     }
 
-    pub async fn upload_file(&self, filename: String, data: Vec<u8>) -> anyhow::Result<String> {
+    pub async fn upload_file(
+        &self,
+        filename: String,
+        data: Vec<u8>,
+        vm_id: Option<String>,
+    ) -> anyhow::Result<String> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(VmCommand::UploadFile {
                 filename,
                 data,
+                vm_id,
                 reply,
             })
             .await?;

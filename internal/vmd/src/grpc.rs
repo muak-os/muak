@@ -134,6 +134,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
         let mut stream = request.into_inner();
 
         let mut filename = String::new();
+        let mut vm_id: Option<String> = None;
         let mut data = Vec::new();
 
         while let Some(chunk) = stream.next().await {
@@ -142,6 +143,9 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             match chunk.request {
                 Some(upload_file_request::Request::Metadata(meta)) => {
                     filename = meta.filename;
+                    if !meta.vm_id.is_empty() {
+                        vm_id = Some(meta.vm_id);
+                    }
                     if meta.size > 0 {
                         data.reserve(meta.size as usize);
                     }
@@ -157,7 +161,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             return Err(Status::invalid_argument("filename is required"));
         }
 
-        match self.handle.upload_file(filename, data).await {
+        match self.handle.upload_file(filename, data, vm_id).await {
             Ok(path) => Ok(Response::new(UploadFileResponse {
                 path,
                 error: String::new(),

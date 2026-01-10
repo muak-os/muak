@@ -15,7 +15,6 @@ use crate::proto::vm::{
 use super::VmCommand;
 
 const VM_DATA_DIR: &str = "/run/vmd";
-const UPLOAD_DIR: &str = "/run/vmd/uploads";
 const DEFAULT_DISK_SIZE_MB: u64 = 1024;
 
 pub struct VmActor {
@@ -184,7 +183,6 @@ impl VmActor {
 
     pub async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
         let _ = tokio::fs::create_dir_all(VM_DATA_DIR).await;
-        let _ = tokio::fs::create_dir_all(UPLOAD_DIR).await;
 
         self.process_pending_restarts().await;
 
@@ -221,9 +219,12 @@ impl VmActor {
                 VmCommand::UploadFile {
                     filename,
                     data,
+                    vm_id,
                     reply,
                 } => {
-                    let result = self.handle_upload_file(&filename, &data).await;
+                    let result = self
+                        .handle_upload_file(&filename, &data, vm_id.as_deref())
+                        .await;
                     let _ = reply.send(result);
                 }
                 VmCommand::GetSerialLog {
@@ -315,29 +316,31 @@ impl VmActor {
             HypervisorType::try_from(entry.config.hypervisor).unwrap_or(HypervisorType::Qemu);
         let hypervisor = hypervisor::create_hypervisor(hypervisor_type);
 
-        let vm_dir = PathBuf::from(VM_DATA_DIR).join(vm_id);
-        let serial_log_path = vm_dir.join("serial.log");
+        let vm_data_dir = PathBuf::from(disk::DATA_DIR).join(vm_id);
+        let vm_runtime_dir = PathBuf::from(VM_DATA_DIR).join(vm_id);
+        let serial_log_path = vm_runtime_dir.join("serial.log");
+
+        let kernel_path = resolve_boot_asset(&vm_data_dir, "kernel")?;
+        let initrd_path = resolve_boot_asset(&vm_data_dir, "initrd").ok();
+
+        let mut resolved_disks = Vec::new();
+        for (i, d) in entry.config.disks.iter().enumerate() {
+            let convention_name = format!("disk{}", i);
+            let resolved_path = resolve_boot_asset(&vm_data_dir, &convention_name)?;
+            resolved_disks.push(DiskConfig {
+                path: resolved_path,
+                readonly: d.readonly,
+            });
+        }
 
         let start_config = VmStartConfig {
             vm_id: vm_id.to_string(),
             cpus: entry.config.cpus,
             memory_mb: entry.config.memory_mb,
-            kernel: PathBuf::from(&entry.config.kernel),
-            initrd: if entry.config.initrd.is_empty() {
-                None
-            } else {
-                Some(PathBuf::from(&entry.config.initrd))
-            },
+            kernel: kernel_path,
+            initrd: initrd_path,
             cmdline: entry.config.cmdline.clone(),
-            disks: entry
-                .config
-                .disks
-                .iter()
-                .map(|d| DiskConfig {
-                    path: PathBuf::from(&d.path),
-                    readonly: d.readonly,
-                })
-                .collect(),
+            disks: resolved_disks,
             tap_device: tap.name.clone(),
             mac_address: tap.mac_address.clone(),
             serial_log_path,
@@ -460,13 +463,25 @@ impl VmActor {
         Ok(vms)
     }
 
-    async fn handle_upload_file(&self, filename: &str, data: &[u8]) -> anyhow::Result<String> {
+    async fn handle_upload_file(
+        &self,
+        filename: &str,
+        data: &[u8],
+        vm_id: Option<&str>,
+    ) -> anyhow::Result<String> {
+        let vm_id = vm_id.ok_or_else(|| anyhow::anyhow!("vm_id is required for file uploads"))?;
+
         let safe_filename = filename.replace(['/', '\\', '\0'], "_");
-        let path = PathBuf::from(UPLOAD_DIR).join(&safe_filename);
+
+        let vm_dir = PathBuf::from(disk::DATA_DIR).join(vm_id);
+        if !vm_dir.exists() {
+            anyhow::bail!("VM directory not found: {}. Create the VM first.", vm_id);
+        }
+        let path = vm_dir.join(&safe_filename);
 
         tokio::fs::write(&path, data).await?;
 
-        kmsg::info!(@ "vmd", "Uploaded file {} ({} bytes)", safe_filename, data.len());
+        kmsg::info!(@ "vmd", "Uploaded file {} ({} bytes)", path.display(), data.len());
 
         Ok(path.to_string_lossy().to_string())
     }
@@ -492,5 +507,14 @@ impl VmActor {
         } else {
             Ok(content)
         }
+    }
+}
+
+fn resolve_boot_asset(vm_data_dir: &PathBuf, convention_name: &str) -> anyhow::Result<PathBuf> {
+    let path = vm_data_dir.join(convention_name);
+    if path.exists() {
+        Ok(path)
+    } else {
+        anyhow::bail!("{} not found: {}", convention_name, path.display())
     }
 }

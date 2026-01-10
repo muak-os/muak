@@ -30,6 +30,7 @@ pub enum VmCommand {
     UploadFile {
         filename: String,
         data: Vec<u8>,
+        vm_id: Option<String>,
         reply: oneshot::Sender<anyhow::Result<String>>,
     },
     GetSerialLog {

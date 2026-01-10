@@ -18,8 +18,6 @@
 - Better support for services
   - Supervision tree for critical services
 
-- Fix init always booting to install disk even when booting from live install
-
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
@@ -43,21 +41,19 @@
     - Gateway configuration
     - Interface configuration
     - Proxy configuration
-  - Configure secure boot keys
 
 - Disk Manager Service:
   - LUKS encryption/decryption
-  - Handle uploading iso/img securely
   - Copy-on-Write disk creation from templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
-    - Create one golden image, snapshot for each VM
-  - Use btrfs scrub to verify integrity of all data (/var issue)
+    - Create one golden image, snapshot for each VM to avoid duplication in /run/data/{vm_id}
+  - Use Btrfs scrub to verify integrity of all data (/var issue)
 
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
-    - muak.port = grpc server port
-    - muak.dns = main dns server (might already be in talos inspired params)
+    - muak.port = gRPC server port
+    - muak.dns = main DNS server (might already be in talos inspired params)
 
 - Add e2e testing:
   - Unit tests

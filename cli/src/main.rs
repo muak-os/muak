@@ -125,7 +125,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let server_addr = format!("http://{}", cli.server);
 
-    // Determine timeout based on command - provisioning operations need longer timeouts
     let timeout_secs = match &cli.command {
         Commands::Install { .. } | Commands::Update { .. } => 600, // 10 minutes
         Commands::GenConfig => {
@@ -283,7 +282,6 @@ async fn handle_list_disks(
         return Ok(());
     }
 
-    // Print header
     println!(
         "{}{}{:<20}  {:<8}  {:<9}  {:<11} {:<40} {:<3} {:<3} PARTITIONS{}",
         BOLD, GREEN, "DISK", "SIZE", "FS", "POSITION", "MODEL", "RO", "REM", RESET
@@ -300,7 +298,6 @@ async fn handle_list_disks(
             disk.path, size_str, "", "", disk.model, ro_str, rem_str, part_count
         );
 
-        // Print partitions if any
         for (idx, part) in disk.partitions.iter().enumerate() {
             let is_last = idx == disk.partitions.len() - 1;
             let prefix = if is_last { "└─" } else { "├─" };
@@ -445,17 +442,24 @@ fn hypervisor_to_string(hypervisor: i32) -> &'static str {
 async fn upload_file(
     client: &mut VmServiceClient<tonic::transport::Channel>,
     file_path: &str,
+    vm_id: Option<&str>,
+    target_filename: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     use tokio::io::AsyncReadExt;
 
     let mut file = tokio::fs::File::open(file_path).await?;
     let metadata = file.metadata().await?;
     let file_size = metadata.len();
-    let filename = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file")
-        .to_string();
+
+    let filename = target_filename.map(|s| s.to_string()).unwrap_or_else(|| {
+        std::path::Path::new(file_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string()
+    });
+
+    let vm_id_str = vm_id.unwrap_or("").to_string();
 
     let (tx, rx) = tokio::sync::mpsc::channel(128);
 
@@ -465,6 +469,7 @@ async fn upload_file(
                 vm_service::UploadFileMetadata {
                     filename,
                     size: file_size as i64,
+                    vm_id: vm_id_str,
                 },
             )),
         };
@@ -550,76 +555,29 @@ async fn handle_vm_action(
             disk,
             disk_size,
         } => {
-            // Upload kernel if it exists locally
-            let kernel_path = if let Some(ref k) = kernel {
-                if std::path::Path::new(k).exists() {
-                    println!("{}Uploading kernel: {}{}", BLUE, k, RESET);
-                    match upload_file(client, k).await {
-                        Ok(remote_path) => {
-                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
-                            Some(remote_path)
-                        }
-                        Err(e) => {
-                            eprintln!("{}Error uploading kernel {}: {}{}", RED, k, e, RESET);
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    Some(k.clone())
-                }
-            } else {
-                None
-            };
+            let kernel = kernel.ok_or_else(|| {
+                eprintln!("{}Error: --kernel is required{}", RED, RESET);
+                std::process::exit(1);
+            })?;
 
-            // Upload initrd if it exists locally
-            let initrd_path = if let Some(ref i) = initrd {
-                if std::path::Path::new(i).exists() {
-                    println!("{}Uploading initrd: {}{}", BLUE, i, RESET);
-                    match upload_file(client, i).await {
-                        Ok(remote_path) => {
-                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
-                            Some(remote_path)
-                        }
-                        Err(e) => {
-                            eprintln!("{}Error uploading initrd {}: {}{}", RED, i, e, RESET);
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    Some(i.clone())
-                }
-            } else {
-                None
-            };
+            if !std::path::Path::new(&kernel).exists() {
+                eprintln!("{}Error: kernel file not found: {}{}", RED, kernel, RESET);
+                std::process::exit(1);
+            }
 
-            let mut uploaded_disks = Vec::new();
-
-            for disk_path in &disk {
-                if std::path::Path::new(disk_path).exists() {
-                    println!("{}Uploading disk: {}{}", BLUE, disk_path, RESET);
-                    match upload_file(client, disk_path).await {
-                        Ok(remote_path) => {
-                            println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
-                            uploaded_disks.push(remote_path);
-                        }
-                        Err(e) => {
-                            eprintln!("{}Error uploading disk {}: {}{}", RED, disk_path, e, RESET);
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    uploaded_disks.push(disk_path.clone());
+            if let Some(ref i) = initrd {
+                if !std::path::Path::new(i).exists() {
+                    eprintln!("{}Error: initrd file not found: {}{}", RED, i, RESET);
+                    std::process::exit(1);
                 }
             }
 
-            let disks: Vec<DiskConfig> = uploaded_disks
-                .into_iter()
-                .map(|path| {
-                    // ISOs should be readonly
-                    let readonly = path.to_lowercase().ends_with(".iso");
-                    DiskConfig { path, readonly }
-                })
-                .collect();
+            for disk_path in &disk {
+                if !std::path::Path::new(disk_path).exists() {
+                    eprintln!("{}Error: disk file not found: {}{}", RED, disk_path, RESET);
+                    std::process::exit(1);
+                }
+            }
 
             let hypervisor = match vmm.to_lowercase().as_str() {
                 "firecracker" | "fc" => Hypervisor::Firecracker,
@@ -634,12 +592,28 @@ async fn handle_vm_action(
                 }
             };
 
+            let disks: Vec<DiskConfig> = disk
+                .iter()
+                .enumerate()
+                .map(|(i, path)| {
+                    let readonly = path.to_lowercase().ends_with(".iso");
+                    DiskConfig {
+                        path: format!("disk{}", i),
+                        readonly,
+                    }
+                })
+                .collect();
+
             let config = VmConfig {
                 name: name.clone(),
                 cpus,
                 memory_mb: memory,
-                kernel: kernel_path.unwrap_or_default(),
-                initrd: initrd_path.unwrap_or_default(),
+                kernel: "kernel".to_string(),
+                initrd: if initrd.is_some() {
+                    "initrd".to_string()
+                } else {
+                    String::new()
+                },
                 cmdline: cmdline.unwrap_or_default(),
                 disks,
                 hypervisor: hypervisor.into(),
@@ -653,32 +627,82 @@ async fn handle_vm_action(
             let response = client.create_vm(request).await?;
             let resp = response.into_inner();
 
-            if resp.error.is_empty() {
-                let vm_id = resp.vm_id.clone();
-                println!("{}Created VM: {} (ID: {}){}", GREEN, name, vm_id, RESET);
+            if !resp.error.is_empty() {
+                eprintln!("{}Error creating VM: {}{}", RED, resp.error, RESET);
+                std::process::exit(1);
+            }
 
-                let start_request = tonic::Request::new(StartVmRequest {
-                    vm_id: vm_id.clone(),
-                });
-                let start_response = client.start_vm(start_request).await?;
-                let start_resp = start_response.into_inner();
+            let vm_id = resp.vm_id.clone();
+            println!("{}Created VM: {} (ID: {}){}", GREEN, name, vm_id, RESET);
 
-                if start_resp.success {
-                    println!("{}Started VM: {}{}", GREEN, vm_id, RESET);
-                } else {
-                    eprintln!("{}Error starting VM: {}{}", RED, start_resp.error, RESET);
-
+            println!("{}Uploading kernel: {}{}", BLUE, kernel, RESET);
+            match upload_file(client, &kernel, Some(&vm_id), Some("kernel")).await {
+                Ok(remote_path) => {
+                    println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
+                }
+                Err(e) => {
+                    eprintln!("{}Error uploading kernel: {}{}", RED, e, RESET);
                     let delete_request = tonic::Request::new(DeleteVmRequest {
                         vm_id: vm_id.clone(),
                     });
-                    if let Err(e) = client.delete_vm(delete_request).await {
-                        eprintln!("{}Warning: Failed to clean up VM: {}{}", YELLOW, e, RESET);
-                    }
-
+                    let _ = client.delete_vm(delete_request).await;
                     std::process::exit(1);
                 }
+            }
+
+            if let Some(ref initrd_path) = initrd {
+                println!("{}Uploading initrd: {}{}", BLUE, initrd_path, RESET);
+                match upload_file(client, initrd_path, Some(&vm_id), Some("initrd")).await {
+                    Ok(remote_path) => {
+                        println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
+                    }
+                    Err(e) => {
+                        eprintln!("{}Error uploading initrd: {}{}", RED, e, RESET);
+                        let delete_request = tonic::Request::new(DeleteVmRequest {
+                            vm_id: vm_id.clone(),
+                        });
+                        let _ = client.delete_vm(delete_request).await;
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            for (i, disk_path) in disk.iter().enumerate() {
+                let target_name = format!("disk{}", i);
+                println!("{}Uploading disk: {}{}", BLUE, disk_path, RESET);
+                match upload_file(client, disk_path, Some(&vm_id), Some(&target_name)).await {
+                    Ok(remote_path) => {
+                        println!("{}Uploaded to: {}{}", GREEN, remote_path, RESET);
+                    }
+                    Err(e) => {
+                        eprintln!("{}Error uploading disk: {}{}", RED, e, RESET);
+                        let delete_request = tonic::Request::new(DeleteVmRequest {
+                            vm_id: vm_id.clone(),
+                        });
+                        let _ = client.delete_vm(delete_request).await;
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            let start_request = tonic::Request::new(StartVmRequest {
+                vm_id: vm_id.clone(),
+            });
+            let start_response = client.start_vm(start_request).await?;
+            let start_resp = start_response.into_inner();
+
+            if start_resp.success {
+                println!("{}Started VM: {}{}", GREEN, vm_id, RESET);
             } else {
-                eprintln!("{}Error creating VM: {}{}", RED, resp.error, RESET);
+                eprintln!("{}Error starting VM: {}{}", RED, start_resp.error, RESET);
+
+                let delete_request = tonic::Request::new(DeleteVmRequest {
+                    vm_id: vm_id.clone(),
+                });
+                if let Err(e) = client.delete_vm(delete_request).await {
+                    eprintln!("{}Warning: Failed to clean up VM: {}{}", YELLOW, e, RESET);
+                }
+
                 std::process::exit(1);
             }
         }
