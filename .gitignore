@@ -2,3 +2,4 @@
 **/_out
 **/target
 **/tmp
+kernel-signing-key.pem
