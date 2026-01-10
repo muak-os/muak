@@ -14,7 +14,6 @@ use crate::proto::vm::{
 
 use super::VmCommand;
 
-const VM_DATA_DIR: &str = "/run/vmd";
 const DEFAULT_DISK_SIZE_MB: u64 = 1024;
 
 pub struct VmActor {
@@ -182,8 +181,6 @@ impl VmActor {
     }
 
     pub async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
-        let _ = tokio::fs::create_dir_all(VM_DATA_DIR).await;
-
         self.process_pending_restarts().await;
 
         while let Some(cmd) = cmd_rx.recv().await {
@@ -288,9 +285,6 @@ impl VmActor {
         persistence::save_vm(&vm_id, &entry.to_persisted())?;
         self.vms.insert(vm_id.clone(), entry);
 
-        let vm_dir = PathBuf::from(VM_DATA_DIR).join(&vm_id);
-        tokio::fs::create_dir_all(&vm_dir).await?;
-
         Ok(vm_id)
     }
 
@@ -317,8 +311,7 @@ impl VmActor {
         let hypervisor = hypervisor::create_hypervisor(hypervisor_type);
 
         let vm_data_dir = PathBuf::from(disk::DATA_DIR).join(vm_id);
-        let vm_runtime_dir = PathBuf::from(VM_DATA_DIR).join(vm_id);
-        let serial_log_path = vm_runtime_dir.join("serial.log");
+        let serial_log_path = vm_data_dir.join("serial.log");
 
         let kernel_path = resolve_boot_asset(&vm_data_dir, "kernel")?;
         let initrd_path = resolve_boot_asset(&vm_data_dir, "initrd").ok();
@@ -434,11 +427,6 @@ impl VmActor {
             kmsg::warn!(@ "vmd", "Failed to delete VM state file: {}", e);
         }
 
-        let vm_dir = PathBuf::from(VM_DATA_DIR).join(vm_id);
-        if vm_dir.exists() {
-            tokio::fs::remove_dir_all(&vm_dir).await?;
-        }
-
         self.vms.remove(vm_id);
 
         Ok(())
@@ -492,7 +480,7 @@ impl VmActor {
             .get(vm_id)
             .ok_or_else(|| anyhow::anyhow!("VM not found: {}", vm_id))?;
 
-        let log_path = PathBuf::from(VM_DATA_DIR).join(vm_id).join("serial.log");
+        let log_path = PathBuf::from(disk::DATA_DIR).join(vm_id).join("serial.log");
 
         if !log_path.exists() {
             return Ok(String::new());
