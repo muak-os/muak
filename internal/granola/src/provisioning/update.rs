@@ -74,14 +74,15 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
             nix::libc::SYS_kexec_file_load,
             kernel.as_raw_fd(),
             initrd.as_raw_fd(),
-            cmdline.as_bytes().len() as nix::libc::size_t,
+            cmdline.as_bytes_with_nul().len() as nix::libc::size_t,
             cmdline.as_ptr(),
             0 as nix::libc::c_ulong,
         )
     };
 
     if res != 0 {
-        return Err(anyhow!("kexec_file_load failed: {}", res));
+        let errno = std::io::Error::last_os_error();
+        return Err(anyhow!("kexec_file_load failed: {} ({})", errno, res));
     }
 
     nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_KEXEC)
