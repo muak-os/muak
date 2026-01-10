@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::HostConfig;
 use crate::disk;
-use uki::{UkiComponents, UkiConfig};
+use uki::{Uki, UkiConfig};
 
 pub(crate) const INSTALL_DIR: &str = "/run/install";
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";
@@ -73,7 +73,7 @@ pub(crate) fn prepare_uki(
     installer_image: &str,
     extensions: &[String],
     work_dir: &Path,
-) -> Result<UkiComponents> {
+) -> Result<Uki> {
     let config = UkiConfig {
         installer_image,
         extensions,

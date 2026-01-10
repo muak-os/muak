@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use nix::unistd::sync;
 
-use super::uki::{self, UkiComponents};
+use super::uki::{self, Uki};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
 use crate::config::{CONFIG_PATH, HostConfig};
 
@@ -150,11 +150,11 @@ fn update_config_image(new_image: &str) -> Result<()> {
     Ok(())
 }
 
-fn build_uki_components_for_commit() -> UkiComponents {
+fn build_uki_components_for_commit() -> Uki {
     let arch = std::env::consts::ARCH;
     let base = Path::new(UPDATE_DIR).join(arch);
 
-    UkiComponents {
+    Uki {
         kernel: base.join("bzImage"),
         stub: base.join("stub.efi"),
         initramfs: base.join("initramfs.img"),

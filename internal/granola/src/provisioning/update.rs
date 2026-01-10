@@ -4,9 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use nix::unistd::sync;
 
-use super::uki::UkiComponents;
+use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
 use crate::config::{CONFIG_PATH, HostConfig};
 
@@ -65,15 +64,25 @@ fn save_validation_marker(staging_dir: &Path, marker: &ValidationMarker) -> Resu
     fs::write(marker_path, marker_json).context("Failed to write validation marker")
 }
 
-fn kexec(components: &UkiComponents, update_id: &str) -> Result<()> {
-    let kernel = fs::File::open(&components.kernel).context("Failed to open kernel for kexec")?;
-    let initrd =
-        fs::File::open(&components.initramfs).context("Failed to open initramfs for kexec")?;
-
+fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
+    let kernel = fs::File::open(&uki.kernel).context("Failed to open kernel for kexec")?;
+    let initrd = fs::File::open(&uki.initramfs).context("Failed to open initramfs for kexec")?;
     let cmdline = prepare_cmdline_with_update_marker(update_id)?;
 
-    load_kernel_into_memory(&kernel, &initrd, &cmdline)?;
-    sync();
+    let res = unsafe {
+        nix::libc::syscall(
+            nix::libc::SYS_kexec_file_load,
+            kernel.as_raw_fd(),
+            initrd.as_raw_fd(),
+            cmdline.as_bytes().len() as nix::libc::size_t,
+            cmdline.as_ptr(),
+            0 as nix::libc::c_ulong,
+        )
+    };
+
+    if res != 0 {
+        return Err(anyhow!("kexec_file_load failed: {}", res));
+    }
 
     nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_KEXEC)
         .map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
@@ -91,30 +100,4 @@ fn prepare_cmdline_with_update_marker(update_id: &str) -> Result<std::ffi::CStri
 
     std::ffi::CString::new(cmdline_with_marker)
         .map_err(|_| anyhow!("Kernel cmdline contains interior NUL"))
-}
-
-fn load_kernel_into_memory(
-    kernel: &fs::File,
-    initrd: &fs::File,
-    cmdline: &std::ffi::CString,
-) -> Result<()> {
-    let cmdline_ptr = cmdline.as_ptr();
-    let cmdline_len = cmdline.as_bytes().len();
-
-    let res = unsafe {
-        nix::libc::syscall(
-            nix::libc::SYS_kexec_file_load,
-            kernel.as_raw_fd(),
-            initrd.as_raw_fd(),
-            cmdline_len as nix::libc::size_t,
-            cmdline_ptr,
-            0 as nix::libc::c_ulong,
-        )
-    };
-
-    if res != 0 {
-        return Err(anyhow!("kexec_file_load failed: {}", res));
-    }
-
-    Ok(())
 }

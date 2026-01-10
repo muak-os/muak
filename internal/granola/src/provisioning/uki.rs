@@ -9,20 +9,20 @@ pub struct UkiConfig<'a> {
     pub cmdline: &'a str,
 }
 
-pub struct UkiComponents {
+pub struct Uki {
     pub kernel: PathBuf,
     pub stub: PathBuf,
     pub initramfs: PathBuf,
     pub cmdline: PathBuf,
 }
 
-pub fn prepare_uki_components(config: &UkiConfig) -> Result<UkiComponents> {
+pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
     let arch = std::env::consts::ARCH;
     let base_dir = config.work_dir.join(arch);
     std::fs::create_dir_all(&base_dir)
         .with_context(|| format!("Failed to create work dir {}", base_dir.display()))?;
 
-    let components = UkiComponents {
+    let components = Uki {
         kernel: base_dir.join("bzImage"),
         stub: base_dir.join("stub.efi"),
         initramfs: base_dir.join("initramfs.img"),
@@ -36,9 +36,9 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<UkiComponents> {
     Ok(components)
 }
 
-pub fn build_uki(components: &UkiComponents, output: &Path) -> Result<()> {
+pub fn build_uki(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
-    execute_yuki(components, output)?;
+    execute_yuki(uki, output)?;
 
     kmsg::info!(
         @ "provisioning",
@@ -48,11 +48,11 @@ pub fn build_uki(components: &UkiComponents, output: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn build_uki_atomic(components: &UkiComponents, output: &Path) -> Result<()> {
+pub fn build_uki_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    execute_yuki(components, &temp_output)?;
+    execute_yuki(uki, &temp_output)?;
 
     std::fs::rename(&temp_output, output).with_context(|| {
         format!(
@@ -207,16 +207,16 @@ fn write_cmdline(path: &Path, cmdline: &str) -> Result<()> {
         .with_context(|| format!("Failed to write cmdline to {}", path.display()))
 }
 
-fn execute_yuki(components: &UkiComponents, output: &Path) -> Result<()> {
+fn execute_yuki(uki: &Uki, output: &Path) -> Result<()> {
     let result = Command::new("/sbin/yuki")
         .arg("--stub")
-        .arg(&components.stub)
+        .arg(&uki.stub)
         .arg("--linux")
-        .arg(&components.kernel)
+        .arg(&uki.kernel)
         .arg("--initrd")
-        .arg(&components.initramfs)
+        .arg(&uki.initramfs)
         .arg("--cmdline")
-        .arg(&components.cmdline)
+        .arg(&uki.cmdline)
         .arg("--output")
         .arg(output)
         .output()
