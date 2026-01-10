@@ -112,10 +112,10 @@ oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
 
 ## Kernel
 .PHONY: kernel
-kernel: $(ARTIFACTS) ## Build kernel to local artifacts (unsigned)
+kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 	$(call require-pkg,kernel)
 	@printf "$(CYAN)Building kernel locally$(RESET)\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) \
 		--output type=local,dest=$(ARTIFACTS) \
 		--file pkgs/kernel/Dockerfile \
 		.
