@@ -1,7 +1,5 @@
 ## TODO
 
-- Allow for /run/data to be on a different disk
-
 - Support arm64 architecture
   - Support for devicetree in stub
   - Create kernel config for arm64
@@ -10,6 +8,9 @@
   - Tweak pkgs Dockerfiles
 
 - Properly structure the CLI
+  - Organize project in different files/modules
+  - Add reset command
+  - Add dmesg alias to logs command
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
@@ -49,6 +50,8 @@
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM to avoid duplication in /run/data/{vm_id}
   - Use Btrfs scrub to verify integrity of all data (/var issue)
+  - Allow /run/data to be on a different disk than rootfs
+  - Allow vm disks to be stored on a different disk than rootfs
 
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
