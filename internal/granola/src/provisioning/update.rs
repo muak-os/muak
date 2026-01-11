@@ -62,10 +62,7 @@ fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
 fn save_validation_marker(staging_dir: &Path, marker: &ValidationMarker) -> Result<()> {
     let marker_json = serde_json::to_string_pretty(marker)?;
     let marker_path = staging_dir.join("pending-validation.json");
-    fs::write(marker_path, marker_json).context("Failed to write validation marker")?;
-    sync();
-
-    Ok(())
+    fs::write(marker_path, marker_json).context("Failed to write validation marker")
 }
 
 fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
@@ -88,6 +85,8 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
         let errno = std::io::Error::last_os_error();
         return Err(anyhow!("kexec_file_load failed: {} ({})", errno, res));
     }
+
+    sync();
 
     nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_KEXEC)
         .map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
