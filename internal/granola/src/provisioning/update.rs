@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
+use nix::unistd::sync;
 
 use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
@@ -61,7 +62,10 @@ fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
 fn save_validation_marker(staging_dir: &Path, marker: &ValidationMarker) -> Result<()> {
     let marker_json = serde_json::to_string_pretty(marker)?;
     let marker_path = staging_dir.join("pending-validation.json");
-    fs::write(marker_path, marker_json).context("Failed to write validation marker")
+    fs::write(marker_path, marker_json).context("Failed to write validation marker")?;
+    sync();
+
+    Ok(())
 }
 
 fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
