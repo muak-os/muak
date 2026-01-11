@@ -28,7 +28,10 @@ pub mod provision_service {
 use process_service::ListProcessesRequest;
 use process_service::process_service_client::ProcessServiceClient;
 use provision_service::provision_service_client::ProvisionServiceClient;
-use provision_service::{GetLogsRequest, InstallRequest, ListDisksRequest, UpdateRequest};
+use provision_service::{
+    GetLogsRequest, GetUpdateStatusRequest, InstallRequest, ListDisksRequest, PrepareUpdateRequest,
+    UpdateRequest, UpdateStatus,
+};
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
     CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, Hypervisor,
@@ -154,8 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_install(&mut client, force, config).await?;
         }
         Commands::Update { image, extension } => {
-            let mut client = ProvisionServiceClient::new(channel);
-            handle_update(&mut client, image, extension).await?;
+            handle_update(&cli.server, image, extension).await?;
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
@@ -230,38 +232,117 @@ async fn handle_install(
 }
 
 async fn handle_update(
-    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
+    server: &str,
     image: Option<String>,
     extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let server_addr = format!("http://{}", server);
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
-    let request = tonic::Request::new(UpdateRequest { image, extensions });
 
-    println!(
-        "{}Starting update to {}...{}",
-        BLUE,
-        request.get_ref().image,
-        RESET
-    );
+    println!("{}Starting update to {}...{}", BLUE, image, RESET);
 
-    let response = client.update(request).await?;
+    let channel = tonic::transport::Channel::from_shared(server_addr.clone())?
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(600))
+        .connect()
+        .await?;
+
+    let mut client = ProvisionServiceClient::new(channel);
+
+    let response = client
+        .prepare_update(tonic::Request::new(PrepareUpdateRequest {
+            image: image.clone(),
+            extensions,
+        }))
+        .await?;
     let resp = response.into_inner();
 
-    if resp.success {
-        println!(
-            "{}Update request accepted. Update ID: {}{}",
-            GREEN, resp.update_id, RESET
-        );
-        println!(
-            "{}System will kexec into the new kernel shortly.{}",
-            YELLOW, RESET
-        );
-    } else {
+    if !resp.success {
         eprintln!("{}Update failed: {}{}", RED, resp.error, RESET);
         std::process::exit(1);
     }
 
-    Ok(())
+    let update_id = resp.update_id.clone();
+    println!("{}Update prepared. ID: {}{}", GREEN, update_id, RESET);
+    println!("{}Triggering update...{}", YELLOW, RESET);
+
+    let update_channel = tonic::transport::Channel::from_shared(server_addr.clone())?
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(2))
+        .connect()
+        .await?;
+
+    let mut update_client = ProvisionServiceClient::new(update_channel);
+    let _ = update_client
+        .update(tonic::Request::new(UpdateRequest {
+            update_id: update_id.clone(),
+        }))
+        .await;
+
+    println!(
+        "{}Waiting for system to come back online...{}",
+        YELLOW, RESET
+    );
+
+    let timeout = std::time::Duration::from_secs(60);
+    let poll_interval = std::time::Duration::from_secs(2);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            eprintln!(
+                "{}Timeout waiting for system to come back online after update{}",
+                RED, RESET
+            );
+            std::process::exit(1);
+        }
+
+        let channel = match tonic::transport::Channel::from_shared(server_addr.clone())?
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(10))
+            .connect()
+            .await
+        {
+            Ok(c) => c,
+            Err(_) => {
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+        };
+
+        let mut client = ProvisionServiceClient::new(channel);
+        let request = tonic::Request::new(GetUpdateStatusRequest {
+            update_id: update_id.clone(),
+        });
+
+        match client.get_update_status(request).await {
+            Ok(response) => {
+                let resp = response.into_inner();
+                match UpdateStatus::try_from(resp.status).unwrap_or(UpdateStatus::Unknown) {
+                    UpdateStatus::Committed => {
+                        println!(
+                            "{}Update {} committed successfully!{}",
+                            GREEN, update_id, RESET
+                        );
+                        return Ok(());
+                    }
+                    UpdateStatus::RolledBack => {
+                        eprintln!(
+                            "{}Update {} rolled back: {}{}",
+                            RED, update_id, resp.error, RESET
+                        );
+                        std::process::exit(1);
+                    }
+                    UpdateStatus::Pending | UpdateStatus::Unknown => {
+                        tokio::time::sleep(poll_interval).await;
+                    }
+                }
+            }
+            Err(_) => {
+                tokio::time::sleep(poll_interval).await;
+            }
+        }
+    }
 }
 
 async fn handle_list_disks(

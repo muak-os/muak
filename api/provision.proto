@@ -4,9 +4,27 @@ package muak.provision.v1;
 
 service ProvisionService {
     rpc Install(InstallRequest) returns (InstallResponse);
+    rpc PrepareUpdate(PrepareUpdateRequest) returns (PrepareUpdateResponse);
     rpc Update(UpdateRequest) returns (UpdateResponse);
+    rpc GetUpdateStatus(GetUpdateStatusRequest) returns (GetUpdateStatusResponse);
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
     rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse);
+}
+
+enum UpdateStatus {
+    UPDATE_STATUS_UNKNOWN = 0;
+    UPDATE_STATUS_PENDING = 1;
+    UPDATE_STATUS_COMMITTED = 2;
+    UPDATE_STATUS_ROLLED_BACK = 3;
+}
+
+message GetUpdateStatusRequest {
+    string update_id = 1;
+}
+
+message GetUpdateStatusResponse {
+    UpdateStatus status = 1;
+    string error = 2;
 }
 
 message InstallRequest {
@@ -19,15 +37,24 @@ message InstallResponse {
     string error = 2;
 }
 
-message UpdateRequest {
+message PrepareUpdateRequest {
     string image = 1;
     repeated string extensions = 2;
 }
 
-message UpdateResponse {
+message PrepareUpdateResponse {
     bool success = 1;
     string update_id = 2;
     string error = 3;
+}
+
+message UpdateRequest {
+    string update_id = 1;
+}
+
+message UpdateResponse {
+    bool success = 1;
+    string error = 2;
 }
 
 message GetLogsRequest {}

@@ -16,27 +16,40 @@ pub struct Uki {
     pub cmdline: PathBuf,
 }
 
-pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
-    let arch = std::env::consts::ARCH;
-    let base_dir = config.work_dir.join(arch);
-    std::fs::create_dir_all(&base_dir)
-        .with_context(|| format!("Failed to create work dir {}", base_dir.display()))?;
-
-    let components = Uki {
-        kernel: base_dir.join("bzImage"),
-        stub: base_dir.join("stub.efi"),
-        initramfs: base_dir.join("initramfs.img"),
-        cmdline: base_dir.join("cmdline.txt"),
-    };
-
-    pull_installer(config.installer_image, &base_dir)?;
-    build_initramfs(&base_dir, &components.initramfs, config.extensions)?;
-    write_cmdline(&components.cmdline, config.cmdline)?;
-
-    Ok(components)
+impl Uki {
+    pub fn from_dir(base_dir: &Path) -> Self {
+        let arch_dir = base_dir.join(std::env::consts::ARCH);
+        Self {
+            kernel: arch_dir.join("bzImage"),
+            stub: arch_dir.join("stub.efi"),
+            initramfs: arch_dir.join("initramfs.img"),
+            cmdline: arch_dir.join("cmdline.txt"),
+        }
+    }
 }
 
-pub fn build_uki(uki: &Uki, output: &Path) -> Result<()> {
+pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
+    let uki = Uki::from_dir(config.work_dir);
+
+    std::fs::create_dir_all(uki.kernel.parent().unwrap()).with_context(|| {
+        format!(
+            "Failed to create work dir for {}",
+            config.work_dir.display()
+        )
+    })?;
+
+    pull_installer(config.installer_image, uki.kernel.parent().unwrap())?;
+    build_initramfs(
+        uki.kernel.parent().unwrap(),
+        &uki.initramfs,
+        config.extensions,
+    )?;
+    write_cmdline(&uki.cmdline, config.cmdline)?;
+
+    Ok(uki)
+}
+
+pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
     execute_yuki(uki, output)?;
 
@@ -48,7 +61,7 @@ pub fn build_uki(uki: &Uki, output: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn build_uki_atomic(uki: &Uki, output: &Path) -> Result<()> {
+pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);

@@ -3,8 +3,9 @@ use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::{
-    DiskInfo, GetLogsRequest, GetLogsResponse, InstallRequest, InstallResponse, ListDisksRequest,
-    ListDisksResponse, PartitionInfo, UpdateRequest, UpdateResponse,
+    DiskInfo, GetLogsRequest, GetLogsResponse, GetUpdateStatusRequest, GetUpdateStatusResponse,
+    InstallRequest, InstallResponse, ListDisksRequest, ListDisksResponse, PartitionInfo,
+    PrepareUpdateRequest, PrepareUpdateResponse, UpdateRequest, UpdateResponse,
 };
 
 use crate::config::HostConfig;
@@ -66,25 +67,65 @@ impl ProvisionService for ProvisionServiceImpl {
         }
     }
 
-    async fn update(
+    async fn prepare_update(
         &self,
-        request: Request<UpdateRequest>,
-    ) -> Result<Response<UpdateResponse>, Status> {
+        request: Request<PrepareUpdateRequest>,
+    ) -> Result<Response<PrepareUpdateResponse>, Status> {
         let req = request.into_inner();
         kmsg::info!("Update request: image={}", req.image);
 
-        match provisioning::update(&req.image, &req.extensions).await {
-            Ok(update_id) => Ok(Response::new(UpdateResponse {
+        match provisioning::prepare_update(&req.image, &req.extensions).await {
+            Ok(update_id) => Ok(Response::new(PrepareUpdateResponse {
                 success: true,
                 update_id,
                 error: String::new(),
             })),
-            Err(e) => Ok(Response::new(UpdateResponse {
+            Err(e) => Ok(Response::new(PrepareUpdateResponse {
                 success: false,
                 update_id: String::new(),
                 error: format!("{}", e),
             })),
         }
+    }
+
+    async fn update(
+        &self,
+        request: Request<UpdateRequest>,
+    ) -> Result<Response<UpdateResponse>, Status> {
+        if let Err(e) = provisioning::update(&request.into_inner().update_id) {
+            return Ok(Response::new(UpdateResponse {
+                success: false,
+                error: format!("{}", e),
+            }));
+        }
+
+        unreachable!("If we're here, something went really wrong in kexec")
+    }
+
+    async fn get_update_status(
+        &self,
+        request: Request<GetUpdateStatusRequest>,
+    ) -> Result<Response<GetUpdateStatusResponse>, Status> {
+        let update_id = request.into_inner().update_id;
+
+        let status = tokio::task::spawn_blocking({
+            let update_id = update_id.clone();
+            move || provisioning::get_update_status(&update_id)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task failed: {}", e)))?;
+
+        let (proto_status, error) = match status {
+            provisioning::UpdateStatus::Unknown => (0, String::new()),
+            provisioning::UpdateStatus::Pending => (1, String::new()),
+            provisioning::UpdateStatus::Committed => (2, String::new()),
+            provisioning::UpdateStatus::RolledBack(reason) => (3, reason),
+        };
+
+        Ok(Response::new(GetUpdateStatusResponse {
+            status: proto_status,
+            error,
+        }))
     }
 
     async fn list_disks(

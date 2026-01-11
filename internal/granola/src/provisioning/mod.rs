@@ -3,7 +3,8 @@ mod uki;
 mod update;
 mod validation;
 
-pub use validation::check_and_handle_pending_validation;
+pub use update::update;
+pub use validation::{UpdateStatus, check_and_handle_pending_validation, get_update_status};
 
 use std::fs;
 use std::path::Path;
@@ -58,15 +59,13 @@ pub async fn install(force: bool, config: HostConfig) -> Result<()> {
         .context("Install task panicked")?
 }
 
-pub async fn update(image: &str, extensions: &[String]) -> Result<String> {
+pub async fn prepare_update(image: &str, extensions: &[String]) -> Result<String> {
     let image = image.to_string();
     let extensions = extensions.to_vec();
 
-    let result = tokio::task::spawn_blocking(move || update::update(&image, &extensions))
+    tokio::task::spawn_blocking(move || update::prepare(&image, &extensions))
         .await
-        .context("Update task panicked")??;
-
-    Ok(result.update_id)
+        .context("Prepare update task panicked")?
 }
 
 pub(crate) fn prepare_uki(

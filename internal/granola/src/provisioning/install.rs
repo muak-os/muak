@@ -22,7 +22,7 @@ pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> 
     let components = prepare_uki(&config.system.image, &config.system.extensions, work_dir)?;
     let staged_uki = work_dir.join("staged.efi");
 
-    uki::build_uki(&components, &staged_uki)?;
+    uki::build(&components, &staged_uki)?;
 
     disk::delete_all_partitions_blkpg(disk_path)?;
     disk::wipe_disk(disk_path)?;

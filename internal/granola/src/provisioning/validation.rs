@@ -10,6 +10,42 @@ use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unm
 use crate::config::{CONFIG_PATH, HostConfig};
 use crate::disk;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateStatus {
+    Unknown,
+    Pending,
+    Committed,
+    RolledBack(String),
+}
+
+pub fn get_update_status(update_id: &str) -> UpdateStatus {
+    let rollback_path = Path::new("/run/state/rollbacks").join(format!("{}.json", update_id));
+    if rollback_path.exists() {
+        if let Ok(contents) = fs::read_to_string(&rollback_path) {
+            if let Ok(info) = serde_json::from_str::<RollbackInfo>(&contents) {
+                return UpdateStatus::RolledBack(info.reason);
+            }
+        }
+        return UpdateStatus::RolledBack("Unknown error".to_string());
+    }
+
+    let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    if cmdline.contains(&format!("muak.update_id={}", update_id)) {
+        return UpdateStatus::Committed;
+    }
+
+    let marker_path = Path::new(UPDATE_DIR).join("pending-validation.json");
+    if let Ok(contents) = fs::read_to_string(&marker_path) {
+        if let Ok(marker) = serde_json::from_str::<ValidationMarker>(&contents) {
+            if marker.update_id == update_id {
+                return UpdateStatus::Pending;
+            }
+        }
+    }
+
+    UpdateStatus::Unknown
+}
+
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let marker = match load_validation_marker()? {
         Some(m) => m,
@@ -123,10 +159,10 @@ fn commit_update(marker: &ValidationMarker) -> Result<()> {
 fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) -> Result<()> {
     fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
-    let components = build_uki_components_for_commit();
+    let uki = Uki::from_dir(Path::new(UPDATE_DIR));
     let uki_path = uki::get_uki_path(Path::new(mount_point))?;
 
-    uki::build_uki_atomic(&components, &uki_path)?;
+    uki::build_atomic(&uki, &uki_path)?;
 
     update_config_image(&marker.target_image)?;
 
@@ -147,18 +183,6 @@ fn update_config_image(new_image: &str) -> Result<()> {
     fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
 
     Ok(())
-}
-
-fn build_uki_components_for_commit() -> Uki {
-    let arch = std::env::consts::ARCH;
-    let base = Path::new(UPDATE_DIR).join(arch);
-
-    Uki {
-        kernel: base.join("bzImage"),
-        stub: base.join("stub.efi"),
-        initramfs: base.join("initramfs.img"),
-        cmdline: base.join("cmdline.txt"),
-    }
 }
 
 fn cleanup_update_files() {

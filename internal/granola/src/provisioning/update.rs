@@ -10,25 +10,21 @@ use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
 use crate::config::{CONFIG_PATH, HostConfig};
 
-pub struct UpdateResult {
-    pub update_id: String,
-}
-
-pub fn update(image: &str, extensions: &[String]) -> Result<UpdateResult> {
-    kmsg::info!(@ "provisioning", "Starting update to image {}", image);
-
+pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     let staging_dir = create_staging_directory()?;
-
-    let components = prepare_uki(image, extensions, &staging_dir)?;
+    let _uki = prepare_uki(image, extensions, &staging_dir)?;
 
     let marker = create_validation_marker(image)?;
     save_validation_marker(&staging_dir, &marker)?;
 
-    let update_id = marker.update_id.clone();
+    sync();
 
-    kexec(&components, &update_id)?;
+    Ok(marker.update_id)
+}
 
-    Ok(UpdateResult { update_id })
+pub fn update(update_id: &str) -> Result<()> {
+    let uki = Uki::from_dir(Path::new(UPDATE_DIR));
+    kexec(&uki, update_id)
 }
 
 fn create_staging_directory() -> Result<PathBuf> {
@@ -91,7 +87,7 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_KEXEC)
         .map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
 
-    Ok(())
+    unreachable!("If we reach here, something went really wrong");
 }
 
 fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
