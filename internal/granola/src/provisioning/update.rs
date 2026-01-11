@@ -71,7 +71,7 @@ fn save_validation_marker(staging_dir: &Path, marker: &ValidationMarker) -> Resu
 fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     let kernel = fs::File::open(&uki.kernel).context("Failed to open kernel for kexec")?;
     let initrd = fs::File::open(&uki.initramfs).context("Failed to open initramfs for kexec")?;
-    let cmdline = prepare_cmdline_with_update_marker(update_id)?;
+    let cmdline = add_cmdline_update_marker(update_id)?;
 
     let res = unsafe {
         nix::libc::syscall(
@@ -95,14 +95,18 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn prepare_cmdline_with_update_marker(update_id: &str) -> Result<std::ffi::CString> {
-    let base_cmdline = fs::read_to_string("/proc/cmdline")
+fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
+    let cmdline = fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()
         .trim()
         .to_string();
 
-    let cmdline_with_marker = format!("{} muak.update_id={}", base_cmdline, update_id);
+    let filtered_cmdline = cmdline
+        .split_whitespace()
+        .filter(|arg| !arg.starts_with("muak.update_id="))
+        .collect::<Vec<_>>()
+        .join(" ");
 
-    std::ffi::CString::new(cmdline_with_marker)
+    std::ffi::CString::new(format!("{} muak.update_id={}", filtered_cmdline, update_id))
         .map_err(|_| anyhow!("Kernel cmdline contains interior NUL"))
 }
