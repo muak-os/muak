@@ -25,7 +25,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
 
     if is_old_kernel(&marker) {
         handle_kexec_failure(&marker)?;
-    } else if let Err(e) = perform_health_checks() {
+    } else if let Err(e) = health_checks() {
         handle_validation_failure(&marker, e)?;
     } else {
         commit_update(&marker)?;
@@ -72,7 +72,7 @@ fn handle_validation_failure(marker: &ValidationMarker, error: anyhow::Error) ->
     rollback_update(marker, &format!("Health checks failed: {}", error))
 }
 
-fn perform_health_checks() -> Result<()> {
+fn health_checks() -> Result<()> {
     check_state_partition_writable()?;
     check_network_interfaces()?;
     Ok(())
@@ -186,7 +186,7 @@ fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
 
     let _ = nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT);
 
-    Ok(())
+    unreachable!("If we're here, something went really wrong");
 }
 
 fn save_rollback_info(marker: &ValidationMarker, reason: &str) -> Result<()> {
