@@ -246,14 +246,17 @@ impl Supervisor {
         Ok(())
     }
 
+    // TODO: Reap all chldren instead of just known services
     fn reap_children(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        loop {
-            let status = waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG));
+        let service_pids: Vec<i32> = self.services.values().filter_map(|s| s.pid).collect();
 
-            let (pid, exit_code, signal) = match status {
-                Ok(WaitStatus::Exited(pid, code)) => (pid.as_raw(), Some(code), None),
-                Ok(WaitStatus::Signaled(pid, sig, _)) => (pid.as_raw(), None, Some(sig)),
-                Ok(WaitStatus::StillAlive) | Err(nix::errno::Errno::ECHILD) => break,
+        for &pid in &service_pids {
+            let status = waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG));
+
+            let (exit_code, signal) = match status {
+                Ok(WaitStatus::Exited(_, code)) => (Some(code), None),
+                Ok(WaitStatus::Signaled(_, sig, _)) => (None, Some(sig)),
+                Ok(WaitStatus::StillAlive) | Err(nix::errno::Errno::ECHILD) => continue,
                 _ => continue,
             };
 
@@ -274,25 +277,8 @@ impl Supervisor {
             .find(|(_, s)| s.pid == Some(pid))
             .map(|(name, _)| name.clone());
 
-        match service_name {
-            Some(name) => {
-                self.handle_service_exit(&name, pid, exit_code, signal)?;
-            }
-            None => match (exit_code, signal) {
-                (Some(code), _) => {
-                    kmsg::info!("Reaped orphan process PID {} (exit code {})", pid, code);
-                }
-                (_, Some(sig)) => {
-                    kmsg::info!(
-                        "Reaped orphan process PID {} (killed by signal {:?})",
-                        pid,
-                        sig
-                    );
-                }
-                _ => {
-                    kmsg::info!("Reaped orphan process PID {}", pid);
-                }
-            },
+        if let Some(name) = service_name {
+            self.handle_service_exit(&name, pid, exit_code, signal)?;
         }
 
         Ok(())
