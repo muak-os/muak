@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use tokio::sync::mpsc;
 
@@ -39,11 +41,32 @@ impl NetworkActor {
         self.state.state = NetworkStateKind::Initializing;
         self.publish_state();
 
-        let discovered = discover_ethernet_interfaces(&self.handle).await?;
+        let mut discovered = discover_ethernet_interfaces(&self.handle).await?;
         if discovered.is_empty() {
             self.state.state = NetworkStateKind::Degraded;
             self.publish_state();
             anyhow::bail!("no ethernet interfaces found");
+        }
+
+        let timeout = Duration::from_secs(self.config.carrier_timeout);
+        let carrier_states = self.probe_all_for_carrier(&discovered, timeout).await;
+
+        let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
+        if !any_carrier {
+            self.state.state = NetworkStateKind::Degraded;
+            self.publish_state();
+            anyhow::bail!(
+                "no carrier detected on any interface after {}s - check cable connections",
+                self.config.carrier_timeout
+            );
+        }
+
+        for iface in &mut discovered {
+            if carrier_states.get(&iface.index) == Some(&true) {
+                iface.link_state = LinkState::Up;
+            } else {
+                iface.link_state = LinkState::NoCarrier;
+            }
         }
 
         self.populate_interface_map(&discovered);
@@ -59,6 +82,19 @@ impl NetworkActor {
         );
 
         Ok(())
+    }
+
+    async fn probe_all_for_carrier(
+        &self,
+        interfaces: &[crate::interface::Interface],
+        timeout: Duration,
+    ) -> std::collections::HashMap<u32, bool> {
+        let pairs: Vec<(u32, String)> = interfaces
+            .iter()
+            .map(|i| (i.index, i.name.clone()))
+            .collect();
+
+        link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await
     }
 
     fn populate_interface_map(&mut self, discovered: &[crate::interface::Interface]) {

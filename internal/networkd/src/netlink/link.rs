@@ -3,6 +3,7 @@ use futures_util::stream::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::Handle;
 use rtnetlink::LinkUnspec;
+use std::collections::HashMap;
 use std::time::Duration;
 
 pub async fn find_link_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
@@ -62,71 +63,7 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
         bring_link_up(handle, index).await?;
     }
 
-    wait_for_carrier(handle, name, index, Duration::from_secs(10)).await?;
-
     Ok(index)
-}
-
-pub async fn has_carrier(handle: &Handle, index: u32) -> Result<bool> {
-    let mut links = handle.link().get().execute();
-
-    while let Some(link) = links.try_next().await? {
-        if link.header.index == index {
-            return Ok(link.header.flags.contains(LinkFlags::LowerUp));
-        }
-    }
-
-    Err(anyhow::anyhow!("link index {} not found", index))
-}
-
-pub async fn wait_for_carrier(
-    handle: &Handle,
-    name: &str,
-    index: u32,
-    timeout: Duration,
-) -> Result<()> {
-    let poll_interval = Duration::from_millis(100);
-    let start = std::time::Instant::now();
-
-    kmsg::info!(
-        @ "networkd",
-        "Waiting for carrier on {} (timeout: {:?})",
-        name,
-        timeout
-    );
-
-    loop {
-        match has_carrier(handle, index).await {
-            Ok(true) => {
-                let elapsed = start.elapsed();
-                kmsg::info!(
-                    @ "networkd",
-                    "Carrier detected on {} after {:?}",
-                    name,
-                    elapsed
-                );
-                return Ok(());
-            }
-            Ok(false) if start.elapsed() >= timeout => {
-                kmsg::warn!(
-                    @ "networkd",
-                    "Carrier timeout on {} after {:?} - no physical link",
-                    name,
-                    timeout
-                );
-                return Err(anyhow::anyhow!(
-                    "timeout waiting for carrier on {} - check cable connection",
-                    name
-                ));
-            }
-            Ok(false) => {
-                tokio::time::sleep(poll_interval).await;
-            }
-            Err(e) => {
-                return Err(e.context(format!("failed to check carrier on {}", name)));
-            }
-        }
-    }
 }
 
 pub fn extract_mac_from_link(link: &LinkMessage) -> Option<[u8; 6]> {
@@ -162,6 +99,81 @@ pub async fn delete_link(handle: &Handle, index: u32) -> Result<()> {
         .execute()
         .await
         .context("failed to delete link")
+}
+
+pub async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool>> {
+    let mut states = HashMap::new();
+    let mut links = handle.link().get().execute();
+
+    while let Some(link) = links.try_next().await? {
+        let has_carrier = link.header.flags.contains(LinkFlags::LowerUp);
+        states.insert(link.header.index, has_carrier);
+    }
+
+    Ok(states)
+}
+
+pub async fn probe_interfaces_for_carrier(
+    handle: &Handle,
+    interfaces: &[(u32, String)],
+    timeout: Duration,
+) -> HashMap<u32, bool> {
+    let indices: Vec<u32> = interfaces.iter().map(|(idx, _)| *idx).collect();
+    let names: Vec<&str> = interfaces.iter().map(|(_, name)| name.as_str()).collect();
+
+    kmsg::info!(
+        @ "networkd",
+        "Probing {} interfaces for carrier (timeout: {:?}): {:?}",
+        interfaces.len(),
+        timeout,
+        names
+    );
+
+    for &index in &indices {
+        let _ = bring_link_up(handle, index).await;
+    }
+
+    let poll_interval = Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        let states = match get_all_carrier_states(handle).await {
+            Ok(s) => s,
+            Err(_) => {
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+        };
+
+        let any_carrier = indices.iter().any(|idx| states.get(idx) == Some(&true));
+        if any_carrier {
+            for (idx, name) in interfaces {
+                if states.get(idx) == Some(&true) {
+                    kmsg::info!(
+                        @ "networkd",
+                        "Carrier detected on {} after {:?}",
+                        name,
+                        start.elapsed()
+                    );
+                }
+            }
+            return indices
+                .iter()
+                .map(|idx| (*idx, states.get(idx) == Some(&true)))
+                .collect();
+        }
+
+        if start.elapsed() >= timeout {
+            kmsg::warn!(
+                @ "networkd",
+                "No carrier detected on any interface after {:?}",
+                timeout
+            );
+            return indices.iter().map(|idx| (*idx, false)).collect();
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
 }
 
 pub fn extract_name_from_link(link: &LinkMessage) -> Option<String> {

@@ -13,6 +13,7 @@ pub const INTERFACE_ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub bridge: String,
+    pub carrier_timeout: u64,
     pub check_interval_secs: u64,
     pub probe_timeout_secs: u64,
     pub overall_timeout_secs: u64,
@@ -26,6 +27,7 @@ struct ConfigFile {
 #[derive(Debug, Deserialize)]
 struct NetworkSection {
     bridge: Option<String>,
+    carrier_timeout: Option<u64>,
     connectivity: Option<ConnectivitySection>,
 }
 
@@ -40,6 +42,7 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             bridge: "br0".to_string(),
+            carrier_timeout: 6,
             check_interval_secs: 60,
             probe_timeout_secs: 5,
             overall_timeout_secs: 15,
@@ -73,6 +76,7 @@ impl NetworkConfig {
         let defaults = Self::default();
         let network = config.network.unwrap_or(NetworkSection {
             bridge: None,
+            carrier_timeout: None,
             connectivity: None,
         });
         let connectivity = network.connectivity.unwrap_or(ConnectivitySection {
@@ -83,6 +87,7 @@ impl NetworkConfig {
 
         Self {
             bridge: network.bridge.unwrap_or(defaults.bridge),
+            carrier_timeout: network.carrier_timeout.unwrap_or(defaults.carrier_timeout),
             check_interval_secs: connectivity
                 .check_interval_secs
                 .unwrap_or(defaults.check_interval_secs),

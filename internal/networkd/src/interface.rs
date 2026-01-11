@@ -153,7 +153,7 @@ impl InterfaceSelector {
         let score_a = Self::score_interface(a);
         let score_b = Self::score_interface(b);
 
-        score_a.cmp(&score_b)
+        score_a.cmp(&score_b).then_with(|| b.index.cmp(&a.index))
     }
 
     fn score_interface(interface: &Interface) -> u32 {
@@ -195,9 +195,13 @@ mod tests {
     use super::*;
 
     fn make_interface(name: &str, link_state: LinkState) -> Interface {
+        make_interface_with_index(name, 0, link_state)
+    }
+
+    fn make_interface_with_index(name: &str, index: u32, link_state: LinkState) -> Interface {
         Interface {
             name: name.to_string(),
-            index: 0,
+            index,
             mac_address: [0, 0, 0, 0, 0, 0],
             link_state,
         }
@@ -316,5 +320,19 @@ mod tests {
         assert!(make_interface("eth0", LinkState::Up).has_carrier());
         assert!(!make_interface("eth0", LinkState::NoCarrier).has_carrier());
         assert!(!make_interface("eth0", LinkState::Down).has_carrier());
+    }
+
+    #[test]
+    fn test_tiebreaker_prefers_lower_index() {
+        let interfaces = vec![
+            make_interface_with_index("eth0", 8, LinkState::Down),
+            make_interface_with_index("eth1", 9, LinkState::Down),
+            make_interface_with_index("eth2", 10, LinkState::Down),
+            make_interface_with_index("eth3", 11, LinkState::Down),
+        ];
+
+        let primary = InterfaceSelector::select_primary(&interfaces);
+        assert_eq!(primary.unwrap().name, "eth0");
+        assert_eq!(primary.unwrap().index, 8);
     }
 }
