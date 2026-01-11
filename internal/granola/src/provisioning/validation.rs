@@ -8,6 +8,7 @@ use nix::unistd::sync;
 use super::uki::{self, Uki};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
 use crate::config::{CONFIG_PATH, HostConfig};
+use crate::disk;
 
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let marker = match load_validation_marker()? {
@@ -106,13 +107,11 @@ fn commit_update(marker: &ValidationMarker) -> Result<()> {
         marker.update_id
     );
 
-    let efi_device = "/dev/disk/by-partlabel/EFI";
-    if !Path::new(efi_device).exists() {
-        anyhow::bail!("EFI device {} does not exist", efi_device);
-    }
+    let efi_device = disk::find_partition_by_partname("EFI")
+        .ok_or_else(|| anyhow::anyhow!("EFI partition not found"))?;
 
     let mount_point = "/run/mnt/efi";
-    mount_efi_partition(efi_device, mount_point)?;
+    mount_efi_partition(&efi_device, mount_point)?;
 
     let result = install_new_uki_and_finalize(marker, mount_point);
 
