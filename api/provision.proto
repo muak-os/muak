@@ -39,7 +39,6 @@ message InstallResponse {
 
 message PrepareUpdateRequest {
     string image = 1;
-    repeated string extensions = 2;
 }
 
 message PrepareUpdateResponse {

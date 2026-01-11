@@ -70,8 +70,6 @@ enum Commands {
     Update {
         #[arg(long)]
         image: Option<String>,
-        #[arg(long)]
-        extension: Vec<String>,
     },
     Disks,
     Logs,
@@ -156,8 +154,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = ProvisionServiceClient::new(channel);
             handle_install(&mut client, force, config).await?;
         }
-        Commands::Update { image, extension } => {
-            handle_update(&cli.server, image, extension).await?;
+        Commands::Update { image } => {
+            handle_update(&cli.server, image).await?;
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
@@ -234,7 +232,6 @@ async fn handle_install(
 async fn handle_update(
     server: &str,
     image: Option<String>,
-    extensions: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server_addr = format!("http://{}", server);
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
@@ -252,7 +249,6 @@ async fn handle_update(
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
             image: image.clone(),
-            extensions,
         }))
         .await?;
     let resp = response.into_inner();

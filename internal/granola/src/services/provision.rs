@@ -74,7 +74,9 @@ impl ProvisionService for ProvisionServiceImpl {
         let req = request.into_inner();
         kmsg::info!("Update request: image={}", req.image);
 
-        match provisioning::prepare_update(&req.image, &req.extensions).await {
+        let config = HostConfig::load().map_err(|e| Status::internal(format!("{}", e)))?;
+
+        match provisioning::prepare_update(&req.image, &config.system.extensions).await {
             Ok(update_id) => Ok(Response::new(PrepareUpdateResponse {
                 success: true,
                 update_id,
