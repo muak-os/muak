@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use crate::connectivity::{self, ConnectivityConfig};
 use crate::dhcp::run_dhcp_client;
 use crate::dhcpv6::run_dhcpv6_client;
-use crate::dns::configure_dns;
+use crate::dns::{configure_dns, configure_dns_v6};
 use crate::interface::InterfaceSelector;
 use crate::interface::{LinkState, discover_ethernet_interfaces};
 use crate::model::{
@@ -229,18 +229,20 @@ impl NetworkActor {
     async fn apply_ipv6_configuration(&mut self, index: u32, ipv6_cfg: &Ipv6Config) -> Result<()> {
         address::ensure_ipv6(&self.handle, index, ipv6_cfg.address, ipv6_cfg.prefix_len).await?;
 
-        // Note: DHCPv6 typically uses link-local for gateway, handled by router advertisements
-        // We don't set a default route here as it's managed separately
+        // Configure IPv6 default route if gateway provided
+        if let Some(gateway) = ipv6_cfg.gateway {
+            kmsg::info!(@ "networkd", "Setting IPv6 default route via {}", gateway);
+            route::ensure_default_route_v6(&self.handle, gateway).await?;
+        }
 
-        // Configure IPv6 DNS if provided
+        // Configure IPv6 DNS servers
         if !ipv6_cfg.dns.is_empty() {
             kmsg::info!(
                 @ "networkd",
-                "DHCPv6 provided {} DNS servers",
+                "Configuring {} IPv6 DNS server(s)",
                 ipv6_cfg.dns.len()
             );
-            // Note: For now we only use IPv4 DNS in resolv.conf
-            // IPv6 DNS integration can be added later
+            configure_dns_v6(&ipv6_cfg.dns)?;
         }
 
         Ok(())
