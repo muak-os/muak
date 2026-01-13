@@ -18,6 +18,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Could not find api directory. Expected at ../../api or ../api");
     };
 
+    println!("cargo:rerun-if-changed={}/process.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
+    println!(
+        "cargo:rerun-if-changed={}/internal/supervisor.proto",
+        api_dir
+    );
+
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
