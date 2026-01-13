@@ -9,6 +9,7 @@ service ProvisionService {
     rpc GetUpdateStatus(GetUpdateStatusRequest) returns (GetUpdateStatusResponse);
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
     rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse);
+    rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 }
 
 enum UpdateStatus {
@@ -86,5 +87,12 @@ message ListDisksRequest {}
 
 message ListDisksResponse {
     repeated DiskInfo disks = 1;
+    string error = 2;
+}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+    bytes config = 1;
     string error = 2;
 }

@@ -29,8 +29,8 @@ use process_service::ListProcessesRequest;
 use process_service::process_service_client::ProcessServiceClient;
 use provision_service::provision_service_client::ProvisionServiceClient;
 use provision_service::{
-    GetLogsRequest, GetUpdateStatusRequest, InstallRequest, ListDisksRequest, PrepareUpdateRequest,
-    UpdateRequest, UpdateStatus,
+    GetConfigRequest, GetLogsRequest, GetUpdateStatusRequest, InstallRequest, ListDisksRequest,
+    PrepareUpdateRequest, UpdateRequest, UpdateStatus,
 };
 use vm_service::vm_service_client::VmServiceClient;
 use vm_service::{
@@ -60,7 +60,10 @@ enum Commands {
         #[command(subcommand)]
         action: VmAction,
     },
-    GenConfig,
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     Install {
         #[arg(long)]
         force: bool,
@@ -73,6 +76,12 @@ enum Commands {
     },
     Disks,
     Logs,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    Generate,
+    Export,
 }
 
 #[derive(Subcommand)]
@@ -128,7 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let timeout_secs = match &cli.command {
         Commands::Install { .. } | Commands::Update { .. } => 600, // 10 minutes
-        Commands::GenConfig => {
+        Commands::Config {
+            action: ConfigAction::Generate,
+        } => {
             print!("{}", DEFAULT_CONFIG);
             return Ok(());
         }
@@ -150,6 +161,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = VmServiceClient::new(channel);
             handle_vm_action(&mut client, action).await?;
         }
+        Commands::Config { action } => {
+            handle_config_action(channel, action).await?;
+        }
         Commands::Install { force, config } => {
             let mut client = ProvisionServiceClient::new(channel);
             handle_install(&mut client, force, config).await?;
@@ -165,7 +179,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = ProvisionServiceClient::new(channel);
             handle_logs(&mut client).await?;
         }
-        Commands::GenConfig => unreachable!(),
     }
 
     Ok(())
@@ -415,6 +428,44 @@ async fn handle_logs(
     Ok(())
 }
 
+async fn handle_config_action(
+    channel: tonic::transport::Channel,
+    action: ConfigAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        ConfigAction::Generate => {
+            unreachable!()
+        }
+        ConfigAction::Export => {
+            let mut client = ProvisionServiceClient::new(channel);
+            let request = tonic::Request::new(GetConfigRequest {});
+
+            let response = client.get_config(request).await?;
+            let resp = response.into_inner();
+
+            if !resp.error.is_empty() {
+                eprintln!("{}Error: {}{}", RED, resp.error, RESET);
+                std::process::exit(1);
+            }
+
+            let config_str = String::from_utf8(resp.config)
+                .map_err(|e| format!("Invalid UTF-8 in config: {}", e))?;
+
+            // Generate filename with timestamp
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let timestamp = format_timestamp_for_filename(now.as_secs() as i64);
+            let filename = format!("config-{}.toml", timestamp);
+
+            std::fs::write(&filename, &config_str)?;
+            println!("{}Exported config to {}{}", GREEN, filename, RESET);
+        }
+    }
+
+    Ok(())
+}
+
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = 1024 * KB;
@@ -493,6 +544,60 @@ fn format_timestamp(timestamp: i64) -> String {
 
 fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
+}
+
+fn format_timestamp_for_filename(timestamp: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let duration = Duration::from_secs(timestamp as u64);
+    let system_time = UNIX_EPOCH + duration;
+
+    let duration_since_epoch = system_time
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO);
+    let secs = duration_since_epoch.as_secs();
+
+    let days_since_epoch = secs / 86400;
+    let seconds_today = secs % 86400;
+
+    let mut year = 1970;
+    let mut days_left = days_since_epoch;
+
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days_left >= days_in_year {
+            days_left -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1;
+    for &days_in_month in &days_in_months {
+        if days_left >= days_in_month as u64 {
+            days_left -= days_in_month as u64;
+            month += 1;
+        } else {
+            break;
+        }
+    }
+
+    let day = days_left + 1;
+    let hour = seconds_today / 3600;
+    let minute = (seconds_today % 3600) / 60;
+    let second = seconds_today % 60;
+
+    format!(
+        "{:04}-{:02}-{:02}_{:02}-{:02}-{:02}",
+        year, month, day, hour, minute, second
+    )
 }
 
 fn vm_state_to_string(state: i32) -> &'static str {

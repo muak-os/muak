@@ -3,9 +3,10 @@ use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::{
-    DiskInfo, GetLogsRequest, GetLogsResponse, GetUpdateStatusRequest, GetUpdateStatusResponse,
-    InstallRequest, InstallResponse, ListDisksRequest, ListDisksResponse, PartitionInfo,
-    PrepareUpdateRequest, PrepareUpdateResponse, UpdateRequest, UpdateResponse,
+    DiskInfo, GetConfigRequest, GetConfigResponse, GetLogsRequest, GetLogsResponse,
+    GetUpdateStatusRequest, GetUpdateStatusResponse, InstallRequest, InstallResponse,
+    ListDisksRequest, ListDisksResponse, PartitionInfo, PrepareUpdateRequest,
+    PrepareUpdateResponse, UpdateRequest, UpdateResponse,
 };
 
 use crate::config::HostConfig;
@@ -186,6 +187,28 @@ impl ProvisionService for ProvisionServiceImpl {
 
         let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(stream)))
+    }
+
+    async fn get_config(
+        &self,
+        _request: Request<GetConfigRequest>,
+    ) -> Result<Response<GetConfigResponse>, Status> {
+        match std::fs::read(crate::config::CONFIG_PATH) {
+            Ok(contents) => Ok(Response::new(GetConfigResponse {
+                config: contents,
+                error: String::new(),
+            })),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Response::new(GetConfigResponse {
+                    config: Vec::new(),
+                    error: "No config found: system has not been installed yet".to_string(),
+                }))
+            }
+            Err(e) => Ok(Response::new(GetConfigResponse {
+                config: Vec::new(),
+                error: format!("Failed to read config: {}", e),
+            })),
+        }
     }
 }
 
