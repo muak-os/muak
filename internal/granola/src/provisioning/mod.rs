@@ -19,7 +19,8 @@ use uki::{Uki, UkiConfig};
 
 pub(crate) const INSTALL_DIR: &str = "/run/install";
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";
-pub(crate) const DEFAULT_CMDLINE: &str = "console=tty0 console=ttyS0 init=/init";
+pub(crate) const DEFAULT_CMDLINE: &str =
+    include_str!("../../../../pkgs/kernel/cmdline.txt").trim_ascii();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallationStatus {

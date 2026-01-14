@@ -26,6 +26,7 @@ COPY api ./api
 COPY internal/default.toml ./internal/default.toml
 COPY internal/granola ./internal/granola
 COPY internal/shared/kmsg ./internal/shared/kmsg
+COPY pkgs/kernel/cmdline.txt ./pkgs/kernel/cmdline.txt
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \

@@ -10,6 +10,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         internal_dir.join("default.toml").display()
     );
 
+    let workspace_root = internal_dir.parent().unwrap();
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace_root.join("pkgs/kernel/cmdline.txt").display()
+    );
+
     let api_dir = if PathBuf::from("../../api").exists() {
         "../../api"
     } else if PathBuf::from("../api").exists() {

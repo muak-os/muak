@@ -213,7 +213,7 @@ uki: $(ARTIFACTS) ## Build UKI (Unified Kernel Image)
 	$(call require,$(ARTIFACTS)/bzImage,make installer)
 	$(call require,$(ARTIFACTS)/initramfs.img,make extensions)
 	@printf "$(CYAN)Building UKI$(RESET)\n"
-	@echo -n "console=tty0 console=ttyS0 init=/init" > $(ARTIFACTS)/cmdline.txt
+	@tr -d '\n' < pkgs/kernel/cmdline.txt > $(ARTIFACTS)/cmdline.txt
 	@$(RELEASE_DIR)/yuki \
 		--stub $(ARTIFACTS)/stub.efi \
 		--linux $(ARTIFACTS)/bzImage \
