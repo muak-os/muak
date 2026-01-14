@@ -85,7 +85,6 @@ pub struct InterfaceSnapshot {
     pub ip: Option<IpConfig>,
     pub lease: Option<DhcpLease>,
     pub ipv6: Option<Ipv6Config>,
-    pub ipv6_lease: Option<DhcpLease>,
 }
 
 #[derive(Debug, Clone)]

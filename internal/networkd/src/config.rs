@@ -17,7 +17,7 @@ pub struct NetworkConfig {
     pub check_interval_secs: u64,
     pub probe_timeout_secs: u64,
     pub overall_timeout_secs: u64,
-    pub ipv6_enabled: bool,
+    pub ipv6: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,7 +48,7 @@ impl Default for NetworkConfig {
             check_interval_secs: 60,
             probe_timeout_secs: 5,
             overall_timeout_secs: 15,
-            ipv6_enabled: true,
+            ipv6: true,
         }
     }
 }
@@ -101,7 +101,7 @@ impl NetworkConfig {
             overall_timeout_secs: connectivity
                 .overall_timeout_secs
                 .unwrap_or(defaults.overall_timeout_secs),
-            ipv6_enabled: network.ipv6_enabled.unwrap_or(defaults.ipv6_enabled),
+            ipv6: network.ipv6_enabled.unwrap_or(defaults.ipv6),
         }
     }
 }

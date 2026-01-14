@@ -111,3 +111,34 @@ pub async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Resu
 
     add_default_route_v6(handle, gateway).await
 }
+
+pub async fn remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
+    let mut routes = handle
+        .route()
+        .get(RouteMessageBuilder::<Ipv6Addr>::new().build())
+        .execute();
+
+    while let Some(route) = routes.try_next().await? {
+        let is_default = route.header.destination_prefix_length == 0;
+        let mut route_gateway = None;
+
+        for attr in &route.attributes {
+            if let RouteAttribute::Gateway(RouteAddress::Inet6(gw)) = attr {
+                route_gateway = Some(*gw);
+            }
+        }
+
+        if is_default && route_gateway == Some(gateway) {
+            handle
+                .route()
+                .del(route)
+                .execute()
+                .await
+                .context("failed to remove IPv6 default route")?;
+            return Ok(());
+        }
+    }
+
+    // Route not found - this is not an error
+    Ok(())
+}

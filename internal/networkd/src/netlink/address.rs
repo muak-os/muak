@@ -91,10 +91,6 @@ pub async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) 
     add_ipv4(handle, index, ip, prefix).await
 }
 
-// ============================================================================
-// IPv6 Functions
-// ============================================================================
-
 pub async fn find_ipv6(handle: &Handle, index: u32) -> Result<Option<(Ipv6Addr, u8)>> {
     let mut addrs = handle.address().get().execute();
 
@@ -129,6 +125,17 @@ pub async fn add_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> 
         .context("failed to add IPv6 address")
 }
 
+pub async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
+    if let Some((existing_ip, existing_prefix)) = find_ipv6(handle, index).await?
+        && existing_ip == ip
+        && existing_prefix == prefix
+    {
+        return Ok(());
+    }
+
+    add_ipv6(handle, index, ip, prefix).await
+}
+
 pub async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
 
@@ -151,16 +158,6 @@ pub async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()
         }
     }
 
+    // Address not found - this is not an error
     Ok(())
-}
-
-pub async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
-    if let Some((existing_ip, existing_prefix)) = find_ipv6(handle, index).await?
-        && existing_ip == ip
-        && existing_prefix == prefix
-    {
-        return Ok(());
-    }
-
-    add_ipv6(handle, index, ip, prefix).await
 }

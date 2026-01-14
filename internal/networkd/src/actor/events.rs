@@ -99,7 +99,6 @@ impl NetworkActor {
             ip: None,
             lease: None,
             ipv6: None,
-            ipv6_lease: None,
         };
         self.insert_interface(snapshot);
 
