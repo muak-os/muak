@@ -12,4 +12,4 @@ port = 50051
 
 [network]
 bridge = "br0"
-# carrier_timeout = 6
+# ipv6 = true

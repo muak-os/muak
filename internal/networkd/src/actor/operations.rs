@@ -53,7 +53,7 @@ impl NetworkActor {
             anyhow::bail!("no ethernet interfaces found");
         }
 
-        let timeout = Duration::from_secs(self.config.carrier_timeout);
+        let timeout = Duration::from_secs(crate::config::CARRIER_TIMEOUT_SECS);
         let carrier_states = self.probe_all_for_carrier(&discovered, timeout).await;
 
         let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
@@ -62,7 +62,7 @@ impl NetworkActor {
             self.publish_state();
             anyhow::bail!(
                 "no carrier detected on any interface after {}s - check cable connections",
-                self.config.carrier_timeout
+                crate::config::CARRIER_TIMEOUT_SECS
             );
         }
 

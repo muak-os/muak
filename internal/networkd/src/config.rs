@@ -10,6 +10,7 @@ pub const BRIDGE_CREATE_RETRY_DELAY_MS: u64 = 100;
 pub const INTERFACE_ENSLAVE_RETRIES: u8 = 5;
 pub const INTERFACE_ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
+pub const CARRIER_TIMEOUT_SECS: u64 = 6;
 pub const CONNECTIVITY_CHECK_INTERVAL_SECS: u64 = 60;
 pub const CONNECTIVITY_PROBE_TIMEOUT_SECS: u64 = 5;
 pub const CONNECTIVITY_OVERALL_TIMEOUT_SECS: u64 = 15;
@@ -17,7 +18,6 @@ pub const CONNECTIVITY_OVERALL_TIMEOUT_SECS: u64 = 15;
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub bridge: String,
-    pub carrier_timeout: u64,
     pub ipv6: bool,
 }
 
@@ -29,7 +29,6 @@ struct ConfigFile {
 #[derive(Debug, Deserialize)]
 struct NetworkSection {
     bridge: Option<String>,
-    carrier_timeout: Option<u64>,
     ipv6: Option<bool>,
 }
 
@@ -37,7 +36,6 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             bridge: "br0".to_string(),
-            carrier_timeout: 6,
             ipv6: true,
         }
     }
@@ -69,13 +67,11 @@ impl NetworkConfig {
         let defaults = Self::default();
         let network = config.network.unwrap_or(NetworkSection {
             bridge: None,
-            carrier_timeout: None,
             ipv6: None,
         });
 
         Self {
             bridge: network.bridge.unwrap_or(defaults.bridge),
-            carrier_timeout: network.carrier_timeout.unwrap_or(defaults.carrier_timeout),
             ipv6: network.ipv6.unwrap_or(defaults.ipv6),
         }
     }
