@@ -18,7 +18,7 @@ resolver = "3"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1.48", features = ["rt-multi-thread"] }
+tokio = { version = "1.49", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # RPC and serialization
@@ -40,19 +40,19 @@ nix = { version = "0.30", features = ["fs", "mount"] }
 uefi = { version = "0.36", features = ["alloc", "logger", "panic_handler", "global_allocator"] }
 
 # Networking
-rtnetlink = "0.18"
-netlink-packet-route = "0.25"
+rtnetlink = "0.20"
+netlink-packet-route = "0.28"
 netlink-packet-core = "0.8"
 futures-util = "0.3"
 dhcproto = "0.14"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 # Utilities
 tower = "0.5"
-hyper = { version = "1.6", features = ["http1", "http2", "server", "client"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "client", "http2"] }
+hyper = { version = "1.8", features = ["http1", "http2", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
-uuid = { version = "1.18", features = ["v4"] }
+uuid = { version = "1.19", features = ["v4"] }
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 sha2 = "0.10"
 anyhow = "1.0"
@@ -60,10 +60,10 @@ anyhow = "1.0"
 # Filesystem
 gptman = "2.0"
 fatfs = "0.3"
-backhand = "0.23"
+backhand = "0.24"
 cpio = "0.4"
 walkdir = "2.5"
-tempfile = "3.23"
+tempfile = "3.24"
 zstd = "0.13"
 tar = "0.4"
 flate2 = "1.1"
