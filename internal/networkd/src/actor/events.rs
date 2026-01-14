@@ -43,10 +43,6 @@ impl NetworkActor {
         };
         iface.link = LinkStateKind::Down;
         self.sync_and_publish();
-
-        if self.is_primary_interface(&name) {
-            self.handle_primary_failure(&name);
-        }
     }
 
     async fn on_link_added(&mut self, name: String, index: u32, mac: [u8; 6]) {
@@ -74,6 +70,7 @@ impl NetworkActor {
             link: LinkStateKind::Up,
             ip: None,
             lease: None,
+            ipv6: None,
         };
         self.insert_interface(snapshot);
 

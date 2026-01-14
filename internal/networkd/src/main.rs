@@ -6,6 +6,7 @@ mod grpc;
 mod interface;
 mod model;
 mod monitor;
+mod slaac;
 
 mod actor;
 mod netlink;

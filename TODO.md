@@ -22,7 +22,6 @@
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
-  - Support IPv6 with DHCPv6
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)

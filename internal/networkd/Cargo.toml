@@ -9,7 +9,7 @@ tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal
 tokio-stream = { workspace = true }
 
 # System/platform APIs
-nix = { workspace = true, features = ["socket", "ioctl"] }
+nix = { workspace = true, features = ["socket", "ioctl", "net", "poll"] }
 
 # RPC and serialization
 tonic = { workspace = true }
