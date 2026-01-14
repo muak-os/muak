@@ -628,7 +628,8 @@ impl NetworkActor {
     }
 
     fn start_connectivity_monitoring(&mut self, cmd_tx: mpsc::Sender<NetworkCommand>) {
-        let interval = std::time::Duration::from_secs(self.config.check_interval_secs);
+        let interval =
+            std::time::Duration::from_secs(crate::config::CONNECTIVITY_CHECK_INTERVAL_SECS);
 
         let task = tokio::spawn(async move {
             let mut interval_timer =
@@ -651,10 +652,7 @@ impl NetworkActor {
         self.state.connectivity.status = ConnectivityStatus::Checking;
         self.publish_state();
 
-        let config = ConnectivityConfig::new(
-            self.config.probe_timeout_secs,
-            self.config.overall_timeout_secs,
-        );
+        let config = ConnectivityConfig::default();
         let result = connectivity::check_connectivity(&config).await;
 
         self.state.connectivity = result.clone();

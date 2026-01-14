@@ -13,8 +13,3 @@ port = 50051
 [network]
 bridge = "br0"
 # carrier_timeout = 6
-
-[network.connectivity]
-check_interval_secs = 60
-probe_timeout_secs = 5
-overall_timeout_secs = 15
