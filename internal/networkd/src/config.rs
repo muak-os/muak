@@ -30,7 +30,7 @@ struct NetworkSection {
     bridge: Option<String>,
     carrier_timeout: Option<u64>,
     connectivity: Option<ConnectivitySection>,
-    ipv6_enabled: Option<bool>,
+    ipv6: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,7 +81,7 @@ impl NetworkConfig {
             bridge: None,
             carrier_timeout: None,
             connectivity: None,
-            ipv6_enabled: None,
+            ipv6: None,
         });
         let connectivity = network.connectivity.unwrap_or(ConnectivitySection {
             check_interval_secs: None,
@@ -101,7 +101,7 @@ impl NetworkConfig {
             overall_timeout_secs: connectivity
                 .overall_timeout_secs
                 .unwrap_or(defaults.overall_timeout_secs),
-            ipv6: network.ipv6_enabled.unwrap_or(defaults.ipv6),
+            ipv6: network.ipv6.unwrap_or(defaults.ipv6),
         }
     }
 }

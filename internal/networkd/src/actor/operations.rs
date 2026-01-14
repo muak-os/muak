@@ -32,7 +32,6 @@ impl NetworkActor {
         self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
-        self.ready_at = Some(std::time::Instant::now());
         self.publish_state();
 
         self.start_connectivity_monitoring(cmd_tx.clone());
@@ -257,7 +256,7 @@ impl NetworkActor {
                     return;
                 }
 
-                self.state.ipv6_available = true;
+                self.state.ipv6 = true;
                 self.sync_and_publish();
             }
 
@@ -288,7 +287,7 @@ impl NetworkActor {
                     iface.ipv6 = None;
                 }
 
-                self.state.ipv6_available = false;
+                self.state.ipv6 = false;
                 self.sync_and_publish();
             }
 
@@ -322,7 +321,7 @@ impl NetworkActor {
 
             SlaacEvent::Failed { reason } => {
                 kmsg::info!(@ "networkd", "SLAAC failed: {} (continuing with IPv4)", reason);
-                self.state.ipv6_available = false;
+                self.state.ipv6 = false;
             }
         }
     }

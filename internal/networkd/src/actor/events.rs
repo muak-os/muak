@@ -1,8 +1,7 @@
 use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
 use crate::monitor::NetworkEvent;
-use crate::netlink::link;
 
-use super::state::{NetworkActor, READY_GRACE_PERIOD_SECS};
+use super::state::NetworkActor;
 
 impl NetworkActor {
     pub(super) async fn handle_event(&mut self, event: NetworkEvent) {
@@ -44,33 +43,6 @@ impl NetworkActor {
         };
         iface.link = LinkStateKind::Down;
         self.sync_and_publish();
-
-        // Only process failover if network is in Ready state and this is the primary interface
-        if self.state.state != NetworkStateKind::Ready || !self.is_primary_interface(&name) {
-            return;
-        }
-
-        // During the grace period after becoming Ready, check if interface is enslaved
-        // to filter out queued events from bridge setup. After that grace period, always trigger failover.
-        let grace_period_active = self
-            .ready_at
-            .map(|t| t.elapsed() < std::time::Duration::from_secs(READY_GRACE_PERIOD_SECS))
-            .unwrap_or(false);
-
-        if grace_period_active {
-            if let Ok(is_enslaved) = link::is_interface_enslaved(&self.handle, &name).await {
-                if is_enslaved {
-                    kmsg::info!(
-                        @ "networkd",
-                        "Ignoring link down for enslaved interface {} (grace period)",
-                        name
-                    );
-                    return;
-                }
-            }
-        }
-
-        self.handle_primary_failure(&name);
     }
 
     async fn on_link_added(&mut self, name: String, index: u32, mac: [u8; 6]) {

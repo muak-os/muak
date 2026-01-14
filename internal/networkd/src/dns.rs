@@ -34,7 +34,6 @@ pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     Ok(())
 }
 
-/// Configure DNS with IPv6 nameservers (appends to existing config)
 pub fn configure_dns_v6(nameservers: &[Ipv6Addr]) -> Result<()> {
     if nameservers.is_empty() {
         kmsg::info!(@ "networkd", "No IPv6 DNS servers to configure");
@@ -47,13 +46,11 @@ pub fn configure_dns_v6(nameservers: &[Ipv6Addr]) -> Result<()> {
         nameservers.len()
     );
 
-    // Read existing content to preserve IPv4 nameservers
     let existing = fs::read_to_string(RESOLV_CONF_PATH).unwrap_or_default();
 
     let mut content = existing;
     for ns in nameservers {
         let entry = format!("nameserver {}\n", ns);
-        // Don't add duplicates
         if !content.contains(&entry) {
             content.push_str(&entry);
             kmsg::info!(@ "networkd", "Adding IPv6 nameserver: {}", ns);

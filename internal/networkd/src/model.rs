@@ -94,7 +94,7 @@ pub struct NetworkSnapshot {
     pub primary: Option<String>,
     pub backups: Vec<String>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
-    pub ipv6_available: bool,
+    pub ipv6: bool,
 }
 
 impl NetworkSnapshot {
@@ -105,7 +105,7 @@ impl NetworkSnapshot {
             primary: None,
             backups: Vec::new(),
             interfaces: Vec::new(),
-            ipv6_available: false,
+            ipv6: false,
         }
     }
 }
