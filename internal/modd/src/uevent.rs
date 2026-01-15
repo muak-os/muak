@@ -1,7 +1,9 @@
-use std::io;
+use anyhow::{Context, Result};
+use std::io::Error;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 const NETLINK_KOBJECT_UEVENT: i32 = 15;
+const KOBJECT_UEVENT_GROUP: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UeventAction {
@@ -30,7 +32,7 @@ struct SockaddrNl {
 }
 
 impl UeventListener {
-    pub fn new() -> io::Result<Self> {
+    pub fn new() -> Result<Self> {
         let fd = unsafe {
             nix::libc::socket(
                 nix::libc::AF_NETLINK,
@@ -40,7 +42,7 @@ impl UeventListener {
         };
 
         if fd < 0 {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error()).context("Failed to create netlink socket");
         }
 
         let socket = unsafe { OwnedFd::from_raw_fd(fd) };
@@ -48,8 +50,8 @@ impl UeventListener {
         let addr = SockaddrNl {
             nl_family: nix::libc::AF_NETLINK as u16,
             nl_pad: 0,
-            nl_pid: 0,    // Let kernel assign PID
-            nl_groups: 1, // KOBJECT_UEVENT group
+            nl_pid: 0,
+            nl_groups: KOBJECT_UEVENT_GROUP,
         };
 
         let ret = unsafe {
@@ -61,13 +63,13 @@ impl UeventListener {
         };
 
         if ret < 0 {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error()).context("Failed to bind netlink socket");
         }
 
         Ok(Self { socket })
     }
 
-    pub fn recv(&self) -> io::Result<Uevent> {
+    pub fn recv(&self) -> Result<Uevent> {
         let mut buf = [0u8; 8192];
 
         let n = unsafe {
@@ -80,7 +82,7 @@ impl UeventListener {
         };
 
         if n < 0 {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error()).context("Failed to receive uevent");
         }
 
         let data = &buf[..n as usize];

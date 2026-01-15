@@ -1466,6 +1466,7 @@ dependencies = [
 name = "modd"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "kmod",
  "kmsg",
  "nix",

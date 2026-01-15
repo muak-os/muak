@@ -1,5 +1,6 @@
 mod uevent;
 
+use anyhow::{Context, Result};
 use kmod::{AliasDb, DepDb, ModuleLoader, load_module};
 use notify::{Health, NotifyClient};
 use std::path::Path;
@@ -10,19 +11,19 @@ const SOCKET_PATH: &str = "/run/modd.sock";
 
 fn main() {
     if let Err(e) = run() {
-        kmsg::error!("Fatal error: {}", e);
+        kmsg::error!("Fatal error: {:#}", e);
         process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<()> {
     kmsg::init("modd")?;
     kmsg::info!("Starting module daemon");
 
     let notifier = NotifyClient::new("modd")?;
     notifier.status("Initializing", Health::Healthy)?;
 
-    let uname = nix::sys::utsname::uname()?;
+    let uname = nix::sys::utsname::uname().context("Failed to get system info")?;
     let krel = uname.release().to_string_lossy();
     let mod_dir = Path::new("/lib/modules").join(krel.as_ref());
 
@@ -31,15 +32,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let alias_path = mod_dir.join("modules.alias");
     let dep_path = mod_dir.join("modules.dep");
 
-    if !alias_path.exists() {
-        return Err(format!("modules.alias not found: {}", alias_path.display()).into());
-    }
-    if !dep_path.exists() {
-        return Err(format!("modules.dep not found: {}", dep_path.display()).into());
-    }
-
-    let alias_db = AliasDb::load(&alias_path)?;
-    let dep_db = DepDb::load(&dep_path)?;
+    let alias_db = AliasDb::load(&alias_path)
+        .with_context(|| format!("Failed to load {}", alias_path.display()))?;
+    let dep_db =
+        DepDb::load(&dep_path).with_context(|| format!("Failed to load {}", dep_path.display()))?;
     let mut loader = ModuleLoader::new(mod_dir);
 
     kmsg::info!(

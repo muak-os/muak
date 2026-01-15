@@ -10,6 +10,9 @@ nix = { workspace = true, features = ["socket", "feature"] }
 # Compression
 zstd = { workspace = true }
 
+# Error handling
+anyhow = { workspace = true }
+
 # Internal
 kmod = { path = "../shared/kmod" }
 kmsg = { path = "../shared/kmsg" }
