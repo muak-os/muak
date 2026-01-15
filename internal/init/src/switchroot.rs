@@ -1,25 +1,26 @@
+use anyhow::{Context, Result, bail};
 use nix::mount::{MsFlags, mount};
 use nix::unistd::{chdir, chroot};
 use std::fs;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
-pub fn switch(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
-    move_mounts(newroot).map_err(|e| format!("move_mounts failed: {}", e))?;
-    chdir(newroot).map_err(|e| format!("chdir newroot failed: {}", e))?;
-    chroot(".").map_err(|e| format!("chroot failed: {}", e))?;
-    chdir("/").map_err(|e| format!("chdir / failed: {}", e))?;
-    delete_initramfs().map_err(|e| format!("delete_initramfs failed: {}", e))?;
-    exec_init().map_err(|e| format!("exec_init failed: {}", e))?;
+pub fn switch(newroot: &str) -> Result<()> {
+    move_mounts(newroot).context("move_mounts failed")?;
+    chdir(newroot).context("chdir newroot failed")?;
+    chroot(".").context("chroot failed")?;
+    chdir("/").context("chdir / failed")?;
+    delete_initramfs().context("delete_initramfs failed")?;
+    exec_init().context("exec_init failed")?;
 
     unreachable!("exec_init should never return");
 }
 
-fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn move_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
         let target = format!("{}{}", newroot, mnt);
 
-        fs::create_dir_all(&target).map_err(|e| format!("Failed to create {}: {}", target, e))?;
+        fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
 
         mount(
             Some(*mnt),
@@ -28,14 +29,14 @@ fn move_mounts(newroot: &str) -> Result<(), Box<dyn std::error::Error>> {
             MsFlags::MS_MOVE,
             None::<&str>,
         )
-        .map_err(|e| format!("Failed to move mount {} to {}: {}", mnt, target, e))?;
+        .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
     }
 
     Ok(())
 }
 
-fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
-    let entries = fs::read_dir("/")?;
+fn delete_initramfs() -> Result<()> {
+    let entries = fs::read_dir("/").context("Failed to read /")?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -56,7 +57,7 @@ fn delete_initramfs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn exec_init() -> Result<(), Box<dyn std::error::Error>> {
+fn exec_init() -> Result<()> {
     let init_paths = ["/sbin/init", "/bin/init", "/init"];
 
     let mut checked_paths = Vec::new();
@@ -68,13 +69,12 @@ fn exec_init() -> Result<(), Box<dyn std::error::Error>> {
         ));
         if fs::metadata(init_path).is_ok() {
             let err = Command::new(init_path).exec();
-            return Err(format!("Failed to exec {}: {}", init_path, err).into());
+            bail!("Failed to exec {}: {}", init_path, err);
         }
     }
 
-    Err(format!(
+    bail!(
         "No init binary found in new root. Checked: {:?}",
         checked_paths
-    )
-    .into())
+    );
 }

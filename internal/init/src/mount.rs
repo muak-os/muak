@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail};
 use nix::fcntl::{OFlag, open};
 use nix::mount::{MsFlags, mount};
 use nix::sys::stat::Mode;
@@ -7,7 +8,7 @@ use std::path::Path;
 
 nix::ioctl_write_int_bad!(loop_set_fd, 0x4C00);
 
-pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
+pub fn mount_pseudo() -> Result<()> {
     create_and_mount(
         "/dev",
         "devtmpfs",
@@ -40,22 +41,23 @@ pub fn mount_pseudo() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
+pub fn mount_rootfs() -> Result<()> {
     let newroot = Path::new("/newroot");
     if !newroot.exists() {
-        mkdir(newroot, Mode::from_bits_truncate(0o755))?;
+        mkdir(newroot, Mode::from_bits_truncate(0o755)).context("Failed to create /newroot")?;
     }
 
     let work_dir = Path::new("/overlay");
-    mkdir(work_dir, Mode::from_bits_truncate(0o755))?;
+    mkdir(work_dir, Mode::from_bits_truncate(0o755)).context("Failed to create /overlay")?;
 
     let mut lower_dirs = Vec::new();
 
     let base_mount = work_dir.join("base");
-    mkdir(&base_mount, Mode::from_bits_truncate(0o755))?;
+    mkdir(&base_mount, Mode::from_bits_truncate(0o755))
+        .context("Failed to create /overlay/base")?;
     let base_mount_str = base_mount
         .to_str()
-        .ok_or("base mount path contains invalid UTF-8")?;
+        .context("base mount path contains invalid UTF-8")?;
     attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount_str)?;
     lower_dirs.push(base_mount_str.to_string());
 
@@ -72,12 +74,13 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("ext");
 
         let ext_mount = work_dir.join(ext_name);
-        mkdir(&ext_mount, Mode::from_bits_truncate(0o755))?;
+        mkdir(&ext_mount, Mode::from_bits_truncate(0o755))
+            .context("Failed to create extension mount point")?;
 
         let loop_dev = format!("/dev/loop{}", idx + 1);
         let ext_mount_str = ext_mount
             .to_str()
-            .ok_or("extension mount path contains invalid UTF-8")?;
+            .context("extension mount path contains invalid UTF-8")?;
         attach_squashfs(ext_path, &loop_dev, ext_mount_str)?;
         lower_dirs.push(ext_mount_str.to_string());
     }
@@ -89,7 +92,8 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             None::<&str>,
             MsFlags::MS_BIND | MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
             None::<&str>,
-        )?;
+        )
+        .context("Failed to bind mount rootfs")?;
     } else {
         let lowerdir = lower_dirs.join(":");
         let options = format!("lowerdir={}", lowerdir);
@@ -100,7 +104,8 @@ pub fn mount_rootfs() -> Result<(), Box<dyn std::error::Error>> {
             Some("overlay"),
             MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
             Some(options.as_str()),
-        )?;
+        )
+        .context("Failed to mount overlay rootfs")?;
     }
 
     Ok(())
@@ -126,20 +131,18 @@ fn discover_extensions() -> Vec<String> {
         .collect()
 }
 
-fn attach_squashfs(
-    sqsh_path: &str,
-    loop_dev: &str,
-    mount_point: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let sqsh_fd = open(sqsh_path, OFlag::O_RDONLY, Mode::empty())?;
-    let loop_fd = open(loop_dev, OFlag::O_RDWR, Mode::empty())?;
+fn attach_squashfs(sqsh_path: &str, loop_dev: &str, mount_point: &str) -> Result<()> {
+    let sqsh_fd = open(sqsh_path, OFlag::O_RDONLY, Mode::empty())
+        .with_context(|| format!("Failed to open squashfs image: {}", sqsh_path))?;
+    let loop_fd = open(loop_dev, OFlag::O_RDWR, Mode::empty())
+        .with_context(|| format!("Failed to open loop device: {}", loop_dev))?;
 
     let result = unsafe { loop_set_fd(loop_fd.as_raw_fd(), sqsh_fd.as_raw_fd()) };
 
     if result.is_err() {
         close(sqsh_fd).ok();
         close(loop_fd).ok();
-        return Err(format!("Failed to attach {} to {}", sqsh_path, loop_dev).into());
+        bail!("Failed to attach {} to {}", sqsh_path, loop_dev);
     }
 
     close(sqsh_fd)?;
@@ -151,7 +154,8 @@ fn attach_squashfs(
         Some("squashfs"),
         MsFlags::MS_RDONLY,
         None::<&str>,
-    )?;
+    )
+    .with_context(|| format!("Failed to mount {} to {}", loop_dev, mount_point))?;
 
     Ok(())
 }
@@ -162,14 +166,16 @@ fn create_and_mount(
     fstype: &str,
     flags: MsFlags,
     data: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let path = Path::new(target);
 
     if !path.exists() {
-        mkdir(path, Mode::from_bits_truncate(0o755))?;
+        mkdir(path, Mode::from_bits_truncate(0o755))
+            .with_context(|| format!("Failed to create mount target: {}", target))?;
     }
 
-    mount(Some(source), target, Some(fstype), flags, data)?;
+    mount(Some(source), target, Some(fstype), flags, data)
+        .with_context(|| format!("Failed to mount {} to {}", source, target))?;
 
     Ok(())
 }

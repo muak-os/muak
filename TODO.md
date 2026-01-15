@@ -1,23 +1,30 @@
 ## TODO
 
-- Support arm64 architecture
-  - Support for devicetree in stub
-  - Create kernel config for arm64
+- Support NTP protocol for time synchronization
+
+- Support ARM64 architecture
+  - Support for device tree in stub
+  - Create kernel config for ARM64 that follows KSPP recommandations
   - Add arm kernel parameters support
   - Add build in CI/CD
   - Tweak pkgs Dockerfiles
 
-- Properly structure the CLI
+- Better CLI
   - Organize project in different files/modules
-  - Add reset command
   - Add dmesg alias to logs command
+  - Handle different cli vs server versions for gRPC client/server compatibility
+    - Upgradable compatibility matrix
+  - Create install script for users to easily install the CLI regardless of OS
+  - Add reset command to factory reset the system
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
   - Better handling of network error when installing/updating
 
-- Better support for services
+- Better PID 1
   - Supervision tree for critical services
+  - Properly reap children in granola (conflict with installer command spawning)
+  - Extract services to be file based in /run/services/
 
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
@@ -41,10 +48,11 @@
     - Gateway configuration
     - Interface configuration
     - Proxy configuration
+  - Allow/Disallow auto restart of VMs on system reboot
 
 - Disk Manager Service:
   - LUKS encryption/decryption
-  - Copy-on-Write disk creation from templates
+  - Copy-on-Write disk creation for templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM to avoid duplication in /run/data/{vm_id}
@@ -62,13 +70,17 @@
   - Mock system calls etc
   - Target 80% coverage
 
-- Handle different cli vs server versions for gRPC client/server compatibility
+- Better install:
+  - Only allow signed installer images to be installed
+  - Add polling to see if install was successful after reboot
+  - Add better feedback during install process like formatting etc.
+  - Improve performance in formatting DATA partition?
 
 - Rework the module loading to not duplicate modules in initramfs and rootfs
 
-- Remove anyhow and use standard Rust error handling with strong typing
 - Simple secure boot support with sbctl or native implementation
 - Add TPM measurements in stub
+- Better stub performance after loadfile success
 - Create a TUI interface to display critical system information
 
 - Support Apple M1/M2 using Asahi Linux

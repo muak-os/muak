@@ -2,16 +2,17 @@ mod modules;
 mod mount;
 mod switchroot;
 
+use anyhow::Result;
 use std::process;
 
 fn main() {
     if let Err(e) = run() {
-        kmsg::error!("FATAL ERROR: {}", e);
+        kmsg::error!("FATAL ERROR: {:#}", e);
         process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<()> {
     mount::mount_pseudo()?;
 
     kmsg::init("init")?;
