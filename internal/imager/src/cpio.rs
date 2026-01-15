@@ -1,11 +1,10 @@
+use anyhow::Result;
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader, compression::Compressor};
 use cpio::{NewcBuilder, newc::ModeFileType};
 use std::io::{Cursor, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use walkdir::WalkDir;
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub fn create_squashfs_from_directory(source_dir: &Path) -> Result<Vec<u8>> {
     let mut writer = FilesystemWriter::default();

@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use std::fs::File;
@@ -5,8 +6,6 @@ use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use tempfile::TempDir;
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Deserialize)]
 pub struct OciIndex {
@@ -180,10 +179,9 @@ fn fetch_auth_token(
     let response = client.get(&token_url).send()?;
     if response.status().is_success() {
         let text = response.text()?;
-        let token_resp: TokenResponse = serde_json::from_str(&text).map_err(|e| {
+        let token_resp: TokenResponse = serde_json::from_str(&text).with_context(|| {
             format!(
-                "Failed to parse token response: {} - body: {}",
-                e,
+                "Failed to parse token response. Body: {}",
                 &text[..text.len().min(200)]
             )
         })?;
@@ -226,19 +224,17 @@ fn fetch_manifest_layers(
 
     let response = request.send()?;
     if !response.status().is_success() {
-        return Err(format!(
+        bail!(
             "Failed to get manifest: {} - {}",
             response.status(),
             manifest_url
-        )
-        .into());
+        );
     }
 
     let manifest_text = response.text()?;
-    let manifest: OciManifest = serde_json::from_str(&manifest_text).map_err(|e| {
+    let manifest: OciManifest = serde_json::from_str(&manifest_text).with_context(|| {
         format!(
-            "Failed to parse manifest: {} - body: {}",
-            e,
+            "Failed to parse manifest. Body: {}",
             &manifest_text[..manifest_text.len().min(500)]
         )
     })?;
@@ -264,7 +260,7 @@ fn fetch_platform_manifest_layers(
             })
         })
         .or_else(|| manifests.first())
-        .ok_or("No suitable manifest found in manifest list")?;
+        .context("No suitable manifest found in manifest list")?;
 
     let manifest_url = format!(
         "{}://{}/v2/{}/manifests/{}",
@@ -288,7 +284,7 @@ fn fetch_platform_manifest_layers(
 
     let response = request.send()?;
     if !response.status().is_success() {
-        return Err(format!("Failed to get platform manifest: {}", response.status()).into());
+        bail!("Failed to get platform manifest: {}", response.status());
     }
 
     let platform_manifest: OciManifest = response.json()?;
@@ -317,7 +313,7 @@ fn download_and_extract_layer(
 
     let response = request.send()?;
     if !response.status().is_success() {
-        return Err(format!("Failed to get blob: {}", response.status()).into());
+        bail!("Failed to get blob: {}", response.status());
     }
 
     let bytes = response.bytes()?;
@@ -340,5 +336,5 @@ fn create_temp_dir(prefix: &str) -> Result<TempDir> {
         }
     }
 
-    Err("Failed to create temp directory in any location".into())
+    bail!("Failed to create temp directory in any location")
 }

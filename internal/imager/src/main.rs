@@ -1,11 +1,10 @@
 mod cpio;
 mod oci;
 
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Parser)]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]

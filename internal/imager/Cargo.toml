@@ -27,5 +27,8 @@ tempfile = { workspace = true }
 walkdir = { workspace = true }
 zstd = { workspace = true }
 
+# Error handling
+anyhow = { workspace = true }
+
 [lints]
 workspace = true
