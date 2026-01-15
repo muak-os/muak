@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 nix = { workspace = true, features = ["fs"] }
 zstd = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

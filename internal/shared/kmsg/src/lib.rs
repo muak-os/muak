@@ -1,6 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::sync::OnceLock;
+use thiserror::Error;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -38,20 +39,11 @@ pub fn init(component: &str) -> Result<(), InitError> {
         .map_err(|_| InitError::AlreadyInitialized)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum InitError {
+    #[error("logger already initialized")]
     AlreadyInitialized,
 }
-
-impl std::fmt::Display for InitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AlreadyInitialized => write!(f, "logger already initialized"),
-        }
-    }
-}
-
-impl std::error::Error for InitError {}
 
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     let comp = component

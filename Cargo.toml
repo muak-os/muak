@@ -55,7 +55,6 @@ http-body-util = "0.1"
 uuid = { version = "1.19", features = ["v4"] }
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 sha2 = "0.10"
-anyhow = "1.0"
 
 # Filesystem
 gptman = "2.0"
@@ -67,6 +66,10 @@ tempfile = "3.24"
 zstd = "0.13"
 tar = "0.4"
 flate2 = "1.1"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

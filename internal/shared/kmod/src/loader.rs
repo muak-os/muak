@@ -2,42 +2,26 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 use crate::dep;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum LoadError {
+    #[error("module not found: {0}")]
     NotFound(PathBuf),
-    Io(std::io::Error),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("decompression error: {0}")]
     Decompress(String),
-    Syscall(nix::errno::Errno),
+
+    #[error("syscall error: {0}")]
+    Syscall(#[from] nix::errno::Errno),
+
+    #[error("invalid module path: {0}")]
     InvalidPath(String),
-}
-
-impl std::fmt::Display for LoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound(path) => write!(f, "module not found: {}", path.display()),
-            Self::Io(e) => write!(f, "IO error: {}", e),
-            Self::Decompress(s) => write!(f, "decompression error: {}", s),
-            Self::Syscall(e) => write!(f, "syscall error: {}", e),
-            Self::InvalidPath(s) => write!(f, "invalid module path: {}", s),
-        }
-    }
-}
-
-impl std::error::Error for LoadError {}
-
-impl From<std::io::Error> for LoadError {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<nix::errno::Errno> for LoadError {
-    fn from(e: nix::errno::Errno) -> Self {
-        Self::Syscall(e)
-    }
 }
 
 pub struct ModuleLoader {

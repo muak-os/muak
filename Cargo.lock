@@ -1324,12 +1324,16 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "tempfile",
+ "thiserror 2.0.17",
  "zstd",
 ]
 
 [[package]]
 name = "kmsg"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "libc"
