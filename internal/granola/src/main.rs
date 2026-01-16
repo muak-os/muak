@@ -18,27 +18,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    let is_installed = match provisioning::status() {
-        provisioning::InstallationStatus::Live => {
-            kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
-            kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
-            false
-        }
-        provisioning::InstallationStatus::Installed => {
-            kmsg::info!("Running from INSTALLED DISK");
+    let mut is_installed = matches!(
+        provisioning::status(),
+        provisioning::InstallationStatus::Installed
+    );
 
-            if let Err(e) = disk::mount_partitions() {
-                kmsg::warn!("Failed to mount partitions: {}", e);
-                // TODO: set maintenance mode here to recover
-                false
-            } else if let Err(e) = provisioning::check_and_handle_pending_validation() {
-                kmsg::warn!("Update validation handling failed: {}", e);
-                true
-            } else {
-                true
-            }
-        }
-    };
+    if is_installed {
+        kmsg::info!("Running from INSTALLED DISK");
+    } else {
+        kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
+        kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
+    }
+
+    if is_installed && disk::mount_partitions().is_err() {
+        let _ =
+            disk::mount_partitions().map_err(|e| kmsg::warn!("Failed to mount partitions: {}", e));
+        is_installed = false;
+        // TODO: set in maintenance mode here to recover
+    }
+
+    if is_installed {
+        let _ = provisioning::check_and_handle_pending_validation()
+            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
+    }
 
     let config = match HostConfig::load() {
         Ok(cfg) => cfg,

@@ -26,8 +26,10 @@ gptman = { workspace = true }
 fatfs = { workspace = true }
 
 # Utilities
-anyhow = { workspace = true }
 futures-util = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }
