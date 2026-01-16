@@ -1,9 +1,10 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 use object::read::pe::{ImageNtHeaders, PeFile64};
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
 
@@ -57,15 +58,21 @@ fn write_u32(buf: &mut [u8], off: usize, val: u32) {
     buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
 }
 
-fn main() -> io::Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     let mut stub_data = Vec::new();
-    File::open(&args.stub)?.read_to_end(&mut stub_data)?;
+    File::open(&args.stub)
+        .with_context(|| format!("Failed to open stub file: {}", args.stub.display()))?
+        .read_to_end(&mut stub_data)
+        .with_context(|| format!("Failed to read stub file: {}", args.stub.display()))?;
 
-    let linux_data = fs::read(&args.linux)?;
-    let initrd_data = fs::read(&args.initrd)?;
-    let cmdline_data = fs::read(&args.cmdline)?;
+    let linux_data = fs::read(&args.linux)
+        .with_context(|| format!("Failed to read linux kernel: {}", args.linux.display()))?;
+    let initrd_data = fs::read(&args.initrd)
+        .with_context(|| format!("Failed to read initrd: {}", args.initrd.display()))?;
+    let cmdline_data = fs::read(&args.cmdline)
+        .with_context(|| format!("Failed to read cmdline: {}", args.cmdline.display()))?;
 
     let original_stub_len = stub_data.len();
 
@@ -79,12 +86,7 @@ fn main() -> io::Result<()> {
         last_section_virtual_end,
         current_section_count,
     ) = {
-        let pe = PeFile64::parse(&stub_data[..]).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to parse PE file: {}", e),
-            )
-        })?;
+        let pe = PeFile64::parse(&stub_data[..]).context("Failed to parse PE file")?;
         let nt_headers = pe.nt_headers();
         let sections = pe.section_table();
 
@@ -220,8 +222,11 @@ fn main() -> io::Result<()> {
     let new_size_of_image = align_to(max_virtual_end, section_alignment);
     write_u32(&mut stub_data, size_of_image_off, new_size_of_image);
 
-    let mut out_file = File::create(&args.output)?;
-    out_file.write_all(&stub_data)?;
+    let mut out_file = File::create(&args.output)
+        .with_context(|| format!("Failed to create output file: {}", args.output.display()))?;
+    out_file
+        .write_all(&stub_data)
+        .with_context(|| format!("Failed to write to output file: {}", args.output.display()))?;
 
     println!(
         "Successfully created UKI at {} ({} bytes)",

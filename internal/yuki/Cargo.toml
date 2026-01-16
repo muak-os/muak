@@ -6,8 +6,14 @@ authors = ["Sawang"]
 description = "UKI builder - add PE sections to EFI stub"
 
 [dependencies]
-object = { workspace = true }
+# CLI parsing
 clap = { workspace = true }
+
+# Utilities
+object = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
 
 [lints]
 workspace = true
