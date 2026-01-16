@@ -27,13 +27,16 @@
   - Extract services to be file based in /run/services/
 
 - Enhance networking:
+  - Handle certificates properly using webpki-roots-certs in reqwest 0.13
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
   - Support custom proxy
+  - Support for self-signed certificates
   - Allow creation of multiple bridges
+  - Disable bridge when in maintenance mode
 
 - Better gRPC communication:
   - Add authentication using mTLS

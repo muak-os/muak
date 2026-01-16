@@ -45,7 +45,7 @@ netlink-packet-route = "0.28"
 netlink-packet-core = "0.8"
 futures-util = "0.3"
 dhcproto = "0.14"
-reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # Utilities
 tower = "0.5"
