@@ -37,32 +37,12 @@ impl Default for SystemConfig {
 #[serde(default)]
 pub struct NetworkConfig {
     pub bridge: String,
-    pub connectivity: ConnectivityConfig,
 }
 
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             bridge: "br0".to_string(),
-            connectivity: ConnectivityConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ConnectivityConfig {
-    pub check_interval_secs: u64,
-    pub probe_timeout_secs: u64,
-    pub overall_timeout_secs: u64,
-}
-
-impl Default for ConnectivityConfig {
-    fn default() -> Self {
-        Self {
-            check_interval_secs: 60,
-            probe_timeout_secs: 5,
-            overall_timeout_secs: 15,
         }
     }
 }
