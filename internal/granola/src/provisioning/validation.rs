@@ -21,10 +21,10 @@ pub enum UpdateStatus {
 pub fn get_update_status(update_id: &str) -> UpdateStatus {
     let rollback_path = Path::new("/run/state/rollbacks").join(format!("{}.json", update_id));
     if rollback_path.exists() {
-        if let Ok(contents) = fs::read_to_string(&rollback_path) {
-            if let Ok(info) = serde_json::from_str::<RollbackInfo>(&contents) {
-                return UpdateStatus::RolledBack(info.reason);
-            }
+        if let Ok(contents) = fs::read_to_string(&rollback_path)
+            && let Ok(info) = serde_json::from_str::<RollbackInfo>(&contents)
+        {
+            return UpdateStatus::RolledBack(info.reason);
         }
         return UpdateStatus::RolledBack("Unknown error".to_string());
     }
@@ -35,12 +35,11 @@ pub fn get_update_status(update_id: &str) -> UpdateStatus {
     }
 
     let marker_path = Path::new(UPDATE_DIR).join("pending-validation.json");
-    if let Ok(contents) = fs::read_to_string(&marker_path) {
-        if let Ok(marker) = serde_json::from_str::<ValidationMarker>(&contents) {
-            if marker.update_id == update_id {
-                return UpdateStatus::Pending;
-            }
-        }
+    if let Ok(contents) = fs::read_to_string(&marker_path)
+        && let Ok(marker) = serde_json::from_str::<ValidationMarker>(&contents)
+        && marker.update_id == update_id
+    {
+        return UpdateStatus::Pending;
     }
 
     UpdateStatus::Unknown

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const CONFIG_PATH: &str = "/run/state/config.toml";
 const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct HostConfig {
     pub system: SystemConfig,
@@ -22,30 +22,6 @@ pub struct SystemConfig {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct NetworkConfig {
-    pub bridge: String,
-    pub connectivity: ConnectivityConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ConnectivityConfig {
-    pub check_interval_secs: u64,
-    pub probe_timeout_secs: u64,
-    pub overall_timeout_secs: u64,
-}
-
-impl Default for HostConfig {
-    fn default() -> Self {
-        Self {
-            system: SystemConfig::default(),
-            network: NetworkConfig::default(),
-        }
-    }
-}
-
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
@@ -57,6 +33,13 @@ impl Default for SystemConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NetworkConfig {
+    pub bridge: String,
+    pub connectivity: ConnectivityConfig,
+}
+
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
@@ -64,6 +47,14 @@ impl Default for NetworkConfig {
             connectivity: ConnectivityConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConnectivityConfig {
+    pub check_interval_secs: u64,
+    pub probe_timeout_secs: u64,
+    pub overall_timeout_secs: u64,
 }
 
 impl Default for ConnectivityConfig {
