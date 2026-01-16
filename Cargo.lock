@@ -3184,9 +3184,9 @@ dependencies = [
 name = "yuki"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
  "object",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
