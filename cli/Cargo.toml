@@ -1,8 +1,8 @@
 [package]
 name = "muakctl"
 version = "0.1.0"
-edition = "2024"
 description = "Muak command line interface"
+edition.workspace = true
 
 [dependencies]
 tokio = { workspace = true, features = ["macros", "io-util", "fs"] }

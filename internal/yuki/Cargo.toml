@@ -1,9 +1,8 @@
 [package]
 name = "yuki"
 version = "0.1.0"
-edition = "2024"
-authors = ["Sawang"]
 description = "UKI builder - add PE sections to EFI stub"
+edition.workspace = true
 
 [dependencies]
 # CLI parsing

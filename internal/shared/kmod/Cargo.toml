@@ -1,7 +1,7 @@
 [package]
 name = "kmod"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
 
 [dependencies]
 nix = { workspace = true, features = ["fs"] }
