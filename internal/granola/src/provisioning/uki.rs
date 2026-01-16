@@ -48,7 +48,8 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
 
 pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
-    execute_yuki(uki, output)?;
+    yuki::build_uki(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, output)
+        .context("Failed to build UKI")?;
 
     kmsg::info!(
         @ "provisioning",
@@ -62,7 +63,14 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    execute_yuki(uki, &temp_output)?;
+    yuki::build_uki(
+        &uki.stub,
+        &uki.kernel,
+        &uki.initramfs,
+        &uki.cmdline,
+        &temp_output,
+    )
+    .context("Failed to build UKI")?;
 
     std::fs::rename(&temp_output, output).with_context(|| {
         format!(
@@ -215,32 +223,4 @@ fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Res
 fn write_cmdline(path: &Path, cmdline: &str) -> Result<()> {
     std::fs::write(path, cmdline)
         .with_context(|| format!("Failed to write cmdline to {}", path.display()))
-}
-
-fn execute_yuki(uki: &Uki, output: &Path) -> Result<()> {
-    let result = Command::new("/sbin/yuki")
-        .arg("--stub")
-        .arg(&uki.stub)
-        .arg("--linux")
-        .arg(&uki.kernel)
-        .arg("--initrd")
-        .arg(&uki.initramfs)
-        .arg("--cmdline")
-        .arg(&uki.cmdline)
-        .arg("--output")
-        .arg(output)
-        .output()
-        .context("Failed to execute yuki")?;
-
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stdout = String::from_utf8_lossy(&result.stdout);
-        bail!(
-            "yuki failed to build UKI:\nstdout: {}\nstderr: {}",
-            stdout,
-            stderr
-        );
-    }
-
-    Ok(())
 }
