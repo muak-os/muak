@@ -30,20 +30,17 @@ impl Uki {
 
 pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
     let uki = Uki::from_dir(config.work_dir);
+    let parent = uki.kernel.parent().context("Invalid UKI path")?;
 
-    std::fs::create_dir_all(uki.kernel.parent().unwrap()).with_context(|| {
+    std::fs::create_dir_all(parent).with_context(|| {
         format!(
             "Failed to create work dir for {}",
             config.work_dir.display()
         )
     })?;
 
-    pull_installer(config.installer_image, uki.kernel.parent().unwrap())?;
-    build_initramfs(
-        uki.kernel.parent().unwrap(),
-        &uki.initramfs,
-        config.extensions,
-    )?;
+    pull_installer(config.installer_image, parent)?;
+    build_initramfs(parent, &uki.initramfs, config.extensions)?;
     write_cmdline(&uki.cmdline, config.cmdline)?;
 
     Ok(uki)
