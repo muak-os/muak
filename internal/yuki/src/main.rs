@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use object::LittleEndian as LE;
-use object::pe::ImageSectionHeader;
+use object::pe::{ImageFileHeader, ImageSectionHeader};
 use object::read::pe::{ImageNtHeaders, PeFile64};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
+
+mod config;
 
 #[derive(Parser, Debug)]
 #[command(name = "yuki")]
@@ -27,21 +29,6 @@ struct Args {
     #[arg(short, long)]
     output: PathBuf,
 }
-
-const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
-const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
-const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
-
-const DOS_HEADER_PE_OFFSET: usize = 0x3C;
-const PE_SIGNATURE_SIZE: usize = 4;
-
-const OPT_HEADER_SECTION_ALIGNMENT: usize = 32;
-const OPT_HEADER_FILE_ALIGNMENT: usize = 36;
-const OPT_HEADER_SIZE_OF_IMAGE: usize = 56;
-
-const COFF_NUMBER_OF_SECTIONS: usize = 2;
-
-const SECTION_NAME_MAX_LEN: usize = 8;
 
 fn align_to(value: u32, alignment: u32) -> u32 {
     if alignment == 0 {
@@ -91,25 +78,24 @@ fn main() -> Result<()> {
         let sections = pe.section_table();
 
         let pe_offset = u32::from_le_bytes([
-            stub_data[DOS_HEADER_PE_OFFSET],
-            stub_data[DOS_HEADER_PE_OFFSET + 1],
-            stub_data[DOS_HEADER_PE_OFFSET + 2],
-            stub_data[DOS_HEADER_PE_OFFSET + 3],
+            stub_data[config::DOS_HEADER_PE_OFFSET],
+            stub_data[config::DOS_HEADER_PE_OFFSET + 1],
+            stub_data[config::DOS_HEADER_PE_OFFSET + 2],
+            stub_data[config::DOS_HEADER_PE_OFFSET + 3],
         ]) as usize;
-        let file_header_offset = pe_offset + PE_SIGNATURE_SIZE;
-        let optional_header_offset =
-            file_header_offset + mem::size_of::<object::pe::ImageFileHeader>();
+        let file_header_offset = pe_offset + config::PE_SIGNATURE_SIZE;
+        let optional_header_offset = file_header_offset + mem::size_of::<ImageFileHeader>();
         let optional_header_size =
             nt_headers.file_header().size_of_optional_header.get(LE) as usize;
         let section_table_offset = optional_header_offset + optional_header_size;
 
         let section_alignment = read_u32(
             &stub_data,
-            optional_header_offset + OPT_HEADER_SECTION_ALIGNMENT,
+            optional_header_offset + config::OPT_HEADER_SECTION_ALIGNMENT,
         );
         let file_alignment = read_u32(
             &stub_data,
-            optional_header_offset + OPT_HEADER_FILE_ALIGNMENT,
+            optional_header_offset + config::OPT_HEADER_FILE_ALIGNMENT,
         );
 
         let last_section_file_end = sections
@@ -166,7 +152,7 @@ fn main() -> Result<()> {
         let mut section = ImageSectionHeader::default();
 
         let name_bytes = name.as_bytes();
-        let name_len = name_bytes.len().min(SECTION_NAME_MAX_LEN);
+        let name_len = name_bytes.len().min(config::SECTION_NAME_MAX_LEN);
         section.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
 
         section.virtual_size.set(LE, virtual_size);
@@ -175,9 +161,9 @@ fn main() -> Result<()> {
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
         let characteristics = if is_stub_section || *name == ".linux" {
-            IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
+            config::IMAGE_SCN_CNT_CODE | config::IMAGE_SCN_MEM_EXECUTE | config::IMAGE_SCN_MEM_READ
         } else {
-            IMAGE_SCN_MEM_READ
+            config::IMAGE_SCN_MEM_READ
         };
         section.characteristics.set(LE, characteristics);
 
@@ -190,7 +176,7 @@ fn main() -> Result<()> {
     }
 
     let new_section_count = current_section_count + sections_to_add.len() as u16;
-    let section_count_offset = file_header_offset + COFF_NUMBER_OF_SECTIONS;
+    let section_count_offset = file_header_offset + config::COFF_NUMBER_OF_SECTIONS;
 
     stub_data.resize(current_file_offset as usize, 0);
 
@@ -218,7 +204,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let size_of_image_off = optional_header_offset + OPT_HEADER_SIZE_OF_IMAGE;
+    let size_of_image_off = optional_header_offset + config::OPT_HEADER_SIZE_OF_IMAGE;
     let new_size_of_image = align_to(max_virtual_end, section_alignment);
     write_u32(&mut stub_data, size_of_image_off, new_size_of_image);
 
