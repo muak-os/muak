@@ -1,8 +1,8 @@
 [package]
 name = "imager"
-version = "0.2.0"
 description = "CLI tool to manage OCI images and initramfs generation"
 edition.workspace = true
+version.workspace = true
 
 [dependencies]
 # CLI parsing
