@@ -1,4 +1,8 @@
+mod binary;
+mod config;
+
 use anyhow::{Context, Result};
+use binary::{align_to, read_u32, write_u32};
 use clap::Parser;
 use object::LittleEndian as LE;
 use object::pe::{ImageFileHeader, ImageSectionHeader};
@@ -8,10 +12,8 @@ use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
 
-mod config;
-
 #[derive(Parser, Debug)]
-#[command(name = "yuki")]
+#[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     #[arg(short, long)]
@@ -28,21 +30,6 @@ struct Args {
 
     #[arg(short, long)]
     output: PathBuf,
-}
-
-fn align_to(value: u32, alignment: u32) -> u32 {
-    if alignment == 0 {
-        return value;
-    }
-    (value + alignment - 1) & !(alignment - 1)
-}
-
-fn read_u32(buf: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
-}
-
-fn write_u32(buf: &mut [u8], off: usize, val: u32) {
-    buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
 }
 
 fn main() -> Result<()> {
