@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
@@ -74,15 +75,11 @@ impl QemuHypervisor {
     }
 
     pub async fn stop(&self, pid: u32, force: bool) -> Result<()> {
-        use nix::sys::signal::{Signal, kill};
-        use nix::unistd::Pid;
-
-        let signal = if force {
-            Signal::SIGKILL
-        } else {
-            Signal::SIGTERM
-        };
-        kill(Pid::from_raw(pid as i32), signal)?;
+        let signal = if force { Signal::KILL } else { Signal::TERM };
+        kill_process(
+            Pid::from_raw(pid as i32).ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
+            signal,
+        )?;
         Ok(())
     }
 }

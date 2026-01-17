@@ -7,6 +7,7 @@ mod interface;
 mod model;
 mod monitor;
 mod slaac;
+mod socket;
 
 mod actor;
 mod netlink;

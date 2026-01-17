@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
-use std::io::Error;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use rustix::net::netlink::KOBJECT_UEVENT;
+use rustix::net::netlink::SocketAddrNetlink;
+use rustix::net::{AddressFamily, RecvFlags, SocketFlags, SocketType, bind, recv, socket_with};
+use std::os::fd::OwnedFd;
 
-const NETLINK_KOBJECT_UEVENT: i32 = 15;
 const KOBJECT_UEVENT_GROUP: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,48 +24,18 @@ pub struct UeventListener {
     socket: OwnedFd,
 }
 
-#[repr(C)]
-struct SockaddrNl {
-    nl_family: u16,
-    nl_pad: u16,
-    nl_pid: u32,
-    nl_groups: u32,
-}
-
 impl UeventListener {
     pub fn new() -> Result<Self> {
-        let fd = unsafe {
-            nix::libc::socket(
-                nix::libc::AF_NETLINK,
-                nix::libc::SOCK_DGRAM,
-                NETLINK_KOBJECT_UEVENT,
-            )
-        };
+        let socket = socket_with(
+            AddressFamily::NETLINK,
+            SocketType::DGRAM,
+            SocketFlags::CLOEXEC,
+            Some(KOBJECT_UEVENT),
+        )
+        .context("Failed to create netlink socket")?;
 
-        if fd < 0 {
-            return Err(Error::last_os_error()).context("Failed to create netlink socket");
-        }
-
-        let socket = unsafe { OwnedFd::from_raw_fd(fd) };
-
-        let addr = SockaddrNl {
-            nl_family: nix::libc::AF_NETLINK as u16,
-            nl_pad: 0,
-            nl_pid: 0,
-            nl_groups: KOBJECT_UEVENT_GROUP,
-        };
-
-        let ret = unsafe {
-            nix::libc::bind(
-                socket.as_raw_fd(),
-                &addr as *const _ as *const nix::libc::sockaddr,
-                std::mem::size_of::<SockaddrNl>() as u32,
-            )
-        };
-
-        if ret < 0 {
-            return Err(Error::last_os_error()).context("Failed to bind netlink socket");
-        }
+        let addr = SocketAddrNetlink::new(0, KOBJECT_UEVENT_GROUP);
+        bind(&socket, &addr).context("Failed to bind netlink socket")?;
 
         Ok(Self { socket })
     }
@@ -72,21 +43,11 @@ impl UeventListener {
     pub fn recv(&self) -> Result<Uevent> {
         let mut buf = [0u8; 8192];
 
-        let n = unsafe {
-            nix::libc::recv(
-                self.socket.as_raw_fd(),
-                buf.as_mut_ptr() as *mut _,
-                buf.len(),
-                0,
-            )
-        };
+        let (bytes_initialized, _total_bytes) =
+            recv(&self.socket, &mut buf[..], RecvFlags::empty())
+                .context("Failed to receive uevent")?;
 
-        if n < 0 {
-            return Err(Error::last_os_error()).context("Failed to receive uevent");
-        }
-
-        let data = &buf[..n as usize];
-        Ok(parse_uevent(data))
+        Ok(parse_uevent(&buf[..bytes_initialized]))
     }
 }
 

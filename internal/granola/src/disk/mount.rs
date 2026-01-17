@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use nix::mount::{MsFlags, mount};
+use rustix::mount::{MountFlags, mount};
 use std::fs;
 use std::process::Command;
 
@@ -28,11 +28,11 @@ pub fn mount_partitions() -> Result<()> {
         fs::create_dir_all("/run/state")?;
 
         mount(
-            Some(state_dev.as_str()),
+            state_dev.as_str(),
             "/run/state",
-            Some("btrfs"),
-            MsFlags::empty(),
-            None::<&str>,
+            "btrfs",
+            MountFlags::empty(),
+            None,
         )
         .context("Failed to mount STATE partition")?;
 
@@ -45,11 +45,11 @@ pub fn mount_partitions() -> Result<()> {
         fs::create_dir_all("/run/data")?;
 
         mount(
-            Some(data_dev.as_str()),
+            data_dev.as_str(),
             "/run/data",
-            Some("btrfs"),
-            MsFlags::empty(),
-            None::<&str>,
+            "btrfs",
+            MountFlags::empty(),
+            None,
         )
         .context("Failed to mount DATA partition")?;
 

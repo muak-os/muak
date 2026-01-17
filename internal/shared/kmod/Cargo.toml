@@ -4,8 +4,13 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-nix = { workspace = true, features = ["fs"] }
+# System/platform APIs
+rustix = { workspace = true, features = ["system"] }
+
+# Compression
 zstd = { workspace = true }
+
+# Error handling
 thiserror = { workspace = true }
 
 [dev-dependencies]

@@ -310,10 +310,10 @@ impl NetworkActor {
                     return;
                 };
 
-                if let Some(iface) = self.get_interface_mut(&primary) {
-                    if let Some(ipv6) = &mut iface.ipv6 {
-                        ipv6.dns = servers;
-                    }
+                if let Some(iface) = self.get_interface_mut(&primary)
+                    && let Some(ipv6) = &mut iface.ipv6
+                {
+                    ipv6.dns = servers;
                 }
 
                 self.sync_and_publish();

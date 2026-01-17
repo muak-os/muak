@@ -1,13 +1,12 @@
 use anyhow::Result;
 use dhcproto::{Decodable, Decoder, Encodable, v4};
-use nix::sys::socket::{setsockopt, sockopt::BindToDevice};
-use std::ffi::OsString;
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
 use crate::model::{DhcpLease, IpConfig};
+use crate::socket;
 
 mod option {
     pub const SUBNET_MASK: u8 = 1;
@@ -50,7 +49,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
 
     let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
     socket.set_broadcast(true)?;
-    setsockopt(&socket, BindToDevice, &OsString::from(interface))?;
+    socket::socket_bind_device(&socket, interface)?;
 
     let xid: u32 = SystemTime::now()
         .duration_since(UNIX_EPOCH)

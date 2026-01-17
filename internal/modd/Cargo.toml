@@ -5,7 +5,7 @@ version.workspace = true
 
 [dependencies]
 # System/platform APIs
-nix = { workspace = true, features = ["socket", "feature"] }
+rustix = { workspace = true, features = ["net", "system"] }
 
 # Compression
 zstd = { workspace = true }

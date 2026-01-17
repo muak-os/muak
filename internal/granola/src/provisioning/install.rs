@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use nix::mount::{MsFlags, mount};
-use nix::unistd::sync;
+use rustix::fs::sync;
+use rustix::mount::{MountFlags, mount};
 
 use crate::config::HostConfig;
 use crate::disk;
@@ -116,14 +116,8 @@ fn init_state_partition(device: &str, config: &HostConfig) -> Result<()> {
     fs::create_dir_all(mount_point)
         .with_context(|| format!("Failed to create mount point {}", mount_point))?;
 
-    mount(
-        Some(device),
-        mount_point,
-        Some("btrfs"),
-        MsFlags::empty(),
-        None::<&str>,
-    )
-    .context("Failed to mount STATE partition")?;
+    mount(device, mount_point, "btrfs", MountFlags::empty(), None)
+        .context("Failed to mount STATE partition")?;
 
     let config_toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
     fs::write(format!("{}/config.toml", mount_point), config_toml)

@@ -3,7 +3,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use nix::unistd::sync;
+use rustix::fs::sync;
+use rustix::system::{RebootCommand, reboot};
 
 use super::uki::{self, Uki};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
@@ -207,7 +208,7 @@ fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
 
     sync();
 
-    let _ = nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_AUTOBOOT);
+    reboot(RebootCommand::Restart).context("Failed to reboot for rollback")?;
 
     unreachable!("If we're here, something went really wrong");
 }

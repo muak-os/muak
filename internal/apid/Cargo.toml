@@ -7,9 +7,6 @@ version.workspace = true
 # Core async runtime
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
 
-# System/platform APIs
-nix = { workspace = true, features = ["signal"] }
-
 # HTTP/2 proxy
 hyper = { workspace = true }
 hyper-util = { workspace = true }

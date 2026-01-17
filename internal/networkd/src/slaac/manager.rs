@@ -1,22 +1,27 @@
-use std::ffi::OsString;
 use std::net::Ipv6Addr;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use nix::sys::socket::{
-    AddressFamily, MsgFlags, SockFlag, SockProtocol, SockType, SockaddrIn6, recvfrom, sendto,
-    setsockopt, socket, sockopt,
+use rustix::net::ipproto::ICMPV6;
+use rustix::net::netdevice::name_to_index;
+use rustix::net::{
+    AddressFamily, RecvFlags, SendFlags, SocketAddrV6, SocketFlags, SocketType, recvfrom, sendto,
+    socket_with,
 };
+use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
+use crate::socket;
+
 use super::address::generate_slaac_address;
 use super::icmpv6::{
-    ICMPV6_ROUTER_ADVERTISEMENT, build_router_solicitation, parse_router_advertisement,
+    ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
+    parse_router_advertisement,
 };
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
-use super::{FALLBACK_DNS, create_icmpv6_filter, get_interface_index, set_icmpv6_filter};
+use super::{FALLBACK_DNS, create_icmpv6_filter, set_icmpv6_filter};
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 const MAX_RTR_SOLICITATIONS: u32 = 3;
@@ -50,7 +55,7 @@ pub struct SlaacManager {
     interface: String,
     mac: [u8; 6],
     ifindex: u32,
-    socket: OwnedFd,
+    socket: AsyncFd<OwnedFd>,
 
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
@@ -65,19 +70,22 @@ impl SlaacManager {
         mac: [u8; 6],
         event_tx: mpsc::Sender<SlaacEvent>,
     ) -> Result<Self> {
-        let ifindex = get_interface_index(&interface)?;
-
-        let socket = socket(
-            AddressFamily::Inet6,
-            SockType::Raw,
-            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
-            Some(SockProtocol::IcmpV6),
+        let socket_fd = socket_with(
+            AddressFamily::INET6,
+            SocketType::RAW,
+            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+            Some(ICMPV6),
         )?;
 
-        setsockopt(&socket, sockopt::BindToDevice, &OsString::from(&interface))?;
+        socket::socket_bind_device(&socket_fd, &interface)?;
+
+        let ifindex = name_to_index(&socket_fd, &interface)?;
 
         let filter = create_icmpv6_filter();
-        set_icmpv6_filter(socket.as_raw_fd(), &filter)?;
+        set_icmpv6_filter(socket_fd.as_raw_fd(), &filter)?;
+
+        // Wrap in AsyncFd for tokio integration - completely safe!
+        let socket = AsyncFd::new(socket_fd)?;
 
         Ok(Self {
             interface,
@@ -123,12 +131,7 @@ impl SlaacManager {
                 MAX_RTR_SOLICITATIONS
             );
 
-            sendto(
-                self.socket.as_raw_fd(),
-                &rs_packet,
-                &dest,
-                MsgFlags::empty(),
-            )?;
+            sendto(self.socket.get_ref(), &rs_packet, SendFlags::empty(), &dest)?;
 
             match self.wait_for_ra(RTR_SOLICITATION_INTERVAL).await {
                 Ok(ra) => {
@@ -149,7 +152,7 @@ impl SlaacManager {
         )
     }
 
-    async fn process_initial_ra(&mut self, ra: super::icmpv6::RouterAdvertisement) -> Result<()> {
+    async fn process_initial_ra(&mut self, ra: RouterAdvertisement) -> Result<()> {
         let prefix = ra
             .prefixes
             .iter()
@@ -243,10 +246,10 @@ impl SlaacManager {
             }
         }
 
-        if let Some(router) = &self.router {
-            if router.expires_at < deadline {
-                deadline = router.expires_at;
-            }
+        if let Some(router) = &self.router
+            && router.expires_at < deadline
+        {
+            deadline = router.expires_at;
         }
 
         for dns in &self.dns_servers {
@@ -261,55 +264,56 @@ impl SlaacManager {
     async fn handle_timer_expiration(&mut self) {
         let now = Instant::now();
 
-        if let Some(addr) = &mut self.address {
-            if addr.state == AddressState::Preferred && now >= addr.preferred_until {
-                addr.state = AddressState::Deprecated;
-                kmsg::info!(
-                    @ "networkd",
-                    "SLAAC manager: address {} deprecated",
-                    addr.address
-                );
-                let _ = self
-                    .event_tx
-                    .send(SlaacEvent::AddressDeprecated {
-                        address: addr.address,
-                    })
-                    .await;
-            }
+        if let Some(addr) = &mut self.address
+            && addr.state == AddressState::Preferred
+            && now >= addr.preferred_until
+        {
+            addr.state = AddressState::Deprecated;
+            kmsg::info!(
+                @ "networkd",
+                "SLAAC manager: address {} deprecated",
+                addr.address
+            );
+            let _ = self
+                .event_tx
+                .send(SlaacEvent::AddressDeprecated {
+                    address: addr.address,
+                })
+                .await;
         }
 
-        if let Some(addr) = &self.address {
-            if now >= addr.valid_until {
-                kmsg::info!(
-                    @ "networkd",
-                    "SLAAC manager: address {} expired",
-                    addr.address
-                );
-                let _ = self
-                    .event_tx
-                    .send(SlaacEvent::AddressExpired {
-                        address: addr.address,
-                    })
-                    .await;
-                self.address = None;
-            }
+        if let Some(addr) = &self.address
+            && now >= addr.valid_until
+        {
+            kmsg::info!(
+                @ "networkd",
+                "SLAAC manager: address {} expired",
+                addr.address
+            );
+            let _ = self
+                .event_tx
+                .send(SlaacEvent::AddressExpired {
+                    address: addr.address,
+                })
+                .await;
+            self.address = None;
         }
 
-        if let Some(router) = &self.router {
-            if now >= router.expires_at {
-                kmsg::info!(
-                    @ "networkd",
-                    "SLAAC manager: router {} expired",
-                    router.address
-                );
-                let _ = self
-                    .event_tx
-                    .send(SlaacEvent::RouterExpired {
-                        router: router.address,
-                    })
-                    .await;
-                self.router = None;
-            }
+        if let Some(router) = &self.router
+            && now >= router.expires_at
+        {
+            kmsg::info!(
+                @ "networkd",
+                "SLAAC manager: router {} expired",
+                router.address
+            );
+            let _ = self
+                .event_tx
+                .send(SlaacEvent::RouterExpired {
+                    router: router.address,
+                })
+                .await;
+            self.router = None;
         }
 
         let had_dns = !self.dns_servers.is_empty();
@@ -329,41 +333,41 @@ impl SlaacManager {
         }
     }
 
-    async fn process_unsolicited_ra(&mut self, ra: super::icmpv6::RouterAdvertisement) {
+    async fn process_unsolicited_ra(&mut self, ra: RouterAdvertisement) {
         kmsg::info!(@ "networkd", "SLAAC manager: received unsolicited RA from {}", ra.source);
 
         if ra.router_lifetime == 0 {
-            if let Some(router) = &self.router {
-                if router.address == ra.source {
+            if let Some(router) = &self.router
+                && router.address == ra.source
+            {
+                kmsg::info!(
+                    @ "networkd",
+                    "SLAAC manager: router {} signaled departure (lifetime=0)",
+                    ra.source
+                );
+                let _ = self
+                    .event_tx
+                    .send(SlaacEvent::RouterExpired { router: ra.source })
+                    .await;
+                self.router = None;
+
+                if let Some(addr) = &self.address
+                    && addr.router == ra.source
+                {
                     kmsg::info!(
                         @ "networkd",
-                        "SLAAC manager: router {} signaled departure (lifetime=0)",
-                        ra.source
+                        "SLAAC manager: router for {} went away, address will expire",
+                        addr.address
                     );
-                    let _ = self
-                        .event_tx
-                        .send(SlaacEvent::RouterExpired { router: ra.source })
-                        .await;
-                    self.router = None;
-
-                    if let Some(addr) = &self.address {
-                        if addr.router == ra.source {
-                            kmsg::info!(
-                                @ "networkd",
-                                "SLAAC manager: router for {} went away, address will expire",
-                                addr.address
-                            );
-                        }
-                    }
                 }
             }
             return;
         }
 
-        if let Some(router) = &mut self.router {
-            if router.address == ra.source {
-                router.refresh_lifetime(ra.router_lifetime);
-            }
+        if let Some(router) = &mut self.router
+            && router.address == ra.source
+        {
+            router.refresh_lifetime(ra.router_lifetime);
         }
 
         if let Some(addr) = &mut self.address {
@@ -399,7 +403,7 @@ impl SlaacManager {
         }
     }
 
-    async fn wait_for_ra(&self, timeout: Duration) -> Result<super::icmpv6::RouterAdvertisement> {
+    async fn wait_for_ra(&self, timeout: Duration) -> Result<RouterAdvertisement> {
         let deadline = Instant::now() + timeout;
 
         loop {
@@ -417,53 +421,63 @@ impl SlaacManager {
         }
     }
 
-    async fn try_recv_ra(&self) -> Result<Option<super::icmpv6::RouterAdvertisement>> {
-        let fd_raw = self.socket.as_raw_fd();
-
-        let ready =
-            tokio::task::spawn_blocking(move || poll_read(fd_raw, Duration::from_millis(100)))
-                .await??;
-
-        if !ready {
-            return Ok(None);
-        }
+    async fn try_recv_ra(&self) -> Result<Option<RouterAdvertisement>> {
+        let mut guard = self.socket.readable().await?;
 
         let mut buf = [0u8; 1500];
-        match recvfrom::<SockaddrIn6>(self.socket.as_raw_fd(), &mut buf) {
-            Ok((len, Some(addr))) => {
-                if buf[0] == ICMPV6_ROUTER_ADVERTISEMENT {
-                    let source = addr.ip();
-                    let ra = parse_router_advertisement(&buf[..len], source)?;
-                    return Ok(Some(ra));
+
+        let recv_result = guard.try_io(|inner| {
+            recvfrom(inner.get_ref(), &mut buf, RecvFlags::empty()).map_err(|e| match e {
+                rustix::io::Errno::WOULDBLOCK => {
+                    std::io::Error::from(std::io::ErrorKind::WouldBlock)
+                }
+                _ => std::io::Error::from_raw_os_error(e.raw_os_error()),
+            })
+        });
+
+        match recv_result {
+            Ok(Ok((_, len, Some(addr)))) => {
+                if addr.address_family() == AddressFamily::INET6
+                    && buf[0] == ICMPV6_ROUTER_ADVERTISEMENT
+                {
+                    match SocketAddrV6::try_from(addr) {
+                        Ok(sockaddr_v6) => {
+                            let source = *sockaddr_v6.ip();
+                            let ra = parse_router_advertisement(&buf[..len], source)?;
+                            return Ok(Some(ra));
+                        }
+                        Err(_) => {
+                            return Ok(None);
+                        }
+                    }
                 }
                 Ok(None)
             }
-            Ok((len, None)) => {
+            Ok(Ok((_, len, None))) => {
                 if buf[0] == ICMPV6_ROUTER_ADVERTISEMENT {
                     let ra = parse_router_advertisement(&buf[..len], Ipv6Addr::UNSPECIFIED)?;
                     return Ok(Some(ra));
                 }
                 Ok(None)
             }
-            Err(nix::errno::Errno::EAGAIN) => Ok(None),
-            Err(e) => bail!("recvfrom failed: {}", e),
+            Ok(Err(e)) => {
+                bail!("recvfrom failed: {}", e)
+            }
+            Err(_would_block) => {
+                guard.clear_ready();
+                Ok(None)
+            }
         }
     }
 }
 
-fn create_all_routers_sockaddr(ifindex: u32) -> SockaddrIn6 {
-    let all_routers: Ipv6Addr = "ff02::2".parse().unwrap();
-    SockaddrIn6::from(std::net::SocketAddrV6::new(all_routers, 0, 0, ifindex))
-}
-
-fn poll_read(fd: i32, timeout: Duration) -> Result<bool> {
-    use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
-    use std::os::fd::BorrowedFd;
-
-    let borrowed_fd = unsafe { BorrowedFd::borrow_raw(fd) };
-    let mut fds = [PollFd::new(borrowed_fd, PollFlags::POLLIN)];
-    let timeout_ms = timeout.as_millis() as i32;
-
-    let n = poll(&mut fds, PollTimeout::try_from(timeout_ms)?)?;
-    Ok(n > 0)
+fn create_all_routers_sockaddr(ifindex: u32) -> SocketAddrV6 {
+    let all_routers: Ipv6Addr = "ff02::2".parse().expect("valid IPv6 address");
+    let std_sockaddr = std::net::SocketAddrV6::new(all_routers, 0, 0, ifindex);
+    SocketAddrV6::new(
+        *std_sockaddr.ip(),
+        std_sockaddr.port(),
+        std_sockaddr.flowinfo(),
+        std_sockaddr.scope_id(),
+    )
 }

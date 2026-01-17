@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use std::fs::{self, File};
 use std::io::{Read, Seek};
+use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
@@ -30,8 +31,6 @@ pub fn validate_disk_size(disk: &str) -> Result<()> {
 }
 
 pub fn validate_block_device(disk: &str) -> Result<()> {
-    use std::os::unix::fs::FileTypeExt;
-
     let metadata = fs::metadata(disk)?;
 
     if !metadata.file_type().is_block_device() {

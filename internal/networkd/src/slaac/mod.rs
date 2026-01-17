@@ -3,10 +3,8 @@ mod icmpv6;
 mod manager;
 mod state;
 
-use std::net::Ipv6Addr;
-
 use anyhow::{Result, bail};
-use nix::libc;
+use std::net::Ipv6Addr;
 
 pub(crate) use icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
@@ -47,16 +45,6 @@ pub(crate) fn set_icmpv6_filter(fd: i32, filter: &Icmp6Filter) -> Result<()> {
         bail!("setsockopt ICMP6_FILTER failed");
     }
     Ok(())
-}
-
-pub(crate) fn get_interface_index(name: &str) -> Result<u32> {
-    use std::ffi::CString;
-    let cname = CString::new(name)?;
-    let idx = unsafe { libc::if_nametoindex(cname.as_ptr()) };
-    if idx == 0 {
-        bail!("interface not found: {}", name);
-    }
-    Ok(idx)
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
-use nix::mount::{MsFlags, mount};
-use nix::unistd::{chdir, chroot};
+use rustix::mount::mount_move;
+use rustix::process::{chdir, chroot};
 use std::fs;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
@@ -22,14 +22,8 @@ fn move_mounts(newroot: &str) -> Result<()> {
 
         fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
 
-        mount(
-            Some(*mnt),
-            target.as_str(),
-            None::<&str>,
-            MsFlags::MS_MOVE,
-            None::<&str>,
-        )
-        .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
+        mount_move(*mnt, target.as_str())
+            .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
     }
 
     Ok(())

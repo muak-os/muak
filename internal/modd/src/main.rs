@@ -23,7 +23,7 @@ fn run() -> Result<()> {
     let notifier = NotifyClient::new("modd")?;
     notifier.status("Initializing", Health::Healthy)?;
 
-    let uname = nix::sys::utsname::uname().context("Failed to get system info")?;
+    let uname = rustix::system::uname();
     let krel = uname.release().to_string_lossy();
     let mod_dir = Path::new("/lib/modules").join(krel.as_ref());
 

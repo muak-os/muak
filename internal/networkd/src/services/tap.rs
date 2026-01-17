@@ -1,10 +1,10 @@
 use crate::netlink::link;
 use crate::services::bridge;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rtnetlink::Handle;
+use rustix::fs::{Mode, OFlags, open};
+use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, ioctl};
 use sha2::{Digest, Sha256};
-use std::fs::OpenOptions;
-use std::os::unix::io::AsRawFd;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IFF_TAP: i16 = 0x0002;
@@ -18,30 +18,92 @@ struct IfReq {
     _padding: [u8; 22],
 }
 
-nix::ioctl_write_ptr_bad!(tunsetiff, 0x400454ca, IfReq);
-nix::ioctl_write_int_bad!(tunsetpersist, 0x400454cb);
+struct TunSetIffIoctl<'a> {
+    ifreq: &'a IfReq,
+}
+
+impl<'a> TunSetIffIoctl<'a> {
+    fn new(ifreq: &'a IfReq) -> Self {
+        Self { ifreq }
+    }
+}
+
+unsafe impl Ioctl for TunSetIffIoctl<'_> {
+    type Output = ();
+
+    const IS_MUTATING: bool = true;
+
+    // TUNSETIFF = _IOW('T', 202, int)
+    fn opcode(&self) -> Opcode {
+        0x400454ca
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.ifreq as *const IfReq as *mut std::ffi::c_void
+    }
+
+    unsafe fn output_from_ptr(
+        _output: IoctlOutput,
+        _arg: *mut std::ffi::c_void,
+    ) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
+
+struct TunSetPersistIoctl {
+    value: i32,
+}
+
+impl TunSetPersistIoctl {
+    fn new(value: i32) -> Self {
+        Self { value }
+    }
+}
+
+unsafe impl Ioctl for TunSetPersistIoctl {
+    type Output = ();
+
+    const IS_MUTATING: bool = true;
+
+    // TUNSETPERSIST = _IOW('T', 203, int)
+    fn opcode(&self) -> Opcode {
+        0x400454cb
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.value as usize as *mut std::ffi::c_void
+    }
+
+    unsafe fn output_from_ptr(
+        _output: IoctlOutput,
+        _arg: *mut std::ffi::c_void,
+    ) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
 
 pub async fn create_tap_device(tap_name: &str) -> Result<()> {
     kmsg::info!(@ "networkd", "Creating TAP device: {}", tap_name);
 
-    let file = OpenOptions::new().read(true).write(true).open(TUN_DEVICE)?;
+    let file =
+        open(TUN_DEVICE, OFlags::RDWR, Mode::empty()).context("Failed to open tun device")?;
 
-    let fd = file.as_raw_fd();
-
-    let mut ifr = IfReq {
-        ifr_name: [0u8; 16],
+    let ifr = IfReq {
+        ifr_name: {
+            let mut name = [0u8; 16];
+            let name_bytes = tap_name.as_bytes();
+            let copy_len = name_bytes.len().min(15); // Leave room for null terminator
+            name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+            name
+        },
         ifr_flags: IFF_TAP | IFF_NO_PI | IFF_VNET_HDR,
         _padding: [0u8; 22],
     };
 
-    let name_bytes = tap_name.as_bytes();
-    let copy_len = name_bytes.len().min(15); // Leave room for null terminator
-    ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-
-    unsafe { tunsetiff(fd, &ifr) }
+    unsafe { ioctl(&file, TunSetIffIoctl::new(&ifr)) }
         .map_err(|e| anyhow::anyhow!("failed to create TAP device: {}", e))?;
 
-    unsafe { tunsetpersist(fd, 1) }
+    unsafe { ioctl(&file, TunSetPersistIoctl::new(1)) }
         .map_err(|e| anyhow::anyhow!("failed to make TAP device persistent: {}", e))?;
 
     kmsg::info!(@ "networkd", "Persistent TAP device {} created", tap_name);

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
@@ -359,10 +359,10 @@ impl VmActor {
             Err(e) => {
                 kmsg::error!(@ "vmd", "Failed to start VM {}: {}", entry.config.name, e);
 
-                if let Some(tap) = entry.tap_device.take() {
-                    if let Err(tap_err) = self.network_client.delete_tap(&tap.name).await {
-                        kmsg::warn!(@ "vmd", "Failed to cleanup TAP device {}: {}", tap.name, tap_err);
-                    }
+                if let Some(tap) = entry.tap_device.take()
+                    && let Err(tap_err) = self.network_client.delete_tap(&tap.name).await
+                {
+                    kmsg::warn!(@ "vmd", "Failed to cleanup TAP device {}: {}", tap.name, tap_err);
                 }
 
                 entry.state = VmState::Created;
@@ -498,7 +498,7 @@ impl VmActor {
     }
 }
 
-fn resolve_boot_asset(vm_data_dir: &PathBuf, convention_name: &str) -> anyhow::Result<PathBuf> {
+fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Result<PathBuf> {
     let path = vm_data_dir.join(convention_name);
     if path.exists() {
         Ok(path)

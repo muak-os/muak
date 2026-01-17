@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
@@ -24,16 +25,16 @@ impl CloudHypervisorHypervisor {
             anyhow::bail!("Kernel not found at {}", config.kernel.display());
         }
 
-        if let Some(initrd) = &config.initrd {
-            if !initrd.exists() {
-                anyhow::bail!("Initrd not found at {}", initrd.display());
-            }
+        if let Some(initrd) = &config.initrd
+            && !initrd.exists()
+        {
+            anyhow::bail!("Initrd not found at {}", initrd.display());
         }
 
-        if let Some(parent) = config.serial_log_path.parent() {
-            if !parent.exists() {
-                anyhow::bail!("Serial log directory not found: {}", parent.display());
-            }
+        if let Some(parent) = config.serial_log_path.parent()
+            && !parent.exists()
+        {
+            anyhow::bail!("Serial log directory not found: {}", parent.display());
         }
 
         for disk in &config.disks {
@@ -42,10 +43,10 @@ impl CloudHypervisorHypervisor {
             }
         }
 
-        if let Some(persistent_disk) = &config.persistent_disk {
-            if !persistent_disk.exists() {
-                anyhow::bail!("Persistent disk not found at {}", persistent_disk.display());
-            }
+        if let Some(persistent_disk) = &config.persistent_disk
+            && !persistent_disk.exists()
+        {
+            anyhow::bail!("Persistent disk not found at {}", persistent_disk.display());
         }
 
         let mut cmd = Command::new(&self.binary_path);
@@ -95,15 +96,11 @@ impl CloudHypervisorHypervisor {
     }
 
     pub async fn stop(&self, pid: u32, force: bool) -> Result<()> {
-        use nix::sys::signal::{Signal, kill};
-        use nix::unistd::Pid;
-
-        let signal = if force {
-            Signal::SIGKILL
-        } else {
-            Signal::SIGTERM
-        };
-        kill(Pid::from_raw(pid as i32), signal)?;
+        let signal = if force { Signal::KILL } else { Signal::TERM };
+        kill_process(
+            Pid::from_raw(pid as i32).ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
+            signal,
+        )?;
         Ok(())
     }
 }

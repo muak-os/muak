@@ -1,40 +1,40 @@
-use anyhow::{Context, Result, bail};
-use nix::fcntl::{OFlag, open};
-use nix::mount::{MsFlags, mount};
-use nix::sys::stat::Mode;
-use nix::unistd::{close, mkdir};
-use std::os::fd::AsRawFd;
+use anyhow::{Context, Result};
+use rustix::fs::{CWD, Mode, OFlags, mkdirat, open};
+use rustix::ioctl::{IntegerSetter, Opcode, ioctl};
+use rustix::mount::{MountFlags, mount};
+use std::ffi::CString;
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 
-nix::ioctl_write_int_bad!(loop_set_fd, 0x4C00);
+const LOOP_SET_FD: Opcode = 0x4C00;
 
 pub fn mount_pseudo() -> Result<()> {
     create_and_mount(
         "/dev",
         "devtmpfs",
         "devtmpfs",
-        MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+        MountFlags::NOSUID | MountFlags::NOEXEC,
         None,
     )?;
     create_and_mount(
         "/proc",
         "proc",
         "proc",
-        MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
+        MountFlags::NOSUID | MountFlags::NOEXEC | MountFlags::NODEV,
         None,
     )?;
     create_and_mount(
         "/sys",
         "sysfs",
         "sysfs",
-        MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
+        MountFlags::NOSUID | MountFlags::NOEXEC | MountFlags::NODEV,
         None,
     )?;
     create_and_mount(
         "/run",
         "tmpfs",
         "tmpfs",
-        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+        MountFlags::NOSUID | MountFlags::NODEV,
         Some("mode=0755"),
     )?;
 
@@ -44,16 +44,17 @@ pub fn mount_pseudo() -> Result<()> {
 pub fn mount_rootfs() -> Result<()> {
     let newroot = Path::new("/newroot");
     if !newroot.exists() {
-        mkdir(newroot, Mode::from_bits_truncate(0o755)).context("Failed to create /newroot")?;
+        mkdirat(CWD, newroot, Mode::from_bits_truncate(0o755))
+            .context("Failed to create /newroot")?;
     }
 
     let work_dir = Path::new("/overlay");
-    mkdir(work_dir, Mode::from_bits_truncate(0o755)).context("Failed to create /overlay")?;
+    mkdirat(CWD, work_dir, Mode::from_bits_truncate(0o755)).context("Failed to create /overlay")?;
 
     let mut lower_dirs = Vec::new();
 
     let base_mount = work_dir.join("base");
-    mkdir(&base_mount, Mode::from_bits_truncate(0o755))
+    mkdirat(CWD, &base_mount, Mode::from_bits_truncate(0o755))
         .context("Failed to create /overlay/base")?;
     let base_mount_str = base_mount
         .to_str()
@@ -74,7 +75,7 @@ pub fn mount_rootfs() -> Result<()> {
             .unwrap_or("ext");
 
         let ext_mount = work_dir.join(ext_name);
-        mkdir(&ext_mount, Mode::from_bits_truncate(0o755))
+        mkdirat(CWD, &ext_mount, Mode::from_bits_truncate(0o755))
             .context("Failed to create extension mount point")?;
 
         let loop_dev = format!("/dev/loop{}", idx + 1);
@@ -87,23 +88,23 @@ pub fn mount_rootfs() -> Result<()> {
 
     if lower_dirs.len() == 1 {
         mount(
-            Some(lower_dirs[0].as_str()),
+            lower_dirs[0].as_str(),
             "/newroot",
-            None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
-            None::<&str>,
+            "",
+            MountFlags::BIND | MountFlags::RDONLY | MountFlags::NODEV,
+            None,
         )
         .context("Failed to bind mount rootfs")?;
     } else {
-        let lowerdir = lower_dirs.join(":");
-        let options = format!("lowerdir={}", lowerdir);
+        let options = format!("lowerdir={}", lower_dirs.join(":"));
+        let options_cstr = CString::new(options.as_str()).expect("CString conversion failed");
 
         mount(
-            Some("overlay"),
+            "overlay",
             "/newroot",
-            Some("overlay"),
-            MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
-            Some(options.as_str()),
+            "overlay",
+            MountFlags::RDONLY | MountFlags::NODEV,
+            Some(options_cstr.as_c_str()),
         )
         .context("Failed to mount overlay rootfs")?;
     }
@@ -132,30 +133,20 @@ fn discover_extensions() -> Vec<String> {
 }
 
 fn attach_squashfs(sqsh_path: &str, loop_dev: &str, mount_point: &str) -> Result<()> {
-    let sqsh_fd = open(sqsh_path, OFlag::O_RDONLY, Mode::empty())
+    let sqsh_fd = open(sqsh_path, OFlags::RDONLY, Mode::empty())
         .with_context(|| format!("Failed to open squashfs image: {}", sqsh_path))?;
-    let loop_fd = open(loop_dev, OFlag::O_RDWR, Mode::empty())
+    let loop_fd = open(loop_dev, OFlags::RDWR, Mode::empty())
         .with_context(|| format!("Failed to open loop device: {}", loop_dev))?;
 
-    let result = unsafe { loop_set_fd(loop_fd.as_raw_fd(), sqsh_fd.as_raw_fd()) };
+    let fd_number = sqsh_fd.as_fd().as_raw_fd() as usize;
 
-    if result.is_err() {
-        close(sqsh_fd).ok();
-        close(loop_fd).ok();
-        bail!("Failed to attach {} to {}", sqsh_path, loop_dev);
+    unsafe {
+        ioctl(&loop_fd, IntegerSetter::<LOOP_SET_FD>::new_usize(fd_number))
+            .with_context(|| format!("Failed to attach {} to {}", sqsh_path, loop_dev))?;
     }
 
-    close(sqsh_fd)?;
-    close(loop_fd)?;
-
-    mount(
-        Some(loop_dev),
-        mount_point,
-        Some("squashfs"),
-        MsFlags::MS_RDONLY,
-        None::<&str>,
-    )
-    .with_context(|| format!("Failed to mount {} to {}", loop_dev, mount_point))?;
+    mount(loop_dev, mount_point, "squashfs", MountFlags::RDONLY, None)
+        .with_context(|| format!("Failed to mount {} to {}", loop_dev, mount_point))?;
 
     Ok(())
 }
@@ -164,17 +155,19 @@ fn create_and_mount(
     target: &str,
     source: &str,
     fstype: &str,
-    flags: MsFlags,
+    flags: MountFlags,
     data: Option<&str>,
 ) -> Result<()> {
     let path = Path::new(target);
 
     if !path.exists() {
-        mkdir(path, Mode::from_bits_truncate(0o755))
+        mkdirat(CWD, path, Mode::from_bits_truncate(0o755))
             .with_context(|| format!("Failed to create mount target: {}", target))?;
     }
 
-    mount(Some(source), target, Some(fstype), flags, data)
+    let data_cstring = data.map(|s| CString::new(s).expect("CString conversion failed"));
+
+    mount(source, target, fstype, flags, data_cstring.as_deref())
         .with_context(|| format!("Failed to mount {} to {}", source, target))?;
 
     Ok(())

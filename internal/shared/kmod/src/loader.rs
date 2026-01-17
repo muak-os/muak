@@ -18,7 +18,7 @@ pub enum LoadError {
     Decompress(String),
 
     #[error("syscall error: {0}")]
-    Syscall(#[from] nix::errno::Errno),
+    Syscall(#[from] rustix::io::Errno),
 
     #[error("invalid module path: {0}")]
     InvalidPath(String),
@@ -81,25 +81,11 @@ fn read_module(path: &Path) -> Result<Vec<u8>, LoadError> {
 }
 
 fn init_module(module_data: &[u8]) -> Result<(), LoadError> {
-    let ret = unsafe {
-        nix::libc::syscall(
-            nix::libc::SYS_init_module,
-            module_data.as_ptr(),
-            module_data.len(),
-            c"".as_ptr(),
-        )
-    };
-
-    if ret == 0 {
-        return Ok(());
+    match rustix::system::init_module(module_data, c"") {
+        Ok(()) => Ok(()),
+        Err(rustix::io::Errno::EXIST) => Ok(()),
+        Err(e) => Err(LoadError::Syscall(e)),
     }
-
-    let errno = nix::errno::Errno::last();
-    if errno == nix::errno::Errno::EEXIST {
-        return Ok(());
-    }
-
-    Err(LoadError::Syscall(errno))
 }
 
 pub fn load_module(

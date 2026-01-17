@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use nix::mount::{MsFlags, mount, umount};
+use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 use serde::{Deserialize, Serialize};
 
 use crate::config::HostConfig;
@@ -95,14 +95,7 @@ pub(crate) fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result
     fs::create_dir_all(mount_point)
         .with_context(|| format!("Failed to create mount point {}", mount_point))?;
 
-    mount(
-        Some(efi_device),
-        mount_point,
-        Some("vfat"),
-        MsFlags::MS_NOATIME,
-        None::<&str>,
-    )
-    .with_context(|| {
+    mount(efi_device, mount_point, "vfat", MountFlags::NOATIME, None).with_context(|| {
         format!(
             "Failed to mount EFI partition {} at {}",
             efi_device, mount_point
@@ -113,7 +106,7 @@ pub(crate) fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result
 }
 
 pub(crate) fn unmount_partition(mount_point: &str) {
-    if let Err(e) = umount(mount_point) {
+    if let Err(e) = unmount(mount_point, UnmountFlags::empty()) {
         kmsg::warn!(
             @ "provisioning",
             "Failed to unmount {}: {}",

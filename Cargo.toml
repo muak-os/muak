@@ -40,8 +40,9 @@ toml = "0.9"
 clap = { version = "4.5", features = ["derive"] }
 
 # System/platform APIs
-nix = { version = "0.30", features = ["fs", "mount"] }
+rustix = { version = "1.1", features = ["fs", "mount", "linux_latest"] }
 uefi = { version = "0.36", features = ["alloc", "logger", "panic_handler", "global_allocator"] }
+libc = "0.2"
 
 # Networking
 rtnetlink = "0.20"

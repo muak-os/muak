@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use nix::mount::umount;
+use rustix::mount::{UnmountFlags, unmount};
 use std::fs::OpenOptions;
 use std::io::{Seek, Write};
 use std::path::Path;
@@ -70,7 +70,7 @@ pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
     sorted.sort_by(|a, b| b.mount_point.len().cmp(&a.mount_point.len()));
 
     for p in sorted {
-        umount(p.mount_point.as_str())
+        unmount(p.mount_point.as_str(), UnmountFlags::empty())
             .with_context(|| format!("Failed to unmount {} from {}", p.device, p.mount_point))?;
     }
 

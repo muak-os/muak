@@ -1,7 +1,5 @@
-use nix::sys::signal::Signal;
-use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
-use nix::unistd::{ForkResult, Pid, execv, fork};
 use prost::Message;
+use rustix::process::{Pid, WaitOptions, waitpid};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::unix::net::UnixDatagram;
@@ -163,18 +161,32 @@ impl Supervisor {
             .collect();
         let args = args?;
 
-        match unsafe { fork() }? {
-            ForkResult::Parent { child } => {
-                state.pid = Some(child.as_raw());
-                state.status = ServiceStatus::Starting;
-                kmsg::info!("Spawned {} with PID {}", name, child.as_raw());
+        // SAFETY: fork() is called in a controlled environment before any threads are spawned
+        // by tokio. We ensure proper cleanup in both parent and child branches.
+        let fork_result = unsafe { libc::fork() };
+
+        if fork_result == -1 {
+            return Err("fork() failed".into());
+        } else if fork_result == 0 {
+            // Child process
+            let args_refs: Vec<*const libc::c_char> = args
+                .iter()
+                .map(|s| s.as_ptr())
+                .chain(std::iter::once(std::ptr::null()))
+                .collect();
+
+            // SAFETY: execv() replaces the current process image. We're passing valid pointers.
+            unsafe {
+                libc::execv(binary.as_ptr(), args_refs.as_ptr());
             }
-            ForkResult::Child => {
-                let args_refs: Vec<&std::ffi::CStr> = args.iter().map(|s| s.as_c_str()).collect();
-                let _ = execv(&binary, &args_refs);
-                eprintln!("execv failed for {}", state.def.binary);
-                std::process::exit(1);
-            }
+
+            eprintln!("execv failed for {}", state.def.binary);
+            std::process::exit(1);
+        } else {
+            // Parent process
+            state.pid = Some(fork_result);
+            state.status = ServiceStatus::Starting;
+            kmsg::info!("Spawned {} with PID {}", name, fork_result);
         }
 
         Ok(())
@@ -251,13 +263,23 @@ impl Supervisor {
         let service_pids: Vec<i32> = self.services.values().filter_map(|s| s.pid).collect();
 
         for &pid in &service_pids {
-            let status = waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG));
+            // SAFETY: We're passing a valid PID from our service registry
+            let pid_obj = unsafe { Pid::from_raw_unchecked(pid) };
+            let status_result = waitpid(Some(pid_obj), WaitOptions::NOHANG);
 
-            let (exit_code, signal) = match status {
-                Ok(WaitStatus::Exited(_, code)) => (Some(code), None),
-                Ok(WaitStatus::Signaled(_, sig, _)) => (None, Some(sig)),
-                Ok(WaitStatus::StillAlive) | Err(nix::errno::Errno::ECHILD) => continue,
-                _ => continue,
+            let (exit_code, signal) = match status_result {
+                Ok(Some((_, wait_status))) => {
+                    if wait_status.exited() {
+                        (wait_status.exit_status(), None)
+                    } else if wait_status.signaled() {
+                        (None, wait_status.terminating_signal())
+                    } else {
+                        continue;
+                    }
+                }
+                Ok(None) => continue, // NOHANG and no status change
+                Err(rustix::io::Errno::CHILD) => continue, // No such child
+                Err(_) => continue,
             };
 
             self.handle_child_exit(pid, exit_code, signal)?;
@@ -269,7 +291,7 @@ impl Supervisor {
         &mut self,
         pid: i32,
         exit_code: Option<i32>,
-        signal: Option<Signal>,
+        signal: Option<i32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let service_name = self
             .services
@@ -289,7 +311,7 @@ impl Supervisor {
         name: &str,
         pid: i32,
         exit_code: Option<i32>,
-        signal: Option<Signal>,
+        signal: Option<i32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match (exit_code, signal) {
             (Some(code), _) => {

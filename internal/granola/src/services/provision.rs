@@ -1,3 +1,5 @@
+use rustix::fs::sync;
+use rustix::system::{RebootCommand, reboot};
 use std::pin::Pin;
 use tonic::{Request, Response, Status};
 
@@ -50,10 +52,8 @@ impl ProvisionService for ProvisionServiceImpl {
                     kmsg::info!("System will reboot in 3 seconds...");
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     kmsg::info!("Rebooting now...");
-                    nix::unistd::sync();
-                    unsafe {
-                        nix::libc::reboot(nix::libc::RB_AUTOBOOT);
-                    }
+                    sync();
+                    let _ = reboot(RebootCommand::Restart);
                 });
 
                 Ok(Response::new(InstallResponse {

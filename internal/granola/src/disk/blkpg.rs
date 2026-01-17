@@ -1,18 +1,46 @@
 use anyhow::{Result, bail};
-use nix::ioctl_write_ptr_bad;
-use std::fs::OpenOptions;
-use std::os::unix::io::AsRawFd;
+use rustix::fs::{Mode, OFlags, open};
+use rustix::io::Errno;
+use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, ioctl};
 
 use super::constants::SECTOR_SIZE;
 use super::types::{BlkpgIoctlArg, BlkpgPartition};
 use super::utils::format_partition_name;
 
-// BLKPG ioctl number from Linux kernel
-// #define BLKPG _IO(0x12,105)
-ioctl_write_ptr_bad!(blkpg_ioctl, 0x1269, BlkpgIoctlArg);
-
 const BLKPG_ADD_PARTITION: i32 = 1;
 const BLKPG_DEL_PARTITION: i32 = 2;
+
+struct BlkpgIoctl<'a> {
+    arg: &'a BlkpgIoctlArg,
+}
+
+impl<'a> BlkpgIoctl<'a> {
+    fn new(arg: &'a BlkpgIoctlArg) -> Self {
+        Self { arg }
+    }
+}
+
+unsafe impl Ioctl for BlkpgIoctl<'_> {
+    type Output = ();
+
+    const IS_MUTATING: bool = true;
+
+    // #define BLKPG _IO(0x12,105)
+    fn opcode(&self) -> Opcode {
+        0x1269
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.arg as *const BlkpgIoctlArg as *mut std::ffi::c_void
+    }
+
+    unsafe fn output_from_ptr(
+        _output: IoctlOutput,
+        _arg: *mut std::ffi::c_void,
+    ) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
 
 pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     kmsg::info!(
@@ -21,7 +49,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         partition_num
     );
 
-    let f = OpenOptions::new().read(true).write(true).open(disk)?;
+    let file = open(disk, OFlags::RDWR, Mode::empty())?;
 
     let devname = [0u8; 64];
     let volname = [0u8; 64];
@@ -41,7 +69,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
-    match unsafe { blkpg_ioctl(f.as_raw_fd(), &blkpg_arg) } {
+    match unsafe { ioctl(&file, BlkpgIoctl::new(&blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(
                 @ "provisioning",
@@ -49,7 +77,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
                 partition_num
             );
         }
-        Err(nix::errno::Errno::ENXIO) | Err(nix::errno::Errno::ENOENT) => {
+        Err(Errno::NXIO) | Err(Errno::NOENT) => {
             // Partition doesn't exist in kernel, that's fine
             kmsg::info!(
                 @ "provisioning",
@@ -72,7 +100,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         }
     }
 
-    drop(f);
+    drop(file);
     Ok(())
 }
 
@@ -109,7 +137,7 @@ pub fn add_partition_blkpg(
         end_lba
     );
 
-    let f = OpenOptions::new().read(true).write(true).open(disk)?;
+    let file = open(disk, OFlags::RDWR, Mode::empty())?;
 
     let start_bytes = start_lba * SECTOR_SIZE;
     let length_bytes = (end_lba - start_lba + 1) * SECTOR_SIZE;
@@ -137,14 +165,14 @@ pub fn add_partition_blkpg(
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
-    match unsafe { blkpg_ioctl(f.as_raw_fd(), &blkpg_arg) } {
+    match unsafe { ioctl(&file, BlkpgIoctl::new(&blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(
                 @ "provisioning",
                 "BLKPG: Successfully added partition {}",
                 partition_num
             );
-            drop(f);
+            drop(file);
             Ok(())
         }
         Err(e) => {
@@ -154,7 +182,7 @@ pub fn add_partition_blkpg(
                 partition_num,
                 e
             );
-            drop(f);
+            drop(file);
             bail!("BLKPG ioctl failed for partition {}: {}", partition_num, e)
         }
     }

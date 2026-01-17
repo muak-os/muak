@@ -4,8 +4,7 @@ use std::path::Path;
 use kmod::{AliasDb, DepDb, ModuleLoader, for_each_modalias, load_module};
 
 pub fn load() -> Result<usize> {
-    let krel = nix::sys::utsname::uname()
-        .context("Failed to get kernel release")?
+    let krel = rustix::system::uname()
         .release()
         .to_string_lossy()
         .into_owned();

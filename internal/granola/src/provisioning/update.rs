@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use nix::unistd::sync;
+use rustix::fs::sync;
+use rustix::system::{RebootCommand, reboot};
 
 use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
@@ -67,13 +68,13 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     let cmdline = add_cmdline_update_marker(update_id)?;
 
     let res = unsafe {
-        nix::libc::syscall(
-            nix::libc::SYS_kexec_file_load,
+        libc::syscall(
+            libc::SYS_kexec_file_load,
             kernel.as_raw_fd(),
             initrd.as_raw_fd(),
-            cmdline.as_bytes_with_nul().len() as nix::libc::size_t,
+            cmdline.as_bytes_with_nul().len() as libc::size_t,
             cmdline.as_ptr(),
-            0 as nix::libc::c_ulong,
+            0 as libc::c_ulong,
         )
     };
 
@@ -84,8 +85,7 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
 
     sync();
 
-    nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_KEXEC)
-        .map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
+    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
 
     unreachable!("If we reach here, something went really wrong");
 }

@@ -6,10 +6,8 @@ mod hypervisor;
 mod persistence;
 
 use anyhow::Result;
-use nix::libc;
-use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::Pid;
 use notify::{Health, NotifyClient};
+use rustix::process::{Pid, WaitOptions, waitpid};
 use std::path::Path;
 use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};
@@ -118,17 +116,19 @@ fn set_child_subreaper() -> Result<()> {
 fn reap_children() {
     loop {
         match waitpid(
-            Pid::from_raw(-1),
-            Some(nix::sys::wait::WaitPidFlag::WNOHANG),
+            Some(Pid::from_raw(-1).expect("Failed to get pid")),
+            WaitOptions::NOHANG,
         ) {
-            Ok(WaitStatus::Exited(pid, status)) => {
-                kmsg::info!(@ "vmd", "Child {} exited with status {}", pid, status);
+            Ok(Some((pid, status))) if status.exited() => {
+                let exit_status = status.exit_status().unwrap_or(0);
+                kmsg::info!(@ "vmd", "Child {} exited with status {}", pid.as_raw_nonzero(), exit_status);
             }
-            Ok(WaitStatus::Signaled(pid, signal, _)) => {
-                kmsg::info!(@ "vmd", "Child {} killed by signal {:?}", pid, signal);
+            Ok(Some((pid, status))) if status.signaled() => {
+                let signal = status.terminating_signal().unwrap_or(0);
+                kmsg::info!(@ "vmd", "Child {} killed by signal {}", pid.as_raw_nonzero(), signal);
             }
-            Ok(WaitStatus::StillAlive) | Err(_) => break,
-            Ok(_) => continue,
+            Ok(None) | Err(_) => break,
+            Ok(Some(_)) => continue,
         }
     }
 }

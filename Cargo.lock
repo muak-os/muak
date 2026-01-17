@@ -91,7 +91,6 @@ dependencies = [
  "hyper",
  "hyper-util",
  "kmsg",
- "nix",
  "notify",
  "tokio",
 ]
@@ -807,8 +806,9 @@ dependencies = [
  "futures-util",
  "gptman",
  "kmsg",
- "nix",
+ "libc",
  "prost",
+ "rustix",
  "serde",
  "serde_json",
  "tokio",
@@ -1171,7 +1171,7 @@ dependencies = [
  "anyhow",
  "kmod",
  "kmsg",
- "nix",
+ "rustix",
 ]
 
 [[package]]
@@ -1235,7 +1235,7 @@ dependencies = [
 name = "kmod"
 version = "0.1.0"
 dependencies = [
- "nix",
+ "rustix",
  "tempfile",
  "thiserror 2.0.17",
  "zstd",
@@ -1338,15 +1338,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1380,8 +1371,8 @@ dependencies = [
  "anyhow",
  "kmod",
  "kmsg",
- "nix",
  "notify",
+ "rustix",
  "zstd",
 ]
 
@@ -1464,13 +1455,14 @@ dependencies = [
  "futures-util",
  "hyper-util",
  "kmsg",
+ "libc",
  "netlink-packet-core",
  "netlink-packet-route",
- "nix",
  "notify",
  "prost",
  "reqwest",
  "rtnetlink",
+ "rustix",
  "serde",
  "sha2",
  "tokio",
@@ -1492,7 +1484,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
- "memoffset",
 ]
 
 [[package]]
@@ -2753,9 +2744,10 @@ dependencies = [
  "anyhow",
  "hyper-util",
  "kmsg",
- "nix",
+ "libc",
  "notify",
  "prost",
+ "rustix",
  "serde",
  "serde_json",
  "tokio",
