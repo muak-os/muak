@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use std::path::PathBuf;
-use yuki::build_uki;
+use yuki::build;
 
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -27,7 +27,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let output_len = build_uki(
+    let output_len = build(
         &args.stub,
         &args.linux,
         &args.initrd,

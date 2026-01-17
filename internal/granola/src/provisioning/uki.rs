@@ -48,7 +48,7 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
 
 pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
-    yuki::build_uki(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, output)
+    yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, output)
         .context("Failed to build UKI")?;
 
     kmsg::info!(
@@ -63,7 +63,7 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    yuki::build_uki(
+    yuki::build(
         &uki.stub,
         &uki.kernel,
         &uki.initramfs,
