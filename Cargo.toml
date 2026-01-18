@@ -51,15 +51,15 @@ netlink-packet-core = "0.8"
 futures-util = "0.3"
 dhcproto = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-
-# Utilities
 tower = "0.5"
 hyper = { version = "1.8", features = ["http1", "http2", "server", "client"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
-uuid = { version = "1.19", features = ["v4"] }
+
+# Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 sha2 = "0.10"
+uuid = { version = "1.19", features = ["v4"] }
 
 # Filesystem
 gptman = "2.0"
