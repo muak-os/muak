@@ -1,5 +1,5 @@
 use std::net::Ipv6Addr;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
