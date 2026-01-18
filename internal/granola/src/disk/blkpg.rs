@@ -39,6 +39,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
+    // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(
@@ -135,6 +136,7 @@ pub fn add_partition_blkpg(
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
+    // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(

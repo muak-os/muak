@@ -82,7 +82,7 @@ impl SlaacManager {
         let ifindex = name_to_index(&socket_fd, &interface)?;
 
         let filter = create_icmpv6_filter();
-        set_icmpv6_filter(socket_fd.as_raw_fd(), &filter)?;
+        set_icmpv6_filter(&socket_fd, &filter)?;
 
         let socket = AsyncFd::new(socket_fd)?;
 

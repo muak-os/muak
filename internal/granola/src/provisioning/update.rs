@@ -67,6 +67,7 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     let initrd = fs::File::open(&uki.initramfs).context("Failed to open initramfs for kexec")?;
     let cmdline = add_cmdline_update_marker(update_id)?;
 
+    // SAFETY: kexec_file_load syscall with valid file descriptors and null-terminated string
     let res = unsafe {
         libc::syscall(
             libc::SYS_kexec_file_load,

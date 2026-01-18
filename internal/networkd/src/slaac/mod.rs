@@ -5,6 +5,7 @@ mod state;
 
 use anyhow::{Result, bail};
 use std::net::Ipv6Addr;
+use std::os::fd::{AsFd, AsRawFd};
 
 pub(crate) use icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
@@ -31,10 +32,11 @@ pub(crate) fn create_icmpv6_filter() -> Icmp6Filter {
     filter
 }
 
-pub(crate) fn set_icmpv6_filter(fd: i32, filter: &Icmp6Filter) -> Result<()> {
+pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Result<()> {
+    // SAFETY: We pass valid pointers and sizes for the filter struct, fd is valid
     let ret = unsafe {
         libc::setsockopt(
-            fd,
+            fd.as_fd().as_raw_fd(),
             libc::IPPROTO_ICMPV6,
             ICMP6_FILTER,
             filter as *const _ as *const libc::c_void,

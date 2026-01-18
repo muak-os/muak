@@ -140,6 +140,7 @@ fn attach_squashfs(sqsh_path: &str, loop_dev: &str, mount_point: &str) -> Result
 
     let fd_number = sqsh_fd.as_fd().as_raw_fd() as usize;
 
+    // SAFETY: ioctl is inherently unsafe, but IntegerSetter ensures proper argument passing
     unsafe {
         ioctl(&loop_fd, IntegerSetter::<LOOP_SET_FD>::new_usize(fd_number))
             .with_context(|| format!("Failed to attach {} to {}", sqsh_path, loop_dev))?;

@@ -27,8 +27,6 @@
   - Properly reap children in granola (conflict with installer command spawning)
   - Extract services to be file based in /run/services/
 
-- Look into each unsafe code block and comment or make it safe if possible
-
 - Enhance networking:
   - Handle certificates properly using webpki-roots-certs in reqwest 0.13
   - Fix order of things: no gateway = fail & no connectivity = fail

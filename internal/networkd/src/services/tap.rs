@@ -39,9 +39,11 @@ pub async fn create_tap_device(tap_name: &str) -> Result<()> {
         _padding: [0u8; 22],
     };
 
+    // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     unsafe { ioctl(&file, Setter::<TUNSETIFF, IfReq>::new(ifr)) }
         .map_err(|e| anyhow::anyhow!("failed to create TAP device: {}", e))?;
 
+    // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     unsafe { ioctl(&file, Setter::<TUNSETPERSIST, i32>::new(1)) }
         .map_err(|e| anyhow::anyhow!("failed to make TAP device persistent: {}", e))?;
 

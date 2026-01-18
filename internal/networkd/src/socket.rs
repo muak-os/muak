@@ -6,6 +6,7 @@ use anyhow::Result;
 /// Wait for https://github.com/bytecodealliance/rustix/pull/1426 to be implemented in rustix
 pub fn socket_bind_device<Fd: AsFd>(fd: Fd, device: &str) -> Result<()> {
     let interface_cstr = CString::new(device)?;
+    // SAFETY: We pass a valid null-terminated string and correct size, fd is valid
     let result = unsafe {
         libc::setsockopt(
             fd.as_fd().as_raw_fd(),
