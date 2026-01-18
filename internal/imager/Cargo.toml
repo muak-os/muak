@@ -1,16 +1,12 @@
 [package]
 name = "imager"
-description = "CLI tool to manage OCI images and initramfs generation"
+description = "Create initramfs from OCI images"
 edition.workspace = true
 version.workspace = true
 
 [dependencies]
 # CLI parsing
 clap = { workspace = true }
-
-# OCI layer extraction
-tar = { workspace = true }
-flate2 = { workspace = true }
 
 # HTTP client
 reqwest = { workspace = true, features = ["blocking", "json"] }
@@ -24,10 +20,14 @@ backhand = { workspace = true }
 cpio = { workspace = true }
 tempfile = { workspace = true }
 walkdir = { workspace = true }
+
+# Compression
+flate2 = { workspace = true }
+tar = { workspace = true }
 zstd = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

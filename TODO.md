@@ -16,6 +16,7 @@
     - Upgradable compatibility matrix
   - Create install script for users to easily install the CLI regardless of OS
   - Add reset command to factory reset the system
+  - Inform the user when an update is available both for the CLI and the server
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
@@ -70,7 +71,7 @@
     - muak.dns = main DNS server (might already be in talos inspired params)
 
 - Add e2e testing:
-  - Unit tests
+  - Unit tests & Integration tests
   - Mock system calls etc
   - Target 80% coverage
 
@@ -82,12 +83,13 @@
 
 - Rework the module loading to not duplicate modules in initramfs and rootfs
 
-- Simple secure boot support with sbctl or native implementation
+- Simple secure boot support using a local project to sign
 - Add TPM measurements in stub
 - Better stub performance after loadfile success
 - Create a TUI interface to display critical system information
 
 - Support Apple M1/M2 using Asahi Linux
-- Add a web interface for easier management
-- Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs
+- Add a web interface for easier management (in a separate product?)
+- Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs or
+  like Proxmox VE cluster management
 - Add custom hypervisor using the rust-vmm crates for better performance and control

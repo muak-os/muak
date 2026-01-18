@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub struct UkiConfig<'a> {
     pub installer_image: &'a str,
@@ -135,23 +134,7 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
 fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!(@ "provisioning", "Pulling installer image: {}", image);
 
-    let output = Command::new("/sbin/imager")
-        .arg("pull")
-        .arg(image)
-        .arg("--output")
-        .arg(dest_dir)
-        .output()
-        .context("Failed to execute imager pull")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        bail!(
-            "imager pull failed:\nstdout: {}\nstderr: {}",
-            stdout,
-            stderr
-        );
-    }
+    imager::pull_image(image, dest_dir).context("Failed to pull installer image")?;
 
     verify_installer_files(dest_dir)?;
 
@@ -182,28 +165,8 @@ fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Res
         bail!("Base initramfs not found at {}", base_initramfs.display());
     }
 
-    let mut cmd = Command::new("/sbin/imager");
-    cmd.arg("build")
-        .arg("--base")
-        .arg(&base_initramfs)
-        .arg("--output")
-        .arg(output);
-
-    for ext in extensions {
-        cmd.arg("--extension").arg(ext);
-    }
-
-    let result = cmd.output().context("Failed to execute imager build")?;
-
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stdout = String::from_utf8_lossy(&result.stdout);
-        bail!(
-            "imager build failed:\nstdout: {}\nstderr: {}",
-            stdout,
-            stderr
-        );
-    }
+    imager::build_initramfs(&base_initramfs, extensions, output)
+        .context("Failed to build initramfs")?;
 
     if !output.exists() {
         bail!(
