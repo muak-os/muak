@@ -1310,7 +1310,6 @@ name = "muakctl"
 version = "0.1.0"
 dependencies = [
  "clap",
- "hyper-util",
  "prost",
  "tokio",
  "tokio-stream",
@@ -1318,7 +1317,6 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
- "tower",
 ]
 
 [[package]]
