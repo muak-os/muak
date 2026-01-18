@@ -365,16 +365,176 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_large_data() {
+    fn test_write_to_image_success() {
         let metadata = create_test_metadata();
-        let linux = vec![0u8; 10 * 1024 * 1024];
-        let initrd = vec![0u8; 20 * 1024 * 1024];
+        let linux = vec![1u8; 1024];
+        let initrd = vec![2u8; 2048];
+        let cmdline = b"console=ttyS0";
+        let original_stub_len = 512;
+
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, original_stub_len)
+            .expect("Should build");
+
+        let mut stub_data = vec![0u8; 100 * 1024]; // 100KB should be plenty
+
+        let result = write_to_image(
+            &mut stub_data,
+            &metadata,
+            &section_info,
+            &linux,
+            &initrd,
+            cmdline,
+            original_stub_len,
+        );
+
+        assert!(result.is_ok(), "write_to_image should succeed");
+
+        // Verify section headers
+        for (i, section_header) in section_info.headers.iter().enumerate() {
+            let offset = metadata.section_table_offset
+                + (metadata.current_section_count as usize + i)
+                    * mem::size_of::<ImageSectionHeader>();
+            let expected_bytes = section_header_to_bytes(section_header);
+            assert_eq!(
+                &stub_data[offset..offset + expected_bytes.len()],
+                &expected_bytes,
+                "Section header {} should be written correctly",
+                i
+            );
+        }
+
+        // Verify data
+        for (i, (file_offset, data_len)) in section_info.offsets.iter().enumerate() {
+            let end = file_offset + data_len;
+            match i {
+                0 => assert_eq!(
+                    &stub_data[*file_offset..end],
+                    cmdline,
+                    "Cmdline data should be copied"
+                ),
+                1 => assert_eq!(
+                    &stub_data[*file_offset..end],
+                    &linux,
+                    "Linux data should be copied"
+                ),
+                2 => assert_eq!(
+                    &stub_data[*file_offset..end],
+                    &initrd,
+                    "Initrd data should be copied"
+                ),
+                3 => assert_eq!(
+                    &stub_data[*file_offset..end],
+                    &stub_data[0..original_stub_len],
+                    "Stub data should be copied"
+                ),
+                _ => panic!("Unexpected section index"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_write_to_image_buffer_too_small_for_headers() {
+        let metadata = create_test_metadata();
+        let linux = vec![1u8; 100];
+        let initrd = vec![2u8; 100];
         let cmdline = b"test";
+        let original_stub_len = 512;
 
-        let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, 512).expect("Should build");
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, original_stub_len)
+            .expect("Should build");
 
-        assert_eq!(section_info.headers.len(), 4);
-        assert_eq!(section_info.offsets.len(), 4);
+        let header_offset = metadata.section_table_offset
+            + (metadata.current_section_count as usize) * mem::size_of::<ImageSectionHeader>();
+        let mut stub_data = vec![0u8; header_offset + 10]; // Too small
+
+        let result = write_to_image(
+            &mut stub_data,
+            &metadata,
+            &section_info,
+            &linux,
+            &initrd,
+            cmdline,
+            original_stub_len,
+        );
+
+        assert!(
+            result.is_err(),
+            "write_to_image should fail with buffer too small"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            YukiError::InvalidPeStructure(_)
+        ));
+    }
+
+    #[test]
+    fn test_write_to_image_buffer_too_small_for_data() {
+        let metadata = create_test_metadata();
+        let linux = vec![1u8; 100];
+        let initrd = vec![2u8; 100];
+        let cmdline = b"test";
+        let original_stub_len = 512;
+
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, original_stub_len)
+            .expect("Should build");
+
+        let data_offset = section_info.offsets[0].0;
+        let mut stub_data = vec![0u8; data_offset + 10]; // Too small for first data
+
+        let result = write_to_image(
+            &mut stub_data,
+            &metadata,
+            &section_info,
+            &linux,
+            &initrd,
+            cmdline,
+            original_stub_len,
+        );
+
+        assert!(
+            result.is_err(),
+            "write_to_image should fail with buffer too small for data"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            YukiError::InvalidPeStructure(_)
+        ));
+    }
+
+    #[test]
+    fn test_write_to_image_empty_sections() {
+        let metadata = create_test_metadata();
+        let linux = vec![];
+        let initrd = vec![];
+        let cmdline = b"";
+        let original_stub_len = 0;
+
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, original_stub_len)
+            .expect("Should build");
+
+        let mut stub_data = vec![0u8; 10 * 1024];
+
+        let result = write_to_image(
+            &mut stub_data,
+            &metadata,
+            &section_info,
+            &linux,
+            &initrd,
+            cmdline,
+            original_stub_len,
+        );
+
+        assert!(
+            result.is_ok(),
+            "write_to_image should succeed with empty sections"
+        );
+
+        for (_i, (file_offset, data_len)) in section_info.offsets.iter().enumerate() {
+            let end = file_offset + data_len;
+            assert_eq!(
+                end, *file_offset,
+                "Data length should be 0 for empty sections"
+            );
+        }
     }
 }
