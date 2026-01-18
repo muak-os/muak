@@ -143,15 +143,12 @@ mod tests {
     #[test]
     fn test_parse_image_empty_string() {
         let img = ImageReference::parse("");
-        // Should handle gracefully, perhaps default to latest
         assert_eq!(img.tag, "latest");
     }
 
     #[test]
     fn test_parse_image_invalid_registry() {
         let img = ImageReference::parse("invalid@registry.com/image:tag");
-        // Parsing might still work if it splits on /
-        // But let's check it doesn't panic
         assert_eq!(img.tag, "tag");
     }
 
