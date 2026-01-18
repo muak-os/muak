@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
-use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, ioctl};
+use rustix::ioctl::{Opcode, Setter, ioctl};
 
 use super::constants::SECTOR_SIZE;
 use super::types::{BlkpgIoctlArg, BlkpgPartition};
@@ -10,37 +10,7 @@ use super::utils::format_partition_name;
 const BLKPG_ADD_PARTITION: i32 = 1;
 const BLKPG_DEL_PARTITION: i32 = 2;
 
-struct BlkpgIoctl<'a> {
-    arg: &'a BlkpgIoctlArg,
-}
-
-impl<'a> BlkpgIoctl<'a> {
-    fn new(arg: &'a BlkpgIoctlArg) -> Self {
-        Self { arg }
-    }
-}
-
-unsafe impl Ioctl for BlkpgIoctl<'_> {
-    type Output = ();
-
-    const IS_MUTATING: bool = true;
-
-    // #define BLKPG _IO(0x12,105)
-    fn opcode(&self) -> Opcode {
-        0x1269
-    }
-
-    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
-        self.arg as *const BlkpgIoctlArg as *mut std::ffi::c_void
-    }
-
-    unsafe fn output_from_ptr(
-        _output: IoctlOutput,
-        _arg: *mut std::ffi::c_void,
-    ) -> rustix::io::Result<Self::Output> {
-        Ok(())
-    }
-}
+const BLKPG: Opcode = 0x1269;
 
 pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     kmsg::info!(
@@ -69,7 +39,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
-    match unsafe { ioctl(&file, BlkpgIoctl::new(&blkpg_arg)) } {
+    match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(
                 @ "provisioning",
@@ -165,7 +135,7 @@ pub fn add_partition_blkpg(
         data: &mut blkpg_part as *mut BlkpgPartition,
     };
 
-    match unsafe { ioctl(&file, BlkpgIoctl::new(&blkpg_arg)) } {
+    match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
             kmsg::info!(
                 @ "provisioning",
