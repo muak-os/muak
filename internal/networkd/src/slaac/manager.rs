@@ -84,7 +84,6 @@ impl SlaacManager {
         let filter = create_icmpv6_filter();
         set_icmpv6_filter(socket_fd.as_raw_fd(), &filter)?;
 
-        // Wrap in AsyncFd for tokio integration - completely safe!
         let socket = AsyncFd::new(socket_fd)?;
 
         Ok(Self {
