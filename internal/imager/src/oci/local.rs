@@ -1,6 +1,6 @@
 use flate2::read::GzDecoder;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 
@@ -59,7 +59,7 @@ fn extract_tar_layer(layer_path: &Path, dest: &Path) -> Result<()> {
         ImagerError::LayerExtractionError(format!("Failed to read layer magic: {}", e))
     })?;
     reader
-        .seek(std::io::SeekFrom::Start(0))
+        .seek(SeekFrom::Start(0))
         .map_err(|e| ImagerError::LayerExtractionError(format!("Seek failed: {}", e)))?;
 
     if magic == [0x1f, 0x8b] {
