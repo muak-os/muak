@@ -71,15 +71,20 @@ fn run() -> Result<()> {
         };
 
         match load_module(module_name, &dep_db, &mut loader) {
-            Ok(count) => {
-                if count > 0 {
-                    kmsg::info!(
-                        "Loaded {} module(s) for {} ({})",
-                        count,
-                        module_name,
-                        event.subsystem.as_deref().unwrap_or("unknown")
-                    );
-                }
+            Ok(count) if count > 0 => {
+                kmsg::info!(
+                    "Loaded {} modules for {} ({})",
+                    count,
+                    module_name,
+                    event.subsystem.as_deref().unwrap_or("unknown")
+                );
+            }
+            Ok(_) => {
+                kmsg::info!(
+                    "Loaded module for {} ({})",
+                    module_name,
+                    event.subsystem.as_deref().unwrap_or("unknown")
+                );
             }
             Err(e) => {
                 kmsg::warn!("Failed to load module {}: {}", module_name, e);
