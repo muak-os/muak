@@ -53,9 +53,7 @@ pub fn status() -> InstallationStatus {
 }
 
 pub async fn install(force: bool, config: HostConfig) -> Result<()> {
-    let disk_path = config.system.disk.clone();
-
-    tokio::task::spawn_blocking(move || install::install(&disk_path, force, &config))
+    tokio::task::spawn_blocking(move || install::install(&config.system.disk, force, &config))
         .await
         .context("Install task panicked")?
 }
