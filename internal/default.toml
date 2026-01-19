@@ -11,5 +11,4 @@ extensions = []
 port = 50051
 
 [network]
-bridge = "br0"
-# ipv6 = true
+ipv6 = true

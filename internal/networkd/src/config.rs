@@ -5,6 +5,7 @@ use serde::Deserialize;
 const CONFIG_PATH: &str = "/run/state/config.toml";
 
 pub const RESOLV_CONF_PATH: &str = "/run/resolv.conf";
+pub const DEFAULT_BRIDGE: &str = "br0";
 pub const BRIDGE_CREATE_RETRIES: u8 = 30;
 pub const BRIDGE_CREATE_RETRY_DELAY_MS: u64 = 100;
 pub const INTERFACE_ENSLAVE_RETRIES: u8 = 5;
@@ -17,7 +18,6 @@ pub const CONNECTIVITY_OVERALL_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
-    pub bridge: String,
     pub ipv6: bool,
 }
 
@@ -28,16 +28,12 @@ struct ConfigFile {
 
 #[derive(Debug, Deserialize)]
 struct NetworkSection {
-    bridge: Option<String>,
     ipv6: Option<bool>,
 }
 
 impl Default for NetworkConfig {
     fn default() -> Self {
-        Self {
-            bridge: "br0".to_string(),
-            ipv6: true,
-        }
+        Self { ipv6: true }
     }
 }
 
@@ -65,13 +61,9 @@ impl NetworkConfig {
         };
 
         let defaults = Self::default();
-        let network = config.network.unwrap_or(NetworkSection {
-            bridge: None,
-            ipv6: None,
-        });
+        let network = config.network.unwrap_or(NetworkSection { ipv6: None });
 
         Self {
-            bridge: network.bridge.unwrap_or(defaults.bridge),
             ipv6: network.ipv6.unwrap_or(defaults.ipv6),
         }
     }

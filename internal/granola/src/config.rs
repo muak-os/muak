@@ -10,7 +10,6 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 #[serde(default)]
 pub struct HostConfig {
     pub system: SystemConfig,
-    pub network: NetworkConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,22 +26,8 @@ impl Default for SystemConfig {
         Self {
             disk: String::new(),
             image: "ghcr.io/sawangg/installer:latest".to_string(),
-            extensions: vec![],
+            extensions: Vec::new(),
             port: 50051,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct NetworkConfig {
-    pub bridge: String,
-}
-
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        Self {
-            bridge: "br0".to_string(),
         }
     }
 }
@@ -74,9 +59,6 @@ impl HostConfig {
     pub fn validate(&self) -> Result<()> {
         if self.system.port == 0 {
             bail!("port must be greater than 0");
-        }
-        if self.network.bridge.is_empty() {
-            bail!("bridge name cannot be empty");
         }
         Ok(())
     }
