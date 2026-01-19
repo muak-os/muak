@@ -17,6 +17,7 @@ use tonic::transport::Server;
 use actor::start_vm_actor;
 use clients::NetworkClient;
 use grpc::VmServiceImpl;
+use sysconfig;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {
@@ -35,6 +36,11 @@ const STATE_DIR: &str = "/run/state/vmd";
 #[tokio::main]
 async fn main() -> Result<()> {
     kmsg::info!(@ "vmd", "Starting vmd");
+
+    sysconfig::init().map_err(|e| {
+        kmsg::error!(@ "vmd", "Failed to initialize config: {}", e);
+        e
+    })?;
 
     set_child_subreaper()?;
 

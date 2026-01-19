@@ -32,6 +32,7 @@ hyper-util = { workspace = true }
 # Internal
 kmsg = { path = "../shared/kmsg" }
 notify = { path = "../shared/notify" }
+sysconfig = { path = "../shared/sysconfig" }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

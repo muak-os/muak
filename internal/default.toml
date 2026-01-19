@@ -12,3 +12,6 @@ port = 50051
 
 [network]
 ipv6 = true
+
+[vm]
+auto_restart = true

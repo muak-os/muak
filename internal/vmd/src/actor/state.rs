@@ -11,6 +11,7 @@ use crate::persistence::{self, DiskConfigPersisted, VmPersisted};
 use crate::proto::vm::{
     DiskUsage as ProtoDiskUsage, Hypervisor as HypervisorType, VmConfig, VmInfo, VmState,
 };
+use sysconfig;
 
 use super::VmCommand;
 
@@ -157,8 +158,12 @@ impl VmActor {
             if was_running {
                 entry.state = VmState::Stopped;
                 entry.tap_device = None;
-                pending_restarts.push(vm_id.clone());
-                kmsg::info!(@ "vmd", "VM {} was running, will restart", entry.config.name);
+                if sysconfig::vm().auto_restart {
+                    pending_restarts.push(vm_id.clone());
+                    kmsg::info!(@ "vmd", "VM {} was running, will restart", entry.config.name);
+                } else {
+                    kmsg::info!(@ "vmd", "VM {} was running, but auto-restart is disabled", entry.config.name);
+                }
             }
 
             vms.insert(vm_id, entry);

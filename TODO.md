@@ -17,6 +17,7 @@
   - Create install script for users to easily install the CLI regardless of OS
   - Add reset command to factory reset the system
   - Inform the user when an update is available both for the CLI and the server
+  - Create a dashboard command with a TUI interface to display critical system information
 
 - Better error management
   - Check if there is /dev/kvm supported when starting the distro
@@ -29,7 +30,7 @@
   - Extract services to be file based in /run/services/
 
 - Enhance networking:
-  - Handle certificates properly using webpki-roots-certs in reqwest 0.13
+  - Handle certificates properly using webpki-roots-certs in reqwest 0.13 or switch to ureq
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
   - Automatic failover when primary interface fails
@@ -47,23 +48,24 @@
   - Add permission management for different users using RBAC like system
 
 - Declarative system configuration:
+  - Configure NTP server in system config
   - Better configuration for the network
     - Static IP configuration
     - DNS configuration
     - Gateway configuration
     - Interface configuration
     - Proxy configuration
-  - Allow/Disallow auto restart of VMs on system reboot
 
 - Disk Manager Service:
   - LUKS encryption/decryption
   - Copy-on-Write disk creation for templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
-    - Create one golden image, snapshot for each VM to avoid duplication in /run/data/{vm_id}
+    - Create one golden image, snapshot for each VM to avoid duplication
   - Use Btrfs scrub to verify integrity of all data (/var issue)
   - Allow /run/data to be on a different disk than rootfs
   - Allow vm disks to be stored on a different disk than rootfs
+  - Replace direct call to `mkfs.btrfs` with FFI bindings or some other way to avoid spawning processes
 
 - Allow user to change kernel parameters on the fly before rebooting
   - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
@@ -84,12 +86,12 @@
 - Rework the module loading to not duplicate modules in initramfs and rootfs
 
 - Simple secure boot support using a local project to sign
+
 - Add TPM measurements in stub
 - Better stub performance after loadfile success
-- Create a TUI interface to display critical system information
 
 - Support Apple M1/M2 using Asahi Linux
-- Add a web interface for easier management (in a separate product?)
+- Add a web interface for easier management (in a separate product easily installable with a golden image?)
 - Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs or
   like Proxmox VE cluster management
 - Add custom hypervisor using the rust-vmm crates for better performance and control
