@@ -100,7 +100,7 @@ pub fn try_config() -> Option<&'static HostConfig> {
     CONFIG.get()
 }
 
-pub fn default_config() -> String {
+pub fn serialize_default() -> String {
     toml::to_string_pretty(&HostConfig::default()).expect("Failed to serialize default config")
 }
 
@@ -108,6 +108,10 @@ pub fn parse_from_str(contents: &str) -> Result<HostConfig> {
     let config: HostConfig = toml::from_str(contents)?;
     config.validate()?;
     Ok(config)
+}
+
+pub fn serialize(config: &HostConfig) -> Result<String> {
+    toml::to_string_pretty(config).map_err(Into::into)
 }
 
 fn load_from_path(path: &Path) -> Result<HostConfig> {

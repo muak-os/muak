@@ -119,7 +119,7 @@ fn init_state_partition(device: &str, config: &HostConfig) -> Result<()> {
     mount(device, mount_point, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
-    let config_toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
+    let config_toml = sysconfig::serialize(config).context("Failed to serialize config")?;
     fs::write(format!("{}/config.toml", mount_point), config_toml)
         .context("Failed to write config.toml")?;
 

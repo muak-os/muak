@@ -194,7 +194,7 @@ impl ProvisionService for ProvisionServiceImpl {
         _request: Request<GetConfigRequest>,
     ) -> Result<Response<GetConfigResponse>, Status> {
         if let Some(config) = sysconfig::try_config() {
-            match toml::to_string_pretty(config) {
+            match sysconfig::serialize(config) {
                 Ok(config_toml) => Ok(Response::new(GetConfigResponse {
                     config: config_toml.into_bytes(),
                     error: String::new(),

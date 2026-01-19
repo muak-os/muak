@@ -8,6 +8,9 @@ pub enum ConfigError {
     #[error("Failed to parse config: {0}")]
     ParseError(#[from] toml::de::Error),
 
+    #[error("Failed to serialize config: {0}")]
+    SerializeError(#[from] toml::ser::Error),
+
     #[error("Config validation failed: {0}")]
     ValidationError(String),
 

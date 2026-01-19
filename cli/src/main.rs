@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Config {
             action: ConfigAction::Generate,
         } => {
-            let default = sysconfig::default_config();
+            let default = sysconfig::serialize_default();
             print!("{}", default);
             return Ok(());
         }

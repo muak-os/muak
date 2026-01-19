@@ -175,11 +175,11 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
 fn update_config_image(new_image: &str) -> Result<()> {
     let contents = fs::read_to_string(CONFIG_PATH).context("Failed to read config.toml")?;
     let mut config: HostConfig =
-        toml::from_str(&contents).context("Failed to parse config.toml")?;
+        sysconfig::parse_from_str(&contents).context("Failed to parse config.toml")?;
 
     config.system.image = new_image.to_string();
 
-    let updated_toml = toml::to_string_pretty(&config).context("Failed to serialize config")?;
+    let updated_toml = sysconfig::serialize(&config).context("Failed to serialize config")?;
     fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
 
     Ok(())
