@@ -20,12 +20,14 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache musl-dev protoc
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["internal/apid", "internal/shared/kmsg", "internal/shared/notify"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/apid", "internal/shared/kmsg", "internal/shared/notify", "internal/shared/sysconfig"]' Cargo.toml
 
 COPY api ./api
+COPY internal/default.toml ./internal/default.toml
 COPY internal/apid ./internal/apid
 COPY internal/shared/kmsg ./internal/shared/kmsg
 COPY internal/shared/notify ./internal/shared/notify
+COPY internal/shared/sysconfig ./internal/shared/sysconfig
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
