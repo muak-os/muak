@@ -140,8 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             action: ConfigAction::Generate,
         } => {
             let default = sysconfig::default_config();
-            let toml_string = toml::to_string_pretty(&default).unwrap();
-            print!("{}", toml_string);
+            print!("{}", default);
             return Ok(());
         }
         _ => 30,

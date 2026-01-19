@@ -12,7 +12,6 @@ use super::uki;
 use super::{
     INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
 };
-use sysconfig;
 
 pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> {
     kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);

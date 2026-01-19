@@ -100,8 +100,8 @@ pub fn try_config() -> Option<&'static HostConfig> {
     CONFIG.get()
 }
 
-pub fn default_config() -> HostConfig {
-    HostConfig::default()
+pub fn default_config() -> String {
+    toml::to_string_pretty(&HostConfig::default()).expect("Failed to serialize default config")
 }
 
 pub fn parse_from_str(contents: &str) -> Result<HostConfig> {
