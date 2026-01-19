@@ -6,7 +6,6 @@ mod state;
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::config::NetworkConfig;
 use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 use crate::monitor::{self, NetworkEvent};
 
@@ -103,7 +102,7 @@ impl NetworkActorHandle {
     }
 }
 
-pub async fn start_network_actor(config: NetworkConfig) -> Result<NetworkActorHandle> {
+pub async fn start_network_actor() -> Result<NetworkActorHandle> {
     let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
@@ -112,7 +111,7 @@ pub async fn start_network_actor(config: NetworkConfig) -> Result<NetworkActorHa
 
     let event_rx = start_events_monitor(handle.clone()).await;
 
-    handle_network_actions(handle, cmd_rx, event_rx, cmd_tx.clone(), watch_tx, config);
+    handle_network_actions(handle, cmd_rx, event_rx, cmd_tx.clone(), watch_tx);
 
     Ok(NetworkActorHandle {
         tx: cmd_tx,
@@ -140,10 +139,9 @@ fn handle_network_actions(
     mut event_rx: Option<mpsc::Receiver<NetworkEvent>>,
     cmd_tx: mpsc::Sender<NetworkCommand>,
     watch_tx: watch::Sender<NetworkSnapshot>,
-    config: NetworkConfig,
 ) {
     tokio::spawn(async move {
-        let mut actor = NetworkActor::new(handle, watch_tx, config);
+        let mut actor = NetworkActor::new(handle, watch_tx);
 
         loop {
             tokio::select! {

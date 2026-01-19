@@ -1,12 +1,11 @@
-mod config;
 mod disk;
 mod provisioning;
 mod services;
 mod supervisor;
 
-use config::HostConfig;
 use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
+use sysconfig;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -17,6 +16,11 @@ const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
+
+    sysconfig::init().map_err(|e| {
+        kmsg::error!("Failed to initialize config: {}", e);
+        e
+    })?;
 
     let mut is_installed = matches!(
         provisioning::status(),
@@ -42,15 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 
-    let config = match HostConfig::load() {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            kmsg::error!("Failed to load config: {}", e);
-            kmsg::info!("Falling back to default config");
-            HostConfig::default()
-        }
-    };
-
     let mut services = vec![
         ServiceDef {
             name: "modd".to_string(),
@@ -69,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             binary: "/sbin/apid".to_string(),
             args: vec![
                 "--listen".to_string(),
-                format!("0.0.0.0:{}", config.system.port),
+                format!("0.0.0.0:{}", sysconfig::system().port),
             ],
 
             depends_on: vec!["networkd".to_string()],

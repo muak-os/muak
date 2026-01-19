@@ -5,10 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
+use sysconfig::{CONFIG_PATH, HostConfig};
 
 use super::uki::{self, Uki};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
-use crate::config::{CONFIG_PATH, HostConfig};
 use crate::disk;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

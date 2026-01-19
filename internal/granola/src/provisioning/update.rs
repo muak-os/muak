@@ -9,7 +9,7 @@ use rustix::system::{RebootCommand, reboot};
 
 use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
-use crate::config::{CONFIG_PATH, HostConfig};
+use sysconfig;
 
 pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     let staging_dir = create_staging_directory()?;
@@ -35,11 +35,7 @@ fn create_staging_directory() -> Result<PathBuf> {
 }
 
 fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
-    let current_image = fs::read_to_string(CONFIG_PATH)
-        .ok()
-        .and_then(|contents| toml::from_str::<HostConfig>(&contents).ok())
-        .map(|config| config.system.image)
-        .unwrap_or_default();
+    let current_image = sysconfig::system().image.clone();
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -92,6 +92,7 @@ dependencies = [
  "hyper-util",
  "kmsg",
  "notify",
+ "sysconfig",
  "tokio",
 ]
 
@@ -782,6 +783,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sysconfig",
  "tokio",
  "tokio-stream",
  "toml",
@@ -1311,6 +1313,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "prost",
+ "sysconfig",
  "tokio",
  "tokio-stream",
  "toml",
@@ -1392,6 +1395,7 @@ dependencies = [
  "rustix",
  "serde",
  "sha2",
+ "sysconfig",
  "tokio",
  "tokio-stream",
  "toml",
@@ -2144,6 +2148,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sysconfig"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.17",
+ "toml",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2647,6 +2660,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sysconfig",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -3076,6 +3090,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "object",
+ "tempfile",
  "thiserror 2.0.17",
 ]
 

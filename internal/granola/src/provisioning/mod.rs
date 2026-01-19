@@ -12,8 +12,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 use serde::{Deserialize, Serialize};
+use sysconfig::HostConfig;
 
-use crate::config::HostConfig;
 use crate::disk;
 use uki::{Uki, UkiConfig};
 

@@ -26,7 +26,7 @@ impl NetworkActor {
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
 
-        if self.config.ipv6 {
+        if sysconfig::network().ipv6 {
             self.try_acquire_slaac_on_primary(cmd_tx).await;
         }
 

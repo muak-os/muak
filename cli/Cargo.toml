@@ -20,6 +20,9 @@ toml = { workspace = true }
 # CLI parsing
 clap = { workspace = true }
 
+# Internal
+sysconfig = { path = "../internal/shared/sysconfig" }
+
 [build-dependencies]
 tonic-prost-build = { workspace = true }
 

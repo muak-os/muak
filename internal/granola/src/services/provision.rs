@@ -11,9 +11,9 @@ use super::proto::provision::{
     PrepareUpdateResponse, UpdateRequest, UpdateResponse,
 };
 
-use crate::config::HostConfig;
 use crate::disk;
 use crate::provisioning;
+use sysconfig;
 
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
     ProvisionServiceServer::new(ProvisionServiceImpl)
@@ -32,7 +32,7 @@ impl ProvisionService for ProvisionServiceImpl {
         let config_toml = String::from_utf8(req.config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config = HostConfig::from_toml(&config_toml)
+        let config = sysconfig::parse_from_str(&config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config
@@ -75,7 +75,7 @@ impl ProvisionService for ProvisionServiceImpl {
         let req = request.into_inner();
         kmsg::info!("Update request: image={}", req.image);
 
-        let config = HostConfig::load().map_err(|e| Status::internal(format!("{}", e)))?;
+        let config = sysconfig::config();
 
         match provisioning::prepare_update(&req.image, &config.system.extensions).await {
             Ok(update_id) => Ok(Response::new(PrepareUpdateResponse {
@@ -193,21 +193,22 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         _request: Request<GetConfigRequest>,
     ) -> Result<Response<GetConfigResponse>, Status> {
-        match std::fs::read(crate::config::CONFIG_PATH) {
-            Ok(contents) => Ok(Response::new(GetConfigResponse {
-                config: contents,
-                error: String::new(),
-            })),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Response::new(GetConfigResponse {
+        if let Some(config) = sysconfig::try_config() {
+            match toml::to_string_pretty(config) {
+                Ok(config_toml) => Ok(Response::new(GetConfigResponse {
+                    config: config_toml.into_bytes(),
+                    error: String::new(),
+                })),
+                Err(e) => Ok(Response::new(GetConfigResponse {
                     config: Vec::new(),
-                    error: "No config found: system has not been installed yet".to_string(),
-                }))
+                    error: format!("Failed to serialize config: {}", e),
+                })),
             }
-            Err(e) => Ok(Response::new(GetConfigResponse {
+        } else {
+            Ok(Response::new(GetConfigResponse {
                 config: Vec::new(),
-                error: format!("Failed to read config: {}", e),
-            })),
+                error: "Config not initialized: system has not been installed yet".to_string(),
+            }))
         }
     }
 }

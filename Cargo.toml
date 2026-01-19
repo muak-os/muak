@@ -7,12 +7,13 @@ members = [
     "internal/init",
     "internal/modd",
     "internal/networkd",
-    "internal/stub",
-    "internal/vmd",
-    "internal/yuki",
     "internal/shared/kmod",
     "internal/shared/kmsg",
     "internal/shared/notify",
+    "internal/shared/sysconfig",
+    "internal/stub",
+    "internal/vmd",
+    "internal/yuki",
 ]
 resolver = "3"
 

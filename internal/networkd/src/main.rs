@@ -14,7 +14,6 @@ mod netlink;
 mod services;
 
 use anyhow::Result;
-use config::NetworkConfig;
 use notify::{Health, NotifyClient};
 use std::path::Path;
 use tokio::net::UnixListener;
@@ -24,6 +23,7 @@ use tonic::transport::Server;
 
 use actor::start_network_actor;
 use grpc::NetworkServiceImpl;
+use sysconfig;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {
@@ -36,12 +36,15 @@ const SOCKET_PATH: &str = "/run/networkd.sock";
 async fn main() -> Result<()> {
     kmsg::info!(@ "networkd", "Starting networkd");
 
-    let config = NetworkConfig::load();
+    sysconfig::init().map_err(|e| {
+        kmsg::error!(@ "networkd", "Failed to initialize config: {}", e);
+        e
+    })?;
 
     let notifier = NotifyClient::new("networkd")?;
     notifier.status("Initializing network subsystem", Health::Healthy)?;
 
-    let network_handle = start_network_actor(config).await?;
+    let network_handle = start_network_actor().await?;
 
     notifier.status("Discovering interfaces and acquiring DHCP", Health::Healthy)?;
     network_handle.initialize_with_retry().await?;

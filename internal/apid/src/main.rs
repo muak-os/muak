@@ -10,6 +10,7 @@ use notify::NotifyClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use sysconfig;
 use tokio::net::{TcpListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -18,13 +19,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kmsg::init("apid")?;
     kmsg::info!("API daemon starting");
 
+    sysconfig::init().map_err(|e| {
+        kmsg::error!(@ "apid", "Failed to initialize config: {}", e);
+        e
+    })?;
+
     let args: Vec<String> = std::env::args().collect();
+    let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);
     let listen_addr = args
         .iter()
         .position(|a| a == "--listen")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
-        .unwrap_or(config::DEFAULT_LISTEN_ADDR);
+        .unwrap_or(&default_listen);
 
     let notifier = NotifyClient::new("apid")?;
 

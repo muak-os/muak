@@ -36,6 +36,7 @@ anyhow = { workspace = true }
 kmsg = { path = "../shared/kmsg" }
 yuki = { path = "../yuki" }
 imager = { path = "../imager" }
+sysconfig = { path = "../shared/sysconfig" }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

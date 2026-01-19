@@ -1,5 +1,3 @@
-pub const DEFAULT_LISTEN_ADDR: &str = "0.0.0.0:50051";
-
 pub const VMD_SOCKET: &str = "/run/vmd.sock";
 pub const GRANOLA_SOCKET: &str = "/run/granola.sock";
 

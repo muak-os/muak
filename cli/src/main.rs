@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use sysconfig;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -7,8 +8,6 @@ const YELLOW: &str = "\x1b[33m";
 const BLUE: &str = "\x1b[34m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
-
-const DEFAULT_CONFIG: &str = include_str!("../../internal/default.toml");
 
 #[allow(clippy::excessive_nesting)]
 pub mod process_service {
@@ -140,7 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Config {
             action: ConfigAction::Generate,
         } => {
-            print!("{}", DEFAULT_CONFIG);
+            let default = sysconfig::default_config();
+            let toml_string = toml::to_string_pretty(&default).unwrap();
+            print!("{}", toml_string);
             return Ok(());
         }
         _ => 30,
@@ -197,7 +198,7 @@ async fn handle_install(
         )
     })?;
 
-    let config: toml::Value = toml::from_str(&config_toml).map_err(|e| {
+    let config = sysconfig::parse_from_str(&config_toml).map_err(|e| {
         format!(
             "Invalid TOML in config file '{}': {}",
             config_path.display(),
@@ -205,15 +206,15 @@ async fn handle_install(
         )
     })?;
 
-    let target_disk = config
-        .get("system")
-        .and_then(|s| s.get("disk"))
-        .and_then(|d| d.as_str())
-        .ok_or("Missing or invalid 'system.disk' in config file")?;
+    config.validate_for_install().map_err(|e| {
+        format!(
+            "Invalid config for install in '{}': {}",
+            config_path.display(),
+            e
+        )
+    })?;
 
-    if target_disk.is_empty() {
-        return Err("'system.disk' cannot be empty in config file".into());
-    }
+    let target_disk = config.system.disk.clone();
 
     let request = tonic::Request::new(InstallRequest {
         force,
