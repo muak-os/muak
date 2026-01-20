@@ -1,5 +1,6 @@
 mod config;
 
+use anyhow::Result;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http2;
@@ -15,14 +16,11 @@ use tokio::net::{TcpListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     kmsg::init("apid")?;
     kmsg::info!("API daemon starting");
 
-    sysconfig::init().map_err(|e| {
-        kmsg::error!(@ "apid", "Failed to initialize config: {}", e);
-        e
-    })?;
+    sysconfig::init()?;
 
     let args: Vec<String> = std::env::args().collect();
     let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);

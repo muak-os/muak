@@ -37,10 +37,7 @@ const STATE_DIR: &str = "/run/state/vmd";
 async fn main() -> Result<()> {
     kmsg::info!(@ "vmd", "Starting vmd");
 
-    sysconfig::init().map_err(|e| {
-        kmsg::error!(@ "vmd", "Failed to initialize config: {}", e);
-        e
-    })?;
+    sysconfig::init()?;
 
     set_child_subreaper()?;
 

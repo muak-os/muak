@@ -36,10 +36,7 @@ const SOCKET_PATH: &str = "/run/networkd.sock";
 async fn main() -> Result<()> {
     kmsg::info!(@ "networkd", "Starting networkd");
 
-    sysconfig::init().map_err(|e| {
-        kmsg::error!(@ "networkd", "Failed to initialize config: {}", e);
-        e
-    })?;
+    sysconfig::init()?;
 
     let notifier = NotifyClient::new("networkd")?;
     notifier.status("Initializing network subsystem", Health::Healthy)?;

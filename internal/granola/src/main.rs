@@ -3,6 +3,7 @@ mod provisioning;
 mod services;
 mod supervisor;
 
+use anyhow::Result;
 use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
 use sysconfig;
@@ -13,14 +14,11 @@ use tonic::transport::Server;
 const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    sysconfig::init().map_err(|e| {
-        kmsg::error!("Failed to initialize config: {}", e);
-        e
-    })?;
+    sysconfig::init()?;
 
     let mut is_installed = matches!(
         provisioning::status(),
