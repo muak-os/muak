@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use sysconfig;
+use anyhow::{Context, Result};
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -129,7 +130,7 @@ enum VmAction {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let server_addr = format!("http://{}", cli.server);
@@ -188,30 +189,15 @@ async fn handle_install(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
     force: bool,
     config_path: PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let config_toml = std::fs::read_to_string(&config_path).map_err(|e| {
-        format!(
-            "Failed to read config file '{}': {}",
-            config_path.display(),
-            e
-        )
-    })?;
+) -> Result<()> {
+    let config_toml = std::fs::read_to_string(&config_path)
+        .context(format!("Failed to read config file '{}'", config_path.display()))?;
 
-    let config = sysconfig::parse_from_str(&config_toml).map_err(|e| {
-        format!(
-            "Invalid TOML in config file '{}': {}",
-            config_path.display(),
-            e
-        )
-    })?;
+    let config = sysconfig::parse_from_str(&config_toml)
+        .context(format!("Invalid TOML in config file '{}'", config_path.display()))?;
 
-    config.validate_for_install().map_err(|e| {
-        format!(
-            "Invalid config for install in '{}': {}",
-            config_path.display(),
-            e
-        )
-    })?;
+    config.validate_for_install()
+        .context(format!("Invalid config for install in '{}'", config_path.display()))?;
 
     let target_disk = config.system.disk.clone();
 
@@ -245,7 +231,7 @@ async fn handle_install(
 async fn handle_update(
     server: &str,
     image: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let server_addr = format!("http://{}", server);
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
 
@@ -356,7 +342,7 @@ async fn handle_update(
 
 async fn handle_list_disks(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let request = tonic::Request::new(ListDisksRequest {});
 
     let response = client.list_disks(request).await?;
@@ -410,7 +396,7 @@ async fn handle_list_disks(
 
 async fn handle_logs(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let request = tonic::Request::new(GetLogsRequest {});
 
     let mut stream = client.get_logs(request).await?.into_inner();
@@ -431,7 +417,7 @@ async fn handle_logs(
 async fn handle_config_action(
     channel: tonic::transport::Channel,
     action: ConfigAction,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     match action {
         ConfigAction::Generate => {
             unreachable!()
@@ -449,7 +435,7 @@ async fn handle_config_action(
             }
 
             let config_str = String::from_utf8(resp.config)
-                .map_err(|e| format!("Invalid UTF-8 in config: {}", e))?;
+                .context("Invalid UTF-8 in config")?;
 
             // Generate filename with timestamp
             let now = std::time::SystemTime::now()
@@ -626,7 +612,7 @@ async fn upload_file(
     file_path: &str,
     vm_id: Option<&str>,
     target_filename: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     use tokio::io::AsyncReadExt;
 
     let mut file = tokio::fs::File::open(file_path).await?;
@@ -683,7 +669,7 @@ async fn upload_file(
     let resp = response.into_inner();
 
     if !resp.error.is_empty() {
-        return Err(resp.error.into());
+        return Err(anyhow::anyhow!("Upload failed: {}", resp.error));
     }
 
     Ok(resp.path)
@@ -692,7 +678,7 @@ async fn upload_file(
 async fn handle_process_action(
     client: &mut ProcessServiceClient<tonic::transport::Channel>,
     action: ProcessAction,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     match action {
         ProcessAction::List => {
             let request = tonic::Request::new(ListProcessesRequest {});
@@ -724,7 +710,7 @@ async fn handle_process_action(
 async fn handle_vm_action(
     client: &mut VmServiceClient<tonic::transport::Channel>,
     action: VmAction,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     match action {
         VmAction::Create {
             name,

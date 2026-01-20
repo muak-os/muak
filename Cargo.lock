@@ -1310,6 +1310,7 @@ dependencies = [
 name = "muakctl"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "prost",
  "sysconfig",
@@ -2149,6 +2150,7 @@ name = "sysconfig"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "tempfile",
  "thiserror 2.0.17",
  "toml",
 ]

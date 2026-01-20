@@ -19,6 +19,9 @@ prost = { workspace = true }
 # CLI parsing
 clap = { workspace = true }
 
+# Error handling
+anyhow = { workspace = true }
+
 # Internal
 sysconfig = { path = "../internal/shared/sysconfig" }
 
