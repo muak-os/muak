@@ -1,5 +1,6 @@
 [package]
 name = "sysconfig"
+description = "Configuration management crate for the muak project"
 edition.workspace = true
 version.workspace = true
 
@@ -10,3 +11,6 @@ thiserror = { workspace = true }
 
 [build-dependencies]
 toml = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

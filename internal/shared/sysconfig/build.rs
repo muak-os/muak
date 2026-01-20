@@ -2,6 +2,8 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+/// Build script entry point.
+/// Generates default implementations for config structs based on ../../default.toml.
 fn main() {
     let default_toml_path = Path::new("../../default.toml");
     let default_toml = fs::read_to_string(default_toml_path).expect("Failed to read default.toml");
@@ -16,6 +18,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../default.toml");
 }
 
+/// Generates Default impls for config structs from the parsed TOML config.
 fn generate_defaults(config: &toml::Value) -> String {
     let mut output = String::new();
 
@@ -32,6 +35,7 @@ fn generate_defaults(config: &toml::Value) -> String {
     output
 }
 
+/// Generates a Default impl for a specific struct from its TOML table.
 fn generate_impl_default(struct_name: &str, table: &toml::Value) -> String {
     let mut fields = Vec::new();
     if let Some(table) = table.as_table() {
@@ -55,6 +59,8 @@ fn generate_impl_default(struct_name: &str, table: &toml::Value) -> String {
     )
 }
 
+/// Converts a TOML value to Rust literal syntax.
+/// Supports strings, integers, booleans, and arrays.
 fn toml_value_to_rust(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => format!("\"{}\".to_string()", s),
