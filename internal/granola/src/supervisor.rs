@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context, Result};
 use prost::Message;
 use rustix::process::{Pid, WaitOptions, waitpid};
 use std::collections::HashMap;
@@ -52,11 +53,11 @@ pub struct Supervisor {
 }
 
 impl Supervisor {
-    pub fn new(service_defs: Vec<ServiceDef>) -> Result<Self, std::io::Error> {
+    pub fn new(service_defs: Vec<ServiceDef>) -> Result<Self> {
         let _ = std::fs::remove_file(NOTIFY_SOCKET);
 
-        let notify_socket = UnixDatagram::bind(NOTIFY_SOCKET)?;
-        notify_socket.set_nonblocking(true)?;
+        let notify_socket = UnixDatagram::bind(NOTIFY_SOCKET).context("Failed to bind notify socket")?;
+        notify_socket.set_nonblocking(true).context("Failed to set notify socket to non-blocking")?;
 
         kmsg::info!("Supervisor listening on {}", NOTIFY_SOCKET);
 
@@ -83,7 +84,7 @@ impl Supervisor {
         })
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> Result<()> {
         let mut sigchld = signal(SignalKind::child())?;
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
@@ -116,7 +117,7 @@ impl Supervisor {
         }
     }
 
-    fn start_ready_services(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn start_ready_services(&mut self) -> Result<()> {
         let ready_to_start: Vec<String> = self
             .services
             .iter()
@@ -145,28 +146,28 @@ impl Supervisor {
         })
     }
 
-    fn spawn_service(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let state = self.services.get_mut(name).ok_or("Service not found")?;
+    fn spawn_service(&mut self, name: &str) -> Result<()> {
+        let state = self.services.get_mut(name).ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         if !std::path::Path::new(&state.def.binary).exists() {
-            return Err(format!("Binary not found: {}", state.def.binary).into());
+            return Err(anyhow!("Binary not found: {}", state.def.binary));
         }
 
         kmsg::info!("Spawning service: {} ({})", name, state.def.binary);
 
-        let binary = CString::new(state.def.binary.clone())?;
+        let binary = CString::new(state.def.binary.clone()).context("Failed to create binary CString")?;
         let args: Result<Vec<CString>, _> = std::iter::once(state.def.binary.clone())
             .chain(state.def.args.clone())
             .map(CString::new)
             .collect();
-        let args = args?;
+        let args = args.context("Failed to create args CStrings")?;
 
         // SAFETY: fork() is called in a controlled environment before any threads are spawned
         // by tokio. We ensure proper cleanup in both parent and child branches.
         let fork_result = unsafe { libc::fork() };
 
         if fork_result == -1 {
-            return Err("fork() failed".into());
+            return Err(anyhow!("fork() failed"));
         } else if fork_result == 0 {
             // Child process
             let args_refs: Vec<*const libc::c_char> = args
@@ -192,7 +193,7 @@ impl Supervisor {
         Ok(())
     }
 
-    fn poll_notifications(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn poll_notifications(&mut self) -> Result<()> {
         let mut buf = [0u8; 4096];
 
         while let Ok((len, _)) = self.notify_socket.recv_from(&mut buf) {
@@ -209,7 +210,7 @@ impl Supervisor {
         Ok(())
     }
 
-    fn handle_notification(&mut self, notify: Notify) -> Result<(), Box<dyn std::error::Error>> {
+    fn handle_notification(&mut self, notify: Notify) -> Result<()> {
         let Some(state) = self.services.get_mut(&notify.service_name) else {
             kmsg::warn!("Notification from unknown service: {}", notify.service_name);
             return Ok(());
@@ -259,7 +260,7 @@ impl Supervisor {
     }
 
     // TODO: Reap all chldren instead of just known services
-    fn reap_children(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn reap_children(&mut self) -> Result<()> {
         let service_pids: Vec<i32> = self.services.values().filter_map(|s| s.pid).collect();
 
         for &pid in &service_pids {
@@ -292,7 +293,7 @@ impl Supervisor {
         pid: i32,
         exit_code: Option<i32>,
         signal: Option<i32>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         let service_name = self
             .services
             .iter()
@@ -312,7 +313,7 @@ impl Supervisor {
         pid: i32,
         exit_code: Option<i32>,
         signal: Option<i32>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         match (exit_code, signal) {
             (Some(code), _) => {
                 kmsg::warn!("Service {} (PID {}) exited with code {}", name, pid, code);
@@ -330,7 +331,7 @@ impl Supervisor {
         let state = self
             .services
             .get_mut(name)
-            .ok_or_else(|| format!("Service not found: {}", name))?;
+            .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         state.pid = None;
         state.socket_path = None;
@@ -377,7 +378,7 @@ impl Supervisor {
         state.restart_count < MAX_RESTART_ATTEMPTS
     }
 
-    fn process_pending_restarts(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn process_pending_restarts(&mut self) -> Result<()> {
         let now = Instant::now();
         let due_restarts: Vec<String> = self
             .pending_restarts
