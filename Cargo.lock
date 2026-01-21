@@ -84,7 +84,7 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "apid"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "http-body-util",
@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "granola"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "fatfs",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "imager"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "backhand",
  "clap",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "init"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "kmod",
@@ -1199,7 +1199,7 @@ dependencies = [
 
 [[package]]
 name = "kmod"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "rustix",
  "tempfile",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "kmsg"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "thiserror 2.0.17",
 ]
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "modd"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "kmod",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "muakctl"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "networkd"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "dhcproto",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "notify"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "prost",
  "tonic-prost-build",
@@ -2103,7 +2103,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "stub"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "object",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "sysconfig"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "serde",
  "tempfile",
@@ -2650,7 +2650,7 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vmd"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "hyper-util",
@@ -3087,7 +3087,7 @@ dependencies = [
 
 [[package]]
 name = "yuki"
-version = "0.1.0"
+version = "0.1.1-beta"
 dependencies = [
  "clap",
  "object",
