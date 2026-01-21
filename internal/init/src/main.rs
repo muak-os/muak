@@ -13,9 +13,11 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    mount::mount_pseudo()?;
+    println!("{}", include_str!("banner"));
 
     kmsg::init("init")?;
+
+    mount::mount_pseudo()?;
     kmsg::info!("Pseudo filesystems mounted");
 
     match modules::load() {

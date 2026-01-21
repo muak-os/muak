@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use prost::Message;
 use std::collections::HashMap;
 use std::os::unix::net::UnixDatagram;
@@ -97,8 +97,6 @@ impl Supervisor {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
 
-        kmsg::info!("Signal handlers installed (SIGTERM, SIGINT)");
-
         self.start_ready_services().await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(100));
@@ -163,10 +161,8 @@ impl Supervisor {
             .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         if !std::path::Path::new(&state.def.binary).exists() {
-            return Err(anyhow!("Binary not found: {}", state.def.binary));
+            bail!("Binary not found: {}", state.def.binary);
         }
-
-        kmsg::info!("Spawning service: {} ({})", name, state.def.binary);
 
         let mut command = tokio::process::Command::new(&state.def.binary);
         command.args(&state.def.args);
