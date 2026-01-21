@@ -1,29 +1,20 @@
 #[macro_export]
-macro_rules! log_info {
+macro_rules! info {
     ($($arg:tt)*) => {
-        {
-            use uefi::println;
-            println!("[INFO] {}", format_args!($($arg)*));
-        }
+        println!("[INFO] {}", format_args!($($arg)*));
     };
 }
 
 #[macro_export]
-macro_rules! log_error {
+macro_rules! error {
     ($($arg:tt)*) => {
-        {
-            use uefi::println;
-            println!("[ERROR] {}", format_args!($($arg)*));
-        }
+        eprintln!("[ERROR] {}", format_args!($($arg)*));
     };
 }
 
 #[macro_export]
-macro_rules! log_warn {
+macro_rules! warn {
     ($($arg:tt)*) => {
-        {
-            use uefi::println;
-            println!("[WARN] {}", format_args!($($arg)*));
-        }
+        println!("[WARN] {}", format_args!($($arg)*));
     };
 }

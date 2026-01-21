@@ -7,9 +7,9 @@ mod pe;
 
 use anyhow::{Context, Result};
 use std::os::uefi as uefi_std;
+use uefi::proto::loaded_image::LoadedImage;
 use uefi::Guid;
 use uefi::Handle;
-use uefi::proto::loaded_image::LoadedImage;
 
 use crate::pe::UkiSections;
 
@@ -31,7 +31,7 @@ fn setup_uefi_crate() {
 
 fn main() -> Result<()> {
     setup_uefi_crate();
-    log_info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
+    info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
 
     let image_handle = uefi::boot::image_handle();
 
@@ -39,12 +39,12 @@ fn main() -> Result<()> {
         .context("Failed to open LoadedImage protocol")?;
 
     let (base_addr, _image_size) = loaded_image.info();
-    log_info!("Base address: {:p}", base_addr);
+    info!("Base address: {:p}", base_addr);
 
     let sections = unsafe { UkiSections::parse(base_addr as *const u8)? };
     let kernel_bytes = sections.require_kernel()?;
 
-    log_info!(
+    info!(
         "Kernel: {} bytes at {:p}",
         kernel_bytes.len(),
         kernel_bytes.as_ptr()

@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use uefi::boot::{self, MemoryType};
 use uefi::{Guid, Handle, Status};
 
-use crate::{log_error, log_info, log_warn};
+use crate::{error, info, warn};
 
 const LOAD_FILE2_PROTOCOL_GUID: Guid = Guid::parse_or_panic("4006c0c1-fcb3-403e-996d-4a6c8724e06d");
 
@@ -42,10 +42,10 @@ unsafe extern "efiapi" fn load_file2_callback(
     // SAFETY: This entire function operates on raw pointers passed by UEFI firmware.
     // The caller guarantees these pointers are valid.
     unsafe {
-        log_info!("[LoadFile2] Callback invoked, boot_policy={}", boot_policy);
+        info!("[LoadFile2] Callback invoked, boot_policy={}", boot_policy);
 
         if boot_policy {
-            log_warn!("[LoadFile2] Rejecting boot_policy=true");
+            warn!("[LoadFile2] Rejecting boot_policy=true");
             return Status::UNSUPPORTED;
         }
 
@@ -53,12 +53,12 @@ unsafe extern "efiapi" fn load_file2_callback(
         let data_len = FILE_LEN;
 
         if data_ptr.is_null() || data_len == 0 {
-            log_error!("[LoadFile2] No file data available");
+            error!("[LoadFile2] No file data available");
             return Status::NOT_FOUND;
         }
 
         if buffer_size.is_null() {
-            log_error!("[LoadFile2] buffer_size is null");
+            error!("[LoadFile2] buffer_size is null");
             return Status::INVALID_PARAMETER;
         }
 
@@ -67,18 +67,17 @@ unsafe extern "efiapi" fn load_file2_callback(
 
         // First call: caller queries the size
         if buffer.is_null() || available_size < data_len {
-            log_info!("[LoadFile2] Returning size: {} bytes", data_len);
+            info!("[LoadFile2] Returning size: {} bytes", data_len);
             return Status::BUFFER_TOO_SMALL;
         }
 
-        log_info!(
+        info!(
             "[LoadFile2] Copying {} bytes to buffer {:p}",
-            data_len,
-            buffer
+            data_len, buffer
         );
         std::ptr::copy_nonoverlapping(data_ptr, buffer, data_len);
 
-        log_info!("[LoadFile2] Copy complete, returning SUCCESS");
+        info!("[LoadFile2] Copy complete, returning SUCCESS");
         Status::SUCCESS
     }
 }
@@ -129,7 +128,7 @@ fn build_device_path(guid: &Guid) -> Result<*mut u8> {
 /// * `data` - The file data to serve
 /// * `guid` - The vendor media GUID that identifies this file
 pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
-    log_info!(
+    info!(
         "Installing LoadFile2 ({} bytes at {:p})",
         data.len(),
         data.as_ptr()
@@ -164,7 +163,7 @@ pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
         )
         .context("Failed to install LoadFile2 protocol")?;
 
-        log_info!("LoadFile2 installed on handle {:p}", handle.as_ptr());
+        info!("LoadFile2 installed on handle {:p}", handle.as_ptr());
 
         Ok(handle)
     }

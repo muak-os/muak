@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
 use std::os::uefi::ffi::OsStrExt;
-use uefi::Handle;
 use uefi::boot::{self, LoadImageSource, MemoryType};
 use uefi::proto::loaded_image::LoadedImage;
+use uefi::Handle;
 
-use crate::log_info;
+use crate::info;
 
 pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> {
-    log_info!("Loading kernel image...");
+    info!("Loading kernel image...");
 
     let kernel_handle = boot::load_image(
         image_handle,
@@ -19,7 +19,7 @@ pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> 
     )
     .context("Failed to load kernel image")?;
 
-    log_info!("Kernel loaded, handle: {:p}", kernel_handle.as_ptr());
+    info!("Kernel loaded, handle: {:p}", kernel_handle.as_ptr());
     Ok(kernel_handle)
 }
 
@@ -32,7 +32,7 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
         return Ok(());
     }
 
-    log_info!("Setting cmdline: {}", cmd_str);
+    info!("Setting cmdline: {}", cmd_str);
 
     let wide_chars: Vec<u16> = OsStr::new(cmd_str).encode_wide().collect();
 
@@ -52,11 +52,11 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
         loaded_image.set_load_options(cmdline_ptr as *const u8, byte_size as u32);
     }
 
-    log_info!("Cmdline set ({} bytes)", byte_size);
+    info!("Cmdline set ({} bytes)", byte_size);
     Ok(())
 }
 
 pub fn start(kernel_handle: Handle) -> Result<()> {
-    log_info!("Starting kernel...");
+    info!("Starting kernel...");
     boot::start_image(kernel_handle).context("Failed to start kernel image")
 }

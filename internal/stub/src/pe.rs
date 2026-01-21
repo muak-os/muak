@@ -1,7 +1,7 @@
 use core::mem;
 use core::slice;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 const DOS_MAGIC: u16 = 0x5A4D; // Magic number MZ
 
