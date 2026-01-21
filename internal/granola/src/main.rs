@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
     unreachable!("If we're here, something went very wrong");
 }
 
-async fn run_grpc_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn run_grpc_server() -> Result<()> {
     if Path::new(GRPC_SOCKET_PATH).exists() {
         std::fs::remove_file(GRPC_SOCKET_PATH)?;
     }
