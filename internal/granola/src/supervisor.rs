@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use prost::Message;
 use rustix::process::{Pid, WaitOptions, waitpid};
 use std::collections::HashMap;
@@ -56,8 +56,11 @@ impl Supervisor {
     pub fn new(service_defs: Vec<ServiceDef>) -> Result<Self> {
         let _ = std::fs::remove_file(NOTIFY_SOCKET);
 
-        let notify_socket = UnixDatagram::bind(NOTIFY_SOCKET).context("Failed to bind notify socket")?;
-        notify_socket.set_nonblocking(true).context("Failed to set notify socket to non-blocking")?;
+        let notify_socket =
+            UnixDatagram::bind(NOTIFY_SOCKET).context("Failed to bind notify socket")?;
+        notify_socket
+            .set_nonblocking(true)
+            .context("Failed to set notify socket to non-blocking")?;
 
         kmsg::info!("Supervisor listening on {}", NOTIFY_SOCKET);
 
@@ -147,7 +150,10 @@ impl Supervisor {
     }
 
     fn spawn_service(&mut self, name: &str) -> Result<()> {
-        let state = self.services.get_mut(name).ok_or_else(|| anyhow!("Service not found: {}", name))?;
+        let state = self
+            .services
+            .get_mut(name)
+            .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         if !std::path::Path::new(&state.def.binary).exists() {
             return Err(anyhow!("Binary not found: {}", state.def.binary));
@@ -155,7 +161,8 @@ impl Supervisor {
 
         kmsg::info!("Spawning service: {} ({})", name, state.def.binary);
 
-        let binary = CString::new(state.def.binary.clone()).context("Failed to create binary CString")?;
+        let binary =
+            CString::new(state.def.binary.clone()).context("Failed to create binary CString")?;
         let args: Result<Vec<CString>, _> = std::iter::once(state.def.binary.clone())
             .chain(state.def.args.clone())
             .map(CString::new)

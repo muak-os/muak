@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use sysconfig;
-use anyhow::{Context, Result};
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -190,14 +190,20 @@ async fn handle_install(
     force: bool,
     config_path: PathBuf,
 ) -> Result<()> {
-    let config_toml = std::fs::read_to_string(&config_path)
-        .context(format!("Failed to read config file '{}'", config_path.display()))?;
+    let config_toml = std::fs::read_to_string(&config_path).context(format!(
+        "Failed to read config file '{}'",
+        config_path.display()
+    ))?;
 
-    let config = sysconfig::parse_from_str(&config_toml)
-        .context(format!("Invalid TOML in config file '{}'", config_path.display()))?;
+    let config = sysconfig::parse_from_str(&config_toml).context(format!(
+        "Invalid TOML in config file '{}'",
+        config_path.display()
+    ))?;
 
-    config.validate_for_install()
-        .context(format!("Invalid config for install in '{}'", config_path.display()))?;
+    config.validate_for_install().context(format!(
+        "Invalid config for install in '{}'",
+        config_path.display()
+    ))?;
 
     let target_disk = config.system.disk.clone();
 
@@ -228,10 +234,7 @@ async fn handle_install(
     Ok(())
 }
 
-async fn handle_update(
-    server: &str,
-    image: Option<String>,
-) -> Result<()> {
+async fn handle_update(server: &str, image: Option<String>) -> Result<()> {
     let server_addr = format!("http://{}", server);
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
 
@@ -394,9 +397,7 @@ async fn handle_list_disks(
     Ok(())
 }
 
-async fn handle_logs(
-    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-) -> Result<()> {
+async fn handle_logs(client: &mut ProvisionServiceClient<tonic::transport::Channel>) -> Result<()> {
     let request = tonic::Request::new(GetLogsRequest {});
 
     let mut stream = client.get_logs(request).await?.into_inner();
@@ -434,8 +435,7 @@ async fn handle_config_action(
                 std::process::exit(1);
             }
 
-            let config_str = String::from_utf8(resp.config)
-                .context("Invalid UTF-8 in config")?;
+            let config_str = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
 
             // Generate filename with timestamp
             let now = std::time::SystemTime::now()
