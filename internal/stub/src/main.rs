@@ -7,9 +7,9 @@ mod pe;
 
 use anyhow::{Context, Result};
 use std::os::uefi as uefi_std;
-use uefi::proto::loaded_image::LoadedImage;
 use uefi::Guid;
 use uefi::Handle;
+use uefi::proto::loaded_image::LoadedImage;
 
 use crate::pe::UkiSections;
 
@@ -31,6 +31,7 @@ fn setup_uefi_crate() {
 
 fn main() -> Result<()> {
     setup_uefi_crate();
+
     info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
 
     let image_handle = uefi::boot::image_handle();
@@ -60,7 +61,7 @@ fn main() -> Result<()> {
         loader::set_cmdline(kernel_handle, cmdline_bytes)?;
     }
 
-    let _ = loader::start(kernel_handle);
+    loader::start(kernel_handle)?;
 
-    Ok(())
+    unreachable!("If we're here, something went wrong");
 }
