@@ -25,7 +25,7 @@ pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> 
 
 pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
     let cmd_str = std::str::from_utf8(cmdline)
-        .unwrap_or("")
+        .unwrap_or("console=tty0 console=ttyS0 init=/init")
         .trim_matches(char::from(0));
 
     if cmd_str.is_empty() {
