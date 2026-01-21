@@ -1,7 +1,7 @@
 use core::mem;
 use core::slice;
 
-use crate::error::{StubError, StubResult};
+use anyhow::{Result, anyhow};
 
 const DOS_MAGIC: u16 = 0x5A4D; // Magic number MZ
 
@@ -14,9 +14,9 @@ pub struct ImageDosHeader {
 }
 
 impl ImageDosHeader {
-    pub fn validate(&self) -> StubResult<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.e_magic != DOS_MAGIC {
-            return Err(StubError::InvalidDosMagic);
+            return Err(anyhow!("invalid DOS header magic"));
         }
         Ok(())
     }
@@ -87,7 +87,7 @@ pub struct UkiSections<'a> {
 }
 
 impl<'a> UkiSections<'a> {
-    pub unsafe fn parse(base_addr: *const u8) -> StubResult<Self> {
+    pub unsafe fn parse(base_addr: *const u8) -> Result<Self> {
         // SAFETY: caller guarantees base_addr points to valid PE image
         unsafe {
             let dos_header = &*(base_addr as *const ImageDosHeader);
@@ -128,7 +128,8 @@ impl<'a> UkiSections<'a> {
         }
     }
 
-    pub fn require_kernel(&self) -> StubResult<&'a [u8]> {
-        self.kernel.ok_or(StubError::NoKernelSection)
+    pub fn require_kernel(&self) -> Result<&'a [u8]> {
+        self.kernel
+            .ok_or_else(|| anyhow!("no .linux section found"))
     }
 }

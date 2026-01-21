@@ -1,11 +1,11 @@
 use core::ffi::c_void;
 use core::ptr;
 
+use anyhow::{Result, anyhow};
 use uefi::boot::{self, MemoryType};
 use uefi::table::system_table_raw;
 use uefi::{Guid, Handle, Status};
 
-use crate::error::{StubError, StubResult};
 use crate::{log_error, log_info, log_warn};
 
 #[inline]
@@ -100,10 +100,10 @@ unsafe extern "efiapi" fn load_file2_callback(
 /// The device path consists of:
 /// - Vendor media device path node (type 4, subtype 3) with the specified GUID
 /// - End of device path node (type 0x7F, subtype 0xFF)
-fn build_device_path(guid: &Guid) -> StubResult<*mut u8> {
+fn build_device_path(guid: &Guid) -> Result<*mut u8> {
     // Device path: 20 bytes (vendor media) + 4 bytes (end node) = 24 bytes
     let dp_ptr = boot::allocate_pool(MemoryType::BOOT_SERVICES_DATA, 24)
-        .map_err(|_| StubError::AllocationFailed)?
+        .map_err(|_| anyhow!("memory allocation failed"))?
         .as_ptr();
 
     unsafe {
@@ -140,7 +140,7 @@ fn build_device_path(guid: &Guid) -> StubResult<*mut u8> {
 /// # Arguments
 /// * `data` - The file data to serve
 /// * `guid` - The vendor media GUID that identifies this file
-pub fn install(data: &[u8], guid: &Guid) -> StubResult<Handle> {
+pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
     log_info!(
         "Installing LoadFile2 ({} bytes at {:p})",
         data.len(),
@@ -155,7 +155,7 @@ pub fn install(data: &[u8], guid: &Guid) -> StubResult<Handle> {
             MemoryType::BOOT_SERVICES_DATA,
             core::mem::size_of::<LoadFile2Protocol>(),
         )
-        .map_err(|_| StubError::AllocationFailed)?
+        .map_err(|_| anyhow!("memory allocation failed"))?
         .as_ptr() as *mut LoadFile2Protocol;
 
         (*protocol_ptr).load_file = load_file2_callback;
@@ -167,14 +167,14 @@ pub fn install(data: &[u8], guid: &Guid) -> StubResult<Handle> {
             &DEVICE_PATH_PROTOCOL_GUID,
             dp_ptr as *const c_void,
         )
-        .map_err(|_| StubError::ProtocolInstallFailed)?;
+        .map_err(|_| anyhow!("failed to install protocol"))?;
 
         boot::install_protocol_interface(
             Some(handle),
             &LOAD_FILE2_PROTOCOL_GUID,
             protocol_ptr as *const c_void,
         )
-        .map_err(|_| StubError::ProtocolInstallFailed)?;
+        .map_err(|_| anyhow!("failed to install protocol"))?;
 
         log_info!("LoadFile2 installed on handle {:p}", handle.as_ptr());
 

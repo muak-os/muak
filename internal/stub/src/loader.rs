@@ -1,11 +1,11 @@
+use anyhow::{Result, anyhow};
 use uefi::boot::{self, LoadImageSource, MemoryType};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::{Handle, Status};
 
-use crate::error::{StubError, StubResult};
 use crate::{log_error, log_info, log_warn};
 
-pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> StubResult<Handle> {
+pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> {
     log_info!("Loading kernel image...");
 
     let kernel_handle = boot::load_image(
@@ -15,13 +15,13 @@ pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> StubResult<Hand
             file_path: None,
         },
     )
-    .map_err(|_| StubError::KernelLoadFailed)?;
+    .map_err(|_| anyhow!("failed to load kernel image"))?;
 
     log_info!("Kernel loaded, handle: {:p}", kernel_handle.as_ptr());
     Ok(kernel_handle)
 }
 
-pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> StubResult<()> {
+pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
     let cmd_str = core::str::from_utf8(cmdline)
         .unwrap_or("")
         .trim_matches(char::from(0));
@@ -37,7 +37,7 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> StubResult<()> {
     let byte_size = char_count * 2;
 
     let cmdline_ptr = boot::allocate_pool(MemoryType::LOADER_DATA, byte_size)
-        .map_err(|_| StubError::AllocationFailed)?
+        .map_err(|_| anyhow!("memory allocation failed"))?
         .as_ptr() as *mut u16;
 
     // Copy characters as UCS-2
@@ -49,7 +49,7 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> StubResult<()> {
     }
 
     let mut loaded_image = boot::open_protocol_exclusive::<LoadedImage>(kernel_handle)
-        .map_err(|_| StubError::ProtocolOpenFailed)?;
+        .map_err(|_| anyhow!("failed to open protocol"))?;
 
     unsafe {
         loaded_image.set_load_options(cmdline_ptr as *const u8, byte_size as u32);

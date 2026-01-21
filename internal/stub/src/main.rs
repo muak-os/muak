@@ -1,17 +1,16 @@
 #![no_std]
 #![no_main]
 
-mod error;
 mod loader;
 mod loadfile2;
 mod log;
 mod pe;
 
+use anyhow::{Result, anyhow};
 use uefi::Guid;
 use uefi::prelude::*;
 use uefi::proto::loaded_image::LoadedImage;
 
-use crate::error::{StubError, StubResult};
 use crate::pe::UkiSections;
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
@@ -25,16 +24,16 @@ fn main() -> Status {
         Ok(status) => status,
         Err(e) => {
             log_error!("Stub error: {}", e);
-            e.to_status()
+            Status::LOAD_ERROR
         }
     }
 }
 
-fn run() -> StubResult<Status> {
+fn run() -> Result<Status> {
     let image_handle = uefi::boot::image_handle();
 
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
-        .map_err(|_| StubError::ProtocolOpenFailed)?;
+        .map_err(|_| anyhow!("failed to open protocol"))?;
 
     let (base_addr, _image_size) = loaded_image.info();
     log_info!("Base address: {:p}", base_addr);
