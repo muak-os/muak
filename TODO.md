@@ -19,15 +19,11 @@
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
 
-- Better error management
-  - Check if there is /dev/kvm supported when starting the distro
-  - Better handling of network error when installing/updating
-
 - Better PID 1
-  - Supervision tree for critical services
-  - Look into Command::new of tokio instead of raw fork/exec for spawning services
+  - Better explicit restart strategy for services in supervisor (exponential backoff etc)
   - Properly reap children in granola (conflict with installer command spawning)
   - Extract services to be file based in /run/services/
+  - Check if there is /dev/kvm supported when starting the distro, setting degraded system state if not
 
 - Enhance networking:
   - Handle certificates properly using webpki-roots-certs in reqwest 0.13 or switch to ureq
@@ -56,8 +52,14 @@
     - Interface configuration
     - Proxy configuration
 
+- Enhance sysconfig shared lib:
+  - Config versioning: Track config changes over time
+  - Handle config error properly by going back to default in binaries using sysconfig
+
 - Disk Manager Service:
-  - LUKS encryption/decryption
+  - LUKS encryption/decryption with libcryptsetup-rs
+    - Automatic unlocking using TPM2
+    - Add support in internal/init to allow for e2e remote unlocking using gRPC or some other way (Tang like?)
   - Copy-on-Write disk creation for templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
@@ -66,11 +68,6 @@
   - Allow /run/data to be on a different disk than rootfs
   - Allow vm disks to be stored on a different disk than rootfs
   - Replace direct call to `mkfs.btrfs` with FFI bindings or some other way to avoid spawning processes
-
-- Allow user to change kernel parameters on the fly before rebooting
-  - Handle normal/custom kernel parameters inspired by Talos [here](https://github.com/siderolabs/talos/blob/66c01a706f0b1dba88e30dbc1781d7fb7ef57756/website/content/v1.12/reference/kernel.md)
-    - muak.port = gRPC server port
-    - muak.dns = main DNS server (might already be in talos inspired params)
 
 - Add e2e testing:
   - Unit tests & Integration tests

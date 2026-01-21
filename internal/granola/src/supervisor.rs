@@ -1,11 +1,11 @@
 use anyhow::{Context, Result, anyhow};
 use prost::Message;
-use rustix::process::{Pid, WaitOptions, waitpid};
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::os::unix::net::UnixDatagram;
+use std::os::unix::process::ExitStatusExt;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::mpsc;
 
 #[allow(clippy::excessive_nesting)]
 mod proto {
@@ -50,6 +50,8 @@ pub struct Supervisor {
     services: HashMap<String, ServiceState>,
     notify_socket: UnixDatagram,
     pending_restarts: Vec<(String, Instant)>,
+    exit_tx: mpsc::UnboundedSender<(String, std::process::ExitStatus)>,
+    exit_rx: mpsc::UnboundedReceiver<(String, std::process::ExitStatus)>,
 }
 
 impl Supervisor {
@@ -80,28 +82,33 @@ impl Supervisor {
             })
             .collect();
 
+        let (exit_tx, exit_rx) = mpsc::unbounded_channel();
+
         Ok(Self {
             services,
             notify_socket,
             pending_restarts: Vec::new(),
+            exit_tx,
+            exit_rx,
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let mut sigchld = signal(SignalKind::child())?;
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
 
-        kmsg::info!("Signal handlers installed (SIGCHLD, SIGTERM, SIGINT)");
+        kmsg::info!("Signal handlers installed (SIGTERM, SIGINT)");
 
-        self.start_ready_services()?;
+        self.start_ready_services().await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
-                _ = sigchld.recv() => {
-                    self.reap_children()?;
+                recv_result = self.exit_rx.recv() => {
+                    if let Some((name, status)) = recv_result {
+                        self.handle_exit_event(&name, status)?;
+                    }
                 }
 
                 _ = sigterm.recv() => {
@@ -113,14 +120,14 @@ impl Supervisor {
                 }
 
                 _ = interval.tick() => {
-                    self.poll_notifications()?;
-                    self.process_pending_restarts()?;
+                    self.poll_notifications().await?;
+                    self.process_pending_restarts().await?;
                 }
             }
         }
     }
 
-    fn start_ready_services(&mut self) -> Result<()> {
+    async fn start_ready_services(&mut self) -> Result<()> {
         let ready_to_start: Vec<String> = self
             .services
             .iter()
@@ -131,7 +138,7 @@ impl Supervisor {
             .collect();
 
         for name in ready_to_start {
-            let result = self.spawn_service(&name);
+            let result = self.spawn_service(&name).await;
             if let Err(e) = result {
                 kmsg::error!("Failed to spawn service {}: {}", name, e);
             }
@@ -149,7 +156,7 @@ impl Supervisor {
         })
     }
 
-    fn spawn_service(&mut self, name: &str) -> Result<()> {
+    async fn spawn_service(&mut self, name: &str) -> Result<()> {
         let state = self
             .services
             .get_mut(name)
@@ -161,46 +168,29 @@ impl Supervisor {
 
         kmsg::info!("Spawning service: {} ({})", name, state.def.binary);
 
-        let binary =
-            CString::new(state.def.binary.clone()).context("Failed to create binary CString")?;
-        let args: Result<Vec<CString>, _> = std::iter::once(state.def.binary.clone())
-            .chain(state.def.args.clone())
-            .map(CString::new)
-            .collect();
-        let args = args.context("Failed to create args CStrings")?;
+        let mut command = tokio::process::Command::new(&state.def.binary);
+        command.args(&state.def.args);
+        let mut child = command.spawn().context("Failed to spawn service")?;
 
-        // SAFETY: fork() is called in a controlled environment before any threads are spawned
-        // by tokio. We ensure proper cleanup in both parent and child branches.
-        let fork_result = unsafe { libc::fork() };
+        let pid = child
+            .id()
+            .ok_or_else(|| anyhow!("Failed to get child PID"))?;
+        state.pid = Some(pid as i32);
+        state.status = ServiceStatus::Starting;
+        kmsg::info!("Spawned {} with PID {}", name, pid);
 
-        if fork_result == -1 {
-            return Err(anyhow!("fork() failed"));
-        } else if fork_result == 0 {
-            // Child process
-            let args_refs: Vec<*const libc::c_char> = args
-                .iter()
-                .map(|s| s.as_ptr())
-                .chain(std::iter::once(std::ptr::null()))
-                .collect();
-
-            // SAFETY: execv() replaces the current process image. We're passing valid pointers.
-            unsafe {
-                libc::execv(binary.as_ptr(), args_refs.as_ptr());
+        let name_clone = name.to_string();
+        let exit_tx = self.exit_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(status) = child.wait().await {
+                let _ = exit_tx.send((name_clone, status));
             }
-
-            eprintln!("execv failed for {}", state.def.binary);
-            std::process::exit(1);
-        } else {
-            // Parent process
-            state.pid = Some(fork_result);
-            state.status = ServiceStatus::Starting;
-            kmsg::info!("Spawned {} with PID {}", name, fork_result);
-        }
+        });
 
         Ok(())
     }
 
-    fn poll_notifications(&mut self) -> Result<()> {
+    async fn poll_notifications(&mut self) -> Result<()> {
         let mut buf = [0u8; 4096];
 
         while let Ok((len, _)) = self.notify_socket.recv_from(&mut buf) {
@@ -212,9 +202,16 @@ impl Supervisor {
             }
         }
 
-        self.start_ready_services()?;
+        self.start_ready_services().await?;
 
         Ok(())
+    }
+
+    fn handle_exit_event(&mut self, name: &str, status: std::process::ExitStatus) -> Result<()> {
+        let pid = self.services.get(name).and_then(|s| s.pid).unwrap_or(0);
+        let exit_code = status.code();
+        let signal = status.signal();
+        self.handle_service_exit(name, pid, exit_code, signal)
     }
 
     fn handle_notification(&mut self, notify: Notify) -> Result<()> {
@@ -261,54 +258,6 @@ impl Supervisor {
                 state.status = ServiceStatus::Stopping;
             }
             Notification::Watchdog(_) => {}
-        }
-
-        Ok(())
-    }
-
-    // TODO: Reap all chldren instead of just known services
-    fn reap_children(&mut self) -> Result<()> {
-        let service_pids: Vec<i32> = self.services.values().filter_map(|s| s.pid).collect();
-
-        for &pid in &service_pids {
-            // SAFETY: We're passing a valid PID from our service registry
-            let pid_obj = unsafe { Pid::from_raw_unchecked(pid) };
-            let status_result = waitpid(Some(pid_obj), WaitOptions::NOHANG);
-
-            let (exit_code, signal) = match status_result {
-                Ok(Some((_, wait_status))) => {
-                    if wait_status.exited() {
-                        (wait_status.exit_status(), None)
-                    } else if wait_status.signaled() {
-                        (None, wait_status.terminating_signal())
-                    } else {
-                        continue;
-                    }
-                }
-                Ok(None) => continue, // NOHANG and no status change
-                Err(rustix::io::Errno::CHILD) => continue, // No such child
-                Err(_) => continue,
-            };
-
-            self.handle_child_exit(pid, exit_code, signal)?;
-        }
-        Ok(())
-    }
-
-    fn handle_child_exit(
-        &mut self,
-        pid: i32,
-        exit_code: Option<i32>,
-        signal: Option<i32>,
-    ) -> Result<()> {
-        let service_name = self
-            .services
-            .iter()
-            .find(|(_, s)| s.pid == Some(pid))
-            .map(|(name, _)| name.clone());
-
-        if let Some(name) = service_name {
-            self.handle_service_exit(&name, pid, exit_code, signal)?;
         }
 
         Ok(())
@@ -385,7 +334,7 @@ impl Supervisor {
         state.restart_count < MAX_RESTART_ATTEMPTS
     }
 
-    fn process_pending_restarts(&mut self) -> Result<()> {
+    async fn process_pending_restarts(&mut self) -> Result<()> {
         let now = Instant::now();
         let due_restarts: Vec<String> = self
             .pending_restarts
@@ -409,7 +358,7 @@ impl Supervisor {
                 continue;
             }
 
-            let result = self.spawn_service(&name);
+            let result = self.spawn_service(&name).await;
             if let Err(e) = result {
                 kmsg::error!("Failed to restart service {}: {}", name, e);
             }
