@@ -15,6 +15,9 @@ uefi = { workspace = true }
 # Error handling
 anyhow = { workspace = true }
 
+# Utilities
+object = { workspace = true }
+
 [features]
 uefi = []
 

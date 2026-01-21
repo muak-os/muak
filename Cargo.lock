@@ -2106,6 +2106,7 @@ name = "stub"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "object",
  "uefi",
 ]
 

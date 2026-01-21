@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
 use std::os::uefi::ffi::OsStrExt;
+use uefi::Handle;
 use uefi::boot::{self, LoadImageSource, MemoryType};
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::Handle;
 
 use crate::info;
 

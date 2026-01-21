@@ -39,10 +39,12 @@ fn main() -> Result<()> {
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
-    let (base_addr, _image_size) = loaded_image.info();
-    info!("Base address: {:p}", base_addr);
+    let (base_addr, image_size) = loaded_image.info();
+    info!("Base address: {:p}, size: {}", base_addr, image_size);
 
-    let sections = unsafe { UkiSections::parse(base_addr as *const u8)? };
+    let image_data =
+        unsafe { std::slice::from_raw_parts(base_addr as *const u8, image_size as usize) };
+    let sections = UkiSections::parse(image_data)?;
     let kernel_bytes = sections.require_kernel()?;
 
     info!(
