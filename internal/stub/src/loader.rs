@@ -56,7 +56,6 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
         loaded_image.set_load_options(cmdline_ptr as *const u8, byte_size as u32);
     }
 
-    info!("Cmdline set ({} bytes)", byte_size);
     Ok(())
 }
 
