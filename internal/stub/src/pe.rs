@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use object::LittleEndian as LE;
 use object::read::pe::PeFile64;
 
@@ -11,6 +11,9 @@ pub struct UkiSections<'a> {
 
 impl<'a> UkiSections<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
+        if data.len() < 0x40 {
+            bail!("PE file too small (minimum 64 bytes required)");
+        }
         let pe = PeFile64::parse(data).context("Failed to parse PE file")?;
 
         let sections = pe.section_table();
@@ -28,9 +31,7 @@ impl<'a> UkiSections<'a> {
 
             let va = section.virtual_address.get(LE) as usize;
             let vs = section.virtual_size.get(LE) as usize;
-            if va + vs > data.len() {
-                return Err(anyhow!("section data out of bounds"));
-            }
+            validate_section_data(va, vs, data)?;
             let section_data = &data[va..va + vs];
 
             match name {
@@ -48,4 +49,28 @@ impl<'a> UkiSections<'a> {
         self.kernel
             .ok_or_else(|| anyhow!("no .linux section found"))
     }
+}
+
+/// Validates section data alignment and sanity checks.
+fn validate_section_data(va: usize, vs: usize, data: &[u8]) -> Result<()> {
+    if va + vs > data.len() {
+        bail!(
+            "section data out of bounds: va={} vs={} data_len={}",
+            va,
+            vs,
+            data.len()
+        );
+    }
+
+    if va % 4096 != 0 && va != 0 {
+        bail!("section virtual address not page-aligned: {}", va);
+    }
+
+    if vs == 0 {
+        bail!("section has zero virtual size");
+    }
+    if vs > 100 * 1024 * 1024 {
+        bail!("section virtual size unreasonably large: {} bytes", vs);
+    }
+    Ok(())
 }

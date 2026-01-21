@@ -41,6 +41,8 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
         .context("Failed to allocate pool for cmdline")?
         .as_ptr() as *mut u16;
 
+    // SAFETY: cmdline_ptr was allocated with allocate_pool and is valid for the
+    // requested byte_size. The source pointer is from a Vec, guaranteed valid.
     unsafe {
         std::ptr::copy_nonoverlapping(wide_chars.as_ptr(), cmdline_ptr, wide_chars.len());
     }
@@ -48,6 +50,8 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
     let mut loaded_image = boot::open_protocol_exclusive::<LoadedImage>(kernel_handle)
         .context("failed to open LoadedImage protocol")?;
 
+    // SAFETY: cmdline_ptr points to valid allocated memory from allocate_pool.
+    // The UEFI LoadedImage protocol accepts raw pointers for load options.
     unsafe {
         loaded_image.set_load_options(cmdline_ptr as *const u8, byte_size as u32);
     }

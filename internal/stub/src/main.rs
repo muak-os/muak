@@ -15,12 +15,12 @@ use crate::pe::UkiSections;
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
-/// Performs the necessary setup code for the `uefi` crate.
 fn setup_uefi_crate() {
     let st = uefi_std::env::system_table();
     let ih = uefi_std::env::image_handle();
 
-    // Mandatory setup code for `uefi` crate.
+    // SAFETY: UEFI firmware provides valid system table and image handle pointers
+    // during the boot services phase. This is required setup for the uefi crate.
     unsafe {
         uefi::table::set_system_table(st.as_ptr().cast());
 
@@ -43,6 +43,9 @@ fn main() -> Result<()> {
     info!("Base address: {:p}, size: {}", base_addr, image_size);
 
     let image_data =
+        // SAFETY: base_addr and image_size come from UEFI's LoadedImage protocol,
+        // which guarantees the image is valid and loaded in memory for the entire
+        // boot services phase. The slice is used only for reading PE section data.
         unsafe { std::slice::from_raw_parts(base_addr as *const u8, image_size as usize) };
     let sections = UkiSections::parse(image_data)?;
     let kernel_bytes = sections.require_kernel()?;

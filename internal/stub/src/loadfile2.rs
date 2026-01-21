@@ -1,5 +1,5 @@
-use core::ffi::c_void;
-use core::ptr;
+use std::ffi::c_void;
+use std::ptr;
 
 use anyhow::{Context, Result};
 use uefi::boot::{self, MemoryType};
@@ -32,6 +32,9 @@ static mut FILE_LEN: usize = 0;
 /// It follows the UEFI LoadFile2 protocol semantics:
 /// - First call with null buffer returns BUFFER_TOO_SMALL and sets buffer_size
 /// - Second call with adequate buffer copies the data and returns SUCCESS
+///
+/// SAFETY: This function is called by UEFI firmware with valid pointers.
+/// All pointer parameters are guaranteed valid by the UEFI specification.
 unsafe extern "efiapi" fn load_file2_callback(
     _this: *mut LoadFile2Protocol,
     _file_path: *const c_void,
@@ -40,7 +43,9 @@ unsafe extern "efiapi" fn load_file2_callback(
     buffer: *mut u8,
 ) -> Status {
     // SAFETY: This entire function operates on raw pointers passed by UEFI firmware.
-    // The caller guarantees these pointers are valid.
+    // The UEFI specification guarantees these pointers are valid for the operation.
+    // FILE_PTR and FILE_LEN are set by our install() function and remain valid
+    // during the boot services phase.
     unsafe {
         info!("[LoadFile2] Callback invoked, boot_policy={}", boot_policy);
 
@@ -75,6 +80,8 @@ unsafe extern "efiapi" fn load_file2_callback(
             "[LoadFile2] Copying {} bytes to buffer {:p}",
             data_len, buffer
         );
+        // SAFETY: buffer is guaranteed valid and sized by UEFI caller.
+        // data_ptr and data_len are set to valid slice data in install().
         std::ptr::copy_nonoverlapping(data_ptr, buffer, data_len);
 
         info!("[LoadFile2] Copy complete, returning SUCCESS");
@@ -93,6 +100,8 @@ fn build_device_path(guid: &Guid) -> Result<*mut u8> {
         .context("Failed to allocate pool for device path")?
         .as_ptr();
 
+    // SAFETY: dp_ptr was allocated with allocate_pool and is valid for 24 bytes.
+    // All pointer arithmetic stays within bounds. GUID bytes are copied from valid data.
     unsafe {
         let dp = dp_ptr;
 
@@ -134,13 +143,16 @@ pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
         data.as_ptr()
     );
 
+    // SAFETY: All operations are UEFI boot services calls, which are safe during
+    // the boot services phase. Memory allocations use valid pool types.
+    // Protocol installation follows UEFI specifications.
     unsafe {
         FILE_PTR = data.as_ptr();
         FILE_LEN = data.len();
 
         let protocol_ptr = boot::allocate_pool(
             MemoryType::BOOT_SERVICES_DATA,
-            core::mem::size_of::<LoadFile2Protocol>(),
+            std::mem::size_of::<LoadFile2Protocol>(),
         )
         .context("Memory allocation failed")?
         .as_ptr() as *mut LoadFile2Protocol;
