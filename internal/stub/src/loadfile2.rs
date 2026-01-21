@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use uefi::boot::{self, MemoryType};
 use uefi::{Guid, Handle, Status};
 
-use crate::{error, info, warn};
+use crate::{error, info};
 
 const LOAD_FILE2_PROTOCOL_GUID: Guid = Guid::parse_or_panic("4006c0c1-fcb3-403e-996d-4a6c8724e06d");
 
@@ -50,7 +50,7 @@ unsafe extern "efiapi" fn load_file2_callback(
         info!("[LoadFile2] Callback invoked, boot_policy={}", boot_policy);
 
         if boot_policy {
-            warn!("[LoadFile2] Rejecting boot_policy=true");
+            error!("[LoadFile2] Rejecting boot_policy=true");
             return Status::UNSUPPORTED;
         }
 
@@ -70,7 +70,6 @@ unsafe extern "efiapi" fn load_file2_callback(
         let available_size = *buffer_size;
         *buffer_size = data_len;
 
-        // First call: caller queries the size
         if buffer.is_null() || available_size < data_len {
             info!("[LoadFile2] Returning size: {} bytes", data_len);
             return Status::BUFFER_TOO_SMALL;
