@@ -13,7 +13,7 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    println!("{}", include_str!("banner"));
+    println!("{}", include_str!("../banner"));
 
     kmsg::init("init")?;
 
