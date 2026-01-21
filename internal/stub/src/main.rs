@@ -5,7 +5,7 @@ mod loadfile2;
 mod log;
 mod pe;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result};
 use std::os::uefi as uefi_std;
 use uefi::Guid;
 use uefi::Handle;
@@ -36,7 +36,7 @@ fn main() -> Result<()> {
     let image_handle = uefi::boot::image_handle();
 
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
-        .map_err(|_| anyhow!("failed to open protocol"))?;
+        .context("Failed to open LoadedImage protocol")?;
 
     let (base_addr, _image_size) = loaded_image.info();
     log_info!("Base address: {:p}", base_addr);

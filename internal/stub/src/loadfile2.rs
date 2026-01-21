@@ -1,7 +1,7 @@
 use core::ffi::c_void;
 use core::ptr;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use uefi::boot::{self, MemoryType};
 use uefi::{Guid, Handle, Status};
 
@@ -91,7 +91,7 @@ unsafe extern "efiapi" fn load_file2_callback(
 fn build_device_path(guid: &Guid) -> Result<*mut u8> {
     // Device path: 20 bytes (vendor media) + 4 bytes (end node) = 24 bytes
     let dp_ptr = boot::allocate_pool(MemoryType::BOOT_SERVICES_DATA, 24)
-        .map_err(|_| anyhow!("memory allocation failed"))?
+        .context("Failed to allocate pool for device path")?
         .as_ptr();
 
     unsafe {
@@ -143,7 +143,7 @@ pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
             MemoryType::BOOT_SERVICES_DATA,
             core::mem::size_of::<LoadFile2Protocol>(),
         )
-        .map_err(|_| anyhow!("memory allocation failed"))?
+        .context("Memory allocation failed")?
         .as_ptr() as *mut LoadFile2Protocol;
 
         (*protocol_ptr).load_file = load_file2_callback;
@@ -155,14 +155,14 @@ pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
             &DEVICE_PATH_PROTOCOL_GUID,
             dp_ptr as *const c_void,
         )
-        .map_err(|_| anyhow!("failed to install protocol"))?;
+        .context("Failed to install DevicePath protocol")?;
 
         boot::install_protocol_interface(
             Some(handle),
             &LOAD_FILE2_PROTOCOL_GUID,
             protocol_ptr as *const c_void,
         )
-        .map_err(|_| anyhow!("failed to install protocol"))?;
+        .context("Failed to install LoadFile2 protocol")?;
 
         log_info!("LoadFile2 installed on handle {:p}", handle.as_ptr());
 

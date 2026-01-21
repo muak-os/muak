@@ -1,11 +1,11 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result};
 use std::ffi::OsStr;
 use std::os::uefi::ffi::OsStrExt;
+use uefi::Handle;
 use uefi::boot::{self, LoadImageSource, MemoryType};
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::{Handle, Status};
 
-use crate::{log_error, log_info, log_warn};
+use crate::log_info;
 
 pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> {
     log_info!("Loading kernel image...");
@@ -17,7 +17,7 @@ pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> 
             file_path: None,
         },
     )
-    .map_err(|_| anyhow!("failed to load kernel image"))?;
+    .context("Failed to load kernel image")?;
 
     log_info!("Kernel loaded, handle: {:p}", kernel_handle.as_ptr());
     Ok(kernel_handle)
@@ -34,12 +34,11 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
 
     log_info!("Setting cmdline: {}", cmd_str);
 
-    let os_str = OsStr::new(cmd_str);
-    let wide_chars: Vec<u16> = os_str.encode_wide().collect();
+    let wide_chars: Vec<u16> = OsStr::new(cmd_str).encode_wide().collect();
 
     let byte_size = wide_chars.len() * 2;
     let cmdline_ptr = boot::allocate_pool(MemoryType::LOADER_DATA, byte_size)
-        .map_err(|_| anyhow!("memory allocation failed"))?
+        .context("Failed to allocate pool for cmdline")?
         .as_ptr() as *mut u16;
 
     unsafe {
@@ -47,7 +46,7 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
     }
 
     let mut loaded_image = boot::open_protocol_exclusive::<LoadedImage>(kernel_handle)
-        .map_err(|_| anyhow!("failed to open protocol"))?;
+        .context("failed to open LoadedImage protocol")?;
 
     unsafe {
         loaded_image.set_load_options(cmdline_ptr as *const u8, byte_size as u32);
@@ -57,19 +56,7 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub fn start(kernel_handle: Handle) -> Status {
+pub fn start(kernel_handle: Handle) -> Result<()> {
     log_info!("Starting kernel...");
-    let result = boot::start_image(kernel_handle);
-
-    // We should never get here - kernel doesn't return
-    match result {
-        Ok(_) => {
-            log_warn!("Kernel returned unexpectedly with success");
-            Status::SUCCESS
-        }
-        Err(e) => {
-            log_error!("Kernel returned with error: {:?}", e);
-            e.status()
-        }
-    }
+    boot::start_image(kernel_handle).context("Failed to start kernel image")
 }
