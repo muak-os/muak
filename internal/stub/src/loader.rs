@@ -1,4 +1,6 @@
 use anyhow::{Result, anyhow};
+use std::ffi::OsStr;
+use std::os::uefi::ffi::OsStrExt;
 use uefi::boot::{self, LoadImageSource, MemoryType};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::{Handle, Status};
@@ -22,7 +24,7 @@ pub fn load_kernel(image_handle: Handle, kernel_bytes: &[u8]) -> Result<Handle> 
 }
 
 pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
-    let cmd_str = core::str::from_utf8(cmdline)
+    let cmd_str = std::str::from_utf8(cmdline)
         .unwrap_or("")
         .trim_matches(char::from(0));
 
@@ -32,20 +34,16 @@ pub fn set_cmdline(kernel_handle: Handle, cmdline: &[u8]) -> Result<()> {
 
     log_info!("Setting cmdline: {}", cmd_str);
 
-    // Convert to UCS-2
-    let char_count = cmd_str.chars().count() + 1; // +1 for null terminator
-    let byte_size = char_count * 2;
+    let os_str = OsStr::new(cmd_str);
+    let wide_chars: Vec<u16> = os_str.encode_wide().collect();
 
+    let byte_size = wide_chars.len() * 2;
     let cmdline_ptr = boot::allocate_pool(MemoryType::LOADER_DATA, byte_size)
         .map_err(|_| anyhow!("memory allocation failed"))?
         .as_ptr() as *mut u16;
 
-    // Copy characters as UCS-2
     unsafe {
-        for (i, ch) in cmd_str.chars().enumerate() {
-            *cmdline_ptr.add(i) = ch as u16;
-        }
-        *cmdline_ptr.add(char_count - 1) = 0; // Null terminator
+        std::ptr::copy_nonoverlapping(wide_chars.as_ptr(), cmdline_ptr, wide_chars.len());
     }
 
     let mut loaded_image = boot::open_protocol_exclusive::<LoadedImage>(kernel_handle)
