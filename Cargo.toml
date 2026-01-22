@@ -22,62 +22,66 @@ edition = "2024"
 version = "0.1.1-beta"
 
 [workspace.dependencies]
-# Async runtime
+# Asynchronous
 tokio = { version = "1.49", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Compression
+cpio = "0.4"
+flate2 = "1.1"
+tar = "0.4"
+zstd = "0.13"
+
+# Cryptography
+sha2 = "0.10"
+
+# Encoding
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+prost = "0.14"
+toml = "0.9"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Filesystem
+gptman = "2.0"
+fatfs = "0.3"
+backhand = { version = "0.24", default-features = false, features = ["zstd"] }
+walkdir = "2.5"
+tempfile = "3.24"
 
 # gRPC
 tonic = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-prost = "0.14"
-toml = "0.9"
+# HTTP
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+hyper = { version = "1.8", features = ["http1", "http2", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
 
-# CLI parsing
-clap = { version = "4.5", features = ["derive"] }
+# Networking
+rtnetlink = "0.20"
+netlink-packet-route = "0.28"
+netlink-packet-core = "0.8"
+dhcproto = "0.14"
+tower = "0.5"
 
 # System/platform APIs
 rustix = { version = "1.1", features = ["fs", "mount", "linux_latest"] }
 uefi = { version = "0.36", default-features = false }
 libc = "0.2"
 
-# Networking
-rtnetlink = "0.20"
-netlink-packet-route = "0.28"
-netlink-packet-core = "0.8"
-futures-util = "0.3"
-dhcproto = "0.14"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-tower = "0.5"
-hyper = { version = "1.8", features = ["http1", "http2", "server", "client"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-
 # Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
-sha2 = "0.10"
 uuid = { version = "1.19", features = ["v4"] }
-
-# Filesystem
-gptman = "2.0"
-fatfs = "0.3"
-backhand = { version = "0.24", default-features = false, features = ["zstd"] }
-cpio = "0.4"
-walkdir = "2.5"
-tempfile = "3.24"
-
-# Compression
-flate2 = "1.1"
-tar = "0.4"
-zstd = "0.13"
-
-# Error handling
-anyhow = "1.0"
-thiserror = "2.0"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

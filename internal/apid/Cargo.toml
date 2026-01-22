@@ -4,16 +4,16 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# Core async runtime
+# Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
 
-# HTTP/2 proxy
+# Error handling
+anyhow = { workspace = true }
+
+# HTTP
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 http-body-util = { workspace = true }
-
-# Utilities
-anyhow = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }

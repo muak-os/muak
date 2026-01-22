@@ -9,11 +9,11 @@ path = "src/main.rs"
 required-features = ["uefi"]
 
 [dependencies]
-# System/platform APIs
-uefi = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
+
+# System/platform APIs
+uefi = { workspace = true }
 
 # Utilities
 object = { workspace = true }

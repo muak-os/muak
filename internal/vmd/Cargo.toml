@@ -4,35 +4,39 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# Core async runtime
+# Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread", "process"] }
 tokio-stream = { workspace = true }
 
-# System/platform APIs
-rustix = { workspace = true, features = ["process"] }
-libc = { workspace = true }
-
-# RPC and serialization
-tonic = { workspace = true }
-prost = { workspace = true }
-tonic-prost = { workspace = true }
-
-# Serialization
+# Encoding
 serde = { workspace = true }
 serde_json = { workspace = true }
+prost = { workspace = true }
 
-# Utilities
+# Error handling
 anyhow = { workspace = true }
-uuid = { workspace = true }
 
-# Unix socket support for networkd client
-tower = { workspace = true }
+# gRPC
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+
+# HTTP
 hyper-util = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }
 notify = { path = "../shared/notify" }
 sysconfig = { path = "../shared/sysconfig" }
+
+# Networking
+tower = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["process"] }
+libc = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

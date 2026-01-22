@@ -4,15 +4,15 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# System/platform APIs
-rustix = { workspace = true, features = ["process"] }
-
 # Error handling
 anyhow = { workspace = true }
 
 # Internal
 kmod = { path = "../shared/kmod" }
 kmsg = { path = "../shared/kmsg" }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["process"] }
 
 [lints]
 workspace = true

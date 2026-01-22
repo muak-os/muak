@@ -4,38 +4,36 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# Core async runtime
+# Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "process"] }
 tokio-stream = { workspace = true }
+futures-util = { workspace = true }
 
-# System/platform APIs
-rustix = { workspace = true, features = ["process", "system", "net", "mount", "fs"] }
-libc = { workspace = true }
-
-# RPC and serialization
-tonic = { workspace = true }
-prost = { workspace = true }
-tonic-prost = { workspace = true }
-
-# Serialization
+# Encoding
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# Disk utilities
-gptman = { workspace = true }
-fatfs = { workspace = true }
-
-# Utilities
-futures-util = { workspace = true }
+prost = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
+
+# Filesystem
+gptman = { workspace = true }
+fatfs = { workspace = true }
+
+# gRPC
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }
 yuki = { path = "../yuki" }
 imager = { path = "../imager" }
 sysconfig = { path = "../shared/sysconfig" }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["process", "system", "net", "mount", "fs"] }
+libc = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

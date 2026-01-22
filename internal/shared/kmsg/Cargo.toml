@@ -4,11 +4,11 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# System/platform APIs
-rustix = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true }
 
 [features]
 default = []

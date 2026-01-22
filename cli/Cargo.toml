@@ -5,22 +5,22 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# Async runtime
+# Asynchronous
 tokio = { workspace = true, features = ["macros", "io-util", "fs"] }
 tokio-stream = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Encoding
+prost = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
 
 # gRPC
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
-
-# Serialization
-prost = { workspace = true }
-
-# CLI parsing
-clap = { workspace = true }
-
-# Error handling
-anyhow = { workspace = true }
 
 # Internal
 sysconfig = { path = "../internal/shared/sysconfig" }

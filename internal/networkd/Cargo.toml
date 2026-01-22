@@ -4,40 +4,44 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# Core async runtime
+# Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
-
-# System/platform APIs
-rustix = { workspace = true, features = ["net", "event", "time"] }
-libc = { workspace = true }
-
-# RPC and serialization
-tonic = { workspace = true }
-prost = { workspace = true }
-tonic-prost = { workspace = true }
-serde = { workspace = true }
-
-# Networking
-rtnetlink = { workspace = true }
-netlink-packet-route = { workspace = true }
-netlink-packet-core = { workspace = true }
 futures-util = { workspace = true }
-dhcproto = { workspace = true }
-reqwest = { workspace = true }
 
-# Utilities
-anyhow = { workspace = true }
+# Compression
 sha2 = { workspace = true }
 
-# UNIX socket support
-tower = { workspace = true }
+# Encoding
+serde = { workspace = true }
+prost = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# gRPC
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+
+# HTTP
+reqwest = { workspace = true }
 hyper-util = { workspace = true }
 
 # Internal
 kmsg = { path = "../shared/kmsg" }
 notify = { path = "../shared/notify" }
 sysconfig = { path = "../shared/sysconfig" }
+
+# Networking
+rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
+netlink-packet-core = { workspace = true }
+dhcproto = { workspace = true }
+tower = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["net", "event", "time"] }
+libc = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

@@ -4,9 +4,6 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# System/platform APIs
-rustix = { workspace = true, features = ["net", "system"] }
-
 # Compression
 zstd = { workspace = true }
 
@@ -17,6 +14,9 @@ anyhow = { workspace = true }
 kmod = { path = "../shared/kmod" }
 kmsg = { path = "../shared/kmsg" }
 notify = { path = "../shared/notify" }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["net", "system"] }
 
 [lints]
 workspace = true

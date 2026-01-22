@@ -4,14 +4,14 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# System/platform APIs
-rustix = { workspace = true, features = ["system"] }
-
 # Compression
 zstd = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["system"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

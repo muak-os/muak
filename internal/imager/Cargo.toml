@@ -5,29 +5,29 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# CLI parsing
+# CLI
 clap = { workspace = true }
 
-# HTTP client
-reqwest = { workspace = true, features = ["blocking", "json"] }
-
-# Serialization
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-# Filesystem utilities
-backhand = { workspace = true }
-cpio = { workspace = true }
-tempfile = { workspace = true }
-walkdir = { workspace = true }
-
 # Compression
+cpio = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
 
+# Encoding
+serde = { workspace = true }
+serde_json = { workspace = true }
+
 # Error handling
 thiserror = { workspace = true }
+
+# Filesystem
+backhand = { workspace = true }
+walkdir = { workspace = true }
+tempfile = { workspace = true }
+
+# HTTP
+reqwest = { workspace = true, features = ["blocking", "json"] }
 
 [lints]
 workspace = true

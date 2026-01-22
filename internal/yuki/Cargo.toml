@@ -5,14 +5,14 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-# CLI parsing
+# CLI
 clap = { workspace = true }
-
-# Utilities
-object = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
+
+# Utilities
+object = { workspace = true }
 
 [lints]
 workspace = true
