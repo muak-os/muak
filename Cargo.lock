@@ -1211,6 +1211,7 @@ dependencies = [
 name = "kmsg"
 version = "0.1.1-beta"
 dependencies = [
+ "rustix",
  "thiserror 2.0.17",
 ]
 

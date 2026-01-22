@@ -1,5 +1,6 @@
-use std::fs::File;
-use std::fs::OpenOptions;
+use rustix::fd::AsFd;
+use rustix::fs::{Mode, OFlags, open};
+use rustix::io::write;
 use std::io::Write;
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -20,11 +21,6 @@ pub enum Level {
 }
 
 static DEFAULT_COMPONENT: OnceLock<String> = OnceLock::new();
-static KMSG_FILE: OnceLock<Option<File>> = OnceLock::new();
-
-fn get_kmsg() -> &'static Option<File> {
-    KMSG_FILE.get_or_init(|| OpenOptions::new().write(true).open("/dev/kmsg").ok())
-}
 
 fn write_to_kmsg_or_stderr(data: &[u8]) {
     #[cfg(debug_assertions)]
@@ -45,8 +41,6 @@ fn write_to_kmsg_or_stderr(data: &[u8]) {
         const WARNING: &[u8] = b" [TRUNCATED]\n";
         let available = MAX_KMSG_SIZE.saturating_sub(WARNING.len());
 
-        // Note: This creates a temporary Vec, but only in the exceptional case
-        // where a message is too large (which should be rare).
         let mut buf = Vec::with_capacity(MAX_KMSG_SIZE);
         buf.extend_from_slice(&data[..available]);
         buf.extend_from_slice(WARNING);
@@ -57,12 +51,10 @@ fn write_to_kmsg_or_stderr(data: &[u8]) {
     };
 
     let mut written = false;
-    if let Some(kmsg) = get_kmsg().as_ref() {
-        written = (&*kmsg).write_all(data_to_write).is_ok();
-
-        if !written {
-            written = (&*kmsg).write_all(data_to_write).is_ok();
-        }
+    if let Ok(file) = open("/dev/kmsg", OFlags::WRONLY | OFlags::CLOEXEC, Mode::empty()) {
+        written = write(file.as_fd(), data_to_write)
+            .map(|n| n == data_to_write.len())
+            .unwrap_or(false);
     }
 
     if !written {
