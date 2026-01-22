@@ -13,9 +13,9 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    println!("{}", include_str!("../banner"));
-
     kmsg::init("init")?;
+
+    kmsg::print(include_str!("../banner"));
 
     mount::mount_pseudo()?;
     kmsg::info!("Pseudo filesystems mounted");

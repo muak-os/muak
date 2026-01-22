@@ -68,6 +68,20 @@ pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     }
 }
 
+pub fn print(message: &str) {
+    let formatted = format!("{}\n", message);
+
+    let written = if let Ok(mut kmsg) = OpenOptions::new().write(true).open("/dev/kmsg") {
+        kmsg.write_all(formatted.as_bytes()).is_ok()
+    } else {
+        false
+    };
+
+    if !written {
+        let _ = io::stderr().write_all(formatted.as_bytes());
+    }
+}
+
 /// Log an error message (priority 3).
 ///
 /// # Examples
