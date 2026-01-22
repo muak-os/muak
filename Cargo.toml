@@ -37,7 +37,7 @@ tar = "0.4"
 zstd = "0.13"
 
 # Cryptography
-sha2 = "0.10"
+ring = "0.17"
 
 # Encoding
 serde = { version = "1.0", features = ["derive"] }

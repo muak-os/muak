@@ -10,7 +10,7 @@ tokio-stream = { workspace = true }
 futures-util = { workspace = true }
 
 # Compression
-sha2 = { workspace = true }
+ring = { workspace = true }
 
 # Encoding
 serde = { workspace = true }

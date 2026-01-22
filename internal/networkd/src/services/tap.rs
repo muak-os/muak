@@ -1,10 +1,10 @@
 use crate::netlink::link;
 use crate::services::bridge;
 use anyhow::{Context, Result};
+use ring::digest;
 use rtnetlink::Handle;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Opcode, Setter, ioctl};
-use sha2::{Digest, Sha256};
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IFF_TAP: i16 = 0x0002;
@@ -83,12 +83,10 @@ pub async fn remove_tap_device(handle: &Handle, tap_name: &str) -> Result<()> {
 }
 
 pub fn generate_mac_address(vm_id: &str) -> [u8; 6] {
-    let mut hasher = Sha256::new();
-    hasher.update(vm_id.as_bytes());
-    let result = hasher.finalize();
+    let result = digest::digest(&digest::SHA256, vm_id.as_bytes());
 
     let mut mac = [0u8; 6];
-    mac.copy_from_slice(&result[0..6]);
+    mac.copy_from_slice(&result.as_ref()[0..6]);
 
     // Set the locally administered bit and clear the multicast bit
     // Bit 1 = locally administered, Bit 0 = unicast/multicast
