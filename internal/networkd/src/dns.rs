@@ -10,38 +10,29 @@ pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
         return Ok(());
     }
 
-    kmsg::info!(
-        @ "networkd",
-        "Configuring DNS with {} nameserver(s)",
-        nameservers.len()
-    );
+    kmsg::info!("Configuring DNS with {} nameserver(s)", nameservers.len());
 
     let mut content = String::new();
     for ns in nameservers {
         content.push_str(&format!("nameserver {}\n", ns));
-        kmsg::info!(@ "networkd", "Adding nameserver: {}", ns);
+        kmsg::info!("Adding nameserver: {}", ns);
     }
 
     let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
     fs::write(&tmp_path, content)?;
     fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
-    kmsg::info!(
-        @ "networkd",
-        "DNS configuration written to {}",
-        RESOLV_CONF_PATH
-    );
+    kmsg::info!("DNS configuration written to {}", RESOLV_CONF_PATH);
 
     Ok(())
 }
 
 pub fn configure_dns_v6(nameservers: &[Ipv6Addr]) -> Result<()> {
     if nameservers.is_empty() {
-        kmsg::info!(@ "networkd", "No IPv6 DNS servers to configure");
+        kmsg::info!("No IPv6 DNS servers to configure");
         return Ok(());
     }
 
     kmsg::info!(
-        @ "networkd",
         "Configuring IPv6 DNS with {} nameserver(s)",
         nameservers.len()
     );
@@ -53,18 +44,14 @@ pub fn configure_dns_v6(nameservers: &[Ipv6Addr]) -> Result<()> {
         let entry = format!("nameserver {}\n", ns);
         if !content.contains(&entry) {
             content.push_str(&entry);
-            kmsg::info!(@ "networkd", "Adding IPv6 nameserver: {}", ns);
+            kmsg::info!("Adding IPv6 nameserver: {}", ns);
         }
     }
 
     let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
     fs::write(&tmp_path, &content)?;
     fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
-    kmsg::info!(
-        @ "networkd",
-        "IPv6 DNS configuration written to {}",
-        RESOLV_CONF_PATH
-    );
+    kmsg::info!("IPv6 DNS configuration written to {}", RESOLV_CONF_PATH);
 
     Ok(())
 }

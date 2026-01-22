@@ -22,7 +22,7 @@ impl NetworkActor {
     }
 
     async fn on_link_up(&mut self, name: String, index: u32) {
-        kmsg::info!(@ "networkd", "Event: Link up {} (index {})", name, index);
+        kmsg::info!("Event: Link up {} (index {})", name, index);
 
         let Some(iface) = self.get_interface_mut(&name) else {
             return;
@@ -47,7 +47,6 @@ impl NetworkActor {
 
     async fn on_link_added(&mut self, name: String, index: u32, mac: [u8; 6]) {
         kmsg::info!(
-            @ "networkd",
             "Event: Link added {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
             name,
             index,
@@ -84,7 +83,7 @@ impl NetworkActor {
     }
 
     async fn on_link_deleted(&mut self, name: String, index: u32) {
-        kmsg::info!(@ "networkd", "Event: Link deleted {} (index {})", name, index);
+        kmsg::info!("Event: Link deleted {} (index {})", name, index);
 
         if self.remove_interface(&name).is_none() {
             return;
@@ -105,14 +104,14 @@ impl NetworkActor {
 
     fn handle_primary_recovery(&mut self, name: &str) {
         if self.state.state == NetworkStateKind::Degraded {
-            kmsg::info!(@ "networkd", "Primary interface {} recovered", name);
+            kmsg::info!("Primary interface {} recovered", name);
             self.state.state = NetworkStateKind::Operational;
             self.publish_state();
         }
     }
 
     fn handle_primary_failure(&mut self, name: &str) {
-        kmsg::warn!(@ "networkd", "Primary interface {} failed", name);
+        kmsg::warn!("Primary interface {} failed", name);
         self.state.state = NetworkStateKind::Degraded;
         self.publish_state();
 
@@ -127,26 +126,26 @@ impl NetworkActor {
     }
 
     fn handle_primary_removed(&mut self, name: &str) {
-        kmsg::info!(@ "networkd", "Primary interface {} removed", name);
+        kmsg::info!("Primary interface {} removed", name);
 
         if let Some(new_primary) = self.state.backups.first().cloned() {
-            kmsg::info!(@ "networkd", "Promoting {} to primary", new_primary);
+            kmsg::info!("Promoting {} to primary", new_primary);
             self.state.primary = Some(new_primary.clone());
             self.state.backups.retain(|n| n != &new_primary);
         } else {
-            kmsg::warn!(@ "networkd", "No backup interfaces available");
+            kmsg::warn!("No backup interfaces available");
             self.state.primary = None;
             self.state.state = NetworkStateKind::Degraded;
         }
     }
 
     fn assign_as_primary(&mut self, name: String) {
-        kmsg::info!(@ "networkd", "Assigning {} as primary interface", name);
+        kmsg::info!("Assigning {} as primary interface", name);
         self.state.primary = Some(name);
     }
 
     fn add_to_backups(&mut self, name: String) {
-        kmsg::info!(@ "networkd", "Adding {} to backup interfaces", name);
+        kmsg::info!("Adding {} to backup interfaces", name);
         self.state.backups.push(name);
     }
 

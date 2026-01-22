@@ -54,12 +54,7 @@ pub async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
     let index = link.header.index;
 
     if !link.header.flags.contains(LinkFlags::Up) {
-        kmsg::info!(
-            @ "networkd",
-            "Bringing up interface {} (index {})",
-            name,
-            index
-        );
+        kmsg::info!("Bringing up interface {} (index {})", name, index);
         bring_link_up(handle, index).await?;
     }
 
@@ -122,7 +117,6 @@ pub async fn probe_interfaces_for_carrier(
     let names: Vec<&str> = interfaces.iter().map(|(_, name)| name.as_str()).collect();
 
     kmsg::info!(
-        @ "networkd",
         "Probing {} interfaces for carrier (timeout: {:?}): {:?}",
         interfaces.len(),
         timeout,
@@ -149,12 +143,7 @@ pub async fn probe_interfaces_for_carrier(
         if any_carrier {
             for (idx, name) in interfaces {
                 if states.get(idx) == Some(&true) {
-                    kmsg::info!(
-                        @ "networkd",
-                        "Carrier detected on {} after {:?}",
-                        name,
-                        start.elapsed()
-                    );
+                    kmsg::info!("Carrier detected on {} after {:?}", name, start.elapsed());
                 }
             }
             return indices
@@ -164,11 +153,7 @@ pub async fn probe_interfaces_for_carrier(
         }
 
         if start.elapsed() >= timeout {
-            kmsg::warn!(
-                @ "networkd",
-                "No carrier detected on any interface after {:?}",
-                timeout
-            );
+            kmsg::warn!("No carrier detected on any interface after {:?}", timeout);
             return indices.iter().map(|idx| (*idx, false)).collect();
         }
 

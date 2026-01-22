@@ -22,7 +22,7 @@ struct IfReq {
 }
 
 pub async fn create_tap_device(tap_name: &str) -> Result<()> {
-    kmsg::info!(@ "networkd", "Creating TAP device: {}", tap_name);
+    kmsg::info!("Creating TAP device: {}", tap_name);
 
     let file =
         open(TUN_DEVICE, OFlags::RDWR, Mode::empty()).context("Failed to open tun device")?;
@@ -47,7 +47,7 @@ pub async fn create_tap_device(tap_name: &str) -> Result<()> {
     unsafe { ioctl(&file, Setter::<TUNSETPERSIST, i32>::new(1)) }
         .map_err(|e| anyhow::anyhow!("failed to make TAP device persistent: {}", e))?;
 
-    kmsg::info!(@ "networkd", "Persistent TAP device {} created", tap_name);
+    kmsg::info!("Persistent TAP device {} created", tap_name);
 
     Ok(())
 }
@@ -70,13 +70,13 @@ pub async fn setup_tap_on_bridge(
 }
 
 pub async fn remove_tap_device(handle: &Handle, tap_name: &str) -> Result<()> {
-    kmsg::info!(@ "networkd", "Deleting TAP device: {}", tap_name);
+    kmsg::info!("Deleting TAP device: {}", tap_name);
 
     if let Ok(index) = link::get_link_index(handle, tap_name).await {
         link::delete_link(handle, index).await?;
-        kmsg::info!(@ "networkd", "TAP device {} deleted", tap_name);
+        kmsg::info!("TAP device {} deleted", tap_name);
     } else {
-        kmsg::info!(@ "networkd", "TAP device {} does not exist", tap_name);
+        kmsg::info!("TAP device {} does not exist", tap_name);
     }
 
     Ok(())

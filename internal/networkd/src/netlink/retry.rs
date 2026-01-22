@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use std::future::Future;
 
 pub async fn wait_for_condition<F, Fut, T>(
@@ -18,7 +18,7 @@ where
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
     }
 
-    anyhow::bail!("{}", timeout_msg)
+    bail!("{}", timeout_msg)
 }
 
 pub async fn retry_operation<F, Fut, T, E>(
@@ -45,8 +45,8 @@ where
     }
 
     if let Some(err) = last_error {
-        anyhow::bail!("{}: {}", timeout_msg, err)
+        bail!("{}: {}", timeout_msg, err)
     } else {
-        anyhow::bail!("{}", timeout_msg)
+        bail!("{}", timeout_msg)
     }
 }

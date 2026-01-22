@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time::timeout;
@@ -44,7 +44,7 @@ pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResu
             r
         }
         Err(_) => {
-            kmsg::warn!(@ "networkd", "Connectivity check timed out");
+            kmsg::warn!("Connectivity check timed out");
             ConnectivityResult {
                 status: ConnectivityStatus::Disconnected,
                 dns_ok: false,
@@ -68,7 +68,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.dns_ok = true;
         }
         Err(e) => {
-            kmsg::warn!(@ "networkd", "DNS failed for {}: {}", target.host, e);
+            kmsg::warn!("DNS failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
             result.last_check = SystemTime::now();
             return result;
@@ -81,7 +81,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
             result.status = ConnectivityStatus::Connected;
         }
         Err(e) => {
-            kmsg::warn!(@ "networkd", "HTTPS check failed for {}: {}", target.host, e);
+            kmsg::warn!("HTTPS check failed for {}: {}", target.host, e);
             result.status = ConnectivityStatus::Disconnected;
         }
     }
@@ -120,6 +120,6 @@ async fn https_check(host: &str, timeout_dur: Duration) -> Result<()> {
     if response.status().is_success() || response.status().is_redirection() {
         Ok(())
     } else {
-        anyhow::bail!("unexpected status: {}", response.status())
+        bail!("unexpected status: {}", response.status())
     }
 }

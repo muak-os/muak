@@ -34,7 +34,8 @@ const SOCKET_PATH: &str = "/run/networkd.sock";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    kmsg::info!(@ "networkd", "Starting networkd");
+    kmsg::init("networkd")?;
+    kmsg::info!("Starting networkd");
 
     sysconfig::init()?;
 
@@ -53,7 +54,7 @@ async fn main() -> Result<()> {
     let listener = UnixListener::bind(SOCKET_PATH)?;
     let stream = UnixListenerStream::new(listener);
 
-    kmsg::info!(@ "networkd", "Listening on {}", SOCKET_PATH);
+    kmsg::info!("Listening on {}", SOCKET_PATH);
 
     notifier.ready(SOCKET_PATH)?;
 
@@ -69,10 +70,10 @@ async fn main() -> Result<()> {
         .serve_with_incoming_shutdown(stream, async {
             tokio::select! {
                 _ = sigterm.recv() => {
-                    kmsg::info!(@ "networkd", "Received SIGTERM, shutting down");
+                    kmsg::info!("Received SIGTERM, shutting down");
                 }
                 _ = sigint.recv() => {
-                    kmsg::info!(@ "networkd", "Received SIGINT, shutting down");
+                    kmsg::info!("Received SIGINT, shutting down");
                 }
             }
         });
@@ -80,14 +81,14 @@ async fn main() -> Result<()> {
     tokio::select! {
         result = server => {
             if let Err(e) = result {
-                kmsg::error!(@ "networkd", "Server error: {}", e);
+                kmsg::error!("Server error: {}", e);
                 return Err(e.into());
             }
         }
     }
 
     notifier.stopping("Graceful shutdown")?;
-    kmsg::info!(@ "networkd", "Shutdown complete");
+    kmsg::info!("Shutdown complete");
 
     Ok(())
 }

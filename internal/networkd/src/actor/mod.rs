@@ -35,19 +35,10 @@ impl NetworkActorHandle {
             attempt += 1;
 
             let Err(e) = self.initialize().await else {
-                kmsg::info!(
-                    @ "networkd",
-                    "Network initialized successfully on attempt {}",
-                    attempt
-                );
+                kmsg::info!("Network initialized successfully on attempt {}", attempt);
                 return Ok(());
             };
-            kmsg::warn!(
-                @ "networkd",
-                "Network initialization failed (attempt {}): {}",
-                attempt,
-                e
-            );
+            kmsg::warn!("Network initialization failed (attempt {}): {}", attempt, e);
 
             let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
             let delay = base_delay
@@ -55,7 +46,7 @@ impl NetworkActorHandle {
                 .unwrap_or(max_delay)
                 .min(max_delay);
 
-            kmsg::info!(@ "networkd", "Retrying in {:?}...", delay);
+            kmsg::info!("Retrying in {:?}...", delay);
             tokio::time::sleep(delay).await;
         }
     }
@@ -123,11 +114,11 @@ async fn start_events_monitor(handle: rtnetlink::Handle) -> Option<mpsc::Receive
     let config = monitor::MonitorConfig::default();
     match monitor::start_monitor(handle, config).await {
         Ok(rx) => {
-            kmsg::info!(@ "networkd", "Network event monitoring enabled");
+            kmsg::info!("Network event monitoring enabled");
             Some(rx)
         }
         Err(e) => {
-            kmsg::warn!(@ "networkd", "Failed to start network monitor: {}", e);
+            kmsg::warn!("Failed to start network monitor: {}", e);
             None
         }
     }
@@ -159,7 +150,7 @@ fn handle_network_actions(
                 }
 
                 else => {
-                    kmsg::info!(@ "networkd", "Network actor shutting down");
+                    kmsg::info!("Network actor shutting down");
                     break;
                 }
             }
