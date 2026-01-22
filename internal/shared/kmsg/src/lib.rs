@@ -1,7 +1,14 @@
+use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, Write};
+use std::io::Write;
 use std::sync::OnceLock;
 use thiserror::Error;
+
+/// Maximum atomic write size for /dev/kmsg guaranteed by the Linux kernel.
+/// This is LOG_LINE_MAX (1024) - PREFIX_MAX (32) = 992 bytes.
+/// Writes larger than this may be split or interleaved by the kernel.
+/// See kernel Documentation: Documentation/ABI/testing/dev-kmsg
+const MAX_KMSG_SIZE: usize = 992;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -13,6 +20,61 @@ pub enum Level {
 }
 
 static DEFAULT_COMPONENT: OnceLock<String> = OnceLock::new();
+static KMSG_FILE: OnceLock<Option<File>> = OnceLock::new();
+
+fn get_kmsg() -> &'static Option<File> {
+    KMSG_FILE.get_or_init(|| OpenOptions::new().write(true).open("/dev/kmsg").ok())
+}
+
+fn write_to_kmsg_or_stderr(data: &[u8]) {
+    #[cfg(debug_assertions)]
+    {
+        if data.len() > MAX_KMSG_SIZE {
+            panic!(
+                "kmsg message exceeds MAX_KMSG_SIZE ({} bytes, got {} bytes). \
+                 Messages larger than {} bytes may be split or interleaved by the kernel. \
+                 Please make the message shorter!",
+                MAX_KMSG_SIZE,
+                data.len(),
+                MAX_KMSG_SIZE
+            );
+        }
+    }
+
+    let data_to_write: &[u8] = if data.len() > MAX_KMSG_SIZE {
+        const WARNING: &[u8] = b" [TRUNCATED]\n";
+        let available = MAX_KMSG_SIZE.saturating_sub(WARNING.len());
+
+        // Note: This creates a temporary Vec, but only in the exceptional case
+        // where a message is too large (which should be rare).
+        let mut buf = Vec::with_capacity(MAX_KMSG_SIZE);
+        buf.extend_from_slice(&data[..available]);
+        buf.extend_from_slice(WARNING);
+
+        Box::leak(buf.into_boxed_slice())
+    } else {
+        data
+    };
+
+    let mut written = false;
+    if let Some(kmsg) = get_kmsg().as_ref() {
+        written = (&*kmsg).write_all(data_to_write).is_ok();
+
+        if !written {
+            written = (&*kmsg).write_all(data_to_write).is_ok();
+        }
+    }
+
+    if !written {
+        let _ = std::io::stderr().write_all(
+            format!(
+                "Failed to write to kmsg (falling back to stderr): {}",
+                String::from_utf8_lossy(data)
+            )
+            .as_bytes(),
+        );
+    }
+}
 
 /// Initialize the logger with a default component name.
 ///
@@ -57,29 +119,12 @@ pub fn write_log(level: Level, component: Option<&str>, message: &str) {
         format!("<{}>[{}] {}\n", level as u8, comp, message)
     };
 
-    let written = if let Ok(mut kmsg) = OpenOptions::new().write(true).open("/dev/kmsg") {
-        kmsg.write_all(formatted.as_bytes()).is_ok()
-    } else {
-        false
-    };
-
-    if !written {
-        let _ = io::stderr().write_all(formatted.as_bytes());
-    }
+    write_to_kmsg_or_stderr(formatted.as_bytes());
 }
 
 pub fn print(message: &str) {
     let formatted = format!("{}\n", message);
-
-    let written = if let Ok(mut kmsg) = OpenOptions::new().write(true).open("/dev/kmsg") {
-        kmsg.write_all(formatted.as_bytes()).is_ok()
-    } else {
-        false
-    };
-
-    if !written {
-        let _ = io::stderr().write_all(formatted.as_bytes());
-    }
+    write_to_kmsg_or_stderr(formatted.as_bytes());
 }
 
 /// Log an error message (priority 3).
