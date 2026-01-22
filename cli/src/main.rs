@@ -282,7 +282,7 @@ async fn handle_update(server: &str, image: Option<String>) -> Result<()> {
         YELLOW, RESET
     );
 
-    let timeout = std::time::Duration::from_secs(60);
+    let timeout = std::time::Duration::from_secs(60 * 5);
     let poll_interval = std::time::Duration::from_secs(2);
     let start = std::time::Instant::now();
 
