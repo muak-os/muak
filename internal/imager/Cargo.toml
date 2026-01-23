@@ -6,7 +6,7 @@ version.workspace = true
 
 [dependencies]
 # CLI
-clap = { workspace = true }
+clap = { workspace = true, optional = true }
 
 # Compression
 cpio = { workspace = true }
@@ -19,7 +19,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true }
+anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Filesystem
@@ -29,6 +29,10 @@ tempfile = { workspace = true }
 
 # HTTP
 reqwest = { workspace = true, features = ["blocking", "json"] }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
 
 [lints]
 workspace = true

@@ -28,7 +28,7 @@ tonic-prost = { workspace = true }
 # Internal
 kmsg = { path = "../shared/kmsg" }
 yuki = { path = "../yuki", default-features = false }
-imager = { path = "../imager" }
+imager = { path = "../imager", default-features = false }
 sysconfig = { path = "../shared/sysconfig" }
 
 # System/platform APIs

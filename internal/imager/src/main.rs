@@ -1,5 +1,6 @@
 //! CLI tool to manage OCI images and initramfs generation.
 
+#[cfg(feature = "cli")]
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
