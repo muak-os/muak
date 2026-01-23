@@ -1,5 +1,6 @@
 //! CLI tool for creating Unified Kernel Images (UKI) for Linux on UEFI systems.
 
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use yuki::build;
@@ -24,7 +25,7 @@ struct Args {
     output: PathBuf,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     let output_len = build(
@@ -34,10 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &args.cmdline,
         &args.output,
     )
-    .map_err(|e| {
-        eprintln!("Error: {}", e);
-        e
-    })?;
+    .context("Failed to create UKI")?;
 
     println!(
         "Successfully created UKI at {} ({} bytes)",

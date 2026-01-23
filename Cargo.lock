@@ -3019,6 +3019,7 @@ dependencies = [
 name = "yuki"
 version = "0.1.1-beta"
 dependencies = [
+ "anyhow",
  "clap",
  "object",
  "thiserror 2.0.17",
