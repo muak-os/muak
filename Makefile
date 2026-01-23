@@ -153,8 +153,6 @@ installer: $(ARTIFACTS) ## Build installer with local binaries
 		--build-context pkg-apid=$(RELEASE_DIR) \
 		--build-context pkg-vmd=$(RELEASE_DIR) \
 		--build-context pkg-init=$(RELEASE_DIR) \
-		--build-context pkg-yuki=$(RELEASE_DIR) \
-		--build-context pkg-imager=$(RELEASE_DIR) \
 		--build-context pkg-stub=$(UEFI_RELEASE_DIR) \
 		--build-context pkg-kernel=$(ARTIFACTS) \
 		--output type=local,dest=$(ARTIFACTS) \
@@ -174,8 +172,6 @@ oci-installer: ## Build installer OCI image from registry packages
 		--build-arg PKG_APID=$(REGISTRY)/pkgs/apid:$(TAG) \
 		--build-arg PKG_VMD=$(REGISTRY)/pkgs/vmd:$(TAG) \
 		--build-arg PKG_INIT=$(REGISTRY)/pkgs/init:$(TAG) \
-		--build-arg PKG_IMAGER=$(REGISTRY)/pkgs/imager:$(TAG) \
-		--build-arg PKG_YUKI=$(REGISTRY)/pkgs/yuki:$(TAG) \
 		--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
 		--tag $(REGISTRY)/installer:$(TAG) \
 		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/installer:latest) \

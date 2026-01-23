@@ -13,8 +13,6 @@ ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
 ARG PKG_VMD=ghcr.io/sawangg/pkgs/vmd:latest
 ARG PKG_INIT=ghcr.io/sawangg/pkgs/init:latest
-ARG PKG_IMAGER=ghcr.io/sawangg/pkgs/imager:latest
-ARG PKG_YUKI=ghcr.io/sawangg/pkgs/yuki:latest
 ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 
 # ============================================================
@@ -26,8 +24,6 @@ FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_INIT} AS pkg-init
-FROM ${PKG_IMAGER} AS pkg-imager
-FROM ${PKG_YUKI} AS pkg-yuki
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 
@@ -80,8 +76,6 @@ COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
-COPY --link --from=pkg-yuki /yuki /rootfs/sbin/yuki
-COPY --link --from=pkg-imager /imager /rootfs/sbin/imager
 
 COPY --link --from=tools /tools/btrfs /rootfs/sbin/btrfs
 COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
