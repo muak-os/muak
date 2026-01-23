@@ -15,13 +15,13 @@ pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     let mut content = String::new();
     for ns in nameservers {
         content.push_str(&format!("nameserver {}\n", ns));
-        kmsg::info!("Adding nameserver: {}", ns);
+        kmsg::debug!("Adding nameserver: {}", ns);
     }
 
     let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
     fs::write(&tmp_path, content)?;
     fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
-    kmsg::info!("DNS configuration written to {}", RESOLV_CONF_PATH);
+    kmsg::debug!("DNS configuration written to {}", RESOLV_CONF_PATH);
 
     Ok(())
 }
@@ -44,14 +44,14 @@ pub fn configure_dns_v6(nameservers: &[Ipv6Addr]) -> Result<()> {
         let entry = format!("nameserver {}\n", ns);
         if !content.contains(&entry) {
             content.push_str(&entry);
-            kmsg::info!("Adding IPv6 nameserver: {}", ns);
+            kmsg::debug!("Adding IPv6 nameserver: {}", ns);
         }
     }
 
     let tmp_path = format!("{}.tmp", RESOLV_CONF_PATH);
     fs::write(&tmp_path, &content)?;
     fs::rename(&tmp_path, RESOLV_CONF_PATH)?;
-    kmsg::info!("IPv6 DNS configuration written to {}", RESOLV_CONF_PATH);
+    kmsg::debug!("IPv6 DNS configuration written to {}", RESOLV_CONF_PATH);
 
     Ok(())
 }
