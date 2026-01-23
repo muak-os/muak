@@ -6,14 +6,18 @@ version.workspace = true
 
 [dependencies]
 # CLI
-clap = { workspace = true }
+clap = { workspace = true, optional = true }
 
 # Error handling
-anyhow = { workspace = true }
+anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Utilities
 object = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
 
 [lints]
 workspace = true

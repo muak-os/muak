@@ -1,5 +1,6 @@
 //! CLI tool for creating Unified Kernel Images (UKI) for Linux on UEFI systems.
 
+#[cfg(feature = "cli")]
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
