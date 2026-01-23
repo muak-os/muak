@@ -1,9 +1,11 @@
 //! CLI tool to manage OCI images and initramfs generation.
 
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
+#[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     #[command(subcommand)]
@@ -33,7 +35,7 @@ enum Command {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
@@ -42,10 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             extension,
             output,
         } => {
-            imager::build_initramfs(&base, &extension, &output).map_err(|e| {
-                eprintln!("Error: {}", e);
-                e
-            })?;
+            imager::build_initramfs(&base, &extension, &output)
+                .context("Failed to build initramfs")?;
             println!(
                 "Successfully created initramfs at {} ({} bytes)",
                 output.display(),
@@ -53,10 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         Command::Pull { image, output } => {
-            imager::pull_image(&image, &output).map_err(|e| {
-                eprintln!("Error: {}", e);
-                e
-            })?;
+            imager::pull_image(&image, &output).context("Failed to pull image")?;
             println!("Successfully extracted image to {}", output.display());
         }
     }
