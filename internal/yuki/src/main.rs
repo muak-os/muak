@@ -9,38 +9,35 @@ use yuki::build;
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, help = "Path to EFI stub file")]
     stub: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Path to Linux kernel image")]
     linux: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Path to initrd image")]
     initrd: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Path to text file containing kernel command line")]
     cmdline: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Output path for the generated UKI")]
     output: PathBuf,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let output_len = build(
-        &args.stub,
-        &args.linux,
-        &args.initrd,
-        &args.cmdline,
-        &args.output,
-    )
-    .context("Failed to create UKI")?;
+    let buffer = build(&args.stub, &args.linux, &args.initrd, &args.cmdline)
+        .context("Failed to create UKI")?;
+
+    std::fs::write(&args.output, &buffer)
+        .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
 
     println!(
         "Successfully created UKI at {} ({} bytes)",
         args.output.display(),
-        output_len
+        buffer.len()
     );
 
     Ok(())

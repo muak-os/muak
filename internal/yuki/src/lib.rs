@@ -22,12 +22,6 @@ pub enum YukiError {
         source: std::io::Error,
     },
 
-    #[error("Failed to write {file}: {source}")]
-    WriteError {
-        file: String,
-        source: std::io::Error,
-    },
-
     #[error("Failed to parse PE file: {0}")]
     PeParseError(String),
 
@@ -49,26 +43,27 @@ pub enum YukiError {
 /// * `linux_path` - Path to the Linux kernel image
 /// * `initrd_path` - Path to the initrd image
 /// * `cmdline_path` - Path to the kernel command line file
-/// * `output_path` - Path where the UKI will be written
+///
+/// # Returns
+///
+/// The UKI buffer as a `Vec<u8>`.
 ///
 /// # Errors
 ///
 /// Returns a `YukiError` if:
 /// - Any input file cannot be read
 /// - The stub file is not a valid PE file
-/// - The output file cannot be written
 /// - The PE structure is invalid
 ///
 /// # Example
 ///
 /// ```no_run
 /// # use std::path::Path;
-/// yuki::build(
+/// let buffer = yuki::build(
 ///     Path::new("stub.efi"),
 ///     Path::new("kernel"),
 ///     Path::new("initrd.img"),
-///     Path::new("cmdline.txt"),
-///     Path::new("uki.efi")
+///     Path::new("cmdline.txt")
 /// )?;
 /// # Ok::<(), yuki::YukiError>(())
 /// ```
@@ -77,8 +72,7 @@ pub fn build(
     linux_path: &Path,
     initrd_path: &Path,
     cmdline_path: &Path,
-    output_path: &Path,
-) -> Result<usize, YukiError> {
+) -> Result<Vec<u8>, YukiError> {
     let stub = fs::read(stub_path).map_err(|e| YukiError::ReadError {
         file: stub_path.display().to_string(),
         source: e,
@@ -135,10 +129,5 @@ pub fn build(
 
     pe::update_image_size(&mut stub_data, &metadata, section_info.max_virtual_end);
 
-    fs::write(output_path, &stub_data).map_err(|e| YukiError::WriteError {
-        file: output_path.display().to_string(),
-        source: e,
-    })?;
-
-    Ok(stub_data.len())
+    Ok(stub_data)
 }

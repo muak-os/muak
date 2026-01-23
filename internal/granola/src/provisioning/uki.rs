@@ -47,8 +47,11 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
 
 pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
-    yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, output)
+
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
         .context("Failed to build UKI")?;
+
+    std::fs::write(output, &buffer).context("Failed to write the UKI")?;
 
     kmsg::info!(
         @ "provisioning",
@@ -62,14 +65,10 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    yuki::build(
-        &uki.stub,
-        &uki.kernel,
-        &uki.initramfs,
-        &uki.cmdline,
-        &temp_output,
-    )
-    .context("Failed to build UKI")?;
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
+        .context("Failed to build UKI")?;
+
+    std::fs::write(&temp_output, &buffer).context("Failed to write the UKI")?;
 
     std::fs::rename(&temp_output, output).with_context(|| {
         format!(
