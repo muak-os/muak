@@ -91,7 +91,7 @@ local-%: $(ARTIFACTS) ## Build package as local OCI layout (e.g. make local-gran
 	$(call require-pkg,$*)
 	@printf "$(CYAN)Building local:$(RESET) $* -> $(ARTIFACTS)/oci/$*\n"
 	@mkdir -p $(ARTIFACTS)/oci
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
 		--tag localhost/muak-$*:$(TAG) \
 		--load \
 		--file pkgs/$*/Dockerfile \
@@ -103,7 +103,7 @@ oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
 	$(call require-pkg,$*)
 	$(call require-docker-for-push)
 	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
 		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
 		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/pkgs/$*:latest) \
 		$(PUSH_ARG) \
@@ -115,7 +115,7 @@ oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
 kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 	$(call require-pkg,kernel)
 	@printf "$(CYAN)Building kernel locally$(RESET)\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) $(PULL_ARG) \
 		--output type=local,dest=$(ARTIFACTS) \
 		--file pkgs/kernel/Dockerfile \
 		.
@@ -124,7 +124,7 @@ kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 oci-kernel: ## Build kernel OCI image (signed in CI)
 	$(call require-docker-for-push)
 	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) $(PULL_ARG) \
 		--tag $(REGISTRY)/kernel:$(TAG) \
 		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/kernel:latest) \
 		$(PUSH_ARG) \
@@ -146,7 +146,7 @@ kspp: ## Check kernel config against KSPP security hardening recommendations
 installer: $(ARTIFACTS) ## Build installer with local binaries
 	$(call require,$(ARTIFACTS)/bzImage,make kernel)
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
 		--build-context pkg-granola=$(RELEASE_DIR) \
 		--build-context pkg-modd=$(RELEASE_DIR) \
 		--build-context pkg-networkd=$(RELEASE_DIR) \
@@ -164,7 +164,7 @@ installer: $(ARTIFACTS) ## Build installer with local binaries
 oci-installer: ## Build installer OCI image from registry packages
 	$(call require-docker-for-push)
 	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) \
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
 		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
 		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
 		--build-arg PKG_MODD=$(REGISTRY)/pkgs/modd:$(TAG) \
