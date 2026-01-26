@@ -8,8 +8,8 @@ pub mod vm;
 
 use anyhow::Result;
 
-use crate::{Cli, Commands, ConfigAction};
 use crate::client::{ProcessServiceClient, ProvisionServiceClient, VmServiceClient, connect};
+use crate::{Cli, Commands, ConfigAction};
 
 /// Routes CLI commands to their handlers.
 pub async fn run(cli: Cli) -> Result<()> {

@@ -27,7 +27,9 @@ pub async fn handle(
 
     let hypervisor = parse_hypervisor(&vmm);
     let disks = build_disk_configs(&disk);
-    let config = build_vm_config(&name, cpus, memory, &cmdline, &initrd, disks, hypervisor, disk_size);
+    let config = build_vm_config(
+        &name, cpus, memory, &cmdline, &initrd, disks, hypervisor, disk_size,
+    );
 
     let vm_id = create_vm(client, config, &name).await?;
 
@@ -51,7 +53,10 @@ fn validate_kernel(kernel: Option<String>) -> Result<String> {
     })?;
 
     if !std::path::Path::new(&kernel).exists() {
-        eprintln!("{}", format!("Error: kernel file not found: {kernel}").red());
+        eprintln!(
+            "{}",
+            format!("Error: kernel file not found: {kernel}").red()
+        );
         std::process::exit(1);
     }
 
@@ -71,7 +76,10 @@ fn validate_initrd(initrd: &Option<String>) -> Result<()> {
 fn validate_disks(disks: &[String]) -> Result<()> {
     for disk_path in disks {
         if !std::path::Path::new(disk_path).exists() {
-            eprintln!("{}", format!("Error: disk file not found: {disk_path}").red());
+            eprintln!(
+                "{}",
+                format!("Error: disk file not found: {disk_path}").red()
+            );
             std::process::exit(1);
         }
     }
@@ -244,7 +252,10 @@ async fn start_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) -> Result<
         println!("{}", format!("Started VM: {vm_id}").green());
         Ok(())
     } else {
-        eprintln!("{}", format!("Error starting VM: {}", start_resp.error).red());
+        eprintln!(
+            "{}",
+            format!("Error starting VM: {}", start_resp.error).red()
+        );
         Err(anyhow::anyhow!("Failed to start VM: {}", start_resp.error))
     }
 }
@@ -254,6 +265,9 @@ async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) {
         vm_id: vm_id.to_string(),
     });
     if let Err(e) = client.delete_vm(delete_request).await {
-        eprintln!("{}", format!("Warning: Failed to clean up VM: {e}").yellow());
+        eprintln!(
+            "{}",
+            format!("Warning: Failed to clean up VM: {e}").yellow()
+        );
     }
 }
