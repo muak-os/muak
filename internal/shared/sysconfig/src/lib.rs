@@ -69,7 +69,6 @@ impl HostConfig {
 
 include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemConfig {

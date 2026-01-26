@@ -22,6 +22,9 @@ struct Args {
     #[arg(short, long, help = "Path to text file containing kernel command line")]
     cmdline: PathBuf,
 
+    #[arg(short, long, help = "Path to device tree blob (optional, for ARM64)")]
+    dtb: Option<PathBuf>,
+
     #[arg(short, long, help = "Output path for the generated UKI")]
     output: PathBuf,
 }
@@ -29,8 +32,14 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let buffer = build(&args.stub, &args.linux, &args.initrd, &args.cmdline)
-        .context("Failed to create UKI")?;
+    let buffer = build(
+        &args.stub,
+        &args.linux,
+        &args.initrd,
+        &args.cmdline,
+        args.dtb.as_deref(),
+    )
+    .context("Failed to create UKI")?;
 
     std::fs::write(&args.output, &buffer)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;

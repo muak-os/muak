@@ -7,6 +7,7 @@ pub struct UkiSections<'a> {
     pub kernel: Option<&'a [u8]>,
     pub initrd: Option<&'a [u8]>,
     pub cmdline: Option<&'a [u8]>,
+    pub dtb: Option<&'a [u8]>,
 }
 
 impl<'a> UkiSections<'a> {
@@ -22,6 +23,7 @@ impl<'a> UkiSections<'a> {
             kernel: None,
             initrd: None,
             cmdline: None,
+            dtb: None,
         };
 
         for section in sections.iter() {
@@ -38,6 +40,7 @@ impl<'a> UkiSections<'a> {
                 ".linux" => result.kernel = Some(section_data),
                 ".initrd" => result.initrd = Some(section_data),
                 ".cmdline" => result.cmdline = Some(section_data),
+                ".dtb" => result.dtb = Some(section_data),
                 _ => {}
             }
         }

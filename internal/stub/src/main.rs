@@ -1,5 +1,6 @@
 #![feature(uefi_std)]
 
+mod dtb;
 mod loader;
 mod loadfile2;
 mod log;
@@ -70,6 +71,10 @@ fn main() -> Result<()> {
 
     if let Some(initrd_bytes) = sections.initrd {
         loadfile2::install(initrd_bytes, &LINUX_INITRD_GUID)?;
+    }
+
+    if let Some(dtb_bytes) = sections.dtb {
+        dtb::install(dtb_bytes)?;
     }
 
     let kernel_handle = loader::load_kernel(image_handle, kernel_bytes)?;

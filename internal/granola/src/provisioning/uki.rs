@@ -48,7 +48,7 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
 pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
-    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, None)
         .context("Failed to build UKI")?;
 
     std::fs::write(output, &buffer).context("Failed to write the UKI")?;
@@ -65,7 +65,7 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, None)
         .context("Failed to build UKI")?;
 
     std::fs::write(&temp_output, &buffer).context("Failed to write the UKI")?;
