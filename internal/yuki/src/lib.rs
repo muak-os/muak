@@ -104,30 +104,17 @@ pub fn build(
         None => None,
     };
 
-    let original_stub_len = stub.len();
-
     let metadata = pe::extract_metadata(&stub)?;
 
-    let section_count = if dtb.is_some() { 5 } else { 4 };
+    let section_count = if dtb.is_some() { 4 } else { 3 };
     if metadata.current_section_count as usize + section_count > u16::MAX as usize {
         return Err(YukiError::TooManySections);
     }
 
-    let section_info = section::build_headers(
-        &metadata,
-        &linux,
-        &initrd,
-        &cmdline,
-        dtb.as_deref(),
-        original_stub_len,
-    )?;
+    let section_info =
+        section::build_headers(&metadata, &linux, &initrd, &cmdline, dtb.as_deref())?;
 
-    let new_file_size = section_info
-        .offsets
-        .last()
-        .map(|(o, len)| o + len)
-        .unwrap_or(0);
-    stub.resize(new_file_size, 0);
+    stub.resize(section_info.total_file_size, 0);
 
     let new_section_count = metadata.current_section_count + section_count as u16;
     let section_count_offset = metadata.file_header_offset + config::COFF_NUMBER_OF_SECTIONS;
@@ -142,7 +129,6 @@ pub fn build(
         &initrd,
         &cmdline,
         dtb.as_deref(),
-        original_stub_len,
     )?;
 
     pe::update_image_size(&mut stub, &metadata, section_info.max_virtual_end);
