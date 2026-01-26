@@ -62,7 +62,7 @@ fn validate_section_data(va: usize, vs: usize, data: &[u8]) -> Result<()> {
         );
     }
 
-    if va % 4096 != 0 && va != 0 {
+    if !va.is_multiple_of(4096) && va != 0 {
         bail!("section virtual address not page-aligned: {}", va);
     }
 

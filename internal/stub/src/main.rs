@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     let name = CStr16::from_str_with_buf("SetupMode", &mut name_buf).expect("Invalid SetupMode");
     let mut buf = [0u8; 1];
     let setup_mode =
-        match uefi::runtime::get_variable(&name, &VariableVendor::GLOBAL_VARIABLE, &mut buf) {
+        match uefi::runtime::get_variable(name, &VariableVendor::GLOBAL_VARIABLE, &mut buf) {
             Ok((data, _)) => data[0],
             Err(_) => 0,
         };
