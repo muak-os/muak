@@ -39,16 +39,31 @@ pub async fn handle(server: &str, image: Option<String>) -> Result<()> {
 
     let update_channel = tonic::transport::Channel::from_shared(server_addr.clone())?
         .connect_timeout(std::time::Duration::from_secs(2))
-        .timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(10))
         .connect()
         .await?;
 
     let mut update_client = ProvisionServiceClient::new(update_channel);
-    let _ = update_client
+    match update_client
         .update(tonic::Request::new(UpdateRequest {
             update_id: update_id.clone(),
         }))
-        .await;
+        .await
+    {
+        Ok(response) => {
+            let resp = response.into_inner();
+            if !resp.success {
+                eprintln!("{}", format!("Update failed: {}", resp.error).red());
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            if e.code() != tonic::Code::Unavailable && e.code() != tonic::Code::Cancelled {
+                eprintln!("{}", format!("Update failed: {}", e.message()).red());
+                std::process::exit(1);
+            }
+        }
+    }
 
     println!("{}", "Waiting for system to come back online...".yellow());
 

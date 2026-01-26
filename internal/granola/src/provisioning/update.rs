@@ -76,12 +76,12 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
 
     if res != 0 {
         let errno = std::io::Error::last_os_error();
-        return Err(anyhow!("kexec_file_load failed: {} ({})", errno, res));
+        return Err(anyhow!("Failed to load new kernel: {}", errno));
     }
 
     sync();
 
-    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("reboot RB_KEXEC failed: {}", e))?;
+    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {}", e))?;
 
     unreachable!("If we reach here, something went really wrong");
 }
