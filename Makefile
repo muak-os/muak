@@ -247,20 +247,12 @@ iso: $(ARTIFACTS) ## Build bootable ISO
 		cp /out/muak-$${ARCH}.efi /out/iso/EFI/BOOT/$${BOOT_FILE} && \
 		EFI_SIZE=$$(stat -c%s /out/muak-$${ARCH}.efi) && \
 		FAT_SIZE=$$(( (EFI_SIZE / 1024 / 1024) + 10 )) && \
-		dd if=/dev/zero of=/out/efiboot.img bs=1M count=$${FAT_SIZE} 2>/dev/null && \
-		mkfs.vfat -F 32 /out/efiboot.img >/dev/null && \
-		mmd -i /out/efiboot.img ::/EFI ::/EFI/BOOT && \
-		mcopy -i /out/efiboot.img /out/muak-$${ARCH}.efi ::/EFI/BOOT/$${BOOT_FILE} && \
-		xorriso -as mkisofs \
-			-R -J \
-			-V MUAK \
-			-append_partition 2 0xef /out/efiboot.img \
-			-appended_part_as_gpt \
-			-e --interval:appended_partition_2:all:: \
-			-no-emul-boot \
-			-o /out/muak-$${ARCH}.iso \
-			/out/iso && \
-		rm -rf /out/iso /out/efiboot.img'
+		dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=$${FAT_SIZE} 2>/dev/null && \
+		mkfs.vfat /out/iso/efiboot.img >/dev/null && \
+		mmd -i /out/iso/efiboot.img ::/EFI ::/EFI/BOOT && \
+		mcopy -i /out/iso/efiboot.img /out/muak-$${ARCH}.efi ::/EFI/BOOT/$${BOOT_FILE} && \
+		xorriso -as mkisofs -o /out/muak-$${ARCH}.iso -e efiboot.img -no-emul-boot -V MUAK /out/iso && \
+		rm -rf /out/iso'
 	@printf "$(GREEN)ISO built:$(RESET) $(ARTIFACTS)/muak-$(ARCH).iso\n"
 
 # Development
