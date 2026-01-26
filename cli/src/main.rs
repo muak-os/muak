@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use sysconfig;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -733,12 +732,11 @@ async fn handle_vm_action(
                 std::process::exit(1);
             }
 
-            if let Some(ref i) = initrd {
-                if !std::path::Path::new(i).exists() {
+            if let Some(ref i) = initrd
+                && !std::path::Path::new(i).exists() {
                     eprintln!("{}Error: initrd file not found: {}{}", RED, i, RESET);
                     std::process::exit(1);
                 }
-            }
 
             for disk_path in &disk {
                 if !std::path::Path::new(disk_path).exists() {

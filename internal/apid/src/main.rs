@@ -11,7 +11,6 @@ use notify::NotifyClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use sysconfig;
 use tokio::net::{TcpListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 

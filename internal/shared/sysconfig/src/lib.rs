@@ -39,6 +39,7 @@ static CONFIG: OnceLock<HostConfig> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct HostConfig {
     pub system: SystemConfig,
     pub network: NetworkConfig,
@@ -68,15 +69,6 @@ impl HostConfig {
 
 include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 
-impl Default for HostConfig {
-    fn default() -> Self {
-        Self {
-            system: SystemConfig::default(),
-            network: NetworkConfig::default(),
-            vm: VmConfig::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

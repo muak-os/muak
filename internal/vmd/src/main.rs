@@ -17,7 +17,6 @@ use tonic::transport::Server;
 use actor::start_vm_actor;
 use clients::NetworkClient;
 use grpc::VmServiceImpl;
-use sysconfig;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {

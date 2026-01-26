@@ -9,7 +9,6 @@ use rustix::system::{RebootCommand, reboot};
 
 use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
-use sysconfig;
 
 pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     let staging_dir = create_staging_directory()?;

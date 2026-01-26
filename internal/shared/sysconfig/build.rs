@@ -67,7 +67,7 @@ fn toml_value_to_rust(value: &toml::Value) -> String {
         toml::Value::Integer(i) => i.to_string(),
         toml::Value::Boolean(b) => b.to_string(),
         toml::Value::Array(arr) => {
-            let elements: Vec<String> = arr.iter().map(|v| toml_value_to_rust(v)).collect();
+            let elements: Vec<String> = arr.iter().map(toml_value_to_rust).collect();
             format!("vec![{}]", elements.join(", "))
         }
         _ => panic!("Unsupported TOML value type"),

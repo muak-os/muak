@@ -11,7 +11,6 @@ use crate::persistence::{self, DiskConfigPersisted, VmPersisted};
 use crate::proto::vm::{
     DiskUsage as ProtoDiskUsage, Hypervisor as HypervisorType, VmConfig, VmInfo, VmState,
 };
-use sysconfig;
 
 use super::VmCommand;
 

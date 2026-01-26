@@ -6,7 +6,6 @@ mod supervisor;
 use anyhow::Result;
 use std::path::Path;
 use supervisor::{ServiceDef, Supervisor};
-use sysconfig;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
