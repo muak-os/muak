@@ -31,10 +31,24 @@ impl<'a> UkiSections<'a> {
                 .context("Invalid section name")?
                 .trim_end_matches('\0');
 
-            let va = section.virtual_address.get(LE) as usize;
+            let rva = section.virtual_address.get(LE) as usize;
             let vs = section.virtual_size.get(LE) as usize;
-            validate_section_data(va, vs, data)?;
-            let section_data = &data[va..va + vs];
+
+            if vs == 0 {
+                continue;
+            }
+
+            if rva + vs > data.len() {
+                bail!(
+                    "section {} data out of bounds: rva={:#x} size={:#x} data_len={:#x}",
+                    name,
+                    rva,
+                    vs,
+                    data.len()
+                );
+            }
+
+            let section_data = &data[rva..rva + vs];
 
             match name {
                 ".linux" => result.kernel = Some(section_data),
@@ -52,28 +66,4 @@ impl<'a> UkiSections<'a> {
         self.kernel
             .ok_or_else(|| anyhow!("no .linux section found"))
     }
-}
-
-/// Validates section data alignment and sanity checks.
-fn validate_section_data(va: usize, vs: usize, data: &[u8]) -> Result<()> {
-    if va + vs > data.len() {
-        bail!(
-            "section data out of bounds: va={} vs={} data_len={}",
-            va,
-            vs,
-            data.len()
-        );
-    }
-
-    if !va.is_multiple_of(4096) && va != 0 {
-        bail!("section virtual address not page-aligned: {}", va);
-    }
-
-    if vs == 0 {
-        bail!("section has zero virtual size");
-    }
-    if vs > 100 * 1024 * 1024 {
-        bail!("section virtual size unreasonably large: {} bytes", vs);
-    }
-    Ok(())
 }

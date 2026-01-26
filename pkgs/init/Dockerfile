@@ -2,14 +2,17 @@
 
 ARG RUST_VERSION=1.91.1
 ARG ALPINE_VERSION=3.23
-ARG TARGET=x86_64-unknown-linux-musl
 ARG SOURCE_DATE_EPOCH=0
 
 # ============================================================
 FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
-ARG TARGET
 ARG SOURCE_DATE_EPOCH
+ARG TARGETARCH
+
+# Map Docker TARGETARCH to Rust target prefix
+ARG TARGET=${TARGETARCH/amd64/x86_64}
+ARG TARGET=${TARGET/arm64/aarch64}
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
@@ -30,8 +33,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cargo build --release --target ${TARGET} -p init
-cp target/${TARGET}/release/init /init
+
+RUST_TARGET="${TARGET}-unknown-linux-musl"
+cargo build --release --target ${RUST_TARGET} -p init
+cp target/${RUST_TARGET}/release/init /init
 EOF
 
 # ============================================================

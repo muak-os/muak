@@ -7,6 +7,7 @@ ARG KERNEL_VERSION=6.18.4
 FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-build
 
 ARG KERNEL_VERSION
+ARG TARGETARCH
 
 RUN apk add --no-cache \
   argp-standalone \
@@ -42,7 +43,7 @@ RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION
   mkdir -p certs && \
   make mrproper
 
-COPY pkgs/kernel/config-amd64 .config
+COPY pkgs/kernel/config-${TARGETARCH} .config
 COPY pkgs/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
 
 RUN make olddefconfig
@@ -54,15 +55,21 @@ RUN --mount=type=cache,target=/root/.ccache \
 
 RUN --mount=type=secret,id=kernel_key,target=/run/secrets/kernel-signing-key.pem <<EOF
 set -euo pipefail
+if [ "${TARGETARCH}" = "arm64" ]; then
+  KERNEL_PATH="arch/arm64/boot/Image"
+else
+  KERNEL_PATH="arch/x86/boot/bzImage"
+fi
+
 if [ -f /run/secrets/kernel-signing-key.pem ]; then
   sbsign --key /run/secrets/kernel-signing-key.pem \
     --cert certs/kernel-signing-cert.pem \
-    --output arch/x86/boot/bzImage.signed \
-    arch/x86/boot/bzImage
-  mv arch/x86/boot/bzImage.signed arch/x86/boot/bzImage
-  echo "bzImage signed with PE signature successfully"
+    --output ${KERNEL_PATH}.signed \
+    ${KERNEL_PATH}
+  mv ${KERNEL_PATH}.signed ${KERNEL_PATH}
+  echo "Kernel signed with PE signature successfully"
 else
-  echo "No signing key provided, bzImage is unsigned"
+  echo "No signing key provided, kernel is unsigned"
 fi
 EOF
 
@@ -91,9 +98,25 @@ rm -f modules.builtin.modinfo modules.devname modules.order 2>/dev/null || true
 EOF
 
 # ============================================================
+FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-export
+
+ARG TARGETARCH
+
+COPY --from=kernel-build /src/arch /src/arch
+
+RUN <<EOF
+set -euo pipefail
+if [ "${TARGETARCH}" = "arm64" ]; then
+  cp /src/arch/arm64/boot/Image /vmlinuz
+else
+  cp /src/arch/x86/boot/bzImage /vmlinuz
+fi
+EOF
+
+# ============================================================
 FROM scratch AS kernel-package
 
-COPY --from=kernel-build /src/arch/x86/boot/bzImage /bzImage
+COPY --from=kernel-export /vmlinuz /vmlinuz
 COPY --from=modules-install /modules/lib/modules /lib/modules
 
 LABEL org.opencontainers.image.title="muak-kernel"

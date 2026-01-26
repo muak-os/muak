@@ -5,6 +5,15 @@ use crate::image::{ImageReference, OciDescriptor, OciManifest};
 use crate::oci::OCI_MANIFEST_ACCEPT_HEADERS;
 use crate::oci::http::build_authenticated_request;
 
+/// Returns the OCI architecture string for the current host.
+fn host_oci_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => other,
+    }
+}
+
 /// Build the manifest URL for an image reference and reference (tag or digest).
 pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
     format!(
@@ -33,11 +42,12 @@ pub(crate) fn parse(json: &str) -> Result<OciManifest> {
 
 /// Select the appropriate platform manifest from a manifest list.
 pub(crate) fn select_platform(manifests: &[OciDescriptor]) -> Result<&OciDescriptor> {
+    let target_arch = host_oci_arch();
     manifests
         .iter()
         .find(|m| {
             m.platform.as_ref().is_some_and(|p| {
-                p.architecture.as_deref() == Some("amd64") && p.os.as_deref() == Some("linux")
+                p.architecture.as_deref() == Some(target_arch) && p.os.as_deref() == Some("linux")
             })
         })
         .or_else(|| manifests.first())

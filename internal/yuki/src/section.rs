@@ -19,6 +19,7 @@ pub fn build_headers(
     initrd_data: &[u8],
     cmdline_data: &[u8],
     dtb_data: Option<&[u8]>,
+    original_stub_len: usize,
 ) -> Result<SectionInfo, YukiError> {
     let mut sections_to_add: Vec<(&str, &[u8])> = vec![(".cmdline", cmdline_data)];
 
@@ -28,6 +29,7 @@ pub fn build_headers(
 
     sections_to_add.push((".linux", linux_data));
     sections_to_add.push((".initrd", initrd_data));
+    sections_to_add.push((".stub", &[]));
 
     let mut headers = Vec::new();
     let mut offsets = Vec::new();
@@ -39,7 +41,13 @@ pub fn build_headers(
     let mut max_virtual_end = metadata.last_section_virtual_end;
 
     for (name, data) in &sections_to_add {
-        let virtual_size = data.len() as u32;
+        let is_stub_section = *name == ".stub";
+        let data_len = if is_stub_section {
+            original_stub_len
+        } else {
+            data.len()
+        };
+        let virtual_size = data_len as u32;
         let size_of_raw_data = align_to(virtual_size, metadata.file_alignment);
 
         let mut section = ImageSectionHeader::default();
@@ -53,10 +61,10 @@ pub fn build_headers(
         section.size_of_raw_data.set(LE, size_of_raw_data);
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
-        let characteristics = if *name == ".linux" {
+        let characteristics = if is_stub_section || *name == ".linux" {
             config::IMAGE_SCN_CNT_CODE | config::IMAGE_SCN_MEM_EXECUTE | config::IMAGE_SCN_MEM_READ
         } else {
-            config::IMAGE_SCN_MEM_READ
+            config::IMAGE_SCN_CNT_INITIALIZED_DATA | config::IMAGE_SCN_MEM_READ
         };
         section.characteristics.set(LE, characteristics);
 
@@ -64,7 +72,7 @@ pub fn build_headers(
             .max(current_virtual_address + align_to(virtual_size, metadata.section_alignment));
 
         headers.push(section);
-        offsets.push((current_file_offset as usize, data.len()));
+        offsets.push((current_file_offset as usize, data_len));
         current_file_offset += size_of_raw_data;
         current_virtual_address += align_to(virtual_size, metadata.section_alignment);
     }
@@ -76,6 +84,7 @@ pub fn build_headers(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn write_to_image(
     stub_data: &mut [u8],
     metadata: &PeMetadata,
@@ -84,6 +93,7 @@ pub fn write_to_image(
     initrd_data: &[u8],
     cmdline_data: &[u8],
     dtb_data: Option<&[u8]>,
+    original_stub_len: usize,
 ) -> Result<(), YukiError> {
     use object::pe::ImageSectionHeader;
 
@@ -95,6 +105,7 @@ pub fn write_to_image(
 
     sections_to_add.push((".linux", linux_data));
     sections_to_add.push((".initrd", initrd_data));
+    sections_to_add.push((".stub", &[]));
 
     for (i, section_header) in section_info.headers.iter().enumerate() {
         let offset = metadata.section_table_offset
@@ -126,8 +137,13 @@ pub fn write_to_image(
                 file_offset, end
             )));
         }
-        let data = sections_to_add[i].1;
-        stub_data[*file_offset..end].copy_from_slice(data);
+        let (name, _) = sections_to_add[i];
+        if name == ".stub" {
+            stub_data.copy_within(0..original_stub_len, *file_offset);
+        } else {
+            let data = sections_to_add[i].1;
+            stub_data[*file_offset..end].copy_from_slice(data);
+        }
     }
 
     Ok(())
@@ -244,13 +260,14 @@ mod tests {
         let cmdline = b"console=ttyS0";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
-        assert_eq!(section_info.headers.len(), 3);
-        assert_eq!(section_info.offsets.len(), 3);
+        assert_eq!(section_info.headers.len(), 4);
+        assert_eq!(section_info.offsets.len(), 4);
         assert_eq!(section_info.headers[0].name[0..8], *b".cmdline");
         assert_eq!(section_info.headers[1].name[0..6], *b".linux");
         assert_eq!(section_info.headers[2].name[0..7], *b".initrd");
+        assert_eq!(section_info.headers[3].name[0..5], *b".stub");
     }
 
     #[test]
@@ -261,7 +278,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
         let first_offset = section_info.offsets[0].0;
         assert_eq!(first_offset % metadata.file_alignment as usize, 0);
@@ -281,7 +298,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
         let linux_header = &section_info.headers[1];
         let cmdline_header = &section_info.headers[0];
@@ -293,7 +310,10 @@ mod tests {
             linux_chars,
             config::IMAGE_SCN_CNT_CODE | config::IMAGE_SCN_MEM_EXECUTE | config::IMAGE_SCN_MEM_READ
         );
-        assert_eq!(cmdline_chars, config::IMAGE_SCN_MEM_READ);
+        assert_eq!(
+            cmdline_chars,
+            config::IMAGE_SCN_CNT_INITIALIZED_DATA | config::IMAGE_SCN_MEM_READ
+        );
     }
 
     #[test]
@@ -304,7 +324,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
         assert!(section_info.max_virtual_end > metadata.last_section_virtual_end);
     }
@@ -317,7 +337,7 @@ mod tests {
         let cmdline = b"very_long_cmdline_name";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
         let cmdline_header = &section_info.headers[0];
         assert!(cmdline_header.name[0..8].iter().any(|&b| b != 0));
@@ -332,7 +352,7 @@ mod tests {
         let cmdline = b"cmd";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, 512).expect("Should build");
 
         for i in 1..section_info.offsets.len() {
             let (prev_offset, prev_len) = section_info.offsets[i - 1];
@@ -349,15 +369,16 @@ mod tests {
         let cmdline = b"console=ttyS0";
         let dtb = vec![0xd0, 0x0d, 0xfe, 0xed]; // DTB magic header
 
-        let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, Some(&dtb)).expect("Should build");
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, Some(&dtb), 512)
+            .expect("Should build");
 
-        assert_eq!(section_info.headers.len(), 4);
-        assert_eq!(section_info.offsets.len(), 4);
+        assert_eq!(section_info.headers.len(), 5);
+        assert_eq!(section_info.offsets.len(), 5);
         assert_eq!(section_info.headers[0].name[0..8], *b".cmdline");
         assert_eq!(section_info.headers[1].name[0..4], *b".dtb");
         assert_eq!(section_info.headers[2].name[0..6], *b".linux");
         assert_eq!(section_info.headers[3].name[0..7], *b".initrd");
+        assert_eq!(section_info.headers[4].name[0..5], *b".stub");
     }
 
     #[test]
@@ -366,9 +387,11 @@ mod tests {
         let linux = vec![1u8; 1024];
         let initrd = vec![2u8; 2048];
         let cmdline = b"console=ttyS0";
+        let original_stub_len = 512;
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, original_stub_len)
+                .expect("Should build");
 
         let mut stub_data = vec![0u8; 100 * 1024]; // 100KB should be plenty
 
@@ -380,6 +403,7 @@ mod tests {
             &initrd,
             cmdline,
             None,
+            original_stub_len,
         );
 
         assert!(result.is_ok(), "write_to_image should succeed");
@@ -417,6 +441,11 @@ mod tests {
                     &initrd,
                     "Initrd data should be copied"
                 ),
+                3 => assert_eq!(
+                    &stub_data[*file_offset..end],
+                    &stub_data[0..original_stub_len],
+                    "Stub data should be copied"
+                ),
                 _ => panic!("Unexpected section index"),
             }
         }
@@ -428,9 +457,11 @@ mod tests {
         let linux = vec![1u8; 100];
         let initrd = vec![2u8; 100];
         let cmdline = b"test";
+        let original_stub_len = 512;
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, original_stub_len)
+                .expect("Should build");
 
         let header_offset = metadata.section_table_offset
             + (metadata.current_section_count as usize) * mem::size_of::<ImageSectionHeader>();
@@ -444,6 +475,7 @@ mod tests {
             &initrd,
             cmdline,
             None,
+            original_stub_len,
         );
 
         assert!(
@@ -462,9 +494,11 @@ mod tests {
         let linux = vec![1u8; 100];
         let initrd = vec![2u8; 100];
         let cmdline = b"test";
+        let original_stub_len = 512;
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, original_stub_len)
+                .expect("Should build");
 
         let data_offset = section_info.offsets[0].0;
         let mut stub_data = vec![0u8; data_offset + 10]; // Too small for first data
@@ -477,6 +511,7 @@ mod tests {
             &initrd,
             cmdline,
             None,
+            original_stub_len,
         );
 
         assert!(
@@ -495,9 +530,11 @@ mod tests {
         let linux = vec![];
         let initrd = vec![];
         let cmdline = b"";
+        let original_stub_len = 0;
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, original_stub_len)
+                .expect("Should build");
 
         let mut stub_data = vec![0u8; 10 * 1024];
 
@@ -509,6 +546,7 @@ mod tests {
             &initrd,
             cmdline,
             None,
+            original_stub_len,
         );
 
         assert!(

@@ -2,14 +2,17 @@
 
 ARG RUST_VERSION=1.91.1
 ARG ALPINE_VERSION=3.23
-ARG TARGET=x86_64-unknown-uefi
 ARG SOURCE_DATE_EPOCH=0
 
 # ============================================================
 FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
-ARG TARGET
 ARG SOURCE_DATE_EPOCH
+ARG TARGETARCH
+
+# Map Docker TARGETARCH to UEFI target
+ARG TARGET=${TARGETARCH/amd64/x86_64}
+ARG TARGET=${TARGET/arm64/aarch64}
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
@@ -28,9 +31,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-rustup target add ${TARGET} --toolchain nightly
-cargo +nightly build --release --target ${TARGET} --features uefi -p stub
-cp target/${TARGET}/release/stub.efi /stub.efi
+
+UEFI_TARGET="${TARGET}-unknown-uefi"
+rustup target add ${UEFI_TARGET} --toolchain nightly
+cargo +nightly build --release --target ${UEFI_TARGET} --features uefi -p stub
+cp target/${UEFI_TARGET}/release/stub.efi /stub.efi
 EOF
 
 # ============================================================
