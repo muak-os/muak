@@ -5,7 +5,6 @@ FROM alpine:3.23 AS builder
 
 ARG TARGETARCH
 
-# Map Docker TARGETARCH to architecture prefix
 ARG TARGET=${TARGETARCH/amd64/x86_64}
 ARG TARGET=${TARGET/arm64/aarch64}
 

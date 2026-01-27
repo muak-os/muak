@@ -6,7 +6,6 @@ ARG TARGETARCH
 ARG CH_VERSION=v42.0
 ARG EDK2_VERSION=ch-a54f262b09
 
-# Map Docker TARGETARCH to architecture prefix
 ARG TARGET=${TARGETARCH/amd64/x86_64}
 ARG TARGET=${TARGET/arm64/aarch64}
 
@@ -15,20 +14,20 @@ WORKDIR /download
 # Download Cloud Hypervisor binary (architecture-aware)
 # x86_64: cloud-hypervisor-static, aarch64: cloud-hypervisor-static-aarch64
 RUN apk add --no-cache curl && \
-    if [ "${TARGET}" = "aarch64" ]; then \
-      curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static-aarch64" -o cloud-hypervisor; \
-    else \
-      curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static" -o cloud-hypervisor; \
-    fi && \
-    chmod +x cloud-hypervisor
+  if [ "${TARGET}" = "aarch64" ]; then \
+  curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static-aarch64" -o cloud-hypervisor; \
+  else \
+  curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static" -o cloud-hypervisor; \
+  fi && \
+  chmod +x cloud-hypervisor
 
 # Download EDK2 firmware (architecture-aware)
 # x86_64: CLOUDHV.fd, aarch64: CLOUDHV_EFI.fd
 RUN if [ "${TARGET}" = "aarch64" ]; then \
-      curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV_EFI.fd" -o CLOUDHV.fd; \
-    else \
-      curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV.fd" -o CLOUDHV.fd; \
-    fi
+  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV_EFI.fd" -o CLOUDHV.fd; \
+  else \
+  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV.fd" -o CLOUDHV.fd; \
+  fi
 
 # Final image - scratch base with only what we need
 FROM scratch
