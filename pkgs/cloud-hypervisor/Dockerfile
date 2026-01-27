@@ -21,18 +21,18 @@ RUN apk add --no-cache curl && \
   fi && \
   chmod +x cloud-hypervisor
 
-# Download EDK2 firmware (architecture-aware)
-# x86_64: CLOUDHV.fd, aarch64: CLOUDHV_EFI.fd
-RUN if [ "${TARGET}" = "aarch64" ]; then \
-  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV_EFI.fd" -o CLOUDHV.fd; \
-  else \
-  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV.fd" -o CLOUDHV.fd; \
+# Download EDK2 firmware (x86_64 only)
+RUN mkdir -p /output/usr/bin /output/usr/share/muak && \
+  if [ "${TARGET}" != "aarch64" ]; then \
+  curl -fsSL "https://github.com/cloud-hypervisor/edk2/releases/download/${EDK2_VERSION}/CLOUDHV.fd" -o /output/usr/share/muak/CLOUDHV.fd; \
   fi
+
+RUN mv cloud-hypervisor /output/usr/bin/cloud-hypervisor
 
 # Final image - scratch base with only what we need
 FROM scratch
-COPY --from=downloader /download/cloud-hypervisor /usr/bin/cloud-hypervisor
-COPY --from=downloader /download/CLOUDHV.fd /usr/share/muak/CLOUDHV.fd
+
+COPY --from=downloader /output/ /
 
 # OCI labels for metadata
 LABEL org.opencontainers.image.title="cloud-hypervisor"
