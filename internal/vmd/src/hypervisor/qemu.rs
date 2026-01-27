@@ -4,6 +4,14 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
+/// Returns the QEMU system binary path for the current host architecture.
+fn qemu_binary_path() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "/usr/bin/qemu-system-aarch64",
+        _ => "/usr/bin/qemu-system-x86_64",
+    }
+}
+
 pub struct QemuHypervisor {
     binary_path: String,
 }
@@ -11,7 +19,7 @@ pub struct QemuHypervisor {
 impl QemuHypervisor {
     pub fn new() -> Self {
         Self {
-            binary_path: "/usr/bin/qemu-system-x86_64".to_string(),
+            binary_path: qemu_binary_path().to_string(),
         }
     }
 
@@ -27,6 +35,12 @@ impl QemuHypervisor {
         cmd.arg("-nographic");
         cmd.arg("-serial")
             .arg(format!("file:{}", config.serial_log_path.display()));
+
+        // ARM64-specific: use virtio-mmio machine type
+        #[cfg(target_arch = "aarch64")]
+        {
+            cmd.arg("-machine").arg("virt,gic-version=3");
+        }
 
         if let Some(initrd) = &config.initrd {
             cmd.arg("-initrd").arg(initrd);

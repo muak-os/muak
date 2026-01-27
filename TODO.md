@@ -2,15 +2,9 @@
 
 - Support NTP protocol for time synchronization
 
-- Support ARM64 architecture
-  - Support for device tree in stub
-  - Create kernel config for ARM64 that follows KSPP recommandations
-  - Add arm kernel parameters support
-  - Add build in CI/CD
-  - Tweak pkgs Dockerfiles
+- Support for Raspbnerry Pi like devices using .img installation
 
 - Better CLI
-  - Organize project in different files/modules
   - Add dmesg alias to logs command
   - Handle different cli vs server versions for gRPC client/server compatibility
     - Upgradable compatibility matrix
@@ -18,12 +12,14 @@
   - Add reset command to factory reset the system
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
+  - Dockerfile of CLI + CI jobs to release it
 
 - Better PID 1
   - Better explicit restart strategy for services in supervisor (exponential backoff etc)
-  - Properly reap children in granola (conflict with installer command spawning)
-  - Extract services to be file based in /run/services/
+  - Properly reap children in granola (conflict with btrfs command spawning)
   - Check if there is /dev/kvm supported when starting the distro, setting degraded system state if not
+  - Add journalctl like support to monitor logs of all services
+  - Move provisioning logic to a separate service
 
 - Enhance networking:
   - Handle certificates properly using webpki-roots-certs in reqwest 0.13 or switch to ureq
@@ -39,9 +35,10 @@
 
 - Better gRPC communication:
   - Add authentication using mTLS
-    - Store certificates in STATE partition & in ~/.config/muak/ on the client side
+    - Store certificates in STATE partition & in ~/.config/muak/ on the client side and /run/state/secrets/ on the
+      server side
     - Allow some commands like listing disks in maintenance mode without authentication
-  - Add permission management for different users using RBAC like system
+  - Add permission management using the client cert fingerprint for different users using RBAC like system with
 
 - Declarative system configuration:
   - Configure NTP server in system config
@@ -53,8 +50,7 @@
     - Proxy configuration
 
 - Enhance sysconfig shared lib:
-  - Config versioning: Track config changes over time
-  - Handle config error properly by going back to default in binaries using sysconfig
+  - Config versioning with tracking of changes over time
 
 - Disk Manager Service:
   - LUKS encryption/decryption with libcryptsetup-rs
@@ -83,9 +79,13 @@
 - Rework the module loading to not duplicate modules in initramfs and rootfs
 
 - Simple secure boot support using a local project to sign
+  - Create signing keys during build process and save them to disk in /run/state/sbkeys/
+  - Enroll keys in TPM and/or firmware
+  - Sign UKI
 
-- Add TPM measurements in stub
-- Better stub performance after loadfile success
+- Stub improvements:
+  - Add TPM PCR#7 measurements in stub
+  - Better stub performance after loadfile success
 
 - Support Apple M1/M2 using Asahi Linux
 - Add a web interface for easier management (in a separate product easily installable with a golden image?)

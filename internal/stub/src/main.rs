@@ -1,5 +1,7 @@
 #![feature(uefi_std)]
 
+#[cfg(target_arch = "aarch64")]
+mod dtb;
 mod loader;
 mod loadfile2;
 mod log;
@@ -22,7 +24,7 @@ fn setup_uefi_crate() {
     let ih = uefi_std::env::image_handle();
 
     // SAFETY: UEFI firmware provides valid system table and image handle pointers
-    // during the boot services phase. This is required setup for the uefi crate.
+    // during the boot services phase. This is required setup for the `uefi` crate.
     unsafe {
         uefi::table::set_system_table(st.as_ptr().cast());
 
@@ -70,6 +72,11 @@ fn main() -> Result<()> {
 
     if let Some(initrd_bytes) = sections.initrd {
         loadfile2::install(initrd_bytes, &LINUX_INITRD_GUID)?;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if let Some(dtb_bytes) = sections.dtb {
+        dtb::install(dtb_bytes)?;
     }
 
     let kernel_handle = loader::load_kernel(image_handle, kernel_bytes)?;

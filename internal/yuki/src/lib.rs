@@ -1,7 +1,7 @@
 //! Yuki - A library to create Unified Kernel Images (UKI) for Linux on UEFI systems.
 //!
 //! This library provides the core functionality for building UKIs by embedding
-//! PE sections (cmdline, kernel, initrd, stub) into an EFI stub.
+//! PE sections (cmdline, dtb, linux, initrd) into an EFI stub.
 
 use std::fs;
 use std::path::Path;
@@ -35,7 +35,7 @@ pub enum YukiError {
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
 ///
 /// This function takes a PE format EFI stub and embeds the Linux kernel, initrd,
-/// command line, and original stub data as PE sections to create a bootable UKI.
+/// command line, and optional device tree blob as PE sections to create a bootable UKI.
 ///
 /// # Arguments
 ///
@@ -43,6 +43,7 @@ pub enum YukiError {
 /// * `linux_path` - Path to the Linux kernel image
 /// * `initrd_path` - Path to the initrd image
 /// * `cmdline_path` - Path to the kernel command line file
+/// * `dtb_path` - Optional path to a device tree blob (for ARM64 platforms)
 ///
 /// # Returns
 ///
@@ -63,7 +64,8 @@ pub enum YukiError {
 ///     Path::new("stub.efi"),
 ///     Path::new("kernel"),
 ///     Path::new("initrd.img"),
-///     Path::new("cmdline.txt")
+///     Path::new("cmdline.txt"),
+///     None, // No DTB
 /// )?;
 /// # Ok::<(), yuki::YukiError>(())
 /// ```
@@ -72,8 +74,9 @@ pub fn build(
     linux_path: &Path,
     initrd_path: &Path,
     cmdline_path: &Path,
+    dtb_path: Option<&Path>,
 ) -> Result<Vec<u8>, YukiError> {
-    let stub = fs::read(stub_path).map_err(|e| YukiError::ReadError {
+    let mut stub = fs::read(stub_path).map_err(|e| YukiError::ReadError {
         file: stub_path.display().to_string(),
         source: e,
     })?;
@@ -93,41 +96,42 @@ pub fn build(
         source: e,
     })?;
 
-    let original_stub_len = stub.len();
+    let dtb = match dtb_path {
+        Some(path) => Some(fs::read(path).map_err(|e| YukiError::ReadError {
+            file: path.display().to_string(),
+            source: e,
+        })?),
+        None => None,
+    };
 
     let metadata = pe::extract_metadata(&stub)?;
 
-    if metadata.current_section_count as usize + 4 > u16::MAX as usize {
+    let section_count = if dtb.is_some() { 4 } else { 3 };
+    if metadata.current_section_count as usize + section_count > u16::MAX as usize {
         return Err(YukiError::TooManySections);
     }
 
     let section_info =
-        section::build_headers(&metadata, &linux, &initrd, &cmdline, original_stub_len)?;
+        section::build_headers(&metadata, &linux, &initrd, &cmdline, dtb.as_deref())?;
 
-    let mut stub_data = stub;
-    let new_file_size = section_info
-        .offsets
-        .last()
-        .map(|(o, len)| o + len)
-        .unwrap_or(0);
-    stub_data.resize(new_file_size, 0);
+    stub.resize(section_info.total_file_size, 0);
 
-    let new_section_count = metadata.current_section_count + 4u16;
+    let new_section_count = metadata.current_section_count + section_count as u16;
     let section_count_offset = metadata.file_header_offset + config::COFF_NUMBER_OF_SECTIONS;
-    stub_data[section_count_offset..section_count_offset + 2]
+    stub[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 
     section::write_to_image(
-        &mut stub_data,
+        &mut stub,
         &metadata,
         &section_info,
         &linux,
         &initrd,
         &cmdline,
-        original_stub_len,
+        dtb.as_deref(),
     )?;
 
-    pe::update_image_size(&mut stub_data, &metadata, section_info.max_virtual_end);
+    pe::update_image_size(&mut stub, &metadata, section_info.max_virtual_end);
 
-    Ok(stub_data)
+    Ok(stub)
 }

@@ -11,11 +11,20 @@ env:
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Free disk space
         run: |
@@ -43,7 +52,7 @@ jobs:
           echo "${{ secrets.KERNEL_SIGNING_KEY }}" > /tmp/kernel-signing-key.pem
           chmod 600 /tmp/kernel-signing-key.pem
 
-      - name: Build kernel
+      - name: Build kernel (${{ matrix.arch }})
         run: |
           make oci-kernel \
             CONTAINER_RUNTIME=docker \
@@ -51,7 +60,7 @@ jobs:
             LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
             SIGNING_ARGS="--secret id=kernel_key,src=/tmp/kernel-signing-key.pem" \
-            CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache,mode=max"
+            CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }},mode=max"
 
       - name: Cleanup signing key
         if: always()
@@ -60,6 +69,6 @@ jobs:
       - name: Build summary
         run: |
           TAG=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)
-          echo "### Kernel Built :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Kernel (${{ matrix.arch }}) Built :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ env.REGISTRY }}/sawangg/kernel:${TAG}\`" >> $GITHUB_STEP_SUMMARY

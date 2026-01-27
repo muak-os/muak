@@ -2,7 +2,7 @@
 
 ARG ALPINE_VERSION=3.23
 ARG BTRFS_VERSION=v6.17.1
-ARG KERNEL_VERSION=6.18.4
+ARG KERNEL_VERSION=6.18.7
 ARG COMPRESSION_LEVEL=19
 ARG SOURCE_DATE_EPOCH=0
 
@@ -33,14 +33,22 @@ FROM ${PKG_KERNEL} AS pkg-kernel
 FROM docker.io/alpine:${ALPINE_VERSION} AS tools
 
 ARG BTRFS_VERSION
+ARG TARGETARCH
 
 WORKDIR /tools
 
 RUN <<EOF
 set -euo pipefail
 apk add --no-cache curl
-curl -fsSL "https://github.com/kdave/btrfs-progs/releases/download/${BTRFS_VERSION}/btrfs.box.static" \
-  -o btrfs
+
+# btrfs-progs only provides x86_64 static binaries
+# For arm64, we fall back to Alpine's package (dynamically linked)
+if [ "${TARGETARCH}" = "arm64" ]; then
+  apk add --no-cache btrfs-progs
+  cp /usr/bin/btrfs btrfs
+else
+  curl -fsSL "https://github.com/kdave/btrfs-progs/releases/download/${BTRFS_VERSION}/btrfs.box.static" -o btrfs
+fi
 chmod +x btrfs
 EOF
 
@@ -142,7 +150,7 @@ EOF
 FROM scratch
 
 COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
-COPY --link --from=pkg-kernel /bzImage /bzImage
+COPY --link --from=pkg-kernel /vmlinuz /vmlinuz
 COPY --link --from=pkg-stub /stub.efi /stub.efi
 
 LABEL org.opencontainers.image.title="installer"

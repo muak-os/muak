@@ -2,14 +2,16 @@
 
 ARG RUST_VERSION=1.91.1
 ARG ALPINE_VERSION=3.23
-ARG TARGET=x86_64-unknown-linux-musl
 ARG SOURCE_DATE_EPOCH=0
 
 # ============================================================
 FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
-ARG TARGET
 ARG SOURCE_DATE_EPOCH
+ARG TARGETARCH
+
+ARG TARGET=${TARGETARCH/amd64/x86_64}
+ARG TARGET=${TARGET/arm64/aarch64}
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
@@ -29,14 +31,18 @@ COPY internal/shared/kmsg ./internal/shared/kmsg
 COPY internal/yuki ./internal/yuki
 COPY internal/imager ./internal/imager
 COPY internal/shared/sysconfig ./internal/shared/sysconfig
-COPY pkgs/kernel/cmdline.txt ./pkgs/kernel/cmdline.txt
+# Copy both cmdline files for build compatibility
+COPY pkgs/kernel/cmdline-amd64.txt ./pkgs/kernel/cmdline-amd64.txt
+COPY pkgs/kernel/cmdline-arm64.txt ./pkgs/kernel/cmdline-arm64.txt
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
-cargo build --release --target ${TARGET} -p granola
-cp target/${TARGET}/release/granola /granola
+
+RUST_TARGET="${TARGET}-unknown-linux-musl"
+cargo build --release --target ${RUST_TARGET} -p granola
+cp target/${RUST_TARGET}/release/granola /granola
 EOF
 
 # ============================================================

@@ -19,7 +19,7 @@ impl Uki {
     pub fn from_dir(base_dir: &Path) -> Self {
         let arch_dir = base_dir.join(std::env::consts::ARCH);
         Self {
-            kernel: arch_dir.join("bzImage"),
+            kernel: arch_dir.join("vmlinuz"),
             stub: arch_dir.join("stub.efi"),
             initramfs: arch_dir.join("initramfs.img"),
             cmdline: arch_dir.join("cmdline.txt"),
@@ -48,7 +48,7 @@ pub fn prepare_uki_components(config: &UkiConfig) -> Result<Uki> {
 pub fn build(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
-    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, None)
         .context("Failed to build UKI")?;
 
     std::fs::write(output, &buffer).context("Failed to write the UKI")?;
@@ -65,7 +65,7 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
     ensure_parent_exists(output)?;
 
     let temp_output = get_temp_path(output);
-    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline)
+    let buffer = yuki::build(&uki.stub, &uki.kernel, &uki.initramfs, &uki.cmdline, None)
         .context("Failed to build UKI")?;
 
     std::fs::write(&temp_output, &buffer).context("Failed to write the UKI")?;
@@ -145,7 +145,7 @@ fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
 }
 
 fn verify_installer_files(base_dir: &Path) -> Result<()> {
-    let required_files = ["bzImage", "stub.efi", "base-initramfs.img"];
+    let required_files = ["vmlinuz", "stub.efi", "base-initramfs.img"];
 
     for file in &required_files {
         let path = base_dir.join(file);

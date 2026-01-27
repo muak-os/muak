@@ -13,11 +13,20 @@ env:
 
 jobs:
   build-installer:
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,7 +52,7 @@ jobs:
             echo "tag=$(git describe --tag --always --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build installer
+      - name: Build installer (${{ matrix.arch }})
         run: |
           make oci-installer \
             CONTAINER_RUNTIME=docker \
@@ -51,10 +60,10 @@ jobs:
             LATEST=true \
             TAG=${{ steps.tag.outputs.tag }} \
             REGISTRY=${{ env.REGISTRY }}/sawangg \
-            CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache,mode=max"
+            CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache-${{ matrix.arch }} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache-${{ matrix.arch }},mode=max"
 
       - name: Build summary
         run: |
-          echo "### Installer Built :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Installer (${{ matrix.arch }}) Built :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ env.REGISTRY }}/sawangg/installer:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY

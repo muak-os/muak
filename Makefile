@@ -5,19 +5,36 @@ SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
 
 PUSH ?= false
 LATEST ?= false
-PLATFORM ?= linux/amd64
 PROGRESS ?= auto
 CI_ARGS ?=
 SIGNING_ARGS ?=
 
 ARTIFACTS := _out
-ARCH ?= x86_64
-CARGO_TARGET := x86_64-unknown-linux-musl
-UEFI_TARGET := x86_64-unknown-uefi
+
+ARCH ?= $(shell uname -m)
+
+ifeq ($(ARCH),$(filter $(ARCH),aarch64 arm64))
+    override ARCH := aarch64
+    CARGO_TARGET := aarch64-unknown-linux-musl
+    UEFI_TARGET := aarch64-unknown-uefi
+    KERNEL_CONFIG := config-arm64
+    BOOT_FILE := BOOTAA64.EFI
+    PLATFORM := linux/arm64
+    CMDLINE_FILE := pkgs/kernel/cmdline-arm64.txt
+else
+    CARGO_TARGET := x86_64-unknown-linux-musl
+    UEFI_TARGET := x86_64-unknown-uefi
+    KERNEL_CONFIG := config-amd64
+    BOOT_FILE := BOOTX64.EFI
+    PLATFORM := linux/amd64
+    CMDLINE_FILE := pkgs/kernel/cmdline-amd64.txt
+endif
+
 RELEASE_DIR := target/$(CARGO_TARGET)/release
 UEFI_RELEASE_DIR := target/$(UEFI_TARGET)/release
 
 EXTENSIONS ?=
+DTB ?=
 
 CONTAINER_RUNTIME ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
 
@@ -134,8 +151,8 @@ oci-kernel: ## Build kernel OCI image (signed in CI)
 
 .PHONY: kspp
 kspp: ## Check kernel config against KSPP security hardening recommendations
-	@printf "$(CYAN)Checking kernel config against KSPP recommendations$(RESET)\n"
-	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/pkgs/kernel/config-amd64:/config:ro \
+	@printf "$(CYAN)Checking kernel config ($(KERNEL_CONFIG)) against KSPP recommendations$(RESET)\n"
+	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/pkgs/kernel/$(KERNEL_CONFIG):/config:ro \
 		alpine:3.23 sh -c '\
 		apk add --no-cache git python3 >/dev/null 2>&1 && \
 		git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
@@ -144,7 +161,7 @@ kspp: ## Check kernel config against KSPP security hardening recommendations
 ## Installer
 .PHONY: installer
 installer: $(ARTIFACTS) ## Build installer with local binaries
-	$(call require,$(ARTIFACTS)/bzImage,make kernel)
+	$(call require,$(ARTIFACTS)/vmlinuz,make kernel)
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
 		--build-context pkg-granola=$(RELEASE_DIR) \
@@ -206,32 +223,35 @@ extensions: $(ARTIFACTS) ## Extend base initramfs with specified extensions
 .PHONY: uki
 uki: $(ARTIFACTS) ## Build UKI (Unified Kernel Image)
 	$(call require,$(ARTIFACTS)/stub.efi,make installer)
-	$(call require,$(ARTIFACTS)/bzImage,make installer)
+	$(call require,$(ARTIFACTS)/vmlinuz,make installer)
 	$(call require,$(ARTIFACTS)/initramfs.img,make extensions)
-	@printf "$(CYAN)Building UKI$(RESET)\n"
-	@tr -d '\n' < pkgs/kernel/cmdline.txt > $(ARTIFACTS)/cmdline.txt
+	@printf "$(CYAN)Building UKI for $(ARCH)$(RESET)\n"
+	@tr -d '\n' < $(CMDLINE_FILE) > $(ARTIFACTS)/cmdline.txt
 	@$(RELEASE_DIR)/yuki \
 		--stub $(ARTIFACTS)/stub.efi \
-		--linux $(ARTIFACTS)/bzImage \
+		--linux $(ARTIFACTS)/vmlinuz \
 		--initrd $(ARTIFACTS)/initramfs.img \
 		--cmdline $(ARTIFACTS)/cmdline.txt \
+		$(if $(DTB),--dtb $(DTB)) \
 		--output $(ARTIFACTS)/muak-$(ARCH).efi
 	@printf "$(GREEN)UKI built:$(RESET) $(ARTIFACTS)/muak-$(ARCH).efi\n"
 
 .PHONY: iso
 iso: $(ARTIFACTS) ## Build bootable ISO
 	$(call require,$(ARTIFACTS)/muak-$(ARCH).efi,make uki)
-	@printf "$(CYAN)Building ISO$(RESET)\n"
-	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/$(ARTIFACTS):/out alpine:3.23 sh -c '\
+	@printf "$(CYAN)Building ISO for $(ARCH)$(RESET)\n"
+	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/$(ARTIFACTS):/out -e BOOT_FILE=$(BOOT_FILE) -e ARCH=$(ARCH) alpine:3.23 sh -c '\
 		set -euo pipefail && \
 		apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1 && \
 		rm -rf /out/iso && mkdir -p /out/iso/EFI/BOOT && \
-		cp /out/muak-$(ARCH).efi /out/iso/EFI/BOOT/BOOTX64.EFI && \
-		dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=100 2>/dev/null && \
+		cp /out/muak-$${ARCH}.efi /out/iso/EFI/BOOT/$${BOOT_FILE} && \
+		EFI_SIZE=$$(stat -c%s /out/muak-$${ARCH}.efi) && \
+		FAT_SIZE=$$(( (EFI_SIZE / 1024 / 1024) + 10 )) && \
+		dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=$${FAT_SIZE} 2>/dev/null && \
 		mkfs.vfat /out/iso/efiboot.img >/dev/null && \
 		mmd -i /out/iso/efiboot.img ::/EFI ::/EFI/BOOT && \
-		mcopy -i /out/iso/efiboot.img /out/muak-$(ARCH).efi ::/EFI/BOOT/BOOTX64.EFI && \
-		xorriso -as mkisofs -o /out/muak-$(ARCH).iso -e efiboot.img -no-emul-boot -V MUAK /out/iso && \
+		mcopy -i /out/iso/efiboot.img /out/muak-$${ARCH}.efi ::/EFI/BOOT/$${BOOT_FILE} && \
+		xorriso -as mkisofs -o /out/muak-$${ARCH}.iso -e efiboot.img -no-emul-boot -V MUAK /out/iso && \
 		rm -rf /out/iso'
 	@printf "$(GREEN)ISO built:$(RESET) $(ARTIFACTS)/muak-$(ARCH).iso\n"
 

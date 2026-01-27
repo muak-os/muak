@@ -19,8 +19,14 @@ use uki::{Uki, UkiConfig};
 
 pub(crate) const INSTALL_DIR: &str = "/run/install";
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";
+
+#[cfg(target_arch = "x86_64")]
 pub(crate) const DEFAULT_CMDLINE: &str =
-    include_str!("../../../../pkgs/kernel/cmdline.txt").trim_ascii();
+    include_str!("../../../../pkgs/kernel/cmdline-amd64.txt").trim_ascii();
+
+#[cfg(target_arch = "aarch64")]
+pub(crate) const DEFAULT_CMDLINE: &str =
+    include_str!("../../../../pkgs/kernel/cmdline-arm64.txt").trim_ascii();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallationStatus {

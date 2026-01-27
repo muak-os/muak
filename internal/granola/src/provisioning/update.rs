@@ -10,6 +10,12 @@ use rustix::system::{RebootCommand, reboot};
 use super::uki::Uki;
 use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
 
+/// Syscall number for kexec_file_load.
+#[cfg(target_arch = "x86_64")]
+const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;
+#[cfg(target_arch = "aarch64")]
+const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
+
 pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     let staging_dir = create_staging_directory()?;
     let _uki = prepare_uki(image, extensions, &staging_dir)?;
@@ -65,7 +71,7 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     // SAFETY: kexec_file_load syscall with valid file descriptors and null-terminated string
     let res = unsafe {
         libc::syscall(
-            libc::SYS_kexec_file_load,
+            SYS_KEXEC_FILE_LOAD,
             kernel.as_raw_fd(),
             initrd.as_raw_fd(),
             cmdline.as_bytes_with_nul().len() as libc::size_t,

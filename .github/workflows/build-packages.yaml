@@ -132,7 +132,6 @@ jobs:
   build:
     needs: detect-changes
     if: needs.detect-changes.outputs.packages != '[]'
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -140,7 +139,14 @@ jobs:
       fail-fast: false
       matrix:
         package: ${{ fromJSON(needs.detect-changes.outputs.packages) }}
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -158,11 +164,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build ${{ matrix.package }}
+      - name: Build ${{ matrix.package }} (${{ matrix.arch }})
         run: |
-          CACHE_ARGS="--cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:buildcache"
+          CACHE_ARGS="--cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:buildcache-${{ matrix.arch }}"
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            CACHE_ARGS="${CACHE_ARGS} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:buildcache,mode=max"
+            CACHE_ARGS="${CACHE_ARGS} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:buildcache-${{ matrix.arch }},mode=max"
           fi
           make oci-${{ matrix.package }} \
             CONTAINER_RUNTIME=docker \
@@ -175,6 +181,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           TAG=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)
-          echo "### ${{ matrix.package }} Built :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### ${{ matrix.package }} (${{ matrix.arch }}) Built :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:${TAG}\`" >> $GITHUB_STEP_SUMMARY

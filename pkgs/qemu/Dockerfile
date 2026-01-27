@@ -2,6 +2,12 @@
 # Bundle dynamic QEMU with all dependencies for bare-metal deployment
 
 FROM alpine:3.23 AS builder
+
+ARG TARGETARCH
+
+ARG TARGET=${TARGETARCH/amd64/x86_64}
+ARG TARGET=${TARGET/arm64/aarch64}
+
 WORKDIR /build
 
 # Install QEMU and ALL runtime dependencies
@@ -73,8 +79,15 @@ RUN cp /usr/bin/qemu-system-x86_64 /output/usr/bin/ && \
 # This ensures we don't miss any dependencies
 RUN cp -a /usr/lib/* /output/usr/lib/ || true
 
-# Copy musl dynamic linker (critical for Alpine-based binaries)
-RUN cp /lib/ld-musl-x86_64.so.1 /output/lib/
+# Copy musl dynamic linker (architecture-aware)
+RUN <<EOF
+set -euo pipefail
+if [ "${TARGET}" = "aarch64" ]; then
+  cp /lib/ld-musl-aarch64.so.1 /output/lib/
+else
+  cp /lib/ld-musl-x86_64.so.1 /output/lib/
+fi
+EOF
 
 # Copy QEMU firmware and BIOS files (CRITICAL - QEMU won't work without these!)
 RUN cp -r /usr/share/qemu/* /output/usr/share/qemu/
