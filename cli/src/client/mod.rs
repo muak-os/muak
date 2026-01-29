@@ -46,8 +46,9 @@ pub use vm_service::{
 
 pub use auth_service::auth_service_client::AuthServiceClient;
 pub use auth_service::{
-    ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest, ListUsersRequest,
-    RevokeCertRequest, SubmitCsrRequest, get_csr_status_response::Status as CsrStatus,
+    AckEnrollmentRequest, ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest,
+    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
+    get_csr_status_response::Status as CsrStatus,
 };
 
 /// Connects using a server context with mTLS.

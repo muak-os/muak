@@ -45,6 +45,10 @@
 - Enhance sysconfig shared lib:
   - Config versioning with tracking of changes over time
 
+- Enhance `apid`
+  - Rate limit routes especially unauthenticated ones
+  - Enforce RBAC policies
+
 - Disk Manager Service:
   - LUKS encryption/decryption with libcryptsetup-rs
     - Automatic unlocking using TPM2

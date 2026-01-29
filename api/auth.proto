@@ -20,6 +20,9 @@ service AuthService {
 
   // Authenticated (admin/cert_manage) - list authorized users
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Unauthenticated - acknowledge enrollment completion (cleanup staging cert)
+  rpc AckEnrollment(AckEnrollmentRequest) returns (AckEnrollmentResponse);
 }
 
 message SubmitCsrRequest {
@@ -89,3 +92,10 @@ message AuthorizedUser {
   string fingerprint = 1;
   repeated string permissions = 2;
 }
+
+message AckEnrollmentRequest {
+  // CSR fingerprint (from SubmitCsrResponse)
+  string fingerprint = 1;
+}
+
+message AckEnrollmentResponse {}

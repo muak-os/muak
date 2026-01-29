@@ -7,13 +7,15 @@ use x509_cert::Certificate;
 
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::{
-    ApproveCsrRequest, ApproveCsrResponse, AuthorizedUser, GetCsrStatusRequest,
-    GetCsrStatusResponse, ListPendingCsrsRequest, ListPendingCsrsResponse, ListUsersRequest,
-    ListUsersResponse, PendingCsr, RevokeCertRequest, RevokeCertResponse, SubmitCsrRequest,
-    SubmitCsrResponse, get_csr_status_response::Status as CsrStatus,
+    AckEnrollmentRequest, AckEnrollmentResponse, ApproveCsrRequest, ApproveCsrResponse,
+    AuthorizedUser, GetCsrStatusRequest, GetCsrStatusResponse, ListPendingCsrsRequest,
+    ListPendingCsrsResponse, ListUsersRequest, ListUsersResponse, PendingCsr, RevokeCertRequest,
+    RevokeCertResponse, SubmitCsrRequest, SubmitCsrResponse,
+    get_csr_status_response::Status as CsrStatus,
 };
 
 const PENDING_DIR: &str = "/run/state/secrets/pending";
+const STAGING_DIR: &str = "/run/state/secrets/staging";
 const CA_CERT_PATH: &str = "/run/state/secrets/ca.crt";
 const CA_KEY_PATH: &str = "/run/state/secrets/ca.key";
 
@@ -66,43 +68,28 @@ impl AuthService for AuthServiceImpl {
     ) -> Result<Response<GetCsrStatusResponse>, Status> {
         let fingerprint = request.into_inner().fingerprint;
 
-        if let Some(config) = sysconfig::try_config() {
-            for user in &config.auth.users {
-                if user.fingerprint == fingerprint {
-                    let (ca_pem, cert_pem) = match load_approved_cert(&fingerprint) {
-                        Ok((ca, cert)) => (ca, cert),
-                        Err(e) => {
-                            kmsg::warn!("Failed to load approved cert: {}", e);
-                            return Ok(Response::new(GetCsrStatusResponse {
-                                status: CsrStatus::Approved.into(),
-                                cert_pem: String::new(),
-                                ca_pem: String::new(),
-                                server_name: String::new(),
-                            }));
-                        }
-                    };
+        if let Some(config) = sysconfig::try_config()
+            && config.auth.revoked.contains(&fingerprint)
+        {
+            return Ok(Response::new(GetCsrStatusResponse {
+                status: CsrStatus::Rejected.into(),
+                cert_pem: String::new(),
+                ca_pem: String::new(),
+                server_name: String::new(),
+            }));
+        }
 
-                    let server_name = sysconfig::try_config()
-                        .map(|c| c.system.name.clone())
-                        .unwrap_or_default();
+        if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
+            let server_name = sysconfig::try_config()
+                .map(|c| c.system.name.clone())
+                .unwrap_or_default();
 
-                    return Ok(Response::new(GetCsrStatusResponse {
-                        status: CsrStatus::Approved.into(),
-                        cert_pem,
-                        ca_pem,
-                        server_name,
-                    }));
-                }
-            }
-
-            if config.auth.revoked.contains(&fingerprint) {
-                return Ok(Response::new(GetCsrStatusResponse {
-                    status: CsrStatus::Rejected.into(),
-                    cert_pem: String::new(),
-                    ca_pem: String::new(),
-                    server_name: String::new(),
-                }));
-            }
+            return Ok(Response::new(GetCsrStatusResponse {
+                status: CsrStatus::Approved.into(),
+                cert_pem,
+                ca_pem,
+                server_name,
+            }));
         }
 
         let pending_path = pending_csr_path(&fingerprint);
@@ -163,7 +150,7 @@ impl AuthService for AuthServiceImpl {
             .to_pem(LineEnding::LF)
             .map_err(|e| Status::internal(format!("Failed to encode certificate: {}", e)))?;
 
-        store_approved_cert(&cert_fingerprint, &cert_pem)
+        store_staging_cert(&fingerprint, &cert_pem)
             .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
 
         let parsed_permissions: Vec<sysconfig::Permission> = permissions
@@ -237,6 +224,23 @@ impl AuthService for AuthServiceImpl {
             revoked_fingerprints,
         }))
     }
+
+    async fn ack_enrollment(
+        &self,
+        request: Request<AckEnrollmentRequest>,
+    ) -> Result<Response<AckEnrollmentResponse>, Status> {
+        let fingerprint = request.into_inner().fingerprint;
+
+        let cert_path = staging_cert_path(&fingerprint);
+        if cert_path.exists() {
+            std::fs::remove_file(&cert_path)
+                .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {}", e)))?;
+        }
+
+        kmsg::info!("Enrollment acknowledged: {}", &fingerprint[..16]);
+
+        Ok(Response::new(AckEnrollmentResponse {}))
+    }
 }
 
 /// Returns the path for a pending CSR.
@@ -307,20 +311,23 @@ fn is_user_authorized(fingerprint: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Stores an approved certificate.
-fn store_approved_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
-    let certs_dir = Path::new("/run/state/secrets/approved");
-    std::fs::create_dir_all(certs_dir)?;
-    let path = certs_dir.join(format!("{}.crt", fingerprint));
+/// Returns the path for a staging certificate.
+fn staging_cert_path(fingerprint: &str) -> PathBuf {
+    Path::new(STAGING_DIR).join(format!("{}.crt", fingerprint))
+}
+
+/// Stores a certificate in staging for client pickup.
+fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(STAGING_DIR)?;
+    let path = staging_cert_path(fingerprint);
     std::fs::write(path, cert_pem)?;
     Ok(())
 }
 
-/// Loads an approved certificate and CA cert for a fingerprint.
-fn load_approved_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
+/// Loads a staging certificate and CA cert for a fingerprint.
+fn load_staging_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
     let ca_pem = std::fs::read_to_string(CA_CERT_PATH)?;
-    let cert_path = Path::new("/run/state/secrets/approved").join(format!("{}.crt", fingerprint));
-    let cert_pem = std::fs::read_to_string(cert_path)?;
+    let cert_pem = std::fs::read_to_string(staging_cert_path(fingerprint))?;
     Ok((ca_pem, cert_pem))
 }
 

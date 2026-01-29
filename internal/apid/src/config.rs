@@ -21,4 +21,5 @@ pub const UNAUTHENTICATED_METHODS: &[&str] = &[
     "/muak.provision.v1.ProvisionService/GetLogs",
     "/muak.auth.v1.AuthService/SubmitCsr",
     "/muak.auth.v1.AuthService/GetCsrStatus",
+    "/muak.auth.v1.AuthService/AckEnrollment",
 ];

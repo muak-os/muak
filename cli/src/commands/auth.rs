@@ -10,8 +10,9 @@ use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{
-    ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest, ListPendingCsrsRequest,
-    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest, connect_tls_insecure,
+    AckEnrollmentRequest, ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest,
+    ListPendingCsrsRequest, ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
+    connect_tls_insecure,
 };
 use crate::config::ClientConfig;
 
@@ -327,6 +328,12 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
                     key_pem.as_bytes(),
                 );
                 config.save()?;
+
+                let _ = client
+                    .ack_enrollment(AckEnrollmentRequest {
+                        fingerprint: fingerprint.clone(),
+                    })
+                    .await;
 
                 println!("Context '{}' created and set as current.", name.cyan());
                 return Ok(());
