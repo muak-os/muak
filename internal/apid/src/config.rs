@@ -17,7 +17,6 @@ pub const AUTH_SERVICE_PREFIX: &str = "/muak.auth.v1.AuthService/";
 pub const UNAUTHENTICATED_METHODS: &[&str] = &[
     "/muak.provision.v1.ProvisionService/ListDisks",
     "/muak.provision.v1.ProvisionService/Install",
-    "/muak.provision.v1.ProvisionService/GetConfig",
     "/muak.provision.v1.ProvisionService/GetLogs",
     "/muak.auth.v1.AuthService/SubmitCsr",
     "/muak.auth.v1.AuthService/GetCsrStatus",
