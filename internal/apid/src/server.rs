@@ -10,7 +10,7 @@ use tokio_rustls::server::TlsStream;
 use crate::handler;
 use crate::tls;
 
-/// Serves a TLS-wrapped connection
+/// Serves a TLS-wrapped connection.
 pub async fn serve_tls_connection(
     tls_stream: TlsStream<tokio::net::TcpStream>,
     peer_addr: SocketAddr,
@@ -24,16 +24,6 @@ pub async fn serve_tls_connection(
         async move { handler::handle_request(req, fingerprint).await }
     });
 
-    let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
-
-    if let Err(e) = conn.await {
-        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
-    }
-}
-
-/// Serves a plain (non-TLS) connection
-pub async fn serve_plain_connection(io: TokioIo<tokio::net::TcpStream>, peer_addr: SocketAddr) {
-    let service = service_fn(move |req| async move { handler::handle_request(req, None).await });
     let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
 
     if let Err(e) = conn.await {

@@ -87,12 +87,14 @@ name = "apid"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "der",
  "hex",
  "http-body-util",
  "hyper",
  "hyper-util",
  "kmsg",
  "notify",
+ "pki",
  "ring",
  "rustls",
  "rustls-pemfile",
@@ -1370,17 +1372,22 @@ dependencies = [
  "anyhow",
  "base64ct",
  "clap",
+ "hyper",
+ "hyper-util",
  "owo-colors",
  "pki",
  "prost",
+ "rustls",
  "serde",
  "sysconfig",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "toml",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tower",
 ]
 
 [[package]]

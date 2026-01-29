@@ -12,7 +12,7 @@ use anyhow::Result;
 use tonic::transport::Channel;
 
 use crate::client::{
-    ProcessServiceClient, ProvisionServiceClient, VmServiceClient, connect, connect_insecure,
+    ProcessServiceClient, ProvisionServiceClient, VmServiceClient, connect, connect_tls_insecure,
 };
 use crate::config::ClientConfig;
 use crate::{Cli, Commands};
@@ -20,14 +20,14 @@ use crate::{Cli, Commands};
 /// Resolves the connection based on CLI flags and config.
 ///
 /// Priority:
-/// 1. `--endpoint` flag: maintenance mode (insecure HTTP)
+/// 1. `--endpoint` flag: maintenance mode (TOFU TLS, no client cert)
 /// 2. `--context` flag or MUAK_CONTEXT env: use specified context
 /// 3. Config default context: use current context from config
 ///
 /// Returns (Channel, endpoint_address).
 async fn resolve_connection(cli: &Cli, timeout_secs: u64) -> Result<(Channel, String)> {
     if let Some(endpoint) = &cli.endpoint {
-        let channel = connect_insecure(endpoint, timeout_secs).await?;
+        let channel = connect_tls_insecure(endpoint, timeout_secs).await?;
         return Ok((channel, endpoint.clone()));
     }
 

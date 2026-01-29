@@ -17,13 +17,6 @@ pub async fn handle_request(
 
     match auth::check_auth(path, client_fingerprint.as_deref()) {
         AuthResult::Allowed => {}
-        AuthResult::MaintenanceMode => {
-            kmsg::warn!(
-                "Request to protected endpoint in maintenance mode: {}",
-                path
-            );
-            return Ok(grpc_error(9, "Server not installed"));
-        }
         AuthResult::Unauthenticated => {
             kmsg::warn!("Unauthenticated request to protected endpoint: {}", path);
             return Ok(grpc_error(16, "Client certificate required"));

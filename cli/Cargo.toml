@@ -8,10 +8,14 @@ version.workspace = true
 # Asynchronous
 tokio = { workspace = true, features = ["macros", "io-util", "fs"] }
 tokio-stream = { workspace = true }
+tokio-rustls = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
 owo-colors = { workspace = true }
+
+# Cryptography
+rustls = { workspace = true }
 
 # Encoding
 base64ct = { workspace = true }
@@ -25,6 +29,13 @@ anyhow = { workspace = true }
 # gRPC
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+
+# HTTP
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+
+# Networking
+tower = { workspace = true }
 
 # Internal
 pki = { path = "../internal/shared/pki" }

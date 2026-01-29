@@ -6,8 +6,6 @@ mod server;
 mod tls;
 
 use anyhow::Result;
-use hyper_util::rt::TokioIo;
-use notify::NotifyClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,27 +19,16 @@ async fn main() -> Result<()> {
 
     sysconfig::init()?;
 
-    let listen_addr = parse_listen_addr();
-    let notifier = NotifyClient::new("apid")?;
+    let (listen_addr, maintenance_mode) = parse_args();
+    let notifier = notify::NotifyClient::new("apid")?;
 
     let addr: SocketAddr = listen_addr.parse()?;
     let listener = TcpListener::bind(addr).await?;
 
-    let tls_acceptor = match tls::load_tls_config() {
-        Ok(Some(acceptor)) => {
-            kmsg::info!("TLS enabled with mTLS support");
-            Some(acceptor)
-        }
-        Ok(None) => {
-            kmsg::warn!("TLS certificates not found, running without TLS");
-            kmsg::warn!("This is only acceptable in maintenance/live-ISO mode!");
-            None
-        }
-        Err(e) => {
-            kmsg::warn!("TLS configuration error: {}", e);
-            kmsg::warn!("Running without TLS - maintenance mode only!");
-            None
-        }
+    let tls_acceptor = if maintenance_mode {
+        tls::generate_ephemeral_tls_config()?
+    } else {
+        tls::load_tls_config()?
     };
 
     kmsg::info!("API daemon ready, listening on {}", addr);
@@ -57,15 +44,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn parse_listen_addr() -> String {
+/// Parses command line arguments
+fn parse_args() -> (String, bool) {
     let args: Vec<String> = std::env::args().collect();
     let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);
 
-    args.iter()
+    let listen_addr = args
+        .iter()
         .position(|a| a == "--listen")
         .and_then(|i| args.get(i + 1))
         .cloned()
-        .unwrap_or(default_listen)
+        .unwrap_or(default_listen);
+
+    let maintenance_mode = args.iter().any(|a| a == "--maintenance");
+
+    (listen_addr, maintenance_mode)
 }
 
 fn setup_shutdown_handler() -> Arc<AtomicBool> {
@@ -92,7 +85,7 @@ fn setup_shutdown_handler() -> Arc<AtomicBool> {
 
 async fn run_accept_loop(
     listener: &TcpListener,
-    tls_acceptor: &Option<tokio_rustls::TlsAcceptor>,
+    tls_acceptor: &tokio_rustls::TlsAcceptor,
     shutdown: &Arc<AtomicBool>,
 ) {
     while !shutdown.load(Ordering::SeqCst) {
@@ -109,13 +102,8 @@ async fn run_accept_loop(
             Err(_) => continue,
         };
 
-        if let Some(acceptor) = tls_acceptor {
-            let acceptor = acceptor.clone();
-            tokio::spawn(handle_tls_connection(acceptor, stream, peer_addr));
-        } else {
-            let io = TokioIo::new(stream);
-            tokio::spawn(server::serve_plain_connection(io, peer_addr));
-        }
+        let acceptor = tls_acceptor.clone();
+        tokio::spawn(handle_tls_connection(acceptor, stream, peer_addr));
     }
 }
 
@@ -135,7 +123,7 @@ async fn handle_tls_connection(
             server::serve_tls_connection(tls_stream, peer_addr, client_cert).await;
         }
         Err(e) => {
-            kmsg::warn!("TLS handshake failed from {}: {}", peer_addr, e);
+            kmsg::warn!("TLS handshake failed from {}: {:?}", peer_addr, e);
         }
     }
 }

@@ -11,7 +11,7 @@ use tonic::transport::Channel;
 
 use crate::client::{
     ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest, ListPendingCsrsRequest,
-    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest, connect_insecure,
+    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest, connect_tls_insecure,
 };
 use crate::config::ClientConfig;
 
@@ -133,7 +133,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
     );
     println!("Permissions: {:?}", perms);
 
-    let response = auth_client
+    let _ = auth_client
         .approve_csr(ApproveCsrRequest {
             fingerprint: full_fingerprint.clone(),
             permissions: perms,
@@ -141,13 +141,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
         .await
         .context("Failed to approve CSR")?;
 
-    let cert_pem = response.into_inner().cert_pem;
-
     println!("\n{} Certificate issued!", "Success:".green());
-    println!(
-        "Certificate (first 100 chars): {}...",
-        &cert_pem[..cert_pem.len().min(100)]
-    );
 
     Ok(())
 }
@@ -278,7 +272,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         config.save()?;
 
         println!("Submitting certificate request...");
-        let channel = connect_insecure(endpoint, 30).await?;
+        let channel = connect_tls_insecure(endpoint, 30).await?;
         let mut client = AuthServiceClient::new(channel);
 
         client
@@ -302,7 +296,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         display_fp
     );
 
-    let channel = connect_insecure(endpoint, 30).await?;
+    let channel = connect_tls_insecure(endpoint, 30).await?;
     let mut client = AuthServiceClient::new(channel);
 
     loop {
