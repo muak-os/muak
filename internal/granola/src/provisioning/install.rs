@@ -2,9 +2,11 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use der::EncodePem;
+use der::pem::LineEnding;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
-use sysconfig::HostConfig;
+use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
 
 use crate::disk;
 
@@ -13,13 +15,39 @@ use super::{
     INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
 };
 
-pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> {
+/// Result of a successful installation containing PKI materials.
+pub struct InstallResult {
+    pub ca_pem: String,
+    pub admin_cert_pem: String,
+}
+
+/// Internal PKI materials to store on the server.
+struct ServerPki {
+    pub ca_pem: String,
+    pub ca_key_pem: String,
+    pub server_cert_pem: String,
+    pub server_key_pem: String,
+}
+
+pub fn install(
+    disk_path: &str,
+    force: bool,
+    config: &HostConfig,
+    admin_csr_pem: &str,
+) -> Result<InstallResult> {
     kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);
 
     validate(disk_path, force)?;
 
+    let (client_result, server_pki, config_with_auth) =
+        generate_pki_and_sign_csr(admin_csr_pem, config)?;
+
     let work_dir = Path::new(INSTALL_DIR);
-    let components = prepare_uki(&config.system.image, &config.system.extensions, work_dir)?;
+    let components = prepare_uki(
+        &config_with_auth.system.image,
+        &config_with_auth.system.extensions,
+        work_dir,
+    )?;
     let staged_uki = work_dir.join("staged.efi");
 
     uki::build(&components, &staged_uki)?;
@@ -33,7 +61,7 @@ pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> 
     disk::format_btrfs_partition(&data_part, "DATA")?;
 
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
-    init_state_partition(&state_part, config)?;
+    init_state_partition(&state_part, &config_with_auth, &server_pki)?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
         kmsg::warn!(@ "provisioning", "Failed to cleanup work dir: {}", e);
@@ -42,7 +70,7 @@ pub fn install(disk_path: &str, force: bool, config: &HostConfig) -> Result<()> 
     sync();
     kmsg::info!(@ "provisioning", "Installation completed successfully!");
 
-    Ok(())
+    Ok(client_result)
 }
 
 fn validate(disk_path: &str, force: bool) -> Result<()> {
@@ -108,7 +136,7 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
     Ok(())
 }
 
-fn init_state_partition(device: &str, config: &HostConfig) -> Result<()> {
+fn init_state_partition(device: &str, config: &HostConfig, server_pki: &ServerPki) -> Result<()> {
     kmsg::info!(@ "provisioning", "Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
@@ -123,9 +151,88 @@ fn init_state_partition(device: &str, config: &HostConfig) -> Result<()> {
     fs::write(format!("{}/config.toml", mount_point), config_toml)
         .context("Failed to write config.toml")?;
 
+    let secrets_dir = format!("{}/secrets", mount_point);
+    fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
+
+    fs::write(format!("{}/ca.crt", secrets_dir), &server_pki.ca_pem)
+        .context("Failed to write CA certificate")?;
+    fs::write(format!("{}/ca.key", secrets_dir), &server_pki.ca_key_pem)
+        .context("Failed to write CA key")?;
+    fs::write(
+        format!("{}/server.crt", secrets_dir),
+        &server_pki.server_cert_pem,
+    )
+    .context("Failed to write server certificate")?;
+    fs::write(
+        format!("{}/server.key", secrets_dir),
+        &server_pki.server_key_pem,
+    )
+    .context("Failed to write server key")?;
+
     sync();
     unmount_partition(mount_point);
 
     kmsg::info!(@ "provisioning", "STATE partition initialized");
     Ok(())
+}
+
+/// Generates the CA, server, and signs the admin CSR.
+fn generate_pki_and_sign_csr(
+    csr_pem: &str,
+    config: &HostConfig,
+) -> Result<(InstallResult, ServerPki, HostConfig)> {
+    kmsg::info!(@ "provisioning", "Generating PKI and signing CSR");
+
+    let (ca_key, ca_cert) =
+        pki::generate_ca_certificate("Muak CA").context("Failed to generate CA certificate")?;
+
+    let ca_cert_pem = ca_cert
+        .to_pem(LineEnding::LF)
+        .context("Failed to encode CA certificate")?;
+
+    let ca_key_pem =
+        pki::util::pkcs8_to_pem(ca_key.pkcs8_der()).context("Failed to encode CA key")?;
+
+    let (server_key, server_cert) =
+        pki::generate_server_certificate("muak-server", &ca_key, &ca_cert)
+            .context("Failed to generate server certificate")?;
+
+    let server_cert_pem = server_cert
+        .to_pem(LineEnding::LF)
+        .context("Failed to encode server certificate")?;
+
+    let server_key_pem =
+        pki::util::pkcs8_to_pem(server_key.pkcs8_der()).context("Failed to encode server key")?;
+
+    let (admin_cert, admin_fingerprint) =
+        pki::sign_csr(csr_pem, &ca_key_pem, &ca_cert).context("Failed to sign admin CSR")?;
+
+    let admin_cert_pem = admin_cert
+        .to_pem(LineEnding::LF)
+        .context("Failed to encode admin certificate")?;
+
+    kmsg::info!(@ "provisioning", "Admin fingerprint: {}", admin_fingerprint);
+
+    let mut config_with_auth = config.clone();
+    config_with_auth.auth = AuthConfig {
+        users: vec![AuthUser {
+            fingerprint: admin_fingerprint,
+            permissions: vec![Permission::Admin],
+        }],
+        revoked: vec![],
+    };
+
+    let client_result = InstallResult {
+        ca_pem: ca_cert_pem.clone(),
+        admin_cert_pem,
+    };
+
+    let server_pki = ServerPki {
+        ca_pem: ca_cert_pem,
+        ca_key_pem,
+        server_cert_pem,
+        server_key_pem,
+    };
+
+    Ok((client_result, server_pki, config_with_auth))
 }

@@ -29,6 +29,10 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<InstallResponse>, Status> {
         let req = request.into_inner();
 
+        if req.csr.is_empty() {
+            return Err(Status::invalid_argument("CSR is required"));
+        }
+
         let config_toml = String::from_utf8(req.config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
@@ -46,8 +50,11 @@ impl ProvisionService for ProvisionServiceImpl {
             config.system.image
         );
 
-        match provisioning::install(req.force, config).await {
-            Ok(()) => {
+        match provisioning::install(req.force, config, req.csr).await {
+            Ok(result) => {
+                let ca_pem = result.ca_pem.clone();
+                let client_cert_pem = result.admin_cert_pem.clone();
+
                 tokio::spawn(async {
                     kmsg::info!("System will reboot in 3 seconds...");
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -59,11 +66,15 @@ impl ProvisionService for ProvisionServiceImpl {
                 Ok(Response::new(InstallResponse {
                     success: true,
                     error: String::new(),
+                    ca_pem,
+                    client_cert_pem,
                 }))
             }
             Err(e) => Ok(Response::new(InstallResponse {
                 success: false,
                 error: format!("{}", e),
+                ca_pem: String::new(),
+                client_cert_pem: String::new(),
             })),
         }
     }

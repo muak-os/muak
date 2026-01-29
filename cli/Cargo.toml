@@ -24,6 +24,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
+pki = { path = "../internal/shared/pki" }
 sysconfig = { path = "../internal/shared/sysconfig" }
 
 [build-dependencies]

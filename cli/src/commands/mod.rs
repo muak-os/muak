@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod config;
 pub mod disks;
 pub mod install;
@@ -23,7 +24,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    // Determine timeout based on command
+    // Handle auth commands separately (they manage their own connection)
+    if let Commands::Auth { action } = cli.command {
+        return auth::handle(&cli.server, action).await;
+    }
+
     let timeout_secs = match &cli.command {
         Commands::Install { .. } | Commands::Update { .. } => 600,
         _ => 30,
@@ -58,6 +63,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             let mut client = ProvisionServiceClient::new(channel);
             logs::handle(&mut client).await?;
         }
+        Commands::Auth { .. } => unreachable!(),
     }
 
     Ok(())

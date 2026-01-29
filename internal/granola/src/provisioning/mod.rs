@@ -3,6 +3,7 @@ mod uki;
 mod update;
 mod validation;
 
+pub use install::InstallResult;
 pub use update::update;
 pub use validation::{UpdateStatus, check_and_handle_pending_validation, get_update_status};
 
@@ -58,10 +59,12 @@ pub fn status() -> InstallationStatus {
     }
 }
 
-pub async fn install(force: bool, config: HostConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || install::install(&config.system.disk, force, &config))
-        .await
-        .context("Install task panicked")?
+pub async fn install(force: bool, config: HostConfig, csr_pem: String) -> Result<InstallResult> {
+    tokio::task::spawn_blocking(move || {
+        install::install(&config.system.disk, force, &config, &csr_pem)
+    })
+    .await
+    .context("Install task panicked")?
 }
 
 pub async fn prepare_update(image: &str, extensions: &[String]) -> Result<String> {

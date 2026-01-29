@@ -31,11 +31,14 @@ message GetUpdateStatusResponse {
 message InstallRequest {
     bool force = 1;
     bytes config_toml = 2;
+    string csr = 3;
 }
 
 message InstallResponse {
     bool success = 1;
     string error = 2;
+    string ca_pem = 3;
+    string client_cert_pem = 4;
 }
 
 message PrepareUpdateRequest {

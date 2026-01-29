@@ -13,6 +13,7 @@
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
   - Dockerfile of CLI + CI jobs to release it
+  - Handle managing multiple servers with context management
 
 - Better PID 1
   - Better explicit restart strategy for services in supervisor (exponential backoff etc)
@@ -32,13 +33,6 @@
   - Support for self-signed certificates
   - Allow creation of multiple bridges
   - Disable bridge when in maintenance mode
-
-- Better gRPC communication:
-  - Add authentication using mTLS
-    - Store certificates in STATE partition & in ~/.config/muak/ on the client side and /run/state/secrets/ on the
-      server side
-    - Allow some commands like listing disks in maintenance mode without authentication
-  - Add permission management using the client cert fingerprint for different users using RBAC like system with
 
 - Declarative system configuration:
   - Configure NTP server in system config
@@ -88,7 +82,9 @@
   - Better stub performance after loadfile success
 
 - Support Apple M1/M2 using Asahi Linux
-- Add a web interface for easier management (in a separate product easily installable with a golden image?)
+- Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
+  Swiss Web Design
 - Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs or
   like Proxmox VE cluster management
+- Make the VM themselves declarative
 - Add custom hypervisor using the rust-vmm crates for better performance and control

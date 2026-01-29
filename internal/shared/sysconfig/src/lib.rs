@@ -44,6 +44,7 @@ pub struct HostConfig {
     pub system: SystemConfig,
     pub network: NetworkConfig,
     pub vm: VmConfig,
+    pub auth: AuthConfig,
 }
 
 impl HostConfig {
@@ -90,6 +91,30 @@ pub struct VmConfig {
     pub auto_restart: bool,
 }
 
+/// Authentication and authorization configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AuthConfig {
+    pub users: Vec<AuthUser>,
+    pub revoked: Vec<String>,
+}
+
+/// An authorized user identified by certificate fingerprint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub fingerprint: String,
+    pub permissions: Vec<Permission>,
+}
+
+/// Permission levels for RBAC.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    Admin,
+    VmManage,
+    ReadOnly,
+}
+
 /// Initializes the global configuration.
 ///
 /// Loads the config from `CONFIG_PATH`, validates it, and stores it globally.
@@ -128,6 +153,15 @@ pub fn network() -> &'static NetworkConfig {
 /// Panics if `init()` has not been called.
 pub fn vm() -> &'static VmConfig {
     &config().vm
+}
+
+/// Returns a reference to the global auth configuration.
+///
+/// # Panics
+///
+/// Panics if `init()` has not been called.
+pub fn auth() -> &'static AuthConfig {
+    &config().auth
 }
 
 /// Returns a reference to the global host configuration.
