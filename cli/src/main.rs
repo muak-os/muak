@@ -1,18 +1,28 @@
 mod client;
 mod commands;
+mod config;
 mod format;
 
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
+use owo_colors::OwoColorize;
+
+use commands::auth::AuthAction;
+use commands::config::ConfigAction;
+use commands::context::ContextAction;
+use commands::process::ProcessAction;
+use commands::vm::VmAction;
 
 #[derive(Parser)]
 #[command(name = "muak")]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"), long_about = None)]
 pub struct Cli {
-    #[arg(long, short, global = true, default_value = "localhost:50051")]
-    pub server: String,
+    #[arg(long, short, global = true)]
+    pub endpoint: Option<String>,
+
+    #[arg(long, short = 'c', global = true, env = "MUAK_CONTEXT")]
+    pub context: Option<String>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -20,6 +30,10 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    Auth {
+        #[command(subcommand)]
+        action: Option<AuthAction>,
+    },
     Process {
         #[command(subcommand)]
         action: ProcessAction,
@@ -31,6 +45,10 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    Context {
+        #[command(subcommand)]
+        action: ContextAction,
     },
     Install {
         #[arg(long)]
@@ -46,59 +64,35 @@ pub enum Commands {
     Logs,
 }
 
-#[derive(Subcommand)]
-pub enum ConfigAction {
-    Generate,
-    Export,
-}
-
-#[derive(Subcommand)]
-pub enum ProcessAction {
-    List,
-}
-
-#[derive(Subcommand)]
-pub enum VmAction {
-    Create {
-        #[arg(long)]
-        name: String,
-        #[arg(long)]
-        cmdline: Option<String>,
-        #[arg(long)]
-        kernel: Option<String>,
-        #[arg(long)]
-        initrd: Option<String>,
-        vmm: String,
-        #[arg(long, default_value = "1")]
-        cpus: u32,
-        #[arg(long, default_value = "512")]
-        memory: u64,
-        #[arg(long)]
-        disk: Vec<String>,
-        #[arg(long, default_value = "1024")]
-        disk_size: u64,
-    },
-    Start {
-        vm_id: String,
-    },
-    Stop {
-        vm_id: String,
-        #[arg(long)]
-        force: bool,
-    },
-    Delete {
-        vm_id: String,
-    },
-    Logs {
-        vm_id: String,
-        #[arg(long, short = 'n', default_value = "0")]
-        tail: i64,
-    },
-    List,
-}
-
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     let cli = Cli::parse();
-    commands::run(cli).await
+    if let Err(e) = commands::run(cli).await {
+        handle_error(&e);
+        std::process::exit(1);
+    }
+}
+
+fn handle_error(err: &anyhow::Error) {
+    if let Some(status) = err.downcast_ref::<tonic::Status>() {
+        let msg = match status.code() {
+            tonic::Code::FailedPrecondition if status.message() == "Server not installed" => {
+                "Server not installed. Run 'muakctl install --config <config.toml>' to set up."
+            }
+            tonic::Code::Unauthenticated => {
+                "Authentication required. Run 'muakctl auth' to access this resource on the server."
+            }
+            tonic::Code::PermissionDenied => {
+                "Permission denied. You don't have access to this resource."
+            }
+            tonic::Code::Unavailable => "Server unavailable. Check if the server is running.",
+            tonic::Code::DeadlineExceeded => "Request timed out.",
+            tonic::Code::NotFound => status.message(),
+            tonic::Code::InvalidArgument => status.message(),
+            _ => status.message(),
+        };
+        eprintln!("{} {}", "Error:".red().bold(), msg.red());
+    } else {
+        eprintln!("{} {}", "Error:".red().bold(), err.red());
+    }
 }

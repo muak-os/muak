@@ -1,17 +1,15 @@
+mod auth;
 mod config;
+mod handler;
+mod proxy;
+mod server;
+mod tls;
 
 use anyhow::Result;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
-use hyper::server::conn::http2;
-use hyper::service::service_fn;
-use hyper::{Request, Response};
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use notify::NotifyClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::net::{TcpListener, UnixStream};
+use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main]
@@ -21,23 +19,49 @@ async fn main() -> Result<()> {
 
     sysconfig::init()?;
 
-    let args: Vec<String> = std::env::args().collect();
-    let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);
-    let listen_addr = args
-        .iter()
-        .position(|a| a == "--listen")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.as_str())
-        .unwrap_or(&default_listen);
-
-    let notifier = NotifyClient::new("apid")?;
+    let (listen_addr, maintenance_mode) = parse_args();
+    let notifier = notify::NotifyClient::new("apid")?;
 
     let addr: SocketAddr = listen_addr.parse()?;
     let listener = TcpListener::bind(addr).await?;
 
+    let tls_acceptor = if maintenance_mode {
+        tls::generate_ephemeral_tls_config()?
+    } else {
+        tls::load_tls_config()?
+    };
+
     kmsg::info!("API daemon ready, listening on {}", addr);
     notifier.ready(&format!("tcp://{}", listen_addr))?;
 
+    let shutdown = setup_shutdown_handler();
+
+    run_accept_loop(&listener, &tls_acceptor, &shutdown).await;
+
+    notifier.stopping("Graceful shutdown")?;
+    kmsg::info!("API daemon stopped");
+
+    Ok(())
+}
+
+/// Parses command line arguments
+fn parse_args() -> (String, bool) {
+    let args: Vec<String> = std::env::args().collect();
+    let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);
+
+    let listen_addr = args
+        .iter()
+        .position(|a| a == "--listen")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .unwrap_or(default_listen);
+
+    let maintenance_mode = args.iter().any(|a| a == "--maintenance");
+
+    (listen_addr, maintenance_mode)
+}
+
+fn setup_shutdown_handler() -> Arc<AtomicBool> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
@@ -56,6 +80,14 @@ async fn main() -> Result<()> {
         shutdown_clone.store(true, Ordering::SeqCst);
     });
 
+    shutdown
+}
+
+async fn run_accept_loop(
+    listener: &TcpListener,
+    tls_acceptor: &tokio_rustls::TlsAcceptor,
+    shutdown: &Arc<AtomicBool>,
+) {
     while !shutdown.load(Ordering::SeqCst) {
         let accept_future = listener.accept();
         let timeout_result =
@@ -70,111 +102,28 @@ async fn main() -> Result<()> {
             Err(_) => continue,
         };
 
-        let io = TokioIo::new(stream);
-        tokio::spawn(serve_connection(io, peer_addr));
+        let acceptor = tls_acceptor.clone();
+        tokio::spawn(handle_tls_connection(acceptor, stream, peer_addr));
     }
-
-    notifier.stopping("Graceful shutdown")?;
-    kmsg::info!("API daemon stopped");
-
-    Ok(())
 }
 
-async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, hyper::Error> {
-    let path = req.uri().path();
+async fn handle_tls_connection(
+    acceptor: tokio_rustls::TlsAcceptor,
+    stream: tokio::net::TcpStream,
+    peer_addr: SocketAddr,
+) {
+    match acceptor.accept(stream).await {
+        Ok(tls_stream) => {
+            let client_cert = tls_stream
+                .get_ref()
+                .1
+                .peer_certificates()
+                .and_then(|certs| certs.first().cloned());
 
-    let socket_path = if path.starts_with(config::VM_SERVICE_PREFIX) {
-        if !std::path::Path::new(config::VMD_SOCKET).exists() {
-            kmsg::warn!("VM service not available in maintenance mode. Install the system first.");
-            return Ok(Response::builder()
-                .status(503)
-                .header("content-type", "application/grpc")
-                .header("grpc-status", "14") // UNAVAILABLE
-                .header(
-                    "grpc-message",
-                    "VM service not available in maintenance mode. Install the system first.",
-                )
-                .body(Full::new(Bytes::new()))
-                .expect("building response should not fail"));
+            server::serve_tls_connection(tls_stream, peer_addr, client_cert).await;
         }
-        config::VMD_SOCKET
-    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
-        || path.starts_with(config::PROVISION_SERVICE_PREFIX)
-    {
-        config::GRANOLA_SOCKET
-    } else {
-        kmsg::warn!("Unknown service path: {}", path);
-        return Ok(Response::builder()
-            .status(404)
-            .header("content-type", "application/grpc")
-            .header("grpc-status", "12") // UNIMPLEMENTED
-            .header("grpc-message", "Unknown service")
-            .body(Full::new(Bytes::new()))
-            .expect("building response should not fail"));
-    };
-
-    match proxy_to_backend(req, socket_path).await {
-        Ok(response) => Ok(response),
         Err(e) => {
-            kmsg::error!("Proxy error to {}: {}", socket_path, e);
-            Ok(Response::builder()
-                .status(503)
-                .header("content-type", "application/grpc")
-                .header("grpc-status", "14") // UNAVAILABLE
-                .header("grpc-message", format!("Backend unavailable: {}", e))
-                .body(Full::new(Bytes::new()))
-                .expect("building response should not fail"))
+            kmsg::warn!("TLS handshake failed from {}: {:?}", peer_addr, e);
         }
-    }
-}
-
-async fn proxy_to_backend(
-    req: Request<Incoming>,
-    socket_path: &str,
-) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
-    let stream = UnixStream::connect(socket_path).await?;
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) =
-        hyper::client::conn::http2::handshake(TokioExecutor::new(), io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            kmsg::warn!("Backend connection error: {}", e);
-        }
-    });
-
-    let (parts, body) = req.into_parts();
-    let body_bytes = body.collect().await?.to_bytes();
-
-    let backend_req = Request::from_parts(parts, Full::new(body_bytes));
-
-    let response = sender.send_request(backend_req).await?;
-
-    let (parts, body) = response.into_parts();
-    let body_bytes = body.collect().await?.to_bytes();
-
-    Ok(Response::from_parts(parts, Full::new(body_bytes)))
-}
-
-fn is_benign_error(e: &hyper::Error) -> bool {
-    if e.is_incomplete_message() || e.is_canceled() {
-        return true;
-    }
-
-    let msg = e.to_string().to_lowercase();
-    msg.contains("connection reset")
-        || msg.contains("broken pipe")
-        || msg.contains("connection refused")
-}
-
-async fn serve_connection(io: TokioIo<tokio::net::TcpStream>, peer_addr: SocketAddr) {
-    let service = service_fn(handle_request);
-    let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
-
-    if let Err(e) = conn.await
-        && !is_benign_error(&e)
-    {
-        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
     }
 }

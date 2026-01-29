@@ -24,10 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={}/process.proto", api_dir);
     println!("cargo:rerun-if-changed={}/vm.proto", api_dir);
     println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/auth.proto", api_dir);
 
     tonic_prost_build::compile_protos(format!("{}/process.proto", api_dir))?;
     tonic_prost_build::compile_protos(format!("{}/vm.proto", api_dir))?;
     tonic_prost_build::compile_protos(format!("{}/provision.proto", api_dir))?;
+    tonic_prost_build::compile_protos(format!("{}/auth.proto", api_dir))?;
 
     Ok(())
 }

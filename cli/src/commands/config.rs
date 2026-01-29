@@ -1,10 +1,16 @@
 use anyhow::{Context, Result};
+use clap::Subcommand;
 use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
-use crate::ConfigAction;
 use crate::client::{GetConfigRequest, ProvisionServiceClient};
 use crate::format::{format_timestamp, time::TimeSeparator};
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    Generate,
+    Export,
+}
 
 /// Handles config subcommands.
 pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {

@@ -6,6 +6,17 @@ version.workspace = true
 [dependencies]
 # Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
+tokio-rustls = { workspace = true }
+
+# Cryptography
+der = { workspace = true }
+ring = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
+
+# Encoding
+hex = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -18,6 +29,7 @@ http-body-util = { workspace = true }
 # Internal
 kmsg = { path = "../shared/kmsg" }
 notify = { path = "../shared/notify" }
+pki = { path = "../shared/pki" }
 sysconfig = { path = "../shared/sysconfig" }
 
 [lints]

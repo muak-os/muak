@@ -44,13 +44,19 @@ pub struct HostConfig {
     pub system: SystemConfig,
     pub network: NetworkConfig,
     pub vm: VmConfig,
+    pub auth: AuthConfig,
 }
 
 impl HostConfig {
     pub fn validate(&self) -> Result<()> {
+        if self.system.name.is_empty() {
+            return Err(ConfigError::ValidationError(
+                "system.name must be specified".to_string(),
+            ));
+        }
         if self.system.port == 0 {
             return Err(ConfigError::ValidationError(
-                "port must be greater than 0".to_string(),
+                "system.port must be greater than 0".to_string(),
             ));
         }
         Ok(())
@@ -72,6 +78,7 @@ include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemConfig {
+    pub name: String,
     pub disk: String,
     pub image: String,
     pub extensions: Vec<String>,
@@ -88,6 +95,30 @@ pub struct NetworkConfig {
 #[serde(default)]
 pub struct VmConfig {
     pub auto_restart: bool,
+}
+
+/// Authentication and authorization configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AuthConfig {
+    pub users: Vec<AuthUser>,
+    pub revoked: Vec<String>,
+}
+
+/// An authorized user identified by certificate fingerprint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub fingerprint: String,
+    pub permissions: Vec<Permission>,
+}
+
+/// Permission levels for RBAC.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    Admin,
+    VmManage,
+    ReadOnly,
 }
 
 /// Initializes the global configuration.
@@ -128,6 +159,15 @@ pub fn network() -> &'static NetworkConfig {
 /// Panics if `init()` has not been called.
 pub fn vm() -> &'static VmConfig {
     &config().vm
+}
+
+/// Returns a reference to the global auth configuration.
+///
+/// # Panics
+///
+/// Panics if `init()` has not been called.
+pub fn auth() -> &'static AuthConfig {
+    &config().auth
 }
 
 /// Returns a reference to the global host configuration.

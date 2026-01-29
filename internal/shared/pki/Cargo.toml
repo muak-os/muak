@@ -1,0 +1,22 @@
+[package]
+name = "pki"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Cryptography
+x509-cert = { workspace = true }
+der = { workspace = true }
+spki = { workspace = true }
+const-oid = { workspace = true }
+ring = { workspace = true }
+signature = { workspace = true }
+
+# Encoding
+hex = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

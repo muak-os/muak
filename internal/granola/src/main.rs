@@ -43,6 +43,15 @@ async fn main() -> Result<()> {
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 
+    let mut apid_args = vec![
+        "--listen".to_string(),
+        format!("0.0.0.0:{}", sysconfig::system().port),
+    ];
+
+    if !is_installed {
+        apid_args.push("--maintenance".to_string());
+    }
+
     let mut services = vec![
         ServiceDef {
             name: "modd".to_string(),
@@ -59,11 +68,7 @@ async fn main() -> Result<()> {
         ServiceDef {
             name: "apid".to_string(),
             binary: "/sbin/apid".to_string(),
-            args: vec![
-                "--listen".to_string(),
-                format!("0.0.0.0:{}", sysconfig::system().port),
-            ],
-
+            args: apid_args,
             depends_on: vec!["networkd".to_string()],
         },
     ];
@@ -100,6 +105,7 @@ async fn run_grpc_server() -> Result<()> {
     let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
 
     Server::builder()
+        .add_service(services::auth::service())
         .add_service(services::process::service())
         .add_service(services::provision::service())
         .serve_with_incoming(UnixListenerStream::new(listener))

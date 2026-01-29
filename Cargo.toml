@@ -10,6 +10,7 @@ members = [
     "internal/shared/kmod",
     "internal/shared/kmsg",
     "internal/shared/notify",
+    "internal/shared/pki",
     "internal/shared/sysconfig",
     "internal/stub",
     "internal/vmd",
@@ -25,6 +26,7 @@ version = "0.1.1-beta"
 # Asynchronous
 tokio = { version = "1.49", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 futures-util = "0.3"
 
 # CLI
@@ -39,12 +41,22 @@ zstd = "0.13"
 
 # Cryptography
 ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls-pemfile = "2.2"
+rustls-pki-types = "1.14"
+x509-cert = { version = "0.3.0-rc.4", features = ["hazmat", "builder"] }
+der = { version = "0.8.0-rc.10", features = ["alloc", "derive", "oid", "pem", "std"] }
+spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
+signature = "3.0.0-rc.9"
 
 # Encoding
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 prost = "0.14"
 toml = "0.9"
+base64ct = { version = "1.8", features = ["std"] }
+const-oid = "0.10"
+hex = "0.4"
 
 # Error handling
 anyhow = "1.0"
@@ -58,13 +70,13 @@ walkdir = "2.5"
 tempfile = "3.24"
 
 # gRPC
-tonic = "0.14"
+tonic = { version = "0.14", features = ["tls-ring", "tls-connect-info", "transport", "channel"] }
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 
 # HTTP
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-hyper = { version = "1.8", features = ["http1", "http2", "server", "client"] }
+hyper = { version = "1.8", features = ["http2", "server", "client"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 

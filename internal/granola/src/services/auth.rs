@@ -1,0 +1,366 @@
+//! AuthService implementation for mTLS certificate enrollment and management.
+
+use der::{DecodePem, EncodePem, pem::LineEnding};
+use std::path::{Path, PathBuf};
+use tonic::{Request, Response, Status};
+use x509_cert::Certificate;
+
+use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
+use super::proto::auth::{
+    AckEnrollmentRequest, AckEnrollmentResponse, ApproveCsrRequest, ApproveCsrResponse,
+    AuthorizedUser, GetCsrStatusRequest, GetCsrStatusResponse, ListPendingCsrsRequest,
+    ListPendingCsrsResponse, ListUsersRequest, ListUsersResponse, PendingCsr, RevokeCertRequest,
+    RevokeCertResponse, SubmitCsrRequest, SubmitCsrResponse,
+    get_csr_status_response::Status as CsrStatus,
+};
+
+const PENDING_DIR: &str = "/run/state/secrets/pending";
+const STAGING_DIR: &str = "/run/state/secrets/staging";
+const CA_CERT_PATH: &str = "/run/state/secrets/ca.crt";
+const CA_KEY_PATH: &str = "/run/state/secrets/ca.key";
+
+pub fn service() -> AuthServiceServer<AuthServiceImpl> {
+    AuthServiceServer::new(AuthServiceImpl)
+}
+
+pub struct AuthServiceImpl;
+
+#[tonic::async_trait]
+impl AuthService for AuthServiceImpl {
+    async fn submit_csr(
+        &self,
+        request: Request<SubmitCsrRequest>,
+    ) -> Result<Response<SubmitCsrResponse>, Status> {
+        let req = request.into_inner();
+
+        let fingerprint = pki::compute_csr_fingerprint(&req.csr_pem)
+            .map_err(|e| Status::invalid_argument(format!("Invalid CSR: {}", e)))?;
+
+        if is_user_authorized(&fingerprint) {
+            return Err(Status::already_exists(
+                "A certificate with this fingerprint is already authorized",
+            ));
+        }
+
+        let pending_path = pending_csr_path(&fingerprint);
+        if pending_path.exists() {
+            kmsg::info!("CSR already pending: {}", &fingerprint[..16]);
+            return Ok(Response::new(SubmitCsrResponse { fingerprint }));
+        }
+
+        tokio::task::spawn_blocking({
+            let csr_pem = req.csr_pem.clone();
+            let fp = fingerprint.clone();
+            move || store_pending_csr(&fp, &csr_pem)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
+        .map_err(|e| Status::internal(format!("Failed to store CSR: {}", e)))?;
+
+        kmsg::info!("CSR submitted: {}", &fingerprint[..16]);
+
+        Ok(Response::new(SubmitCsrResponse { fingerprint }))
+    }
+
+    async fn get_csr_status(
+        &self,
+        request: Request<GetCsrStatusRequest>,
+    ) -> Result<Response<GetCsrStatusResponse>, Status> {
+        let fingerprint = request.into_inner().fingerprint;
+
+        if let Some(config) = sysconfig::try_config()
+            && config.auth.revoked.contains(&fingerprint)
+        {
+            return Ok(Response::new(GetCsrStatusResponse {
+                status: CsrStatus::Rejected.into(),
+                cert_pem: String::new(),
+                ca_pem: String::new(),
+                server_name: String::new(),
+            }));
+        }
+
+        if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
+            let server_name = sysconfig::try_config()
+                .map(|c| c.system.name.clone())
+                .unwrap_or_default();
+
+            return Ok(Response::new(GetCsrStatusResponse {
+                status: CsrStatus::Approved.into(),
+                cert_pem,
+                ca_pem,
+                server_name,
+            }));
+        }
+
+        let pending_path = pending_csr_path(&fingerprint);
+        if pending_path.exists() {
+            return Ok(Response::new(GetCsrStatusResponse {
+                status: CsrStatus::Pending.into(),
+                cert_pem: String::new(),
+                ca_pem: String::new(),
+                server_name: String::new(),
+            }));
+        }
+
+        Ok(Response::new(GetCsrStatusResponse {
+            status: CsrStatus::NotFound.into(),
+            cert_pem: String::new(),
+            ca_pem: String::new(),
+            server_name: String::new(),
+        }))
+    }
+
+    async fn list_pending_csrs(
+        &self,
+        _request: Request<ListPendingCsrsRequest>,
+    ) -> Result<Response<ListPendingCsrsResponse>, Status> {
+        let csrs = tokio::task::spawn_blocking(list_pending_csrs)
+            .await
+            .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("Failed to list pending CSRs: {}", e)))?;
+
+        Ok(Response::new(ListPendingCsrsResponse { csrs }))
+    }
+
+    async fn approve_csr(
+        &self,
+        request: Request<ApproveCsrRequest>,
+    ) -> Result<Response<ApproveCsrResponse>, Status> {
+        let req = request.into_inner();
+        let fingerprint = req.fingerprint;
+        let permissions: Vec<String> = req.permissions;
+
+        let pending_path = pending_csr_path(&fingerprint);
+        if !pending_path.exists() {
+            return Err(Status::not_found("CSR not found"));
+        }
+
+        let csr_pem = std::fs::read_to_string(&pending_path)
+            .map_err(|e| Status::internal(format!("Failed to read CSR: {}", e)))?;
+
+        let (cert, cert_fingerprint) = tokio::task::spawn_blocking({
+            let csr = csr_pem.clone();
+            move || sign_pending_csr(&csr)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
+        .map_err(|e| Status::internal(format!("Failed to sign CSR: {}", e)))?;
+
+        let cert_pem = cert
+            .to_pem(LineEnding::LF)
+            .map_err(|e| Status::internal(format!("Failed to encode certificate: {}", e)))?;
+
+        store_staging_cert(&fingerprint, &cert_pem)
+            .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
+
+        let parsed_permissions: Vec<sysconfig::Permission> = permissions
+            .iter()
+            .filter_map(|p| match p.as_str() {
+                "admin" => Some(sysconfig::Permission::Admin),
+                "vm_manage" => Some(sysconfig::Permission::VmManage),
+                "read_only" => Some(sysconfig::Permission::ReadOnly),
+                _ => None,
+            })
+            .collect();
+
+        add_user_to_config(&cert_fingerprint, parsed_permissions)
+            .map_err(|e| Status::internal(format!("Failed to update config: {}", e)))?;
+
+        let _ = std::fs::remove_file(&pending_path);
+
+        kmsg::info!(
+            "CSR approved: {} -> {}",
+            &fingerprint[..16],
+            &cert_fingerprint[..16]
+        );
+
+        Ok(Response::new(ApproveCsrResponse { cert_pem }))
+    }
+
+    async fn revoke_cert(
+        &self,
+        request: Request<RevokeCertRequest>,
+    ) -> Result<Response<RevokeCertResponse>, Status> {
+        let fingerprint = request.into_inner().fingerprint;
+
+        revoke_user(&fingerprint)
+            .map_err(|e| Status::internal(format!("Failed to revoke certificate: {}", e)))?;
+
+        kmsg::info!("Certificate revoked: {}", &fingerprint[..16]);
+
+        Ok(Response::new(RevokeCertResponse {}))
+    }
+
+    async fn list_users(
+        &self,
+        _request: Request<ListUsersRequest>,
+    ) -> Result<Response<ListUsersResponse>, Status> {
+        let config = sysconfig::try_config().ok_or_else(|| {
+            Status::failed_precondition("System not installed - config not available")
+        })?;
+
+        let users: Vec<AuthorizedUser> = config
+            .auth
+            .users
+            .iter()
+            .map(|u| AuthorizedUser {
+                fingerprint: u.fingerprint.clone(),
+                permissions: u
+                    .permissions
+                    .iter()
+                    .map(|p| match p {
+                        sysconfig::Permission::Admin => "admin".to_string(),
+                        sysconfig::Permission::VmManage => "vm_manage".to_string(),
+                        sysconfig::Permission::ReadOnly => "read_only".to_string(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let revoked_fingerprints = config.auth.revoked.clone();
+
+        Ok(Response::new(ListUsersResponse {
+            users,
+            revoked_fingerprints,
+        }))
+    }
+
+    async fn ack_enrollment(
+        &self,
+        request: Request<AckEnrollmentRequest>,
+    ) -> Result<Response<AckEnrollmentResponse>, Status> {
+        let fingerprint = request.into_inner().fingerprint;
+
+        let cert_path = staging_cert_path(&fingerprint);
+        if cert_path.exists() {
+            std::fs::remove_file(&cert_path)
+                .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {}", e)))?;
+        }
+
+        kmsg::info!("Enrollment acknowledged: {}", &fingerprint[..16]);
+
+        Ok(Response::new(AckEnrollmentResponse {}))
+    }
+}
+
+/// Returns the path for a pending CSR.
+fn pending_csr_path(fingerprint: &str) -> PathBuf {
+    Path::new(PENDING_DIR).join(format!("{}.pem", fingerprint))
+}
+
+/// Stores a pending CSR to disk.
+fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(PENDING_DIR)?;
+    let path = pending_csr_path(fingerprint);
+    std::fs::write(path, csr_pem)?;
+    Ok(())
+}
+
+/// Lists all pending CSRs.
+fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
+    let dir = Path::new(PENDING_DIR);
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut csrs = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().is_some_and(|e| e == "pem")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            let metadata = std::fs::metadata(&path)?;
+            let submitted_at = metadata
+                .created()
+                .or_else(|_| metadata.modified())
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs().to_string())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+
+            csrs.push(PendingCsr {
+                fingerprint: stem.to_string(),
+                submitted_at,
+            });
+        }
+    }
+
+    Ok(csrs)
+}
+
+/// Signs a pending CSR with the CA.
+fn sign_pending_csr(csr_pem: &str) -> anyhow::Result<(Certificate, String)> {
+    let ca_key_pem = std::fs::read_to_string(CA_KEY_PATH)
+        .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;
+    let ca_cert_pem = std::fs::read_to_string(CA_CERT_PATH)
+        .map_err(|e| anyhow::anyhow!("CA cert not found: {}", e))?;
+    let ca_cert = Certificate::from_pem(&ca_cert_pem)?;
+
+    let (cert, fingerprint) = pki::sign_csr(csr_pem, &ca_key_pem, &ca_cert)?;
+    Ok((cert, fingerprint))
+}
+
+/// Checks if a fingerprint is already authorized.
+fn is_user_authorized(fingerprint: &str) -> bool {
+    sysconfig::try_config()
+        .map(|c| c.auth.users.iter().any(|u| u.fingerprint == fingerprint))
+        .unwrap_or(false)
+}
+
+/// Returns the path for a staging certificate.
+fn staging_cert_path(fingerprint: &str) -> PathBuf {
+    Path::new(STAGING_DIR).join(format!("{}.crt", fingerprint))
+}
+
+/// Stores a certificate in staging for client pickup.
+fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(STAGING_DIR)?;
+    let path = staging_cert_path(fingerprint);
+    std::fs::write(path, cert_pem)?;
+    Ok(())
+}
+
+/// Loads a staging certificate and CA cert for a fingerprint.
+fn load_staging_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
+    let ca_pem = std::fs::read_to_string(CA_CERT_PATH)?;
+    let cert_pem = std::fs::read_to_string(staging_cert_path(fingerprint))?;
+    Ok((ca_pem, cert_pem))
+}
+
+/// Adds a user to the config.
+fn add_user_to_config(
+    fingerprint: &str,
+    permissions: Vec<sysconfig::Permission>,
+) -> anyhow::Result<()> {
+    let mut config = sysconfig::try_config().cloned().unwrap_or_default();
+
+    config.auth.users.push(sysconfig::AuthUser {
+        fingerprint: fingerprint.to_string(),
+        permissions,
+    });
+
+    let config_str = sysconfig::serialize(&config)?;
+    std::fs::write(sysconfig::CONFIG_PATH, config_str)?;
+
+    Ok(())
+}
+
+/// Revokes a user by adding their fingerprint to the revoked list.
+fn revoke_user(fingerprint: &str) -> anyhow::Result<()> {
+    let mut config = sysconfig::try_config().cloned().unwrap_or_default();
+
+    config.auth.users.retain(|u| u.fingerprint != fingerprint);
+
+    if !config.auth.revoked.contains(&fingerprint.to_string()) {
+        config.auth.revoked.push(fingerprint.to_string());
+    }
+
+    let config_str = sysconfig::serialize(&config)?;
+    std::fs::write(sysconfig::CONFIG_PATH, config_str)?;
+
+    Ok(())
+}

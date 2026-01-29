@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package muak.auth.v1;
+
+service AuthService {
+  // Unauthenticated - submit CSR for approval
+  rpc SubmitCsr(SubmitCsrRequest) returns (SubmitCsrResponse);
+
+  // Unauthenticated - check CSR status and get cert if approved
+  rpc GetCsrStatus(GetCsrStatusRequest) returns (GetCsrStatusResponse);
+
+  // Authenticated (admin/cert_manage) - list pending CSRs
+  rpc ListPendingCsrs(ListPendingCsrsRequest) returns (ListPendingCsrsResponse);
+
+  // Authenticated (admin/cert_manage) - approve CSR
+  rpc ApproveCsr(ApproveCsrRequest) returns (ApproveCsrResponse);
+
+  // Authenticated (admin/cert_manage) - revoke certificate
+  rpc RevokeCert(RevokeCertRequest) returns (RevokeCertResponse);
+
+  // Authenticated (admin/cert_manage) - list authorized users
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Unauthenticated - acknowledge enrollment completion (cleanup staging cert)
+  rpc AckEnrollment(AckEnrollmentRequest) returns (AckEnrollmentResponse);
+}
+
+message SubmitCsrRequest {
+  // CSR in PEM format
+  string csr_pem = 1;
+}
+
+message SubmitCsrResponse {
+  // SHA256 fingerprint of the CSR's public key (used as identifier)
+  string fingerprint = 1;
+}
+
+message GetCsrStatusRequest {
+  // Fingerprint from SubmitCsrResponse
+  string fingerprint = 1;
+}
+
+message GetCsrStatusResponse {
+  enum Status {
+    PENDING = 0;
+    APPROVED = 1;
+    REJECTED = 2;
+    NOT_FOUND = 3;
+  }
+  Status status = 1;
+
+  // Only populated when status == APPROVED
+  string cert_pem = 2;
+  string ca_pem = 3;
+  string server_name = 4;
+}
+
+message ListPendingCsrsRequest {}
+
+message ListPendingCsrsResponse {
+  repeated PendingCsr csrs = 1;
+}
+
+message PendingCsr {
+  string fingerprint = 1;
+  string submitted_at = 2;
+}
+
+message ApproveCsrRequest {
+  string fingerprint = 1;
+  repeated string permissions = 2;
+}
+
+message ApproveCsrResponse {
+  string cert_pem = 1;
+}
+
+message RevokeCertRequest {
+  string fingerprint = 1;
+}
+
+message RevokeCertResponse {}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated AuthorizedUser users = 1;
+  repeated string revoked_fingerprints = 2;
+}
+
+message AuthorizedUser {
+  string fingerprint = 1;
+  repeated string permissions = 2;
+}
+
+message AckEnrollmentRequest {
+  // CSR fingerprint (from SubmitCsrResponse)
+  string fingerprint = 1;
+}
+
+message AckEnrollmentResponse {}
