@@ -13,7 +13,6 @@
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
   - Dockerfile of CLI + CI jobs to release it
-  - Handle managing multiple servers with context management
 
 - Better PID 1
   - Better explicit restart strategy for services in supervisor (exponential backoff etc)

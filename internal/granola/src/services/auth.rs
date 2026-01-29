@@ -77,14 +77,20 @@ impl AuthService for AuthServiceImpl {
                                 status: CsrStatus::Approved.into(),
                                 cert_pem: String::new(),
                                 ca_pem: String::new(),
+                                server_name: String::new(),
                             }));
                         }
                     };
+
+                    let server_name = sysconfig::try_config()
+                        .map(|c| c.system.name.clone())
+                        .unwrap_or_default();
 
                     return Ok(Response::new(GetCsrStatusResponse {
                         status: CsrStatus::Approved.into(),
                         cert_pem,
                         ca_pem,
+                        server_name,
                     }));
                 }
             }
@@ -94,6 +100,7 @@ impl AuthService for AuthServiceImpl {
                     status: CsrStatus::Rejected.into(),
                     cert_pem: String::new(),
                     ca_pem: String::new(),
+                    server_name: String::new(),
                 }));
             }
         }
@@ -104,6 +111,7 @@ impl AuthService for AuthServiceImpl {
                 status: CsrStatus::Pending.into(),
                 cert_pem: String::new(),
                 ca_pem: String::new(),
+                server_name: String::new(),
             }));
         }
 
@@ -111,6 +119,7 @@ impl AuthService for AuthServiceImpl {
             status: CsrStatus::NotFound.into(),
             cert_pem: String::new(),
             ca_pem: String::new(),
+            server_name: String::new(),
         }))
     }
 
@@ -300,7 +309,7 @@ fn is_user_authorized(fingerprint: &str) -> bool {
 
 /// Stores an approved certificate.
 fn store_approved_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
-    let certs_dir = Path::new("/run/state/secrets/certs");
+    let certs_dir = Path::new("/run/state/secrets/approved");
     std::fs::create_dir_all(certs_dir)?;
     let path = certs_dir.join(format!("{}.crt", fingerprint));
     std::fs::write(path, cert_pem)?;
@@ -310,7 +319,7 @@ fn store_approved_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> 
 /// Loads an approved certificate and CA cert for a fingerprint.
 fn load_approved_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
     let ca_pem = std::fs::read_to_string(CA_CERT_PATH)?;
-    let cert_path = Path::new("/run/state/secrets/certs").join(format!("{}.crt", fingerprint));
+    let cert_path = Path::new("/run/state/secrets/approved").join(format!("{}.crt", fingerprint));
     let cert_pem = std::fs::read_to_string(cert_path)?;
     Ok((ca_pem, cert_pem))
 }

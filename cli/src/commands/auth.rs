@@ -1,30 +1,49 @@
 //! Authentication commands for certificate management (admin only).
 
-use anyhow::{Context, Result};
-use owo_colors::OwoColorize;
+use std::io::Write;
+use std::time::Duration;
 
-use crate::AuthAction;
+use anyhow::{Context, Result};
+use base64ct::{Base64, Encoding};
+use clap::Subcommand;
+use owo_colors::OwoColorize;
+use tonic::transport::Channel;
+
 use crate::client::{
-    self, ApproveCsrRequest, AuthServiceClient, ListPendingCsrsRequest, ListUsersRequest,
-    RevokeCertRequest,
+    ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest, ListPendingCsrsRequest,
+    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest, connect_insecure,
 };
+use crate::config::ClientConfig;
+
+#[derive(Subcommand)]
+pub enum AuthAction {
+    Requests,
+    Approve {
+        fingerprint: String,
+        #[arg(long, default_value = "read_only")]
+        permissions: String,
+    },
+    Revoke {
+        fingerprint: String,
+    },
+    List,
+}
 
 /// Handles authentication commands.
-pub async fn handle(server: &str, action: AuthAction) -> Result<()> {
+pub async fn handle(channel: Channel, action: AuthAction) -> Result<()> {
     match action {
-        AuthAction::Requests => requests(server).await,
+        AuthAction::Requests => requests(channel).await,
         AuthAction::Approve {
             fingerprint,
             permissions,
-        } => approve(server, &fingerprint, &permissions).await,
-        AuthAction::Revoke { fingerprint } => revoke(server, &fingerprint).await,
-        AuthAction::List => list(server).await,
+        } => approve(channel, &fingerprint, &permissions).await,
+        AuthAction::Revoke { fingerprint } => revoke(channel, &fingerprint).await,
+        AuthAction::List => list(channel).await,
     }
 }
 
 /// Lists pending authentication requests (admin only).
-async fn requests(server: &str) -> Result<()> {
-    let channel = client::connect(server, 30).await?;
+async fn requests(channel: Channel) -> Result<()> {
     let mut auth_client = AuthServiceClient::new(channel);
 
     let response = auth_client
@@ -66,8 +85,7 @@ async fn requests(server: &str) -> Result<()> {
 }
 
 /// Approves a pending authentication request (admin only).
-async fn approve(server: &str, fingerprint: &str, permissions: &str) -> Result<()> {
-    let channel = client::connect(server, 30).await?;
+async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Result<()> {
     let mut auth_client = AuthServiceClient::new(channel);
 
     let perms: Vec<String> = permissions
@@ -135,8 +153,7 @@ async fn approve(server: &str, fingerprint: &str, permissions: &str) -> Result<(
 }
 
 /// Revokes a certificate (admin only).
-async fn revoke(server: &str, fingerprint: &str) -> Result<()> {
-    let channel = client::connect(server, 30).await?;
+async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
     let mut auth_client = AuthServiceClient::new(channel);
 
     let users_response = auth_client
@@ -191,8 +208,7 @@ async fn revoke(server: &str, fingerprint: &str) -> Result<()> {
 }
 
 /// Lists all authorized users (admin only).
-async fn list(server: &str) -> Result<()> {
-    let channel = client::connect(server, 30).await?;
+async fn list(channel: Channel) -> Result<()> {
     let mut auth_client = AuthServiceClient::new(channel);
 
     let response = auth_client
@@ -233,4 +249,112 @@ async fn list(server: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Enrolls with a server by generating a CSR and polling for approval.
+pub async fn enroll(endpoint: &str) -> Result<()> {
+    let mut config = ClientConfig::load()?;
+
+    if config.has_credentials_for_endpoint(endpoint) {
+        println!("Already authenticated to {}.", endpoint);
+        println!(
+            "Use '{}' to re-enroll.",
+            "muakctl context remove <name>".cyan()
+        );
+        return Ok(());
+    }
+
+    let (fingerprint, key_pem) = if let Some(pending) = config.get_pending(endpoint) {
+        println!("Resuming pending enrollment for {}", endpoint.cyan());
+        let key = Base64::decode_vec(&pending.key).context("Failed to decode pending key")?;
+        let key_pem = String::from_utf8(key).context("Invalid key encoding")?;
+        (pending.fingerprint.clone(), key_pem)
+    } else {
+        println!("Generating key pair...");
+        let (key_pem, csr_pem) = pki::generate_csr("muak-client")?;
+        let fingerprint = pki::compute_csr_fingerprint(&csr_pem)?;
+
+        config.start_enrollment(endpoint, &key_pem, &fingerprint);
+        config.save()?;
+
+        println!("Submitting certificate request...");
+        let channel = connect_insecure(endpoint, 30).await?;
+        let mut client = AuthServiceClient::new(channel);
+
+        client
+            .submit_csr(SubmitCsrRequest { csr_pem })
+            .await
+            .context("Failed to submit CSR")?;
+
+        (fingerprint, key_pem)
+    };
+
+    let display_fp = if fingerprint.len() >= 16 {
+        &fingerprint[..16]
+    } else {
+        &fingerprint
+    };
+    println!("\nFingerprint: {}", display_fp.yellow());
+    println!("Waiting for admin approval... (Ctrl+C to resume later)");
+    println!(
+        "Ask an admin to run: {} {}...",
+        "muakctl auth approve".green(),
+        display_fp
+    );
+
+    let channel = connect_insecure(endpoint, 30).await?;
+    let mut client = AuthServiceClient::new(channel);
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        let response = client
+            .get_csr_status(GetCsrStatusRequest {
+                fingerprint: fingerprint.clone(),
+            })
+            .await
+            .context("Failed to check CSR status")?;
+
+        let status = response.into_inner();
+        match status.status() {
+            CsrStatus::Pending => {
+                print!(".");
+                std::io::stdout().flush()?;
+            }
+            CsrStatus::Approved => {
+                println!("\n\n{} Approved!", "Success:".green());
+
+                let mut config = ClientConfig::load()?;
+                let name = config.complete_enrollment(
+                    endpoint,
+                    &status.server_name,
+                    &status.ca_pem,
+                    &status.cert_pem,
+                    key_pem.as_bytes(),
+                );
+                config.save()?;
+
+                println!("Context '{}' created and set as current.", name.cyan());
+                return Ok(());
+            }
+            CsrStatus::Rejected => {
+                println!("\n\n{} Request was rejected by admin.", "Error:".red());
+                let mut config = ClientConfig::load()?;
+                config.cancel_enrollment(endpoint);
+                config.save()?;
+                return Ok(());
+            }
+            CsrStatus::NotFound => {
+                println!(
+                    "\n\n{} CSR not found on server (may have expired).",
+                    "Error:".red()
+                );
+                println!("Run the command again to submit a new request.");
+                let mut config = ClientConfig::load()?;
+                config.cancel_enrollment(endpoint);
+                config.save()?;
+                return Ok(());
+            }
+        }
+    }
 }

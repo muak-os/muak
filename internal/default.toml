@@ -5,6 +5,7 @@
 # Install with:         muakctl install --server <ip>:50051 --config config.toml
 
 [system]
+name = "muak"
 disk = ""
 image = "ghcr.io/sawangg/installer:latest"
 extensions = []

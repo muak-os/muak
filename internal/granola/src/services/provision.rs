@@ -50,6 +50,8 @@ impl ProvisionService for ProvisionServiceImpl {
             config.system.image
         );
 
+        let server_name = config.system.name.clone();
+
         match provisioning::install(req.force, config, req.csr).await {
             Ok(result) => {
                 let ca_pem = result.ca_pem.clone();
@@ -68,6 +70,7 @@ impl ProvisionService for ProvisionServiceImpl {
                     error: String::new(),
                     ca_pem,
                     client_cert_pem,
+                    server_name,
                 }))
             }
             Err(e) => Ok(Response::new(InstallResponse {
@@ -75,6 +78,7 @@ impl ProvisionService for ProvisionServiceImpl {
                 error: format!("{}", e),
                 ca_pem: String::new(),
                 client_cert_pem: String::new(),
+                server_name: String::new(),
             })),
         }
     }

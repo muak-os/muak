@@ -4,10 +4,50 @@ mod list;
 mod logs;
 
 use anyhow::Result;
+use clap::Subcommand;
 use tonic::transport::Channel;
 
-use crate::VmAction;
 use crate::client::VmServiceClient;
+
+#[derive(Subcommand)]
+pub enum VmAction {
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        cmdline: Option<String>,
+        #[arg(long)]
+        kernel: Option<String>,
+        #[arg(long)]
+        initrd: Option<String>,
+        vmm: String,
+        #[arg(long, default_value = "1")]
+        cpus: u32,
+        #[arg(long, default_value = "512")]
+        memory: u64,
+        #[arg(long)]
+        disk: Vec<String>,
+        #[arg(long, default_value = "1024")]
+        disk_size: u64,
+    },
+    Start {
+        vm_id: String,
+    },
+    Stop {
+        vm_id: String,
+        #[arg(long)]
+        force: bool,
+    },
+    Delete {
+        vm_id: String,
+    },
+    Logs {
+        vm_id: String,
+        #[arg(long, short = 'n', default_value = "0")]
+        tail: i64,
+    },
+    List,
+}
 
 /// Routes VM subcommands to their handlers.
 pub async fn handle(client: &mut VmServiceClient<Channel>, action: VmAction) -> Result<()> {

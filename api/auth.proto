@@ -49,6 +49,7 @@ message GetCsrStatusResponse {
   // Only populated when status == APPROVED
   string cert_pem = 2;
   string ca_pem = 3;
+  string server_name = 4;
 }
 
 message ListPendingCsrsRequest {}

@@ -49,9 +49,14 @@ pub struct HostConfig {
 
 impl HostConfig {
     pub fn validate(&self) -> Result<()> {
+        if self.system.name.is_empty() {
+            return Err(ConfigError::ValidationError(
+                "system.name must be specified".to_string(),
+            ));
+        }
         if self.system.port == 0 {
             return Err(ConfigError::ValidationError(
-                "port must be greater than 0".to_string(),
+                "system.port must be greater than 0".to_string(),
             ));
         }
         Ok(())
@@ -73,6 +78,7 @@ include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemConfig {
+    pub name: String,
     pub disk: String,
     pub image: String,
     pub extensions: Vec<String>,

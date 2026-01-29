@@ -1,10 +1,15 @@
 use anyhow::Result;
+use clap::Subcommand;
 use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
-use crate::ProcessAction;
 use crate::client::{ListProcessesRequest, ProcessServiceClient};
 use crate::format::{format_timestamp, time::TimeSeparator};
+
+#[derive(Subcommand)]
+pub enum ProcessAction {
+    List,
+}
 
 /// Handles process subcommands.
 pub async fn handle(

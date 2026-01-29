@@ -1,38 +1,30 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
-use crate::client::{
-    CLIENT_KEY_FILE, InstallRequest, ProvisionServiceClient, config_dir, has_credentials,
-    save_credentials,
-};
+use crate::client::{InstallRequest, ProvisionServiceClient};
+use crate::config::{ClientConfig, ServerContext};
 
 /// Handles the install command.
 pub async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     force: bool,
     config_path: PathBuf,
+    server_endpoint: &str,
 ) -> Result<()> {
-    if has_credentials() {
+    let mut client_config = ClientConfig::load()?;
+
+    if client_config.has_credentials_for_endpoint(server_endpoint) {
         println!(
             "{}",
-            format!("Existing credentials found. Remove them to install the server").yellow()
+            "Existing credentials found for this server. Remove the context to reinstall.".yellow()
         );
         return Ok(());
     }
 
     let (key_pem, csr_pem) = pki::generate_csr("muak-admin")?;
-
-    let dir = config_dir()?;
-    fs::create_dir_all(&dir)?;
-
-    let key_path = config_dir()?.join(CLIENT_KEY_FILE);
-    fs::write(&key_path, &key_pem)?;
-    fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))?;
 
     let config_toml = std::fs::read_to_string(&config_path).context(format!(
         "Failed to read config file '{}'",
@@ -59,24 +51,43 @@ pub async fn handle(
 
     println!("{}", format!("Installing Muak to {target_disk}...").blue());
 
-    let response = client.install(request).await?;
+    let response = client
+        .install(request)
+        .await
+        .context("Failed to send install request")?;
     let resp = response.into_inner();
 
     if resp.success {
-        save_credentials(&resp.ca_pem, &resp.client_cert_pem)
-            .context("Failed to save mTLS credentials")?;
+        let context_name = if resp.server_name.is_empty() {
+            "default"
+        } else {
+            &resp.server_name
+        };
+
+        let ctx = ServerContext::from_pem(
+            server_endpoint,
+            &resp.ca_pem,
+            &resp.client_cert_pem,
+            key_pem.as_bytes(),
+        );
+
+        let actual_name = client_config.add_context(context_name, ctx);
+        client_config.set_current(&actual_name)?;
+        client_config.save()?;
 
         println!(
             "{}",
             format!("Successfully installed Muak to {target_disk}").green()
         );
-        println!("{}", "Credentials saved.".green());
+        println!(
+            "{}",
+            format!("Context '{}' added and set as current.", actual_name).green()
+        );
         println!(
             "{}",
             "\nSystem will reboot automatically in 3 seconds...".yellow()
         );
     } else {
-        fs::remove_file(&key_path).context("Failed to remove private key after failed install")?;
         eprintln!("{}", format!("Installation failed: {}", resp.error).red());
         std::process::exit(1);
     }
