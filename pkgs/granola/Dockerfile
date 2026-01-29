@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache musl-dev protoc
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["internal/granola", "internal/imager", "internal/shared/kmsg", "internal/yuki", "internal/shared/sysconfig"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/granola", "internal/imager", "internal/shared/kmsg", "internal/yuki", "internal/shared/sysconfig", "internal/shared/pki"]' Cargo.toml
 
 COPY api ./api
 COPY internal/default.toml ./internal/default.toml
@@ -31,7 +31,8 @@ COPY internal/shared/kmsg ./internal/shared/kmsg
 COPY internal/yuki ./internal/yuki
 COPY internal/imager ./internal/imager
 COPY internal/shared/sysconfig ./internal/shared/sysconfig
-# Copy both cmdline files for build compatibility
+COPY internal/shared/pki ./internal/shared/pki
+
 COPY pkgs/kernel/cmdline-amd64.txt ./pkgs/kernel/cmdline-amd64.txt
 COPY pkgs/kernel/cmdline-arm64.txt ./pkgs/kernel/cmdline-arm64.txt
 
