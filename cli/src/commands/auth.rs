@@ -301,8 +301,6 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
     let mut client = AuthServiceClient::new(channel);
 
     loop {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
         let response = client
             .get_csr_status(GetCsrStatusRequest {
                 fingerprint: fingerprint.clone(),
@@ -357,5 +355,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
                 return Ok(());
             }
         }
+
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
