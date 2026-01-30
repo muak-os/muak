@@ -6,14 +6,13 @@ mod loader;
 mod loadfile2;
 mod log;
 mod pe;
+mod security;
 
 use anyhow::{Context, Result};
 use std::os::uefi as uefi_std;
-use uefi::CStr16;
 use uefi::Guid;
 use uefi::Handle;
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::runtime::VariableVendor;
 
 use crate::pe::UkiSections;
 
@@ -43,15 +42,22 @@ fn main() -> Result<()> {
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
-    let mut name_buf = [0u16; 10];
-    let name = CStr16::from_str_with_buf("SetupMode", &mut name_buf).expect("Invalid SetupMode");
-    let mut buf = [0u8; 1];
-    let setup_mode =
-        match uefi::runtime::get_variable(name, &VariableVendor::GLOBAL_VARIABLE, &mut buf) {
-            Ok((data, _)) => data[0],
-            Err(_) => 0,
-        };
-    info!("SetupMode: {}", setup_mode);
+    info!(
+        "Setup Mode: {}",
+        if security::is_setup_mode() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    info!(
+        "Secure Boot: {}",
+        if security::is_secure_boot_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     let (base_addr, image_size) = loaded_image.info();
     info!("Base address: {:p}, size: {}", base_addr, image_size);
