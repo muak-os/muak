@@ -1,21 +1,21 @@
 //! CLI tool to manage OCI images and initramfs generation.
 
 #[cfg(feature = "cli")]
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
-struct Args {
+struct Cli {
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build a custom initramfs with extensions
     Build {
         #[arg(short, long)]
         base: PathBuf,
@@ -26,7 +26,6 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
-    /// Pull and extract an OCI image
     Pull {
         #[arg(short, long)]
         image: String,
@@ -37,7 +36,7 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = Cli::parse();
 
     match args.command {
         Command::Build {
