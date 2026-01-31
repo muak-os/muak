@@ -1,6 +1,6 @@
 //! gRPC request handling and routing
 
-use http_body_util::Full;
+use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 
@@ -8,11 +8,14 @@ use crate::auth::{self, AuthResult};
 use crate::config;
 use crate::proxy;
 
+/// Body type for handler responses - either an error (Empty) or proxied stream (Incoming)
+pub type Body = Either<Empty<Bytes>, Incoming>;
+
 /// Handles an incoming gRPC request
 pub async fn handle_request(
     req: Request<Incoming>,
     client_fingerprint: Option<String>,
-) -> Result<Response<Full<Bytes>>, hyper::Error> {
+) -> Result<Response<Body>, hyper::Error> {
     let path = req.uri().path();
 
     match auth::check_auth(path, client_fingerprint.as_deref()) {
@@ -46,7 +49,7 @@ pub async fn handle_request(
     };
 
     match proxy::proxy_to_backend(req, socket_path).await {
-        Ok(response) => Ok(response),
+        Ok(response) => Ok(response.map(Either::Right)),
         Err(e) => {
             kmsg::error!("Proxy error to {}: {}", socket_path, e);
             Ok(grpc_error(14, &format!("Backend unavailable: {}", e)))
@@ -72,12 +75,12 @@ fn route_request(path: &str) -> Option<&'static str> {
 }
 
 /// Creates a gRPC error response
-pub fn grpc_error(status: u8, message: &str) -> Response<Full<Bytes>> {
+fn grpc_error(status: u8, message: &str) -> Response<Body> {
     Response::builder()
         .status(200)
         .header("content-type", "application/grpc")
         .header("grpc-status", status.to_string())
         .header("grpc-message", message)
-        .body(Full::new(Bytes::new()))
+        .body(Either::Left(Empty::new()))
         .expect("building response should not fail")
 }
