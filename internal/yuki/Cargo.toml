@@ -19,5 +19,8 @@ object = { workspace = true }
 default = ["cli"]
 cli = ["clap", "anyhow"]
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true
