@@ -52,7 +52,7 @@ jobs:
 
       - name: Build installer (${{ matrix.arch }})
         run: |
-          make oci-installer \
+          make oci installer \
             CONTAINER_RUNTIME=docker \
             PUSH=true \
             LATEST=true \

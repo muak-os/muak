@@ -168,7 +168,7 @@ jobs:
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
             CACHE_ARGS="${CACHE_ARGS} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/pkgs/${{ matrix.package }}:buildcache-${{ matrix.arch }},mode=max"
           fi
-          make oci-${{ matrix.package }} \
+          make oci ${{ matrix.package }} \
             CONTAINER_RUNTIME=docker \
             PUSH=${{ github.event_name != 'pull_request' }} \
             LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \

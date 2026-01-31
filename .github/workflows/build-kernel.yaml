@@ -52,7 +52,7 @@ jobs:
 
       - name: Build kernel (${{ matrix.arch }})
         run: |
-          make oci-kernel \
+          make oci kernel \
             CONTAINER_RUNTIME=docker \
             PUSH=true \
             LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \

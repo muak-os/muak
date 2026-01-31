@@ -13,6 +13,12 @@ ARTIFACTS := _out
 
 ARCH ?= $(shell uname -m)
 
+# Commands that take package arguments - remaining args should be treated as params, not targets
+PARAM_COMMANDS := oci local test coverage
+FIRST_GOAL := $(firstword $(MAKECMDGOALS))
+OTHER_GOALS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+IS_PARAM_CMD := $(filter $(FIRST_GOAL),$(PARAM_COMMANDS))
+
 ifeq ($(ARCH),$(filter $(ARCH),aarch64 arm64))
     override ARCH := aarch64
     CARGO_TARGET := aarch64-unknown-linux-musl
@@ -64,6 +70,15 @@ YELLOW := \e[33m
 RED := \e[31m
 RESET := \e[0m
 
+# Build Abstractions
+$(ARTIFACTS):
+	@mkdir -p $(ARTIFACTS)
+
+# Catch-all for package names passed as arguments to param commands
+.PHONY: $(OTHER_GOALS)
+$(OTHER_GOALS):
+	@:
+
 define require
 	@test -f $(1) || { printf "$(RED)$(BOLD)Error:$(RESET) $(1) not found. Run $(GREEN)$(2)$(RESET) first\n"; exit 1; }
 endef
@@ -75,7 +90,7 @@ endef
 define require-docker-for-push
 	@if [ "$(PUSH)" = "true" ] && [ "$(CONTAINER_RUNTIME)" = "podman" ]; then \
 		printf "$(RED)$(BOLD)Error:$(RESET) PUSH=true requires Docker (podman does not support --push)\n"; \
-		printf "$(YELLOW)Hint:$(RESET) Set CONTAINER_RUNTIME=docker or use 'make local-%%' instead\n"; \
+		printf "$(YELLOW)Hint:$(RESET) Set CONTAINER_RUNTIME=docker\n"; \
 		exit 1; \
 	fi
 endef
@@ -88,7 +103,6 @@ help: ## Show this help
 	@printf "$(BOLD)$(CYAN)Prerequisites$(RESET)\n\n"
 	@printf "To build this project, you must have the following installed:\n\n"
 	@printf "  - rustup with musl targets (see README.md)\n"
-	@printf "  - make\n"
 	@printf "  - docker (with buildx) or podman\n"
 	@printf "  - git\n\n"
 	@printf "$(BOLD)$(CYAN)Quick Start$(RESET)\n\n"
@@ -100,35 +114,86 @@ help: ## Show this help
 	@printf "$(BOLD)$(CYAN)Targets$(RESET)\n\n"
 	@grep -E '^[a-zA-Z_%-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-20s\033[0m %s\n", $$1, $$2}'
 
-# Build Abstractions
-$(ARTIFACTS):
-	@mkdir -p $(ARTIFACTS)
-
-local-%: $(ARTIFACTS) ## Build package as local OCI layout (e.g. make local-granola)
-	$(call require-pkg,$*)
-	@printf "$(CYAN)Building local:$(RESET) $* -> $(ARTIFACTS)/oci/$*\n"
+# Build a single package as local OCI layout (internal helper)
+define build-local
+	@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
+	@printf "$(CYAN)Building local:$(RESET) $(1) -> $(ARTIFACTS)/oci/$(1)\n"
 	@mkdir -p $(ARTIFACTS)/oci
 	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
-		--tag localhost/muak-$*:$(TAG) \
+		--tag localhost/muak-$(1):$(TAG) \
 		--load \
-		--file pkgs/$*/Dockerfile \
+		--file pkgs/$(1)/Dockerfile \
 		.
-	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$* localhost/muak-$*:$(TAG)
-	@$(CONTAINER_RUNTIME) rmi localhost/muak-$*:$(TAG) >/dev/null 2>&1 || true
+	@$(CONTAINER_RUNTIME) save --format oci-dir -o $(ARTIFACTS)/oci/$(1) localhost/muak-$(1):$(TAG)
+	@$(CONTAINER_RUNTIME) rmi localhost/muak-$(1):$(TAG) >/dev/null 2>&1 || true
+endef
 
-oci-%: $(ARTIFACTS) ## Build OCI image (e.g. make oci-granola)
-	$(call require-pkg,$*)
+.PHONY: local
+local: $(ARTIFACTS) ## Build packages as local OCI layout (e.g. make local granola modd)
+	@if [ -z "$(filter-out local,$(MAKECMDGOALS))" ]; then \
+		printf "$(RED)$(BOLD)Error:$(RESET) No packages specified. Usage: make local <pkg1> [pkg2...]\n"; \
+		exit 1; \
+	fi
+	$(foreach pkg,$(filter-out local,$(MAKECMDGOALS)),$(call build-local,$(pkg)))
+
+# Build a single package as OCI image (handles special cases: kernel, installer, cli)
+define build-oci
+	$(if $(filter kernel,$(1)),\
+		@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
+		@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) $(PULL_ARG) \
+			--tag $(REGISTRY)/kernel:$(TAG) \
+			$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/kernel:latest) \
+			$(PUSH_ARG) \
+			--target kernel-package \
+			--file pkgs/kernel/Dockerfile \
+			.,\
+	$(if $(filter installer,$(1)),\
+		@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
+		@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
+			--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
+			--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
+			--build-arg PKG_MODD=$(REGISTRY)/pkgs/modd:$(TAG) \
+			--build-arg PKG_NETWORKD=$(REGISTRY)/pkgs/networkd:$(TAG) \
+			--build-arg PKG_APID=$(REGISTRY)/pkgs/apid:$(TAG) \
+			--build-arg PKG_VMD=$(REGISTRY)/pkgs/vmd:$(TAG) \
+			--build-arg PKG_INIT=$(REGISTRY)/pkgs/init:$(TAG) \
+			--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
+			--tag $(REGISTRY)/installer:$(TAG) \
+			$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/installer:latest) \
+			$(PUSH_ARG) \
+			--file Dockerfile \
+			.,\
+	$(if $(filter cli,$(1)),\
+		@printf "$(CYAN)Building muakctl OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
+		@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
+			--tag $(REGISTRY)/muakctl:$(TAG) \
+			$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/muakctl:latest) \
+			$(PUSH_ARG) \
+			--file pkgs/muakctl/Dockerfile \
+			.,\
+		@test -f pkgs/$(1)/Dockerfile || { printf "$(RED)$(BOLD)Error:$(RESET) pkgs/$(1)/Dockerfile not found\n"; exit 1; }
+		@printf "$(CYAN)Building OCI:$(RESET) $(1) (push=$(PUSH), latest=$(LATEST))\n"
+		@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
+			--tag $(REGISTRY)/pkgs/$(1):$(TAG) \
+			$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/pkgs/$(1):latest) \
+			$(PUSH_ARG) \
+			--file pkgs/$(1)/Dockerfile \
+			.)))
+endef
+
+.PHONY: oci
+oci: ## Build OCI images (e.g. make oci granola kernel installer cli)
 	$(call require-docker-for-push)
-	@printf "$(CYAN)Building OCI:$(RESET) $* (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
-		--tag $(REGISTRY)/pkgs/$*:$(TAG) \
-		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/pkgs/$*:latest) \
-		$(PUSH_ARG) \
-		--file pkgs/$*/Dockerfile \
-		.
+	@if [ -z "$(filter-out oci,$(MAKECMDGOALS))" ]; then \
+		printf "$(RED)$(BOLD)Error:$(RESET) No packages specified. Usage: make oci <pkg1> [pkg2...]\n"; \
+		printf "$(YELLOW)Special packages:$(RESET) kernel, installer, cli\n"; \
+		exit 1; \
+	fi
+	$(foreach pkg,$(filter-out oci,$(MAKECMDGOALS)),$(call build-oci,$(pkg)))
 
 ## Kernel
 .PHONY: kernel
+ifeq ($(IS_PARAM_CMD),)
 kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 	$(call require-pkg,kernel)
 	@printf "$(CYAN)Building kernel locally$(RESET)\n"
@@ -136,30 +201,13 @@ kernel: $(ARTIFACTS) ## Build kernel to local artifacts
 		--output type=local,dest=$(ARTIFACTS) \
 		--file pkgs/kernel/Dockerfile \
 		.
-
-.PHONY: oci-kernel
-oci-kernel: ## Build kernel OCI image (signed in CI)
-	$(call require-docker-for-push)
-	@printf "$(CYAN)Building kernel OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(SIGNING_ARGS) $(PULL_ARG) \
-		--tag $(REGISTRY)/kernel:$(TAG) \
-		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/kernel:latest) \
-		$(PUSH_ARG) \
-		--target kernel-package \
-		--file pkgs/kernel/Dockerfile \
-		.
-
-.PHONY: kspp
-kspp: ## Check kernel config against KSPP security hardening recommendations
-	@printf "$(CYAN)Checking kernel config ($(KERNEL_CONFIG)) against KSPP recommendations$(RESET)\n"
-	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/pkgs/kernel/$(KERNEL_CONFIG):/config:ro \
-		alpine:3.23 sh -c '\
-		apk add --no-cache git python3 >/dev/null 2>&1 && \
-		git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
-		/tmp/khc/bin/kernel-hardening-checker -c /config'
+else
+kernel: ; @:
+endif
 
 ## Installer
 .PHONY: installer
+ifeq ($(IS_PARAM_CMD),)
 installer: $(ARTIFACTS) ## Build installer with local binaries
 	$(call require,$(ARTIFACTS)/vmlinuz,make kernel)
 	@printf "$(CYAN)Building installer with local binaries$(RESET)\n"
@@ -176,36 +224,9 @@ installer: $(ARTIFACTS) ## Build installer with local binaries
 		--file Dockerfile \
 		.
 	@printf "$(GREEN)Installer assets extracted to $(ARTIFACTS)/$(RESET)\n"
-
-.PHONY: oci-installer
-oci-installer: ## Build installer OCI image from registry packages
-	$(call require-docker-for-push)
-	@printf "$(CYAN)Building installer OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
-		--build-arg PKG_KERNEL=$(REGISTRY)/kernel:$(TAG) \
-		--build-arg PKG_GRANOLA=$(REGISTRY)/pkgs/granola:$(TAG) \
-		--build-arg PKG_MODD=$(REGISTRY)/pkgs/modd:$(TAG) \
-		--build-arg PKG_NETWORKD=$(REGISTRY)/pkgs/networkd:$(TAG) \
-		--build-arg PKG_APID=$(REGISTRY)/pkgs/apid:$(TAG) \
-		--build-arg PKG_VMD=$(REGISTRY)/pkgs/vmd:$(TAG) \
-		--build-arg PKG_INIT=$(REGISTRY)/pkgs/init:$(TAG) \
-		--build-arg PKG_STUB=$(REGISTRY)/pkgs/stub:$(TAG) \
-		--tag $(REGISTRY)/installer:$(TAG) \
-		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/installer:latest) \
-		$(PUSH_ARG) \
-		--file Dockerfile \
-		.
-
-.PHONY: oci-muakctl
-oci-cli: ## Build CLI OCI image
-	$(call require-docker-for-push)
-	@printf "$(CYAN)Building muakctl OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
-	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
-		--tag $(REGISTRY)/muakctl:$(TAG) \
-		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/muakctl:latest) \
-		$(PUSH_ARG) \
-		--file pkgs/muakctl/Dockerfile \
-		.
+else
+installer: ; @:
+endif
 
 ## Rust Packages
 .PHONY: packages
@@ -292,15 +313,19 @@ coverage: ## Run tests with coverage (e.g. make coverage yuki)
 		cargo llvm-cov nextest; \
 	fi
 
+.PHONY: kspp
+kspp: ## Check kernel config against KSPP security hardening recommendations
+	@printf "$(CYAN)Checking kernel config ($(KERNEL_CONFIG)) against KSPP recommendations$(RESET)\n"
+	@$(CONTAINER_RUNTIME) run --rm --network=host -v $(PWD)/pkgs/kernel/$(KERNEL_CONFIG):/config:ro \
+		alpine:3.23 sh -c '\
+		apk add --no-cache git python3 >/dev/null 2>&1 && \
+		git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
+		/tmp/khc/bin/kernel-hardening-checker -c /config'
+
 # Cleanup
 .PHONY: clean
 clean: ## Remove all build artifacts
 	@printf "$(CYAN)Cleaning build artifacts$(RESET)\n"
 	@cargo clean
 	@rm -rf $(ARTIFACTS)
-	@$(CONTAINER_RUNTIME) rm -f kernel-extract 2>/dev/null || true
 	@printf "$(GREEN)Clean complete$(RESET)\n"
-
-# Catch all and do nothing
-%:
-	@:
