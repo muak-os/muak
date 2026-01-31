@@ -57,38 +57,8 @@ async fn resolve_connection(cli: &Cli, timeout_secs: u64) -> Result<(Channel, St
 
 /// Routes CLI commands to their handlers.
 pub async fn run(cli: Cli) -> Result<()> {
-    // Handle offline commands first
-    match &cli.command {
-        Commands::Config { action } => {
-            if matches!(action, config::ConfigAction::Generate) {
-                print!("{}", sysconfig::serialize_default());
-                return Ok(());
-            }
-        }
-        Commands::Context { action } => {
-            return context::handle(action.clone());
-        }
-        Commands::Auth { action: None } => {
-            let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Missing --endpoint. Use 'muakctl auth --endpoint <ip>:<port>' to authenticate."
-                )
-            })?;
-            return auth::enroll(endpoint).await;
-        }
-        Commands::Install { .. } => {
-            if let Some(endpoint) = &cli.endpoint {
-                let config = ClientConfig::load()?;
-                if config.has_credentials_for_endpoint(endpoint) {
-                    println!(
-                        "{}",
-                        "Existing credentials found for this server. Change the server name to install.".yellow()
-                    );
-                    return Ok(());
-                }
-            }
-        }
-        _ => {}
+    if handle_offline_cmd(&cli).await? {
+        return Ok(());
     }
 
     let timeout_secs = match &cli.command {
@@ -98,6 +68,52 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     let (channel, endpoint) = resolve_connection(&cli, timeout_secs).await?;
 
+    handle_cmd(cli, channel, endpoint).await
+}
+
+/// Handles commands that don't require a server connection.
+/// Returns true if the command was handled offline.
+async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
+    match &cli.command {
+        Commands::Config { action } => {
+            if matches!(action, config::ConfigAction::Generate) {
+                print!("{}", sysconfig::serialize_default());
+                return Ok(true);
+            }
+        }
+        Commands::Context { action } => {
+            context::handle(action.clone())?;
+            return Ok(true);
+        }
+        Commands::Auth { action: None } => {
+            let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing --endpoint. Use 'muakctl auth --endpoint <ip>:<port>' to authenticate."
+                )
+            })?;
+            auth::enroll(endpoint).await?;
+            return Ok(true);
+        }
+        Commands::Install { force: false, .. } => {
+            if let Some(endpoint) = &cli.endpoint {
+                let config = ClientConfig::load()?;
+                if config.has_credentials_for_endpoint(endpoint) {
+                    println!(
+                        "{}",
+                        "Existing credentials found for this server. Remove the context to reinstall.".yellow()
+                    );
+                    return Ok(true);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(false)
+}
+
+/// Handles commands that require a server connection.
+async fn handle_cmd(cli: Cli, channel: Channel, endpoint: String) -> Result<()> {
     match cli.command {
         Commands::Auth { action } => {
             let action = action.expect("None case handled in offline commands");
