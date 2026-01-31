@@ -11,10 +11,23 @@ use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::get_csr_status_response::Status as CsrStatus;
 use super::proto::auth::*;
 
-const PENDING_DIR: &str = "/run/state/secrets/pending";
-const STAGING_DIR: &str = "/run/state/secrets/staging";
-const CA_CERT_PATH: &str = "/run/state/secrets/ca.crt";
-const CA_KEY_PATH: &str = "/run/state/secrets/ca.key";
+use crate::constants::SECRETS_DIR;
+
+fn pending_dir() -> PathBuf {
+    Path::new(SECRETS_DIR).join("pending")
+}
+
+fn staging_dir() -> PathBuf {
+    Path::new(SECRETS_DIR).join("staging")
+}
+
+fn ca_cert_path() -> PathBuf {
+    Path::new(SECRETS_DIR).join("ca.crt")
+}
+
+fn ca_key_path() -> PathBuf {
+    Path::new(SECRETS_DIR).join("ca.key")
+}
 
 pub fn service() -> AuthServiceServer<AuthServiceImpl> {
     AuthServiceServer::new(AuthServiceImpl)
@@ -235,20 +248,20 @@ impl AuthService for AuthServiceImpl {
 
 /// Returns the path for a pending CSR.
 fn pending_csr_path(fingerprint: &str) -> PathBuf {
-    Path::new(PENDING_DIR).join(format!("{}.pem", fingerprint))
+    pending_dir().join(format!("{}.pem", fingerprint))
 }
 
 /// Stores a pending CSR to disk.
 fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
-    std::fs::create_dir_all(PENDING_DIR)?;
+    std::fs::create_dir_all(pending_dir())?;
     let path = pending_csr_path(fingerprint);
     std::fs::write(path, csr_pem)?;
     Ok(())
 }
 
 /// Lists all pending CSRs.
-fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
-    let dir = Path::new(PENDING_DIR);
+fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
+    let dir = pending_dir();
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -283,10 +296,10 @@ fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
 }
 
 /// Signs a pending CSR with the CA.
-fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
-    let ca_key_pem = std::fs::read_to_string(CA_KEY_PATH)
+fn sign_pending_csr(csr_pem: &str) -> anyhow::Result<(Certificate, String)> {
+    let ca_key_pem = std::fs::read_to_string(ca_key_path())
         .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;
-    let ca_cert_pem = std::fs::read_to_string(CA_CERT_PATH)
+    let ca_cert_pem = std::fs::read_to_string(ca_cert_path())
         .map_err(|e| anyhow::anyhow!("CA cert not found: {}", e))?;
     let ca_cert = Certificate::from_pem(&ca_cert_pem)?;
 
@@ -303,20 +316,20 @@ fn is_user_authorized(fingerprint: &str) -> bool {
 
 /// Returns the path for a staging certificate.
 fn staging_cert_path(fingerprint: &str) -> PathBuf {
-    Path::new(STAGING_DIR).join(format!("{}.crt", fingerprint))
+    staging_dir().join(format!("{}.crt", fingerprint))
 }
 
 /// Stores a certificate in staging for client pickup.
-fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> Result<()> {
-    std::fs::create_dir_all(STAGING_DIR)?;
+fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(staging_dir())?;
     let path = staging_cert_path(fingerprint);
     std::fs::write(path, cert_pem)?;
     Ok(())
 }
 
 /// Loads a staging certificate and CA cert for a fingerprint.
-fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
-    let ca_pem = std::fs::read_to_string(CA_CERT_PATH)?;
+fn load_staging_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
+    let ca_pem = std::fs::read_to_string(ca_cert_path())?;
     let cert_pem = std::fs::read_to_string(staging_cert_path(fingerprint))?;
     Ok((ca_pem, cert_pem))
 }

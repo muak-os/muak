@@ -73,11 +73,6 @@
   - Add better feedback during install process like formatting etc.
   - Improve performance in formatting DATA partition?
 
-- Simple secure boot support using a local project to sign
-  - Create signing keys during build process and save them to disk in /run/state/sbkeys/
-  - Enroll keys in TPM and/or firmware
-  - Sign UKI
-
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM
 

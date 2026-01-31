@@ -7,6 +7,7 @@ members = [
     "internal/init",
     "internal/modd",
     "internal/networkd",
+    "internal/sbolt",
     "internal/shared/kmod",
     "internal/shared/kmsg",
     "internal/shared/notify",
@@ -30,6 +31,7 @@ kmod = { path = "internal/shared/kmod" }
 kmsg = { path = "internal/shared/kmsg" }
 notify = { path = "internal/shared/notify" }
 pki = { path = "internal/shared/pki" }
+sbolt = { path = "internal/sbolt", default-features = false }
 sysconfig = { path = "internal/shared/sysconfig" }
 yuki = { path = "internal/yuki", default-features = false }
 
@@ -52,12 +54,16 @@ zstd = "0.13"
 
 ## Cryptography
 ring = "0.17"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls-pemfile = "2.2"
 rustls-pki-types = "1.14"
 x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
 der = { version = "0.8.0-rc.10", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.10"
+rsa = "0.10.0-rc.14"
+rand_core = "0.10.0"
+cms = "0.3.0-pre.2"
 
 ## Encoding
 serde = { version = "1.0", features = ["derive"] }

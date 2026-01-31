@@ -9,6 +9,7 @@ use sysconfig::{CONFIG_PATH, HostConfig};
 
 use super::uki::{self, Uki};
 use super::{RollbackInfo, UPDATE_DIR, ValidationMarker, mount_efi_partition, unmount_partition};
+use crate::constants::SECRETS_DIR;
 use crate::disk;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,11 +165,18 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
 
     uki::build_atomic(&uki, &uki_path)?;
 
+    if sysconfig::system().secureboot {
+        let hierarchy = sbolt::keys::load_key_hierarchy(&Path::new(SECRETS_DIR).join("secureboot"))
+            .context("Failed to load Secure Boot keys for UKI signing")?;
+        uki::sign(&uki_path, &hierarchy)?;
+    }
+
     update_config_image(&marker.target_image)?;
 
     cleanup_update_files();
 
     sync();
+
     Ok(())
 }
 
