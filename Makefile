@@ -273,14 +273,24 @@ dev: packages installer extensions uki iso ## Full local development build
 
 # Testing
 .PHONY: test
-test: ## Run all tests (using cargo nextest)
-	@printf "$(CYAN)Running tests$(RESET)\n"
-	@cargo nextest run
+test: ## Run tests (e.g. make test yuki)
+	@if [ -n "$(filter-out test,$(MAKECMDGOALS))" ]; then \
+		printf "$(CYAN)Running tests for $(filter-out test,$(MAKECMDGOALS))$(RESET)\n"; \
+		cargo nextest run $(foreach p,$(filter-out test,$(MAKECMDGOALS)),-p $(p)); \
+	else \
+		printf "$(CYAN)Running tests$(RESET)\n"; \
+		cargo nextest run; \
+	fi
 
 .PHONY: coverage
-coverage: ## Run test with coverage report (using cargo llvm-cov & nextest)
-	@printf "$(CYAN)Running tests with coverage$(RESET)\n"
-	@cargo llvm-cov nextest
+coverage: ## Run tests with coverage (e.g. make coverage yuki)
+	@if [ -n "$(filter-out coverage,$(MAKECMDGOALS))" ]; then \
+		printf "$(CYAN)Running tests with coverage for $(filter-out coverage,$(MAKECMDGOALS))$(RESET)\n"; \
+		cargo llvm-cov nextest $(foreach p,$(filter-out coverage,$(MAKECMDGOALS)),-p $(p)); \
+	else \
+		printf "$(CYAN)Running tests with coverage$(RESET)\n"; \
+		cargo llvm-cov nextest; \
+	fi
 
 # Cleanup
 .PHONY: clean
@@ -290,3 +300,7 @@ clean: ## Remove all build artifacts
 	@rm -rf $(ARTIFACTS)
 	@$(CONTAINER_RUNTIME) rm -f kernel-extract 2>/dev/null || true
 	@printf "$(GREEN)Clean complete$(RESET)\n"
+
+# Catch all and do nothing
+%:
+	@:
