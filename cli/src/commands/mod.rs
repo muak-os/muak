@@ -9,6 +9,7 @@ pub mod update;
 pub mod vm;
 
 use anyhow::Result;
+use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{
@@ -74,6 +75,18 @@ pub async fn run(cli: Cli) -> Result<()> {
                 )
             })?;
             return auth::enroll(endpoint).await;
+        }
+        Commands::Install { .. } => {
+            if let Some(endpoint) = &cli.endpoint {
+                let config = ClientConfig::load()?;
+                if config.has_credentials_for_endpoint(endpoint) {
+                    println!(
+                        "{}",
+                        "Existing credentials found for this server. Change the server name to install.".yellow()
+                    );
+                    return Ok(());
+                }
+            }
         }
         _ => {}
     }

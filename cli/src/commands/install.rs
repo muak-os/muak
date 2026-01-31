@@ -16,14 +16,6 @@ pub async fn handle(
 ) -> Result<()> {
     let mut client_config = ClientConfig::load()?;
 
-    if client_config.has_credentials_for_endpoint(server_endpoint) {
-        println!(
-            "{}",
-            "Existing credentials found for this server. Remove the context to reinstall.".yellow()
-        );
-        return Ok(());
-    }
-
     let (key_pem, csr_pem) = pki::generate_csr("muak-admin")?;
 
     let config_toml = std::fs::read_to_string(&config_path).context(format!(
