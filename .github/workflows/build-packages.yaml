@@ -7,6 +7,7 @@ on:
       - "pkgs/**"
       - "internal/**"
       - "api/**"
+      - "cli/**"
     tags:
       - "v[0-9]+.*"
   pull_request:
@@ -14,6 +15,7 @@ on:
       - "pkgs/**"
       - "internal/**"
       - "api/**"
+      - "cli/**"
       - "Cargo.toml"
       - "Cargo.lock"
   workflow_dispatch:
@@ -44,7 +46,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.package != ''
         run: |
           if [[ "${{ inputs.package }}" == "all" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu","muakctl"]' >> $GITHUB_OUTPUT
           else
             echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
           fi
@@ -52,7 +54,7 @@ jobs:
       - name: Build all packages on tag push
         id: tag
         if: startsWith(github.ref, 'refs/tags/')
-        run: echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+        run: echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu","muakctl"]' >> $GITHUB_OUTPUT
 
       - name: Check for Cargo changes (rebuild all Rust packages)
         id: cargo
@@ -108,6 +110,12 @@ jobs:
               - 'pkgs/firecracker/**'
             qemu:
               - 'pkgs/qemu/**'
+            muakctl:
+              - 'pkgs/muakctl/**'
+              - 'cli/**'
+              - 'internal/shared/pki/**'
+              - 'internal/shared/sysconfig/**'
+              - 'api/*.proto'
 
       - name: Determine packages to build
         id: changes
@@ -122,7 +130,7 @@ jobs:
           elif [[ -n "${TAG_PACKAGES}" ]]; then
             echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
           elif [[ "${REBUILD_ALL}" == "true" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub"]' >> $GITHUB_OUTPUT
+            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","muakctl"]' >> $GITHUB_OUTPUT
           elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
             echo "packages=${FILTER_CHANGES}" >> $GITHUB_OUTPUT
           else
