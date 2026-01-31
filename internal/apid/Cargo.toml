@@ -15,9 +15,6 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 
-# Encoding
-hex = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
 

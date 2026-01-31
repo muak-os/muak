@@ -65,12 +65,12 @@ pub fn sign_csr(
     Ok((cert, fingerprint))
 }
 
-/// Computes SHA256 fingerprint of a CSR's public key (plain hex, no colons).
+/// Computes SHA256 fingerprint of a CSR's public key (lowercase hex).
 ///
 /// This is used as the identifier for pending CSRs.
 pub fn compute_csr_fingerprint(csr_pem: &str) -> Result<String> {
     let csr = CertReq::from_pem(csr_pem)?;
     let spki_der = csr.info.public_key.to_der()?;
     let digest = ring::digest::digest(&ring::digest::SHA256, &spki_der);
-    Ok(hex::encode(digest.as_ref()))
+    Ok(crate::util::to_hex(digest.as_ref()))
 }

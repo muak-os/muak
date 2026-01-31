@@ -99,5 +99,5 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 /// Extracts SHA256 fingerprint from a DER-encoded certificate.
 pub fn extract_fingerprint(cert_der: &[u8]) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, cert_der);
-    hex::encode(digest.as_ref())
+    pki::util::to_hex(digest.as_ref())
 }

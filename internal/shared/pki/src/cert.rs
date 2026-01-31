@@ -67,9 +67,9 @@ pub fn generate_server_certificate(
     Ok((signer, cert))
 }
 
-/// Computes SHA256 fingerprint of a certificate (plain hex, no colons).
+/// Computes SHA256 fingerprint of a certificate (lowercase hex).
 pub fn compute_cert_fingerprint(cert: &Certificate) -> Result<String> {
     let cert_der = cert.to_der()?;
     let digest = ring::digest::digest(&ring::digest::SHA256, &cert_der);
-    Ok(hex::encode(digest.as_ref()))
+    Ok(crate::util::to_hex(digest.as_ref()))
 }

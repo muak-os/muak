@@ -12,9 +12,6 @@ const-oid = { workspace = true }
 ring = { workspace = true }
 signature = { workspace = true }
 
-# Encoding
-hex = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
 
