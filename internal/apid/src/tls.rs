@@ -1,10 +1,10 @@
 //! TLS configuration for mTLS authentication
 
-use std::fs;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use der::Encode;
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
@@ -14,8 +14,8 @@ use crate::config;
 
 /// Loads TLS config from disk (installed system).
 pub fn load_tls_config() -> Result<TlsAcceptor> {
-    let ca_pem = fs::read(config::CA_CERT_PATH).context("Failed to read CA certificate")?;
-    let ca_certs: Vec<CertificateDer> = rustls_pemfile::certs(&mut ca_pem.as_slice())
+    let ca_certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(config::CA_CERT_PATH)
+        .context("Failed to read CA certificate")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse CA certificate")?;
 
@@ -31,17 +31,13 @@ pub fn load_tls_config() -> Result<TlsAcceptor> {
         .build()
         .context("Failed to build client verifier")?;
 
-    let server_cert_pem =
-        fs::read(config::SERVER_CERT_PATH).context("Failed to read server certificate")?;
-    let server_certs: Vec<CertificateDer> = rustls_pemfile::certs(&mut server_cert_pem.as_slice())
+    let server_certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(config::SERVER_CERT_PATH)
+        .context("Failed to read server certificate")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse server certificate")?;
 
-    let server_key_pem =
-        fs::read(config::SERVER_KEY_PATH).context("Failed to read server private key")?;
-    let server_key = rustls_pemfile::private_key(&mut server_key_pem.as_slice())
-        .context("Failed to parse server private key")?
-        .ok_or_else(|| anyhow::anyhow!("No private key found in server key file"))?;
+    let server_key = PrivateKeyDer::from_pem_file(config::SERVER_KEY_PATH)
+        .context("Failed to read/parse server private key")?;
 
     let mut server_config = ServerConfig::builder()
         .with_client_cert_verifier(client_verifier)
