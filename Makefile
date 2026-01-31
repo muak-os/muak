@@ -196,6 +196,17 @@ oci-installer: ## Build installer OCI image from registry packages
 		--file Dockerfile \
 		.
 
+.PHONY: oci-muakctl
+oci-cli: ## Build CLI OCI image
+	$(call require-docker-for-push)
+	@printf "$(CYAN)Building muakctl OCI$(RESET) (push=$(PUSH), latest=$(LATEST))\n"
+	@$(BUILD) $(COMMON_ARGS) $(CI_ARGS) $(PULL_ARG) \
+		--tag $(REGISTRY)/muakctl:$(TAG) \
+		$(if $(filter true,$(LATEST)),--tag $(REGISTRY)/muakctl:latest) \
+		$(PUSH_ARG) \
+		--file pkgs/muakctl/Dockerfile \
+		.
+
 ## Rust Packages
 .PHONY: packages
 packages: ## Build all Rust packages with cargo
