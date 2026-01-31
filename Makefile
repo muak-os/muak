@@ -271,6 +271,17 @@ iso: $(ARTIFACTS) ## Build bootable ISO
 dev: packages installer extensions uki iso ## Full local development build
 	@printf "$(GREEN)$(BOLD)Build complete:$(RESET) $(ARTIFACTS)/muak-$(ARCH).iso\n"
 
+# Testing
+.PHONY: test
+test: ## Run all tests (using cargo nextest)
+	@printf "$(CYAN)Running tests$(RESET)\n"
+	@cargo nextest run
+
+.PHONY: coverage
+coverage: ## Run test with coverage report (using cargo llvm-cov & nextest)
+	@printf "$(CYAN)Running tests with coverage$(RESET)\n"
+	@cargo llvm-cov nextest
+
 # Cleanup
 .PHONY: clean
 clean: ## Remove all build artifacts
