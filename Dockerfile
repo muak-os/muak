@@ -1,7 +1,6 @@
 # syntax = docker/dockerfile-upstream:1.20.0-labs
 
 ARG ALPINE_VERSION=3.23
-ARG BTRFS_VERSION=v6.17.1
 ARG KERNEL_VERSION=6.18.8
 ARG COMPRESSION_LEVEL=19
 ARG SOURCE_DATE_EPOCH=0
@@ -28,31 +27,6 @@ FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Download static binaries
-# ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS tools
-
-ARG BTRFS_VERSION
-ARG TARGETARCH
-
-WORKDIR /tools
-
-RUN <<EOF
-set -euo pipefail
-apk add --no-cache curl
-
-# btrfs-progs only provides x86_64 static binaries
-# For arm64, we fall back to Alpine's package (dynamically linked)
-if [ "${TARGETARCH}" = "arm64" ]; then
-  apk add --no-cache btrfs-progs
-  cp /usr/bin/btrfs btrfs
-else
-  curl -fsSL "https://github.com/kdave/btrfs-progs/releases/download/${BTRFS_VERSION}/btrfs.box.static" -o btrfs
-fi
-chmod +x btrfs
-EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
@@ -87,10 +61,6 @@ COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
-
-COPY --link --from=tools /tools/btrfs /rootfs/sbin/btrfs
-
-RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 

@@ -24,6 +24,7 @@ tonic-prost = { workspace = true }
 hyper-util = { workspace = true }
 
 # Internal
+btrfs = { workspace = true }
 kmsg = { workspace = true }
 notify = { workspace = true }
 sysconfig = { workspace = true }

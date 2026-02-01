@@ -35,7 +35,9 @@ struct VmEntry {
 
 impl VmEntry {
     fn to_info(&self, vm_id: &str) -> VmInfo {
-        let disk_usage = disk::get_usage(vm_id).ok().map(|u| u.into());
+        let disk_usage = disk::get_usage(vm_id, disk::DATA_DIR)
+            .ok()
+            .map(|u| u.into());
 
         VmInfo {
             vm_id: vm_id.to_string(),
@@ -175,12 +177,12 @@ impl VmActor {
     }
 
     fn cleanup_orphaned_disks(vms: &HashMap<String, VmEntry>) {
-        let disk_vms = disk::list_subvolumes().unwrap_or_default();
+        let disk_vms = disk::list_subvolumes(disk::DATA_DIR).unwrap_or_default();
 
         for vm_id in disk_vms {
             if !vms.contains_key(&vm_id) {
                 kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
-                if let Err(e) = disk::delete_subvolume(&vm_id) {
+                if let Err(e) = disk::delete_subvolume(&vm_id, disk::DATA_DIR) {
                     kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
                 }
             }
@@ -266,8 +268,8 @@ impl VmActor {
         };
         let size_bytes = size_mb * 1024 * 1024;
 
-        disk::create_subvolume(&vm_id)?;
-        disk::set_quota(&vm_id, size_bytes)?;
+        disk::create_subvolume(&vm_id, disk::DATA_DIR)?;
+        disk::set_quota(&vm_id, size_bytes, disk::DATA_DIR)?;
         disk::create_raw_image(&vm_id, size_bytes)?;
 
         let now = SystemTime::now()
@@ -430,7 +432,7 @@ impl VmActor {
 
         kmsg::info!(@ "vmd", "Deleting VM {}", vm_id);
 
-        if let Err(e) = disk::delete_subvolume(vm_id) {
+        if let Err(e) = disk::delete_subvolume(vm_id, disk::DATA_DIR) {
             kmsg::warn!(@ "vmd", "Failed to delete disk subvolume: {}", e);
         }
 

@@ -17,7 +17,7 @@ prost = { workspace = true }
 # Cryptography
 ring = { workspace = true }
 x509-cert = { workspace = true }
-uuid = { workspace = true, features = ["v7"] }
+uuid = { workspace = true, features = ["v4", "v7"] }
 
 # Error handling
 anyhow = { workspace = true }
@@ -31,6 +31,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
+btrfs = { workspace = true }
 imager = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }

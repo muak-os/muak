@@ -1,9 +1,8 @@
 //! Filesystem formatting utilities for EFI and Btrfs partitions.
 
 use std::fs::OpenOptions;
-use std::process::Command;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result};
 use fatfs::{FatType, FormatVolumeOptions};
 
 use super::utils::wait_for_device;
@@ -36,17 +35,8 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
 
     wait_for_device(device)?;
 
-    let output = Command::new("/sbin/mkfs.btrfs")
-        .arg("-f")
-        .arg("-L")
-        .arg(label)
-        .arg(device)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to format {} as btrfs: {}", device, stderr);
-    }
+    let f = OpenOptions::new().read(true).write(true).open(device)?;
+    btrfs::format_btrfs(f, label).context("Failed to format partition as btrfs")?;
 
     kmsg::info!("btrfs formatting complete");
 
