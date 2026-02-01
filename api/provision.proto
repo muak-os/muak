@@ -3,12 +3,25 @@ syntax = "proto3";
 package muak.provision.v1;
 
 service ProvisionService {
+    // @rbac: none
     rpc Install(InstallRequest) returns (InstallResponse);
+
+    // @rbac: system:update
     rpc PrepareUpdate(PrepareUpdateRequest) returns (PrepareUpdateResponse);
+
+    // @rbac: system:update
     rpc Update(UpdateRequest) returns (UpdateResponse);
+
+    // @rbac: system:read
     rpc GetUpdateStatus(GetUpdateStatusRequest) returns (GetUpdateStatusResponse);
+
+    // @rbac: none
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
+
+    // @rbac: none
     rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse);
+
+    // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 }
 

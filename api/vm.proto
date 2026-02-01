@@ -3,13 +3,28 @@ syntax = "proto3";
 package muak.vm.v1;
 
 service VmService {
+  // @rbac: vm:create
   rpc CreateVm(CreateVmRequest) returns (CreateVmResponse);
+
+  // @rbac: vm:start
   rpc StartVm(StartVmRequest) returns (StartVmResponse);
+
+  // @rbac: vm:stop
   rpc StopVm(StopVmRequest) returns (StopVmResponse);
+
+  // @rbac: vm:delete
   rpc DeleteVm(DeleteVmRequest) returns (DeleteVmResponse);
+
+  // @rbac: vm:read
   rpc GetVm(GetVmRequest) returns (GetVmResponse);
+
+  // @rbac: vm:read
   rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+
+  // @rbac: vm:upload
   rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+
+  // @rbac: vm:read
   rpc GetVmSerialLog(GetVmSerialLogRequest) returns (GetVmSerialLogResponse);
 }
 

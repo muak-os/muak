@@ -30,7 +30,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 mod error;
+pub mod permission;
+
 pub use error::{ConfigError, Result};
+pub use permission::Permission;
 
 pub const CONFIG_PATH: &str = "/run/state/config.toml";
 const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
@@ -110,15 +113,6 @@ pub struct AuthConfig {
 pub struct AuthUser {
     pub fingerprint: String,
     pub permissions: Vec<Permission>,
-}
-
-/// Permission levels for RBAC.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Permission {
-    Admin,
-    VmManage,
-    ReadOnly,
 }
 
 /// Initializes the global configuration.
@@ -203,7 +197,7 @@ pub fn parse_from_str(contents: &str) -> Result<HostConfig> {
     Ok(config)
 }
 
-/// Loads configuration from a file path, falling back to defaults if not found.
+/// Loads configuration from a filepath, falling back to defaults if not found.
 pub(crate) fn load_from_path(path: &Path) -> Result<HostConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;

@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use fatfs::{FatType, FormatVolumeOptions, format_volume};
+use fatfs::{FatType, FormatVolumeOptions};
 use std::fs::OpenOptions;
 use std::process::Command;
 
@@ -12,7 +12,7 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 
     let mut f = OpenOptions::new().read(true).write(true).open(device)?;
 
-    format_volume(
+    fatfs::format_volume(
         &mut f,
         FormatVolumeOptions::new()
             .volume_label(*b"EFI        ") // 11 bytes, padded with spaces

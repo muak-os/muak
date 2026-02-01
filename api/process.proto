@@ -3,6 +3,7 @@ syntax = "proto3";
 package muak.process.v1;
 
 service ProcessService {
+  // @rbac: process:read
   rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
 }
 

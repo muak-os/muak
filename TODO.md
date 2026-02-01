@@ -12,7 +12,6 @@
   - Add reset command to factory reset the system
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
-  - Dockerfile of CLI + CI jobs to release it
 
 - Better PID 1
   - Better explicit restart strategy for services in supervisor (exponential backoff etc)
@@ -22,7 +21,6 @@
   - Move provisioning logic to a separate service
 
 - Enhance networking:
-  - Handle certificates properly using webpki-roots-certs in reqwest 0.13 or switch to ureq
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Add way more testing to cover every edge case
   - Automatic failover when primary interface fails
@@ -44,10 +42,11 @@
 
 - Enhance sysconfig shared lib:
   - Config versioning with tracking of changes over time
+  - Allow config hotreload (SIGHUP or something)
 
 - Enhance `apid`
   - Rate limit routes especially unauthenticated ones
-  - Enforce RBAC policies
+  - Protect unauthenticated routes once system is installed (disk & logs but not auth)
 
 - Disk Manager Service:
   - LUKS encryption/decryption with libcryptsetup-rs
@@ -66,6 +65,7 @@
   - Unit tests & Integration tests
   - Mock system calls etc
   - Target 80% coverage
+  - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
 
 - Better install:
   - Only allow signed installer images to be installed
@@ -79,6 +79,8 @@
   - Create signing keys during build process and save them to disk in /run/state/sbkeys/
   - Enroll keys in TPM and/or firmware
   - Sign UKI
+
+- Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
 
 - Stub improvements:
   - Add TPM PCR#7 measurements in stub
