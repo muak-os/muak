@@ -39,6 +39,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
         id: buildx
 
+      - uses: taiki-e/install-action@just
+
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -52,13 +54,13 @@ jobs:
 
       - name: Build kernel (${{ matrix.arch }})
         run: |
-          make oci kernel \
-            CONTAINER_RUNTIME=docker \
-            PUSH=true \
-            LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
-            REGISTRY=${{ env.REGISTRY }}/sawangg \
-            SIGNING_ARGS="--secret id=kernel_key,src=/tmp/kernel-signing-key.pem" \
-            CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }},mode=max"
+          CONTAINER_RUNTIME=docker \
+          PUSH=true \
+          LATEST=${{ startsWith(github.ref, 'refs/tags/') }} \
+          REGISTRY=${{ env.REGISTRY }}/sawangg \
+          SIGNING_ARGS="--secret id=kernel_key,src=/tmp/kernel-signing-key.pem" \
+          CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/kernel:buildcache-${{ matrix.arch }},mode=max" \
+          just oci kernel
 
       - name: Cleanup signing key
         if: always()
