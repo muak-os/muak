@@ -53,7 +53,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (packages → installer → extensions → uki → iso)
-dev: packages installer extensions uki iso
+dev: build installer extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -65,7 +65,7 @@ kernel: _ensure-artifacts (_require-pkg "kernel")
         .
 
 # Build all Rust packages with cargo
-packages:
+build:
     @printf "{{ cyan }}Building Rust packages{{ reset }}\n"
     cargo build --release --target {{ arch }}-unknown-linux-musl
     cargo +nightly build --release --target {{ arch }}-unknown-uefi --features uefi -p stub
