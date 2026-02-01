@@ -30,7 +30,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 mod error;
-mod permission;
+pub mod permission;
 
 pub use error::{ConfigError, Result};
 pub use permission::Permission;

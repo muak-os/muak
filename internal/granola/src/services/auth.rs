@@ -153,10 +153,16 @@ impl AuthService for AuthServiceImpl {
         store_staging_cert(&fingerprint, &cert_pem)
             .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
 
-        let parsed_permissions: Vec<sysconfig::Permission> = permissions
-            .iter()
-            .filter_map(|p| p.parse::<sysconfig::Permission>().ok())
-            .collect();
+        let parsed_permissions: Vec<sysconfig::Permission> = {
+            let mut perms = Vec::new();
+            for pattern in &permissions {
+                match sysconfig::Permission::expand_pattern(pattern) {
+                    Ok(expanded) => perms.extend(expanded),
+                    Err(e) => return Err(Status::invalid_argument(e)),
+                }
+            }
+            perms
+        };
 
         add_user_to_config(&cert_fingerprint, parsed_permissions)
             .map_err(|e| Status::internal(format!("Failed to update config: {}", e)))?;
@@ -200,7 +206,7 @@ impl AuthService for AuthServiceImpl {
             .iter()
             .map(|u| AuthorizedUser {
                 fingerprint: u.fingerprint.clone(),
-                permissions: u.permissions.iter().map(|p| p.to_string()).collect(),
+                permissions: sysconfig::permission::collapse(&u.permissions),
             })
             .collect();
 
