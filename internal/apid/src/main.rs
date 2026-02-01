@@ -1,7 +1,7 @@
-mod auth;
 mod config;
 mod handler;
 mod proxy;
+mod rbac;
 mod server;
 mod tls;
 

@@ -21,7 +21,7 @@ pub enum AuthAction {
     Requests,
     Approve {
         fingerprint: String,
-        #[arg(long, default_value = "read_only")]
+        #[arg(long, default_value = "vm:read")]
         permissions: String,
     },
     Revoke {

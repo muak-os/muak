@@ -4,9 +4,9 @@ use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 
-use crate::auth::{self, AuthResult};
 use crate::config;
 use crate::proxy;
+use crate::rbac;
 
 /// Body type for handler responses - either an error (Empty) or proxied stream (Incoming)
 pub type Body = Either<Empty<Bytes>, Incoming>;
@@ -18,26 +18,9 @@ pub async fn handle_request(
 ) -> Result<Response<Body>, hyper::Error> {
     let path = req.uri().path();
 
-    match auth::check_auth(path, client_fingerprint.as_deref()) {
-        AuthResult::Allowed => {}
-        AuthResult::Unauthenticated => {
-            kmsg::warn!("Unauthenticated request to protected endpoint: {}", path);
-            return Ok(grpc_error(16, "Client certificate required"));
-        }
-        AuthResult::Revoked => {
-            kmsg::warn!(
-                "Revoked certificate attempted access: {}",
-                client_fingerprint.as_deref().unwrap_or("unknown")
-            );
-            return Ok(grpc_error(7, "Certificate has been revoked"));
-        }
-        AuthResult::Unauthorized => {
-            kmsg::warn!(
-                "Unknown fingerprint attempted access: {}",
-                client_fingerprint.as_deref().unwrap_or("unknown")
-            );
-            return Ok(grpc_error(7, "Certificate not authorized"));
-        }
+    if let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
+        kmsg::warn!("Access denied for {}: {}", path, e);
+        return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
     }
 
     let socket_path = match route_request(path) {

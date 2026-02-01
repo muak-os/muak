@@ -1,0 +1,116 @@
+//! Authenticated user wrapper with permission checking helpers.
+
+use std::collections::HashSet;
+
+use sysconfig::Permission;
+
+/// Represents an authenticated user with their permissions.
+///
+/// This is a lightweight wrapper that provides permission checking helpers
+/// and abstracts away the underlying permission storage.
+#[derive(Debug, Clone)]
+pub(super) struct AuthenticatedUser {
+    permissions: HashSet<Permission>,
+}
+
+impl AuthenticatedUser {
+    /// Creates a new authenticated user from a permission list.
+    #[cfg(test)]
+    pub fn new(permissions: impl IntoIterator<Item = Permission>) -> Self {
+        Self {
+            permissions: permissions.into_iter().collect(),
+        }
+    }
+
+    /// Checks if the user has a specific permission.
+    ///
+    /// Admin users automatically bypass permission checks.
+    #[must_use]
+    pub fn has_permission(&self, permission: Permission) -> bool {
+        self.permissions.contains(&permission) || self.permissions.contains(&Permission::Admin)
+    }
+
+    /// Checks if the user has the admin permission.
+    #[cfg(test)]
+    #[must_use]
+    pub fn is_admin(&self) -> bool {
+        self.permissions.contains(&Permission::Admin)
+    }
+
+    /// Returns the number of permissions this user has.
+    #[cfg(test)]
+    #[must_use]
+    pub fn permission_count(&self) -> usize {
+        self.permissions.len()
+    }
+}
+
+/// Converts from sysconfig's AuthUser to our AuthenticatedUser.
+impl From<&sysconfig::AuthUser> for AuthenticatedUser {
+    fn from(user: &sysconfig::AuthUser) -> Self {
+        Self {
+            permissions: user.permissions.iter().copied().collect(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_has_permission() {
+        let user = AuthenticatedUser::new(vec![Permission::VmRead, Permission::VmCreate]);
+
+        assert!(user.has_permission(Permission::VmRead));
+        assert!(user.has_permission(Permission::VmCreate));
+
+        assert!(!user.has_permission(Permission::VmDelete));
+        assert!(!user.has_permission(Permission::Admin));
+    }
+
+    #[test]
+    fn test_admin_has_all_permissions() {
+        let admin_user = AuthenticatedUser::new(vec![Permission::Admin]);
+
+        assert!(admin_user.has_permission(Permission::VmRead));
+        assert!(admin_user.has_permission(Permission::VmCreate));
+        assert!(admin_user.has_permission(Permission::VmDelete));
+        assert!(admin_user.has_permission(Permission::AuthManage));
+        assert!(admin_user.has_permission(Permission::SystemUpdate));
+
+        assert!(admin_user.has_permission(Permission::Admin));
+    }
+
+    #[test]
+    fn test_regular_user_limited_access() {
+        let regular_user = AuthenticatedUser::new(vec![Permission::VmRead]);
+
+        assert!(regular_user.has_permission(Permission::VmRead));
+
+        assert!(!regular_user.has_permission(Permission::VmCreate));
+        assert!(!regular_user.has_permission(Permission::VmDelete));
+        assert!(!regular_user.has_permission(Permission::Admin));
+    }
+
+    #[test]
+    fn test_is_admin() {
+        let regular = AuthenticatedUser::new(vec![Permission::VmRead]);
+        let admin = AuthenticatedUser::new(vec![Permission::Admin]);
+
+        assert!(!regular.is_admin());
+        assert!(admin.is_admin());
+    }
+
+    #[test]
+    fn test_permission_count() {
+        let user = AuthenticatedUser::new(vec![
+            Permission::VmRead,
+            Permission::VmCreate,
+            Permission::VmRead, // Duplicate
+        ]);
+
+        // HashSet deduplicates
+        assert_eq!(user.permission_count(), 2);
+    }
+}

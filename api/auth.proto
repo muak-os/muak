@@ -3,40 +3,37 @@ syntax = "proto3";
 package muak.auth.v1;
 
 service AuthService {
-  // Unauthenticated - submit CSR for approval
+  // @rbac: none
   rpc SubmitCsr(SubmitCsrRequest) returns (SubmitCsrResponse);
 
-  // Unauthenticated - check CSR status and get cert if approved
+  // @rbac: none
   rpc GetCsrStatus(GetCsrStatusRequest) returns (GetCsrStatusResponse);
 
-  // Authenticated (admin/cert_manage) - list pending CSRs
+  // @rbac: auth:manage
   rpc ListPendingCsrs(ListPendingCsrsRequest) returns (ListPendingCsrsResponse);
 
-  // Authenticated (admin/cert_manage) - approve CSR
+  // @rbac: auth:manage
   rpc ApproveCsr(ApproveCsrRequest) returns (ApproveCsrResponse);
 
-  // Authenticated (admin/cert_manage) - revoke certificate
+  // @rbac: auth:manage
   rpc RevokeCert(RevokeCertRequest) returns (RevokeCertResponse);
 
-  // Authenticated (admin/cert_manage) - list authorized users
+  // @rbac: auth:manage
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
 
-  // Unauthenticated - acknowledge enrollment completion (cleanup staging cert)
+  // @rbac: none
   rpc AckEnrollment(AckEnrollmentRequest) returns (AckEnrollmentResponse);
 }
 
 message SubmitCsrRequest {
-  // CSR in PEM format
   string csr_pem = 1;
 }
 
 message SubmitCsrResponse {
-  // SHA256 fingerprint of the CSR's public key (used as identifier)
   string fingerprint = 1;
 }
 
 message GetCsrStatusRequest {
-  // Fingerprint from SubmitCsrResponse
   string fingerprint = 1;
 }
 
@@ -48,8 +45,6 @@ message GetCsrStatusResponse {
     NOT_FOUND = 3;
   }
   Status status = 1;
-
-  // Only populated when status == APPROVED
   string cert_pem = 2;
   string ca_pem = 3;
   string server_name = 4;
@@ -94,7 +89,6 @@ message AuthorizedUser {
 }
 
 message AckEnrollmentRequest {
-  // CSR fingerprint (from SubmitCsrResponse)
   string fingerprint = 1;
 }
 

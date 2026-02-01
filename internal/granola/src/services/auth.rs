@@ -155,12 +155,7 @@ impl AuthService for AuthServiceImpl {
 
         let parsed_permissions: Vec<sysconfig::Permission> = permissions
             .iter()
-            .filter_map(|p| match p.as_str() {
-                "admin" => Some(sysconfig::Permission::Admin),
-                "vm_manage" => Some(sysconfig::Permission::VmManage),
-                "read_only" => Some(sysconfig::Permission::ReadOnly),
-                _ => None,
-            })
+            .filter_map(|p| p.parse::<sysconfig::Permission>().ok())
             .collect();
 
         add_user_to_config(&cert_fingerprint, parsed_permissions)
@@ -205,15 +200,7 @@ impl AuthService for AuthServiceImpl {
             .iter()
             .map(|u| AuthorizedUser {
                 fingerprint: u.fingerprint.clone(),
-                permissions: u
-                    .permissions
-                    .iter()
-                    .map(|p| match p {
-                        sysconfig::Permission::Admin => "admin".to_string(),
-                        sysconfig::Permission::VmManage => "vm_manage".to_string(),
-                        sysconfig::Permission::ReadOnly => "read_only".to_string(),
-                    })
-                    .collect(),
+                permissions: u.permissions.iter().map(|p| p.to_string()).collect(),
             })
             .collect();
 
