@@ -19,7 +19,7 @@ WORKDIR /build
 
 RUN --mount=type=cache,target=/var/cache/apk \
   --mount=type=cache,target=/etc/apk/cache \
-  apk add --no-cache musl-dev
+  apk add --no-cache --no-scripts musl-dev
 
 COPY Cargo.toml Cargo.lock ./
 RUN sed -i '/members = \[/,/\]/c\members = ["internal/init", "internal/shared/kmod", "internal/shared/kmsg"]' Cargo.toml

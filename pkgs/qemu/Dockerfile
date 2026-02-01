@@ -11,7 +11,7 @@ ARG TARGET=${TARGET/arm64/aarch64}
 WORKDIR /build
 
 # Install QEMU and ALL runtime dependencies
-RUN apk add --no-cache \
+RUN apk add --no-cache --no-scripts \
   qemu-system-x86_64 \
   qemu-system-aarch64 \
   qemu-img \

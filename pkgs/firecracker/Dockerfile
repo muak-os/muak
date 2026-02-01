@@ -9,7 +9,7 @@ ARG TARGET=${TARGET/arm64/aarch64}
 
 WORKDIR /download
 
-RUN apk add --no-cache curl tar
+RUN apk add --no-cache --no-scripts curl tar
 
 # Download Firecracker binary
 RUN curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/${FIRECRACKER_VERSION}/firecracker-${FIRECRACKER_VERSION}-${TARGET}.tgz" -o firecracker.tgz && \

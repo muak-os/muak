@@ -9,7 +9,7 @@ FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-build
 ARG KERNEL_VERSION
 ARG TARGETARCH
 
-RUN apk add --no-cache \
+RUN apk add --no-cache --no-scripts \
   argp-standalone \
   bc \
   bison \

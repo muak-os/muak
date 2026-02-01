@@ -13,7 +13,7 @@ WORKDIR /download
 
 # Download Cloud Hypervisor binary (architecture-aware)
 # x86_64: cloud-hypervisor-static, aarch64: cloud-hypervisor-static-aarch64
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache --no-scripts curl && \
   if [ "${TARGET}" = "aarch64" ]; then \
   curl -fsSL "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CH_VERSION}/cloud-hypervisor-static-aarch64" -o cloud-hypervisor; \
   else \
