@@ -26,7 +26,7 @@ version = "0.1.1-beta"
 # Asynchronous
 tokio = { version = "1.49", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 futures-util = "0.3"
 
 # CLI
@@ -41,10 +41,10 @@ zstd = "0.13"
 
 # Cryptography
 ring = "0.17"
-rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = "1.14"
-x509-cert = { version = "0.3.0-rc.4", features = ["hazmat", "builder"] }
-der = { version = "0.8.0-rc.10", features = ["alloc", "derive", "oid", "pem", "std"] }
+x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
+der = { version = "0.8.0-rc.10", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.9"
 
@@ -61,7 +61,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 # Filesystem
-gptman = "2.0"
+gptman = "3.0"
 fatfs = "0.3"
 backhand = { version = "0.24", default-features = false, features = ["zstd"] }
 walkdir = "2.5"
@@ -92,7 +92,7 @@ libc = "0.2"
 
 # Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
-uuid = { version = "1.19", features = ["v4"] }
+uuid = { version = "1.20", features = ["v4"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
