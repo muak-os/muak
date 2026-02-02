@@ -14,5 +14,8 @@ kmsg = { path = "../shared/kmsg" }
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

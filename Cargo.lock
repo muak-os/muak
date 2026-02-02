@@ -1183,6 +1183,7 @@ dependencies = [
  "kmod",
  "kmsg",
  "rustix",
+ "tempfile",
 ]
 
 [[package]]
