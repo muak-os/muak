@@ -1,3 +1,8 @@
+//! Notify - A small library for sending notifications to the supervisor.
+//!
+//! This library provides a client for services to communicate to the
+//! supervisor PID 1 via UNIX domain sockets.
+
 use prost::Message;
 pub use proto::Health;
 use proto::{Notify, Ready, Status, Stopping, Watchdog, notify::Notification};
@@ -11,6 +16,7 @@ pub mod proto {
 
 const DEFAULT_NOTIFY_SOCKET: &str = "/run/granola-notify.sock";
 
+/// Client for sending notifications to the supervisor.
 pub struct NotifyClient {
     socket: UnixDatagram,
     service_name: String,
@@ -18,10 +24,12 @@ pub struct NotifyClient {
 }
 
 impl NotifyClient {
+    /// Creates a new notify client with default socket path.
     pub fn new(service_name: &str) -> Result<Self, io::Error> {
         Self::new_with_socket(service_name, DEFAULT_NOTIFY_SOCKET)
     }
 
+    /// Creates a new notify client with custom socket path.
     fn new_with_socket(service_name: &str, socket_path: &str) -> Result<Self, io::Error> {
         let socket = UnixDatagram::unbound()?;
         Ok(Self {
@@ -31,6 +39,7 @@ impl NotifyClient {
         })
     }
 
+    /// Notifies supervisor that service is ready.
     pub fn ready(&self, socket_path: &str) -> Result<(), io::Error> {
         let notify = Notify {
             service_name: self.service_name.clone(),
@@ -42,6 +51,7 @@ impl NotifyClient {
         self.send(&notify)
     }
 
+    /// Sends status message to supervisor.
     pub fn status(&self, message: &str, health: Health) -> Result<(), io::Error> {
         let notify = Notify {
             service_name: self.service_name.clone(),
@@ -53,6 +63,7 @@ impl NotifyClient {
         self.send(&notify)
     }
 
+    /// Notifies supervisor that service is stopping.
     pub fn stopping(&self, reason: &str) -> Result<(), io::Error> {
         let notify = Notify {
             service_name: self.service_name.clone(),
@@ -63,6 +74,7 @@ impl NotifyClient {
         self.send(&notify)
     }
 
+    /// Sends watchdog keepalive to supervisor.
     pub fn watchdog(&self) -> Result<(), io::Error> {
         let notify = Notify {
             service_name: self.service_name.clone(),
@@ -71,6 +83,7 @@ impl NotifyClient {
         self.send(&notify)
     }
 
+    /// Sends encoded notification to supervisor socket.
     fn send(&self, msg: &Notify) -> Result<(), io::Error> {
         let bytes = msg.encode_to_vec();
         match self.socket.send_to(&bytes, &self.socket_path) {
