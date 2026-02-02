@@ -1,3 +1,8 @@
+//! Kmsg - A small library for writing log messages to the kernel message buffer
+//!
+//! This library provides direct access to `/dev/kmsg` for logging from early
+//! boot processes and system daemons, with automatic fallback to stderr.
+
 use rustix::fd::AsFd;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::write;
@@ -211,4 +216,256 @@ macro_rules! debug {
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_level_debug_trait() {
+        let levels = vec![Level::Error, Level::Warn, Level::Info, Level::Debug];
+        for level in levels {
+            let debug_str = format!("{:?}", level);
+            assert!(!debug_str.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_init_fails_on_second_call() {
+        if DEFAULT_COMPONENT.get().is_some() {
+            let result = init("second-init");
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), InitError::AlreadyInitialized));
+        } else {
+            let first = init("first-init");
+            assert!(first.is_ok());
+            let second = init("second-init");
+            assert!(second.is_err());
+        }
+    }
+
+    #[test]
+    fn test_write_log_with_component() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("my-component"), "test message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_write_log_without_component() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Error, None, "error message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_write_log_all_levels() {
+        for level in [Level::Error, Level::Warn, Level::Info, Level::Debug] {
+            let result = std::panic::catch_unwind(|| {
+                write_log(level, Some("test"), "message");
+            });
+            assert!(result.is_ok(), "Failed for level {:?}", level);
+        }
+    }
+
+    #[test]
+    fn test_print_function() {
+        let result = std::panic::catch_unwind(|| {
+            print("simple print message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_print_with_newlines() {
+        let result = std::panic::catch_unwind(|| {
+            print("line1\nline2");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_print_empty_string() {
+        let result = std::panic::catch_unwind(|| {
+            print("");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_error_macro_without_component() {
+        let result = std::panic::catch_unwind(|| {
+            error!("Test error message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_error_macro_with_component() {
+        let result = std::panic::catch_unwind(|| {
+            error!(@ "network", "Connection failed");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_error_macro_with_format_args() {
+        let result = std::panic::catch_unwind(|| {
+            error!("Error code: {}", 404);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_warn_macro_without_component() {
+        let result = std::panic::catch_unwind(|| {
+            warn!("Test warning message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_warn_macro_with_component() {
+        let result = std::panic::catch_unwind(|| {
+            warn!(@ "config", "Missing key");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_warn_macro_with_format_args() {
+        let result = std::panic::catch_unwind(|| {
+            warn!("Warning: {} warnings found", 5);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_info_macro_without_component() {
+        let result = std::panic::catch_unwind(|| {
+            info!("Test info message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_info_macro_with_component() {
+        let result = std::panic::catch_unwind(|| {
+            info!(@ "server", "Server started");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_info_macro_with_format_args() {
+        let result = std::panic::catch_unwind(|| {
+            info!("Port: {}", 8080);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "debug")]
+    fn test_debug_macro_without_component() {
+        let result = std::panic::catch_unwind(|| {
+            debug!("Test debug message");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "debug")]
+    fn test_debug_macro_with_component() {
+        let result = std::panic::catch_unwind(|| {
+            debug!(@ "parser", "Parsing token");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "debug")]
+    fn test_debug_macro_with_format_args() {
+        let result = std::panic::catch_unwind(|| {
+            debug!("Debug value: {:?}", vec![1, 2, 3]);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_long_message_no_panic() {
+        let prefix_overhead = "<6>[test] \n".len();
+        let safe_size = MAX_KMSG_SIZE - prefix_overhead - 1;
+        let long_message = "x".repeat(safe_size);
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("test"), &long_message);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn test_message_truncation_in_release() {
+        let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
+        write_log(Level::Info, Some("test"), &long_message);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    fn test_message_truncation_panics_in_debug() {
+        let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("test"), &long_message);
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_message() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("test"), "");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_message_with_special_chars() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("test"), "Special: !@#$%^&*()");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_message_with_unicode() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("test"), "Unicode: 日本語 🎉");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_component_with_special_chars() {
+        let result = std::panic::catch_unwind(|| {
+            write_log(Level::Info, Some("my-component.v1"), "test");
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_nested_formatting() {
+        let result = std::panic::catch_unwind(|| {
+            info!("Values: {}, {:?}, {}", 42, "test", true);
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_init_error_debug() {
+        let err = InitError::AlreadyInitialized;
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("AlreadyInitialized"));
+    }
 }
