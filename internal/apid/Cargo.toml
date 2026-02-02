@@ -29,5 +29,9 @@ notify = { path = "../shared/notify" }
 pki = { path = "../shared/pki" }
 sysconfig = { path = "../shared/sysconfig" }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true

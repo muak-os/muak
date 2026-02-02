@@ -7,10 +7,12 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use tokio::net::UnixStream;
 
 /// Proxies a request to a backend service via UNIX socket with streaming pass through
-pub async fn proxy_to_backend(
-    req: Request<Incoming>,
-    socket_path: &str,
-) -> Result<Response<Incoming>> {
+pub async fn proxy_to_backend<T>(req: Request<T>, socket_path: &str) -> Result<Response<Incoming>>
+where
+    T: hyper::body::Body + Send + Unpin + 'static,
+    T::Data: Send,
+    T::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
     let stream = UnixStream::connect(socket_path).await.context(format!(
         "Failed to connect to backend socket at {}",
         socket_path

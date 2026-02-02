@@ -98,6 +98,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "sysconfig",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
