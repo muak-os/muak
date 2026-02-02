@@ -1,5 +1,6 @@
 [package]
 name = "kmsg"
+description = "Kernel message logging utilities"
 edition.workspace = true
 version.workspace = true
 
