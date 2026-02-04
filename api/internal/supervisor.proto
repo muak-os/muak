@@ -33,6 +33,4 @@ message Stopping {
   string reason = 1;
 }
 
-message Watchdog {
-  // Empty - just a heartbeat
-}
+message Watchdog {}

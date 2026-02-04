@@ -3,21 +3,16 @@ syntax = "proto3";
 package muak.internal.network;
 
 service NetworkService {
-  // Initialization
   rpc Initialize(InitializeRequest) returns (InitializeResponse);
   rpc GetStatus(GetStatusRequest) returns (NetworkStatus);
 
-  // TAP management (called by vmd or grpcd)
   rpc CreateTap(CreateTapRequest) returns (CreateTapResponse);
   rpc DeleteTap(DeleteTapRequest) returns (DeleteTapResponse);
 
-  // Bridge management
   rpc SetupBridge(SetupBridgeRequest) returns (SetupBridgeResponse);
 
-  // Health
   rpc CheckConnectivity(CheckConnectivityRequest) returns (ConnectivityResult);
 
-  // Streaming status updates
   rpc SubscribeStatus(SubscribeStatusRequest) returns (stream NetworkStatus);
 }
 
@@ -48,7 +43,7 @@ message InterfaceInfo {
 
 message CreateTapRequest {
   string name = 1;
-  string vm_id = 2;  // for tracking/cleanup
+  string vm_id = 2;
 }
 
 message CreateTapResponse {
