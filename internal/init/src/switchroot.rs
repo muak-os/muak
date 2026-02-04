@@ -1,4 +1,3 @@
-use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
@@ -13,16 +12,14 @@ pub fn switch(newroot: &str) -> Result<()> {
     chroot(".").context("chroot failed")?;
     chdir("/").context("chdir / failed")?;
     delete_initramfs().context("delete_initramfs failed")?;
-    exec_init().context("exec_init failed")?;
-
-    unreachable!("exec_init should never return");
+    exec_init().context("exec_init failed")
 }
 
 fn move_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
         let target = format!("{}{}", newroot, mnt);
 
-        fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
+        std::fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
 
         mount_move(*mnt, target.as_str())
             .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
@@ -37,7 +34,7 @@ fn delete_initramfs() -> Result<()> {
 
 /// Deletes all files and directories from initramfs except special mounts.
 pub fn delete_initramfs_at(root: &Path) -> Result<()> {
-    let entries = fs::read_dir(root).context("Failed to read root directory")?;
+    let entries = std::fs::read_dir(root).context("Failed to read root directory")?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -49,9 +46,9 @@ pub fn delete_initramfs_at(root: &Path) -> Result<()> {
         }
 
         if path.is_dir() {
-            let _ = fs::remove_dir_all(&path);
+            let _ = std::fs::remove_dir_all(&path);
         } else {
-            let _ = fs::remove_file(&path);
+            let _ = std::fs::remove_file(&path);
         }
     }
 
@@ -95,14 +92,14 @@ mod tests {
     fn test_delete_initramfs_preserves_special_dirs() {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        fs::create_dir_all(temp.path().join("dev")).unwrap();
-        fs::create_dir_all(temp.path().join("proc")).unwrap();
-        fs::create_dir_all(temp.path().join("sys")).unwrap();
-        fs::create_dir_all(temp.path().join("run")).unwrap();
-        fs::create_dir_all(temp.path().join("old")).unwrap();
-        fs::create_dir_all(temp.path().join("tmp")).unwrap();
-        fs::write(temp.path().join("init"), b"#!/bin/sh").unwrap();
-        fs::write(temp.path().join("banner"), b"Welcome").unwrap();
+        std::fs::create_dir_all(temp.path().join("dev")).unwrap();
+        std::fs::create_dir_all(temp.path().join("proc")).unwrap();
+        std::fs::create_dir_all(temp.path().join("sys")).unwrap();
+        std::fs::create_dir_all(temp.path().join("run")).unwrap();
+        std::fs::create_dir_all(temp.path().join("old")).unwrap();
+        std::fs::create_dir_all(temp.path().join("tmp")).unwrap();
+        std::fs::write(temp.path().join("init"), b"#!/bin/sh").unwrap();
+        std::fs::write(temp.path().join("banner"), b"Welcome").unwrap();
 
         delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
 
@@ -144,8 +141,8 @@ mod tests {
     fn test_delete_initramfs_handles_only_special_dirs() {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        fs::create_dir_all(temp.path().join("dev")).unwrap();
-        fs::create_dir_all(temp.path().join("proc")).unwrap();
+        std::fs::create_dir_all(temp.path().join("dev")).unwrap();
+        std::fs::create_dir_all(temp.path().join("proc")).unwrap();
 
         let result = delete_initramfs_at(temp.path());
 
@@ -161,9 +158,9 @@ mod tests {
     fn test_delete_initramfs_removes_nested_structures() {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        fs::create_dir_all(temp.path().join("old/nested/deep")).unwrap();
-        fs::write(temp.path().join("old/file.txt"), b"content").unwrap();
-        fs::write(temp.path().join("old/nested/another.txt"), b"content").unwrap();
+        std::fs::create_dir_all(temp.path().join("old/nested/deep")).unwrap();
+        std::fs::write(temp.path().join("old/file.txt"), b"content").unwrap();
+        std::fs::write(temp.path().join("old/nested/another.txt"), b"content").unwrap();
 
         delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
 
@@ -178,8 +175,8 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         let sbin = temp.path().join("sbin");
-        fs::create_dir_all(&sbin).unwrap();
-        fs::write(sbin.join("init"), b"#!/bin/sh\necho init").unwrap();
+        std::fs::create_dir_all(&sbin).unwrap();
+        std::fs::write(sbin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
         let result = find_init_in(temp.path());
 
@@ -196,8 +193,8 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         let bin = temp.path().join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("init"), b"#!/bin/sh\necho init").unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
         let result = find_init_in(temp.path());
 
@@ -213,7 +210,7 @@ mod tests {
     fn test_find_init_in_root() {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        fs::write(temp.path().join("init"), b"#!/bin/sh\necho init").unwrap();
+        std::fs::write(temp.path().join("init"), b"#!/bin/sh\necho init").unwrap();
 
         let result = find_init_in(temp.path());
 
@@ -231,10 +228,10 @@ mod tests {
 
         let sbin = temp.path().join("sbin");
         let bin = temp.path().join("bin");
-        fs::create_dir_all(&sbin).unwrap();
-        fs::create_dir_all(&bin).unwrap();
-        fs::write(sbin.join("init"), b"#!/bin/sh\necho sbin").unwrap();
-        fs::write(bin.join("init"), b"#!/bin/sh\necho bin").unwrap();
+        std::fs::create_dir_all(&sbin).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(sbin.join("init"), b"#!/bin/sh\necho sbin").unwrap();
+        std::fs::write(bin.join("init"), b"#!/bin/sh\necho bin").unwrap();
 
         let result = find_init_in(temp.path());
 
@@ -250,8 +247,8 @@ mod tests {
     fn test_find_init_no_init_found() {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        fs::create_dir_all(temp.path().join("sbin")).unwrap();
-        fs::create_dir_all(temp.path().join("bin")).unwrap();
+        std::fs::create_dir_all(temp.path().join("sbin")).unwrap();
+        std::fs::create_dir_all(temp.path().join("bin")).unwrap();
 
         let result = find_init_in(temp.path());
 
