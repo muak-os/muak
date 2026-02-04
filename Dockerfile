@@ -15,9 +15,9 @@ ARG PKG_VMD=ghcr.io/sawangg/pkgs/vmd:latest
 ARG PKG_INIT=ghcr.io/sawangg/pkgs/init:latest
 ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Import packages
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM ${PKG_GRANOLA} AS pkg-granola
 FROM ${PKG_MODD} AS pkg-modd
 FROM ${PKG_NETWORKD} AS pkg-networkd
@@ -27,9 +27,9 @@ FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Download static binaries
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS tools
 
 ARG BTRFS_VERSION
@@ -52,9 +52,9 @@ fi
 chmod +x btrfs
 EOF
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
 
 ARG SOURCE_DATE_EPOCH
@@ -70,9 +70,9 @@ echo "nameserver 9.9.9.9" > run/resolv.conf
 ln -sf /run/resolv.conf etc/resolv.conf
 EOF
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Assemble complete rootfs
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM rootfs-structure AS rootfs-base
 
 ARG SOURCE_DATE_EPOCH
@@ -92,9 +92,9 @@ RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Create squashfs
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS squashfs-builder
 
 ARG SOURCE_DATE_EPOCH
@@ -116,9 +116,9 @@ mksquashfs /rootfs /rootfs.sqsh \
   -no-progress
 EOF
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Create base initramfs
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS initramfs-builder
 
 ARG SOURCE_DATE_EPOCH
@@ -144,9 +144,9 @@ find . -print0 | LC_ALL=c sort -z | \
   zstd -${COMPRESSION_LEVEL} -T0 > /base-initramfs.img
 EOF
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 # Final installer image
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
 COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
