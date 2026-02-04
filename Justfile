@@ -25,6 +25,7 @@ artifacts := "_out"
 
 arch := env_var_or_default("ARCH", "x86_64")
 release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
+debug_dir := "target" / (arch + "-unknown-linux-musl") / "debug"
 
 # Container runtime
 
@@ -53,7 +54,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (packages → installer → extensions → uki → iso)
-dev: build installer extensions uki iso
+dev: build-release installer extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -64,9 +65,15 @@ kernel: _ensure-artifacts (_require-pkg "kernel")
         --file pkgs/kernel/Dockerfile \
         .
 
-# Build all Rust packages with cargo
+# Build all Rust packages with cargo (debug)
 build:
-    @printf "{{ cyan }}Building Rust packages{{ reset }}\n"
+    @printf "{{ cyan }}Building Rust packages (debug){{ reset }}\n"
+    cargo build --target {{ arch }}-unknown-linux-musl
+    cargo +nightly build --target {{ arch }}-unknown-uefi --features uefi -p stub
+
+# Build all Rust packages with cargo (release)
+build-release:
+    @printf "{{ cyan }}Building Rust packages (release){{ reset }}\n"
     cargo build --release --target {{ arch }}-unknown-linux-musl
     cargo +nightly build --release --target {{ arch }}-unknown-uefi --features uefi -p stub
 
