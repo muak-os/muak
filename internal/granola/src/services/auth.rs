@@ -1,18 +1,15 @@
 //! AuthService implementation for mTLS certificate enrollment and management.
 
-use der::{DecodePem, EncodePem, pem::LineEnding};
 use std::path::{Path, PathBuf};
+
+use anyhow::Result;
+use der::{DecodePem, EncodePem, pem::LineEnding};
 use tonic::{Request, Response, Status};
 use x509_cert::Certificate;
 
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
-use super::proto::auth::{
-    AckEnrollmentRequest, AckEnrollmentResponse, ApproveCsrRequest, ApproveCsrResponse,
-    AuthorizedUser, GetCsrStatusRequest, GetCsrStatusResponse, ListPendingCsrsRequest,
-    ListPendingCsrsResponse, ListUsersRequest, ListUsersResponse, PendingCsr, RevokeCertRequest,
-    RevokeCertResponse, SubmitCsrRequest, SubmitCsrResponse,
-    get_csr_status_response::Status as CsrStatus,
-};
+use super::proto::auth::get_csr_status_response::Status as CsrStatus;
+use super::proto::auth::*;
 
 const PENDING_DIR: &str = "/run/state/secrets/pending";
 const STAGING_DIR: &str = "/run/state/secrets/staging";
@@ -250,7 +247,7 @@ fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
 }
 
 /// Lists all pending CSRs.
-fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
+fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
     let dir = Path::new(PENDING_DIR);
     if !dir.exists() {
         return Ok(Vec::new());
@@ -286,7 +283,7 @@ fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
 }
 
 /// Signs a pending CSR with the CA.
-fn sign_pending_csr(csr_pem: &str) -> anyhow::Result<(Certificate, String)> {
+fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
     let ca_key_pem = std::fs::read_to_string(CA_KEY_PATH)
         .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;
     let ca_cert_pem = std::fs::read_to_string(CA_CERT_PATH)
@@ -310,7 +307,7 @@ fn staging_cert_path(fingerprint: &str) -> PathBuf {
 }
 
 /// Stores a certificate in staging for client pickup.
-fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
+fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> Result<()> {
     std::fs::create_dir_all(STAGING_DIR)?;
     let path = staging_cert_path(fingerprint);
     std::fs::write(path, cert_pem)?;
@@ -318,17 +315,14 @@ fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
 }
 
 /// Loads a staging certificate and CA cert for a fingerprint.
-fn load_staging_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
+fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
     let ca_pem = std::fs::read_to_string(CA_CERT_PATH)?;
     let cert_pem = std::fs::read_to_string(staging_cert_path(fingerprint))?;
     Ok((ca_pem, cert_pem))
 }
 
 /// Adds a user to the config.
-fn add_user_to_config(
-    fingerprint: &str,
-    permissions: Vec<sysconfig::Permission>,
-) -> anyhow::Result<()> {
+fn add_user_to_config(fingerprint: &str, permissions: Vec<sysconfig::Permission>) -> Result<()> {
     let mut config = sysconfig::try_config().cloned().unwrap_or_default();
 
     config.auth.users.push(sysconfig::AuthUser {
@@ -343,7 +337,7 @@ fn add_user_to_config(
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
-fn revoke_user(fingerprint: &str) -> anyhow::Result<()> {
+fn revoke_user(fingerprint: &str) -> Result<()> {
     let mut config = sysconfig::try_config().cloned().unwrap_or_default();
 
     config.auth.users.retain(|u| u.fingerprint != fingerprint);
