@@ -1,5 +1,6 @@
-**/build
 **/_out
 **/target
 **/tmp
+**/.DS_Store
+.vscode/
 kernel-signing-key.pem
