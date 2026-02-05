@@ -65,14 +65,13 @@
   - Mock system calls etc
   - Target 80% coverage
   - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
+  - Deterministic simulation tests?
 
 - Better install:
   - Only allow signed installer images to be installed
   - Add polling to see if install was successful after reboot
   - Add better feedback during install process like formatting etc.
   - Improve performance in formatting DATA partition?
-
-- Rework the module loading to not duplicate modules in initramfs and rootfs
 
 - Simple secure boot support using a local project to sign
   - Create signing keys during build process and save them to disk in /run/state/sbkeys/

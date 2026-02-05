@@ -65,7 +65,7 @@ WORKDIR /rootfs
 
 RUN <<EOF
 set -euo pipefail
-mkdir -p sbin dev proc sys run lib etc
+mkdir -p sbin dev proc sys run etc lib/modules
 echo "nameserver 9.9.9.9" > run/resolv.conf
 ln -sf /run/resolv.conf etc/resolv.conf
 EOF
@@ -86,7 +86,6 @@ COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 
 COPY --link --from=tools /tools/btrfs /rootfs/sbin/btrfs
-COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
 
 RUN ln -s btrfs /rootfs/sbin/mkfs.btrfs
 
