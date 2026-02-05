@@ -9,7 +9,6 @@
   - Handle different cli vs server versions for gRPC client/server compatibility
     - Upgradable compatibility matrix
   - Create install script for users to easily install the CLI regardless of OS
-  - Add reset command to factory reset the system
   - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
 
@@ -42,7 +41,7 @@
 
 - Enhance sysconfig shared lib:
   - Config versioning with tracking of changes over time
-  - Allow config hotreload (SIGHUP or something)
+  - Allow config hot reload (SIGHUP or something)
 
 - Enhance `apid`
   - Rate limit routes especially unauthenticated ones
@@ -81,6 +80,7 @@
   - Sign UKI
 
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
+  - Generate SBOM
 
 - Stub improvements:
   - Add TPM PCR#7 measurements in stub

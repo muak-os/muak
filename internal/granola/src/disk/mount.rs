@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Opcode, Updater, ioctl, opcode};
-use rustix::mount::{MountFlags, mount};
+use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
 use super::sysfs::find_partition_by_partname;
 
@@ -80,4 +80,22 @@ pub fn mount_partitions() -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn unmount_partition(mount_point: &str) -> Result<()> {
+    kmsg::info!(@ "reset", "Unmounting {}", mount_point);
+
+    match unmount(mount_point, UnmountFlags::empty()) {
+        Ok(()) => {
+            kmsg::info!(@ "reset", "Unmounted {}", mount_point);
+            Ok(())
+        }
+        Err(rustix::io::Errno::NOENT | rustix::io::Errno::INVAL) => {
+            kmsg::warn!(@ "reset", "{} not mounted, skipping", mount_point);
+            Ok(())
+        }
+        Err(e) => {
+            bail!("Failed to unmount {}: {}", mount_point, e);
+        }
+    }
 }

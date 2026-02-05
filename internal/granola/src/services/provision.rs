@@ -1,15 +1,11 @@
+use std::pin::Pin;
+
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
-use std::pin::Pin;
 use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
-use super::proto::provision::{
-    DiskInfo, GetConfigRequest, GetConfigResponse, GetLogsRequest, GetLogsResponse,
-    GetUpdateStatusRequest, GetUpdateStatusResponse, InstallRequest, InstallResponse,
-    ListDisksRequest, ListDisksResponse, PartitionInfo, PrepareUpdateRequest,
-    PrepareUpdateResponse, UpdateRequest, UpdateResponse,
-};
+use super::proto::provision::*;
 
 use crate::disk;
 use crate::provisioning;
@@ -224,6 +220,36 @@ impl ProvisionService for ProvisionServiceImpl {
                 config: Vec::new(),
                 error: "Config not initialized: system has not been installed yet".to_string(),
             }))
+        }
+    }
+
+    async fn factory_reset(
+        &self,
+        _request: Request<FactoryResetRequest>,
+    ) -> Result<Response<FactoryResetResponse>, Status> {
+        match tokio::task::spawn_blocking(provisioning::factory_reset).await {
+            Ok(Ok(())) => {
+                tokio::spawn(async {
+                    kmsg::info!("System will reboot in 3 seconds...");
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    kmsg::info!("Rebooting now...");
+                    sync();
+                    let _ = reboot(RebootCommand::Restart);
+                });
+
+                Ok(Response::new(FactoryResetResponse {
+                    success: true,
+                    error: String::new(),
+                }))
+            }
+            Ok(Err(e)) => Ok(Response::new(FactoryResetResponse {
+                success: false,
+                error: format!("{}", e),
+            })),
+            Err(e) => Ok(Response::new(FactoryResetResponse {
+                success: false,
+                error: format!("Task panicked: {}", e),
+            })),
         }
     }
 }

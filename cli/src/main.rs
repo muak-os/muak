@@ -60,6 +60,10 @@ pub enum Commands {
         #[arg(long)]
         image: Option<String>,
     },
+    Reset {
+        #[arg(long)]
+        force: bool,
+    },
     Disks,
     Logs,
 }

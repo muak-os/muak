@@ -3,8 +3,7 @@ mod provisioning;
 mod services;
 mod supervisor;
 
-use anyhow::Result;
-use std::path::Path;
+use anyhow::{Context, Result};
 use supervisor::{ServiceDef, Supervisor};
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
@@ -16,8 +15,6 @@ const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
 async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
-
-    sysconfig::init()?;
 
     let mut is_installed = matches!(
         provisioning::status(),
@@ -37,6 +34,8 @@ async fn main() -> Result<()> {
         is_installed = false;
         // TODO: set in maintenance mode here to recover
     }
+
+    sysconfig::init().context("Failed to initialize system configuration")?;
 
     if is_installed {
         let _ = provisioning::check_and_handle_pending_validation()
@@ -98,7 +97,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_grpc_server() -> Result<()> {
-    if Path::new(GRPC_SOCKET_PATH).exists() {
+    if std::path::Path::new(GRPC_SOCKET_PATH).exists() {
         std::fs::remove_file(GRPC_SOCKET_PATH)?;
     }
 

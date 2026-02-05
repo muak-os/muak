@@ -1,9 +1,11 @@
 mod install;
+mod reset;
 mod uki;
 mod update;
 mod validation;
 
 pub use install::InstallResult;
+pub use reset::factory_reset;
 pub use update::update;
 pub use validation::{UpdateStatus, check_and_handle_pending_validation, get_update_status};
 

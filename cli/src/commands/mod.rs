@@ -5,6 +5,7 @@ pub mod disks;
 pub mod install;
 pub mod logs;
 pub mod process;
+pub mod reset;
 pub mod update;
 pub mod vm;
 
@@ -25,16 +26,19 @@ use crate::{Cli, Commands};
 /// 2. `--context` flag or MUAK_CONTEXT env: use specified context
 /// 3. Config default context: use current context from config
 ///
-/// Returns (Channel, endpoint_address).
-async fn resolve_connection(cli: &Cli, timeout_secs: u64) -> Result<(Channel, String)> {
+/// Returns (Channel, endpoint_address, context).
+async fn resolve_connection(
+    cli: &Cli,
+    timeout_secs: u64,
+) -> Result<(Channel, String, Option<String>)> {
     if let Some(endpoint) = &cli.endpoint {
         let channel = connect_tls_insecure(endpoint, timeout_secs).await?;
-        return Ok((channel, endpoint.clone()));
+        return Ok((channel, endpoint.clone(), None));
     }
 
     let config = ClientConfig::load()?;
 
-    let context_name = cli
+    let context = cli
         .context
         .as_ref()
         .or(config.context.as_ref())
@@ -42,17 +46,18 @@ async fn resolve_connection(cli: &Cli, timeout_secs: u64) -> Result<(Channel, St
             anyhow::anyhow!(
                 "No context configured. Run 'muakctl install' or 'muakctl context add' first."
             )
-        })?;
+        })?
+        .clone();
 
-    let ctx = config.get_context(context_name).ok_or_else(|| {
+    let ctx = config.get_context(&context).ok_or_else(|| {
         anyhow::anyhow!(
             "Context '{}' not found. Run 'muakctl context list' to see available contexts.",
-            context_name
+            context
         )
     })?;
 
     let channel = connect(ctx, timeout_secs).await?;
-    Ok((channel, ctx.endpoint.clone()))
+    Ok((channel, ctx.endpoint.clone(), Some(context)))
 }
 
 /// Routes CLI commands to their handlers.
@@ -62,13 +67,13 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 
     let timeout_secs = match &cli.command {
-        Commands::Install { .. } | Commands::Update { .. } => 600,
+        Commands::Install { .. } | Commands::Update { .. } | Commands::Reset { .. } => 600,
         _ => 30,
     };
 
-    let (channel, endpoint) = resolve_connection(&cli, timeout_secs).await?;
+    let (channel, endpoint, context_name) = resolve_connection(&cli, timeout_secs).await?;
 
-    handle_cmd(cli, channel, endpoint).await
+    handle_cmd(cli, channel, endpoint, context_name).await
 }
 
 /// Handles commands that don't require a server connection.
@@ -113,7 +118,12 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
 }
 
 /// Handles commands that require a server connection.
-async fn handle_cmd(cli: Cli, channel: Channel, endpoint: String) -> Result<()> {
+async fn handle_cmd(
+    cli: Cli,
+    channel: Channel,
+    endpoint: String,
+    context: Option<String>,
+) -> Result<()> {
     match cli.command {
         Commands::Auth { action } => {
             let action = action.expect("None case handled in offline commands");
@@ -140,6 +150,10 @@ async fn handle_cmd(cli: Cli, channel: Channel, endpoint: String) -> Result<()> 
         Commands::Logs => {
             let mut client = ProvisionServiceClient::new(channel);
             logs::handle(&mut client).await
+        }
+        Commands::Reset { force } => {
+            let mut client = ProvisionServiceClient::new(channel);
+            reset::handle(&mut client, force, context).await
         }
         _ => unreachable!("Command not handled"),
     }

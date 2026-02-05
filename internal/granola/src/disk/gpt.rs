@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, Write};
 use std::path::Path;
 
-use super::blkpg::add_partition_blkpg;
+use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
 use super::utils::{format_partition_name, generate_guid};
 
@@ -164,4 +164,46 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     }
 
     Ok((efi_part, state_part, data_part))
+}
+
+/// Deletes the specified partitions from the GPT and removes their device nodes from the kernel.
+pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
+    kmsg::info!(
+        @ "provisioning",
+        "Deleting partitions {:?} from GPT on {}",
+        partitions,
+        disk
+    );
+
+    let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
+    let mut gpt = GPT::find_from(&mut f)?;
+
+    for &partition_num in partitions {
+        if gpt[partition_num].is_unused() {
+            kmsg::warn!(
+                @ "provisioning",
+                "Partition {} is already unused, skipping",
+                partition_num
+            );
+            continue;
+        }
+
+        gpt.remove(partition_num)?;
+        kmsg::info!(
+            @ "provisioning",
+            "Removed partition {} from GPT",
+            partition_num
+        );
+    }
+
+    gpt.write_into(&mut f)?;
+    f.sync_all()?;
+    drop(f);
+
+    for &partition_num in partitions {
+        delete_partition_blkpg(disk, partition_num)?;
+    }
+
+    kmsg::info!(@ "provisioning", "Partitions deleted successfully");
+    Ok(())
 }

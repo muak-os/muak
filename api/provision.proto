@@ -23,6 +23,9 @@ service ProvisionService {
 
     // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+
+    // @rbac: admin
+    rpc FactoryReset(FactoryResetRequest) returns (FactoryResetResponse);
 }
 
 enum UpdateStatus {
@@ -111,5 +114,12 @@ message GetConfigRequest {}
 
 message GetConfigResponse {
     bytes config = 1;
+    string error = 2;
+}
+
+message FactoryResetRequest {}
+
+message FactoryResetResponse {
+    bool success = 1;
     string error = 2;
 }

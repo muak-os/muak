@@ -33,23 +33,14 @@ pub use process_service::ListProcessesRequest;
 pub use process_service::process_service_client::ProcessServiceClient;
 
 pub use provision_service::provision_service_client::ProvisionServiceClient;
-pub use provision_service::{
-    GetConfigRequest, GetLogsRequest, GetUpdateStatusRequest, InstallRequest, ListDisksRequest,
-    PrepareUpdateRequest, UpdateRequest, UpdateStatus,
-};
+pub use provision_service::*;
 
 pub use vm_service::vm_service_client::VmServiceClient;
-pub use vm_service::{
-    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmSerialLogRequest, Hypervisor,
-    ListVmsRequest, StartVmRequest, StopVmRequest, UploadFileRequest, VmConfig, VmState,
-};
+pub use vm_service::*;
 
 pub use auth_service::auth_service_client::AuthServiceClient;
-pub use auth_service::{
-    AckEnrollmentRequest, ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest,
-    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
-    get_csr_status_response::Status as CsrStatus,
-};
+pub use auth_service::get_csr_status_response::Status as CsrStatus;
+pub use auth_service::*;
 
 /// Connects using a server context with mTLS.
 pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {
