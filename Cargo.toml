@@ -58,7 +58,7 @@ rustls-pki-types = "1.14"
 x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
 der = { version = "0.8.0-rc.10", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
-signature = "3.0.0-rc.9"
+signature = "3.0.0-rc.10"
 
 ## Encoding
 serde = { version = "1.0", features = ["derive"] }
