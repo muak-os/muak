@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail};
 use rustix::fs::{Mode, OFlags, open};
-use rustix::ioctl::{Updater, ioctl, opcode};
+use rustix::ioctl::{Opcode, Updater, ioctl, opcode};
 use rustix::mount::{MountFlags, mount};
 
 use super::sysfs::find_partition_by_partname;
 
 const BTRFS_IOCTL_MAGIC: u8 = 0x94;
 const BTRFS_QUOTA_CTL_ENABLE: u64 = 1;
+const BTRFS_IOC_QUOTA_CTL: Opcode = opcode::read_write::<QuotaCtlArgs>(BTRFS_IOCTL_MAGIC, 40);
 
 /// Represents the btrfs_ioctl_quota_ctl_args structure from kernel
 #[repr(C)]
@@ -32,7 +33,7 @@ fn enable_btrfs_quota(mount_point: &str) -> Result<()> {
     unsafe {
         ioctl(
             &file,
-            Updater::<{ opcode::read_write::<QuotaCtlArgs>(BTRFS_IOCTL_MAGIC, 40) }, QuotaCtlArgs>::new(&mut args),
+            Updater::<BTRFS_IOC_QUOTA_CTL, QuotaCtlArgs>::new(&mut args),
         )
     }
     .map_err(|e| anyhow::anyhow!("Failed to enable btrfs quota: {}", e))?;
