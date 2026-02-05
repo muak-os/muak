@@ -30,11 +30,11 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
-kmsg = { path = "../shared/kmsg" }
-yuki = { path = "../yuki", default-features = false }
-imager = { path = "../imager", default-features = false }
-sysconfig = { path = "../shared/sysconfig" }
-pki = { path = "../shared/pki" }
+imager = { workspace = true }
+kmsg = { workspace = true }
+pki = { workspace = true }
+sysconfig = { workspace = true }
+yuki = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net", "mount", "fs"] }

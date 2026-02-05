@@ -24,10 +24,10 @@ hyper-util = { workspace = true }
 http-body-util = { workspace = true }
 
 # Internal
-kmsg = { path = "../shared/kmsg" }
-notify = { path = "../shared/notify" }
-pki = { path = "../shared/pki" }
-sysconfig = { path = "../shared/sysconfig" }
+kmsg = { workspace = true }
+notify = { workspace = true }
+pki = { workspace = true }
+sysconfig = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -28,9 +28,9 @@ reqwest = { workspace = true }
 hyper-util = { workspace = true }
 
 # Internal
-kmsg = { path = "../shared/kmsg" }
-notify = { path = "../shared/notify" }
-sysconfig = { path = "../shared/sysconfig" }
+kmsg = { workspace = true }
+notify = { workspace = true }
+sysconfig = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

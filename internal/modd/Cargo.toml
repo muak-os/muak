@@ -11,9 +11,9 @@ zstd = { workspace = true }
 anyhow = { workspace = true }
 
 # Internal
-kmod = { path = "../shared/kmod" }
-kmsg = { path = "../shared/kmsg" }
-notify = { path = "../shared/notify" }
+kmod = { workspace = true }
+kmsg = { workspace = true }
+notify = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "system"] }

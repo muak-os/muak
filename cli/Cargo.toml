@@ -38,8 +38,8 @@ hyper-util = { workspace = true }
 tower = { workspace = true }
 
 # Internal
-pki = { path = "../internal/shared/pki" }
-sysconfig = { path = "../internal/shared/sysconfig" }
+pki = { workspace = true }
+sysconfig = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
