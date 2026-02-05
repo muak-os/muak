@@ -1,23 +1,41 @@
 use anyhow::{Context, Result, bail};
+use rustix::fs::{Mode, OFlags, open};
+use rustix::ioctl::{Updater, ioctl, opcode};
 use rustix::mount::{MountFlags, mount};
-use std::fs;
-use std::process::Command;
 
 use super::sysfs::find_partition_by_partname;
 
-fn enable_btrfs_quota(mount_point: &str) -> Result<()> {
-    let output = Command::new("/sbin/btrfs")
-        .args(["quota", "enable", mount_point])
-        .output()?;
+const BTRFS_IOCTL_MAGIC: u8 = 0x94;
+const BTRFS_QUOTA_CTL_ENABLE: u64 = 1;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "Failed to enable btrfs quota on {}: {}",
-            mount_point,
-            stderr
-        );
+/// Represents the btrfs_ioctl_quota_ctl_args structure from kernel
+#[repr(C)]
+struct QuotaCtlArgs {
+    cmd: u64,
+    status: u64,
+}
+
+fn enable_btrfs_quota(mount_point: &str) -> Result<()> {
+    let file = open(
+        mount_point,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+        Mode::empty(),
+    )
+    .context("Failed to open mount point")?;
+
+    let mut args = QuotaCtlArgs {
+        cmd: BTRFS_QUOTA_CTL_ENABLE,
+        status: 0,
+    };
+
+    // SAFETY: ioctl is inherently unsafe, but Updater ensures proper argument passing
+    unsafe {
+        ioctl(
+            &file,
+            Updater::<{ opcode::read_write::<QuotaCtlArgs>(BTRFS_IOCTL_MAGIC, 40) }, QuotaCtlArgs>::new(&mut args),
+        )
     }
+    .map_err(|e| anyhow::anyhow!("Failed to enable btrfs quota: {}", e))?;
 
     kmsg::info!(@ "granola", "Enabled btrfs quota on {}", mount_point);
     Ok(())
@@ -25,7 +43,7 @@ fn enable_btrfs_quota(mount_point: &str) -> Result<()> {
 
 pub fn mount_partitions() -> Result<()> {
     if let Some(state_dev) = find_partition_by_partname("STATE") {
-        fs::create_dir_all("/run/state")?;
+        std::fs::create_dir_all("/run/state")?;
 
         mount(
             state_dev.as_str(),
@@ -42,7 +60,7 @@ pub fn mount_partitions() -> Result<()> {
     }
 
     if let Some(data_dev) = find_partition_by_partname("DATA") {
-        fs::create_dir_all("/run/data")?;
+        std::fs::create_dir_all("/run/data")?;
 
         mount(
             data_dev.as_str(),
