@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use crate::config;
 use crate::connectivity::{self, ConnectivityConfig};
-use crate::dhcp::run_dhcp_client;
+use crate::dhcpv4::run_dhcp_client;
 use crate::dns::{configure_dns, configure_dns_v6};
 use crate::interface::{Interface, InterfaceSelector, LinkState, discover_ethernet_interfaces};
 use crate::model::{

@@ -1,17 +1,16 @@
+mod actor;
 mod config;
 mod connectivity;
-mod dhcp;
+mod dhcpv4;
 mod dns;
 mod grpc;
 mod interface;
 mod model;
 mod monitor;
-mod slaac;
-mod socket;
-
-mod actor;
 mod netlink;
 mod services;
+mod slaac;
+mod socket;
 
 use anyhow::Result;
 use notify::{Health, NotifyClient};

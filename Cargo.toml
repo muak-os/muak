@@ -93,7 +93,6 @@ http-body-util = "0.1"
 rtnetlink = "0.20"
 netlink-packet-route = "0.28"
 netlink-packet-core = "0.8"
-dhcproto = "0.14"
 tower = "0.5"
 
 ## System/platform APIs
