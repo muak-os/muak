@@ -1,16 +1,14 @@
-use crate::actor::NetworkActorHandle;
-use crate::model::{ConnectivityStatus, NetworkStateKind};
-use crate::proto::{
-    self, CheckConnectivityRequest, ConnectivityResult, CreateTapRequest, CreateTapResponse,
-    DeleteTapRequest, DeleteTapResponse, GetStatusRequest, InitializeRequest, InitializeResponse,
-    InterfaceInfo, NetworkStatus, SetupBridgeRequest, SetupBridgeResponse, State,
-    SubscribeStatusRequest,
-};
-use crate::services::tap::{format_mac_address, generate_mac_address};
-use futures_util::StreamExt;
 use std::pin::Pin;
+
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 use tonic::{Request, Response, Status};
+
+use crate::actor::NetworkActorHandle;
+use crate::model::{ConnectivityStatus, NetworkStateKind};
+use crate::proto::network_service_server::NetworkService;
+use crate::proto::*;
+use crate::services::tap::{format_mac_address, generate_mac_address};
 
 pub struct NetworkServiceImpl {
     handle: NetworkActorHandle,
@@ -23,7 +21,7 @@ impl NetworkServiceImpl {
 }
 
 #[tonic::async_trait]
-impl proto::network_service_server::NetworkService for NetworkServiceImpl {
+impl NetworkService for NetworkServiceImpl {
     async fn initialize(
         &self,
         _request: Request<InitializeRequest>,
@@ -126,7 +124,7 @@ impl proto::network_service_server::NetworkService for NetworkServiceImpl {
     }
 
     type SubscribeStatusStream =
-        Pin<Box<dyn futures_util::Stream<Item = Result<NetworkStatus, Status>> + Send>>;
+        Pin<Box<dyn tokio_stream::Stream<Item = Result<NetworkStatus, Status>> + Send>>;
 
     async fn subscribe_status(
         &self,

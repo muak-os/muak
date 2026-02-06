@@ -182,7 +182,7 @@ impl ProvisionService for ProvisionServiceImpl {
     }
 
     type GetLogsStream =
-        Pin<Box<dyn futures_util::Stream<Item = Result<GetLogsResponse, Status>> + Send>>;
+        Pin<Box<dyn tokio_stream::Stream<Item = Result<GetLogsResponse, Status>> + Send>>;
 
     async fn get_logs(
         &self,

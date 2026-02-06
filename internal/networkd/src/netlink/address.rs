@@ -1,8 +1,9 @@
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use anyhow::{Context, Result};
-use futures_util::stream::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
 use rtnetlink::Handle;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use tokio_stream::StreamExt;
 
 pub async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
     let mut addrs = handle.address().get().execute();

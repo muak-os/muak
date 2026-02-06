@@ -1,7 +1,7 @@
 use anyhow::Result;
-use futures_util::stream::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkFlags};
 use rtnetlink::Handle;
+use tokio_stream::StreamExt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkState {

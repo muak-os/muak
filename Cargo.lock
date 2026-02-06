@@ -798,7 +798,6 @@ dependencies = [
  "anyhow",
  "der",
  "fatfs",
- "futures-util",
  "gptman",
  "imager",
  "kmsg",
@@ -1438,7 +1437,6 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "dhcproto",
- "futures-util",
  "hyper-util",
  "kmsg",
  "libc",

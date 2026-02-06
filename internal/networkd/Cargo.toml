@@ -7,7 +7,6 @@ version.workspace = true
 # Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
-futures-util = { workspace = true }
 
 # Compression
 ring = { workspace = true }

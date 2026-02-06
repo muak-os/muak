@@ -1,8 +1,9 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use anyhow::{Context, Result};
-use futures_util::stream::TryStreamExt;
 use netlink_packet_route::route::{RouteAddress, RouteAttribute};
 use rtnetlink::{Handle, RouteMessageBuilder};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use tokio_stream::StreamExt;
 
 pub async fn find_default_gateway(handle: &Handle) -> Result<Option<Ipv4Addr>> {
     let mut routes = handle

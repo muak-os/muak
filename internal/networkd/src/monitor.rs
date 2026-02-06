@@ -1,11 +1,13 @@
-use crate::netlink::link;
+use std::collections::HashMap;
+
 use anyhow::Result;
-use futures_util::stream::{StreamExt, TryStreamExt};
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use rtnetlink::Handle;
-use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
+
+use crate::netlink::link;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
