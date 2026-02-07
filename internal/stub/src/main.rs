@@ -2,11 +2,10 @@
 
 #[cfg(target_arch = "aarch64")]
 mod dtb;
-#[cfg(target_arch = "x86_64")]
-mod handover;
 mod loadfile2;
 mod log;
 mod pe;
+mod peloader;
 mod security;
 
 use anyhow::{Context, Result};
@@ -15,7 +14,7 @@ use uefi::Guid;
 use uefi::Handle;
 use uefi::proto::loaded_image::LoadedImage;
 
-use crate::pe::UkiSections;
+use crate::pe::{KernelPe, UkiSections};
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
@@ -43,22 +42,8 @@ fn main() -> Result<()> {
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
-    info!(
-        "Setup Mode: {}",
-        if security::is_setup_mode() {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    info!(
-        "Secure Boot: {}",
-        if security::is_secure_boot_enabled() {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
+    info!("Setup Mode: {}", security::is_setup_mode());
+    info!("Secure Boot: {}", security::is_secure_boot_enabled());
 
     let (base_addr, image_size) = loaded_image.info();
     info!("Base address: {:p}, size: {}", base_addr, image_size);
@@ -77,6 +62,12 @@ fn main() -> Result<()> {
         kernel_bytes.as_ptr()
     );
 
+    let kernel = KernelPe::parse(kernel_bytes)?;
+    info!(
+        "Kernel PE: entry=0x{:x}, base=0x{:x}, size=0x{:x}",
+        kernel.entry_point_rva, kernel.image_base, kernel.size_of_image
+    );
+
     if let Some(initrd_bytes) = sections.initrd {
         loadfile2::install(initrd_bytes, &LINUX_INITRD_GUID)?;
     }
@@ -86,16 +77,7 @@ fn main() -> Result<()> {
         dtb::install(dtb_bytes)?;
     }
 
-    #[cfg(target_arch = "x86_64")]
-    {
-        handover::validate(kernel_bytes)?;
+    peloader::start(&kernel, sections.cmdline, loaded_image, image_handle)?;
 
-        let boot_params =
-            handover::setup_boot_params(kernel_bytes, sections.cmdline, sections.initrd)?;
-
-        handover::execute(image_handle, kernel_bytes, boot_params);
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    anyhow::bail!("no kernel boot method available for this architecture");
+    unreachable!("Kernel entry point returned, which should never happen");
 }

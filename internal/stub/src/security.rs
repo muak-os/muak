@@ -18,12 +18,20 @@ fn read_bool_variable(name: &str) -> bool {
     }
 }
 
-/// Returns whether the system is in UEFI Setup Mode.
-pub fn is_setup_mode() -> bool {
-    read_bool_variable("SetupMode")
+/// Returns whether the system is in UEFI Setup Mode
+pub fn is_setup_mode() -> String {
+    if read_bool_variable("SetupMode") {
+        "enabled".to_string()
+    } else {
+        "disabled".to_string()
+    }
 }
 
-/// Returns whether Secure Boot is enabled.
-pub fn is_secure_boot_enabled() -> bool {
-    read_bool_variable("SecureBoot")
+/// Returns whether Secure Boot is enabled
+pub fn is_secure_boot_enabled() -> String {
+    if read_bool_variable("SecureBoot") {
+        "enabled".to_string()
+    } else {
+        "disabled".to_string()
+    }
 }
