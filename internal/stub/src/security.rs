@@ -1,9 +1,9 @@
-//! Security-related EFI variable checks.
+//! Security-related EFI variable checks
 
 use uefi::CStr16;
 use uefi::runtime::VariableVendor;
 
-/// Reads a single-byte EFI variable from the global vendor namespace.
+/// Reads a single-byte EFI variable from the global vendor namespace
 fn read_bool_variable(name: &str) -> bool {
     let mut name_buf = [0u16; 16];
     let name = match CStr16::from_str_with_buf(name, &mut name_buf) {

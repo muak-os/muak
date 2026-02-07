@@ -2,7 +2,8 @@
 
 #[cfg(target_arch = "aarch64")]
 mod dtb;
-mod loader;
+#[cfg(target_arch = "x86_64")]
+mod handover;
 mod loadfile2;
 mod log;
 mod pe;
@@ -85,13 +86,16 @@ fn main() -> Result<()> {
         dtb::install(dtb_bytes)?;
     }
 
-    let kernel_handle = loader::load_kernel(image_handle, kernel_bytes)?;
+    #[cfg(target_arch = "x86_64")]
+    {
+        handover::validate(kernel_bytes)?;
 
-    if let Some(cmdline_bytes) = sections.cmdline {
-        loader::set_cmdline(kernel_handle, cmdline_bytes)?;
+        let boot_params =
+            handover::setup_boot_params(kernel_bytes, sections.cmdline, sections.initrd)?;
+
+        handover::execute(image_handle, kernel_bytes, boot_params);
     }
 
-    loader::start(kernel_handle)?;
-
-    unreachable!("If we're here, something went wrong");
+    #[cfg(not(target_arch = "x86_64"))]
+    anyhow::bail!("no kernel boot method available for this architecture");
 }

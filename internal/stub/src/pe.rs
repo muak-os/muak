@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use object::LittleEndian as LE;
 use object::read::pe::PeFile64;
 
-/// Parsed UKI sections from the PE image.
+/// Parsed UKI sections from the PE image
 pub struct UkiSections<'a> {
     pub kernel: Option<&'a [u8]>,
     pub initrd: Option<&'a [u8]>,
