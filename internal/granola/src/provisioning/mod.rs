@@ -9,7 +9,6 @@ pub use reset::factory_reset;
 pub use update::update;
 pub use validation::{UpdateStatus, check_and_handle_pending_validation, get_update_status};
 
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -17,7 +16,6 @@ use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 use serde::{Deserialize, Serialize};
 use sysconfig::HostConfig;
 
-use crate::disk;
 use uki::{Uki, UkiConfig};
 
 pub(crate) const INSTALL_DIR: &str = "/run/install";
@@ -54,7 +52,7 @@ pub struct RollbackInfo {
 }
 
 pub fn status() -> InstallationStatus {
-    if disk::find_partition_by_partname("STATE").is_some() {
+    if Path::new(sysconfig::CONFIG_PATH).exists() {
         InstallationStatus::Installed
     } else {
         InstallationStatus::Live
@@ -101,7 +99,7 @@ pub(crate) fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result
         mount_point
     );
 
-    fs::create_dir_all(mount_point)
+    std::fs::create_dir_all(mount_point)
         .with_context(|| format!("Failed to create mount point {}", mount_point))?;
 
     mount(efi_device, mount_point, "vfat", MountFlags::NOATIME, None).with_context(|| {

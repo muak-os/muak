@@ -12,7 +12,7 @@ kmod = { workspace = true }
 kmsg = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["process"] }
+rustix = { workspace = true, features = ["process", "mount", "fs"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

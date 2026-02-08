@@ -38,6 +38,12 @@ fn run() -> Result<()> {
     mount::mount_rootfs()?;
     kmsg::info!("Rootfs mounted successfully");
 
+    match mount::mount_persistent() {
+        Ok(true) => kmsg::info!("Persistent partitions mounted"),
+        Ok(false) => kmsg::info!("No persistent partitions found (maintenance mode)"),
+        Err(e) => kmsg::warn!("Failed to mount persistent partitions: {:#}", e),
+    }
+
     kmsg::info!("Switching to new root");
     switchroot::switch("/newroot")?;
 

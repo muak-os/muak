@@ -19,10 +19,9 @@ async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    let mut is_installed = matches!(
-        provisioning::status(),
-        provisioning::InstallationStatus::Installed
-    );
+    sysconfig::init().context("Failed to initialize system configuration")?;
+
+    let is_installed = std::path::Path::new(sysconfig::CONFIG_PATH).exists();
 
     if is_installed {
         kmsg::info!("Running from INSTALLED DISK");
@@ -30,15 +29,6 @@ async fn main() -> Result<()> {
         kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
         kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
     }
-
-    if is_installed && disk::mount_partitions().is_err() {
-        let _ =
-            disk::mount_partitions().map_err(|e| kmsg::warn!("Failed to mount partitions: {}", e));
-        is_installed = false;
-        // TODO: set in maintenance mode here to recover
-    }
-
-    sysconfig::init().context("Failed to initialize system configuration")?;
 
     if is_installed {
         let _ = provisioning::check_and_handle_pending_validation()
