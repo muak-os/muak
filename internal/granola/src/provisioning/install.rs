@@ -53,7 +53,9 @@ pub fn install(
 
         let setup_mode = get_setup_mode().unwrap_or(false);
         if !setup_mode {
-            bail!("Firmware is not in Setup Mode, cannot enroll Secure Boot keys");
+            bail!(
+                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. Please reset your firmware to Setup Mode and try again."
+            );
         }
 
         enroll_keys(&hierarchy).context("Failed to enroll Secure Boot keys")?;
