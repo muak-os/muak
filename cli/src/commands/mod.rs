@@ -148,7 +148,18 @@ async fn handle_cmd(
             let mut client = ProvisionServiceClient::new(channel);
             install::handle(&mut client, force, config, &endpoint).await
         }
-        Commands::Update { image } => update::handle(&endpoint, image).await,
+        Commands::Update { image } => {
+            let ctx_name = context.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Update requires mTLS authentication. Use a context instead of --endpoint."
+                )
+            })?;
+            let config = ClientConfig::load()?;
+            let ctx = config
+                .get_context(ctx_name)
+                .ok_or_else(|| anyhow::anyhow!("Context '{}' not found.", ctx_name))?;
+            update::handle(ctx, image).await
+        }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
             disks::handle(&mut client).await
