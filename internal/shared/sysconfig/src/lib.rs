@@ -85,6 +85,7 @@ pub struct SystemConfig {
     pub disk: String,
     pub image: String,
     pub extensions: Vec<String>,
+    pub secureboot: bool,
     pub port: u16,
 }
 

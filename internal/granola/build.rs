@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={}/process.proto", api_dir);
     println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
     println!("cargo:rerun-if-changed={}/auth.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/security.proto", api_dir);
     println!(
         "cargo:rerun-if-changed={}/internal/supervisor.proto",
         api_dir
@@ -43,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format!("{}/process.proto", api_dir),
                 format!("{}/provision.proto", api_dir),
                 format!("{}/auth.proto", api_dir),
+                format!("{}/security.proto", api_dir),
             ],
             &[api_dir.to_string()],
         )?;

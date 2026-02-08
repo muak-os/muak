@@ -35,6 +35,7 @@ const VALID_PERMISSIONS: &[(&str, &str)] = &[
     ("system:read", "SystemRead"),
     ("system:update", "SystemUpdate"),
     ("process:read", "ProcessRead"),
+    ("security:read", "SecurityRead"),
 ];
 
 /// Represents a parsed RPC method with its RBAC requirement.
@@ -56,7 +57,13 @@ fn main() {
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
 
     let proto_dir = Path::new(&manifest_dir).join("../../api");
-    let proto_files = ["auth.proto", "vm.proto", "provision.proto", "process.proto"];
+    let proto_files = [
+        "auth.proto",
+        "vm.proto",
+        "provision.proto",
+        "process.proto",
+        "security.proto",
+    ];
 
     let mut all_methods = Vec::new();
     let mut errors = Vec::new();

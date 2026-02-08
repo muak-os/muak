@@ -39,6 +39,16 @@ pub fn mount_pseudo() -> Result<()> {
         Some("mode=0755"),
     )?;
 
+    if Path::new("/sys/firmware/efi").exists() {
+        create_and_mount(
+            "/sys/firmware/efi/efivars",
+            "efivarfs",
+            "efivarfs",
+            MountFlags::NOSUID | MountFlags::NOEXEC | MountFlags::NODEV,
+            None,
+        )?;
+    }
+
     Ok(())
 }
 

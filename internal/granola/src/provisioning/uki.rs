@@ -1,5 +1,6 @@
-use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
 
 pub struct UkiConfig<'a> {
     pub installer_image: &'a str,
@@ -83,6 +84,21 @@ pub fn build_atomic(uki: &Uki, output: &Path) -> Result<()> {
         "Successfully built and atomically installed UKI at {}",
         output.display()
     );
+    Ok(())
+}
+
+/// Sign a UKI file in-place with the given Secure Boot key hierarchy.
+pub fn sign(uki_path: &Path, hierarchy: &sbolt::keys::KeyHierarchy) -> Result<()> {
+    let uki_data = std::fs::read(uki_path)
+        .with_context(|| format!("Failed to read UKI from {}", uki_path.display()))?;
+
+    let signed = sbolt::pe::sign(&uki_data, &hierarchy.db.signer, &hierarchy.db.certificate)
+        .context("Failed to sign UKI")?;
+
+    std::fs::write(uki_path, &signed)
+        .with_context(|| format!("Failed to write signed UKI to {}", uki_path.display()))?;
+
+    kmsg::info!(@ "provisioning", "UKI signed successfully");
     Ok(())
 }
 

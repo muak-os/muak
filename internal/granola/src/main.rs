@@ -1,3 +1,4 @@
+mod constants;
 mod disk;
 mod provisioning;
 mod services;
@@ -107,6 +108,7 @@ async fn run_grpc_server() -> Result<()> {
         .add_service(services::auth::service())
         .add_service(services::process::service())
         .add_service(services::provision::service())
+        .add_service(services::security::service())
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 

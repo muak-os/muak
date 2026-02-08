@@ -1,0 +1,39 @@
+[package]
+name = "sbolt"
+description = "Secure Boot key management tool for Linux systems"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# CLI
+clap = { workspace = true, optional = true }
+
+# Cryptography
+ring = { workspace = true }
+rsa = { workspace = true }
+x509-cert = { workspace = true }
+der = { workspace = true }
+spki = { workspace = true }
+signature = { workspace = true }
+cms = { workspace = true }
+
+# Encoding
+const-oid = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true }
+uefi = { workspace = true }
+
+# Utilities
+object = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
+
+[lints]
+workspace = true

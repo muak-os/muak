@@ -8,11 +8,14 @@ use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
 
+use sbolt::efi::{enroll_keys, get_setup_mode, mount_efivarfs};
+use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
+
 use crate::disk;
 
-use super::uki;
 use super::{
-    INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, unmount_partition,
+    INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, uki,
+    unmount_partition,
 };
 
 /// Result of a successful installation containing PKI materials.
@@ -42,6 +45,28 @@ pub fn install(
     let (client_result, server_pki, config_with_auth) =
         generate_pki_and_sign_csr(admin_csr_pem, config)?;
 
+    let sb_hierarchy = if config.system.secureboot {
+        let hierarchy =
+            KeyHierarchy::generate("Muak").context("Failed to generate Secure Boot keys")?;
+
+        mount_efivarfs().context("Failed to mount efivarfs")?;
+
+        let setup_mode = get_setup_mode().unwrap_or(false);
+        if !setup_mode {
+            bail!(
+                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. Please reset your firmware to Setup Mode and try again."
+            );
+        }
+
+        enroll_keys(&hierarchy).context("Failed to enroll Secure Boot keys")?;
+        kmsg::info!(@ "provisioning", "Secure Boot keys enrolled");
+
+        Some(hierarchy)
+    } else {
+        kmsg::info!(@ "provisioning", "Secure Boot disabled, skipping key generation and enrollment");
+        None
+    };
+
     let work_dir = Path::new(INSTALL_DIR);
     let components = prepare_uki(
         &config_with_auth.system.image,
@@ -52,6 +77,10 @@ pub fn install(
 
     uki::build(&components, &staged_uki)?;
 
+    if let Some(ref hierarchy) = sb_hierarchy {
+        uki::sign(&staged_uki, hierarchy)?;
+    }
+
     disk::delete_all_partitions_blkpg(disk_path)?;
     disk::wipe_disk(disk_path)?;
     let (efi_part, state_part, data_part) = disk::create_partitions(disk_path)?;
@@ -61,7 +90,12 @@ pub fn install(
     disk::format_btrfs_partition(&data_part, "DATA")?;
 
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
-    init_state_partition(&state_part, &config_with_auth, &server_pki)?;
+    init_state_partition(
+        &state_part,
+        &config_with_auth,
+        &server_pki,
+        sb_hierarchy.as_ref(),
+    )?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
         kmsg::warn!(@ "provisioning", "Failed to cleanup work dir: {}", e);
@@ -136,7 +170,12 @@ fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
     Ok(())
 }
 
-fn init_state_partition(device: &str, config: &HostConfig, server_pki: &ServerPki) -> Result<()> {
+fn init_state_partition(
+    device: &str,
+    config: &HostConfig,
+    server_pki: &ServerPki,
+    sb_hierarchy: Option<&KeyHierarchy>,
+) -> Result<()> {
     kmsg::info!(@ "provisioning", "Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
@@ -168,6 +207,11 @@ fn init_state_partition(device: &str, config: &HostConfig, server_pki: &ServerPk
         &server_pki.server_key_pem,
     )
     .context("Failed to write server key")?;
+
+    if let Some(hierarchy) = sb_hierarchy {
+        save_key_hierarchy(hierarchy, &Path::new(&secrets_dir).join("secureboot"))
+            .context("Failed to save Secure Boot keys")?;
+    }
 
     sync();
     unmount_partition(mount_point);

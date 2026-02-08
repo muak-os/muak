@@ -2,13 +2,14 @@
 #
 # This is the default configuration template.
 # Generate a copy with: muakctl config generate > config.toml
-# Install with:         muakctl install --server <ip>:50051 --config config.toml
+# Install with:         muakctl install --endpoint <ip>:50051 --config config.toml
 
 [system]
 name = "muak"
 disk = ""
 image = "ghcr.io/sawangg/installer:latest"
 extensions = []
+secureboot = true
 port = 50051
 
 [network]

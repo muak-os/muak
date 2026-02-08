@@ -29,6 +29,11 @@ pub mod auth_service {
     tonic::include_proto!("muak.auth.v1");
 }
 
+#[allow(clippy::excessive_nesting)]
+pub mod security_service {
+    tonic::include_proto!("muak.security.v1");
+}
+
 pub use process_service::ListProcessesRequest;
 pub use process_service::process_service_client::ProcessServiceClient;
 
@@ -41,6 +46,9 @@ pub use vm_service::*;
 pub use auth_service::auth_service_client::AuthServiceClient;
 pub use auth_service::get_csr_status_response::Status as CsrStatus;
 pub use auth_service::*;
+
+pub use security_service::security_service_client::SecurityServiceClient;
+pub use security_service::*;
 
 /// Connects using a server context with mTLS.
 pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {

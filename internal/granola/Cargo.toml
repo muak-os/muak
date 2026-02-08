@@ -33,6 +33,7 @@ imager = { workspace = true }
 kmsg = { workspace = true }
 pki = { workspace = true }
 sysconfig = { workspace = true }
+sbolt = { workspace = true }
 yuki = { workspace = true }
 
 # System/platform APIs
