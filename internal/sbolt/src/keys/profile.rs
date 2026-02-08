@@ -11,15 +11,53 @@ use x509_cert::{
     name::Name,
 };
 
-/// Profile for Platform Key (PK) - self-signed root of trust
-pub struct PkProfile {
+/// Unified profile for all Secure Boot certificate types (PK, KEK, db)
+pub struct SecureBootProfile {
+    pub issuer: Option<Name>,
     pub subject: Name,
+    pub ca: bool,
+    pub path_len: Option<u8>,
+    pub key_cert_sign: bool,
 }
 
-impl x509_cert::builder::profile::BuilderProfile for PkProfile {
+impl SecureBootProfile {
+    /// Platform Key: self-signed CA root of trust
+    pub fn pk(subject: Name) -> Self {
+        Self {
+            issuer: None,
+            subject,
+            ca: true,
+            path_len: Some(1),
+            key_cert_sign: true,
+        }
+    }
+
+    /// Key Exchange Key: CA signed by PK
+    pub fn kek(issuer: Name, subject: Name) -> Self {
+        Self {
+            issuer: Some(issuer),
+            subject,
+            ca: true,
+            path_len: Some(0),
+            key_cert_sign: true,
+        }
+    }
+
+    /// Signature Database key: end-entity signed by KEK
+    pub fn db(issuer: Name, subject: Name) -> Self {
+        Self {
+            issuer: Some(issuer),
+            subject,
+            ca: false,
+            path_len: None,
+            key_cert_sign: false,
+        }
+    }
+}
+
+impl x509_cert::builder::profile::BuilderProfile for SecureBootProfile {
     fn get_issuer(&self, subject: &Name) -> Name {
-        // Self-signed: issuer = subject
-        subject.clone()
+        self.issuer.clone().unwrap_or_else(|| subject.clone())
     }
 
     fn get_subject(&self) -> Name {
@@ -29,131 +67,37 @@ impl x509_cert::builder::profile::BuilderProfile for PkProfile {
     fn build_extensions(
         &self,
         spk: spki::SubjectPublicKeyInfoRef<'_>,
-        _issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
+        issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
         tbs: &TbsCertificate,
     ) -> x509_cert::builder::Result<Vec<Extension>> {
         let mut extensions = Vec::new();
-
         let ski = SubjectKeyIdentifier::try_from(spk)?;
 
-        extensions.push(
+        let aki = if self.issuer.is_none() {
             AuthorityKeyIdentifier {
                 key_identifier: Some(ski.0.clone()),
                 ..Default::default()
             }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            BasicConstraints {
-                ca: true,
-                path_len_constraint: Some(1),
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            KeyUsage(KeyUsages::KeyCertSign | KeyUsages::DigitalSignature)
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
-
-        Ok(extensions)
-    }
-}
-
-/// Profile for Key Exchange Key (KEK) - signed by PK
-pub struct KekProfile {
-    pub issuer: Name,
-    pub subject: Name,
-}
-
-impl x509_cert::builder::profile::BuilderProfile for KekProfile {
-    fn get_issuer(&self, _subject: &Name) -> Name {
-        self.issuer.clone()
-    }
-
-    fn get_subject(&self) -> Name {
-        self.subject.clone()
-    }
-
-    fn build_extensions(
-        &self,
-        spk: spki::SubjectPublicKeyInfoRef<'_>,
-        issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
-        tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
-        let mut extensions = Vec::new();
-
-        extensions.push(
+        } else {
             AuthorityKeyIdentifier::try_from(issuer_spk)?
-                .to_extension(tbs.subject(), &extensions)?,
-        );
+        };
+        extensions.push(aki.to_extension(tbs.subject(), &extensions)?);
 
-        // KEK is a CA (signs db)
         extensions.push(
             BasicConstraints {
-                ca: true,
-                path_len_constraint: Some(0),
+                ca: self.ca,
+                path_len_constraint: self.path_len,
             }
             .to_extension(tbs.subject(), &extensions)?,
         );
 
-        extensions.push(
-            KeyUsage(KeyUsages::KeyCertSign | KeyUsages::DigitalSignature)
-                .to_extension(tbs.subject(), &extensions)?,
-        );
+        let usage = if self.key_cert_sign {
+            KeyUsages::KeyCertSign | KeyUsages::DigitalSignature
+        } else {
+            KeyUsages::DigitalSignature.into()
+        };
 
-        let ski = SubjectKeyIdentifier::try_from(spk)?;
-        extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
-
-        Ok(extensions)
-    }
-}
-
-/// Profile for Signature Database key (db) - signed by KEK, used for code signing
-pub struct DbProfile {
-    pub issuer: Name,
-    pub subject: Name,
-}
-
-impl x509_cert::builder::profile::BuilderProfile for DbProfile {
-    fn get_issuer(&self, _subject: &Name) -> Name {
-        self.issuer.clone()
-    }
-
-    fn get_subject(&self) -> Name {
-        self.subject.clone()
-    }
-
-    fn build_extensions(
-        &self,
-        spk: spki::SubjectPublicKeyInfoRef<'_>,
-        issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
-        tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
-        let mut extensions = Vec::new();
-
-        extensions.push(
-            AuthorityKeyIdentifier::try_from(issuer_spk)?
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            BasicConstraints {
-                ca: false,
-                path_len_constraint: None,
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            KeyUsage(KeyUsages::DigitalSignature.into())
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        let ski = SubjectKeyIdentifier::try_from(spk)?;
+        extensions.push(KeyUsage(usage).to_extension(tbs.subject(), &extensions)?);
         extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
 
         Ok(extensions)

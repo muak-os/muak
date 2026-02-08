@@ -9,7 +9,6 @@ version.workspace = true
 clap = { workspace = true, optional = true }
 
 # Cryptography
-rand_core = { workspace = true }
 ring = { workspace = true }
 rsa = { workspace = true }
 x509-cert = { workspace = true }

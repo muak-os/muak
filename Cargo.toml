@@ -62,7 +62,6 @@ der = { version = "0.8.0-rc.10", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.10"
 rsa = "0.10.0-rc.14"
-rand_core = "0.10.0"
 cms = "0.3.0-pre.2"
 
 ## Encoding

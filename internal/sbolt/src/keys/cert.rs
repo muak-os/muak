@@ -15,7 +15,7 @@ use x509_cert::{
     time::Validity,
 };
 
-use super::profile::{DbProfile, KekProfile, PkProfile};
+use super::profile::SecureBootProfile;
 use super::signer::{Rsa2048Signature, Rsa2048Signer};
 use crate::{Error, Result};
 
@@ -34,7 +34,7 @@ pub fn generate_pk_certificate(cn: &str) -> Result<(Rsa2048Signer, Certificate)>
 
     let spki = get_spki_from_signer(&signer)?;
 
-    let profile = PkProfile { subject };
+    let profile = SecureBootProfile::pk(subject);
     let builder = CertificateBuilder::new(profile, serial, validity, spki)
         .map_err(|e| Error::CertificateCreation(e.to_string()))?;
 
@@ -61,10 +61,7 @@ pub fn generate_kek_certificate(
 
     let spki = get_spki_from_signer(&signer)?;
 
-    let profile = KekProfile {
-        issuer: pk_cert.tbs_certificate().subject().clone(),
-        subject,
-    };
+    let profile = SecureBootProfile::kek(pk_cert.tbs_certificate().subject().clone(), subject);
 
     let builder = CertificateBuilder::new(profile, serial, validity, spki)
         .map_err(|e| Error::CertificateCreation(e.to_string()))?;
@@ -92,10 +89,7 @@ pub fn generate_db_certificate(
 
     let spki = get_spki_from_signer(&signer)?;
 
-    let profile = DbProfile {
-        issuer: kek_cert.tbs_certificate().subject().clone(),
-        subject,
-    };
+    let profile = SecureBootProfile::db(kek_cert.tbs_certificate().subject().clone(), subject);
 
     let builder = CertificateBuilder::new(profile, serial, validity, spki)
         .map_err(|e| Error::CertificateCreation(e.to_string()))?;

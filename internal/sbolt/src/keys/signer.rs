@@ -7,6 +7,7 @@ use ring::digest::{Context, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use rsa::pkcs1v15::Pkcs1v15Sign;
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use rsa::rand_core;
 use rsa::traits::SignatureScheme;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use spki::AlgorithmIdentifierOwned;
@@ -25,7 +26,7 @@ const SHA256_DIGEST_INFO_PREFIX: &[u8] = &[
     0x04, 0x20, // OCTET STRING, 32 bytes
 ];
 
-/// Wrapper around ring's SystemRandom to implement rand_core traits
+/// Wrapper around ring's SystemRandom to implement rand_core traits.
 struct RingRng(SystemRandom);
 
 impl rand_core::TryRng for RingRng {
@@ -51,29 +52,19 @@ impl rand_core::TryRng for RingRng {
 
 impl rand_core::TryCryptoRng for RingRng {}
 
-/// RSA-2048 signer for UEFI Secure Boot key operations
+/// RSA-2048 signer for UEFI Secure Boot key operations.
 pub struct Rsa2048Signer {
     private_key: RsaPrivateKey,
-    pkcs8_der: Vec<u8>,
 }
 
 impl Rsa2048Signer {
-    /// Generate a new RSA-2048 key pair
+    /// Generate a new RSA-2048 key pair.
     pub fn generate() -> Result<Self> {
         let mut rng = RingRng(SystemRandom::new());
         let private_key = RsaPrivateKey::new(&mut rng, 2048)
             .map_err(|e| Error::KeyGeneration(format!("RSA key generation failed: {e}")))?;
 
-        let pkcs8_der = private_key
-            .to_pkcs8_der()
-            .map_err(|e| Error::KeyGeneration(format!("PKCS#8 encoding failed: {e}")))?
-            .to_bytes()
-            .to_vec();
-
-        Ok(Self {
-            private_key,
-            pkcs8_der,
-        })
+        Ok(Self { private_key })
     }
 
     /// Load from PKCS#8 DER bytes.
@@ -81,15 +72,15 @@ impl Rsa2048Signer {
         let private_key = RsaPrivateKey::from_pkcs8_der(pkcs8_der)
             .map_err(|e| Error::KeyGeneration(format!("failed to load RSA key: {e}")))?;
 
-        Ok(Self {
-            private_key,
-            pkcs8_der: pkcs8_der.to_vec(),
-        })
+        Ok(Self { private_key })
     }
 
-    /// Get the PKCS#8 DER encoded private key.
-    pub fn pkcs8_der(&self) -> &[u8] {
-        &self.pkcs8_der
+    /// Encode the private key as PKCS#8 DER.
+    pub fn to_pkcs8_der(&self) -> Result<Vec<u8>> {
+        self.private_key
+            .to_pkcs8_der()
+            .map(|doc| doc.to_bytes().to_vec())
+            .map_err(|e| Error::KeyGeneration(format!("PKCS#8 encoding failed: {e}")))
     }
 
     /// Get the public key.
@@ -116,27 +107,11 @@ impl Rsa2048Signer {
     }
 }
 
-/// Verifying key (public key) for the RSA-2048 signer.
-#[derive(Clone)]
-pub struct Rsa2048VerifyingKey {
-    public_key: RsaPublicKey,
-}
-
-impl spki::EncodePublicKey for Rsa2048VerifyingKey {
-    fn to_public_key_der(&self) -> spki::Result<spki::Document> {
-        self.public_key
-            .to_public_key_der()
-            .map_err(|_| spki::Error::KeyMalformed)
-    }
-}
-
 impl signature::Keypair for Rsa2048Signer {
-    type VerifyingKey = Rsa2048VerifyingKey;
+    type VerifyingKey = RsaPublicKey;
 
     fn verifying_key(&self) -> Self::VerifyingKey {
-        Rsa2048VerifyingKey {
-            public_key: self.public_key(),
-        }
+        self.public_key()
     }
 }
 
