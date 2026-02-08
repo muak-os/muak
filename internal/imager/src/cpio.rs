@@ -1,44 +1,91 @@
-use cpio::{NewcBuilder, newc::ModeFileType};
 use std::io::Write;
 
 use crate::error::{ImagerError, Result};
 
-pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut cpio_data = Vec::new();
-    let mut inode = 1u32;
+/// CPIO newc format magic number.
+const NEWC_MAGIC: &str = "070701";
 
-    let dir_builder = NewcBuilder::new("extensions")
-        .ino(inode)
-        .uid(0)
-        .gid(0)
-        .mode(0o755)
-        .set_mode_file_type(ModeFileType::Directory);
-    inode += 1;
-    let writer = dir_builder.write(&mut cpio_data, 0);
+/// Trailer entry name marking the end of the archive.
+const TRAILER: &str = "TRAILER!!!";
+
+/// Writes a CPIO newc format header to the output buffer.
+fn write_header(
+    writer: &mut Vec<u8>,
+    ino: u32,
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    nlink: u32,
+    mtime: u32,
+    filesize: u32,
+    devmajor: u32,
+    devminor: u32,
+    rdevmajor: u32,
+    rdevminor: u32,
+    namesize: u32,
+    check: u32,
+) -> Result<()> {
+    write!(writer, "{NEWC_MAGIC}{ino:08x}{mode:08x}{uid:08x}{gid:08x}{nlink:08x}{mtime:08x}{filesize:08x}{devmajor:08x}{devminor:08x}{rdevmajor:08x}{rdevminor:08x}{namesize:08x}{check:08x}")
+        .map_err(|e| ImagerError::CpioError(format!("Failed to write header: {e}")))?;
+    Ok(())
+}
+
+/// Writes a single entry (file or directory) to the CPIO archive.
+fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8]) -> Result<()> {
+    let name_bytes = name.as_bytes();
+    let namesize = (name_bytes.len() + 1) as u32;
+    let filesize = data.len() as u32;
+
+    write_header(
+        writer, ino, mode, 0, 0, 1, 0, filesize, 0, 0, 0, 0, namesize, 0,
+    )?;
+
     writer
-        .finish()
-        .map_err(|e| ImagerError::CpioError(format!("Failed to write cpio directory: {}", e)))?;
+        .write_all(name_bytes)
+        .map_err(|e| ImagerError::CpioError(format!("Failed to write filename: {e}")))?;
+    writer.push(0);
+    pad_to_4(writer);
 
-    for (path, data) in files {
-        let builder = NewcBuilder::new(path)
-            .ino(inode)
-            .uid(0)
-            .gid(0)
-            .mode(0o644)
-            .set_mode_file_type(ModeFileType::Regular);
-        inode += 1;
-
-        let mut writer = builder.write(&mut cpio_data, data.len() as u32);
-        writer.write_all(data).map_err(|e| {
-            ImagerError::CpioError(format!("Failed to write cpio file data: {}", e))
-        })?;
+    if !data.is_empty() {
         writer
-            .finish()
-            .map_err(|e| ImagerError::CpioError(format!("Failed to finish cpio entry: {}", e)))?;
+            .write_all(data)
+            .map_err(|e| ImagerError::CpioError(format!("Failed to write file data: {e}")))?;
+        pad_to_4(writer);
     }
 
-    cpio::newc::trailer(&mut cpio_data)
-        .map_err(|e| ImagerError::CpioError(format!("Failed to write cpio trailer: {}", e)))?;
+    Ok(())
+}
+
+/// Pads the output to a 4-byte boundary with null bytes.
+fn pad_to_4(writer: &mut Vec<u8>) {
+    let len = writer.len();
+    let pad = (4 - (len % 4)) % 4;
+    writer.extend(std::iter::repeat(0).take(pad));
+}
+
+/// Creates a CPIO archive in "newc" format containing the given files.
+///
+/// Creates an archive with:
+/// - An "extensions" directory entry
+/// - All files under their specified paths
+/// - A proper TRAILER!!! entry
+///
+/// File mode bits:
+/// - Directories: 0o040755 (S_IFDIR | 0755)
+/// - Regular files: 0o100644 (S_IFREG | 0644)
+pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let mut cpio_data = Vec::new();
+    let mut ino = 1u32;
+
+    write_entry(&mut cpio_data, ino, "extensions", 0o040755, &[])?;
+    ino += 1;
+
+    for (path, data) in files {
+        write_entry(&mut cpio_data, ino, path, 0o100644, data)?;
+        ino += 1;
+    }
+
+    write_entry(&mut cpio_data, ino, TRAILER, 0, &[])?;
 
     Ok(cpio_data)
 }
@@ -98,6 +145,6 @@ mod tests {
         let large_data = vec![0u8; 10000];
         let files = vec![("large.bin".to_string(), large_data)];
         let result = create_archive(&files).unwrap();
-        assert!(result.len() > 10000); // CPIO overhead
+        assert!(result.len() > 10000);
     }
 }

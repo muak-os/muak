@@ -9,7 +9,6 @@ version.workspace = true
 clap = { workspace = true, optional = true }
 
 # Compression
-cpio = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
