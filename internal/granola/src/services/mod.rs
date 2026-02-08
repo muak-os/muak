@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod process;
 pub mod provision;
+pub mod security;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {
@@ -12,5 +13,8 @@ pub mod proto {
     }
     pub mod provision {
         tonic::include_proto!("muak.provision.v1");
+    }
+    pub mod security {
+        tonic::include_proto!("muak.security.v1");
     }
 }

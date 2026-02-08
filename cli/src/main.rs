@@ -12,6 +12,7 @@ use commands::auth::AuthAction;
 use commands::config::ConfigAction;
 use commands::context::ContextAction;
 use commands::process::ProcessAction;
+use commands::security::SecurityAction;
 use commands::vm::VmAction;
 
 #[derive(Parser)]
@@ -37,6 +38,10 @@ pub enum Commands {
     Process {
         #[command(subcommand)]
         action: ProcessAction,
+    },
+    Security {
+        #[command(subcommand)]
+        action: SecurityAction,
     },
     Vm {
         #[command(subcommand)]

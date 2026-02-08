@@ -6,6 +6,7 @@ pub mod install;
 pub mod logs;
 pub mod process;
 pub mod reset;
+pub mod security;
 pub mod update;
 pub mod vm;
 
@@ -14,7 +15,8 @@ use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{
-    ProcessServiceClient, ProvisionServiceClient, VmServiceClient, connect, connect_tls_insecure,
+    ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient, VmServiceClient, connect,
+    connect_tls_insecure,
 };
 use crate::config::ClientConfig;
 use crate::{Cli, Commands};
@@ -133,6 +135,10 @@ async fn handle_cmd(
         Commands::Process { action } => {
             let mut client = ProcessServiceClient::new(channel);
             process::handle(&mut client, action).await
+        }
+        Commands::Security { action } => {
+            let mut client = SecurityServiceClient::new(channel);
+            security::handle(&mut client, action).await
         }
         Commands::Vm { action } => {
             let mut client = VmServiceClient::new(channel);

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package muak.security.v1;
+
+service SecurityService {
+  // @rbac: security:read
+  rpc GetSecurityState(GetSecurityStateRequest) returns (GetSecurityStateResponse);
+}
+
+message GetSecurityStateRequest {}
+
+message GetSecurityStateResponse {
+  bool secure_boot_enabled = 1;
+}

@@ -46,6 +46,10 @@ pub enum Permission {
     // Process monitoring
     #[serde(rename = "process:read")]
     ProcessRead,
+
+    // Security monitoring
+    #[serde(rename = "security:read")]
+    SecurityRead,
 }
 
 impl std::fmt::Display for Permission {
@@ -62,6 +66,7 @@ impl std::fmt::Display for Permission {
             Self::SystemRead => "system:read",
             Self::SystemUpdate => "system:update",
             Self::ProcessRead => "process:read",
+            Self::SecurityRead => "security:read",
         };
         write!(f, "{s}")
     }
@@ -83,13 +88,14 @@ impl FromStr for Permission {
             "system:read" => Ok(Self::SystemRead),
             "system:update" => Ok(Self::SystemUpdate),
             "process:read" => Ok(Self::ProcessRead),
+            "security:read" => Ok(Self::SecurityRead),
             _ => Err(format!("Unknown permission: {}", s)),
         }
     }
 }
 
 /// Known permission categories that support wildcards.
-const CATEGORIES: &[&str] = &["vm", "system", "auth", "process"];
+const CATEGORIES: &[&str] = &["vm", "system", "auth", "process", "security"];
 
 impl Permission {
     /// Returns all permissions in a category.
@@ -107,6 +113,7 @@ impl Permission {
             "system" => &[Permission::SystemRead, Permission::SystemUpdate],
             "auth" => &[Permission::AuthManage],
             "process" => &[Permission::ProcessRead],
+            "security" => &[Permission::SecurityRead],
             _ => &[],
         }
     }
@@ -143,6 +150,7 @@ impl Permission {
             Self::AuthManage => Some("auth"),
             Self::SystemRead | Self::SystemUpdate => Some("system"),
             Self::ProcessRead => Some("process"),
+            Self::SecurityRead => Some("security"),
         }
     }
 }
@@ -189,6 +197,7 @@ mod tests {
         assert_eq!(Permission::AuthManage.to_string(), "auth:manage");
         assert_eq!(Permission::SystemUpdate.to_string(), "system:update");
         assert_eq!(Permission::ProcessRead.to_string(), "process:read");
+        assert_eq!(Permission::SecurityRead.to_string(), "security:read");
     }
 
     #[test]
@@ -210,6 +219,10 @@ mod tests {
         assert_eq!(
             "process:read".parse::<Permission>().unwrap(),
             Permission::ProcessRead
+        );
+        assert_eq!(
+            "security:read".parse::<Permission>().unwrap(),
+            Permission::SecurityRead
         );
 
         assert!("invalid".parse::<Permission>().is_err());
@@ -239,6 +252,10 @@ mod tests {
         assert_eq!(process_perms.len(), 1);
         assert!(process_perms.contains(&Permission::ProcessRead));
 
+        let security_perms = Permission::all_in_category("security");
+        assert_eq!(security_perms.len(), 1);
+        assert!(security_perms.contains(&Permission::SecurityRead));
+
         assert!(Permission::all_in_category("unknown").is_empty());
     }
 
@@ -257,6 +274,10 @@ mod tests {
         let process_perms = Permission::expand_pattern("process:*").unwrap();
         assert_eq!(process_perms.len(), 1);
         assert_eq!(process_perms[0], Permission::ProcessRead);
+
+        let security_perms = Permission::expand_pattern("security:*").unwrap();
+        assert_eq!(security_perms.len(), 1);
+        assert_eq!(security_perms[0], Permission::SecurityRead);
     }
 
     #[test]
@@ -287,6 +308,7 @@ mod tests {
         assert_eq!(Permission::SystemRead.category(), Some("system"));
         assert_eq!(Permission::AuthManage.category(), Some("auth"));
         assert_eq!(Permission::ProcessRead.category(), Some("process"));
+        assert_eq!(Permission::SecurityRead.category(), Some("security"));
     }
 
     #[test]
@@ -360,6 +382,7 @@ mod tests {
             Permission::SystemRead,
             Permission::SystemUpdate,
             Permission::ProcessRead,
+            Permission::SecurityRead,
         ];
 
         for perm in permissions {
