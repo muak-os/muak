@@ -1,3 +1,5 @@
+//! File upload functionality for VM images and kernels.
+
 use anyhow::Result;
 use tokio::io::AsyncReadExt;
 use tonic::transport::Channel;

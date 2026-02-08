@@ -41,6 +41,7 @@ pub struct ImageReference {
 }
 
 impl ImageReference {
+    /// Parse an image reference string into an ImageReference.
     pub fn parse(reference: &str) -> Self {
         let (reference, tag) = match reference.rsplit_once(':') {
             Some((r, t)) if !t.contains('/') => (r, t.to_string()),
@@ -67,6 +68,7 @@ impl ImageReference {
         }
     }
 
+    /// Extract the final component of the image name.
     pub fn image_name(&self) -> String {
         self.name
             .split('/')
@@ -75,6 +77,7 @@ impl ImageReference {
             .to_string()
     }
 
+    /// Determine the URL scheme (http or https) for the registry.
     pub fn scheme(&self) -> &'static str {
         if self.registry.starts_with("192.168.")
             || self.registry.starts_with("10.")

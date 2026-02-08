@@ -1,3 +1,5 @@
+//! PID 1 supervisor and init system for Muak.
+
 mod constants;
 mod disk;
 mod provisioning;
@@ -97,6 +99,7 @@ async fn main() -> Result<()> {
     unreachable!("If we're here, something went very wrong");
 }
 
+/// Runs the gRPC server for internal service communication.
 async fn run_grpc_server() -> Result<()> {
     if std::path::Path::new(GRPC_SOCKET_PATH).exists() {
         std::fs::remove_file(GRPC_SOCKET_PATH)?;

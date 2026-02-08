@@ -65,6 +65,7 @@ pub async fn handle(
     Ok(())
 }
 
+/// Prompts user to type confirmation phrase for factory reset.
 fn prompt_confirmation() -> Result<bool> {
     print!("Type '{}' to confirm: ", CONFIRM_PHRASE.bold());
     stdout().flush()?;

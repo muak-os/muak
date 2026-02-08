@@ -48,6 +48,7 @@ pub fn handle(action: ContextAction) -> Result<()> {
     }
 }
 
+/// Lists all configured contexts.
 fn list() -> Result<()> {
     let config = ClientConfig::load()?;
 
@@ -81,6 +82,7 @@ fn list() -> Result<()> {
     Ok(())
 }
 
+/// Switches to the specified context.
 fn use_context(name: &str) -> Result<()> {
     let mut config = ClientConfig::load()?;
     config.set_current(name)?;
@@ -90,6 +92,7 @@ fn use_context(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Displays information about the current context.
 fn info() -> Result<()> {
     let config = ClientConfig::load()?;
 
@@ -116,6 +119,7 @@ fn info() -> Result<()> {
     Ok(())
 }
 
+/// Adds a new context with optional mTLS credentials.
 fn add(
     name: &str,
     endpoint: &str,
@@ -166,6 +170,7 @@ fn add(
     Ok(())
 }
 
+/// Removes a context by name.
 fn remove(name: &str) -> Result<()> {
     let mut config = ClientConfig::load()?;
     config.remove_context(name)?;

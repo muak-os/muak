@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-/// Error type for imager operations
+/// Error type for sbolt operations
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("key generation failed: {0}")]
@@ -36,4 +36,5 @@ pub enum Error {
     Spki(#[from] spki::Error),
 }
 
+/// Result type alias for sbolt operations
 pub type Result<T> = std::result::Result<T, Error>;

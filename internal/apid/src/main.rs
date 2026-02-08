@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Sets up signal handlers for graceful shutdown.
 fn setup_shutdown_handler() -> Arc<AtomicBool> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();

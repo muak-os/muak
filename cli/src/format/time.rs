@@ -1,3 +1,5 @@
+//! Timestamp formatting utilities.
+
 use std::time::{Duration, UNIX_EPOCH};
 
 /// Separator style for timestamp formatting.
@@ -65,6 +67,7 @@ pub fn format_timestamp(timestamp: i64, separator: TimeSeparator) -> String {
     }
 }
 
+/// Determines if a year is a leap year.
 fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }

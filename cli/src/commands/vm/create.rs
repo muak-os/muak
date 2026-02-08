@@ -46,6 +46,7 @@ pub async fn handle(
     Ok(())
 }
 
+/// Validates kernel file exists.
 fn validate_kernel(kernel: Option<String>) -> Result<String> {
     let kernel = kernel.ok_or_else(|| {
         eprintln!("{}", "Error: --kernel is required".red());
@@ -63,6 +64,7 @@ fn validate_kernel(kernel: Option<String>) -> Result<String> {
     Ok(kernel)
 }
 
+/// Validates initrd file exists if specified.
 fn validate_initrd(initrd: &Option<String>) -> Result<()> {
     if let Some(path) = initrd
         && !std::path::Path::new(path).exists()
@@ -73,6 +75,7 @@ fn validate_initrd(initrd: &Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// Validates all disk files exist.
 fn validate_disks(disks: &[String]) -> Result<()> {
     for disk_path in disks {
         if !std::path::Path::new(disk_path).exists() {
@@ -86,6 +89,7 @@ fn validate_disks(disks: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Parses hypervisor string to enum variant.
 fn parse_hypervisor(vmm: &str) -> Hypervisor {
     match vmm.to_lowercase().as_str() {
         "firecracker" | "fc" => Hypervisor::Firecracker,
@@ -101,6 +105,7 @@ fn parse_hypervisor(vmm: &str) -> Hypervisor {
     }
 }
 
+/// Builds disk configuration from paths.
 fn build_disk_configs(disks: &[String]) -> Vec<DiskConfig> {
     disks
         .iter()
@@ -115,6 +120,7 @@ fn build_disk_configs(disks: &[String]) -> Vec<DiskConfig> {
         .collect()
 }
 
+/// Builds VM configuration from parameters.
 #[allow(clippy::too_many_arguments)]
 fn build_vm_config(
     name: &str,
@@ -143,6 +149,7 @@ fn build_vm_config(
     }
 }
 
+/// Creates VM on the server and returns VM ID.
 async fn create_vm(
     client: &mut VmServiceClient<Channel>,
     config: VmConfig,
@@ -166,6 +173,7 @@ async fn create_vm(
     Ok(vm_id)
 }
 
+/// Uploads kernel, initrd, and disk files to the VM.
 async fn upload_vm_files(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
@@ -184,6 +192,7 @@ async fn upload_vm_files(
     Ok(())
 }
 
+/// Uploads kernel file to the VM.
 async fn upload_kernel(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
@@ -202,6 +211,7 @@ async fn upload_kernel(
     }
 }
 
+/// Uploads initrd file to the VM.
 async fn upload_initrd(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
@@ -220,6 +230,7 @@ async fn upload_initrd(
     }
 }
 
+/// Uploads all disk files to the VM.
 async fn upload_disks(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
@@ -241,6 +252,7 @@ async fn upload_disks(
     Ok(())
 }
 
+/// Starts the VM after files are uploaded.
 async fn start_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) -> Result<()> {
     let start_request = tonic::Request::new(StartVmRequest {
         vm_id: vm_id.to_string(),
@@ -260,6 +272,7 @@ async fn start_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) -> Result<
     }
 }
 
+/// Cleans up VM on failure.
 async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) {
     let delete_request = tonic::Request::new(DeleteVmRequest {
         vm_id: vm_id.to_string(),

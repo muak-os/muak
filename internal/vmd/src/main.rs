@@ -1,3 +1,5 @@
+//! VM daemon for Muak - Manages virtual machines and their lifecycle
+
 mod actor;
 mod clients;
 mod disk;
@@ -32,6 +34,7 @@ const SOCKET_PATH: &str = "/run/vmd.sock";
 const NETWORKD_SOCKET: &str = "/run/networkd.sock";
 const STATE_DIR: &str = "/run/state/vmd";
 
+/// Entry point for the VM daemon
 #[tokio::main]
 async fn main() -> Result<()> {
     kmsg::info!(@ "vmd", "Starting vmd");
@@ -103,6 +106,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Sets this process as a child subreaper to reap orphaned VM processes
 fn set_child_subreaper() -> Result<()> {
     // SAFETY: prctl with known constants and no pointers, syscall is safe
     let result = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
@@ -116,6 +120,7 @@ fn set_child_subreaper() -> Result<()> {
     Ok(())
 }
 
+/// Reaps zombie child processes
 fn reap_children() {
     loop {
         match waitpid(

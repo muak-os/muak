@@ -1,3 +1,5 @@
+//! Static configuration constants for paths and service prefixes.
+
 /// Certificate paths
 pub const CA_CERT_PATH: &str = "/run/state/secrets/ca.crt";
 pub const SERVER_CERT_PATH: &str = "/run/state/secrets/server.crt";

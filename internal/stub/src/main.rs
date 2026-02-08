@@ -1,3 +1,5 @@
+//! UEFI stub for Muak - Loads and starts the Linux kernel from a Unified Kernel Image
+
 #![feature(uefi_std)]
 
 #[cfg(target_arch = "aarch64")]
@@ -18,6 +20,7 @@ use crate::pe::{KernelPe, UkiSections};
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
+/// Initializes the UEFI crate with system table and image handle
 fn setup_uefi_crate() {
     let st = uefi_std::env::system_table();
     let ih = uefi_std::env::image_handle();
@@ -32,6 +35,7 @@ fn setup_uefi_crate() {
     }
 }
 
+/// Entry point for the UEFI stub
 fn main() -> Result<()> {
     setup_uefi_crate();
 

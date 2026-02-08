@@ -1,3 +1,5 @@
+//! Network daemon for Muak - Manages network interfaces, DHCP, DNS, and connectivity
+
 mod actor;
 mod config;
 mod connectivity;
@@ -30,6 +32,7 @@ pub mod proto {
 
 const SOCKET_PATH: &str = "/run/networkd.sock";
 
+/// Entry point for the network daemon
 #[tokio::main]
 async fn main() -> Result<()> {
     kmsg::init("networkd")?;

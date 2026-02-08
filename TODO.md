@@ -75,6 +75,7 @@
 
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM
+  - Consolidate crypto crates and primitives to `internal/shared/pki` if possible
 
 - Stub improvements:
   - Add TPM PCR#7 measurements in stub

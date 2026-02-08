@@ -1,3 +1,5 @@
+//! Output formatting utilities for display, sizes, and timestamps.
+
 mod display;
 mod size;
 pub mod time;

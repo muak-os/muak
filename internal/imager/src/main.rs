@@ -35,6 +35,7 @@ enum Command {
     },
 }
 
+/// Main entry point for the imager CLI.
 fn main() -> Result<()> {
     let args = Cli::parse();
 

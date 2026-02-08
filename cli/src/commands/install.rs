@@ -7,7 +7,7 @@ use tonic::transport::Channel;
 use crate::client::{GetConfigRequest, InstallRequest, ProvisionServiceClient, connect};
 use crate::config::{ClientConfig, ServerContext};
 
-/// Handles the install command
+/// Handles system installation with configuration and certificate generation.
 pub async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     force: bool,

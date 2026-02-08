@@ -48,4 +48,5 @@ pub enum ImagerError {
     SerializationError(#[from] serde_json::Error),
 }
 
+/// Result type alias for imager operations.
 pub type Result<T> = std::result::Result<T, ImagerError>;

@@ -104,6 +104,7 @@ pub enum InitError {
     AlreadyInitialized,
 }
 
+/// Writes a log message with the specified level and optional component.
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     let comp = component
         .map(|s| s.to_string())
@@ -119,6 +120,7 @@ pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     write_to_kmsg_or_stderr(formatted.as_bytes());
 }
 
+/// Prints a plain message to kmsg without priority prefix.
 pub fn print(message: &str) {
     let formatted = format!("{}\n", message);
     write_to_kmsg_or_stderr(formatted.as_bytes());

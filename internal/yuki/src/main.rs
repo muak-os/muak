@@ -6,6 +6,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use yuki::build;
 
+/// Command line arguments for the UKI builder
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -29,6 +30,7 @@ struct Args {
     output: PathBuf,
 }
 
+/// Entry point for the UKI builder CLI
 fn main() -> Result<()> {
     let args = Args::parse();
 

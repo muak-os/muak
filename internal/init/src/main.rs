@@ -1,3 +1,9 @@
+//! Muak init - phase 1 initialization process.
+//!
+//! This is the first process started by the kernel. It mounts pseudo filesystems,
+//! loads kernel modules, mounts the root filesystem, switches to the new root
+//! and execute the PID 1 process.
+
 mod modules;
 mod mount;
 mod switchroot;
@@ -5,6 +11,7 @@ mod switchroot;
 use anyhow::Result;
 use std::process;
 
+/// Entry point that handles fatal errors.
 fn main() {
     if let Err(e) = run() {
         kmsg::error!("FATAL ERROR: {:#}", e);
@@ -12,6 +19,7 @@ fn main() {
     }
 }
 
+/// Run the initialization sequence.
 fn run() -> Result<()> {
     mount::mount_pseudo()?;
 

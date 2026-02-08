@@ -1,3 +1,8 @@
+//! Mount operations for early boot.
+//!
+//! Provides functions to mount pseudo filesystems and the root filesystem
+//! using squashfs and overlay mounts.
+
 use std::ffi::CString;
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
@@ -9,6 +14,7 @@ use rustix::mount::{MountFlags, mount};
 
 const LOOP_SET_FD: Opcode = 0x4C00;
 
+/// Mount pseudo filesystems required for early boot.
 pub fn mount_pseudo() -> Result<()> {
     create_and_mount(
         "/dev",
@@ -52,6 +58,7 @@ pub fn mount_pseudo() -> Result<()> {
     Ok(())
 }
 
+/// Mount the root filesystem with extensions as overlays.
 pub fn mount_rootfs() -> Result<()> {
     let newroot = Path::new("/newroot");
     if !newroot.exists() {
@@ -123,6 +130,7 @@ pub fn mount_rootfs() -> Result<()> {
     Ok(())
 }
 
+/// Discover extension squashfs images in the default extensions directory.
 fn discover_extensions() -> Vec<String> {
     discover_extensions_in(Path::new("/extensions"))
 }
@@ -147,6 +155,7 @@ pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Attach a squashfs image to a loop device and mount it.
 fn attach_squashfs(sqsh_path: &str, loop_dev: &str, mount_point: &str) -> Result<()> {
     let sqsh_fd = open(sqsh_path, OFlags::RDONLY, Mode::empty())
         .with_context(|| format!("Failed to open squashfs image: {}", sqsh_path))?;
@@ -167,6 +176,7 @@ fn attach_squashfs(sqsh_path: &str, loop_dev: &str, mount_point: &str) -> Result
     Ok(())
 }
 
+/// Create a directory if it does not exist and mount a filesystem.
 fn create_and_mount(
     target: &str,
     source: &str,

@@ -1,3 +1,5 @@
+//! Muak CLI - Command-line interface for managing Muak Linux systems.
+
 mod client;
 mod commands;
 mod config;
@@ -82,6 +84,7 @@ async fn main() {
     }
 }
 
+/// Handles and displays errors with user-friendly messages.
 fn handle_error(err: &anyhow::Error) {
     if let Some(status) = err.downcast_ref::<tonic::Status>() {
         let msg = match status.code() {

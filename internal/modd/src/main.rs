@@ -1,3 +1,8 @@
+//! Muak module daemon (modd) - Hot-pluggable kernel module loader.
+//!
+//! Listens for kernel uevents and automatically loads appropriate kernel modules
+//! based on modalias matching.
+
 mod uevent;
 
 use anyhow::{Context, Result};
@@ -9,6 +14,7 @@ use uevent::{UeventAction, UeventListener};
 
 const SOCKET_PATH: &str = "/run/modd.sock";
 
+/// Entry point that handles fatal errors.
 fn main() {
     if let Err(e) = run() {
         kmsg::error!("Fatal error: {:#}", e);
@@ -16,6 +22,7 @@ fn main() {
     }
 }
 
+/// Run the module daemon main loop.
 fn run() -> Result<()> {
     kmsg::init("modd")?;
     kmsg::info!("Starting module daemon");

@@ -1,3 +1,8 @@
+//! Kernel module management library.
+//!
+//! Provides utilities for loading kernel modules, resolving dependencies,
+//! and managing module aliases.
+
 mod alias;
 mod dep;
 mod discovery;
