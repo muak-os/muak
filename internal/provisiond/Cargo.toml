@@ -1,5 +1,5 @@
 [package]
-name = "granola"
+name = "provisiond"
 edition.workspace = true
 version.workspace = true
 
@@ -10,18 +10,37 @@ tokio-stream = { workspace = true }
 
 # Encoding
 serde = { workspace = true }
+serde_json = { workspace = true }
 prost = { workspace = true }
+
+# Cryptography
+der = { workspace = true }
+x509-cert = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
 
 # Error handling
 anyhow = { workspace = true }
+
+# Filesystem
+gptman = { workspace = true }
+fatfs = { workspace = true }
 
 # gRPC
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
+imager = { workspace = true }
 kmsg = { workspace = true }
+notify = { workspace = true }
+pki = { workspace = true }
 sysconfig = { workspace = true }
+sbolt = { workspace = true }
+yuki = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["process", "system", "net", "mount", "fs"] }
+libc = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

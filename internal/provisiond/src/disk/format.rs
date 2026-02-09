@@ -1,12 +1,16 @@
-use anyhow::{Result, bail};
-use fatfs::{FatType, FormatVolumeOptions};
+//! Filesystem formatting utilities for EFI and Btrfs partitions.
+
 use std::fs::OpenOptions;
 use std::process::Command;
 
+use anyhow::{Result, bail};
+use fatfs::{FatType, FormatVolumeOptions};
+
 use super::utils::wait_for_device;
 
+/// Formats a partition as FAT32 for EFI System Partition use.
 pub fn format_efi_partition(device: &str) -> Result<()> {
-    kmsg::info!(@ "provisioning", "Formatting {} as FAT32", device);
+    kmsg::info!("Formatting {} as FAT32", device);
 
     wait_for_device(device)?;
 
@@ -21,18 +25,14 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 
     f.sync_all()?;
 
-    kmsg::info!(@ "provisioning", "FAT32 formatting complete");
+    kmsg::info!("FAT32 formatting complete");
 
     Ok(())
 }
 
+/// Formats a partition as Btrfs with the specified label.
 pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
-    kmsg::info!(
-        @ "provisioning",
-        "Formatting {} as btrfs with label '{}'",
-        device,
-        label
-    );
+    kmsg::info!("Formatting {} as btrfs with label '{}'", device, label);
 
     wait_for_device(device)?;
 
@@ -48,7 +48,7 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
         bail!("Failed to format {} as btrfs: {}", device, stderr);
     }
 
-    kmsg::info!(@ "provisioning", "btrfs formatting complete");
+    kmsg::info!("btrfs formatting complete");
 
     Ok(())
 }

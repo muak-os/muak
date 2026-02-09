@@ -1,4 +1,5 @@
-use std::fs;
+//! Installation workflow implementation for deploying Muak to a disk.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -8,15 +9,18 @@ use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
 
-use sbolt::efi::{enroll_keys, get_setup_mode, mount_efivarfs};
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 
+use crate::constants;
 use crate::disk;
+use crate::uki::{self, Uki};
 
-use super::{
-    INSTALL_DIR, InstallationStatus, mount_efi_partition, prepare_uki, status, uki,
-    unmount_partition,
-};
+/// System installation status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallationStatus {
+    Live,
+    Installed,
+}
 
 /// Result of a successful installation containing PKI materials.
 pub struct InstallResult {
@@ -32,53 +36,66 @@ struct ServerPki {
     pub server_key_pem: String,
 }
 
+/// Returns the current installation status of the system.
+pub fn status() -> InstallationStatus {
+    if Path::new(sysconfig::CONFIG_PATH).exists() {
+        InstallationStatus::Installed
+    } else {
+        InstallationStatus::Live
+    }
+}
+
+/// Installs Muak to the specified disk with the given configuration.
 pub fn install(
     disk_path: &str,
     force: bool,
     config: &HostConfig,
     admin_csr_pem: &str,
 ) -> Result<InstallResult> {
-    kmsg::info!(@ "provisioning", "Starting installation to {}", disk_path);
+    kmsg::info!("Starting installation to {}", disk_path);
 
-    validate(disk_path, force)?;
+    validate_disk(disk_path, force)?;
+
+    let sb_hierarchy = if config.system.secureboot {
+        let setup_mode = sbolt::efi::get_setup_mode().unwrap_or(false);
+        if !setup_mode {
+            bail!(
+                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. Please reset your firmware to Setup Mode and try again or disable the secureboot option in the config."
+            );
+        }
+
+        let hierarchy =
+            KeyHierarchy::generate("Muak").context("Failed to generate Secure Boot keys")?;
+
+        Some(hierarchy)
+    } else {
+        kmsg::info!("Secure Boot disabled, skipping key generation and enrollment");
+        None
+    };
 
     let (client_result, server_pki, config_with_auth) =
         generate_pki_and_sign_csr(admin_csr_pem, config)?;
 
-    let sb_hierarchy = if config.system.secureboot {
-        let hierarchy =
-            KeyHierarchy::generate("Muak").context("Failed to generate Secure Boot keys")?;
-
-        mount_efivarfs().context("Failed to mount efivarfs")?;
-
-        let setup_mode = get_setup_mode().unwrap_or(false);
-        if !setup_mode {
-            bail!(
-                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. Please reset your firmware to Setup Mode and try again."
-            );
-        }
-
-        enroll_keys(&hierarchy).context("Failed to enroll Secure Boot keys")?;
-        kmsg::info!(@ "provisioning", "Secure Boot keys enrolled");
-
-        Some(hierarchy)
-    } else {
-        kmsg::info!(@ "provisioning", "Secure Boot disabled, skipping key generation and enrollment");
-        None
-    };
-
-    let work_dir = Path::new(INSTALL_DIR);
-    let components = prepare_uki(
+    let work_dir = Path::new(constants::INSTALL_DIR);
+    let components = Uki::prepare(
         &config_with_auth.system.image,
         &config_with_auth.system.extensions,
         work_dir,
     )?;
     let staged_uki = work_dir.join("staged.efi");
 
-    uki::build(&components, &staged_uki)?;
+    components.build(&staged_uki)?;
 
     if let Some(ref hierarchy) = sb_hierarchy {
-        uki::sign(&staged_uki, hierarchy)?;
+        Uki::sign(&staged_uki, hierarchy)?;
+    }
+
+    // Enroll Secure Boot keys only after the UKI is fully built and signed.
+    // This prevents leaving the firmware in a non-Setup Mode state if earlier
+    // steps (e.g. image pull) fail, which would block retries.
+    if let Some(ref hierarchy) = sb_hierarchy {
+        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
+        kmsg::info!("Secure Boot keys enrolled");
     }
 
     disk::delete_all_partitions_blkpg(disk_path)?;
@@ -98,16 +115,17 @@ pub fn install(
     )?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
-        kmsg::warn!(@ "provisioning", "Failed to cleanup work dir: {}", e);
+        kmsg::warn!("Failed to cleanup work dir: {}", e);
     }
 
     sync();
-    kmsg::info!(@ "provisioning", "Installation completed successfully!");
+    kmsg::info!("Installation completed successfully!");
 
     Ok(client_result)
 }
 
-fn validate(disk_path: &str, force: bool) -> Result<()> {
+/// Validates the disk is suitable for installation.
+fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
     if !force && status() != InstallationStatus::Live {
         bail!(
             "Cannot install from an already-installed system. Boot from live ISO or use --force."
@@ -129,7 +147,9 @@ fn validate(disk_path: &str, force: bool) -> Result<()> {
             mounted[0].mount_point
         );
     }
+
     sync();
+
     disk::unmount_all(&mounted)?;
 
     if !force && disk::has_existing_partitions(disk_path)? {
@@ -142,67 +162,64 @@ fn validate(disk_path: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
+/// Deploys the UKI to the EFI partition.
 fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
     if !Path::new(efi_device).exists() {
         bail!("EFI device {} does not exist", efi_device);
     }
 
     let mount_point = "/run/mnt/efi";
-    mount_efi_partition(efi_device, mount_point)?;
+    disk::mount_efi_partition(efi_device, mount_point)?;
 
-    let result = write_uki_to_efi(mount_point, staged_uki);
-
-    unmount_partition(mount_point);
-
-    result?;
-    kmsg::info!(@ "provisioning", "UKI deployed to EFI partition");
-    Ok(())
-}
-
-fn write_uki_to_efi(mount_point: &str, staged_uki: &Path) -> Result<()> {
-    fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
+    std::fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
     let uki_path = uki::get_uki_path(Path::new(mount_point))?;
-    fs::copy(staged_uki, &uki_path)
+    std::fs::copy(staged_uki, &uki_path)
         .with_context(|| format!("Failed to copy UKI to {}", uki_path.display()))?;
 
     sync();
+
+    disk::try_unmount(mount_point);
+
+    kmsg::info!("UKI deployed to EFI partition");
+
     Ok(())
 }
 
+/// Initializes the STATE partition with config and secrets.
 fn init_state_partition(
     device: &str,
     config: &HostConfig,
     server_pki: &ServerPki,
     sb_hierarchy: Option<&KeyHierarchy>,
 ) -> Result<()> {
-    kmsg::info!(@ "provisioning", "Initializing STATE partition");
+    kmsg::info!("Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
 
-    fs::create_dir_all(mount_point)
+    std::fs::create_dir_all(mount_point)
         .with_context(|| format!("Failed to create mount point {}", mount_point))?;
 
     mount(device, mount_point, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
     let config_toml = sysconfig::serialize(config).context("Failed to serialize config")?;
-    fs::write(format!("{}/config.toml", mount_point), config_toml)
+    std::fs::write(format!("{}/config.toml", mount_point), config_toml)
         .context("Failed to write config.toml")?;
 
     let secrets_dir = format!("{}/secrets", mount_point);
-    fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
+    std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
 
-    fs::write(format!("{}/ca.crt", secrets_dir), &server_pki.ca_pem)
+    std::fs::write(format!("{}/ca.crt", secrets_dir), &server_pki.ca_pem)
         .context("Failed to write CA certificate")?;
-    fs::write(format!("{}/ca.key", secrets_dir), &server_pki.ca_key_pem)
+    std::fs::write(format!("{}/ca.key", secrets_dir), &server_pki.ca_key_pem)
         .context("Failed to write CA key")?;
-    fs::write(
+    std::fs::write(
         format!("{}/server.crt", secrets_dir),
         &server_pki.server_cert_pem,
     )
     .context("Failed to write server certificate")?;
-    fs::write(
+    std::fs::write(
         format!("{}/server.key", secrets_dir),
         &server_pki.server_key_pem,
     )
@@ -214,9 +231,9 @@ fn init_state_partition(
     }
 
     sync();
-    unmount_partition(mount_point);
+    disk::try_unmount(mount_point);
 
-    kmsg::info!(@ "provisioning", "STATE partition initialized");
+    kmsg::info!("STATE partition initialized");
     Ok(())
 }
 
@@ -225,7 +242,7 @@ fn generate_pki_and_sign_csr(
     csr_pem: &str,
     config: &HostConfig,
 ) -> Result<(InstallResult, ServerPki, HostConfig)> {
-    kmsg::info!(@ "provisioning", "Generating PKI and signing CSR");
+    kmsg::info!("Generating PKI and signing CSR");
 
     let (ca_key, ca_cert) =
         pki::generate_ca_certificate("Muak CA").context("Failed to generate CA certificate")?;
@@ -255,7 +272,7 @@ fn generate_pki_and_sign_csr(
         .to_pem(LineEnding::LF)
         .context("Failed to encode admin certificate")?;
 
-    kmsg::info!(@ "provisioning", "Admin fingerprint: {}", admin_fingerprint);
+    kmsg::info!("Admin fingerprint: {}", admin_fingerprint);
 
     let mut config_with_auth = config.clone();
     config_with_auth.auth = AuthConfig {

@@ -1,3 +1,5 @@
+//! Update preparation and kexec execution for atomic system updates.
+
 use std::fs;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -7,18 +9,20 @@ use anyhow::{Context, Result, anyhow};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
-use super::uki::Uki;
-use super::{UPDATE_DIR, ValidationMarker, prepare_uki};
+use crate::constants::UPDATE_DIR;
+use crate::uki::Uki;
+use crate::validation::ValidationMarker;
 
-/// Syscall number for kexec_file_load.
 #[cfg(target_arch = "x86_64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;
+
 #[cfg(target_arch = "aarch64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 
+/// Prepares an update by staging the UKI components.
 pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     let staging_dir = create_staging_directory()?;
-    let _uki = prepare_uki(image, extensions, &staging_dir)?;
+    Uki::prepare(image, extensions, &staging_dir)?;
 
     let marker = create_validation_marker(image)?;
     save_validation_marker(&staging_dir, &marker)?;
@@ -28,17 +32,20 @@ pub fn prepare(image: &str, extensions: &[String]) -> Result<String> {
     Ok(marker.update_id)
 }
 
+/// Executes the update by loading the new kernel via kexec.
 pub fn update(update_id: &str) -> Result<()> {
     let uki = Uki::from_dir(Path::new(UPDATE_DIR));
     kexec(&uki, update_id)
 }
 
+/// Creates the staging directory for update files.
 fn create_staging_directory() -> Result<PathBuf> {
     let staging_dir = PathBuf::from(UPDATE_DIR);
     fs::create_dir_all(&staging_dir).context("Failed to create update staging dir")?;
     Ok(staging_dir)
 }
 
+/// Creates a validation marker for tracking the update.
 fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
     let current_image = sysconfig::system().image.clone();
 
@@ -57,12 +64,14 @@ fn create_validation_marker(target_image: &str) -> Result<ValidationMarker> {
     })
 }
 
+/// Saves the validation marker to disk.
 fn save_validation_marker(staging_dir: &Path, marker: &ValidationMarker) -> Result<()> {
     let marker_json = serde_json::to_string_pretty(marker)?;
     let marker_path = staging_dir.join("pending-validation.json");
     fs::write(marker_path, marker_json).context("Failed to write validation marker")
 }
 
+/// Loads the new kernel via kexec and reboots into it.
 fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     let kernel = fs::File::open(&uki.kernel).context("Failed to open kernel for kexec")?;
     let initrd = fs::File::open(&uki.initramfs).context("Failed to open initramfs for kexec")?;
@@ -92,6 +101,7 @@ fn kexec(uki: &Uki, update_id: &str) -> Result<()> {
     unreachable!("If we reach here, something went really wrong");
 }
 
+/// Adds the update ID marker to the kernel cmdline.
 fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
     let cmdline = fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()

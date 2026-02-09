@@ -22,13 +22,18 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache --no-scripts musl-dev protoc
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["internal/granola", "internal/shared/kmsg", "internal/shared/sysconfig"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["internal/provisiond", "internal/imager", "internal/shared/kmsg", "internal/shared/notify", "internal/yuki", "internal/shared/sysconfig", "internal/shared/pki", "internal/sbolt"]' Cargo.toml
 
 COPY api ./api
 COPY internal/default.toml ./internal/default.toml
-COPY internal/granola ./internal/granola
+COPY internal/provisiond ./internal/provisiond
 COPY internal/shared/kmsg ./internal/shared/kmsg
+COPY internal/shared/notify ./internal/shared/notify
+COPY internal/yuki ./internal/yuki
+COPY internal/imager ./internal/imager
 COPY internal/shared/sysconfig ./internal/shared/sysconfig
+COPY internal/shared/pki ./internal/shared/pki
+COPY internal/sbolt ./internal/sbolt
 
 COPY pkgs/kernel/cmdline-amd64.txt ./pkgs/kernel/cmdline-amd64.txt
 COPY pkgs/kernel/cmdline-arm64.txt ./pkgs/kernel/cmdline-arm64.txt
@@ -39,15 +44,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 set -euo pipefail
 
 RUST_TARGET="${TARGET}-unknown-linux-musl"
-cargo build --release --target ${RUST_TARGET} -p granola
-cp target/${RUST_TARGET}/release/granola /granola
+cargo build --release --target ${RUST_TARGET} -p provisiond
+cp target/${RUST_TARGET}/release/provisiond /provisiond
 EOF
 
 # ============================================================
-FROM scratch AS granola-package
+FROM scratch AS provisiond-package
 
-COPY --link --from=builder /granola /granola
+COPY --link --from=builder /provisiond /provisiond
 
-LABEL org.opencontainers.image.title="granola"
-LABEL org.opencontainers.image.description="Muak stage 2 init system"
+LABEL org.opencontainers.image.title="provisiond"
+LABEL org.opencontainers.image.description="Muak provisioning daemon"
 LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"

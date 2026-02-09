@@ -1,3 +1,5 @@
+//! BLKPG ioctl operations for kernel partition table manipulation.
+
 use anyhow::{Result, bail};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
@@ -12,9 +14,9 @@ const BLKPG_DEL_PARTITION: i32 = 2;
 
 const BLKPG: Opcode = 0x1269;
 
+/// Removes a partition from the kernel's partition table using BLKPG ioctl.
 pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     kmsg::info!(
-        @ "provisioning",
         "Removing partition {} from kernel using BLKPG ioctl",
         partition_num
     );
@@ -42,27 +44,17 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
-            kmsg::info!(
-                @ "provisioning",
-                "BLKPG: Successfully removed partition {}",
-                partition_num
-            );
+            kmsg::info!("BLKPG: Successfully removed partition {}", partition_num);
         }
         Err(Errno::NXIO) | Err(Errno::NOENT) => {
             // Partition doesn't exist in kernel, that's fine
             kmsg::info!(
-                @ "provisioning",
                 "BLKPG: Partition {} not present in kernel (OK)",
                 partition_num
             );
         }
         Err(e) => {
-            kmsg::error!(
-                @ "provisioning",
-                "BLKPG: Failed to remove partition {}: {}",
-                partition_num,
-                e
-            );
+            kmsg::error!("BLKPG: Failed to remove partition {}: {}", partition_num, e);
             bail!(
                 "BLKPG ioctl failed to remove partition {}: {}",
                 partition_num,
@@ -75,12 +67,9 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     Ok(())
 }
 
+/// Removes all existing partitions from the kernel using BLKPG ioctl.
 pub fn delete_all_partitions_blkpg(disk: &str) -> Result<()> {
-    kmsg::info!(
-        @ "provisioning",
-        "Removing all existing partitions from kernel for {}",
-        disk
-    );
+    kmsg::info!("Removing all existing partitions from kernel for {}", disk);
 
     for partition_num in 1..=128 {
         let part_path = format_partition_name(disk, partition_num);
@@ -94,6 +83,7 @@ pub fn delete_all_partitions_blkpg(disk: &str) -> Result<()> {
     Ok(())
 }
 
+/// Adds a partition to the kernel's partition table using BLKPG ioctl.
 pub fn add_partition_blkpg(
     disk: &str,
     partition_num: u32,
@@ -101,7 +91,6 @@ pub fn add_partition_blkpg(
     end_lba: u64,
 ) -> Result<()> {
     kmsg::info!(
-        @ "provisioning",
         "Adding partition {} using BLKPG ioctl (LBA {} to {})",
         partition_num,
         start_lba,
@@ -139,21 +128,12 @@ pub fn add_partition_blkpg(
     // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
     match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
         Ok(_) => {
-            kmsg::info!(
-                @ "provisioning",
-                "BLKPG: Successfully added partition {}",
-                partition_num
-            );
+            kmsg::info!("BLKPG: Successfully added partition {}", partition_num);
             drop(file);
             Ok(())
         }
         Err(e) => {
-            kmsg::error!(
-                @ "provisioning",
-                "BLKPG: Failed to add partition {}: {}",
-                partition_num,
-                e
-            );
+            kmsg::error!("BLKPG: Failed to add partition {}: {}", partition_num, e);
             drop(file);
             bail!("BLKPG ioctl failed for partition {}: {}", partition_num, e)
         }

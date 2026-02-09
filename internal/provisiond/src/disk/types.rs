@@ -1,3 +1,6 @@
+//! Type definitions for disk and partition information.
+
+/// Information about a partition on a disk.
 #[derive(Debug, Clone)]
 pub struct PartitionInfo {
     pub number: u32,
@@ -8,6 +11,7 @@ pub struct PartitionInfo {
     pub fstype: String,
 }
 
+/// Information about a physical disk including all its partitions.
 #[derive(Debug, Clone)]
 pub struct DiskInfo {
     pub name: String,
@@ -19,6 +23,7 @@ pub struct DiskInfo {
     pub partitions: Vec<PartitionInfo>,
 }
 
+/// BLKPG ioctl argument structure for partition operations.
 #[repr(C)]
 pub(crate) struct BlkpgIoctlArg {
     pub op: i32,
@@ -27,6 +32,7 @@ pub(crate) struct BlkpgIoctlArg {
     pub data: *mut BlkpgPartition,
 }
 
+/// BLKPG partition data structure.
 #[repr(C)]
 pub(crate) struct BlkpgPartition {
     pub start: i64,

@@ -807,26 +807,15 @@ name = "granola"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
- "der",
- "fatfs",
- "gptman",
- "imager",
  "kmsg",
- "libc",
- "pki",
  "prost",
- "rustix",
- "sbolt",
  "serde",
- "serde_json",
  "sysconfig",
  "tokio",
  "tokio-stream",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
- "x509-cert",
- "yuki",
 ]
 
 [[package]]
@@ -1720,6 +1709,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
  "prost",
+]
+
+[[package]]
+name = "provisiond"
+version = "0.1.1-beta"
+dependencies = [
+ "anyhow",
+ "der",
+ "fatfs",
+ "gptman",
+ "imager",
+ "kmsg",
+ "libc",
+ "notify",
+ "pki",
+ "prost",
+ "rustix",
+ "sbolt",
+ "serde",
+ "serde_json",
+ "sysconfig",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "uuid",
+ "x509-cert",
+ "yuki",
 ]
 
 [[package]]

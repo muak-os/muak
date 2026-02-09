@@ -1,13 +1,17 @@
-use anyhow::{Result, bail};
-use gptman::{GPT, GPTPartitionEntry};
+//! GPT partition table management and manipulation.
+
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, Write};
 use std::path::Path;
 
+use anyhow::{Result, bail};
+use gptman::{GPT, GPTPartitionEntry};
+
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
-use super::utils::{format_partition_name, generate_guid};
+use super::utils::format_partition_name;
 
+/// Checks if a disk has existing partitions in its GPT.
 pub fn has_existing_partitions(disk: &str) -> Result<bool> {
     let mut f = File::open(disk)?;
 
@@ -20,6 +24,7 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
     }
 }
 
+/// Writes a protective MBR to prevent legacy tools from corrupting the GPT.
 fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
     let mut pmbr = [0u8; 512];
 
@@ -45,26 +50,24 @@ fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
     Ok(())
 }
 
+/// Creates EFI, STATE, and DATA partitions on the specified disk.
 pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
-    kmsg::info!(@ "provisioning", "Creating GPT partition table on {}", disk);
+    kmsg::info!("Creating GPT partition table on {}", disk);
 
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
 
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
 
-    kmsg::info!(@ "provisioning", "Disk size: {} GB", disk_size / super::constants::GB);
+    kmsg::info!("Disk size: {} GB", disk_size / super::constants::GB);
 
     let mut gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
 
-    // Calculate partition sizes in sectors
     let efi_sectors = EFI_SIZE / SECTOR_SIZE;
     let state_sectors = STATE_SIZE / SECTOR_SIZE;
 
-    // Get usable LBA range
     let first_usable = gpt.header.first_usable_lba;
     let last_usable = gpt.header.last_usable_lba;
 
-    // 1MiB alignment
     let align_lba: u64 = 2048;
     let align_up = |lba: u64| -> u64 {
         if lba.is_multiple_of(align_lba) {
@@ -83,7 +86,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
 
     gpt[1] = GPTPartitionEntry {
         partition_type_guid: EFI_GUID,
-        unique_partition_guid: generate_guid(),
+        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
         starting_lba: efi_start,
         ending_lba: efi_end,
         attribute_bits: 0,
@@ -95,7 +98,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
 
     gpt[2] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
-        unique_partition_guid: generate_guid(),
+        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
         starting_lba: state_start,
         ending_lba: state_end,
         attribute_bits: 0,
@@ -107,7 +110,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
 
     gpt[3] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
-        unique_partition_guid: generate_guid(),
+        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
         starting_lba: data_start,
         ending_lba: data_end,
         attribute_bits: 0,
@@ -123,10 +126,10 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     match GPT::find_from(&mut verify_f) {
         Ok(verify_gpt) => {
             let count = verify_gpt.iter().filter(|(_, p)| p.is_used()).count();
-            kmsg::info!(@ "provisioning", "Verified: GPT has {} used partitions", count);
+            kmsg::info!("Verified: GPT has {} used partitions", count);
         }
         Err(e) => {
-            kmsg::warn!(@ "provisioning", "Could not verify GPT: {}", e);
+            kmsg::warn!("Could not verify GPT: {}", e);
         }
     }
     drop(verify_f);
@@ -135,21 +138,17 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     add_partition_blkpg(disk, 2, state_start, state_end)?;
     add_partition_blkpg(disk, 3, data_start, data_end)?;
 
-    kmsg::info!(@ "provisioning", "All partitions registered successfully");
+    kmsg::info!("All partitions registered successfully");
 
     let efi_part = format_partition_name(disk, 1);
     let state_part = format_partition_name(disk, 2);
     let data_part = format_partition_name(disk, 3);
 
-    kmsg::info!(
-        @ "provisioning",
-        "Waiting for partition device nodes to appear..."
-    );
+    kmsg::info!("Waiting for partition device nodes to appear...");
 
     for i in 0..30 {
         if Path::new(&efi_part).exists() {
             kmsg::info!(
-                @ "provisioning",
                 "Partition devices created successfully after {} attempts",
                 i + 1
             );
@@ -168,32 +167,19 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
 
 /// Deletes the specified partitions from the GPT and removes their device nodes from the kernel.
 pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
-    kmsg::info!(
-        @ "provisioning",
-        "Deleting partitions {:?} from GPT on {}",
-        partitions,
-        disk
-    );
+    kmsg::info!("Deleting partitions {:?} from GPT on {}", partitions, disk);
 
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
     let mut gpt = GPT::find_from(&mut f)?;
 
     for &partition_num in partitions {
         if gpt[partition_num].is_unused() {
-            kmsg::warn!(
-                @ "provisioning",
-                "Partition {} is already unused, skipping",
-                partition_num
-            );
+            kmsg::warn!("Partition {} is already unused, skipping", partition_num);
             continue;
         }
 
         gpt.remove(partition_num)?;
-        kmsg::info!(
-            @ "provisioning",
-            "Removed partition {} from GPT",
-            partition_num
-        );
+        kmsg::info!("Removed partition {} from GPT", partition_num);
     }
 
     gpt.write_into(&mut f)?;
@@ -204,6 +190,6 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
         delete_partition_blkpg(disk, partition_num)?;
     }
 
-    kmsg::info!(@ "provisioning", "Partitions deleted successfully");
+    kmsg::info!("Partitions deleted successfully");
     Ok(())
 }

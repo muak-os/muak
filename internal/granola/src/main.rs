@@ -1,8 +1,5 @@
 //! PID 1 supervisor and init system for Muak.
 
-mod constants;
-mod disk;
-mod provisioning;
 mod services;
 mod supervisor;
 
@@ -21,6 +18,11 @@ async fn main() -> Result<()> {
 
     sysconfig::init().context("Failed to initialize system configuration")?;
 
+    let mut apid_args = vec![
+        "--listen".to_string(),
+        format!("0.0.0.0:{}", sysconfig::system().port),
+    ];
+
     let is_installed = std::path::Path::new(sysconfig::CONFIG_PATH).exists();
 
     if is_installed {
@@ -28,19 +30,6 @@ async fn main() -> Result<()> {
     } else {
         kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
         kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
-    }
-
-    if is_installed {
-        let _ = provisioning::check_and_handle_pending_validation()
-            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
-    }
-
-    let mut apid_args = vec![
-        "--listen".to_string(),
-        format!("0.0.0.0:{}", sysconfig::system().port),
-    ];
-
-    if !is_installed {
         apid_args.push("--maintenance".to_string());
     }
 
@@ -58,10 +47,16 @@ async fn main() -> Result<()> {
             depends_on: vec![],
         },
         ServiceDef {
+            name: "provisiond".to_string(),
+            binary: "/sbin/provisiond".to_string(),
+            args: vec![],
+            depends_on: vec![],
+        },
+        ServiceDef {
             name: "apid".to_string(),
             binary: "/sbin/apid".to_string(),
             args: apid_args,
-            depends_on: vec!["networkd".to_string()],
+            depends_on: vec!["networkd".to_string(), "provisiond".to_string()],
         },
     ];
 
@@ -98,10 +93,7 @@ async fn run_grpc_server() -> Result<()> {
     let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
 
     Server::builder()
-        .add_service(services::auth::service())
         .add_service(services::process::service())
-        .add_service(services::provision::service())
-        .add_service(services::security::service())
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 

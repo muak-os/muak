@@ -82,6 +82,7 @@ installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
     @printf "{{ cyan }}Building installer with local binaries{{ reset }}\n"
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
         --build-context pkg-granola={{ release_dir }} \
+        --build-context pkg-provisiond={{ release_dir }} \
         --build-context pkg-modd={{ release_dir }} \
         --build-context pkg-networkd={{ release_dir }} \
         --build-context pkg-apid={{ release_dir }} \
@@ -276,6 +277,7 @@ _oci-build pkg:
             {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
                 --build-arg PKG_KERNEL={{ registry }}/kernel:{{ tag }} \
                 --build-arg PKG_GRANOLA={{ registry }}/pkgs/granola:{{ tag }} \
+                --build-arg PKG_PROVISIOND={{ registry }}/pkgs/provisiond:{{ tag }} \
                 --build-arg PKG_MODD={{ registry }}/pkgs/modd:{{ tag }} \
                 --build-arg PKG_NETWORKD={{ registry }}/pkgs/networkd:{{ tag }} \
                 --build-arg PKG_APID={{ registry }}/pkgs/apid:{{ tag }} \

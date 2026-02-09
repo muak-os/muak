@@ -1,3 +1,5 @@
+//! Build script for compiling protobuf definitions.
+
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,6 +15,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         internal_dir.join("default.toml").display()
     );
 
+    let workspace_root = internal_dir.parent().expect("could not get workspace root");
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace_root.join("pkgs/kernel/cmdline.txt").display()
+    );
+
     let api_dir = if PathBuf::from("../../api").exists() {
         "../../api"
     } else if PathBuf::from("../api").exists() {
@@ -21,21 +29,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Could not find api directory. Expected at ../../api or ../api");
     };
 
-    println!("cargo:rerun-if-changed={}/process.proto", api_dir);
-    println!(
-        "cargo:rerun-if-changed={}/internal/supervisor.proto",
-        api_dir
-    );
+    println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/auth.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/security.proto", api_dir);
 
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
         .compile_protos(
-            &[format!("{}/process.proto", api_dir)],
+            &[
+                format!("{}/provision.proto", api_dir),
+                format!("{}/auth.proto", api_dir),
+                format!("{}/security.proto", api_dir),
+            ],
             &[api_dir.to_string()],
         )?;
-
-    tonic_prost_build::compile_protos(format!("{}/internal/supervisor.proto", api_dir))?;
 
     Ok(())
 }

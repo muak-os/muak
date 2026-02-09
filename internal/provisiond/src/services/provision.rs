@@ -1,5 +1,8 @@
+//! gRPC service implementation for provisioning operations.
+
 use std::pin::Pin;
 
+use anyhow::Context;
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 use tonic::{Request, Response, Status};
@@ -8,13 +11,17 @@ use super::proto::provision::provision_service_server::{ProvisionService, Provis
 use super::proto::provision::*;
 
 use crate::disk;
-use crate::provisioning;
-use sysconfig;
+use crate::install;
+use crate::reset;
+use crate::update;
+use crate::validation;
 
+/// Creates the ProvisionService gRPC server.
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
     ProvisionServiceServer::new(ProvisionServiceImpl)
 }
 
+/// Implementation of the ProvisionService gRPC interface.
 pub struct ProvisionServiceImpl;
 
 #[tonic::async_trait]
@@ -32,7 +39,7 @@ impl ProvisionService for ProvisionServiceImpl {
         let config_toml = String::from_utf8(req.config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config = sysconfig::parse_from_str(&config_toml)
+        let config: sysconfig::HostConfig = sysconfig::parse_from_str(&config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config
@@ -42,14 +49,21 @@ impl ProvisionService for ProvisionServiceImpl {
         kmsg::info!(
             "Install request: disk={}, force={}, image={}",
             config.system.disk,
+            config.system.image,
             req.force,
-            config.system.image
         );
 
         let server_name = config.system.name.clone();
+        let force = req.force;
+        let csr = req.csr;
 
-        match provisioning::install(req.force, config, req.csr).await {
-            Ok(result) => {
+        match tokio::task::spawn_blocking(move || {
+            install::install(&config.system.disk, force, &config, &csr)
+        })
+        .await
+        .context("Install task panicked")
+        {
+            Ok(Ok(result)) => {
                 let ca_pem = result.ca_pem.clone();
                 let client_cert_pem = result.admin_cert_pem.clone();
 
@@ -69,7 +83,7 @@ impl ProvisionService for ProvisionServiceImpl {
                     server_name,
                 }))
             }
-            Err(e) => Ok(Response::new(InstallResponse {
+            Ok(Err(e)) | Err(e) => Ok(Response::new(InstallResponse {
                 success: false,
                 error: format!("{}", e),
                 ca_pem: String::new(),
@@ -87,14 +101,19 @@ impl ProvisionService for ProvisionServiceImpl {
         kmsg::info!("Update request: image={}", req.image);
 
         let config = sysconfig::config();
+        let extensions = config.system.extensions.clone();
+        let image = req.image;
 
-        match provisioning::prepare_update(&req.image, &config.system.extensions).await {
-            Ok(update_id) => Ok(Response::new(PrepareUpdateResponse {
+        match tokio::task::spawn_blocking(move || update::prepare(&image, &extensions))
+            .await
+            .context("Prepare update task panicked")
+        {
+            Ok(Ok(update_id)) => Ok(Response::new(PrepareUpdateResponse {
                 success: true,
                 update_id,
                 error: String::new(),
             })),
-            Err(e) => Ok(Response::new(PrepareUpdateResponse {
+            Ok(Err(e)) | Err(e) => Ok(Response::new(PrepareUpdateResponse {
                 success: false,
                 update_id: String::new(),
                 error: format!("{}", e),
@@ -106,7 +125,7 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         request: Request<UpdateRequest>,
     ) -> Result<Response<UpdateResponse>, Status> {
-        if let Err(e) = provisioning::update(&request.into_inner().update_id) {
+        if let Err(e) = update::update(&request.into_inner().update_id) {
             return Ok(Response::new(UpdateResponse {
                 success: false,
                 error: format!("{}", e),
@@ -124,16 +143,16 @@ impl ProvisionService for ProvisionServiceImpl {
 
         let status = tokio::task::spawn_blocking({
             let update_id = update_id.clone();
-            move || provisioning::get_update_status(&update_id)
+            move || validation::get_update_status(&update_id)
         })
         .await
         .map_err(|e| Status::internal(format!("Task failed: {}", e)))?;
 
         let (proto_status, error) = match status {
-            provisioning::UpdateStatus::Unknown => (0, String::new()),
-            provisioning::UpdateStatus::Pending => (1, String::new()),
-            provisioning::UpdateStatus::Committed => (2, String::new()),
-            provisioning::UpdateStatus::RolledBack(reason) => (3, reason),
+            validation::UpdateStatus::Unknown => (0, String::new()),
+            validation::UpdateStatus::Pending => (1, String::new()),
+            validation::UpdateStatus::Committed => (2, String::new()),
+            validation::UpdateStatus::RolledBack(reason) => (3, reason),
         };
 
         Ok(Response::new(GetUpdateStatusResponse {
@@ -227,7 +246,7 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         _request: Request<FactoryResetRequest>,
     ) -> Result<Response<FactoryResetResponse>, Status> {
-        match tokio::task::spawn_blocking(provisioning::factory_reset).await {
+        match tokio::task::spawn_blocking(reset::factory_reset).await {
             Ok(Ok(())) => {
                 tokio::spawn(async {
                     kmsg::info!("System will reboot in 3 seconds...");
@@ -254,6 +273,7 @@ impl ProvisionService for ProvisionServiceImpl {
     }
 }
 
+/// Streams kernel logs from /dev/kmsg to the gRPC client.
 async fn stream_kernel_logs(
     tx: tokio::sync::mpsc::Sender<Result<GetLogsResponse, Status>>,
 ) -> Result<(), std::io::Error> {
@@ -285,6 +305,7 @@ async fn stream_kernel_logs(
     Ok(())
 }
 
+/// Parses a kernel message line, extracting the message after the priority prefix.
 fn parse_kmsg_line(line: &str) -> String {
     if let Some(idx) = line.find(';') {
         line[idx + 1..].to_string()

@@ -1,10 +1,12 @@
+//! Factory reset functionality for removing STATE and DATA partitions.
+
 use anyhow::{Result, bail};
 
 use crate::disk;
 
 /// Performs a factory reset by deleting STATE and DATA partitions.
 pub fn factory_reset() -> Result<()> {
-    kmsg::info!(@ "reset", "Starting factory reset...");
+    kmsg::info!("Starting factory reset...");
 
     let disk = sysconfig::config().system.disk.clone();
     if disk.is_empty() {
@@ -16,6 +18,6 @@ pub fn factory_reset() -> Result<()> {
 
     disk::delete_partitions(&disk, &[2, 3])?;
 
-    kmsg::info!(@ "reset", "Factory reset complete");
+    kmsg::info!("Factory reset complete");
     Ok(())
 }

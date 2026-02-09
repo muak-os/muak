@@ -8,6 +8,7 @@ ARG SOURCE_DATE_EPOCH=0
 
 ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
 ARG PKG_GRANOLA=ghcr.io/sawangg/pkgs/granola:latest
+ARG PKG_PROVISIOND=ghcr.io/sawangg/pkgs/provisiond:latest
 ARG PKG_MODD=ghcr.io/sawangg/pkgs/modd:latest
 ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
@@ -19,6 +20,7 @@ ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 # Import packages
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ${PKG_GRANOLA} AS pkg-granola
+FROM ${PKG_PROVISIOND} AS pkg-provisiond
 FROM ${PKG_MODD} AS pkg-modd
 FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
@@ -80,6 +82,7 @@ ARG SOURCE_DATE_EPOCH
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 COPY --link --from=pkg-granola /granola /rootfs/sbin/init
+COPY --link --from=pkg-provisiond /provisiond /rootfs/sbin/provisiond
 COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid

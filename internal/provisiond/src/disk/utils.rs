@@ -1,17 +1,21 @@
-use anyhow::{Context, Result, bail};
-use rustix::mount::{UnmountFlags, unmount};
+//! Utility functions for disk operations including partitioning, mounting, and formatting.
+
 use std::fs::OpenOptions;
 use std::io::{Seek, Write};
 use std::path::Path;
-use std::time::SystemTime;
+
+use anyhow::{Context, Result, bail};
+use rustix::mount::{UnmountFlags, unmount};
 
 use super::constants::MB;
 
+/// Represents a mounted partition with device path and mount point.
 pub struct MountedPartition {
     pub device: String,
     pub mount_point: String,
 }
 
+/// Formats a partition device path based on disk naming convention.
 pub fn format_partition_name(disk: &str, partition: u32) -> String {
     if disk.contains("nvme") || disk.contains("mmcblk") {
         format!("{}p{}", disk, partition)
@@ -20,19 +24,7 @@ pub fn format_partition_name(disk: &str, partition: u32) -> String {
     }
 }
 
-pub fn generate_guid() -> [u8; 16] {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system time before UNIX epoch");
-
-    let mut guid = [0u8; 16];
-    let nanos = now.as_nanos();
-    guid[0..8].copy_from_slice(&nanos.to_le_bytes()[0..8]);
-    guid[8..16].copy_from_slice(&nanos.to_be_bytes()[0..8]);
-
-    guid
-}
-
+/// Waits for a device node to appear in the filesystem.
 pub fn wait_for_device(device: &str) -> Result<()> {
     for _ in 0..30 {
         if Path::new(device).exists() {
@@ -43,6 +35,7 @@ pub fn wait_for_device(device: &str) -> Result<()> {
     bail!("Timeout waiting for device {} to appear", device)
 }
 
+/// Retrieves all partitions mounted from the specified disk.
 pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
 
@@ -65,6 +58,7 @@ pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
         .collect()
 }
 
+/// Unmounts all partitions in the provided list, deepest mount points first.
 pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
     let mut sorted: Vec<_> = partitions.iter().collect();
     sorted.sort_by(|a, b| b.mount_point.len().cmp(&a.mount_point.len()));
@@ -77,6 +71,7 @@ pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
     Ok(())
 }
 
+/// Wipes the first and last portions of a disk to remove partition tables.
 pub fn wipe_disk(disk: &str) -> Result<()> {
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
 

@@ -48,12 +48,13 @@ pub fn route_request(path: &str) -> Option<&'static str> {
             return None;
         }
         Some(config::VMD_SOCKET)
-    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
-        || path.starts_with(config::PROVISION_SERVICE_PREFIX)
+    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX) {
+        Some(config::GRANOLA_SOCKET)
+    } else if path.starts_with(config::PROVISION_SERVICE_PREFIX)
         || path.starts_with(config::AUTH_SERVICE_PREFIX)
         || path.starts_with(config::SECURITY_SERVICE_PREFIX)
     {
-        Some(config::GRANOLA_SOCKET)
+        Some(config::PROVISIOND_SOCKET)
     } else {
         None
     }
@@ -85,21 +86,21 @@ mod tests {
     fn test_route_request_provision_service() {
         let path = "/muak.provision.v1.ProvisionService/Install";
         let socket = route_request(path);
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[test]
     fn test_route_request_auth_service() {
         let path = "/muak.auth.v1.AuthService/SubmitCsr";
         let socket = route_request(path);
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[test]
     fn test_route_request_security_service() {
         let path = "/muak.security.v1.SecurityService/GetSecurityState";
         let socket = route_request(path);
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[test]

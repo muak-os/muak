@@ -8,6 +8,7 @@ pub const SERVER_KEY_PATH: &str = "/run/state/secrets/server.key";
 /// Backend socket paths
 pub const VMD_SOCKET: &str = "/run/vmd.sock";
 pub const GRANOLA_SOCKET: &str = "/run/granola.sock";
+pub const PROVISIOND_SOCKET: &str = "/run/provisiond.sock";
 
 /// gRPC service prefixes (used for routing to backends)
 pub const VM_SERVICE_PREFIX: &str = "/muak.vm.v1.VmService/";

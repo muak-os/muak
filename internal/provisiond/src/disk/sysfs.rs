@@ -1,12 +1,16 @@
-use anyhow::{Result, bail};
+//! Sysfs-based disk and partition discovery utilities.
+
 use std::fs::{self, File};
 use std::io::{Read, Seek};
 use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 
+use anyhow::{Result, bail};
+
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
 use super::types::{DiskInfo, PartitionInfo};
 
+/// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {
     let mut f = File::open(disk)?;
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
@@ -20,16 +24,12 @@ pub fn validate_disk_size(disk: &str) -> Result<()> {
         );
     }
 
-    kmsg::info!(
-        @ "provisioning",
-        "Disk size: {} GB ({} MB)",
-        disk_size / GB,
-        disk_size / MB
-    );
+    kmsg::info!("Disk size: {} GB ({} MB)", disk_size / GB, disk_size / MB);
 
     Ok(())
 }
 
+/// Validates that the specified path is a block device.
 pub fn validate_block_device(disk: &str) -> Result<()> {
     let metadata = fs::metadata(disk)?;
 
@@ -44,7 +44,6 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
         kmsg::warn!(
-            @ "provisioning",
             "'{}' appears to be a partition. You should install to a whole disk (e.g., /dev/sda, not /dev/sda1)",
             disk
         );
@@ -53,6 +52,7 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     Ok(())
 }
 
+/// Finds a partition device path by its GPT partition name.
 pub fn find_partition_by_partname(partname: &str) -> Option<String> {
     let entries = fs::read_dir("/sys/class/block").ok()?;
     let target = format!("PARTNAME={}", partname);
@@ -81,6 +81,7 @@ pub fn find_partition_by_partname(partname: &str) -> Option<String> {
     None
 }
 
+/// Checks if a block device name represents a physical disk.
 fn is_physical_disk(name: &str) -> bool {
     !name.starts_with("loop")
         && !name.starts_with("dm-")
@@ -88,25 +89,25 @@ fn is_physical_disk(name: &str) -> bool {
         && !name.starts_with("sr") // CD-ROM
 }
 
+/// Reads a u64 value from a sysfs file.
 fn read_sysfs_u64(path: &Path) -> Result<u64> {
     let content = fs::read_to_string(path)?;
     Ok(content.trim().parse()?)
 }
 
+/// Reads a string value from a sysfs file.
 fn read_sysfs_string(path: &Path) -> Result<String> {
     let content = fs::read_to_string(path)?;
     Ok(content.trim().to_string())
 }
 
+/// Detects the filesystem type by reading magic bytes from the device.
 fn detect_filesystem(device_path: &str) -> String {
     let mut file = match File::open(device_path) {
         Ok(f) => f,
         Err(_) => return String::new(),
     };
 
-    // Check for ext4 signature at offset 0x438 (superblock magic)
-    // ext4 superblock starts at offset 1024 bytes
-    // Magic bytes are at offset 0x38 within the superblock (so absolute offset 0x438)
     let mut ext4_magic = [0u8; 2];
     if file.seek(std::io::SeekFrom::Start(0x438)).is_ok()
         && file.read_exact(&mut ext4_magic).is_ok()
@@ -115,14 +116,10 @@ fn detect_filesystem(device_path: &str) -> String {
         return "ext4".to_string();
     }
 
-    // Check for FAT signatures in boot sector
     if let Some(fstype) = detect_fat_filesystem(&mut file) {
         return fstype;
     }
 
-    // Check for btrfs signature
-    // btrfs superblock is at offset 0x10000 (65536 bytes)
-    // Magic bytes "_BHRfS_M" are at offset 0x40 within the superblock (so absolute offset 0x10040)
     let mut btrfs_magic = [0u8; 8];
     if file.seek(std::io::SeekFrom::Start(0x10040)).is_ok()
         && file.read_exact(&mut btrfs_magic).is_ok()
@@ -134,6 +131,7 @@ fn detect_filesystem(device_path: &str) -> String {
     String::new()
 }
 
+/// Detects FAT filesystem variants by reading the boot sector.
 fn detect_fat_filesystem(file: &mut File) -> Option<String> {
     if file.seek(std::io::SeekFrom::Start(0)).is_err() {
         return None;
@@ -157,6 +155,7 @@ fn detect_fat_filesystem(file: &mut File) -> Option<String> {
     None
 }
 
+/// Reads partition information from sysfs.
 fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
     let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
 
@@ -179,6 +178,7 @@ fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo
     })
 }
 
+/// Reads disk information from sysfs including all partitions.
 fn read_disk_info(name: &str) -> Result<DiskInfo> {
     let sysfs_path = Path::new("/sys/block").join(name);
 
@@ -205,6 +205,7 @@ fn read_disk_info(name: &str) -> Result<DiskInfo> {
     })
 }
 
+/// Discovers all partitions belonging to a disk.
 fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
     let Ok(entries) = fs::read_dir(sysfs_path) else {
         return Vec::new();
@@ -219,6 +220,7 @@ fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo>
     partitions
 }
 
+/// Attempts to read partition information from a sysfs directory entry.
 fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
@@ -234,6 +236,7 @@ fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionI
     read_partition_info(disk_name, &part_name_str).ok()
 }
 
+/// Lists all physical disks on the system.
 pub fn list_disks() -> Result<Vec<DiskInfo>> {
     let block_dir = Path::new("/sys/block");
     if !block_dir.exists() {
@@ -250,6 +253,7 @@ pub fn list_disks() -> Result<Vec<DiskInfo>> {
     Ok(disks)
 }
 
+/// Attempts to read disk information from a sysfs directory entry.
 fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
     let name = entry.file_name();
     let name_str = name.to_string_lossy();
@@ -262,7 +266,7 @@ fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
         Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
         Ok(_) => None,
         Err(e) => {
-            kmsg::error!(@ "provisioning", "Failed to read disk {}: {}", name_str, e);
+            kmsg::error!("Failed to read disk {}: {}", name_str, e);
             None
         }
     }
