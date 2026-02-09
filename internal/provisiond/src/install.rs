@@ -90,9 +90,6 @@ pub fn install(
         Uki::sign(&staged_uki, hierarchy)?;
     }
 
-    // Enroll Secure Boot keys only after the UKI is fully built and signed.
-    // This prevents leaving the firmware in a non-Setup Mode state if earlier
-    // steps (e.g. image pull) fail, which would block retries.
     if let Some(ref hierarchy) = sb_hierarchy {
         sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
         kmsg::info!("Secure Boot keys enrolled");
