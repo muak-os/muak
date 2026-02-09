@@ -1,0 +1,92 @@
+use std::collections::HashMap;
+
+use rustix::process::{Pid, WaitOptions, WaitStatus, waitpid};
+use tokio::signal::unix::{Signal, SignalKind, signal};
+
+/// Exit information for a reaped child process.
+pub struct ChildExit {
+    pub pid: i32,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+}
+
+/// PID 1 child reaper using SIGCHLD and `waitpid(-1, WNOHANG)`.
+pub struct Reaper {
+    sigchld: Signal,
+    known_pids: HashMap<i32, String>,
+}
+
+impl Reaper {
+    pub fn new() -> anyhow::Result<Self> {
+        let sigchld = signal(SignalKind::child())?;
+        Ok(Self {
+            sigchld,
+            known_pids: HashMap::new(),
+        })
+    }
+
+    /// Registers a PID as belonging to a known supervised service.
+    pub fn track(&mut self, pid: i32, name: String) {
+        self.known_pids.insert(pid, name);
+    }
+
+    /// Waits for the next SIGCHLD signal, then reaps all terminated children.
+    pub async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
+        self.sigchld.recv().await;
+        self.reap_all()
+    }
+
+    /// Non-blocking sweep of all terminated children.
+    pub fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
+        let mut service_exits = Vec::new();
+        let Some(any_child) = Pid::from_raw(-1) else {
+            return service_exits;
+        };
+
+        while let Ok(Some((child_pid, status))) = waitpid(Some(any_child), WaitOptions::NOHANG) {
+            let raw_pid = child_pid.as_raw_nonzero().get();
+            let Some(exit) = decode_wait_status(raw_pid, &status) else {
+                continue;
+            };
+            self.dispatch_exit(&mut service_exits, raw_pid, exit);
+        }
+
+        service_exits
+    }
+
+    fn dispatch_exit(
+        &mut self,
+        service_exits: &mut Vec<(String, ChildExit)>,
+        pid: i32,
+        exit: ChildExit,
+    ) {
+        if let Some(name) = self.known_pids.remove(&pid) {
+            service_exits.push((name, exit));
+        } else {
+            kmsg::debug!(
+                "Reaped orphan process PID {} (exit_code={:?}, signal={:?})",
+                pid,
+                exit.exit_code,
+                exit.signal
+            );
+        }
+    }
+}
+
+fn decode_wait_status(pid: i32, status: &WaitStatus) -> Option<ChildExit> {
+    if status.exited() {
+        Some(ChildExit {
+            pid,
+            exit_code: status.exit_status(),
+            signal: None,
+        })
+    } else if status.signaled() {
+        Some(ChildExit {
+            pid,
+            exit_code: None,
+            signal: status.terminating_signal(),
+        })
+    } else {
+        None
+    }
+}

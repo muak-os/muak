@@ -5,11 +5,10 @@ version.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "process"] }
+tokio = { workspace = true, features = ["signal"] }
 tokio-stream = { workspace = true }
 
 # Encoding
-serde = { workspace = true }
 prost = { workspace = true }
 
 # Error handling
@@ -18,6 +17,9 @@ anyhow = { workspace = true }
 # gRPC
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["process"] }
 
 # Internal
 kmsg = { workspace = true }

@@ -809,7 +809,7 @@ dependencies = [
  "anyhow",
  "kmsg",
  "prost",
- "serde",
+ "rustix",
  "sysconfig",
  "tokio",
  "tokio-stream",

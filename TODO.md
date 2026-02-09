@@ -8,14 +8,12 @@
   - Add dmesg alias to logs command
   - Handle different cli vs server versions for gRPC client/server compatibility
     - Upgradable compatibility matrix
+    - Inform the user when an update is available both for the CLI and the server
   - Create install script for users to easily install the CLI regardless of OS
-  - Inform the user when an update is available both for the CLI and the server
   - Create a dashboard command with a TUI interface to display critical system information
   - Use insecure flag instead of defaulting to insecure when using endpoint flag
 
 - Better PID 1
-  - Better explicit restart strategy for services in supervisor (exponential backoff etc)
-  - Properly reap children in granola (conflict with btrfs command spawning)
   - Check if there is /dev/kvm supported when starting the distro, setting degraded system state if not
   - Add journalctl like support to monitor logs of all services
 
