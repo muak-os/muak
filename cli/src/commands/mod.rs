@@ -10,7 +10,7 @@ pub mod security;
 pub mod update;
 pub mod vm;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
@@ -24,16 +24,22 @@ use crate::{Cli, Commands};
 /// Resolves the connection based on CLI flags and config.
 ///
 /// Priority:
-/// 1. `--endpoint` flag: maintenance mode (TOFU TLS, no client cert)
-/// 2. `--context` flag or MUAK_CONTEXT env: use specified context
-/// 3. Config default context: use current context from config
+/// 1. `--insecure` flag: TOFU TLS mode (no cert verification, no client cert).
+///    Requires `--endpoint` to specify the server address.
+/// 2. `--endpoint` flag (without `--insecure`): use context credentials with
+///    the provided endpoint address override.
+/// 3. `--context` flag or MUAK_CONTEXT env: use specified context.
+/// 4. Config default context: use current context from config.
 ///
 /// Returns (Channel, endpoint_address, context).
 async fn resolve_connection(
     cli: &Cli,
     timeout_secs: u64,
 ) -> Result<(Channel, String, Option<String>)> {
-    if let Some(endpoint) = &cli.endpoint {
+    if cli.insecure {
+        let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("--insecure requires --endpoint to specify the server address.")
+        })?;
         let channel = connect_tls_insecure(endpoint, timeout_secs).await?;
         return Ok((channel, endpoint.clone(), None));
     }
@@ -58,8 +64,17 @@ async fn resolve_connection(
         )
     })?;
 
-    let channel = connect(ctx, timeout_secs).await?;
-    Ok((channel, ctx.endpoint.clone(), Some(context)))
+    let endpoint = cli.endpoint.as_deref().unwrap_or(&ctx.endpoint).to_owned();
+
+    let channel = if cli.endpoint.is_some() {
+        let mut ctx_override = ctx.clone();
+        ctx_override.endpoint = endpoint.clone();
+        connect(&ctx_override, timeout_secs).await?
+    } else {
+        connect(ctx, timeout_secs).await?
+    };
+
+    Ok((channel, endpoint, Some(context)))
 }
 
 /// Routes CLI commands to their handlers.
@@ -95,14 +110,21 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
         Commands::Auth { action: None } => {
             let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Missing --endpoint. Use 'muakctl auth --endpoint <ip>:<port>' to authenticate."
+                    "Missing --endpoint. Use 'muakctl auth --endpoint <ip>:<port> --insecure' to authenticate."
                 )
             })?;
+            if !cli.insecure {
+                bail!(
+                    "Authentication enrollment requires --insecure. Use 'muakctl auth --endpoint <ip>:<port> --insecure'."
+                );
+            }
             auth::enroll(endpoint).await?;
             return Ok(true);
         }
         Commands::Install { force: false, .. } => {
-            if let Some(endpoint) = &cli.endpoint {
+            if cli.insecure
+                && let Some(endpoint) = &cli.endpoint
+            {
                 let config = ClientConfig::load()?;
                 if config.has_credentials_for_endpoint(endpoint) {
                     println!(
@@ -149,11 +171,9 @@ async fn handle_cmd(
             install::handle(&mut client, force, config, &endpoint).await
         }
         Commands::Update { image } => {
-            let ctx_name = context.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Update requires mTLS authentication. Use a context instead of --endpoint."
-                )
-            })?;
+            let ctx_name = context
+                .as_ref()
+                .expect("context is always Some when not insecure");
             let config = ClientConfig::load()?;
             let ctx = config
                 .get_context(ctx_name)

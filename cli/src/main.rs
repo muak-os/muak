@@ -27,6 +27,9 @@ pub struct Cli {
     #[arg(long, short = 'c', global = true, env = "MUAK_CONTEXT")]
     pub context: Option<String>,
 
+    #[arg(long, global = true)]
+    pub insecure: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

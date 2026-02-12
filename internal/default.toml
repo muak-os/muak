@@ -2,7 +2,7 @@
 #
 # This is the default configuration template.
 # Generate a copy with: muakctl config generate > config.toml
-# Install with:         muakctl install --endpoint <ip>:50051 --config config.toml
+# Install with:         muakctl install --endpoint <ip>:50051 --config config.toml --insecure
 
 [system]
 name = "muak"

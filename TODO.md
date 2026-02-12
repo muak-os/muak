@@ -11,7 +11,6 @@
     - Inform the user when an update is available both for the CLI and the server
   - Create install script for users to easily install the CLI regardless of OS
   - Create a dashboard command with a TUI interface to display critical system information
-  - Use insecure flag instead of defaulting to insecure when using endpoint flag
 
 - Better PID 1
   - Check if there is /dev/kvm supported when starting the distro, setting degraded system state if not
@@ -19,7 +18,6 @@
 
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
-  - Add way more testing to cover every edge case
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
@@ -67,13 +65,12 @@
 
 - Better install:
   - Only allow signed installer images to be installed
-  - Add polling to see if install was successful after reboot
   - Add better feedback during install process like formatting etc.
   - Improve performance in formatting DATA partition?
 
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM
-  - Consolidate crypto crates and primitives to `internal/shared/pki` if possible
+  - Consolidate crypto crates and primitives to `internal/shared/crypto` if possible
 
 - Stub improvements:
   - Add TPM PCR#7 measurements in stub
