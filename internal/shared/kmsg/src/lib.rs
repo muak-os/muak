@@ -107,9 +107,8 @@ pub enum InitError {
 /// Writes a log message with the specified level and optional component.
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     let comp = component
-        .map(|s| s.to_string())
-        .or_else(|| DEFAULT_COMPONENT.get().cloned())
-        .unwrap_or_default();
+        .or_else(|| DEFAULT_COMPONENT.get().map(|s| s.as_str()))
+        .unwrap_or("");
 
     let formatted = if comp.is_empty() {
         format!("<{}> {}\n", level as u8, message)
