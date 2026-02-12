@@ -1,4 +1,4 @@
-//! VM daemon for Muak - Manages virtual machines and their lifecycle
+//! VM daemon for Muak - Manages virtual machines and their life cycle
 
 mod actor;
 mod clients;
@@ -46,12 +46,22 @@ async fn main() -> Result<()> {
     let notifier = NotifyClient::new("vmd")?;
     notifier.status("Initializing VM daemon", Health::Healthy)?;
 
+    let kvm_available = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/kvm")
+        .is_ok();
+    if !kvm_available {
+        kmsg::warn!(@ "vmd", "/dev/kvm is not available, entering degraded mode");
+        notifier.status("KVM not available", Health::Degraded)?;
+    }
+
     tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
 
     let network_client = NetworkClient::connect(NETWORKD_SOCKET).await?;
     kmsg::info!(@ "vmd", "Connected to networkd");
 
-    let vm_handle = start_vm_actor(network_client).await;
+    let vm_handle = start_vm_actor(network_client, kvm_available).await;
 
     if Path::new(SOCKET_PATH).exists() {
         std::fs::remove_file(SOCKET_PATH)?;
@@ -106,7 +116,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Sets this process as a child subreaper to reap orphaned VM processes
+/// Sets this process as a child sub reaper to reap orphaned VM processes
 fn set_child_subreaper() -> Result<()> {
     // SAFETY: prctl with known constants and no pointers, syscall is safe
     let result = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };

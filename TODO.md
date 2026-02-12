@@ -13,7 +13,6 @@
   - Create a dashboard command with a TUI interface to display critical system information
 
 - Better PID 1
-  - Check if there is /dev/kvm supported when starting the distro, setting degraded system state if not
   - Add journalctl like support to monitor logs of all services
 
 - Enhance networking:

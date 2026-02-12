@@ -88,11 +88,11 @@ impl VmActorHandle {
     }
 }
 
-pub async fn start_vm_actor(network_client: NetworkClient) -> VmActorHandle {
+pub async fn start_vm_actor(network_client: NetworkClient, kvm_available: bool) -> VmActorHandle {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
     tokio::spawn(async move {
-        let mut actor = VmActor::new(network_client);
+        let mut actor = VmActor::new(network_client, kvm_available);
         actor.run(cmd_rx).await;
     });
 

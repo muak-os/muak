@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::bail;
 use tokio::sync::mpsc;
 
 use crate::clients::{NetworkClient, TapDevice};
@@ -20,6 +21,7 @@ pub struct VmActor {
     network_client: NetworkClient,
     vms: HashMap<String, VmEntry>,
     pending_restarts: Vec<String>,
+    kvm_available: bool,
 }
 
 struct VmEntry {
@@ -134,7 +136,7 @@ impl From<DiskUsage> for ProtoDiskUsage {
 }
 
 impl VmActor {
-    pub fn new(network_client: NetworkClient) -> Self {
+    pub fn new(network_client: NetworkClient, kvm_available: bool) -> Self {
         let (vms, pending_restarts) = Self::load_persisted_state();
         Self::cleanup_orphaned_disks(&vms);
 
@@ -142,6 +144,7 @@ impl VmActor {
             network_client,
             vms,
             pending_restarts,
+            kvm_available,
         }
     }
 
@@ -293,6 +296,10 @@ impl VmActor {
     }
 
     async fn handle_start(&mut self, vm_id: &str) -> anyhow::Result<()> {
+        if !self.kvm_available {
+            bail!("KVM is not available: /dev/kvm is missing or inaccessible, cannot start VMs");
+        }
+
         let entry = self
             .vms
             .get_mut(vm_id)
