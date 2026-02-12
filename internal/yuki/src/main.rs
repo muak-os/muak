@@ -26,6 +26,9 @@ struct Args {
     #[arg(short, long, help = "Path to device tree blob (optional, for ARM64)")]
     dtb: Option<PathBuf>,
 
+    #[arg(long, help = "Path to raw LUKS key file")]
+    luks: Option<PathBuf>,
+
     #[arg(short, long, help = "Output path for the generated UKI")]
     output: PathBuf,
 }
@@ -34,12 +37,21 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    let luks_data = match &args.luks {
+        Some(path) => Some(
+            std::fs::read(path)
+                .with_context(|| format!("Failed to read LUKS key from {}", path.display()))?,
+        ),
+        None => None,
+    };
+
     let buffer = build(
         &args.stub,
         &args.linux,
         &args.initrd,
         &args.cmdline,
         args.dtb.as_deref(),
+        luks_data.as_deref(),
     )
     .context("Failed to create UKI")?;
 

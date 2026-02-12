@@ -61,7 +61,7 @@ impl Uki {
     }
 
     /// Builds the UKI binary from components.
-    pub fn build(&self, output: &Path) -> Result<()> {
+    pub fn build(&self, output: &Path, luks_key: Option<&[u8]>) -> Result<()> {
         ensure_parent_exists(output)?;
 
         let buffer = yuki::build(
@@ -70,6 +70,7 @@ impl Uki {
             &self.initramfs,
             &self.cmdline,
             None,
+            luks_key,
         )
         .context("Failed to build UKI")?;
 
@@ -80,7 +81,7 @@ impl Uki {
     }
 
     /// Builds the UKI atomically using a temp file and rename.
-    pub fn build_atomic(&self, output: &Path) -> Result<()> {
+    pub fn build_atomic(&self, output: &Path, luks_key: Option<&[u8]>) -> Result<()> {
         ensure_parent_exists(output)?;
 
         let temp_output = get_temp_path(output);
@@ -90,6 +91,7 @@ impl Uki {
             &self.initramfs,
             &self.cmdline,
             None,
+            luks_key,
         )
         .context("Failed to build UKI")?;
 

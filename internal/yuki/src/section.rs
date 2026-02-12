@@ -20,11 +20,16 @@ pub fn build_headers(
     initrd_data: &[u8],
     cmdline_data: &[u8],
     dtb_data: Option<&[u8]>,
+    luks_data: Option<&[u8]>,
 ) -> Result<SectionInfo, YukiError> {
     let mut sections_to_add: Vec<(&str, &[u8])> = vec![(".cmdline", cmdline_data)];
 
     if let Some(dtb) = dtb_data {
         sections_to_add.push((".dtb", dtb));
+    }
+
+    if let Some(luks) = luks_data {
+        sections_to_add.push((".luks", luks));
     }
 
     sections_to_add.push((".linux", linux_data));
@@ -86,6 +91,7 @@ pub fn write_to_image(
     initrd_data: &[u8],
     cmdline_data: &[u8],
     dtb_data: Option<&[u8]>,
+    luks_data: Option<&[u8]>,
 ) -> Result<(), YukiError> {
     use object::pe::ImageSectionHeader;
 
@@ -93,6 +99,10 @@ pub fn write_to_image(
 
     if let Some(dtb) = dtb_data {
         sections_to_add.push((".dtb", dtb));
+    }
+
+    if let Some(luks) = luks_data {
+        sections_to_add.push((".luks", luks));
     }
 
     sections_to_add.push((".linux", linux_data));
@@ -246,7 +256,7 @@ mod tests {
         let cmdline = b"console=ttyS0";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         assert_eq!(section_info.headers.len(), 3);
         assert_eq!(section_info.offsets.len(), 3);
@@ -263,7 +273,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let first_offset = section_info.offsets[0].0;
         assert_eq!(first_offset % metadata.file_alignment as usize, 0);
@@ -283,7 +293,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let linux_header = &section_info.headers[1];
         let cmdline_header = &section_info.headers[0];
@@ -309,7 +319,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         assert!(section_info.max_virtual_end > metadata.last_section_virtual_end);
     }
@@ -322,7 +332,7 @@ mod tests {
         let cmdline = b"very_long_cmdline_name";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let cmdline_header = &section_info.headers[0];
         assert!(cmdline_header.name[0..8].iter().any(|&b| b != 0));
@@ -337,7 +347,7 @@ mod tests {
         let cmdline = b"cmd";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         for i in 1..section_info.offsets.len() {
             let (prev_offset, prev_len) = section_info.offsets[i - 1];
@@ -354,8 +364,8 @@ mod tests {
         let cmdline = b"console=ttyS0";
         let dtb = vec![0xd0, 0x0d, 0xfe, 0xed]; // DTB magic header
 
-        let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, Some(&dtb)).expect("Should build");
+        let section_info = build_headers(&metadata, &linux, &initrd, cmdline, Some(&dtb), None)
+            .expect("Should build");
 
         assert_eq!(section_info.headers.len(), 4);
         assert_eq!(section_info.offsets.len(), 4);
@@ -373,7 +383,7 @@ mod tests {
         let cmdline = b"console=ttyS0";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let mut stub_data = vec![0u8; 100 * 1024]; // 100KB should be plenty
 
@@ -384,6 +394,7 @@ mod tests {
             &linux,
             &initrd,
             cmdline,
+            None,
             None,
         );
 
@@ -435,7 +446,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let header_offset = metadata.section_table_offset
             + (metadata.current_section_count as usize) * mem::size_of::<ImageSectionHeader>();
@@ -448,6 +459,7 @@ mod tests {
             &linux,
             &initrd,
             cmdline,
+            None,
             None,
         );
 
@@ -469,7 +481,7 @@ mod tests {
         let cmdline = b"test";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let data_offset = section_info.offsets[0].0;
         let mut stub_data = vec![0u8; data_offset + 10]; // Too small for first data
@@ -481,6 +493,7 @@ mod tests {
             &linux,
             &initrd,
             cmdline,
+            None,
             None,
         );
 
@@ -502,7 +515,7 @@ mod tests {
         let cmdline = b"";
 
         let section_info =
-            build_headers(&metadata, &linux, &initrd, cmdline, None).expect("Should build");
+            build_headers(&metadata, &linux, &initrd, cmdline, None, None).expect("Should build");
 
         let mut stub_data = vec![0u8; 10 * 1024];
 
@@ -513,6 +526,7 @@ mod tests {
             &linux,
             &initrd,
             cmdline,
+            None,
             None,
         );
 

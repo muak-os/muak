@@ -1200,8 +1200,10 @@ name = "init"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "base64ct",
  "kmod",
  "kmsg",
+ "luks2",
  "rustix",
  "tempfile",
 ]
@@ -1806,15 +1808,18 @@ name = "provisiond"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "base64ct",
  "der",
  "fatfs",
  "gptman",
  "imager",
  "kmsg",
  "libc",
+ "luks2",
  "notify",
  "pki",
  "prost",
+ "ring",
  "rustix",
  "sbolt",
  "serde",
@@ -2377,6 +2382,7 @@ name = "stub"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "base64ct",
  "object",
  "uefi",
 ]

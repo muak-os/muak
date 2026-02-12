@@ -140,6 +140,16 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Closes (deactivates) a dm-crypt mapping.
+///
+/// Removes the device-mapper device identified by `name`, making
+/// `/dev/mapper/<name>` unavailable. The backing device is not modified.
+///
+/// The device should be unmounted before calling this function.
+pub fn close(name: &str) -> Result<()> {
+    dm::dm_crypt_close(name)
+}
+
 /// Attempts to decrypt each keyslot and verify against digests.
 fn try_keyslots(device: &str, passphrase: &[u8], meta: &Metadata) -> Result<Vec<u8>> {
     for (slot_id, slot) in &meta.keyslots {

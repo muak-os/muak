@@ -15,6 +15,9 @@ anyhow = { workspace = true }
 # System/platform APIs
 uefi = { workspace = true }
 
+# Encoding
+base64ct = { workspace = true }
+
 # Utilities
 object = { workspace = true }
 

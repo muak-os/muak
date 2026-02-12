@@ -43,9 +43,8 @@
   - Protect unauthenticated routes once system is installed (disk & logs but not auth)
 
 - Disk Manager Service:
-  - LUKS encryption/decryption with libcryptsetup-rs
-    - Automatic unlocking using TPM2
-    - Add support in internal/init to allow for e2e remote unlocking using gRPC or some other way (Tang like?)
+  - Automatic LUKS unlocking using TPM2
+  - Add support in internal/init to allow for e2e remote unlocking using gRPC or some other way (Tang like?)
   - Copy-on-Write disk creation for templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space

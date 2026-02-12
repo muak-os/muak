@@ -237,6 +237,17 @@ fn dm_dev_remove(fd: &rustix::fd::OwnedFd, name: &str, dm_uuid: &str) -> Result<
     Ok(())
 }
 
+/// Deactivates a dm-crypt mapping by name.
+///
+/// Clears the device table and removes the device from the device-mapper.
+/// The device at `/dev/mapper/<name>` will no longer be accessible after this call.
+pub fn dm_crypt_close(name: &str) -> Result<()> {
+    let fd = open(DM_CONTROL_PATH, OFlags::RDWR, Mode::empty())
+        .map_err(|e| Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {e}")))?;
+
+    dm_dev_remove(&fd, name, "")
+}
+
 /// Detects the physical block size of a device via `BLKPBSZGET` ioctl.
 ///
 /// Falls back to `DEFAULT_SECTOR_SIZE` if detection fails.
