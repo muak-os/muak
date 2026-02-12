@@ -20,7 +20,7 @@ use service::{ServiceState, ServiceStatus};
 
 /// PID 1 supervisor that manages the life cycle of all system services.
 pub struct Supervisor {
-    services: HashMap<String, ServiceState>,
+    services: HashMap<&'static str, ServiceState>,
     notify_listener: NotifyListener,
     reaper: Reaper,
     restart_queue: RestartQueue,
@@ -31,7 +31,7 @@ impl Supervisor {
         let services = service_defs
             .into_iter()
             .map(|def| {
-                let name = def.name.clone();
+                let name = def.name;
                 (name, ServiceState::new(def))
             })
             .collect();
@@ -81,29 +81,29 @@ impl Supervisor {
         }
     }
 
-    fn process_exits(&mut self, exits: Vec<(String, reaper::ChildExit)>) {
+    fn process_exits(&mut self, exits: Vec<(&'static str, reaper::ChildExit)>) {
         for (name, exit) in exits {
-            self.handle_service_exit(&name, exit.pid, exit.exit_code, exit.signal);
+            self.handle_service_exit(name, exit.pid, exit.exit_code, exit.signal);
         }
     }
 
     fn start_ready_services(&mut self) -> Result<()> {
         for name in dependency::collect_startable(&self.services) {
-            if let Err(e) = self.spawn_service(&name) {
+            if let Err(e) = self.spawn_service(name) {
                 kmsg::error!("Failed to spawn service {}: {}", name, e);
             }
         }
         Ok(())
     }
 
-    fn spawn_service(&mut self, name: &str) -> Result<()> {
+    fn spawn_service(&mut self, name: &'static str) -> Result<()> {
         let state = self
             .services
             .get_mut(name)
             .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         let pid = spawner::spawn(state)?;
-        self.reaper.track(pid, name.to_string());
+        self.reaper.track(pid, name);
 
         Ok(())
     }
@@ -122,7 +122,7 @@ impl Supervisor {
                 service_name,
                 socket_path,
             } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
+                if let Some(state) = self.services.get_mut(service_name.as_str()) {
                     state.status = ServiceStatus::Ready;
                     state.socket_path = Some(socket_path);
                     state.restart_count = 0;
@@ -134,12 +134,12 @@ impl Supervisor {
                 service_name,
                 new_status,
             } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
+                if let Some(state) = self.services.get_mut(service_name.as_str()) {
                     state.status = new_status;
                 }
             }
             ServiceNotification::Stopping { service_name } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
+                if let Some(state) = self.services.get_mut(service_name.as_str()) {
                     state.status = ServiceStatus::Stopping;
                 }
             }
@@ -188,7 +188,7 @@ impl Supervisor {
         });
 
         for name in due {
-            if let Err(e) = self.spawn_service(&name) {
+            if let Err(e) = self.spawn_service(name) {
                 kmsg::error!("Failed to restart service {}: {}", name, e);
             }
         }

@@ -8,7 +8,7 @@ const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 /// A pending restart entry with a scheduled time.
 struct PendingRestart {
-    name: String,
+    name: &'static str,
     due_at: Instant,
 }
 
@@ -55,7 +55,7 @@ impl RestartQueue {
         );
 
         self.pending.push(PendingRestart {
-            name: state.def.name.clone(),
+            name: state.def.name,
             due_at: Instant::now() + RESTART_DELAY,
         });
     }
@@ -67,7 +67,7 @@ impl RestartQueue {
     }
 
     /// Returns the names of services whose restart delay has elapsed.
-    pub fn take_due(&mut self, deps_ready: impl Fn(&str) -> bool) -> Vec<String> {
+    pub fn take_due(&mut self, deps_ready: impl Fn(&str) -> bool) -> Vec<&'static str> {
         let now = Instant::now();
         let prev = std::mem::take(&mut self.pending);
         let mut ready = Vec::new();
@@ -78,7 +78,7 @@ impl RestartQueue {
                 continue;
             }
 
-            if !deps_ready(&restart.name) {
+            if !deps_ready(restart.name) {
                 self.pending.push(PendingRestart {
                     name: restart.name,
                     due_at: now + Duration::from_secs(1),

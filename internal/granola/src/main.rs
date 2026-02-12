@@ -35,37 +35,37 @@ async fn main() -> Result<()> {
 
     let mut services = vec![
         ServiceDef {
-            name: "modd".to_string(),
-            binary: "/sbin/modd".to_string(),
+            name: "modd",
+            binary: "/sbin/modd",
             args: vec![],
             depends_on: vec![],
         },
         ServiceDef {
-            name: "networkd".to_string(),
-            binary: "/sbin/networkd".to_string(),
+            name: "networkd",
+            binary: "/sbin/networkd",
             args: vec![],
             depends_on: vec![],
         },
         ServiceDef {
-            name: "provisiond".to_string(),
-            binary: "/sbin/provisiond".to_string(),
+            name: "provisiond",
+            binary: "/sbin/provisiond",
             args: vec![],
             depends_on: vec![],
         },
         ServiceDef {
-            name: "apid".to_string(),
-            binary: "/sbin/apid".to_string(),
+            name: "apid",
+            binary: "/sbin/apid",
             args: apid_args,
-            depends_on: vec!["networkd".to_string(), "provisiond".to_string()],
+            depends_on: vec!["networkd", "provisiond"],
         },
     ];
 
     if is_installed {
         services.push(ServiceDef {
-            name: "vmd".to_string(),
-            binary: "/sbin/vmd".to_string(),
+            name: "vmd",
+            binary: "/sbin/vmd",
             args: vec![],
-            depends_on: vec!["networkd".to_string()],
+            depends_on: vec!["networkd"],
         });
     } else {
         kmsg::info!("VM service disabled in maintenance mode");

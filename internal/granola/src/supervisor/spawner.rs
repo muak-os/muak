@@ -8,7 +8,7 @@ pub fn spawn(state: &mut ServiceState) -> Result<i32> {
         bail!("Binary not found: {}", state.def.binary);
     }
 
-    let child = std::process::Command::new(&state.def.binary)
+    let child = std::process::Command::new(state.def.binary)
         .args(&state.def.args)
         .spawn()
         .context("Failed to spawn service")?;

@@ -3,10 +3,10 @@ use std::time::Instant;
 /// Blueprint for a supervised service.
 #[derive(Clone, Debug)]
 pub struct ServiceDef {
-    pub name: String,
-    pub binary: String,
+    pub name: &'static str,
+    pub binary: &'static str,
     pub args: Vec<String>,
-    pub depends_on: Vec<String>,
+    pub depends_on: Vec<&'static str>,
 }
 
 /// Lifecycle state of a supervised service.

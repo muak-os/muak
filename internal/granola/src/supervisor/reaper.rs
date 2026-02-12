@@ -13,7 +13,7 @@ pub struct ChildExit {
 /// PID 1 child reaper using SIGCHLD and `waitpid(-1, WNOHANG)`.
 pub struct Reaper {
     sigchld: Signal,
-    known_pids: HashMap<i32, String>,
+    known_pids: HashMap<i32, &'static str>,
 }
 
 impl Reaper {
@@ -26,18 +26,18 @@ impl Reaper {
     }
 
     /// Registers a PID as belonging to a known supervised service.
-    pub fn track(&mut self, pid: i32, name: String) {
+    pub fn track(&mut self, pid: i32, name: &'static str) {
         self.known_pids.insert(pid, name);
     }
 
     /// Waits for the next SIGCHLD signal, then reaps all terminated children.
-    pub async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
+    pub async fn wait_for_exits(&mut self) -> Vec<(&'static str, ChildExit)> {
         self.sigchld.recv().await;
         self.reap_all()
     }
 
     /// Non-blocking sweep of all terminated children.
-    pub fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
+    pub fn reap_all(&mut self) -> Vec<(&'static str, ChildExit)> {
         let mut service_exits = Vec::new();
         let Some(any_child) = Pid::from_raw(-1) else {
             return service_exits;
@@ -56,7 +56,7 @@ impl Reaper {
 
     fn dispatch_exit(
         &mut self,
-        service_exits: &mut Vec<(String, ChildExit)>,
+        service_exits: &mut Vec<(&'static str, ChildExit)>,
         pid: i32,
         exit: ChildExit,
     ) {
