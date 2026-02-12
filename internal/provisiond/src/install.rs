@@ -104,18 +104,23 @@ pub fn install(
 
     disk::format_efi_partition(&efi_part)?;
 
-    luks2::format(&state_part, &luks_key, "STATE")
-        .context("Failed to LUKS format STATE partition")?;
-    luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA partition")?;
+    run_parallel(
+        || luks2::format(&state_part, &luks_key, "STATE").context("Failed to LUKS format STATE"),
+        || luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA"),
+    )?;
 
-    luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE partition")?;
-    luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA partition")?;
+    run_parallel(
+        || luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE"),
+        || luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA"),
+    )?;
 
     let dm_state = format!("/dev/mapper/{}", DM_STATE);
     let dm_data = format!("/dev/mapper/{}", DM_DATA);
 
-    disk::format_btrfs_partition(&dm_state, "STATE")?;
-    disk::format_btrfs_partition(&dm_data, "DATA")?;
+    run_parallel(
+        || disk::format_btrfs_partition(&dm_state, "STATE"),
+        || disk::format_btrfs_partition(&dm_data, "DATA"),
+    )?;
 
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
     init_state_partition(
@@ -319,4 +324,21 @@ fn generate_luks_key() -> Result<Vec<u8>> {
     rng.fill(&mut key)
         .map_err(|_| anyhow::anyhow!("Failed to generate random LUKS key"))?;
     Ok(key)
+}
+
+/// Runs two fallible closures in parallel, returning the first error if any.
+fn run_parallel<F, G>(f: F, g: G) -> Result<()>
+where
+    F: FnOnce() -> Result<()> + Send,
+    G: FnOnce() -> Result<()> + Send,
+{
+    std::thread::scope(|s| {
+        let a = s.spawn(f);
+        let b = s.spawn(g);
+
+        let ra = a.join().expect("thread panicked");
+        let rb = b.join().expect("thread panicked");
+
+        ra.and(rb)
+    })
 }

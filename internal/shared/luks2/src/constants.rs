@@ -40,7 +40,11 @@ pub const SHA256_LEN: usize = 32;
 pub const CHECKSUM_OFFSET: usize = 376;
 
 /// PBKDF2 iteration count for digest verification.
-pub const DIGEST_ITERATIONS: u32 = 100_000;
+///
+/// Low iteration count is safe because the volume key has full entropy
+/// (64 random bytes). The digest only needs to confirm correct decryption,
+/// not resist brute-force attacks on weak passwords.
+pub const DIGEST_ITERATIONS: u32 = 1_000;
 
 // --- Device-mapper ioctl definitions ---
 

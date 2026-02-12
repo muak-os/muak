@@ -132,10 +132,12 @@ impl Metadata {
             r#type: "luks2".to_string(),
             key_size: VOLUME_KEY_SIZE as u32,
             kdf: Kdf {
+                // NOTE: Those parameters are fine because the entropy of the key is already 512
+                // bits due to random key generation of 64 bytes created during install
                 r#type: "argon2id".to_string(),
                 salt: Base64::encode_string(kdf_salt),
-                time: Some(4),
-                memory: Some(1_048_576),
+                time: Some(1),
+                memory: Some(65_536),
                 cpus: Some(4),
             },
             af: AntiForensic {
