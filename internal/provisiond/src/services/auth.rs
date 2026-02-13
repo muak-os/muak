@@ -295,7 +295,7 @@ fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
     Ok(csrs)
 }
 
-/// Signs a pending CSR with the CA.
+/// Signs pending CSR with the CA.
 fn sign_pending_csr(csr_pem: &str) -> anyhow::Result<(Certificate, String)> {
     let ca_key_pem = std::fs::read_to_string(ca_key_path())
         .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;

@@ -5,6 +5,7 @@ use std::pin::Pin;
 use anyhow::Context;
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
@@ -277,8 +278,6 @@ impl ProvisionService for ProvisionServiceImpl {
 async fn stream_kernel_logs(
     tx: tokio::sync::mpsc::Sender<Result<GetLogsResponse, Status>>,
 ) -> Result<(), std::io::Error> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-
     let file = tokio::fs::OpenOptions::new()
         .read(true)
         .open("/dev/kmsg")
