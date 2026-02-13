@@ -11,6 +11,7 @@ members = [
     "internal/sbolt",
     "internal/shared/kmod",
     "internal/shared/kmsg",
+    "internal/shared/luks2",
     "internal/shared/notify",
     "internal/shared/pki",
     "internal/shared/sysconfig",
@@ -30,6 +31,7 @@ version = "0.1.1-beta"
 imager = { path = "internal/imager", default-features = false }
 kmod = { path = "internal/shared/kmod" }
 kmsg = { path = "internal/shared/kmsg" }
+luks2 = { path = "internal/shared/luks2" }
 notify = { path = "internal/shared/notify" }
 pki = { path = "internal/shared/pki" }
 sbolt = { path = "internal/sbolt", default-features = false }
@@ -63,6 +65,9 @@ spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.10"
 rsa = "0.10.0-rc.15"
 cms = "0.3.0-pre.2"
+aes = "0.9.0-rc.4"
+argon2 = { version = "0.6.0-rc.7", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
+zeroize = "1.8"
 
 ## Encoding
 serde = { version = "1.0", features = ["derive"] }

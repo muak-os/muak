@@ -185,7 +185,8 @@ fn install_new_uki_and_finalize(marker: &ValidationMarker, mount_point: &str) ->
     let components = Uki::from_dir(Path::new(UPDATE_DIR));
     let uki_path = uki::get_uki_path(Path::new(mount_point))?;
 
-    components.build_atomic(&uki_path)?;
+    let luks_key = read_luks_key_from_cmdline();
+    components.build_atomic(&uki_path, luks_key.as_deref())?;
 
     if sysconfig::system().secureboot {
         let hierarchy = sbolt::keys::load_key_hierarchy(&Path::new(SECRETS_DIR).join("secureboot"))
@@ -266,4 +267,14 @@ fn cleanup_failed_update() {
     if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
         kmsg::warn!("Failed to cleanup update work dir during rollback: {}", e);
     }
+}
+
+/// Reads the LUKS key from the current `/proc/cmdline`.
+fn read_luks_key_from_cmdline() -> Option<Vec<u8>> {
+    let cmdline = std::fs::read_to_string("/proc/cmdline").ok()?;
+    let encoded = cmdline
+        .split_whitespace()
+        .find(|t| t.starts_with("luks.key="))?
+        .strip_prefix("luks.key=")?;
+    <base64ct::Base64Unpadded as base64ct::Encoding>::decode_vec(encoded).ok()
 }

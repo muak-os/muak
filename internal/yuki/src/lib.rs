@@ -35,7 +35,8 @@ pub enum YukiError {
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
 ///
 /// This function takes a PE format EFI stub and embeds the Linux kernel, initrd,
-/// command line, and optional device tree blob as PE sections to create a bootable UKI.
+/// command line, optional device tree blob and optional LUKS key as PE sections
+/// to create a bootable UKI.
 ///
 /// # Arguments
 ///
@@ -44,6 +45,7 @@ pub enum YukiError {
 /// * `initrd_path` - Path to the initrd image
 /// * `cmdline_path` - Path to the kernel command line file
 /// * `dtb_path` - Optional path to a device tree blob (for ARM64 platforms)
+/// * `luks_data` - Optional raw LUKS key bytes to embed as a `.luks` PE section
 ///
 /// # Returns
 ///
@@ -66,6 +68,7 @@ pub enum YukiError {
 ///     Path::new("initrd.img"),
 ///     Path::new("cmdline.txt"),
 ///     None, // No DTB
+///     None, // No LUKS key
 /// )?;
 /// # Ok::<(), yuki::YukiError>(())
 /// ```
@@ -75,6 +78,7 @@ pub fn build(
     initrd_path: &Path,
     cmdline_path: &Path,
     dtb_path: Option<&Path>,
+    luks_data: Option<&[u8]>,
 ) -> Result<Vec<u8>, YukiError> {
     let mut stub = fs::read(stub_path).map_err(|e| YukiError::ReadError {
         file: stub_path.display().to_string(),
@@ -106,13 +110,25 @@ pub fn build(
 
     let metadata = pe::extract_metadata(&stub)?;
 
-    let section_count = if dtb.is_some() { 4 } else { 3 };
+    let mut section_count = 3;
+    if dtb.is_some() {
+        section_count += 1;
+    }
+    if luks_data.is_some() {
+        section_count += 1;
+    }
     if metadata.current_section_count as usize + section_count > u16::MAX as usize {
         return Err(YukiError::TooManySections);
     }
 
-    let section_info =
-        section::build_headers(&metadata, &linux, &initrd, &cmdline, dtb.as_deref())?;
+    let section_info = section::build_headers(
+        &metadata,
+        &linux,
+        &initrd,
+        &cmdline,
+        dtb.as_deref(),
+        luks_data,
+    )?;
 
     stub.resize(section_info.total_file_size, 0);
 
@@ -129,6 +145,7 @@ pub fn build(
         &initrd,
         &cmdline,
         dtb.as_deref(),
+        luks_data,
     )?;
 
     pe::update_image_size(&mut stub, &metadata, section_info.max_virtual_end);

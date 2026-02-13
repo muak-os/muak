@@ -4,12 +4,16 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+# Encoding
+base64ct = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true }
 
 # Internal
 kmod = { workspace = true }
 kmsg = { workspace = true }
+luks2 = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "mount", "fs"] }

@@ -11,6 +11,7 @@ mod peloader;
 mod security;
 
 use anyhow::{Context, Result};
+use base64ct::{Base64Unpadded, Encoding};
 use std::os::uefi as uefi_std;
 use uefi::Guid;
 use uefi::Handle;
@@ -19,6 +20,12 @@ use uefi::proto::loaded_image::LoadedImage;
 use crate::pe::{KernelPe, UkiSections};
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
+
+/// Strips trailing NUL bytes from a byte slice
+fn strip_trailing_nuls(data: &[u8]) -> &[u8] {
+    let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    &data[..end]
+}
 
 /// Initializes the UEFI crate with system table and image handle
 fn setup_uefi_crate() {
@@ -81,7 +88,24 @@ fn main() -> Result<()> {
         dtb::install(dtb_bytes)?;
     }
 
-    peloader::start(&kernel, sections.cmdline, loaded_image, image_handle)?;
+    let combined_cmdline: Vec<u8>;
+    let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
+        let encoded = Base64Unpadded::encode_string(luks_data);
+        let mut cmd = sections
+            .cmdline
+            .map(|c| strip_trailing_nuls(c))
+            .unwrap_or(b"")
+            .to_vec();
+        cmd.extend_from_slice(b" luks.key=");
+        cmd.extend_from_slice(encoded.as_bytes());
+        combined_cmdline = cmd;
+        info!("LUKS key embedded ({} bytes)", luks_data.len());
+        Some(&combined_cmdline)
+    } else {
+        sections.cmdline
+    };
+
+    peloader::start(&kernel, cmdline, loaded_image, image_handle)?;
 
     unreachable!("Kernel entry point returned, which should never happen");
 }

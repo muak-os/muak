@@ -1,0 +1,28 @@
+[package]
+name = "luks2"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Cryptography
+aes = { workspace = true }
+argon2 = { workspace = true }
+ring = { workspace = true }
+zeroize = { workspace = true }
+
+# Encoding
+base64ct = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# System
+rustix = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+
+[lints]
+workspace = true

@@ -5,13 +5,14 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use der::EncodePem;
 use der::pem::LineEnding;
+use ring::rand::SecureRandom;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
 
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 
-use crate::constants;
+use crate::constants::{self, DM_DATA, DM_STATE, LUKS_KEY_SIZE};
 use crate::disk;
 use crate::uki::{self, Uki};
 
@@ -73,6 +74,8 @@ pub fn install(
         None
     };
 
+    let luks_key = generate_luks_key()?;
+
     let (client_result, server_pki, config_with_auth) =
         generate_pki_and_sign_csr(admin_csr_pem, config)?;
 
@@ -84,7 +87,7 @@ pub fn install(
     )?;
     let staged_uki = work_dir.join("staged.efi");
 
-    components.build(&staged_uki)?;
+    components.build(&staged_uki, Some(&luks_key))?;
 
     if let Some(ref hierarchy) = sb_hierarchy {
         Uki::sign(&staged_uki, hierarchy)?;
@@ -100,16 +103,35 @@ pub fn install(
     let (efi_part, state_part, data_part) = disk::create_partitions(disk_path)?;
 
     disk::format_efi_partition(&efi_part)?;
-    disk::format_btrfs_partition(&state_part, "STATE")?;
-    disk::format_btrfs_partition(&data_part, "DATA")?;
+
+    run_parallel(
+        || luks2::format(&state_part, &luks_key, "STATE").context("Failed to LUKS format STATE"),
+        || luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA"),
+    )?;
+
+    run_parallel(
+        || luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE"),
+        || luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA"),
+    )?;
+
+    let dm_state = format!("/dev/mapper/{}", DM_STATE);
+    let dm_data = format!("/dev/mapper/{}", DM_DATA);
+
+    run_parallel(
+        || disk::format_btrfs_partition(&dm_state, "STATE"),
+        || disk::format_btrfs_partition(&dm_data, "DATA"),
+    )?;
 
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
     init_state_partition(
-        &state_part,
+        &dm_state,
         &config_with_auth,
         &server_pki,
         sb_hierarchy.as_ref(),
     )?;
+
+    luks2::close(DM_STATE).context("Failed to close LUKS STATE mapping")?;
+    luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
         kmsg::warn!("Failed to cleanup work dir: {}", e);
@@ -293,4 +315,30 @@ fn generate_pki_and_sign_csr(
     };
 
     Ok((client_result, server_pki, config_with_auth))
+}
+
+/// Generates a random LUKS key.
+fn generate_luks_key() -> Result<Vec<u8>> {
+    let rng = ring::rand::SystemRandom::new();
+    let mut key = vec![0u8; LUKS_KEY_SIZE];
+    rng.fill(&mut key)
+        .map_err(|_| anyhow::anyhow!("Failed to generate random LUKS key"))?;
+    Ok(key)
+}
+
+/// Runs two fallible closures in parallel, returning the first error if any.
+fn run_parallel<F, G>(f: F, g: G) -> Result<()>
+where
+    F: FnOnce() -> Result<()> + Send,
+    G: FnOnce() -> Result<()> + Send,
+{
+    std::thread::scope(|s| {
+        let a = s.spawn(f);
+        let b = s.spawn(g);
+
+        let ra = a.join().expect("thread panicked");
+        let rb = b.join().expect("thread panicked");
+
+        ra.and(rb)
+    })
 }

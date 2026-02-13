@@ -17,6 +17,12 @@ use rustix::mount::{MountFlags, mount};
 use partition::{enable_btrfs_quota, find_partition_by_partname};
 use squashfs::attach_squashfs;
 
+/// dm-crypt mapping name for the STATE partition.
+const DM_STATE: &str = "muak-state";
+
+/// dm-crypt mapping name for the DATA partition.
+const DM_DATA: &str = "muak-data";
+
 /// Mount pseudo filesystems required for early boot.
 pub fn mount_pseudo() -> Result<()> {
     create_and_mount(
@@ -139,6 +145,16 @@ pub fn mount_persistent() -> Result<bool> {
         return Ok(false);
     };
 
+    let luks_key = parse_luks_key();
+
+    let state_mount_dev = if let Some(ref key) = luks_key {
+        luks2::open(&state_dev, DM_STATE, key)
+            .map_err(|e| anyhow::anyhow!("Failed to open LUKS STATE: {}", e))?;
+        format!("/dev/mapper/{}", DM_STATE)
+    } else {
+        state_dev.clone()
+    };
+
     let state_dir = Path::new("/run/state");
     if !state_dir.exists() {
         mkdirat(CWD, state_dir, Mode::from_bits_truncate(0o755))
@@ -146,7 +162,7 @@ pub fn mount_persistent() -> Result<bool> {
     }
 
     mount(
-        state_dev.as_str(),
+        state_mount_dev.as_str(),
         "/run/state",
         "btrfs",
         MountFlags::empty(),
@@ -157,6 +173,14 @@ pub fn mount_persistent() -> Result<bool> {
     kmsg::info!("Mounted STATE partition at /run/state");
 
     if let Some(data_dev) = find_partition_by_partname("DATA") {
+        let data_mount_dev = if let Some(ref key) = luks_key {
+            luks2::open(&data_dev, DM_DATA, key)
+                .map_err(|e| anyhow::anyhow!("Failed to open LUKS DATA: {}", e))?;
+            format!("/dev/mapper/{}", DM_DATA)
+        } else {
+            data_dev.clone()
+        };
+
         let data_dir = Path::new("/run/data");
         if !data_dir.exists() {
             mkdirat(CWD, data_dir, Mode::from_bits_truncate(0o755))
@@ -164,7 +188,7 @@ pub fn mount_persistent() -> Result<bool> {
         }
 
         mount(
-            data_dev.as_str(),
+            data_mount_dev.as_str(),
             "/run/data",
             "btrfs",
             MountFlags::empty(),
@@ -177,6 +201,18 @@ pub fn mount_persistent() -> Result<bool> {
     }
 
     Ok(true)
+}
+
+/// Parses the LUKS key from `/proc/cmdline`.
+fn parse_luks_key() -> Option<Vec<u8>> {
+    let cmdline = std::fs::read_to_string("/proc/cmdline").ok()?;
+
+    let token = cmdline
+        .split_whitespace()
+        .find(|t| t.starts_with("luks.key="))?;
+
+    let encoded = token.strip_prefix("luks.key=")?;
+    <base64ct::Base64Unpadded as base64ct::Encoding>::decode_vec(encoded).ok()
 }
 
 /// Create a directory if it does not exist and mount a filesystem.
