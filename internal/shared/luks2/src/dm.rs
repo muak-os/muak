@@ -1,8 +1,4 @@
 //! Device-mapper ioctl interface for dm-crypt setup.
-//!
-//! Communicates with the kernel's device-mapper subsystem via ioctls on
-//! `/dev/mapper/control` to create, configure, and activate dm-crypt mappings.
-//! Also provides physical block size detection via `BLKPBSZGET`.
 
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -18,13 +14,9 @@ use crate::constants::{
 use crate::error::{Error, Result};
 
 const DM_CONTROL_PATH: &str = "/dev/mapper/control";
-const DM_MAPPER_DIR: &str = "/dev/mapper";
 
-// dm-ioctl opcodes (read-write, type 0xFD)
 const DM_DEV_CREATE: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, DM_DEV_CREATE_NR);
 const DM_DEV_SUSPEND: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, DM_DEV_SUSPEND_NR);
-
-/// Buffer size for DM_TABLE_LOAD (header + target spec + params).
 const DM_TABLE_BUF_SIZE: usize = 16384;
 
 /// dm_ioctl header matching the kernel ABI.
@@ -56,10 +48,6 @@ struct DmTargetSpec {
 
 impl DmIoctl {
     /// Creates a header identified by name only.
-    ///
-    /// The kernel rejects most dm-ioctl commands when both `name` and `uuid`
-    /// are set. Only `DM_DEV_CREATE` accepts both; all other commands should
-    /// use this constructor.
     fn with_name(name: &str, data_size: u32) -> Self {
         let mut hdr = Self {
             version: DM_VERSION,
@@ -108,36 +96,26 @@ pub struct CryptParams<'a> {
 }
 
 /// Creates a dm-crypt mapping and activates it.
-///
-/// This performs three ioctls on `/dev/mapper/control`:
-/// 1. `DM_DEV_CREATE` — create the device
-/// 2. `DM_TABLE_LOAD` — load the crypt target with cipher, key, and backing device
-/// 3. `DM_DEV_SUSPEND` — resume (activate) the device
 pub fn dm_crypt_open(params: &CryptParams<'_>) -> Result<()> {
     let fd = open(DM_CONTROL_PATH, OFlags::RDWR, Mode::empty())
         .map_err(|e| Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {e}")))?;
 
-    // 1. DM_DEV_CREATE (only command that accepts both name + uuid)
     let mut create_hdr = DmIoctl::with_name_and_uuid(
         params.name,
         params.dm_uuid,
         std::mem::size_of::<DmIoctl>() as u32,
     );
-    // SAFETY: DmIoctl matches the kernel ABI; ioctl is inherently unsafe
+    // SAFETY: DmIoctl matches the kernel ABI DM_DEV_CREATE; ioctl is inherently unsafe
     unsafe { ioctl(&fd, Updater::<DM_DEV_CREATE, DmIoctl>::new(&mut create_hdr)) }
         .map_err(|e| Error::DeviceMapper(format!("DM_DEV_CREATE failed: {e}")))?;
 
-    // 2. DM_TABLE_LOAD
     if let Err(e) = dm_table_load(&fd, params) {
-        // Clean up on failure: try to remove the device we just created
         let _ = dm_dev_remove(&fd, params.name);
         return Err(e);
     }
 
-    // 3. DM_DEV_SUSPEND (resume)
     let mut resume_hdr = DmIoctl::with_name(params.name, std::mem::size_of::<DmIoctl>() as u32);
-    // flags = 0 means resume (not suspend)
-    // SAFETY: DmIoctl matches the kernel ABI
+    // SAFETY: DmIoctl matches the kernel ABI DM_DEV_SUSPEND (resume)
     unsafe {
         ioctl(
             &fd,
@@ -149,20 +127,14 @@ pub fn dm_crypt_open(params: &CryptParams<'_>) -> Result<()> {
         Error::DeviceMapper(format!("DM_DEV_SUSPEND (resume) failed: {e}"))
     })?;
 
-    // Ensure /dev/mapper/<name> exists. devtmpfs may create it asynchronously,
-    // so we create the block device node ourselves if it is missing.
     ensure_dev_node(params.name, resume_hdr.dev)?;
 
     Ok(())
 }
 
 /// Ensures `/dev/mapper/<name>` exists as a block device node.
-///
-/// After `DM_DEV_SUSPEND` succeeds the kernel has assigned a device number
-/// but devtmpfs may not have created the node yet. We use `mknod` to create
-/// it immediately if missing, using the major/minor from the ioctl response.
 fn ensure_dev_node(name: &str, dev: u64) -> Result<()> {
-    let path_str = format!("{DM_MAPPER_DIR}/{name}");
+    let path_str = format!("/dev/mapper/{name}");
     let path = Path::new(&path_str);
 
     if path.exists() {
@@ -185,10 +157,7 @@ fn ensure_dev_node(name: &str, dev: u64) -> Result<()> {
 }
 
 /// Loads the crypt table into a dm device.
-///
-/// The table format is: `<cipher> <key_hex> <iv_offset> <device> <offset> [<opts>]`
 fn dm_table_load(fd: &rustix::fd::OwnedFd, params: &CryptParams<'_>) -> Result<()> {
-    // Build the crypt parameters string
     let mut key_hex = hex_encode(params.volume_key);
     let cipher = params.cipher;
     let backing_device = params.backing_device;
@@ -209,23 +178,20 @@ fn dm_table_load(fd: &rustix::fd::OwnedFd, params: &CryptParams<'_>) -> Result<(
     let target_spec_size = std::mem::size_of::<DmTargetSpec>();
     let hdr_size = std::mem::size_of::<DmIoctl>();
 
-    // Total buffer: DmIoctl header + DmTargetSpec + params + null terminator
     let total_size = hdr_size + target_spec_size + params_bytes.len() + 1;
     let buf_size = total_size.max(DM_TABLE_BUF_SIZE);
 
     let mut buf = vec![0u8; buf_size];
 
-    // Fill in the DmIoctl header at the start
     let hdr = DmIoctl::with_name(params.name, buf_size as u32);
+
     // SAFETY: writing repr(C) struct bytes into buffer
     let hdr_bytes =
         unsafe { std::slice::from_raw_parts(&hdr as *const DmIoctl as *const u8, hdr_size) };
     buf[..hdr_size].copy_from_slice(hdr_bytes);
 
-    // Set target_count = 1 in the header
     buf[20..24].copy_from_slice(&1u32.to_ne_bytes());
 
-    // Fill in DmTargetSpec after the header
     let mut target = DmTargetSpec {
         sector_start: 0,
         length: params.size_sectors,
@@ -244,13 +210,10 @@ fn dm_table_load(fd: &rustix::fd::OwnedFd, params: &CryptParams<'_>) -> Result<(
     };
     buf[hdr_size..hdr_size + target_spec_size].copy_from_slice(target_bytes);
 
-    // Copy params string after the target spec
     let params_offset = hdr_size + target_spec_size;
     buf[params_offset..params_offset + params_bytes.len()].copy_from_slice(params_bytes);
-    // Null terminator
     buf[params_offset + params_bytes.len()] = 0;
 
-    // Issue the ioctl using a raw syscall since the buffer is larger than DmIoctl
     // SAFETY: buf is large enough and laid out per the kernel dm-ioctl ABI
     unsafe {
         ioctl(
@@ -262,44 +225,36 @@ fn dm_table_load(fd: &rustix::fd::OwnedFd, params: &CryptParams<'_>) -> Result<(
     }
     .map_err(|e| Error::DeviceMapper(format!("DM_TABLE_LOAD failed: {e}")))?;
 
-    // Zeroize buffer (contains key in hex)
     buf.zeroize();
 
     Ok(())
 }
 
-/// Attempts to remove a dm device (best-effort cleanup).
+/// Attempts to remove a dm device.
 fn dm_dev_remove(fd: &rustix::fd::OwnedFd, name: &str) -> Result<()> {
     const DM_DEV_REMOVE: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, 4);
 
     let mut hdr = DmIoctl::with_name(name, std::mem::size_of::<DmIoctl>() as u32);
-    // SAFETY: DmIoctl matches the kernel ABI
+    // SAFETY: DmIoctl matches the kernel ABI for DM_DEV_REMOVE; ioctl is inherently unsafe
     unsafe { ioctl(fd, Updater::<DM_DEV_REMOVE, DmIoctl>::new(&mut hdr)) }
         .map_err(|e| Error::DeviceMapper(format!("DM_DEV_REMOVE failed: {e}")))?;
     Ok(())
 }
 
 /// Deactivates a dm-crypt mapping by name.
-///
-/// Removes the device-mapper device and cleans up the device node at
-/// `/dev/mapper/<name>`.
 pub fn dm_crypt_close(name: &str) -> Result<()> {
     let fd = open(DM_CONTROL_PATH, OFlags::RDWR, Mode::empty())
         .map_err(|e| Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {e}")))?;
 
     dm_dev_remove(&fd, name)?;
 
-    // Remove the device node if it still exists (may have been created by us
-    // via mknod rather than devtmpfs).
-    let path_str = format!("{DM_MAPPER_DIR}/{name}");
+    let path_str = format!("/dev/mapper/{name}");
     let _ = std::fs::remove_file(&path_str);
 
     Ok(())
 }
 
 /// Detects the physical block size of a device via `BLKPBSZGET` ioctl.
-///
-/// Falls back to `DEFAULT_SECTOR_SIZE` if detection fails.
 pub fn detect_sector_size(device: &str) -> u32 {
     let Ok(fd) = open(device, OFlags::RDONLY, Mode::empty()) else {
         return DEFAULT_SECTOR_SIZE;

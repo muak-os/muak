@@ -73,7 +73,4 @@ pub const BLKPBSZGET: u32 = 0x127B;
 pub const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 32768;
 
 /// Default size of a single keyslot area (bytes).
-///
-/// Must hold exactly `VOLUME_KEY_SIZE * AF_STRIPES` bytes of
-/// anti-forensic split data.
 pub const DEFAULT_KEYSLOT_AREA_SIZE: u64 = VOLUME_KEY_SIZE as u64 * AF_STRIPES as u64;

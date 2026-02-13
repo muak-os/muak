@@ -1,8 +1,6 @@
 //! LUKS2 volume key digest creation and verification.
-//!
-//! Uses PBKDF2-HMAC-SHA256 via `ring` to create and verify digests
-//! that confirm a decrypted volume key is correct.
 
+use base64ct::{Base64, Encoding};
 use ring::pbkdf2;
 use ring::rand::SecureRandom;
 
@@ -16,12 +14,7 @@ const SALT_LEN: usize = 32;
 static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA256;
 
 /// Creates a new PBKDF2-SHA256 digest of the volume key.
-///
-/// Generates a random salt, derives the digest value, and returns
-/// a `Digest` metadata struct ready to be inserted into the JSON area.
 pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> Result<Digest> {
-    use base64ct::{Base64, Encoding};
-
     let rng = ring::rand::SystemRandom::new();
     let mut salt = [0u8; SALT_LEN];
     rng.fill(&mut salt)
@@ -49,11 +42,7 @@ pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> 
 }
 
 /// Verifies a volume key candidate against a stored digest.
-///
-/// Returns `Ok(true)` if the key matches, `Ok(false)` otherwise.
 pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
-    use base64ct::{Base64, Encoding};
-
     if digest.r#type != "pbkdf2" {
         return Err(Error::InvalidField(format!(
             "unsupported digest type: {}",
@@ -70,4 +59,179 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
     let result = pbkdf2::verify(PBKDF2_ALG, iterations, &salt, volume_key, &expected);
 
     Ok(result.is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::Digest;
+    use base64ct::Encoding;
+
+    #[test]
+    fn test_create_verify_roundtrip() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let result = verify(&volume_key, &digest).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_wrong_key() {
+        let volume_key = vec![0x42u8; 64];
+        let wrong_key = vec![0x43u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let result = verify(&wrong_key, &digest).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_modified_key() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let mut modified_key = volume_key.clone();
+        modified_key[0] ^= 0x01;
+
+        let result = verify(&modified_key, &digest).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_create_different_salts() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let digest1 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+        let digest2 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        assert_ne!(digest1.salt, digest2.salt);
+
+        assert!(verify(&volume_key, &digest1).unwrap());
+        assert!(verify(&volume_key, &digest2).unwrap());
+    }
+
+    #[test]
+    fn test_digest_structure() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0", "1"];
+        let segment_ids = &["0", "1", "2"];
+
+        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        assert_eq!(digest.r#type, "pbkdf2");
+        assert_eq!(digest.hash, "sha256");
+        assert_eq!(digest.iterations, DIGEST_ITERATIONS);
+        assert_eq!(digest.keyslots, vec!["0".to_string(), "1".to_string()]);
+        assert_eq!(
+            digest.segments,
+            vec!["0".to_string(), "1".to_string(), "2".to_string()]
+        );
+
+        assert!(!digest.salt.is_empty());
+        assert!(!digest.digest.is_empty());
+    }
+
+    #[test]
+    fn test_verify_unsupported_digest_type() {
+        let volume_key = vec![0x42u8; 64];
+        let digest = Digest {
+            r#type: "argon2".to_string(), // Not supported
+            keyslots: vec!["0".to_string()],
+            segments: vec!["0".to_string()],
+            hash: "sha256".to_string(),
+            iterations: 1000,
+            salt: base64ct::Base64::encode_string(&[0x42u8; 32]),
+            digest: base64ct::Base64::encode_string(&[0x42u8; 32]),
+        };
+
+        let result = verify(&volume_key, &digest);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_zero_iterations() {
+        let volume_key = vec![0x42u8; 64];
+        let digest = Digest {
+            r#type: "pbkdf2".to_string(),
+            keyslots: vec!["0".to_string()],
+            segments: vec!["0".to_string()],
+            hash: "sha256".to_string(),
+            iterations: 0, // Invalid
+            salt: base64ct::Base64::encode_string(&[0x42u8; 32]),
+            digest: base64ct::Base64::encode_string(&[0x42u8; 32]),
+        };
+
+        let result = verify(&volume_key, &digest);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_empty_key() {
+        let volume_key = vec![];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let result = verify(&volume_key, &digest).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_different_key_sizes() {
+        for size in [16, 32, 64, 128] {
+            let volume_key = vec![0x42u8; size];
+            let keyslot_ids = &["0"];
+            let segment_ids = &["0"];
+
+            let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+            let result = verify(&volume_key, &digest).unwrap();
+            assert!(result, "Failed for key size {}", size);
+        }
+    }
+
+    #[test]
+    fn test_verify_corrupted_digest() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let mut decoded = base64ct::Base64::decode_vec(&digest.digest).unwrap();
+        decoded[0] ^= 0xFF;
+        digest.digest = base64ct::Base64::encode_string(&decoded);
+
+        let result = verify(&volume_key, &digest).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_corrupted_salt() {
+        let volume_key = vec![0x42u8; 64];
+        let keyslot_ids = &["0"];
+        let segment_ids = &["0"];
+
+        let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+
+        let mut decoded = base64ct::Base64::decode_vec(&digest.salt).unwrap();
+        decoded[0] ^= 0xFF;
+        digest.salt = base64ct::Base64::encode_string(&decoded);
+
+        let result = verify(&volume_key, &digest).unwrap();
+        assert!(!result);
+    }
 }

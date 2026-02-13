@@ -1,19 +1,16 @@
 //! Pure-Rust LUKS2 format and open implementation.
 //!
-//! Provides `format()` to create a LUKS2-encrypted block device and `open()` to
-//! decrypt the volume key and set up a dm-crypt mapping via kernel ioctls.
-//!
-//! Supports AES-256-XTS-plain64 with Argon2id key derivation and PBKDF2-SHA256
+//! Using AES-256-XTS-plain64 with Argon2id key derivation and PBKDF2-SHA256
 //! digest verification.
 
 mod constants;
-mod crypto;
 mod digest;
 mod dm;
 mod error;
 mod header;
 mod keyslot;
 mod metadata;
+mod xts;
 
 pub use error::{Error, Result};
 
@@ -32,9 +29,6 @@ use metadata::Metadata;
 /// Creates the LUKS2 header, generates a random volume key, protects it with
 /// the given passphrase via Argon2id, and writes everything to disk. The data
 /// segment begins at offset 16 MiB (`DEFAULT_HEADER_SIZE`).
-///
-/// After formatting, call `open()` to activate the dm-crypt mapping, then
-/// create a filesystem on `/dev/mapper/<name>`.
 pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
     let rng = ring::rand::SystemRandom::new();
     let mut volume_key = vec![0u8; VOLUME_KEY_SIZE];
@@ -87,11 +81,9 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
 /// passphrase against each keyslot, verifies the key against the stored
 /// digest, and sets up a dm-crypt mapping at `/dev/mapper/<name>`.
 pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
-    // Read and parse the primary binary header
     let hdr_buf = dm::read_device(device, 0, BINARY_HEADER_SIZE)?;
     let hdr = Header::parse(&hdr_buf)?;
 
-    // Read and parse JSON metadata
     let json_buf = dm::read_device(
         device,
         BINARY_HEADER_SIZE as u64,
@@ -99,10 +91,8 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
     )?;
     let meta = Metadata::deserialize(&json_buf)?;
 
-    // Try each keyslot until one matches
     let mut volume_key = try_keyslots(device, passphrase, &meta)?;
 
-    // Calculate data segment parameters
     let segment = meta
         .segments
         .get("0")
@@ -115,14 +105,12 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
 
     let sector_size = segment.sector_size;
 
-    // Calculate device size for dm-crypt table
     let dev_size_bytes = device_size(device)?;
     let data_size_bytes = dev_size_bytes.saturating_sub(data_offset);
     let size_sectors = data_size_bytes / 512; // dm-crypt always uses 512-byte sectors for length
 
     let offset_sectors = data_offset / 512;
 
-    // Build dm-crypt UUID from LUKS UUID
     let dm_uuid = format!("CRYPT-LUKS2-{}", hdr.uuid_str().replace('-', ""));
 
     dm::dm_crypt_open(&dm::CryptParams {
@@ -153,7 +141,6 @@ pub fn close(name: &str) -> Result<()> {
 /// Attempts to decrypt each keyslot and verify against digests.
 fn try_keyslots(device: &str, passphrase: &[u8], meta: &Metadata) -> Result<Vec<u8>> {
     for (slot_id, slot) in &meta.keyslots {
-        // Read keyslot binary data from device
         let area_offset: u64 = slot
             .area
             .offset
@@ -167,13 +154,11 @@ fn try_keyslots(device: &str, passphrase: &[u8], meta: &Metadata) -> Result<Vec<
 
         let encrypted_data = dm::read_device(device, area_offset, area_size as usize)?;
 
-        // Attempt decryption
         let mut candidate = match keyslot::decrypt_keyslot(passphrase, slot, &encrypted_data) {
             Ok(key) => key,
             Err(_) => continue,
         };
 
-        // Verify against each digest that references this keyslot
         if verify_candidate(&candidate, slot_id, meta) {
             return Ok(candidate);
         }
@@ -197,4 +182,101 @@ fn device_size(device: &str) -> Result<u64> {
     let mut file = std::fs::File::open(device)?;
     let size = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
     Ok(size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::Digest;
+
+    fn create_test_digest(volume_key: &[u8]) -> Digest {
+        digest::create(volume_key, &["0"], &["0"]).unwrap()
+    }
+
+    fn create_test_metadata() -> Metadata {
+        let mut meta = Metadata::new(4096);
+        meta.add_keyslot("0", &[0x42u8; 64]);
+        meta
+    }
+
+    #[test]
+    fn test_verify_candidate_correct_key() {
+        let volume_key = vec![0xABu8; 64];
+        let mut meta = create_test_metadata();
+
+        let digest = create_test_digest(&volume_key);
+        meta.digests.insert("0".to_string(), digest);
+
+        let result = verify_candidate(&volume_key, "0", &meta);
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_candidate_wrong_key() {
+        let correct_key = vec![0xABu8; 64];
+        let wrong_key = vec![0xCDu8; 64];
+        let mut meta = create_test_metadata();
+
+        let digest = create_test_digest(&correct_key);
+        meta.digests.insert("0".to_string(), digest);
+
+        let result = verify_candidate(&wrong_key, "0", &meta);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_candidate_no_matching_digest() {
+        let volume_key = vec![0xABu8; 64];
+        let meta = create_test_metadata();
+
+        let result = verify_candidate(&volume_key, "0", &meta);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_candidate_wrong_keyslot() {
+        let volume_key = vec![0xABu8; 64];
+        let mut meta = create_test_metadata();
+
+        let digest = create_test_digest(&volume_key);
+        meta.digests.insert("0".to_string(), digest);
+
+        let result = verify_candidate(&volume_key, "2", &meta);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_candidate_multiple_digests_one_matches() {
+        let volume_key = vec![0xABu8; 64];
+        let mut meta = create_test_metadata();
+        meta.add_keyslot("1", &[0x43u8; 64]);
+
+        let digest0 = create_test_digest(&volume_key);
+        meta.digests.insert("0".to_string(), digest0);
+
+        let other_key = vec![0xCDu8; 64];
+        let digest1 = create_test_digest(&other_key);
+        meta.digests.insert("1".to_string(), digest1);
+
+        let result = verify_candidate(&volume_key, "0", &meta);
+        assert!(result);
+
+        let result = verify_candidate(&volume_key, "1", &meta);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let err: Error = io_err.into();
+        assert!(matches!(err, Error::Io(_)));
+    }
+
+    #[test]
+    fn test_error_from_json() {
+        let result: std::result::Result<serde_json::Value, _> = serde_json::from_str("invalid");
+        let json_err = result.unwrap_err();
+        let err: Error = json_err.into();
+        assert!(matches!(err, Error::Json(_)));
+    }
 }

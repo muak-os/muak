@@ -9,9 +9,9 @@ use ring::digest::{Context, SHA256};
 use ring::rand::SecureRandom;
 use zeroize::Zeroize;
 
-use crate::crypto;
 use crate::error::{Error, Result};
 use crate::metadata::Keyslot;
+use crate::xts;
 
 const SHA256_LEN: usize = 32;
 
@@ -39,9 +39,6 @@ pub fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
 }
 
 /// Anti-forensic split: expand a volume key into `stripes` * key_size bytes.
-///
-/// Each stripe is diffused so that overwriting any single stripe on disk
-/// renders the entire key unrecoverable.
 pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
     let key_size = key.len();
     let total = key_size * stripes as usize;
@@ -97,9 +94,6 @@ pub fn af_merge(data: &[u8], key_size: usize, stripes: u32) -> Result<Vec<u8>> {
 }
 
 /// SHA-256 based diffusion function for anti-forensic splitting.
-///
-/// Processes the buffer in SHA256_LEN-sized chunks, hashing each chunk
-/// with a counter prefix to diffuse the data.
 fn af_diffuse(data: &mut [u8]) {
     let chunks = data.len() / SHA256_LEN;
     let remainder = data.len() % SHA256_LEN;
@@ -124,26 +118,18 @@ fn af_diffuse(data: &mut [u8]) {
 }
 
 /// Encrypts a volume key into keyslot binary data ready to be written to disk.
-///
-/// 1. Derives intermediate key from passphrase via Argon2id
-/// 2. AF-splits the volume key into stripes
-/// 3. Encrypts the striped data with AES-XTS using the derived key
 pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
     let mut derived_key = derive_key(passphrase, keyslot)?;
     let mut striped = af_split(volume_key, keyslot.af.stripes)?;
 
     let tweak = [0u8; 16];
-    crypto::encrypt(&derived_key, &tweak, &mut striped)?;
+    xts::encrypt(&derived_key, &tweak, &mut striped)?;
 
     derived_key.zeroize();
     Ok(striped)
 }
 
 /// Decrypts keyslot binary data to recover a volume key candidate.
-///
-/// 1. Derives intermediate key from passphrase via Argon2id
-/// 2. Decrypts the keyslot area with AES-XTS
-/// 3. AF-merges the stripes to recover the volume key candidate
 pub fn decrypt_keyslot(
     passphrase: &[u8],
     keyslot: &Keyslot,
@@ -153,7 +139,7 @@ pub fn decrypt_keyslot(
 
     let mut data = encrypted_data.to_vec();
     let tweak = [0u8; 16];
-    crypto::decrypt(&derived_key, &tweak, &mut data)?;
+    xts::decrypt(&derived_key, &tweak, &mut data)?;
 
     derived_key.zeroize();
 
@@ -162,4 +148,236 @@ pub fn decrypt_keyslot(
     data.zeroize();
 
     Ok(volume_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::{AntiForensic, Kdf, KeyslotArea};
+
+    fn create_test_keyslot() -> Keyslot {
+        Keyslot {
+            r#type: "luks2".to_string(),
+            key_size: 64,
+            kdf: Kdf {
+                r#type: "argon2id".to_string(),
+                salt: base64ct::Base64::encode_string(&[0x42u8; 64]),
+                time: Some(1),
+                memory: Some(65536),
+                cpus: Some(4),
+            },
+            af: AntiForensic {
+                r#type: "luks1".to_string(),
+                stripes: 4000,
+                hash: "sha256".to_string(),
+            },
+            area: KeyslotArea {
+                r#type: "raw".to_string(),
+                offset: "32768".to_string(),
+                size: "262144000".to_string(),
+                encryption: "aes-xts-plain64".to_string(),
+                key_size: 64,
+            },
+        }
+    }
+
+    #[test]
+    fn test_af_split_merge_roundtrip() {
+        let key = vec![0xABu8; 64];
+        let stripes = 100;
+
+        let split = af_split(&key, stripes).unwrap();
+        let merged = af_merge(&split, key.len(), stripes).unwrap();
+
+        assert_eq!(key, merged);
+    }
+
+    #[test]
+    fn test_af_split_different_stripes() {
+        let key = vec![0x42u8; 32];
+
+        for stripes in [1, 10, 100, 4000] {
+            let split = af_split(&key, stripes).unwrap();
+            assert_eq!(split.len(), key.len() * stripes as usize);
+
+            let merged = af_merge(&split, key.len(), stripes).unwrap();
+            assert_eq!(key, merged);
+        }
+    }
+
+    #[test]
+    fn test_af_merge_wrong_size() {
+        let data = vec![0x42u8; 100];
+        let result = af_merge(&data, 64, 4000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_af_split_changes_with_same_key() {
+        let key = vec![0x42u8; 64];
+        let stripes = 100;
+
+        let split1 = af_split(&key, stripes).unwrap();
+        let split2 = af_split(&key, stripes).unwrap();
+
+        assert_ne!(split1, split2);
+
+        let merged1 = af_merge(&split1, key.len(), stripes).unwrap();
+        let merged2 = af_merge(&split2, key.len(), stripes).unwrap();
+
+        assert_eq!(merged1, key);
+        assert_eq!(merged2, key);
+    }
+
+    #[test]
+    fn test_derive_key_unsupported_kdf() {
+        let mut keyslot = create_test_keyslot();
+        keyslot.kdf.r#type = "pbkdf2".to_string();
+
+        let result = derive_key(b"password", &keyslot);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_derive_key_same_passphrase_same_result() {
+        let keyslot = create_test_keyslot();
+        let passphrase = b"test_password";
+
+        let derived1 = derive_key(passphrase, &keyslot).unwrap();
+        let derived2 = derive_key(passphrase, &keyslot).unwrap();
+
+        assert_eq!(derived1, derived2);
+    }
+
+    #[test]
+    fn test_derive_key_different_passphrase_different_result() {
+        let keyslot = create_test_keyslot();
+
+        let derived1 = derive_key(b"password1", &keyslot).unwrap();
+        let derived2 = derive_key(b"password2", &keyslot).unwrap();
+
+        assert_ne!(derived1, derived2);
+    }
+
+    #[test]
+    fn test_derive_key_produces_expected_size() {
+        let keyslot = create_test_keyslot();
+        let passphrase = b"test_password";
+
+        let derived = derive_key(passphrase, &keyslot).unwrap();
+
+        assert_eq!(derived.len(), keyslot.key_size as usize);
+    }
+
+    #[test]
+    fn test_af_diffuse_deterministic() {
+        let mut data1 = vec![0x42u8; 64];
+        let mut data2 = data1.clone();
+
+        af_diffuse(&mut data1);
+        af_diffuse(&mut data2);
+
+        assert_eq!(data1, data2);
+    }
+
+    #[test]
+    fn test_af_diffuse_changes_data() {
+        let original = vec![0x42u8; 64];
+        let mut data = original.clone();
+
+        af_diffuse(&mut data);
+
+        assert_ne!(data, original);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_keyslot_roundtrip() {
+        let keyslot = create_test_keyslot();
+        let passphrase = b"test_password";
+        let volume_key = vec![0xABu8; 64];
+
+        let encrypted = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
+        let decrypted = decrypt_keyslot(passphrase, &keyslot, &encrypted).unwrap();
+
+        assert_eq!(decrypted, volume_key);
+    }
+
+    #[test]
+    fn test_decrypt_keyslot_wrong_passphrase() {
+        let keyslot = create_test_keyslot();
+        let correct_passphrase = b"correct_password";
+        let wrong_passphrase = b"wrong_password";
+        let volume_key = vec![0xABu8; 64];
+
+        let encrypted = encrypt_keyslot(correct_passphrase, &volume_key, &keyslot).unwrap();
+
+        let result = decrypt_keyslot(wrong_passphrase, &keyslot, &encrypted);
+
+        // Should either fail or produce garbage (but not panic)
+        if let Ok(decrypted) = result {
+            assert_ne!(decrypted, volume_key);
+        }
+    }
+
+    #[test]
+    fn test_encrypt_keyslot_produces_different_output() {
+        let keyslot = create_test_keyslot();
+        let passphrase = b"test_password";
+        let volume_key = vec![0xABu8; 64];
+
+        let encrypted1 = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
+        let encrypted2 = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
+
+        assert_ne!(encrypted1, encrypted2);
+    }
+
+    #[test]
+    fn test_af_split_minimum_stripes() {
+        let key = vec![0x42u8; 64];
+        let stripes = 1;
+
+        let split = af_split(&key, stripes).unwrap();
+        assert_eq!(split.len(), key.len());
+
+        let merged = af_merge(&split, key.len(), stripes).unwrap();
+        assert_eq!(key, merged);
+    }
+
+    #[test]
+    fn test_af_merge_with_corrupted_data() {
+        let key = vec![0x42u8; 64];
+        let stripes = 100;
+
+        let mut split = af_split(&key, stripes).unwrap();
+        split[0] ^= 0xFF;
+        split[10] ^= 0xFF;
+
+        let merged = af_merge(&split, key.len(), stripes).unwrap();
+
+        assert_ne!(merged, key);
+    }
+
+    #[test]
+    fn test_derive_key_empty_passphrase() {
+        let keyslot = create_test_keyslot();
+        let passphrase = b"";
+
+        let result = derive_key(passphrase, &keyslot);
+        assert!(result.is_ok());
+
+        let derived = result.unwrap();
+        assert_eq!(derived.len(), keyslot.key_size as usize);
+    }
+
+    #[test]
+    fn test_derive_key_long_passphrase() {
+        let keyslot = create_test_keyslot();
+        let passphrase = vec![0x42u8; 1000];
+
+        let result = derive_key(&passphrase, &keyslot);
+        assert!(result.is_ok());
+
+        let derived = result.unwrap();
+        assert_eq!(derived.len(), keyslot.key_size as usize);
+    }
 }
