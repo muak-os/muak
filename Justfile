@@ -118,7 +118,7 @@ extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just i
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just installer") (_require artifacts / "initramfs.img" "just extensions")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    tr -d '\n' < pkgs/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt > {{ artifacts }}/cmdline.txt
+    { tr -d '\n' < pkgs/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ release_dir }}/yuki \
         --stub {{ artifacts }}/stub.efi \
         --linux {{ artifacts }}/vmlinuz \
@@ -144,7 +144,11 @@ iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
         mkfs.vfat /out/iso/efiboot.img >/dev/null
         mmd -i /out/iso/efiboot.img ::/EFI ::/EFI/BOOT
         mcopy -i /out/iso/efiboot.img /out/muak-${ARCH}.efi ::/EFI/BOOT/${BOOT_FILE}
-        xorriso -as mkisofs -o /out/muak-${ARCH}.iso -e efiboot.img -no-emul-boot -V MUAK /out/iso
+        xorriso -as mkisofs -o /out/muak-${ARCH}.iso \
+            -e efiboot.img -no-emul-boot \
+            -append_partition 2 0xEF /out/iso/efiboot.img \
+            -appended_part_as_gpt \
+            -V MUAK /out/iso
         rm -rf /out/iso'
     printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 

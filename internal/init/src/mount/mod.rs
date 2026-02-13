@@ -141,6 +141,10 @@ pub fn mount_rootfs() -> Result<()> {
 
 /// Mount persistent STATE and DATA partitions if the system is installed.
 pub fn mount_persistent() -> Result<bool> {
+    if is_live_boot() {
+        return Ok(false);
+    }
+
     let Some(state_dev) = find_partition_by_partname("STATE") else {
         return Ok(false);
     };
@@ -201,6 +205,13 @@ pub fn mount_persistent() -> Result<bool> {
     }
 
     Ok(true)
+}
+
+/// Checks if the system booted in live mode via kernel cmdline.
+fn is_live_boot() -> bool {
+    std::fs::read_to_string("/proc/cmdline")
+        .map(|c| c.split_whitespace().any(|t| t == "muak.mode=live"))
+        .unwrap_or(false)
 }
 
 /// Parses the LUKS key from `/proc/cmdline`.
