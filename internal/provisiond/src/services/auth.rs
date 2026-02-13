@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use der::{DecodePem, EncodePem, pem::LineEnding};
 use tonic::{Request, Response, Status};
 use x509_cert::Certificate;
+use x509_cert::der::{DecodePem, EncodePem, pem::LineEnding};
 
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::get_csr_status_response::Status as CsrStatus;

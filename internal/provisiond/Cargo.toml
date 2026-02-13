@@ -15,7 +15,6 @@ serde_json = { workspace = true }
 prost = { workspace = true }
 
 # Cryptography
-der = { workspace = true }
 ring = { workspace = true }
 x509-cert = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }

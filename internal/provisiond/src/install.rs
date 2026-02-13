@@ -3,12 +3,12 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use der::EncodePem;
-use der::pem::LineEnding;
 use ring::rand::SecureRandom;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
+use x509_cert::der::EncodePem;
+use x509_cert::der::pem::LineEnding;
 
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 

@@ -1809,7 +1809,6 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "base64ct",
- "der",
  "fatfs",
  "gptman",
  "imager",
