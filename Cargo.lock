@@ -98,7 +98,6 @@ name = "apid"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
- "der",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -113,6 +112,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
+ "x509-cert",
 ]
 
 [[package]]

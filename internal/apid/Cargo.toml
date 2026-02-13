@@ -9,7 +9,7 @@ tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal
 tokio-rustls = { workspace = true }
 
 # Cryptography
-der = { workspace = true }
+x509-cert = { workspace = true }
 ring = { workspace = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }

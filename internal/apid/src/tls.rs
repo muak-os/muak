@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use der::Encode;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::TlsAcceptor;
+use x509_cert::der::Encode;
 
 use crate::config;
 
@@ -178,7 +178,8 @@ mod tests {
     fn test_extract_fingerprint_with_real_cert() {
         let (_, ca_cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
-        let cert_der = der::Encode::to_der(&ca_cert).expect("Failed to encode certificate to DER");
+        let cert_der =
+            x509_cert::der::Encode::to_der(&ca_cert).expect("Failed to encode certificate to DER");
 
         let fingerprint = extract_fingerprint(&cert_der);
 
@@ -199,7 +200,8 @@ mod tests {
     fn test_extract_fingerprint_matches_pki_compute() {
         let (_, cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
-        let cert_der = der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
+        let cert_der =
+            x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
 
         let our_fingerprint = extract_fingerprint(&cert_der);
         let pki_fingerprint =
@@ -234,15 +236,16 @@ mod tests {
         let server_cert_der = server_cert.to_der().expect("Failed to encode server cert");
         let server_key_der = server_signer.pkcs8_der();
 
-        let ca_doc = der::Document::try_from(ca_cert_der).expect("Failed to create document");
+        let ca_doc =
+            x509_cert::der::Document::try_from(ca_cert_der).expect("Failed to create document");
         let ca_cert_pem = ca_doc
-            .to_pem("CERTIFICATE", der::pem::LineEnding::LF)
+            .to_pem("CERTIFICATE", x509_cert::der::pem::LineEnding::LF)
             .expect("Failed to convert CA to PEM");
 
         let server_doc =
-            der::Document::try_from(server_cert_der).expect("Failed to create document");
+            x509_cert::der::Document::try_from(server_cert_der).expect("Failed to create document");
         let server_cert_pem = server_doc
-            .to_pem("CERTIFICATE", der::pem::LineEnding::LF)
+            .to_pem("CERTIFICATE", x509_cert::der::pem::LineEnding::LF)
             .expect("Failed to convert server cert to PEM");
 
         let server_key_pem =
