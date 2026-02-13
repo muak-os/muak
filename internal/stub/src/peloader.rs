@@ -59,54 +59,58 @@ fn map_kernel_sections(kernel: &KernelPe<'_>) -> Result<*mut u8> {
             .context("failed to allocate pages for kernel image")?
             .as_ptr();
 
-    // SAFETY: base_ptr is freshly allocated with size_of_image bytes
-    unsafe {
-        ptr::write_bytes(base_ptr, 0, kernel.size_of_image as usize);
-    }
-
     for section in kernel.sections.iter() {
         let raw_size = section.size_of_raw_data.get(LE) as usize;
         let raw_offset = section.pointer_to_raw_data.get(LE) as usize;
         let virt_addr = section.virtual_address.get(LE) as u64;
         let virt_size = section.virtual_size.get(LE) as usize;
 
-        if raw_size == 0 {
-            continue;
-        }
-
         let dest_offset = virt_addr
             .checked_sub(kernel.image_base)
             .context("section VirtualAddress < ImageBase")?;
 
-        let copy_size = raw_size.min(virt_size);
-
-        if dest_offset as usize + copy_size > kernel.size_of_image as usize {
+        if dest_offset as usize + virt_size > kernel.size_of_image as usize {
             let name = pe::section_name(section);
             bail!(
                 "section {name} would write outside allocated memory \
-                 (offset=0x{dest_offset:x}, copy_size=0x{copy_size:x}, \
+                 (offset=0x{dest_offset:x}, virt_size=0x{virt_size:x}, \
                  image_size=0x{:x})",
                 kernel.size_of_image
             );
         }
 
-        if raw_offset + copy_size > kernel.data.len() {
-            let name = pe::section_name(section);
-            bail!(
-                "section {name} raw data out of bounds \
-                 (offset=0x{raw_offset:x}, size=0x{copy_size:x}, \
-                 data_len=0x{:x})",
-                kernel.data.len()
-            );
+        let copy_size = raw_size.min(virt_size);
+
+        if copy_size > 0 {
+            if raw_offset + copy_size > kernel.data.len() {
+                let name = pe::section_name(section);
+                bail!(
+                    "section {name} raw data out of bounds \
+                     (offset=0x{raw_offset:x}, size=0x{copy_size:x}, \
+                     data_len=0x{:x})",
+                    kernel.data.len()
+                );
+            }
+
+            // SAFETY: bounds are checked above, base_ptr is freshly allocated
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    kernel.data.as_ptr().add(raw_offset),
+                    base_ptr.add(dest_offset as usize),
+                    copy_size,
+                );
+            }
         }
 
-        // SAFETY: bounds are checked above
-        unsafe {
-            ptr::copy_nonoverlapping(
-                kernel.data.as_ptr().add(raw_offset),
-                base_ptr.add(dest_offset as usize),
-                copy_size,
-            );
+        if virt_size > copy_size {
+            // SAFETY: dest_offset + virt_size is bounds-checked above
+            unsafe {
+                ptr::write_bytes(
+                    base_ptr.add(dest_offset as usize + copy_size),
+                    0,
+                    virt_size - copy_size,
+                );
+            }
         }
     }
 

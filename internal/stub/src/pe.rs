@@ -22,6 +22,9 @@ pub struct UkiSections<'a> {
     pub luks: Option<&'a [u8]>,
 }
 
+/// Number of UKI sections we track
+const UKI_SECTION_COUNT: u8 = 5;
+
 impl<'a> UkiSections<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
         if data.len() < 0x40 {
@@ -39,10 +42,16 @@ impl<'a> UkiSections<'a> {
             luks: None,
         };
 
+        let mut found: u8 = 0;
+
         for section in sections.iter() {
             let name = std::str::from_utf8(&section.name)
                 .context("Invalid section name")?
                 .trim_end_matches('\0');
+
+            if !matches!(name, ".linux" | ".initrd" | ".cmdline" | ".dtb" | ".luks") {
+                continue;
+            }
 
             let rva = section.virtual_address.get(LE) as usize;
             let vs = section.virtual_size.get(LE) as usize;
@@ -69,7 +78,12 @@ impl<'a> UkiSections<'a> {
                 ".cmdline" => result.cmdline = Some(section_data),
                 ".dtb" => result.dtb = Some(section_data),
                 ".luks" => result.luks = Some(section_data),
-                _ => {}
+                _ => unreachable!(),
+            }
+
+            found += 1;
+            if found == UKI_SECTION_COUNT {
+                break;
             }
         }
 

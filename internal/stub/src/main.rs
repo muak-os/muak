@@ -21,6 +21,8 @@ use crate::pe::{KernelPe, UkiSections};
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
+const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
+
 /// Strips trailing NUL bytes from a byte slice
 fn strip_trailing_nuls(data: &[u8]) -> &[u8] {
     let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
@@ -53,8 +55,22 @@ fn main() -> Result<()> {
     let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
-    info!("Setup Mode: {}", security::is_setup_mode());
-    info!("Secure Boot: {}", security::is_secure_boot_enabled());
+    info!(
+        "Setup Mode: {}",
+        if security::is_setup_mode() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    info!(
+        "Secure Boot: {}",
+        if security::is_secure_boot_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     let (base_addr, image_size) = loaded_image.info();
     info!("Base address: {:p}, size: {}", base_addr, image_size);
@@ -90,14 +106,22 @@ fn main() -> Result<()> {
 
     let combined_cmdline: Vec<u8>;
     let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
-        let encoded = Base64Unpadded::encode_string(luks_data);
-        let mut cmd = sections
+        let base_cmd = sections
             .cmdline
             .map(|c| strip_trailing_nuls(c))
-            .unwrap_or(b"")
-            .to_vec();
-        cmd.extend_from_slice(b" luks.key=");
-        cmd.extend_from_slice(encoded.as_bytes());
+            .unwrap_or(b"");
+        let encoded_len = Base64Unpadded::encoded_len(luks_data);
+
+        let total_len = base_cmd.len() + LUKS_KEY_PREFIX.len() + encoded_len;
+        let mut cmd = Vec::with_capacity(total_len);
+        cmd.extend_from_slice(base_cmd);
+        cmd.extend_from_slice(LUKS_KEY_PREFIX);
+
+        let start = cmd.len();
+        cmd.resize(total_len, 0);
+        Base64Unpadded::encode(luks_data, &mut cmd[start..])
+            .context("Failed to encode LUKS key")?;
+
         combined_cmdline = cmd;
         info!("LUKS key embedded ({} bytes)", luks_data.len());
         Some(&combined_cmdline)
