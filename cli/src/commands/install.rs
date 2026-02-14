@@ -2,10 +2,20 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use owo_colors::OwoColorize;
+use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
-use crate::client::{GetConfigRequest, InstallRequest, ProvisionServiceClient, connect};
+use crate::client::{
+    GetConfigRequest, InstallRequest, InstallStep, ProvisionServiceClient, connect,
+};
 use crate::config::{ClientConfig, ServerContext};
+
+/// Data received upon successful completion of the install process.
+struct CompletedInstall {
+    ca_pem: String,
+    client_cert_pem: String,
+    server_name: String,
+}
 
 /// Handles system installation with configuration and certificate generation.
 pub async fn handle(
@@ -47,23 +57,49 @@ pub async fn handle(
         .install(request)
         .await
         .context("Failed to send install request")?;
-    let resp = response.into_inner();
 
-    if !resp.success {
-        eprintln!("{}", format!("Installation failed: {}", resp.error).red());
-        std::process::exit(1);
+    let mut stream = response.into_inner();
+    let mut result_data: Option<CompletedInstall> = None;
+
+    while let Some(progress) = stream.next().await {
+        let progress = progress.context("Error receiving install progress")?;
+        let step = InstallStep::try_from(progress.step).unwrap_or(InstallStep::Unknown);
+
+        match step {
+            InstallStep::Failed => {
+                eprintln!(
+                    "{}",
+                    format!("Installation failed: {}", progress.error).red()
+                );
+                std::process::exit(1);
+            }
+            InstallStep::Completed => {
+                result_data = Some(CompletedInstall {
+                    ca_pem: progress.ca_pem,
+                    client_cert_pem: progress.client_cert_pem,
+                    server_name: progress.server_name,
+                });
+            }
+            _ => {
+                print_step(&progress.message);
+            }
+        }
     }
 
-    let context_name = if resp.server_name.is_empty() {
+    let result = result_data.ok_or_else(|| {
+        anyhow::anyhow!("Install stream ended without a completion or failure message")
+    })?;
+
+    let context_name = if result.server_name.is_empty() {
         "default"
     } else {
-        &resp.server_name
+        &result.server_name
     };
 
     let ctx = ServerContext::from_pem(
         server_endpoint,
-        &resp.ca_pem,
-        &resp.client_cert_pem,
+        &result.ca_pem,
+        &result.client_cert_pem,
         key_pem.as_bytes(),
     );
 
@@ -83,7 +119,12 @@ pub async fn handle(
     wait_for_reboot(&ctx).await
 }
 
-/// Polls the server after reboot to verify the install succeeded
+/// Prints a step message
+fn print_step(message: &str) {
+    println!("{}", format!("{message}").yellow());
+}
+
+/// Polls the server after reboot to verify the install succeeded.
 async fn wait_for_reboot(ctx: &ServerContext) -> Result<()> {
     println!(
         "{}",

@@ -7,6 +7,7 @@ use ring::rand::SecureRandom;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
+use tokio::sync::mpsc;
 use x509_cert::der::EncodePem;
 use x509_cert::der::pem::LineEnding;
 
@@ -14,14 +15,8 @@ use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 
 use crate::constants::{self, DM_DATA, DM_STATE, LUKS_KEY_SIZE};
 use crate::disk;
+use crate::services::proto::provision::{InstallProgress, InstallStep};
 use crate::uki::{self, Uki};
-
-/// System installation status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstallationStatus {
-    Live,
-    Installed,
-}
 
 /// Result of a successful installation containing PKI materials.
 pub struct InstallResult {
@@ -37,26 +32,28 @@ struct ServerPki {
     pub server_key_pem: String,
 }
 
-/// Returns the current installation status of the system.
-pub fn status() -> InstallationStatus {
-    if Path::new(sysconfig::CONFIG_PATH).exists() {
-        InstallationStatus::Installed
-    } else {
-        InstallationStatus::Live
-    }
-}
-
 /// Installs Muak to the specified disk with the given configuration.
 pub fn install(
     disk_path: &str,
     force: bool,
     config: &HostConfig,
     admin_csr_pem: &str,
+    progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     kmsg::info!("Starting installation to {}", disk_path);
 
+    send_progress(
+        &progress,
+        InstallStep::Validating,
+        &format!("Validating disk {}", disk_path),
+    );
     validate_disk(disk_path, force)?;
 
+    send_progress(
+        &progress,
+        InstallStep::GeneratingKeys,
+        "Generating cryptographic keys",
+    );
     let sb_hierarchy = if config.system.secureboot {
         let setup_mode = sbolt::efi::get_setup_mode().unwrap_or(false);
         if !setup_mode {
@@ -76,9 +73,19 @@ pub fn install(
 
     let luks_key = generate_luks_key()?;
 
+    send_progress(
+        &progress,
+        InstallStep::GeneratingPki,
+        "Generating PKI and signing CSR",
+    );
     let (client_result, server_pki, config_with_auth) =
         generate_pki_and_sign_csr(admin_csr_pem, config)?;
 
+    send_progress(
+        &progress,
+        InstallStep::PullingImage,
+        &format!("Pulling installer image: {}", config_with_auth.system.image),
+    );
     let work_dir = Path::new(constants::INSTALL_DIR);
     let components = Uki::prepare(
         &config_with_auth.system.image,
@@ -87,9 +94,15 @@ pub fn install(
     )?;
     let staged_uki = work_dir.join("staged.efi");
 
+    send_progress(&progress, InstallStep::BuildingUki, "Building UKI");
     components.build(&staged_uki, Some(&luks_key))?;
 
     if let Some(ref hierarchy) = sb_hierarchy {
+        send_progress(
+            &progress,
+            InstallStep::SigningUki,
+            "Signing UKI for Secure Boot",
+        );
         Uki::sign(&staged_uki, hierarchy)?;
     }
 
@@ -98,10 +111,20 @@ pub fn install(
         kmsg::info!("Secure Boot keys enrolled");
     }
 
+    send_progress(
+        &progress,
+        InstallStep::Partitioning,
+        &format!("Partitioning disk {}", disk_path),
+    );
     disk::delete_all_partitions_blkpg(disk_path)?;
     disk::wipe_disk(disk_path)?;
     let (efi_part, state_part, data_part) = disk::create_partitions(disk_path)?;
 
+    send_progress(
+        &progress,
+        InstallStep::Formatting,
+        "Formatting partitions...",
+    );
     disk::format_efi_partition(&efi_part)?;
 
     run_parallel(
@@ -122,7 +145,18 @@ pub fn install(
         || disk::format_btrfs_partition(&dm_data, "DATA"),
     )?;
 
+    send_progress(
+        &progress,
+        InstallStep::Deploying,
+        "Deploying UKI to EFI partition",
+    );
     deploy_uki_to_efi(&efi_part, &staged_uki)?;
+
+    send_progress(
+        &progress,
+        InstallStep::Initializing,
+        "Initializing STATE partition",
+    );
     init_state_partition(
         &dm_state,
         &config_with_auth,
@@ -140,12 +174,18 @@ pub fn install(
     sync();
     kmsg::info!("Installation completed successfully!");
 
+    send_progress(
+        &progress,
+        InstallStep::Completed,
+        "Installation completed successfully",
+    );
+
     Ok(client_result)
 }
 
 /// Validates the disk is suitable for installation.
 fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
-    if !force && status() != InstallationStatus::Live {
+    if !force && Path::new(sysconfig::CONFIG_PATH).exists() {
         bail!(
             "Cannot install from an already-installed system. Boot from live ISO or use --force."
         );
@@ -341,4 +381,18 @@ where
 
         ra.and(rb)
     })
+}
+
+/// Sends a progress update
+fn send_progress(tx: &mpsc::Sender<InstallProgress>, step: InstallStep, message: &str) {
+    if tx
+        .blocking_send(InstallProgress {
+            step: step as i32,
+            message: message.to_string(),
+            ..Default::default()
+        })
+        .is_err()
+    {
+        kmsg::warn!("Progress receiver dropped during: {}", message);
+    }
 }

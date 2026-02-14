@@ -165,7 +165,8 @@ fn commit_update(marker: &ValidationMarker) -> Result<()> {
         marker.update_id
     );
 
-    let efi_device = disk::find_partition_by_partname("EFI")
+    let efi_device = tokio::runtime::Handle::current()
+        .block_on(disk::find_partition_by_partname("EFI"))
         .ok_or_else(|| anyhow::anyhow!("EFI partition not found"))?;
 
     let mount_point = "/run/mnt/efi";

@@ -1,6 +1,5 @@
 //! Sysfs-based disk and partition discovery utilities.
 
-use std::fs::{self, File};
 use std::io::{Read, Seek};
 use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
@@ -12,7 +11,7 @@ use super::types::{DiskInfo, PartitionInfo};
 
 /// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {
-    let mut f = File::open(disk)?;
+    let mut f = std::fs::File::open(disk)?;
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
 
     if disk_size < MIN_DISK_SIZE {
@@ -31,7 +30,7 @@ pub fn validate_disk_size(disk: &str) -> Result<()> {
 
 /// Validates that the specified path is a block device.
 pub fn validate_block_device(disk: &str) -> Result<()> {
-    let metadata = fs::metadata(disk)?;
+    let metadata = std::fs::metadata(disk)?;
 
     if !metadata.file_type().is_block_device() {
         bail!(
@@ -53,11 +52,11 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
 }
 
 /// Finds a partition device path by its GPT partition name.
-pub fn find_partition_by_partname(partname: &str) -> Option<String> {
-    let entries = fs::read_dir("/sys/class/block").ok()?;
+pub async fn find_partition_by_partname(partname: &str) -> Option<String> {
+    let mut entries = tokio::fs::read_dir("/sys/class/block").await.ok()?;
     let target = format!("PARTNAME={}", partname);
 
-    for entry in entries.flatten() {
+    while let Some(entry) = entries.next_entry().await.ok()? {
         let name = entry.file_name();
         let name = name.to_string_lossy();
 
@@ -66,7 +65,7 @@ pub fn find_partition_by_partname(partname: &str) -> Option<String> {
         }
 
         let uevent = entry.path().join("uevent");
-        let content = fs::read_to_string(&uevent).ok()?;
+        let content = tokio::fs::read_to_string(&uevent).await.ok()?;
         let found = content.lines().any(|line| line.trim() == target);
         if !found {
             continue;
@@ -90,19 +89,21 @@ fn is_physical_disk(name: &str) -> bool {
 }
 
 /// Reads a u64 value from a sysfs file.
-fn read_sysfs_u64(path: &Path) -> Result<u64> {
-    let content = fs::read_to_string(path)?;
+async fn read_sysfs_u64(path: &Path) -> Result<u64> {
+    let content = tokio::fs::read_to_string(path).await?;
     Ok(content.trim().parse()?)
 }
 
 /// Reads a string value from a sysfs file.
-fn read_sysfs_string(path: &Path) -> Result<String> {
-    let content = fs::read_to_string(path)?;
+async fn read_sysfs_string(path: &Path) -> Result<String> {
+    let content = tokio::fs::read_to_string(path).await?;
     Ok(content.trim().to_string())
 }
 
 /// Detects the filesystem type by reading magic bytes from the device.
 fn detect_filesystem(device_path: &str) -> String {
+    use std::fs::File;
+
     let mut file = match File::open(device_path) {
         Ok(f) => f,
         Err(_) => return String::new(),
@@ -132,7 +133,7 @@ fn detect_filesystem(device_path: &str) -> String {
 }
 
 /// Detects FAT filesystem variants by reading the boot sector.
-fn detect_fat_filesystem(file: &mut File) -> Option<String> {
+fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
     if file.seek(std::io::SeekFrom::Start(0)).is_err() {
         return None;
     }
@@ -156,12 +157,12 @@ fn detect_fat_filesystem(file: &mut File) -> Option<String> {
 }
 
 /// Reads partition information from sysfs.
-fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
+async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
     let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
 
-    let number = read_sysfs_u64(&sysfs_path.join("partition"))? as u32;
-    let start_sector = read_sysfs_u64(&sysfs_path.join("start"))?;
-    let size_sectors = read_sysfs_u64(&sysfs_path.join("size"))?;
+    let number = read_sysfs_u64(&sysfs_path.join("partition")).await? as u32;
+    let start_sector = read_sysfs_u64(&sysfs_path.join("start")).await?;
+    let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
     let size_bytes = size_sectors * SECTOR_SIZE;
 
     let path = format!("/dev/{}", part_name);
@@ -179,20 +180,21 @@ fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo
 }
 
 /// Reads disk information from sysfs including all partitions.
-fn read_disk_info(name: &str) -> Result<DiskInfo> {
+async fn read_disk_info(name: &str) -> Result<DiskInfo> {
     let sysfs_path = Path::new("/sys/block").join(name);
 
-    let size_sectors = read_sysfs_u64(&sysfs_path.join("size"))?;
+    let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
     let size_bytes = size_sectors * SECTOR_SIZE;
-    let removable = read_sysfs_u64(&sysfs_path.join("removable"))? != 0;
-    let read_only = read_sysfs_u64(&sysfs_path.join("ro"))? != 0;
+    let removable = read_sysfs_u64(&sysfs_path.join("removable")).await? != 0;
+    let read_only = read_sysfs_u64(&sysfs_path.join("ro")).await? != 0;
 
-    let model =
-        read_sysfs_string(&sysfs_path.join("device/model")).unwrap_or_else(|_| name.to_string());
+    let model = read_sysfs_string(&sysfs_path.join("device/model"))
+        .await
+        .unwrap_or_else(|_| name.to_string());
 
     let path = format!("/dev/{}", name);
 
-    let partitions = discover_partitions(&sysfs_path, name);
+    let partitions = discover_partitions(&sysfs_path, name).await;
 
     Ok(DiskInfo {
         name: name.to_string(),
@@ -206,22 +208,24 @@ fn read_disk_info(name: &str) -> Result<DiskInfo> {
 }
 
 /// Discovers all partitions belonging to a disk.
-fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
-    let Ok(entries) = fs::read_dir(sysfs_path) else {
+async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
+    let Ok(mut entries) = tokio::fs::read_dir(sysfs_path).await else {
         return Vec::new();
     };
 
-    let mut partitions: Vec<_> = entries
-        .flatten()
-        .filter_map(|entry| try_read_partition(entry, disk_name))
-        .collect();
+    let mut partitions = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if let Some(part) = try_read_partition(entry, disk_name).await {
+            partitions.push(part);
+        }
+    }
 
     partitions.sort_by_key(|p| p.number);
     partitions
 }
 
 /// Attempts to read partition information from a sysfs directory entry.
-fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
+async fn try_read_partition(entry: tokio::fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
 
@@ -233,20 +237,24 @@ fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionI
         return None;
     }
 
-    read_partition_info(disk_name, &part_name_str).ok()
+    read_partition_info(disk_name, &part_name_str).await.ok()
 }
 
 /// Lists all physical disks on the system.
-pub fn list_disks() -> Result<Vec<DiskInfo>> {
+pub async fn list_disks() -> Result<Vec<DiskInfo>> {
     let block_dir = Path::new("/sys/block");
     if !block_dir.exists() {
         bail!("/sys/block does not exist - sysfs not mounted?");
     }
 
-    let mut disks: Vec<_> = fs::read_dir(block_dir)?
-        .flatten()
-        .filter_map(try_read_disk)
-        .collect();
+    let mut disks = Vec::new();
+    let mut entries = tokio::fs::read_dir(block_dir).await?;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if let Some(disk) = try_read_disk(entry).await {
+            disks.push(disk);
+        }
+    }
 
     disks.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -254,7 +262,7 @@ pub fn list_disks() -> Result<Vec<DiskInfo>> {
 }
 
 /// Attempts to read disk information from a sysfs directory entry.
-fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
+async fn try_read_disk(entry: tokio::fs::DirEntry) -> Option<DiskInfo> {
     let name = entry.file_name();
     let name_str = name.to_string_lossy();
 
@@ -262,7 +270,7 @@ fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
         return None;
     }
 
-    match read_disk_info(&name_str) {
+    match read_disk_info(&name_str).await {
         Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
         Ok(_) => None,
         Err(e) => {

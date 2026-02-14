@@ -58,14 +58,9 @@ impl AuthService for AuthServiceImpl {
             return Ok(Response::new(SubmitCsrResponse { fingerprint }));
         }
 
-        tokio::task::spawn_blocking({
-            let csr_pem = req.csr_pem.clone();
-            let fp = fingerprint.clone();
-            move || store_pending_csr(&fp, &csr_pem)
-        })
-        .await
-        .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
-        .map_err(|e| Status::internal(format!("Failed to store CSR: {}", e)))?;
+        store_pending_csr(&fingerprint, &req.csr_pem)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to store CSR: {}", e)))?;
 
         kmsg::info!("CSR submitted: {}", &fingerprint[..16]);
 
@@ -124,9 +119,8 @@ impl AuthService for AuthServiceImpl {
         &self,
         _request: Request<ListPendingCsrsRequest>,
     ) -> Result<Response<ListPendingCsrsResponse>, Status> {
-        let csrs = tokio::task::spawn_blocking(list_pending_csrs)
+        let csrs = list_pending_csrs()
             .await
-            .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
             .map_err(|e| Status::internal(format!("Failed to list pending CSRs: {}", e)))?;
 
         Ok(Response::new(ListPendingCsrsResponse { csrs }))
@@ -145,22 +139,22 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::not_found("CSR not found"));
         }
 
-        let csr_pem = std::fs::read_to_string(&pending_path)
+        let csr_pem = tokio::fs::read_to_string(&pending_path)
+            .await
             .map_err(|e| Status::internal(format!("Failed to read CSR: {}", e)))?;
 
-        let (cert, cert_fingerprint) = tokio::task::spawn_blocking({
-            let csr = csr_pem.clone();
-            move || sign_pending_csr(&csr)
-        })
-        .await
-        .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
-        .map_err(|e| Status::internal(format!("Failed to sign CSR: {}", e)))?;
+        let (cert, cert_fingerprint) =
+            tokio::task::spawn_blocking(move || sign_pending_csr(&csr_pem))
+                .await
+                .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
+                .map_err(|e| Status::internal(format!("Failed to sign CSR: {}", e)))?;
 
         let cert_pem = cert
             .to_pem(LineEnding::LF)
             .map_err(|e| Status::internal(format!("Failed to encode certificate: {}", e)))?;
 
         store_staging_cert(&fingerprint, &cert_pem)
+            .await
             .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
 
         let parsed_permissions: Vec<sysconfig::Permission> = {
@@ -175,9 +169,10 @@ impl AuthService for AuthServiceImpl {
         };
 
         add_user_to_config(&cert_fingerprint, parsed_permissions)
+            .await
             .map_err(|e| Status::internal(format!("Failed to update config: {}", e)))?;
 
-        let _ = std::fs::remove_file(&pending_path);
+        let _ = tokio::fs::remove_file(&pending_path).await;
 
         kmsg::info!(
             "CSR approved: {} -> {}",
@@ -195,6 +190,7 @@ impl AuthService for AuthServiceImpl {
         let fingerprint = request.into_inner().fingerprint;
 
         revoke_user(&fingerprint)
+            .await
             .map_err(|e| Status::internal(format!("Failed to revoke certificate: {}", e)))?;
 
         kmsg::info!("Certificate revoked: {}", &fingerprint[..16]);
@@ -236,7 +232,8 @@ impl AuthService for AuthServiceImpl {
 
         let cert_path = staging_cert_path(&fingerprint);
         if cert_path.exists() {
-            std::fs::remove_file(&cert_path)
+            tokio::fs::remove_file(&cert_path)
+                .await
                 .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {}", e)))?;
         }
 
@@ -252,29 +249,30 @@ fn pending_csr_path(fingerprint: &str) -> PathBuf {
 }
 
 /// Stores a pending CSR to disk.
-fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
-    std::fs::create_dir_all(pending_dir())?;
+async fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(pending_dir()).await?;
     let path = pending_csr_path(fingerprint);
-    std::fs::write(path, csr_pem)?;
+    tokio::fs::write(path, csr_pem).await?;
     Ok(())
 }
 
 /// Lists all pending CSRs.
-fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
+async fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
     let dir = pending_dir();
-    if !dir.exists() {
+    if !tokio::fs::try_exists(&dir).await? {
         return Ok(Vec::new());
     }
 
     let mut csrs = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    let mut entries = tokio::fs::read_dir(dir).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
 
         if path.extension().is_some_and(|e| e == "pem")
             && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
         {
-            let metadata = std::fs::metadata(&path)?;
+            let metadata = tokio::fs::metadata(&path).await?;
             let submitted_at = metadata
                 .created()
                 .or_else(|_| metadata.modified())
@@ -296,7 +294,7 @@ fn list_pending_csrs() -> anyhow::Result<Vec<PendingCsr>> {
 }
 
 /// Signs pending CSR with the CA.
-fn sign_pending_csr(csr_pem: &str) -> anyhow::Result<(Certificate, String)> {
+fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
     let ca_key_pem = std::fs::read_to_string(ca_key_path())
         .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;
     let ca_cert_pem = std::fs::read_to_string(ca_cert_path())
@@ -320,22 +318,25 @@ fn staging_cert_path(fingerprint: &str) -> PathBuf {
 }
 
 /// Stores a certificate in staging for client pickup.
-fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> anyhow::Result<()> {
-    std::fs::create_dir_all(staging_dir())?;
+async fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> Result<()> {
+    tokio::fs::create_dir_all(staging_dir()).await?;
     let path = staging_cert_path(fingerprint);
-    std::fs::write(path, cert_pem)?;
+    tokio::fs::write(path, cert_pem).await?;
     Ok(())
 }
 
 /// Loads a staging certificate and CA cert for a fingerprint.
-fn load_staging_cert(fingerprint: &str) -> anyhow::Result<(String, String)> {
+fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
     let ca_pem = std::fs::read_to_string(ca_cert_path())?;
     let cert_pem = std::fs::read_to_string(staging_cert_path(fingerprint))?;
     Ok((ca_pem, cert_pem))
 }
 
 /// Adds a user to the config.
-fn add_user_to_config(fingerprint: &str, permissions: Vec<sysconfig::Permission>) -> Result<()> {
+async fn add_user_to_config(
+    fingerprint: &str,
+    permissions: Vec<sysconfig::Permission>,
+) -> Result<()> {
     let mut config = sysconfig::try_config().cloned().unwrap_or_default();
 
     config.auth.users.push(sysconfig::AuthUser {
@@ -344,13 +345,13 @@ fn add_user_to_config(fingerprint: &str, permissions: Vec<sysconfig::Permission>
     });
 
     let config_str = sysconfig::serialize(&config)?;
-    std::fs::write(sysconfig::CONFIG_PATH, config_str)?;
+    tokio::fs::write(sysconfig::CONFIG_PATH, config_str).await?;
 
     Ok(())
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
-fn revoke_user(fingerprint: &str) -> Result<()> {
+async fn revoke_user(fingerprint: &str) -> Result<()> {
     let mut config = sysconfig::try_config().cloned().unwrap_or_default();
 
     config.auth.users.retain(|u| u.fingerprint != fingerprint);
@@ -360,7 +361,7 @@ fn revoke_user(fingerprint: &str) -> Result<()> {
     }
 
     let config_str = sysconfig::serialize(&config)?;
-    std::fs::write(sysconfig::CONFIG_PATH, config_str)?;
+    tokio::fs::write(sysconfig::CONFIG_PATH, config_str).await?;
 
     Ok(())
 }

@@ -12,8 +12,7 @@
   - Create install script for users to easily install the CLI regardless of OS
   - Create a dashboard command with a TUI interface to display critical system information
 
-- Better PID 1
-  - Add journalctl like support to monitor logs of all services
+- Add journalctl like support in PID 1 to monitor logs of all services
 
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
@@ -36,22 +35,20 @@
 
 - Enhance sysconfig shared lib:
   - Config versioning with tracking of changes over time
-  - Allow config hot reload (SIGHUP or something)
+  - **Allow config hot reload (SIGHUP or something)**
 
 - Enhance `apid`
   - Rate limit routes especially unauthenticated ones
   - Protect unauthenticated routes once system is installed (disk & logs but not auth)
 
 - Disk Manager Service:
-  - Automatic LUKS unlocking using TPM2
   - Add support in internal/init to allow for e2e remote unlocking using gRPC or some other way (Tang like?)
   - Copy-on-Write disk creation for templates
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM to avoid duplication
   - Use Btrfs scrub to verify integrity of all data (/var issue)
-  - Allow /run/data to be on a different disk than rootfs
-  - Allow vm disks to be stored on a different disk than rootfs
+  - **Allow /run/data to be on a different disk than rootfs**
   - Replace direct call to `mkfs.btrfs` with FFI bindings or some other way to avoid spawning processes
 
 - Add e2e testing:
@@ -63,16 +60,17 @@
 
 - Better install:
   - Only allow signed installer images to be installed
-  - Add better feedback during install process like formatting etc.
   - Improve performance in formatting DATA partition?
 
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM
   - Consolidate crypto crates and primitives to `internal/shared/crypto` if possible
 
-- Stub improvements:
-  - Add TPM PCR#7 measurements in stub
-  - Better stub performance after loadfile success
+- Support for TPM2:
+  - Add TPM PCR#11 measurements in stub
+  - Prefer TPM2 backend when available to store disk encryption keys
+
+- Support for containers like LXC and Docker
 
 - Support Apple M1/M2 using Asahi Linux
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
