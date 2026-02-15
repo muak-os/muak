@@ -2,6 +2,7 @@
 
 mod fixtures;
 
+use apid::proxy::{self, BackendPool};
 use fixtures::mock_backend::MockBackend;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::Request;
@@ -21,7 +22,8 @@ async fn test_proxy_to_backend_success() {
         .unwrap();
 
     let socket_path = backend.socket_path.to_str().unwrap();
-    let result = apid::proxy::proxy_to_backend(req, socket_path).await;
+    let pool = BackendPool::from_socket(socket_path);
+    let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
     assert!(result.is_ok(), "Proxy should succeed: {:?}", result.err());
 
@@ -43,7 +45,9 @@ async fn test_proxy_to_backend_connection_error() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let result = apid::proxy::proxy_to_backend(req, "/nonexistent/path/to/socket.sock").await;
+    let socket_path = "/nonexistent/path/to/socket.sock";
+    let pool = BackendPool::from_socket(socket_path);
+    let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
     assert!(result.is_err(), "Should fail for non-existent socket");
     let err = result.unwrap_err();
@@ -69,7 +73,8 @@ async fn test_proxy_to_backend_with_body() {
         .unwrap();
 
     let socket_path = backend.socket_path.to_str().unwrap();
-    let result = apid::proxy::proxy_to_backend(req, socket_path).await;
+    let pool = BackendPool::from_socket(socket_path);
+    let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
     assert!(
         result.is_ok(),
@@ -102,7 +107,8 @@ async fn test_proxy_receives_response_body() {
         .unwrap();
 
     let socket_path = backend.socket_path.to_str().unwrap();
-    let response = apid::proxy::proxy_to_backend(req, socket_path)
+    let pool = BackendPool::from_socket(socket_path);
+    let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
@@ -140,7 +146,8 @@ async fn test_proxy_preserves_uri_path() {
         .unwrap();
 
     let socket_path = backend.socket_path.to_str().unwrap();
-    let response = apid::proxy::proxy_to_backend(req, socket_path)
+    let pool = BackendPool::from_socket(socket_path);
+    let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
@@ -184,7 +191,8 @@ async fn test_proxy_preserves_headers() {
         .unwrap();
 
     let socket_path = backend.socket_path.to_str().unwrap();
-    let response = apid::proxy::proxy_to_backend(req, socket_path)
+    let pool = BackendPool::from_socket(socket_path);
+    let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
@@ -202,6 +210,7 @@ async fn test_proxy_multiple_requests() {
         .expect("Failed to create mock backend");
 
     let socket_path = backend.socket_path.to_str().unwrap();
+    let pool = BackendPool::from_socket(socket_path);
 
     for i in 0..3 {
         let req = Request::builder()
@@ -211,7 +220,7 @@ async fn test_proxy_multiple_requests() {
             .body(Empty::<Bytes>::new())
             .unwrap();
 
-        let result = apid::proxy::proxy_to_backend(req, socket_path).await;
+        let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
         assert!(
             result.is_ok(),
             "Request {} should succeed: {:?}",
@@ -226,13 +235,14 @@ async fn test_proxy_multiple_requests() {
 #[tokio::test]
 async fn test_proxy_error_includes_socket_path() {
     let socket_path = "/tmp/specific_test_socket_path_12345.sock";
+    let pool = BackendPool::from_socket(socket_path);
     let req = Request::builder()
         .method("POST")
         .uri("/test")
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let result = apid::proxy::proxy_to_backend(req, socket_path).await;
+    let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();

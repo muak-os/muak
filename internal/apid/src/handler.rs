@@ -1,11 +1,13 @@
 //! gRPC request handling and routing
 
+use std::sync::Arc;
+
 use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 
 use crate::config;
-use crate::proxy;
+use crate::proxy::{self, BackendPool};
 use crate::rbac;
 
 /// Body type for handler responses - either an error (Empty) or proxied stream (Incoming)
@@ -13,8 +15,9 @@ pub type Body = Either<Empty<Bytes>, Incoming>;
 
 /// Handles an incoming gRPC request
 pub async fn handle_request(
+    pool: &BackendPool,
     req: Request<Incoming>,
-    client_fingerprint: Option<String>,
+    client_fingerprint: Option<Arc<str>>,
     maintenance_mode: bool,
 ) -> Result<Response<Body>, hyper::Error> {
     let path = req.uri().path();
@@ -38,7 +41,7 @@ pub async fn handle_request(
         }
     };
 
-    match proxy::proxy_to_backend(req, socket_path).await {
+    match proxy::proxy_to_backend(pool, req, socket_path).await {
         Ok(response) => Ok(response.map(Either::Right)),
         Err(e) => {
             kmsg::error!("Proxy error to {}: {}", socket_path, e);

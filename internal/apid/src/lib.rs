@@ -35,6 +35,8 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
+use crate::proxy::BackendPool;
+
 /// Arguments parsed from command line
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
@@ -87,6 +89,8 @@ pub async fn run(
     shutdown: &Arc<AtomicBool>,
     maintenance_mode: bool,
 ) {
+    let pool = Arc::new(BackendPool::new());
+
     while !shutdown.load(Ordering::SeqCst) {
         let accept_future = listener.accept();
         let timeout_result =
@@ -102,7 +106,9 @@ pub async fn run(
         };
 
         let acceptor = tls_acceptor.clone();
+        let pool = pool.clone();
         tokio::spawn(handle_tls_connection(
+            pool,
             acceptor,
             stream,
             peer_addr,
@@ -113,6 +119,7 @@ pub async fn run(
 
 /// Handles the TLS handshake and connection for a single client.
 async fn handle_tls_connection(
+    pool: Arc<BackendPool>,
     acceptor: TlsAcceptor,
     stream: tokio::net::TcpStream,
     peer_addr: SocketAddr,
@@ -126,8 +133,14 @@ async fn handle_tls_connection(
                 .peer_certificates()
                 .and_then(|certs| certs.first().cloned());
 
-            server::serve_tls_connection(tls_stream, peer_addr, client_cert, maintenance_mode)
-                .await;
+            server::serve_tls_connection(
+                pool,
+                tls_stream,
+                peer_addr,
+                client_cert,
+                maintenance_mode,
+            )
+            .await;
         }
         Err(e) => {
             kmsg::warn!("TLS handshake failed from {}: {:?}", peer_addr, e);
