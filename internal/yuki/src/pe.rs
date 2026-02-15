@@ -9,7 +9,7 @@ use object::read::pe::{ImageNtHeaders, PeFile64};
 use crate::YukiError;
 use crate::binary;
 use crate::binary::{align_to, read_u32};
-use crate::config;
+use crate::constants;
 
 pub struct PeMetadata {
     pub file_header_offset: usize,
@@ -28,19 +28,19 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
     let nt_headers = pe.nt_headers();
     let sections = pe.section_table();
 
-    let pe_offset = read_u32(stub_data, config::DOS_HEADER_PE_OFFSET) as usize;
-    let file_header_offset = pe_offset + config::PE_SIGNATURE_SIZE;
+    let pe_offset = read_u32(stub_data, constants::DOS_HEADER_PE_OFFSET) as usize;
+    let file_header_offset = pe_offset + constants::PE_SIGNATURE_SIZE;
     let optional_header_offset = file_header_offset + mem::size_of::<ImageFileHeader>();
     let optional_header_size = nt_headers.file_header().size_of_optional_header.get(LE) as usize;
     let section_table_offset = optional_header_offset + optional_header_size;
 
     let section_alignment = read_u32(
         stub_data,
-        optional_header_offset + config::OPT_HEADER_SECTION_ALIGNMENT,
+        optional_header_offset + constants::OPT_HEADER_SECTION_ALIGNMENT,
     );
     let file_alignment = read_u32(
         stub_data,
-        optional_header_offset + config::OPT_HEADER_FILE_ALIGNMENT,
+        optional_header_offset + constants::OPT_HEADER_FILE_ALIGNMENT,
     );
 
     let (last_section_file_end, last_section_virtual_end) =
@@ -68,7 +68,7 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
 }
 
 pub fn update_image_size(stub_data: &mut [u8], metadata: &PeMetadata, max_virtual_end: u32) {
-    let size_of_image_off = metadata.optional_header_offset + config::OPT_HEADER_SIZE_OF_IMAGE;
+    let size_of_image_off = metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
     let new_size_of_image = align_to(max_virtual_end, metadata.section_alignment);
     binary::write_u32(stub_data, size_of_image_off, new_size_of_image);
 }
@@ -144,7 +144,7 @@ mod tests {
         update_image_size(&mut stub, &metadata, new_size);
 
         let size_of_image_offset =
-            metadata.optional_header_offset + config::OPT_HEADER_SIZE_OF_IMAGE;
+            metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([
             stub[size_of_image_offset],
             stub[size_of_image_offset + 1],
@@ -173,7 +173,7 @@ mod tests {
         update_image_size(&mut stub, &metadata, unaligned_size);
 
         let size_of_image_offset =
-            metadata.optional_header_offset + config::OPT_HEADER_SIZE_OF_IMAGE;
+            metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([
             stub[size_of_image_offset],
             stub[size_of_image_offset + 1],
@@ -221,7 +221,7 @@ mod tests {
         update_image_size(&mut stub, &metadata, size);
 
         let size_of_image_offset =
-            metadata.optional_header_offset + config::OPT_HEADER_SIZE_OF_IMAGE;
+            metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([
             stub[size_of_image_offset],
             stub[size_of_image_offset + 1],

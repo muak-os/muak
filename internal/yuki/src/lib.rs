@@ -7,31 +7,13 @@ use std::fs;
 use std::path::Path;
 use std::result::Result;
 
-use thiserror::Error;
-
 mod binary;
-mod config;
+mod constants;
+mod error;
 mod pe;
 mod section;
 
-/// Error type for UKI building operations.
-#[derive(Error, Debug)]
-pub enum YukiError {
-    #[error("Failed to read {file}: {source}")]
-    ReadError {
-        file: String,
-        source: std::io::Error,
-    },
-
-    #[error("Failed to parse PE file: {0}")]
-    PeParseError(String),
-
-    #[error("Invalid PE structure: {0}")]
-    InvalidPeStructure(String),
-
-    #[error("Too many sections: cannot add more sections to PE file")]
-    TooManySections,
-}
+pub use error::YukiError;
 
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
 ///
@@ -136,7 +118,7 @@ pub fn build(
     stub.resize(section_info.total_file_size, 0);
 
     let new_section_count = metadata.current_section_count + section_count as u16;
-    let section_count_offset = metadata.file_header_offset + config::COFF_NUMBER_OF_SECTIONS;
+    let section_count_offset = metadata.file_header_offset + constants::COFF_NUMBER_OF_SECTIONS;
     stub[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 

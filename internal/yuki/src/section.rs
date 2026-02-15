@@ -7,7 +7,7 @@ use object::pe::ImageSectionHeader;
 
 use crate::YukiError;
 use crate::binary::align_to;
-use crate::config;
+use crate::constants;
 use crate::pe::PeMetadata;
 
 pub struct SectionInfo {
@@ -61,7 +61,7 @@ pub fn build_headers(metadata: &PeMetadata, data: &SectionData) -> Result<Sectio
         let mut section = ImageSectionHeader::default();
 
         let name_bytes = name.as_bytes();
-        let name_len = name_bytes.len().min(config::SECTION_NAME_MAX_LEN);
+        let name_len = name_bytes.len().min(constants::SECTION_NAME_MAX_LEN);
         section.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
 
         section.virtual_size.set(LE, virtual_size);
@@ -70,9 +70,11 @@ pub fn build_headers(metadata: &PeMetadata, data: &SectionData) -> Result<Sectio
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
         let characteristics = if *name == ".linux" {
-            config::IMAGE_SCN_CNT_CODE | config::IMAGE_SCN_MEM_EXECUTE | config::IMAGE_SCN_MEM_READ
+            constants::IMAGE_SCN_CNT_CODE
+                | constants::IMAGE_SCN_MEM_EXECUTE
+                | constants::IMAGE_SCN_MEM_READ
         } else {
-            config::IMAGE_SCN_CNT_INITIALIZED_DATA | config::IMAGE_SCN_MEM_READ
+            constants::IMAGE_SCN_CNT_INITIALIZED_DATA | constants::IMAGE_SCN_MEM_READ
         };
         section.characteristics.set(LE, characteristics);
 
@@ -317,11 +319,13 @@ mod tests {
 
         assert_eq!(
             linux_chars,
-            config::IMAGE_SCN_CNT_CODE | config::IMAGE_SCN_MEM_EXECUTE | config::IMAGE_SCN_MEM_READ
+            constants::IMAGE_SCN_CNT_CODE
+                | constants::IMAGE_SCN_MEM_EXECUTE
+                | constants::IMAGE_SCN_MEM_READ
         );
         assert_eq!(
             cmdline_chars,
-            config::IMAGE_SCN_CNT_INITIALIZED_DATA | config::IMAGE_SCN_MEM_READ
+            constants::IMAGE_SCN_CNT_INITIALIZED_DATA | constants::IMAGE_SCN_MEM_READ
         );
     }
 
