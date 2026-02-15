@@ -66,11 +66,11 @@ impl ChunkBuilder {
         write_u64(&mut chunk.owner, BTRFS_EXTENT_TREE_OBJECTID);
         write_u64(&mut chunk.stripe_len, BTRFS_STRIPE_LEN);
         write_u64(&mut chunk.type_, self.chunk_type);
-        write_u32(&mut chunk.io_align, BTRFS_STRIPE_LEN as u32);
-        write_u32(&mut chunk.io_width, BTRFS_STRIPE_LEN as u32);
+        write_u32(&mut chunk.io_align, BTRFS_DEFAULT_SECTORSIZE);
+        write_u32(&mut chunk.io_width, BTRFS_DEFAULT_SECTORSIZE);
         write_u32(&mut chunk.sector_size, BTRFS_DEFAULT_SECTORSIZE);
         write_u16(&mut chunk.num_stripes, num_stripes as u16);
-        write_u16(&mut chunk.sub_stripes, 1);
+        write_u16(&mut chunk.sub_stripes, 0);
 
         // Build stripes
         let stripe_offset = size_of::<BtrfsChunk>();
