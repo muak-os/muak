@@ -1,3 +1,5 @@
+//! Utilities for binary data manipulation.
+
 /// Aligns a value up to the nearest multiple of the given alignment.
 #[inline]
 pub fn align_to(value: u32, alignment: u32) -> u32 {

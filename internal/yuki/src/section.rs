@@ -1,6 +1,9 @@
+//! PE section creation and embedding.
+
+use std::mem;
+
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
-use std::mem;
 
 use crate::YukiError;
 use crate::binary::align_to;
@@ -23,7 +26,7 @@ pub struct SectionData<'a> {
 }
 
 fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static str, &'a [u8])> {
-    let mut sections = vec![(".cmdline", data.cmdline)];
+    let mut sections = vec![(".linux", data.linux)];
 
     if let Some(dtb) = data.dtb {
         sections.push((".dtb", dtb));
@@ -33,7 +36,7 @@ fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static str, &'a [u8]
         sections.push((".luks", luks));
     }
 
-    sections.push((".linux", data.linux));
+    sections.push((".cmdline", data.cmdline));
     sections.push((".initrd", data.initrd));
 
     sections

@@ -1,7 +1,10 @@
+//! PE file parsing and manipulation.
+
+use std::mem;
+
 use object::LittleEndian as LE;
 use object::pe::ImageFileHeader;
 use object::read::pe::{ImageNtHeaders, PeFile64};
-use std::mem;
 
 use crate::YukiError;
 use crate::binary;

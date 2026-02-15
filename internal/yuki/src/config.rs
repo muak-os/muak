@@ -1,3 +1,5 @@
+//! Configuration constants for PE file structures and alignments.
+
 pub const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
 pub const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
 pub const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;

@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::Path;
 use std::result::Result;
+
 use thiserror::Error;
 
 mod binary;
