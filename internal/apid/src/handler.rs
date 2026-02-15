@@ -30,7 +30,7 @@ pub async fn handle_request(
         return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
     }
 
-    let socket_path = match route_request(path) {
+    let socket_path = match route_request(path).await {
         Some(socket) => socket,
         None => {
             kmsg::warn!("Unknown service path: {}", path);
@@ -48,9 +48,12 @@ pub async fn handle_request(
 }
 
 /// Routes a request path to the appropriate backend socket.
-pub fn route_request(path: &str) -> Option<&'static str> {
+pub async fn route_request(path: &str) -> Option<&'static str> {
     if path.starts_with(config::VM_SERVICE_PREFIX) {
-        if !std::path::Path::new(config::VMD_SOCKET).exists() {
+        let socket_exists = tokio::fs::try_exists(config::VMD_SOCKET)
+            .await
+            .unwrap_or(false);
+        if !socket_exists {
             kmsg::warn!("VM service not available in maintenance mode");
             return None;
         }
@@ -87,63 +90,63 @@ pub fn grpc_error(status: u8, message: &str) -> Response<Body> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_route_request_process_service() {
+    #[tokio::test]
+    async fn test_route_request_process_service() {
         let path = "/muak.process.v1.ProcessService/List";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, Some(config::GRANOLA_SOCKET));
     }
 
-    #[test]
-    fn test_route_request_provision_service() {
+    #[tokio::test]
+    async fn test_route_request_provision_service() {
         let path = "/muak.provision.v1.ProvisionService/Install";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
-    #[test]
-    fn test_route_request_auth_service() {
+    #[tokio::test]
+    async fn test_route_request_auth_service() {
         let path = "/muak.auth.v1.AuthService/SubmitCsr";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
-    #[test]
-    fn test_route_request_security_service() {
+    #[tokio::test]
+    async fn test_route_request_security_service() {
         let path = "/muak.security.v1.SecurityService/GetSecurityState";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
-    #[test]
-    fn test_route_request_unknown_service() {
+    #[tokio::test]
+    async fn test_route_request_unknown_service() {
         let path = "/unknown.Service/Method";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, None);
     }
 
-    #[test]
-    fn test_route_request_empty_path() {
-        let socket = route_request("");
+    #[tokio::test]
+    async fn test_route_request_empty_path() {
+        let socket = route_request("").await;
         assert_eq!(socket, None);
     }
 
-    #[test]
-    fn test_route_request_root_path() {
-        let socket = route_request("/");
+    #[tokio::test]
+    async fn test_route_request_root_path() {
+        let socket = route_request("/").await;
         assert_eq!(socket, None);
     }
 
-    #[test]
-    fn test_route_request_partial_match_not_enough() {
-        let socket = route_request("/muak.process");
+    #[tokio::test]
+    async fn test_route_request_partial_match_not_enough() {
+        let socket = route_request("/muak.process").await;
         assert_eq!(socket, None);
     }
 
-    #[test]
-    fn test_route_request_vm_service_without_socket() {
+    #[tokio::test]
+    async fn test_route_request_vm_service_without_socket() {
         let path = "/muak.vm.v1.VmService/CreateVm";
-        let socket = route_request(path);
+        let socket = route_request(path).await;
         assert_eq!(socket, None);
     }
 
