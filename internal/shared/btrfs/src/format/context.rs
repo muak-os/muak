@@ -39,6 +39,8 @@ impl MkfsContext {
     /// * `device_size` - Size of the device in bytes
     /// * `label` - Filesystem label
     pub fn new(device: File, device_size: u64, label: String) -> Self {
+        let device_size =
+            (device_size / BTRFS_DEFAULT_SECTORSIZE as u64) * BTRFS_DEFAULT_SECTORSIZE as u64;
         let layout = DiskLayout::new(device_size);
         Self {
             device,
