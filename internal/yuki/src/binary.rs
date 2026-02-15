@@ -1,4 +1,5 @@
 /// Aligns a value up to the nearest multiple of the given alignment.
+#[inline]
 pub fn align_to(value: u32, alignment: u32) -> u32 {
     if alignment == 0 {
         return value;
@@ -7,11 +8,13 @@ pub fn align_to(value: u32, alignment: u32) -> u32 {
 }
 
 /// Reads a little-endian u32 from a byte buffer at the given offset.
+#[inline]
 pub fn read_u32(buf: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
 }
 
 /// Writes a little-endian u32 to a byte buffer at the given offset.
+#[inline]
 pub fn write_u32(buf: &mut [u8], off: usize, val: u32) {
     buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
 }

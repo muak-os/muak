@@ -100,13 +100,14 @@ pub fn build(
         source: e,
     })?;
 
-    let dtb = match dtb_path {
-        Some(path) => Some(fs::read(path).map_err(|e| YukiError::ReadError {
-            file: path.display().to_string(),
-            source: e,
-        })?),
-        None => None,
-    };
+    let dtb = dtb_path
+        .map(|path| {
+            fs::read(path).map_err(|e| YukiError::ReadError {
+                file: path.display().to_string(),
+                source: e,
+            })
+        })
+        .transpose()?;
 
     let metadata = pe::extract_metadata(&stub)?;
 
@@ -121,14 +122,15 @@ pub fn build(
         return Err(YukiError::TooManySections);
     }
 
-    let section_info = section::build_headers(
-        &metadata,
-        &linux,
-        &initrd,
-        &cmdline,
-        dtb.as_deref(),
-        luks_data,
-    )?;
+    let data = section::SectionData {
+        linux: &linux,
+        initrd: &initrd,
+        cmdline: &cmdline,
+        dtb: dtb.as_deref(),
+        luks: luks_data,
+    };
+
+    let section_info = section::build_headers(&metadata, &data)?;
 
     stub.resize(section_info.total_file_size, 0);
 
@@ -137,16 +139,7 @@ pub fn build(
     stub[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 
-    section::write_to_image(
-        &mut stub,
-        &metadata,
-        &section_info,
-        &linux,
-        &initrd,
-        &cmdline,
-        dtb.as_deref(),
-        luks_data,
-    )?;
+    section::write_to_image(&mut stub, &metadata, &section_info, &data)?;
 
     pe::update_image_size(&mut stub, &metadata, section_info.max_virtual_end);
 

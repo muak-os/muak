@@ -25,12 +25,7 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
     let nt_headers = pe.nt_headers();
     let sections = pe.section_table();
 
-    let pe_offset = u32::from_le_bytes([
-        stub_data[config::DOS_HEADER_PE_OFFSET],
-        stub_data[config::DOS_HEADER_PE_OFFSET + 1],
-        stub_data[config::DOS_HEADER_PE_OFFSET + 2],
-        stub_data[config::DOS_HEADER_PE_OFFSET + 3],
-    ]) as usize;
+    let pe_offset = read_u32(stub_data, config::DOS_HEADER_PE_OFFSET) as usize;
     let file_header_offset = pe_offset + config::PE_SIGNATURE_SIZE;
     let optional_header_offset = file_header_offset + mem::size_of::<ImageFileHeader>();
     let optional_header_size = nt_headers.file_header().size_of_optional_header.get(LE) as usize;
@@ -45,17 +40,15 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
         optional_header_offset + config::OPT_HEADER_FILE_ALIGNMENT,
     );
 
-    let last_section_file_end = sections
-        .iter()
-        .map(|s| s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE))
-        .max()
-        .unwrap_or(0);
-
-    let last_section_virtual_end = sections
-        .iter()
-        .map(|s| s.virtual_address.get(LE) + align_to(s.virtual_size.get(LE), section_alignment))
-        .max()
-        .unwrap_or(0);
+    let (last_section_file_end, last_section_virtual_end) =
+        sections
+            .iter()
+            .fold((0u32, 0u32), |(max_file, max_virt), s| {
+                let file_end = s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE);
+                let virt_end =
+                    s.virtual_address.get(LE) + align_to(s.virtual_size.get(LE), section_alignment);
+                (max_file.max(file_end), max_virt.max(virt_end))
+            });
 
     let current_section_count = nt_headers.file_header().number_of_sections.get(LE);
 
