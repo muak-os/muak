@@ -38,8 +38,7 @@
   - **Allow config hot reload (SIGHUP or something)**
 
 - Enhance `apid`
-  - Rate limit routes especially unauthenticated ones
-  - Protect unauthenticated routes once system is installed (disk & logs but not auth)
+  - Rate limit auth routes
 
 - Disk Manager Service:
   - Add support in internal/init to allow for e2e remote unlocking using gRPC or some other way (Tang like?)

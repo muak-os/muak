@@ -29,6 +29,10 @@ pub enum RbacError {
     /// Method not found in any known service.
     #[error("unknown method")]
     UnknownMethod,
+
+    /// Insecure access attempted on an installed system.
+    #[error("system is installed, insecure access is not allowed")]
+    InsecureNotAllowed,
 }
 
 impl RbacError {
@@ -37,9 +41,10 @@ impl RbacError {
     pub const fn grpc_status_code(&self) -> u8 {
         match self {
             Self::Unauthenticated => 16,
-            Self::CertificateRevoked | Self::UnknownCertificate | Self::PermissionDenied { .. } => {
-                7
-            }
+            Self::CertificateRevoked
+            | Self::UnknownCertificate
+            | Self::PermissionDenied { .. }
+            | Self::InsecureNotAllowed => 7,
             Self::UnknownMethod => 12,
         }
     }
@@ -68,6 +73,7 @@ mod tests {
             7
         );
         assert_eq!(RbacError::UnknownMethod.grpc_status_code(), 12);
+        assert_eq!(RbacError::InsecureNotAllowed.grpc_status_code(), 7);
     }
 
     #[test]
@@ -82,6 +88,10 @@ mod tests {
             }
             .to_string(),
             "permission denied: requires vm:create"
+        );
+        assert_eq!(
+            RbacError::InsecureNotAllowed.to_string(),
+            "system is installed, insecure access is not allowed"
         );
     }
 }

@@ -15,11 +15,18 @@ pub type Body = Either<Empty<Bytes>, Incoming>;
 pub async fn handle_request(
     req: Request<Incoming>,
     client_fingerprint: Option<String>,
+    maintenance_mode: bool,
 ) -> Result<Response<Body>, hyper::Error> {
     let path = req.uri().path();
 
     if let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
         kmsg::warn!("Access denied for {}: {}", path, e);
+        return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
+    }
+
+    if !maintenance_mode && client_fingerprint.is_none() && !is_auth_service(path) {
+        let e = rbac::RbacError::InsecureNotAllowed;
+        kmsg::warn!("Insecure access blocked for {}: {}", path, e);
         return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
     }
 
@@ -58,6 +65,11 @@ pub fn route_request(path: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Returns `true` if the path belongs to the auth service.
+fn is_auth_service(path: &str) -> bool {
+    path.starts_with(config::AUTH_SERVICE_PREFIX)
 }
 
 /// Creates a gRPC error response with the given status code and message.
@@ -206,5 +218,27 @@ mod tests {
         assert!(config::PROVISION_SERVICE_PREFIX.starts_with('/'));
         assert!(config::AUTH_SERVICE_PREFIX.starts_with('/'));
         assert!(config::SECURITY_SERVICE_PREFIX.starts_with('/'));
+    }
+
+    #[test]
+    fn test_is_auth_service_true() {
+        assert!(is_auth_service("/muak.auth.v1.AuthService/SubmitCsr"));
+        assert!(is_auth_service("/muak.auth.v1.AuthService/GetCsrStatus"));
+        assert!(is_auth_service("/muak.auth.v1.AuthService/AckEnrollment"));
+        assert!(is_auth_service("/muak.auth.v1.AuthService/ListPendingCsrs"));
+    }
+
+    #[test]
+    fn test_is_auth_service_false() {
+        assert!(!is_auth_service(
+            "/muak.provision.v1.ProvisionService/ListDisks"
+        ));
+        assert!(!is_auth_service(
+            "/muak.provision.v1.ProvisionService/Install"
+        ));
+        assert!(!is_auth_service("/muak.vm.v1.VmService/CreateVm"));
+        assert!(!is_auth_service(
+            "/muak.security.v1.SecurityService/GetSecurityState"
+        ));
     }
 }

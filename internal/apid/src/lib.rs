@@ -81,7 +81,12 @@ pub fn setup_tls(maintenance_mode: bool) -> Result<TlsAcceptor> {
 }
 
 /// Runs the main loop for incoming connections.
-pub async fn run(listener: &TcpListener, tls_acceptor: &TlsAcceptor, shutdown: &Arc<AtomicBool>) {
+pub async fn run(
+    listener: &TcpListener,
+    tls_acceptor: &TlsAcceptor,
+    shutdown: &Arc<AtomicBool>,
+    maintenance_mode: bool,
+) {
     while !shutdown.load(Ordering::SeqCst) {
         let accept_future = listener.accept();
         let timeout_result =
@@ -97,7 +102,12 @@ pub async fn run(listener: &TcpListener, tls_acceptor: &TlsAcceptor, shutdown: &
         };
 
         let acceptor = tls_acceptor.clone();
-        tokio::spawn(handle_tls_connection(acceptor, stream, peer_addr));
+        tokio::spawn(handle_tls_connection(
+            acceptor,
+            stream,
+            peer_addr,
+            maintenance_mode,
+        ));
     }
 }
 
@@ -106,6 +116,7 @@ async fn handle_tls_connection(
     acceptor: TlsAcceptor,
     stream: tokio::net::TcpStream,
     peer_addr: SocketAddr,
+    maintenance_mode: bool,
 ) {
     match acceptor.accept(stream).await {
         Ok(tls_stream) => {
@@ -115,7 +126,8 @@ async fn handle_tls_connection(
                 .peer_certificates()
                 .and_then(|certs| certs.first().cloned());
 
-            server::serve_tls_connection(tls_stream, peer_addr, client_cert).await;
+            server::serve_tls_connection(tls_stream, peer_addr, client_cert, maintenance_mode)
+                .await;
         }
         Err(e) => {
             kmsg::warn!("TLS handshake failed from {}: {:?}", peer_addr, e);

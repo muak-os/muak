@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
     let shutdown = setup_shutdown_handler();
 
-    apid::run(&listener, &tls_acceptor, &shutdown).await;
+    apid::run(&listener, &tls_acceptor, &shutdown, args.maintenance_mode).await;
 
     notifier.stopping("Graceful shutdown")?;
     kmsg::info!("API daemon stopped");
