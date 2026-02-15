@@ -8,7 +8,14 @@ use crate::error::{ImagerError, Result};
 use crate::image::{OciIndex, OciManifest};
 use crate::oci::remote::create_temp_dir;
 
-pub(crate) fn extract_local_oci_layout(oci_dir: &Path) -> Result<PathBuf> {
+pub(crate) async fn extract_local_oci_layout(oci_dir: &Path) -> Result<PathBuf> {
+    let oci_dir = oci_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || extract_local_oci_layout_blocking(&oci_dir))
+        .await
+        .map_err(|e| ImagerError::LayerExtractionError(e.to_string()))?
+}
+
+fn extract_local_oci_layout_blocking(oci_dir: &Path) -> Result<PathBuf> {
     let temp = create_temp_dir("oci-")?;
 
     let index_path = oci_dir.join("index.json");

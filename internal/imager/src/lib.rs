@@ -11,13 +11,16 @@ mod squashfs;
 
 pub mod error;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub use error::{ImagerError, Result};
 
 // Import OCI functions directly from submodules
 use oci::local::extract_local_oci_layout;
 use oci::remote::{pull_to_dir, pull_to_temp};
+
+/// Maximum number of extensions to process concurrently.
+const MAX_CONCURRENT_EXTENSIONS: usize = 8;
 
 /// Pull an OCI image and extract it to a directory.
 ///
@@ -41,12 +44,14 @@ use oci::remote::{pull_to_dir, pull_to_temp};
 ///
 /// ```no_run
 /// # use std::path::Path;
-/// imager::pull_image("alpine:latest", Path::new("/tmp/alpine"))?;
-/// # Ok::<(), imager::error::ImagerError>(())
+/// # async fn example() -> imager::Result<()> {
+/// imager::pull_image("alpine:latest", Path::new("/tmp/alpine")).await?;
+/// # Ok(())
+/// # }
 /// ```
-pub fn pull_image(reference: &str, output: &Path) -> Result<()> {
-    std::fs::create_dir_all(output)?;
-    pull_to_dir(reference, output)
+pub async fn pull_image(reference: &str, output: &Path) -> Result<()> {
+    tokio::fs::create_dir_all(output).await?;
+    pull_to_dir(reference, output).await
 }
 
 /// Build a compressed CPIO archive containing squashfs files for each extension.
@@ -71,16 +76,21 @@ pub fn pull_image(reference: &str, output: &Path) -> Result<()> {
 /// # Example
 ///
 /// ```no_run
+/// # async fn example() -> imager::Result<()> {
 /// let extensions = vec!["alpine-base".to_string(), "ghcr.io/org/ext:v1".to_string()];
-/// let extension_archive = imager::build_extensions_archive(&extensions)?;
-/// # Ok::<(), imager::error::ImagerError>(())
+/// let extension_archive = imager::build_extensions_archive(&extensions).await?;
+/// # Ok(())
+/// # }
 /// ```
-pub fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
-    let files = process_extensions(extensions)?;
-    let cpio_data = cpio::create_archive(&files)?;
-    let compressed = zstd::encode_all(&cpio_data[..], 19)
-        .map_err(|e| ImagerError::CpioError(format!("Compression failed: {}", e)))?;
-    Ok(compressed)
+pub async fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
+    let files = process_extensions(extensions).await?;
+    tokio::task::spawn_blocking(move || {
+        let cpio_data = cpio::create_archive(&files)?;
+        zstd::encode_all(&cpio_data[..], 19)
+            .map_err(|e| ImagerError::CpioError(format!("Compression failed: {}", e)))
+    })
+    .await
+    .map_err(|e| ImagerError::CpioError(e.to_string()))?
 }
 
 /// Build a custom initramfs by merging a base with extensions.
@@ -113,74 +123,106 @@ pub fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
 ///
 /// ```no_run
 /// # use std::path::Path;
+/// # async fn example() -> imager::Result<()> {
 /// let extensions = vec!["alpine-base".to_string(), "ghcr.io/org/ext:v1".to_string()];
 /// imager::build_initramfs(
 ///     Path::new("base-initramfs.img"),
 ///     &extensions,
 ///     Path::new("custom-initramfs.img")
-/// )?;
-/// # Ok::<(), imager::error::ImagerError>(())
+/// ).await?;
+/// # Ok(())
+/// # }
 /// ```
-pub fn build_initramfs(base: &Path, extensions: &[String], output: &Path) -> Result<()> {
-    std::fs::copy(base, output).map_err(|e| ImagerError::ReadError {
-        file: base.display().to_string(),
-        source: e,
-    })?;
+pub async fn build_initramfs(base: &Path, extensions: &[String], output: &Path) -> Result<()> {
+    tokio::fs::copy(base, output)
+        .await
+        .map_err(|e| ImagerError::ReadError {
+            file: base.display().to_string(),
+            source: e,
+        })?;
 
     if extensions.is_empty() {
         return Ok(());
     }
 
-    let extension_archive = build_extensions_archive(extensions)?;
-    let mut output_file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(output)
-        .map_err(|e| ImagerError::WriteError {
-            file: output.display().to_string(),
-            source: e,
-        })?;
-
-    std::io::Write::write_all(&mut output_file, &extension_archive).map_err(|e| {
-        ImagerError::WriteError {
-            file: output.display().to_string(),
-            source: e,
-        }
-    })?;
-
-    Ok(())
+    let extension_archive = build_extensions_archive(extensions).await?;
+    append_to_file(output.to_path_buf(), extension_archive).await
 }
 
-/// Process extensions and create squashfs archives for each.
-///
-/// This is an internal helper function that:
-/// - Handles both local OCI layouts and remote OCI images
-/// - Extracts/pulls each extension
-/// - Creates a squashfs archive from the extracted content
+/// Append data to a file using a blocking task.
+async fn append_to_file(path: PathBuf, data: Vec<u8>) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| ImagerError::WriteError {
+                file: path.display().to_string(),
+                source: e,
+            })?;
+        std::io::Write::write_all(&mut file, &data).map_err(|e| ImagerError::WriteError {
+            file: path.display().to_string(),
+            source: e,
+        })
+    })
+    .await
+    .map_err(|e| ImagerError::WriteError {
+        file: "initramfs".to_string(),
+        source: std::io::Error::other(e),
+    })?
+}
+
+/// Process extensions concurrently and create squashfs archives for each.
 ///
 /// Returns a vector of (path, data) tuples ready for CPIO packaging.
-fn process_extensions(extensions: &[String]) -> Result<Vec<(String, Vec<u8>)>> {
-    let mut files = Vec::new();
+async fn process_extensions(extensions: &[String]) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut join_set = tokio::task::JoinSet::new();
+    let mut iter = extensions.iter().cloned();
+    let mut files = Vec::with_capacity(extensions.len());
 
-    for ext in extensions {
-        let (name, temp_dir) = if Path::new(ext).exists() {
-            let name = Path::new(ext)
-                .file_name()
-                .ok_or(ImagerError::InvalidOciFormat(
-                    "extension path has no file name".to_string(),
-                ))?
-                .to_string_lossy()
-                .to_string();
-            let dir = extract_local_oci_layout(Path::new(ext))?;
-            (name, dir)
-        } else {
-            let name = image::ImageReference::parse(ext).image_name();
-            let dir = pull_to_temp(ext)?;
-            (name, dir)
-        };
-        let temp_path = temp_dir.as_path();
-        let sqsh_data = squashfs::create_at(temp_path)?;
-        files.push((format!("extensions/{}.sqsh", name), sqsh_data));
+    spawn_extension_batch(&mut join_set, &mut iter);
+
+    while let Some(result) = join_set.join_next().await {
+        files.push(result.map_err(|e| ImagerError::SquashfsError(e.to_string()))??);
+        spawn_extension_batch(&mut join_set, &mut iter);
     }
 
     Ok(files)
+}
+
+/// Spawn extension processing tasks until the concurrency limit is reached.
+fn spawn_extension_batch(
+    join_set: &mut tokio::task::JoinSet<Result<(String, Vec<u8>)>>,
+    iter: &mut impl Iterator<Item = String>,
+) {
+    while join_set.len() < MAX_CONCURRENT_EXTENSIONS {
+        let Some(ext) = iter.next() else {
+            return;
+        };
+        join_set.spawn(process_single_extension(ext));
+    }
+}
+
+/// Process a single extension: pull/extract and create squashfs.
+async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
+    let (name, temp_dir) = if Path::new(&ext).exists() {
+        let name = Path::new(&ext)
+            .file_name()
+            .ok_or(ImagerError::InvalidOciFormat(
+                "extension path has no file name".to_string(),
+            ))?
+            .to_string_lossy()
+            .to_string();
+        let dir = extract_local_oci_layout(Path::new(&ext)).await?;
+        (name, dir)
+    } else {
+        let name = image::ImageReference::parse(&ext).image_name();
+        let dir = pull_to_temp(&ext).await?;
+        (name, dir)
+    };
+
+    let sqsh_data = tokio::task::spawn_blocking(move || squashfs::create_at(&temp_dir))
+        .await
+        .map_err(|e| ImagerError::SquashfsError(e.to_string()))??;
+
+    Ok((format!("extensions/{}.sqsh", name), sqsh_data))
 }

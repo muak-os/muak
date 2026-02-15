@@ -5,6 +5,10 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+# Async
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio-stream = { workspace = true }
+
 # CLI
 clap = { workspace = true, optional = true }
 
@@ -27,7 +31,7 @@ walkdir = { workspace = true }
 tempfile = { workspace = true }
 
 # HTTP
-reqwest = { workspace = true, features = ["blocking", "json"] }
+reqwest = { workspace = true, features = ["json"] }
 
 [features]
 default = ["cli"]

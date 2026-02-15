@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::Client;
 
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciDescriptor, OciManifest};
@@ -26,11 +26,17 @@ pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
 }
 
 /// Fetch manifest JSON from the registry.
-pub(crate) fn fetch(client: &Client, manifest_url: &str, token: Option<&str>) -> Result<String> {
+pub(crate) async fn fetch(
+    client: &Client,
+    manifest_url: &str,
+    token: Option<&str>,
+) -> Result<String> {
     let response =
-        build_authenticated_request(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS)?;
+        build_authenticated_request(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS)
+            .await?;
     response
         .text()
+        .await
         .map_err(|e| ImagerError::NetworkError(format!("Failed to read manifest response: {}", e)))
 }
 

@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::Deserialize;
 
 use crate::error::{ImagerError, Result};
@@ -25,7 +25,7 @@ pub(crate) fn get_token_url(registry: &str, name: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn fetch_auth_token(
+pub(crate) async fn fetch_auth_token(
     client: &Client,
     registry: &str,
     name: &str,
@@ -38,13 +38,14 @@ pub(crate) fn fetch_auth_token(
     let response = client
         .get(&token_url)
         .send()
+        .await
         .map_err(|e| ImagerError::NetworkError(format!("Failed to fetch auth token: {}", e)))?;
     if !response.status().is_success() {
         eprintln!("Warning: Failed to get auth token: {}", response.status());
         return Ok(None);
     }
 
-    let text = response.text().map_err(|e| {
+    let text = response.text().await.map_err(|e| {
         ImagerError::NetworkError(format!("Failed to read auth token response: {}", e))
     })?;
     let token_resp: TokenResponse = serde_json::from_str(&text)?;

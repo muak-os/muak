@@ -36,7 +36,8 @@ enum Command {
 }
 
 /// Main entry point for the imager CLI.
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Cli::parse();
 
     match args.command {
@@ -46,6 +47,7 @@ fn main() -> Result<()> {
             output,
         } => {
             imager::build_initramfs(&base, &extension, &output)
+                .await
                 .context("Failed to build initramfs")?;
             println!(
                 "Successfully created initramfs at {} ({} bytes)",
@@ -54,7 +56,9 @@ fn main() -> Result<()> {
             );
         }
         Command::Pull { image, output } => {
-            imager::pull_image(&image, &output).context("Failed to pull image")?;
+            imager::pull_image(&image, &output)
+                .await
+                .context("Failed to pull image")?;
             println!("Successfully extracted image to {}", output.display());
         }
     }

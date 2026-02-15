@@ -43,7 +43,7 @@ yuki = { path = "internal/yuki", default-features = false }
 # External crates
 
 ## Asynchronous
-tokio = { version = "1.49", features = ["rt-multi-thread"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 

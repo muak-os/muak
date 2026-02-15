@@ -177,7 +177,9 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
 fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    imager::pull_image(image, dest_dir).context("Failed to pull installer image")?;
+    tokio::runtime::Handle::current()
+        .block_on(imager::pull_image(image, dest_dir))
+        .context("Failed to pull installer image")?;
 
     verify_installer_files(dest_dir)?;
 
@@ -207,7 +209,8 @@ fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Res
         bail!("Base initramfs not found at {}", base_initramfs.display());
     }
 
-    imager::build_initramfs(&base_initramfs, extensions, output)
+    tokio::runtime::Handle::current()
+        .block_on(imager::build_initramfs(&base_initramfs, extensions, output))
         .context("Failed to build initramfs")?;
 
     if !output.exists() {

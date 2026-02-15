@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use std::path::Path;
 use tar::Archive;
 
@@ -8,7 +8,7 @@ use crate::image::ImageReference;
 use crate::oci::http::build_authenticated_request;
 
 /// Download blob bytes from the registry.
-pub(crate) fn download_blob(
+pub(crate) async fn download_blob(
     client: &Client,
     image_ref: &ImageReference,
     digest: &str,
@@ -22,9 +22,10 @@ pub(crate) fn download_blob(
         digest
     );
 
-    let response = build_authenticated_request(client, &blob_url, token, &[])?;
+    let response = build_authenticated_request(client, &blob_url, token, &[]).await?;
     response
         .bytes()
+        .await
         .map_err(|e| ImagerError::NetworkError(format!("Failed to read blob response: {}", e)))
         .map(|b| b.to_vec())
 }
