@@ -12,7 +12,6 @@ crc32c = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["fs", "mount"] }
-libc = { workspace = true }
 
 # Utilities
 uuid = { workspace = true, features = ["v4"] }

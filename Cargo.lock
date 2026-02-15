@@ -281,7 +281,6 @@ name = "btrfs"
 version = "0.1.1-beta"
 dependencies = [
  "crc32c",
- "libc",
  "rustix",
  "thiserror 2.0.18",
  "uuid",
