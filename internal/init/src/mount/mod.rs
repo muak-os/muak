@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::mount::{MountFlags, mount};
 
-use partition::{enable_btrfs_quota, find_partition_by_partname};
+use partition::find_partition_by_partname;
 use squashfs::attach_squashfs;
 
 /// dm-crypt mapping name for the STATE partition.
@@ -201,7 +201,7 @@ pub fn mount_persistent() -> Result<bool> {
         .context("Failed to mount DATA partition")?;
 
         kmsg::info!("Mounted DATA partition at /run/data");
-        enable_btrfs_quota("/run/data")?;
+        btrfs::enable_quota("/run/data")?;
     }
 
     Ok(true)

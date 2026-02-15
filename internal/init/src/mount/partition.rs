@@ -1,21 +1,7 @@
-//! Partition discovery and Btrfs quota management.
+//! Partition discovery utilities.
 
 use std::fs;
 use std::path::Path;
-
-use anyhow::{Context, Result};
-use rustix::fs::{Mode, OFlags, open};
-use rustix::ioctl::{Opcode, Updater, ioctl, opcode};
-
-const BTRFS_IOCTL_MAGIC: u8 = 0x94;
-const BTRFS_QUOTA_CTL_ENABLE: u64 = 1;
-const BTRFS_IOC_QUOTA_CTL: Opcode = opcode::read_write::<QuotaCtlArgs>(BTRFS_IOCTL_MAGIC, 40);
-
-#[repr(C)]
-struct QuotaCtlArgs {
-    cmd: u64,
-    status: u64,
-}
 
 /// Find a partition by its GPT partition name via sysfs.
 pub fn find_partition_by_partname(partname: &str) -> Option<String> {
@@ -44,31 +30,4 @@ pub fn find_partition_by_partname(partname: &str) -> Option<String> {
     }
 
     None
-}
-
-/// Enable Btrfs quota on a mounted partition.
-pub fn enable_btrfs_quota(mount_point: &str) -> Result<()> {
-    let file = open(
-        mount_point,
-        OFlags::RDONLY | OFlags::DIRECTORY,
-        Mode::empty(),
-    )
-    .context("Failed to open mount point for btrfs quota")?;
-
-    let mut args = QuotaCtlArgs {
-        cmd: BTRFS_QUOTA_CTL_ENABLE,
-        status: 0,
-    };
-
-    // SAFETY: ioctl is inherently unsafe, but Updater ensures proper argument passing
-    unsafe {
-        ioctl(
-            &file,
-            Updater::<BTRFS_IOC_QUOTA_CTL, QuotaCtlArgs>::new(&mut args),
-        )
-    }
-    .map_err(|e| anyhow::anyhow!("Failed to enable btrfs quota: {}", e))?;
-
-    kmsg::info!("Enabled btrfs quota on {}", mount_point);
-    Ok(())
 }

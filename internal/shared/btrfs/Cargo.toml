@@ -1,0 +1,21 @@
+[package]
+name = "btrfs"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Filesystem
+crc32c = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["fs", "mount"] }
+libc = { workspace = true }
+
+# Utilities
+uuid = { workspace = true, features = ["v4"] }
+
+[lints]
+workspace = true

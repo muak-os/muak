@@ -9,6 +9,7 @@ members = [
     "internal/modd",
     "internal/networkd",
     "internal/sbolt",
+    "internal/shared/btrfs",
     "internal/shared/kmod",
     "internal/shared/kmsg",
     "internal/shared/luks2",
@@ -28,6 +29,7 @@ version = "0.1.1-beta"
 [workspace.dependencies]
 # Internal crates
 
+btrfs = { path = "internal/shared/btrfs" }
 imager = { path = "internal/imager", default-features = false }
 kmod = { path = "internal/shared/kmod" }
 kmsg = { path = "internal/shared/kmsg" }
@@ -84,6 +86,7 @@ thiserror = "2.0"
 ## Filesystem
 gptman = "3.0"
 fatfs = "0.3"
+crc32c = "0.6"
 backhand = { version = "0.24", default-features = false, features = ["zstd"] }
 walkdir = "2.5"
 tempfile = "3.24"

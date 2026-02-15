@@ -48,7 +48,6 @@
     - Create one golden image, snapshot for each VM to avoid duplication
   - Use Btrfs scrub to verify integrity of all data (/var issue)
   - **Allow /run/data to be on a different disk than rootfs**
-  - Replace direct call to `mkfs.btrfs` with FFI bindings or some other way to avoid spawning processes
 
 - Add e2e testing:
   - Unit tests & Integration tests
