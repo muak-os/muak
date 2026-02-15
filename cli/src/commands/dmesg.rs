@@ -4,7 +4,7 @@ use tonic::transport::Channel;
 
 use crate::client::{GetLogsRequest, ProvisionServiceClient};
 
-/// Streams system logs from the server.
+/// Streams kernel logs (dmesg) from the server.
 pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
     let request = tonic::Request::new(GetLogsRequest {});
 

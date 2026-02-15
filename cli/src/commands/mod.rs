@@ -2,8 +2,8 @@ pub mod auth;
 pub mod config;
 pub mod context;
 pub mod disks;
+pub mod dmesg;
 pub mod install;
-pub mod logs;
 pub mod process;
 pub mod reset;
 pub mod security;
@@ -184,9 +184,9 @@ async fn handle_cmd(
             let mut client = ProvisionServiceClient::new(channel);
             disks::handle(&mut client).await
         }
-        Commands::Logs => {
+        Commands::Dmesg => {
             let mut client = ProvisionServiceClient::new(channel);
-            logs::handle(&mut client).await
+            dmesg::handle(&mut client).await
         }
         Commands::Reset { force } => {
             let mut client = ProvisionServiceClient::new(channel);

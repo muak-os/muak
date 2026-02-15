@@ -75,7 +75,7 @@ pub enum Commands {
         force: bool,
     },
     Disks,
-    Logs,
+    Dmesg,
 }
 
 #[tokio::main]
