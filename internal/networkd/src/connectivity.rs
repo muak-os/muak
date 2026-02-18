@@ -17,7 +17,7 @@ impl Default for ConnectivityConfig {
     fn default() -> Self {
         Self {
             target: ConnectivityTarget {
-                host: "leomercier.dev".to_string(),
+                host: "muak.dev".to_string(),
             },
             probe_timeout: Duration::from_secs(CONNECTIVITY_PROBE_TIMEOUT_SECS),
             overall_timeout: Duration::from_secs(CONNECTIVITY_OVERALL_TIMEOUT_SECS),
