@@ -2540,6 +2540,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "timed"
+version = "0.1.1-beta"
+dependencies = [
+ "anyhow",
+ "kmsg",
+ "notify",
+ "rustix",
+ "sysconfig",
+ "tokio",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

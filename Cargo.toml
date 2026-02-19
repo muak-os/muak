@@ -9,6 +9,7 @@ members = [
     "internal/modd",
     "internal/networkd",
     "internal/sbolt",
+    "internal/timed",
     "internal/shared/btrfs",
     "internal/shared/kmod",
     "internal/shared/kmsg",

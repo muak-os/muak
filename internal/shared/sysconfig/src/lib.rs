@@ -88,6 +88,7 @@ pub struct SystemConfig {
     pub extensions: Vec<String>,
     pub secureboot: bool,
     pub port: u16,
+    pub ntp: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -53,6 +53,12 @@ async fn main() -> Result<()> {
             depends_on: vec![],
         },
         ServiceDef {
+            name: "timed",
+            binary: "/sbin/timed",
+            args: vec![],
+            depends_on: vec!["networkd"],
+        },
+        ServiceDef {
             name: "apid",
             binary: "/sbin/apid",
             args: apid_args,
