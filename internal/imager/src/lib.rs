@@ -14,7 +14,6 @@ pub mod error;
 use std::path::{Path, PathBuf};
 
 pub use error::{ImagerError, Result};
-
 // Import OCI functions directly from submodules
 use oci::local::extract_local_oci_layout;
 use oci::remote::{pull_to_dir, pull_to_temp};

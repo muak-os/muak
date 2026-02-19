@@ -2,9 +2,9 @@ mod cloud_hypervisor;
 mod firecracker;
 mod qemu;
 
-use anyhow::Result;
 use std::path::PathBuf;
 
+use anyhow::Result;
 pub use cloud_hypervisor::CloudHypervisorHypervisor;
 pub use firecracker::FirecrackerHypervisor;
 pub use qemu::QemuHypervisor;

@@ -63,9 +63,10 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    use base64ct::Encoding;
+
     use super::*;
     use crate::metadata::Digest;
-    use base64ct::Encoding;
 
     #[test]
     fn test_create_verify_roundtrip() {

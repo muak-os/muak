@@ -1,8 +1,9 @@
 //! Certificate Signing Request (CSR) handling.
 
-use der::{DecodePem, Encode, EncodePem, pem::LineEnding};
 use std::str::FromStr;
 use std::time::Duration;
+
+use der::{DecodePem, Encode, EncodePem, pem::LineEnding};
 use x509_cert::{
     Certificate,
     builder::{Builder, CertificateBuilder},

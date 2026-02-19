@@ -7,18 +7,18 @@ mod grpc;
 mod hypervisor;
 mod persistence;
 
+use std::path::Path;
+
+use actor::start_vm_actor;
 use anyhow::Result;
+use clients::NetworkClient;
+use grpc::VmServiceImpl;
 use notify::{Health, NotifyClient};
 use rustix::process::{Pid, WaitOptions, waitpid};
-use std::path::Path;
 use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-
-use actor::start_vm_actor;
-use clients::NetworkClient;
-use grpc::VmServiceImpl;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {

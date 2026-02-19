@@ -12,17 +12,15 @@ mod keyslot;
 mod metadata;
 mod xts;
 
-pub use error::{Error, Result};
-
-use ring::rand::SecureRandom;
-use zeroize::Zeroize;
-
 use constants::{
     BINARY_HEADER_SIZE, CIPHER_SPEC, DEFAULT_HEADER_SIZE, DEFAULT_JSON_SIZE,
     DEFAULT_KEYSLOT_AREA_OFFSET, VOLUME_KEY_SIZE,
 };
+pub use error::{Error, Result};
 use header::Header;
 use metadata::Metadata;
+use ring::rand::SecureRandom;
+use zeroize::Zeroize;
 
 /// Formats a block device with LUKS2 encryption.
 ///

@@ -32,8 +32,9 @@ pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_discover_extensions_finds_sqsh_files() {

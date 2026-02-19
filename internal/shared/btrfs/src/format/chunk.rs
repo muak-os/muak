@@ -3,10 +3,11 @@
 //! This module provides a unified interface for building chunk items,
 //! eliminating duplication between SINGLE and DUP chunk creation.
 
+use uuid::Uuid;
+
 use super::accessors::*;
 use super::constants::*;
 use super::structures::*;
-use uuid::Uuid;
 
 /// Configuration for a single stripe.
 #[derive(Debug, Clone)]

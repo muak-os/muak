@@ -79,9 +79,9 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uefi::guid;
 
+    use super::*;
     use crate::keys::{
         Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
     };

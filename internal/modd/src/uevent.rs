@@ -1,8 +1,9 @@
+use std::os::fd::OwnedFd;
+
 use anyhow::{Context, Result};
 use rustix::net::netlink::KOBJECT_UEVENT;
 use rustix::net::netlink::SocketAddrNetlink;
 use rustix::net::{AddressFamily, RecvFlags, SocketFlags, SocketType, bind, recv, socket_with};
-use std::os::fd::OwnedFd;
 
 const KOBJECT_UEVENT_GROUP: u32 = 1;
 

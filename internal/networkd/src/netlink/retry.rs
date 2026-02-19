@@ -1,5 +1,6 @@
-use anyhow::{Result, bail};
 use std::future::Future;
+
+use anyhow::{Result, bail};
 
 pub async fn wait_for_condition<F, Fut, T>(
     check_fn: F,

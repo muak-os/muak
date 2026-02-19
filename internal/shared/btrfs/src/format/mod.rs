@@ -12,14 +12,14 @@ mod structures;
 
 mod trees;
 
+use std::fs::File;
+use std::os::fd::AsFd;
+
 pub use context::MkfsContext;
+use rustix::ioctl::{Getter, ioctl};
 
 use crate::error::{BtrfsError, Result};
 use crate::ioctl::BLKGETSIZE64;
-
-use rustix::ioctl::{Getter, ioctl};
-use std::fs::File;
-use std::os::fd::AsFd;
 
 /// Format a device with Btrfs filesystem.
 ///

@@ -1,6 +1,7 @@
+use std::path::Path;
+
 use anyhow::Result;
 use hyper_util::rt::TokioIo;
-use std::path::Path;
 use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;

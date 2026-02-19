@@ -3,6 +3,12 @@
 //! This module provides the main `MkfsContext` that coordinates the creation
 //! of all btrfs trees and the superblock.
 
+use std::fs::File;
+use std::io::{Seek, SeekFrom, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use uuid::Uuid;
+
 use super::accessors::*;
 use super::checksum::compute_checksum;
 use super::constants::*;
@@ -10,10 +16,6 @@ use super::layout::DiskLayout;
 use super::structures::*;
 use super::trees::*;
 use crate::error::{BtrfsError, Result};
-use std::fs::File;
-use std::io::{Seek, SeekFrom, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
 
 /// Context for creating a btrfs filesystem.
 ///
@@ -316,8 +318,9 @@ impl MkfsContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs::OpenOptions;
+
+    use super::*;
 
     #[test]
     fn test_mkfs_produces_valid_filesystem() {

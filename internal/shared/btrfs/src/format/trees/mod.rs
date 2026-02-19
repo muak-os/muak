@@ -3,6 +3,8 @@
 //! Each tree type has its own builder that encapsulates the logic for
 //! creating that specific tree structure.
 
+use uuid::Uuid;
+
 use super::accessors::*;
 use super::builders::*;
 use super::chunk::ChunkBuilder;
@@ -11,7 +13,6 @@ use super::layout::{self, DiskLayout};
 use super::node::LeafBuilder;
 use super::structures::*;
 use crate::error::Result;
-use uuid::Uuid;
 
 /// Context for building trees.
 #[derive(Debug)]

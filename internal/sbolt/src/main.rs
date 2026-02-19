@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-
 use sbolt::efi::{
     enroll_keys, get_db, get_kek, get_pk, get_secure_boot, get_setup_mode, is_efivarfs_available,
 };

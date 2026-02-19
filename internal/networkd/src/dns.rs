@@ -1,6 +1,7 @@
-use anyhow::Result;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr};
+
+use anyhow::Result;
 
 use crate::config::RESOLV_CONF_PATH;
 

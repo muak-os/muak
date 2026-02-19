@@ -10,7 +10,6 @@ use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::*;
-
 use crate::disk;
 use crate::install;
 use crate::reset;

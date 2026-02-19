@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::bail;
 use tokio::sync::mpsc;
 
+use super::VmCommand;
 use crate::clients::{NetworkClient, TapDevice};
 use crate::disk::{self, DiskUsage};
 use crate::hypervisor::{self, DiskConfig, VmStartConfig};
@@ -12,8 +13,6 @@ use crate::persistence::{self, DiskConfigPersisted, VmPersisted};
 use crate::proto::vm::{
     DiskUsage as ProtoDiskUsage, Hypervisor as HypervisorType, VmConfig, VmInfo, VmState,
 };
-
-use super::VmCommand;
 
 const DEFAULT_DISK_SIZE_MB: u64 = 1024;
 

@@ -8,14 +8,13 @@ mod format;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use owo_colors::OwoColorize;
-
 use commands::auth::AuthAction;
 use commands::config::ConfigAction;
 use commands::context::ContextAction;
 use commands::process::ProcessAction;
 use commands::security::SecurityAction;
 use commands::vm::VmAction;
+use owo_colors::OwoColorize;
 
 #[derive(Parser)]
 #[command(name = "muak")]

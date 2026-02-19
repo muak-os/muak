@@ -2,11 +2,12 @@
 
 mod fixtures;
 
+use std::fs;
+
 use fixtures::{fake_dtb, fake_initrd, fake_kernel, generate_minimal_stub, sample_cmdline};
 use object::LittleEndian as LE;
 use object::pe;
 use object::read::pe::PeFile64;
-use std::fs;
 use tempfile::TempDir;
 
 struct TestEnv {

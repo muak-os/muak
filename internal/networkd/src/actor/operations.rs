@@ -3,6 +3,8 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use tokio::sync::mpsc;
 
+use super::commands::NetworkCommand;
+use super::state::NetworkActor;
 use crate::config;
 use crate::connectivity::{self, ConnectivityConfig};
 use crate::dhcpv4::run_dhcp_client;
@@ -15,9 +17,6 @@ use crate::model::{
 use crate::netlink::{address, link, route};
 use crate::services::{bridge, tap};
 use crate::slaac::{SlaacEvent, SlaacManager};
-
-use super::commands::NetworkCommand;
-use super::state::NetworkActor;
 
 impl NetworkActor {
     pub(super) async fn initialize(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) -> Result<()> {

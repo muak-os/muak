@@ -1,7 +1,6 @@
+use super::state::NetworkActor;
 use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
 use crate::monitor::NetworkEvent;
-
-use super::state::NetworkActor;
 
 impl NetworkActor {
     pub(super) async fn handle_event(&mut self, event: NetworkEvent) {

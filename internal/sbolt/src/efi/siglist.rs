@@ -3,7 +3,6 @@
 use uefi::Guid;
 
 use super::EFI_CERT_X509_GUID;
-
 use crate::{Error, Result};
 
 pub const SIGNATURE_LIST_HEADER_SIZE: usize = 28;
@@ -86,8 +85,9 @@ pub fn build_x509_siglist(owner_guid: &Guid, cert_der: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uefi::guid;
+
+    use super::*;
 
     const TEST_OWNER: Guid = guid!("12345678-1234-1234-1234-123456789abc");
     const FAKE_CERT: &[u8] = b"fake-x509-cert-der-data";

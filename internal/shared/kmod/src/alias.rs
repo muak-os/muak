@@ -98,9 +98,11 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     fn glob_match(pattern: &str, text: &str) -> bool {
         glob_match_bytes(pattern.as_bytes(), text.as_bytes())

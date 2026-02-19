@@ -8,12 +8,11 @@ use std::collections::HashMap;
 use base64ct::{Base64, Encoding};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
-
 use crate::constants::{
     AF_STRIPES, CIPHER_SPEC, DEFAULT_HEADER_SIZE, DEFAULT_JSON_SIZE, DEFAULT_KEYSLOT_AREA_OFFSET,
     DEFAULT_KEYSLOT_AREA_SIZE, DEFAULT_KEYSLOTS_SIZE, VOLUME_KEY_SIZE,
 };
+use crate::error::{Error, Result};
 
 /// Top-level LUKS2 JSON metadata.
 #[derive(Debug, Serialize, Deserialize)]
@@ -179,8 +178,9 @@ impl Metadata {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use base64ct::Encoding;
+
+    use super::*;
 
     #[test]
     fn test_metadata_new() {

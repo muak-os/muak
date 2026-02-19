@@ -1,9 +1,10 @@
 //! Builder patterns for complex btrfs structures.
 
+use uuid::Uuid;
+
 use super::accessors::*;
 use super::constants::*;
 use super::structures::*;
-use uuid::Uuid;
 
 /// Builder for BtrfsRootItem to simplify complex initialization.
 #[derive(Debug)]

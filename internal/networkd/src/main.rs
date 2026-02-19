@@ -14,16 +14,16 @@ mod services;
 mod slaac;
 mod socket;
 
-use anyhow::Result;
-use notify::{Health, NotifyClient};
 use std::path::Path;
+
+use actor::start_network_actor;
+use anyhow::Result;
+use grpc::NetworkServiceImpl;
+use notify::{Health, NotifyClient};
 use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-
-use actor::start_network_actor;
-use grpc::NetworkServiceImpl;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {

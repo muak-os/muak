@@ -261,15 +261,16 @@ fn write_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::keys::{
-        Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
-    };
     use cms::content_info::ContentInfo;
     use cms::signed_data::SignedData;
     use der::asn1::OctetString;
     use der::{Decode, Encode};
     use ring::digest::{Context, SHA256};
+
+    use super::*;
+    use crate::keys::{
+        Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
+    };
 
     /// Write a little-endian u16 into a buffer.
     fn put_u16(buf: &mut Vec<u8>, offset: usize, val: u16) {

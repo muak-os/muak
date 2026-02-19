@@ -1,6 +1,7 @@
+use std::path::Path;
+
 use flate2::read::GzDecoder;
 use reqwest::Client;
-use std::path::Path;
 use tar::Archive;
 
 use crate::error::{ImagerError, Result};

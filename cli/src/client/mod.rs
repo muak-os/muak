@@ -1,13 +1,12 @@
 mod connector;
 mod upload;
 
+use anyhow::{Context, Result, bail};
+use connector::InsecureTlsConnector;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 pub use upload::upload_file;
 
-use anyhow::{Context, Result, bail};
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-
 use crate::config::ServerContext;
-use connector::InsecureTlsConnector;
 
 #[allow(clippy::excessive_nesting)]
 pub mod process_service {
@@ -34,21 +33,17 @@ pub mod security_service {
     tonic::include_proto!("muak.security.v1");
 }
 
-pub use process_service::ListProcessesRequest;
-pub use process_service::process_service_client::ProcessServiceClient;
-
-pub use provision_service::provision_service_client::ProvisionServiceClient;
-pub use provision_service::*;
-
-pub use vm_service::vm_service_client::VmServiceClient;
-pub use vm_service::*;
-
 pub use auth_service::auth_service_client::AuthServiceClient;
 pub use auth_service::get_csr_status_response::Status as CsrStatus;
 pub use auth_service::*;
-
+pub use process_service::ListProcessesRequest;
+pub use process_service::process_service_client::ProcessServiceClient;
+pub use provision_service::provision_service_client::ProvisionServiceClient;
+pub use provision_service::*;
 pub use security_service::security_service_client::SecurityServiceClient;
 pub use security_service::*;
+pub use vm_service::vm_service_client::VmServiceClient;
+pub use vm_service::*;
 
 /// Connects using a server context with mTLS.
 pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {

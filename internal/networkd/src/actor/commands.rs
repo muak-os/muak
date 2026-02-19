@@ -1,10 +1,9 @@
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
+use super::state::NetworkActor;
 use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 use crate::slaac::SlaacEvent;
-
-use super::state::NetworkActor;
 
 #[derive(Debug)]
 #[allow(dead_code)]

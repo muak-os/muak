@@ -3,11 +3,12 @@
 //! This library provides a client for services to communicate to the
 //! supervisor PID 1 via UNIX domain sockets.
 
+use std::io;
+use std::os::unix::net::UnixDatagram;
+
 use prost::Message;
 pub use proto::Health;
 use proto::{Notify, Ready, Status, Stopping, Watchdog, notify::Notification};
-use std::io;
-use std::os::unix::net::UnixDatagram;
 
 #[allow(clippy::excessive_nesting)]
 pub mod proto {
@@ -97,9 +98,11 @@ impl NotifyClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_notify_client_new() {

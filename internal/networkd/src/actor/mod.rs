@@ -4,13 +4,12 @@ mod operations;
 mod state;
 
 use anyhow::Result;
+pub use commands::NetworkCommand;
+use state::NetworkActor;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
 use crate::monitor::{self, NetworkEvent};
-
-pub use commands::NetworkCommand;
-use state::NetworkActor;
 
 #[derive(Clone)]
 pub struct NetworkActorHandle {

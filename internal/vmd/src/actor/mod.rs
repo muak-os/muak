@@ -1,13 +1,12 @@
 mod commands;
 mod state;
 
+pub use commands::VmCommand;
+use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::clients::NetworkClient;
 use crate::proto::vm::{VmConfig, VmInfo};
-
-pub use commands::VmCommand;
-use state::VmActor;
 
 #[derive(Clone)]
 pub struct VmActorHandle {

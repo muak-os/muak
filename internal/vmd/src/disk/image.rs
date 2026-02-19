@@ -1,7 +1,8 @@
-use anyhow::Result;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
+
+use anyhow::Result;
 
 use super::DATA_DIR;
 

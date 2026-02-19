@@ -49,9 +49,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_read_modalias_valid() {

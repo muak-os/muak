@@ -1,8 +1,9 @@
 //! Subvolume management for btrfs filesystems.
 
+use std::path::PathBuf;
+
 use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Setter, ioctl};
-use std::path::PathBuf;
 
 use crate::error::{BtrfsError, Result};
 use crate::ioctl::{BTRFS_IOC_SNAP_DESTROY, BTRFS_IOC_SUBVOL_CREATE, BTRFS_PATH_NAME_MAX, VolArgs};

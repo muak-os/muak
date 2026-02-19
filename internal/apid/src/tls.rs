@@ -113,8 +113,9 @@ pub fn extract_fingerprint(cert_der: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
+    use super::*;
 
     #[test]
     fn test_extract_fingerprint_returns_64_char_hex() {

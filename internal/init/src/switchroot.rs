@@ -102,8 +102,9 @@ pub fn find_init_in(root: &Path) -> Result<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_delete_initramfs_preserves_special_dirs() {

@@ -1,6 +1,6 @@
-use sysconfig::*;
-
 use std::fs;
+
+use sysconfig::*;
 use tempfile::TempDir;
 
 #[test]

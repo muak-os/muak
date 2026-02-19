@@ -11,10 +11,9 @@ use std::ffi::CString;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use partition::find_partition_by_partname;
 use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::mount::{MountFlags, mount};
-
-use partition::find_partition_by_partname;
 use squashfs::attach_squashfs;
 
 /// dm-crypt mapping name for the STATE partition.

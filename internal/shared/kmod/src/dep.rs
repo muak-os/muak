@@ -104,9 +104,11 @@ pub(crate) fn get_module_name(path: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[test]
     fn test_get_module_name_zst() {

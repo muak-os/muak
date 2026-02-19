@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use kmod::{AliasDb, DepDb, ModuleLoader, for_each_modalias, load_module};
 
 pub fn load() -> Result<usize> {

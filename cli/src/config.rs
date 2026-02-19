@@ -1,10 +1,11 @@
 //! Client configuration for managing multiple server contexts.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use anyhow::{Context, Result, bail};
 use base64ct::{Base64, Encoding};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 const CONFIG_FILE: &str = "config.toml";
 

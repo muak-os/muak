@@ -3,11 +3,12 @@
 //! This library provides direct access to `/dev/kmsg` for logging from early
 //! boot processes and system daemons, with automatic fallback to stderr.
 
+use std::io::Write;
+use std::sync::OnceLock;
+
 use rustix::fd::AsFd;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::write;
-use std::io::Write;
-use std::sync::OnceLock;
 use thiserror::Error;
 
 /// Maximum atomic write size for /dev/kmsg guaranteed by the Linux kernel.

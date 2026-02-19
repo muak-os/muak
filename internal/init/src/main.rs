@@ -8,8 +8,9 @@ mod modules;
 mod mount;
 mod switchroot;
 
-use anyhow::Result;
 use std::process;
+
+use anyhow::Result;
 
 /// Entry point that handles fatal errors.
 fn main() {

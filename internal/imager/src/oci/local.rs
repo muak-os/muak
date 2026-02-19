@@ -1,7 +1,8 @@
-use flate2::read::GzDecoder;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+
+use flate2::read::GzDecoder;
 use tar::Archive;
 
 use crate::error::{ImagerError, Result};
@@ -87,8 +88,9 @@ fn extract_tar_layer(layer_path: &Path, dest: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::Path;
+
+    use super::*;
 
     #[test]
     fn test_digest_to_blob_path_with_sha256_prefix() {

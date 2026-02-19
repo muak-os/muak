@@ -10,7 +10,6 @@ use x509_cert::der::{DecodePem, EncodePem, pem::LineEnding};
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::get_csr_status_response::Status as CsrStatus;
 use super::proto::auth::*;
-
 use crate::constants::SECRETS_DIR;
 
 fn pending_dir() -> PathBuf {

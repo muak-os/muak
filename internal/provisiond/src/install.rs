@@ -6,12 +6,11 @@ use anyhow::{Context, Result, bail};
 use ring::rand::SecureRandom;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
+use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 use sysconfig::{AuthConfig, AuthUser, HostConfig, Permission};
 use tokio::sync::mpsc;
 use x509_cert::der::EncodePem;
 use x509_cert::der::pem::LineEnding;
-
-use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
 
 use crate::constants::{self, DM_DATA, DM_STATE, LUKS_KEY_SIZE};
 use crate::disk;

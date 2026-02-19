@@ -1,8 +1,9 @@
 //! Certificate generation functions.
 
-use der::Encode;
 use std::str::FromStr;
 use std::time::Duration;
+
+use der::Encode;
 use x509_cert::{
     Certificate,
     builder::{Builder, CertificateBuilder},

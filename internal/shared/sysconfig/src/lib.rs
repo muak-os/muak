@@ -25,9 +25,10 @@
 //! }
 //! ```
 
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::OnceLock;
+
+use serde::{Deserialize, Serialize};
 
 mod error;
 pub mod permission;

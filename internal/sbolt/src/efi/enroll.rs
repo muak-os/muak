@@ -13,7 +13,6 @@ use super::authvar::sign_efi_variable;
 use super::efivarfs::{EFIVARFS_PATH, get_setup_mode, is_efivarfs_available};
 use super::guid::{EFI_GLOBAL_VARIABLE, EFI_IMAGE_SECURITY_DATABASE};
 use super::siglist::SignatureDatabase;
-
 use crate::keys::KeyHierarchy;
 use crate::{Error, Result};
 

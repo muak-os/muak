@@ -1,6 +1,7 @@
-use rtnetlink::Handle;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use rtnetlink::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 

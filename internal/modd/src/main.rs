@@ -5,11 +5,12 @@
 
 mod uevent;
 
+use std::path::Path;
+use std::process;
+
 use anyhow::{Context, Result};
 use kmod::{AliasDb, DepDb, ModuleLoader, load_module};
 use notify::{Health, NotifyClient};
-use std::path::Path;
-use std::process;
 use uevent::{UeventAction, UeventListener};
 
 const SOCKET_PATH: &str = "/run/modd.sock";

@@ -1,5 +1,6 @@
-use reqwest::Client;
 use std::path::{Path, PathBuf};
+
+use reqwest::Client;
 
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciDescriptor};

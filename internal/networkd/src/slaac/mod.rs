@@ -3,12 +3,11 @@ mod icmpv6;
 mod manager;
 mod state;
 
-use anyhow::{Result, bail};
 use std::net::Ipv6Addr;
 use std::os::fd::{AsFd, AsRawFd};
 
+use anyhow::{Result, bail};
 pub(crate) use icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
-
 pub use manager::{SlaacEvent, SlaacManager};
 
 pub(crate) const ICMP6_FILTER: libc::c_int = 1;

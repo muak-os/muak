@@ -1,8 +1,9 @@
 //! Fine-grained permissions for RBAC.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 
 /// Fine-grained permissions for RBAC.
 ///

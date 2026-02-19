@@ -1,11 +1,13 @@
+use std::net::Ipv4Addr;
+
+use anyhow::{Context, Result};
+use rtnetlink::{Handle, LinkBridge};
+
 use crate::config::{
     BRIDGE_CREATE_RETRIES, BRIDGE_CREATE_RETRY_DELAY_MS, INTERFACE_ENSLAVE_RETRIES,
     INTERFACE_ENSLAVE_RETRY_DELAY_MS,
 };
 use crate::netlink::{address, link, retry, route};
-use anyhow::{Context, Result};
-use rtnetlink::{Handle, LinkBridge};
-use std::net::Ipv4Addr;
 
 pub async fn ensure_bridge_with_ip_transfer(
     handle: &Handle,

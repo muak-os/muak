@@ -5,18 +5,16 @@ mod restart;
 mod service;
 mod spawner;
 
-pub use service::ServiceDef;
-
 use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use tokio::signal::unix::{SignalKind, signal};
-
 use notify::{NotifyListener, ServiceNotification};
 use reaper::Reaper;
 use restart::RestartQueue;
+pub use service::ServiceDef;
 use service::{ServiceState, ServiceStatus};
+use tokio::signal::unix::{SignalKind, signal};
 
 /// PID 1 supervisor that manages the life cycle of all system services.
 pub struct Supervisor {

@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 use crate::dep;
@@ -109,9 +110,11 @@ pub fn load_module(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_module_loader_new() {

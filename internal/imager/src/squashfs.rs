@@ -1,7 +1,8 @@
-use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader, compression::Compressor};
 use std::io::Cursor;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+
+use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader, compression::Compressor};
 use walkdir::WalkDir;
 
 use crate::error::{ImagerError, Result};
@@ -112,10 +113,12 @@ pub(crate) fn create_at(source_dir: &Path) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
+
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[test]
     fn test_get_mode_regular_file() {

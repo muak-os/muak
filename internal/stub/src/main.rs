@@ -10,9 +10,10 @@ mod pe;
 mod peloader;
 mod security;
 
+use std::os::uefi as uefi_std;
+
 use anyhow::{Context, Result};
 use base64ct::{Base64Unpadded, Encoding};
-use std::os::uefi as uefi_std;
 use uefi::Guid;
 use uefi::Handle;
 use uefi::proto::loaded_image::LoadedImage;

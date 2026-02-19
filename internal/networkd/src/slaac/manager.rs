@@ -13,8 +13,6 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use crate::socket;
-
 use super::address::generate_slaac_address;
 use super::icmpv6::{
     ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
@@ -22,6 +20,7 @@ use super::icmpv6::{
 };
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
 use super::{FALLBACK_DNS, create_icmpv6_filter, set_icmpv6_filter};
+use crate::socket;
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 const MAX_RTR_SOLICITATIONS: u32 = 3;
