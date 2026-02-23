@@ -61,7 +61,9 @@ pub async fn route_request(path: &str) -> Option<&'static str> {
             return None;
         }
         Some(config::VMD_SOCKET)
-    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX) {
+    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
+        || path.starts_with(config::LOG_SERVICE_PREFIX)
+    {
         Some(config::GRANOLA_SOCKET)
     } else if path.starts_with(config::PROVISION_SERVICE_PREFIX)
         || path.starts_with(config::AUTH_SERVICE_PREFIX)
@@ -96,6 +98,20 @@ mod tests {
     #[tokio::test]
     async fn test_route_request_process_service() {
         let path = "/muak.process.v1.ProcessService/List";
+        let socket = route_request(path).await;
+        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+    }
+
+    #[tokio::test]
+    async fn test_route_request_log_service() {
+        let path = "/muak.log.v1.LogService/GetLogs";
+        let socket = route_request(path).await;
+        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+    }
+
+    #[tokio::test]
+    async fn test_route_request_log_service_follow() {
+        let path = "/muak.log.v1.LogService/FollowLogs";
         let socket = route_request(path).await;
         assert_eq!(socket, Some(config::GRANOLA_SOCKET));
     }
@@ -215,6 +231,7 @@ mod tests {
         assert!(config::PROVISION_SERVICE_PREFIX.ends_with('/'));
         assert!(config::AUTH_SERVICE_PREFIX.ends_with('/'));
         assert!(config::SECURITY_SERVICE_PREFIX.ends_with('/'));
+        assert!(config::LOG_SERVICE_PREFIX.ends_with('/'));
     }
 
     #[test]
@@ -224,6 +241,7 @@ mod tests {
         assert!(config::PROVISION_SERVICE_PREFIX.starts_with('/'));
         assert!(config::AUTH_SERVICE_PREFIX.starts_with('/'));
         assert!(config::SECURITY_SERVICE_PREFIX.starts_with('/'));
+        assert!(config::LOG_SERVICE_PREFIX.starts_with('/'));
     }
 
     #[test]

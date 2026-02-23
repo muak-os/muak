@@ -1,9 +1,10 @@
-//! PID 1 supervisor and init system for Muak.
+//! PID 1 supervisor for Muak.
 
 mod services;
 mod supervisor;
 
 use anyhow::{Context, Result};
+use supervisor::logger::LogReader;
 use supervisor::{ServiceDef, Supervisor};
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
@@ -77,10 +78,16 @@ async fn main() -> Result<()> {
         kmsg::info!("VM service disabled in maintenance mode");
     }
 
-    let mut supervisor = Supervisor::new(services)?;
+    let (writer, reader, actor) = supervisor::logger::create();
+
+    tokio::spawn(actor.run());
+
+    supervisor::logger::kmsg(&writer);
+
+    let mut supervisor = Supervisor::new(services, writer)?;
 
     tokio::spawn(async {
-        if let Err(e) = run_grpc_server().await {
+        if let Err(e) = run_grpc_server(reader).await {
             kmsg::error!("gRPC server error: {}", e);
         }
     });
@@ -91,7 +98,7 @@ async fn main() -> Result<()> {
 }
 
 /// Runs the gRPC server for internal service communication.
-async fn run_grpc_server() -> Result<()> {
+async fn run_grpc_server(reader: LogReader) -> Result<()> {
     if std::path::Path::new(GRPC_SOCKET_PATH).exists() {
         std::fs::remove_file(GRPC_SOCKET_PATH)?;
     }
@@ -100,6 +107,7 @@ async fn run_grpc_server() -> Result<()> {
 
     Server::builder()
         .add_service(services::process::service())
+        .add_service(services::log::service(reader))
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 

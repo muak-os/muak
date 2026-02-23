@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         .ready(GRPC_SOCKET_PATH)
         .context("Failed to send ready notification")?;
 
-    kmsg::info!("gRPC server listening on {}", GRPC_SOCKET_PATH);
+    println!("gRPC server listening on {}", GRPC_SOCKET_PATH);
 
     Server::builder()
         .add_service(services::auth::service())

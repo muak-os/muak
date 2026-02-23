@@ -207,7 +207,7 @@ fn validate_response(
 }
 
 pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
-    kmsg::debug!("DHCP: starting on {}", interface);
+    println!("DHCP: starting on {}", interface);
 
     let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
     socket.set_broadcast(true)?;
@@ -224,7 +224,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     append_param_request_list(&mut discover);
     discover.push(option::END);
 
-    kmsg::debug!("DHCP: sending DISCOVER xid={}", xid);
+    println!("DHCP: sending DISCOVER xid={}", xid);
     socket
         .send_to(&discover, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
@@ -238,7 +238,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     .await??;
     let offer_opts = validate_response(&buf, len, xid, message_type::OFFER)?;
     let offered_ip = yiaddr(&buf);
-    kmsg::debug!("DHCP: got OFFER yiaddr={}", offered_ip);
+    println!("DHCP: got OFFER yiaddr={}", offered_ip);
 
     let server_id = offer_opts
         .server_id
@@ -254,7 +254,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     append_param_request_list(&mut request);
     request.push(option::END);
 
-    kmsg::debug!("DHCP: sending REQUEST for {}", offered_ip);
+    println!("DHCP: sending REQUEST for {}", offered_ip);
     socket
         .send_to(&request, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
@@ -267,7 +267,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
     .await??;
     let ack_opts = validate_response(&buf, len, xid, message_type::ACK)?;
     let ip = yiaddr(&buf);
-    kmsg::debug!("DHCP: got ACK yiaddr={}", ip);
+    println!("DHCP: got ACK yiaddr={}", ip);
 
     let lease_seconds = ack_opts.lease_time.unwrap_or(DEFAULT_LEASE_SECS);
 

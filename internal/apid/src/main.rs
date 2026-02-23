@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     apid::run(&listener, &tls_acceptor, &shutdown, args.maintenance_mode).await;
 
     notifier.stopping("Graceful shutdown")?;
-    kmsg::info!("API daemon stopped");
+    println!("API daemon stopped");
 
     Ok(())
 }
@@ -46,10 +46,10 @@ fn setup_shutdown_handler() -> Arc<AtomicBool> {
 
         tokio::select! {
             _ = async { sigterm.as_mut()?.recv().await }, if sigterm.is_some() => {
-                kmsg::info!("Received SIGTERM, shutting down");
+                println!("Received SIGTERM, shutting down");
             }
             _ = async { sigint.as_mut()?.recv().await }, if sigint.is_some() => {
-                kmsg::info!("Received SIGINT, shutting down");
+                println!("Received SIGINT, shutting down");
             }
         }
         shutdown_clone.store(true, Ordering::SeqCst);

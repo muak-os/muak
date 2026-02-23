@@ -100,7 +100,7 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 
     server_config.alpn_protocols = vec![b"h2".to_vec()];
 
-    kmsg::info!("Ephemeral TLS certificates generated for maintenance mode");
+    println!("Ephemeral TLS certificates generated for maintenance mode");
 
     Ok(TlsAcceptor::from(Arc::new(server_config)))
 }

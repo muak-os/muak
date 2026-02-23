@@ -1,4 +1,5 @@
 mod dependency;
+pub mod logger;
 mod notify;
 mod reaper;
 mod restart;
@@ -9,6 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+use logger::LogWriter;
 use notify::{NotifyListener, ServiceNotification};
 use reaper::Reaper;
 use restart::RestartQueue;
@@ -16,16 +18,17 @@ pub use service::ServiceDef;
 use service::{ServiceState, ServiceStatus};
 use tokio::signal::unix::{SignalKind, signal};
 
-/// PID 1 supervisor that manages the life cycle of all system services.
+/// Manages the life cycle of all system services.
 pub struct Supervisor {
     services: HashMap<&'static str, ServiceState>,
     notify_listener: NotifyListener,
     reaper: Reaper,
     restart_queue: RestartQueue,
+    logger: LogWriter,
 }
 
 impl Supervisor {
-    pub fn new(service_defs: Vec<ServiceDef>) -> Result<Self> {
+    pub fn new(service_defs: Vec<ServiceDef>, logger: LogWriter) -> Result<Self> {
         let services = service_defs
             .into_iter()
             .map(|def| {
@@ -39,6 +42,7 @@ impl Supervisor {
             notify_listener: NotifyListener::new()?,
             reaper: Reaper::new()?,
             restart_queue: RestartQueue::new(),
+            logger,
         })
     }
 
@@ -100,8 +104,9 @@ impl Supervisor {
             .get_mut(name)
             .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
-        let pid = spawner::spawn(state)?;
-        self.reaper.track(pid, name);
+        let result = spawner::spawn(state)?;
+        self.reaper.track(result.pid, name);
+        logger::capture(name, result.stdout, result.stderr, &self.logger);
 
         Ok(())
     }
@@ -170,8 +175,12 @@ impl Supervisor {
         state.pid = None;
         state.socket_path = None;
 
-        if RestartQueue::should_restart(state) {
+        if RestartQueue::should_restart(state, exit_code) {
             self.restart_queue.schedule(state);
+        } else if exit_code == Some(0) {
+            // Clean exit, not a failure.
+            state.status = ServiceStatus::Stopping;
+            kmsg::info!("Service {} exited cleanly, will not restart", name);
         } else {
             RestartQueue::mark_failed(state);
         }

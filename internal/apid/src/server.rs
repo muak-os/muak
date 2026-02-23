@@ -33,6 +33,6 @@ pub async fn serve_tls_connection(
     let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
 
     if let Err(e) = conn.await {
-        kmsg::warn!("Connection error from {}: {}", peer_addr, e);
+        eprintln!("Connection error from {}: {}", peer_addr, e);
     }
 }

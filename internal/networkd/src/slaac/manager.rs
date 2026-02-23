@@ -100,7 +100,7 @@ impl SlaacManager {
     pub async fn run(mut self) {
         match self.initial_solicitation().await {
             Ok(()) => {
-                kmsg::info!("SLAAC manager: initial configuration complete");
+                println!("SLAAC manager: initial configuration complete");
             }
             Err(e) => {
                 let _ = self
@@ -121,11 +121,9 @@ impl SlaacManager {
         let dest = create_all_routers_sockaddr(self.ifindex);
 
         for attempt in 1..=MAX_RTR_SOLICITATIONS {
-            kmsg::info!(
+            println!(
                 "SLAAC manager: sending RS on {} (attempt {}/{})",
-                self.interface,
-                attempt,
-                MAX_RTR_SOLICITATIONS
+                self.interface, attempt, MAX_RTR_SOLICITATIONS
             );
 
             sendto(self.socket.get_ref(), &rs_packet, SendFlags::empty(), &dest)?;
@@ -137,7 +135,7 @@ impl SlaacManager {
                 }
                 Err(_) => {
                     if attempt < MAX_RTR_SOLICITATIONS {
-                        kmsg::info!("SLAAC manager: no RA received, retrying...");
+                        println!("SLAAC manager: no RA received, retrying...");
                     }
                 }
             }
@@ -169,7 +167,7 @@ impl SlaacManager {
         let managed_router = ManagedRouter::new(ra.source, ra.router_lifetime);
 
         let dns_servers: Vec<ManagedDns> = if ra.dns_servers.is_empty() {
-            kmsg::info!("SLAAC manager: no RDNSS in RA, using fallback DNS");
+            println!("SLAAC manager: no RDNSS in RA, using fallback DNS");
             FALLBACK_DNS
                 .iter()
                 .map(|&s| ManagedDns::new(s, u32::MAX)) // Fallback never expires
@@ -183,7 +181,7 @@ impl SlaacManager {
 
         let dns_addrs: Vec<Ipv6Addr> = dns_servers.iter().map(|d| d.server).collect();
 
-        kmsg::info!(
+        println!(
             "SLAAC manager: acquired {} via {}, {} DNS servers",
             address,
             ra.source,
@@ -224,7 +222,7 @@ impl SlaacManager {
             }
 
             if self.address.is_none() && self.router.is_none() {
-                kmsg::info!("SLAAC manager: all IPv6 configuration expired, shutting down");
+                println!("SLAAC manager: all IPv6 configuration expired, shutting down");
                 break;
             }
         }
@@ -265,7 +263,7 @@ impl SlaacManager {
             && now >= addr.preferred_until
         {
             addr.state = AddressState::Deprecated;
-            kmsg::info!("SLAAC manager: address {} deprecated", addr.address);
+            println!("SLAAC manager: address {} deprecated", addr.address);
             let _ = self
                 .event_tx
                 .send(SlaacEvent::AddressDeprecated {
@@ -277,7 +275,7 @@ impl SlaacManager {
         if let Some(addr) = &self.address
             && now >= addr.valid_until
         {
-            kmsg::info!("SLAAC manager: address {} expired", addr.address);
+            println!("SLAAC manager: address {} expired", addr.address);
             let _ = self
                 .event_tx
                 .send(SlaacEvent::AddressExpired {
@@ -290,7 +288,7 @@ impl SlaacManager {
         if let Some(router) = &self.router
             && now >= router.expires_at
         {
-            kmsg::info!("SLAAC manager: router {} expired", router.address);
+            println!("SLAAC manager: router {} expired", router.address);
             let _ = self
                 .event_tx
                 .send(SlaacEvent::RouterExpired {
@@ -304,7 +302,7 @@ impl SlaacManager {
         self.dns_servers.retain(|dns| now < dns.expires_at);
 
         if had_dns && self.dns_servers.is_empty() {
-            kmsg::info!("SLAAC manager: all RDNSS expired, using fallback");
+            println!("SLAAC manager: all RDNSS expired, using fallback");
             self.dns_servers = FALLBACK_DNS
                 .iter()
                 .map(|&s| ManagedDns::new(s, u32::MAX))
@@ -318,13 +316,13 @@ impl SlaacManager {
     }
 
     async fn process_unsolicited_ra(&mut self, ra: RouterAdvertisement) {
-        kmsg::info!("SLAAC manager: received unsolicited RA from {}", ra.source);
+        println!("SLAAC manager: received unsolicited RA from {}", ra.source);
 
         if ra.router_lifetime == 0 {
             if let Some(router) = &self.router
                 && router.address == ra.source
             {
-                kmsg::info!(
+                println!(
                     "SLAAC manager: router {} signaled departure (lifetime=0)",
                     ra.source
                 );
@@ -337,7 +335,7 @@ impl SlaacManager {
                 if let Some(addr) = &self.address
                     && addr.router == ra.source
                 {
-                    kmsg::info!(
+                    println!(
                         "SLAAC manager: router for {} went away, address will expire",
                         addr.address
                     );
@@ -359,7 +357,7 @@ impl SlaacManager {
                         generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac);
                     if expected_addr == addr.address {
                         addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
-                        kmsg::info!("SLAAC manager: refreshed lifetimes for {}", addr.address);
+                        println!("SLAAC manager: refreshed lifetimes for {}", addr.address);
                         break;
                     }
                 }

@@ -53,7 +53,7 @@ impl AuthService for AuthServiceImpl {
 
         let pending_path = pending_csr_path(&fingerprint);
         if pending_path.exists() {
-            kmsg::info!("CSR already pending: {}", &fingerprint[..16]);
+            println!("CSR already pending: {}", &fingerprint[..16]);
             return Ok(Response::new(SubmitCsrResponse { fingerprint }));
         }
 
@@ -61,7 +61,7 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to store CSR: {}", e)))?;
 
-        kmsg::info!("CSR submitted: {}", &fingerprint[..16]);
+        println!("CSR submitted: {}", &fingerprint[..16]);
 
         Ok(Response::new(SubmitCsrResponse { fingerprint }))
     }
@@ -173,7 +173,7 @@ impl AuthService for AuthServiceImpl {
 
         let _ = tokio::fs::remove_file(&pending_path).await;
 
-        kmsg::info!(
+        println!(
             "CSR approved: {} -> {}",
             &fingerprint[..16],
             &cert_fingerprint[..16]
@@ -192,7 +192,7 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to revoke certificate: {}", e)))?;
 
-        kmsg::info!("Certificate revoked: {}", &fingerprint[..16]);
+        println!("Certificate revoked: {}", &fingerprint[..16]);
 
         Ok(Response::new(RevokeCertResponse {}))
     }
@@ -236,7 +236,7 @@ impl AuthService for AuthServiceImpl {
                 .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {}", e)))?;
         }
 
-        kmsg::info!("Enrollment acknowledged: {}", &fingerprint[..16]);
+        println!("Enrollment acknowledged: {}", &fingerprint[..16]);
 
         Ok(Response::new(AckEnrollmentResponse {}))
     }

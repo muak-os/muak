@@ -79,20 +79,19 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
         None => return Ok(()),
     };
 
-    kmsg::info!(
+    println!(
         "Found pending validation for update {} -> {}",
-        marker.current_image,
-        marker.target_image
+        marker.current_image, marker.target_image
     );
 
     if is_old_kernel(&marker) {
-        kmsg::info!(
+        println!(
             "Update {} failed - new kernel did not boot successfully",
             &marker.update_id
         );
         rollback_update(&marker, "Kernel failed to boot (kexec failure)")?;
     } else if let Err(e) = health_checks() {
-        kmsg::info!("Health checks failed: {}", e);
+        println!("Health checks failed: {}", e);
         rollback_update(&marker, &format!("Health checks failed: {}", e))?;
     } else {
         commit_update(&marker)?;
@@ -160,7 +159,7 @@ fn check_network_interfaces() -> Result<()> {
 
 /// Commits the update by installing the new UKI.
 fn commit_update(marker: &ValidationMarker) -> Result<()> {
-    kmsg::info!(
+    println!(
         "Validation succeeded, committing update {}",
         marker.update_id
     );
@@ -220,7 +219,7 @@ fn update_config_image(new_image: &str) -> Result<()> {
 
 /// Rolls back the update and reboots.
 fn rollback_update(marker: &ValidationMarker, reason: &str) -> Result<()> {
-    kmsg::info!("Rolling back update {}: {}", marker.update_id, reason);
+    println!("Rolling back update {}: {}", marker.update_id, reason);
 
     save_rollback_info(marker, reason)?;
     cleanup_failed_update();
@@ -259,14 +258,14 @@ fn save_rollback_info(marker: &ValidationMarker, reason: &str) -> Result<()> {
 /// Cleans up update staging files.
 fn cleanup_update_files() {
     if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
-        kmsg::warn!("Failed to cleanup update work dir: {}", e);
+        eprintln!("Failed to cleanup update work dir: {}", e);
     }
 }
 
 /// Cleans up files from a failed update.
 fn cleanup_failed_update() {
     if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
-        kmsg::warn!("Failed to cleanup update work dir during rollback: {}", e);
+        eprintln!("Failed to cleanup update work dir during rollback: {}", e);
     }
 }
 

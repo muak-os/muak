@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package muak.log.v1;
+
+service LogService {
+  // @rbac: none
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+
+  // @rbac: none
+  rpc FollowLogs(FollowLogsRequest) returns (stream LogEntry);
+}
+
+message GetLogsRequest {
+  string service = 1;
+  uint32 tail = 2;
+}
+
+message GetLogsResponse {
+  repeated LogEntry entries = 1;
+}
+
+message FollowLogsRequest {
+  string service = 1;
+}
+
+message LogEntry {
+  uint64 timestamp = 1;
+  string service = 2;
+  Stream stream = 3;
+  string message = 4;
+}
+
+enum Stream {
+  STDOUT = 0;
+  STDERR = 1;
+}
