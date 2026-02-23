@@ -20,7 +20,7 @@ use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl NetworkActor {
     pub(super) async fn initialize(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) -> Result<()> {
-        kmsg::info!("Initializing network");
+        println!("Initializing network");
 
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
@@ -36,13 +36,13 @@ impl NetworkActor {
 
         self.start_connectivity_monitoring(cmd_tx.clone());
 
-        kmsg::info!("Network initialization complete");
+        println!("Network initialization complete");
 
         Ok(())
     }
 
     async fn discover_interfaces(&mut self) -> Result<()> {
-        kmsg::info!("Discovering ethernet interfaces");
+        println!("Discovering ethernet interfaces");
         self.state.state = NetworkStateKind::Initializing;
         self.publish_state();
 
@@ -79,7 +79,7 @@ impl NetworkActor {
 
         self.state.state = NetworkStateKind::Operational;
         self.sync_and_publish();
-        kmsg::info!(
+        println!(
             "Discovered {} interfaces, primary={:?}",
             discovered.len(),
             self.state.primary
@@ -128,7 +128,7 @@ impl NetworkActor {
         let backups = InterfaceSelector::select_backups(discovered, &primary.name);
         self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
-        kmsg::info!(
+        println!(
             "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
             primary.name,
             primary.link_state,
@@ -143,7 +143,7 @@ impl NetworkActor {
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
 
-        kmsg::info!("Acquiring DHCP on primary interface: {}", primary);
+        println!("Acquiring DHCP on primary interface: {}", primary);
         self.acquire_dhcp(&primary, cmd_tx).await?;
         Ok(())
     }
@@ -161,7 +161,7 @@ impl NetworkActor {
         self.update_interface_with_lease(iface, ip.clone(), lease.clone())?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
 
-        kmsg::info!("DHCP acquired on {}: {}", iface, ip.address);
+        println!("DHCP acquired on {}: {}", iface, ip.address);
 
         self.get_interface(iface)
             .cloned()
@@ -180,11 +180,11 @@ impl NetworkActor {
         };
 
         let Ok(mac) = self.get_interface_mac(&primary) else {
-            kmsg::warn!("Cannot start SLAAC: interface MAC not found");
+            eprintln!("Cannot start SLAAC: interface MAC not found");
             return;
         };
 
-        kmsg::info!("Starting SLAAC manager on primary interface: {}", primary);
+        println!("Starting SLAAC manager on primary interface: {}", primary);
 
         let (slaac_tx, mut slaac_rx) = mpsc::channel::<SlaacEvent>(16);
 
@@ -201,10 +201,10 @@ impl NetworkActor {
                     }
                 });
 
-                kmsg::info!("SLAAC manager started on {}", primary);
+                println!("SLAAC manager started on {}", primary);
             }
             Err(e) => {
-                kmsg::info!("SLAAC not available: {} (continuing with IPv4)", e);
+                println!("SLAAC not available: {} (continuing with IPv4)", e);
             }
         }
     }
@@ -217,7 +217,7 @@ impl NetworkActor {
                 gateway,
                 dns,
             } => {
-                kmsg::info!("SLAAC configured: {} via {}", address, gateway);
+                println!("SLAAC configured: {} via {}", address, gateway);
 
                 let Ok(primary) = self.get_primary_name() else {
                     return;
@@ -236,12 +236,12 @@ impl NetworkActor {
                 };
 
                 if let Err(e) = self.apply_ipv6_configuration(index, &ipv6).await {
-                    kmsg::warn!("Failed to apply IPv6 configuration: {}", e);
+                    eprintln!("Failed to apply IPv6 configuration: {}", e);
                     return;
                 }
 
                 if let Err(e) = self.update_interface_with_ipv6(&primary, ipv6) {
-                    kmsg::warn!("Failed to update interface with IPv6: {}", e);
+                    eprintln!("Failed to update interface with IPv6: {}", e);
                     return;
                 }
 
@@ -250,13 +250,13 @@ impl NetworkActor {
             }
 
             SlaacEvent::AddressDeprecated { address } => {
-                kmsg::info!("IPv6 address deprecated: {}", address);
+                println!("IPv6 address deprecated: {}", address);
                 // Address is still valid, just shouldn't be used for new connections
                 // We log this but don't remove the address yet
             }
 
             SlaacEvent::AddressExpired { address } => {
-                kmsg::info!("IPv6 address expired: {}", address);
+                println!("IPv6 address expired: {}", address);
 
                 let Ok(primary) = self.get_primary_name() else {
                     return;
@@ -269,7 +269,7 @@ impl NetworkActor {
                 let index = iface.index;
 
                 if let Err(e) = address::remove_ipv6(&self.handle, index, address).await {
-                    kmsg::warn!("Failed to remove expired IPv6 address: {}", e);
+                    eprintln!("Failed to remove expired IPv6 address: {}", e);
                 }
 
                 if let Some(iface) = self.get_interface_mut(&primary) {
@@ -281,18 +281,18 @@ impl NetworkActor {
             }
 
             SlaacEvent::RouterExpired { router } => {
-                kmsg::info!("IPv6 router expired: {}", router);
+                println!("IPv6 router expired: {}", router);
 
                 if let Err(e) = route::remove_default_route_v6(&self.handle, router).await {
-                    kmsg::warn!("Failed to remove IPv6 default route: {}", e);
+                    eprintln!("Failed to remove IPv6 default route: {}", e);
                 }
             }
 
             SlaacEvent::DnsUpdated { servers } => {
-                kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
+                println!("IPv6 DNS updated: {} servers", servers.len());
 
                 if let Err(e) = configure_dns_v6(&servers) {
-                    kmsg::warn!("Failed to update IPv6 DNS: {}", e);
+                    eprintln!("Failed to update IPv6 DNS: {}", e);
                 }
 
                 let Ok(primary) = self.get_primary_name() else {
@@ -309,7 +309,7 @@ impl NetworkActor {
             }
 
             SlaacEvent::Failed { reason } => {
-                kmsg::info!("SLAAC failed: {} (continuing with IPv4)", reason);
+                println!("SLAAC failed: {} (continuing with IPv4)", reason);
                 self.state.ipv6 = false;
             }
         }
@@ -319,12 +319,12 @@ impl NetworkActor {
         address::ensure_ipv6(&self.handle, index, ipv6.address, ipv6.prefix_len).await?;
 
         if let Some(gateway) = ipv6.gateway {
-            kmsg::info!("Setting IPv6 default route via {}", gateway);
+            println!("Setting IPv6 default route via {}", gateway);
             route::ensure_default_route_v6(&self.handle, gateway).await?;
         }
 
         if !ipv6.dns.is_empty() {
-            kmsg::info!("Configuring {} IPv6 DNS server(s)", ipv6.dns.len());
+            println!("Configuring {} IPv6 DNS server(s)", ipv6.dns.len());
             configure_dns_v6(&ipv6.dns)?;
         }
 
@@ -346,10 +346,10 @@ impl NetworkActor {
         address::ensure_ipv4(&self.handle, index, ip.address, ip.prefix_len).await?;
 
         if let Some(gw) = ip.gateway {
-            kmsg::info!("Setting default route via {}", gw);
+            println!("Setting default route via {}", gw);
             route::ensure_default_route(&self.handle, gw).await?;
         } else {
-            kmsg::info!("No gateway in DHCP lease, skipping default route");
+            println!("No gateway in DHCP lease, skipping default route");
         }
 
         if !ip.dns.is_empty() {
@@ -411,13 +411,13 @@ impl NetworkActor {
         tokio::spawn(async move {
             let Some(dur) = dur else { return };
             tokio::time::sleep(dur).await;
-            kmsg::info!("Lease {} attempt for {}", task_name, iface);
+            println!("Lease {} attempt for {}", task_name, iface);
             let _ = cmd_tx.send(NetworkCommand::RenewLease { iface }).await;
         })
     }
 
     pub(super) async fn renew_lease(&mut self, iface: &str) -> Result<()> {
-        kmsg::info!("Renewing DHCP lease for {}", iface);
+        println!("Renewing DHCP lease for {}", iface);
 
         let mac = self
             .get_interface(iface)
@@ -434,11 +434,11 @@ impl NetworkActor {
                 self.apply_ip_configuration(index, &ip).await?;
                 self.update_interface_with_lease(iface, ip, lease)?;
 
-                kmsg::info!("DHCP lease renewed for {}", iface);
+                println!("DHCP lease renewed for {}", iface);
                 Ok(())
             }
             Err(e) => {
-                kmsg::warn!(@ "networkd", "DHCP renewal failed for {}: {}", iface, e);
+                eprintln!("DHCP renewal failed for {}: {}", iface, e);
                 Err(anyhow::anyhow!("DHCP renewal failed: {}", e))
             }
         }
@@ -451,7 +451,7 @@ impl NetworkActor {
             .and_then(|iface| iface.ip.as_ref())
             .and_then(|ip| ip.gateway);
 
-        kmsg::info!(
+        println!(
             "Setting up bridge {} with primary {}",
             config::DEFAULT_BRIDGE,
             primary
@@ -463,7 +463,7 @@ impl NetworkActor {
             gateway,
         )
         .await?;
-        kmsg::info!(
+        println!(
             "Bridge setup complete: {} <- {}",
             config::DEFAULT_BRIDGE,
             primary
@@ -488,7 +488,7 @@ impl NetworkActor {
         self.clear_lease_from_primary(&primary);
         self.sync_and_publish();
 
-        kmsg::info!(
+        println!(
             "Transferring DHCP lease management from {} to {}",
             primary,
             config::DEFAULT_BRIDGE
@@ -529,7 +529,7 @@ impl NetworkActor {
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
 
-        kmsg::info!(
+        println!(
             "Setting up bridge {} with primary {}",
             config::DEFAULT_BRIDGE,
             primary
@@ -541,7 +541,7 @@ impl NetworkActor {
             gateway,
         )
         .await?;
-        kmsg::info!(
+        println!(
             "Bridge setup complete: {} <- {}",
             config::DEFAULT_BRIDGE,
             primary
@@ -579,7 +579,7 @@ impl NetworkActor {
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
-        kmsg::info!("Adding TAP interface: {}", name);
+        println!("Adding TAP interface: {}", name);
 
         let index = tap::setup_tap_on_bridge(&self.handle, name, config::DEFAULT_BRIDGE).await?;
 
@@ -596,18 +596,18 @@ impl NetworkActor {
         self.insert_interface(snapshot.clone());
         self.sync_and_publish();
 
-        kmsg::info!("TAP interface added: {}", name);
+        println!("TAP interface added: {}", name);
         Ok(snapshot)
     }
 
     pub(super) async fn delete_tap(&mut self, name: &str) -> Result<()> {
-        kmsg::info!("Deleting TAP interface: {}", name);
+        println!("Deleting TAP interface: {}", name);
 
         tap::remove_tap_device(&self.handle, name).await?;
         self.remove_interface(name);
         self.sync_and_publish();
 
-        kmsg::info!("TAP interface deleted: {}", name);
+        println!("TAP interface deleted: {}", name);
         Ok(())
     }
 
@@ -643,10 +643,10 @@ impl NetworkActor {
 
         match result.status {
             ConnectivityStatus::Connected if !was_connected => {
-                kmsg::info!("Connectivity OK ({}ms)", result.latency_ms.unwrap_or(0));
+                println!("Connectivity OK ({}ms)", result.latency_ms.unwrap_or(0));
             }
             ConnectivityStatus::Disconnected => {
-                kmsg::warn!(@ "networkd", "No internet connectivity detected");
+                kmsg::warn!("No internet connectivity detected");
             }
             _ => {}
         }

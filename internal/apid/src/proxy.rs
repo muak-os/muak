@@ -92,7 +92,7 @@ async fn connect(socket_path: &str) -> Result<SendRequest<BoxBody>> {
 
     tokio::spawn(async move {
         if let Err(e) = conn.await {
-            kmsg::warn!("Backend connection error: {}", e);
+            eprintln!("Backend connection error: {}", e);
         }
     });
 

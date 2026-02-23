@@ -9,8 +9,6 @@
   - Create install script for users to easily install the CLI regardless of OS
   - Create a dashboard command with a TUI interface to display critical system information
 
-- Add journalctl like support in PID 1 to monitor logs of all services
-
 - Enhance networking:
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Automatic failover when primary interface fails

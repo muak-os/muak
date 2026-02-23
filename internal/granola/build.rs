@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("cargo:rerun-if-changed={}/process.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/log.proto", api_dir);
     println!(
         "cargo:rerun-if-changed={}/internal/supervisor.proto",
         api_dir
@@ -31,7 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .compile_protos(
-            &[format!("{}/process.proto", api_dir)],
+            &[
+                format!("{}/process.proto", api_dir),
+                format!("{}/log.proto", api_dir),
+            ],
             &[api_dir.to_string()],
         )?;
 

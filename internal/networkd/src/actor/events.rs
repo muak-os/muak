@@ -115,11 +115,7 @@ impl NetworkActor {
         self.publish_state();
 
         if !self.state.backups.is_empty() {
-            kmsg::info!(
-                @ "networkd",
-                "Backup interfaces available: {:?}",
-                self.state.backups
-            );
+            println!("Backup interfaces available: {:?}", self.state.backups);
             // TODO: Implement automatic failover
         }
     }
@@ -139,12 +135,12 @@ impl NetworkActor {
     }
 
     fn assign_as_primary(&mut self, name: String) {
-        kmsg::info!("Assigning {} as primary interface", name);
+        println!("Assigning {} as primary interface", name);
         self.state.primary = Some(name);
     }
 
     fn add_to_backups(&mut self, name: String) {
-        kmsg::info!("Adding {} to backup interfaces", name);
+        println!("Adding {} to backup interfaces", name);
         self.state.backups.push(name);
     }
 

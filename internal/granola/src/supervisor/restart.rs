@@ -25,9 +25,13 @@ impl RestartQueue {
     }
 
     /// Determines whether a service should be restarted based on its
-    /// current state, restart count, and the restart window.
-    pub fn should_restart(state: &ServiceState) -> bool {
+    /// current state, restart count, exit code, and the restart window.
+    pub fn should_restart(state: &ServiceState, exit_code: Option<i32>) -> bool {
         if state.status == ServiceStatus::Stopping {
+            return false;
+        }
+
+        if exit_code == Some(0) {
             return false;
         }
 
@@ -63,7 +67,11 @@ impl RestartQueue {
     /// Marks a service as permanently failed.
     pub fn mark_failed(state: &mut ServiceState) {
         state.status = ServiceStatus::Failed;
-        kmsg::error!("Service {} failed permanently", state.def.name);
+        kmsg::error!(
+            "Service {} failed permanently after {} restarts",
+            state.def.name,
+            state.restart_count
+        );
     }
 
     /// Returns the names of services whose restart delay has elapsed.

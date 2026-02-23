@@ -5,7 +5,6 @@ use std::pin::Pin;
 use anyhow::Context;
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
@@ -49,11 +48,9 @@ impl ProvisionService for ProvisionServiceImpl {
             .validate_for_install()
             .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {}", e)))?;
 
-        kmsg::info!(
+        println!(
             "Install request: disk={}, force={}, image={}",
-            config.system.disk,
-            config.system.image,
-            req.force,
+            config.system.disk, config.system.image, req.force,
         );
 
         let server_name = config.system.name.clone();
@@ -136,7 +133,7 @@ impl ProvisionService for ProvisionServiceImpl {
         request: Request<PrepareUpdateRequest>,
     ) -> Result<Response<PrepareUpdateResponse>, Status> {
         let req = request.into_inner();
-        kmsg::info!("Update request: image={}", req.image);
+        println!("Update request: image={}", req.image);
 
         let config = sysconfig::config();
         let extensions = config.system.extensions.clone();
@@ -239,25 +236,6 @@ impl ProvisionService for ProvisionServiceImpl {
         }))
     }
 
-    type GetLogsStream =
-        Pin<Box<dyn tokio_stream::Stream<Item = Result<GetLogsResponse, Status>> + Send>>;
-
-    async fn get_logs(
-        &self,
-        _request: Request<GetLogsRequest>,
-    ) -> Result<Response<Self::GetLogsStream>, Status> {
-        let (tx, rx) = tokio::sync::mpsc::channel(64);
-
-        tokio::spawn(async move {
-            if let Err(e) = stream_kernel_logs(tx).await {
-                kmsg::warn!("Error streaming logs: {}", e);
-            }
-        });
-
-        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(stream)))
-    }
-
     async fn get_config(
         &self,
         _request: Request<GetConfigRequest>,
@@ -313,44 +291,5 @@ impl ProvisionService for ProvisionServiceImpl {
                 error: format!("Task panicked: {}", e),
             })),
         }
-    }
-}
-
-/// Streams kernel logs from /dev/kmsg to the gRPC client.
-async fn stream_kernel_logs(
-    tx: tokio::sync::mpsc::Sender<Result<GetLogsResponse, Status>>,
-) -> Result<(), std::io::Error> {
-    let file = tokio::fs::OpenOptions::new()
-        .read(true)
-        .open("/dev/kmsg")
-        .await?;
-
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
-
-    while let Some(line) = lines.next_line().await? {
-        let message = parse_kmsg_line(&line);
-
-        if tx
-            .send(Ok(GetLogsResponse {
-                line: message,
-                error: String::new(),
-            }))
-            .await
-            .is_err()
-        {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
-/// Parses a kernel message line, extracting the message after the priority prefix.
-fn parse_kmsg_line(line: &str) -> String {
-    if let Some(idx) = line.find(';') {
-        line[idx + 1..].to_string()
-    } else {
-        line.to_string()
     }
 }

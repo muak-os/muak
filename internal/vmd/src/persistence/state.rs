@@ -52,11 +52,11 @@ pub fn load_vms() -> Result<HashMap<String, VmPersisted>> {
                         vms.insert(stem.to_string(), vm);
                     }
                     Err(e) => {
-                        kmsg::warn!(@ "vmd", "Failed to parse VM state {}: {}", path.display(), e);
+                        eprintln!("Failed to parse VM state {}: {}", path.display(), e);
                     }
                 },
                 Err(e) => {
-                    kmsg::warn!(@ "vmd", "Failed to read VM state {}: {}", path.display(), e);
+                    eprintln!("Failed to read VM state {}: {}", path.display(), e);
                 }
             }
         }

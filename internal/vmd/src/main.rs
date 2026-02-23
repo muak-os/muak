@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
 
     let network_client = NetworkClient::connect(NETWORKD_SOCKET).await?;
-    kmsg::info!(@ "vmd", "Connected to networkd");
+    println!("Connected to networkd");
 
     let vm_handle = start_vm_actor(network_client, kvm_available).await;
 
@@ -85,10 +85,10 @@ async fn main() -> Result<()> {
         .serve_with_incoming_shutdown(stream, async {
             tokio::select! {
                 _ = sigterm.recv() => {
-                    kmsg::info!(@ "vmd", "Received SIGTERM, shutting down");
+                    println!("Received SIGTERM, shutting down");
                 }
                 _ = sigint.recv() => {
-                    kmsg::info!(@ "vmd", "Received SIGINT, shutting down");
+                    println!("Received SIGINT, shutting down");
                 }
             }
         });
@@ -111,7 +111,7 @@ async fn main() -> Result<()> {
 
     sigchld_handle.abort();
     notifier.stopping("Graceful shutdown")?;
-    kmsg::info!(@ "vmd", "Shutdown complete");
+    println!("Shutdown complete");
 
     Ok(())
 }
@@ -126,7 +126,7 @@ fn set_child_subreaper() -> Result<()> {
             std::io::Error::last_os_error()
         );
     }
-    kmsg::info!(@ "vmd", "Set as child subreaper");
+    println!("Set as child subreaper");
     Ok(())
 }
 
@@ -139,11 +139,15 @@ fn reap_children() {
         ) {
             Ok(Some((pid, status))) if status.exited() => {
                 let exit_status = status.exit_status().unwrap_or(0);
-                kmsg::info!(@ "vmd", "Child {} exited with status {}", pid.as_raw_nonzero(), exit_status);
+                println!(
+                    "Child {} exited with status {}",
+                    pid.as_raw_nonzero(),
+                    exit_status
+                );
             }
             Ok(Some((pid, status))) if status.signaled() => {
                 let signal = status.terminating_signal().unwrap_or(0);
-                kmsg::info!(@ "vmd", "Child {} killed by signal {}", pid.as_raw_nonzero(), signal);
+                println!("Child {} killed by signal {}", pid.as_raw_nonzero(), signal);
             }
             Ok(None) | Err(_) => break,
             Ok(Some(_)) => continue,

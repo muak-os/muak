@@ -4,6 +4,7 @@ pub mod context;
 pub mod disks;
 pub mod dmesg;
 pub mod install;
+pub mod logs;
 pub mod process;
 pub mod reset;
 pub mod security;
@@ -15,8 +16,8 @@ use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{
-    ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient, VmServiceClient, connect,
-    connect_tls_insecure,
+    LogServiceClient, ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient,
+    VmServiceClient, connect, connect_tls_insecure,
 };
 use crate::config::ClientConfig;
 use crate::{Cli, Commands};
@@ -85,6 +86,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     let timeout_secs = match &cli.command {
         Commands::Install { .. } | Commands::Update { .. } | Commands::Reset { .. } => 600,
+        Commands::Logs { follow: true, .. } | Commands::Dmesg { follow: true } => 86400,
         _ => 30,
     };
 
@@ -184,9 +186,17 @@ async fn handle_cmd(
             let mut client = ProvisionServiceClient::new(channel);
             disks::handle(&mut client).await
         }
-        Commands::Dmesg => {
-            let mut client = ProvisionServiceClient::new(channel);
-            dmesg::handle(&mut client).await
+        Commands::Dmesg { follow } => {
+            let mut client = LogServiceClient::new(channel);
+            dmesg::handle(&mut client, follow).await
+        }
+        Commands::Logs {
+            service,
+            tail,
+            follow,
+        } => {
+            let mut client = LogServiceClient::new(channel);
+            logs::handle(&mut client, service, tail, follow).await
         }
         Commands::Reset { force } => {
             let mut client = ProvisionServiceClient::new(channel);

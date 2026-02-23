@@ -74,7 +74,18 @@ pub enum Commands {
         force: bool,
     },
     Disks,
-    Dmesg,
+    Dmesg {
+        #[arg(long, short)]
+        follow: bool,
+    },
+    Logs {
+        #[arg(long, short)]
+        service: Option<String>,
+        #[arg(long, short)]
+        tail: Option<u32>,
+        #[arg(long, short)]
+        follow: bool,
+    },
 }
 
 #[tokio::main]

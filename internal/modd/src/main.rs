@@ -35,7 +35,7 @@ fn run() -> Result<()> {
     let krel = uname.release().to_string_lossy();
     let mod_dir = Path::new("/lib/modules").join(krel.as_ref());
 
-    kmsg::info!("Module directory: {}", mod_dir.display());
+    println!("Module directory: {}", mod_dir.display());
 
     let alias_path = mod_dir.join("modules.alias");
     let dep_path = mod_dir.join("modules.dep");
@@ -46,14 +46,14 @@ fn run() -> Result<()> {
         DepDb::load(&dep_path).with_context(|| format!("Failed to load {}", dep_path.display()))?;
     let mut loader = ModuleLoader::new(mod_dir);
 
-    kmsg::info!(
+    println!(
         "Loaded {} aliases, {} modules in dependency database",
         alias_db.len(),
         dep_db.len()
     );
 
     let listener = UeventListener::new()?;
-    kmsg::info!("Listening for kernel uevents");
+    println!("Listening for kernel uevents");
 
     notifier.ready(SOCKET_PATH)?;
 
@@ -61,7 +61,7 @@ fn run() -> Result<()> {
         let event = match listener.recv() {
             Ok(e) => e,
             Err(e) => {
-                kmsg::warn!("Failed to receive uevent: {}", e);
+                eprintln!("Failed to receive uevent: {}", e);
                 continue;
             }
         };
@@ -80,7 +80,7 @@ fn run() -> Result<()> {
 
         match load_module(module_name, &dep_db, &mut loader) {
             Ok(count) if count > 0 => {
-                kmsg::info!(
+                println!(
                     "Loaded {} modules for {} ({})",
                     count,
                     module_name,
@@ -88,14 +88,14 @@ fn run() -> Result<()> {
                 );
             }
             Ok(_) => {
-                kmsg::info!(
+                println!(
                     "Loaded module for {} ({})",
                     module_name,
                     event.subsystem.as_deref().unwrap_or("unknown")
                 );
             }
             Err(e) => {
-                kmsg::warn!("Failed to load module {}: {}", module_name, e);
+                eprintln!("Failed to load module {}: {}", module_name, e);
             }
         }
     }

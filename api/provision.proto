@@ -18,9 +18,6 @@ service ProvisionService {
     // @rbac: none
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
 
-    // @rbac: none
-    rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse);
-
     // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 
@@ -91,13 +88,6 @@ message UpdateRequest {
 
 message UpdateResponse {
     bool success = 1;
-    string error = 2;
-}
-
-message GetLogsRequest {}
-
-message GetLogsResponse {
-    string line = 1;
     string error = 2;
 }
 

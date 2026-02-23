@@ -163,9 +163,12 @@ impl VmActor {
                 entry.tap_device = None;
                 if sysconfig::vm().auto_restart {
                     pending_restarts.push(vm_id.clone());
-                    kmsg::info!(@ "vmd", "VM {} was running, will restart", entry.config.name);
+                    println!("VM {} was running, will restart", entry.config.name);
                 } else {
-                    kmsg::info!(@ "vmd", "VM {} was running, but auto-restart is disabled", entry.config.name);
+                    println!(
+                        "VM {} was running, but auto-restart is disabled",
+                        entry.config.name
+                    );
                 }
             }
 
@@ -248,9 +251,9 @@ impl VmActor {
         let restarts = std::mem::take(&mut self.pending_restarts);
 
         for vm_id in restarts {
-            kmsg::info!(@ "vmd", "Auto-restarting VM {}", vm_id);
+            println!("Auto-restarting VM {}", vm_id);
             if let Err(e) = self.handle_start(&vm_id).await {
-                kmsg::error!(@ "vmd", "Failed to auto-restart VM {}: {}", vm_id, e);
+                eprintln!("Failed to auto-restart VM {}: {}", vm_id, e);
             }
         }
     }
@@ -258,7 +261,7 @@ impl VmActor {
     async fn handle_create(&mut self, config: VmConfig) -> anyhow::Result<String> {
         let vm_id = uuid::Uuid::new_v4().to_string();
 
-        kmsg::info!(@ "vmd", "Creating VM {} ({})", config.name, vm_id);
+        println!("Creating VM {} ({})", config.name, vm_id);
 
         let size_mb = if config.root_disk_size_mb == 0 {
             DEFAULT_DISK_SIZE_MB
@@ -310,11 +313,14 @@ impl VmActor {
             anyhow::bail!("VM is already running");
         }
 
-        kmsg::info!(@ "vmd", "Starting VM {} ({})", entry.config.name, vm_id);
+        println!("Starting VM {} ({})", entry.config.name, vm_id);
         entry.state = VmState::Starting;
 
         let tap = self.network_client.create_tap(vm_id, None).await?;
-        kmsg::info!(@ "vmd", "Created TAP device {} with MAC {}", tap.name, tap.mac_address);
+        println!(
+            "Created TAP device {} with MAC {}",
+            tap.name, tap.mac_address
+        );
 
         entry.tap_device = Some(tap.clone());
 
@@ -365,16 +371,16 @@ impl VmActor {
 
                 persistence::save_vm(vm_id, &entry.to_persisted())?;
 
-                kmsg::info!(@ "vmd", "VM {} started with PID {}", entry.config.name, process.pid);
+                println!("VM {} started with PID {}", entry.config.name, process.pid);
                 Ok(())
             }
             Err(e) => {
-                kmsg::error!(@ "vmd", "Failed to start VM {}: {}", entry.config.name, e);
+                eprintln!("Failed to start VM {}: {}", entry.config.name, e);
 
                 if let Some(tap) = entry.tap_device.take()
                     && let Err(tap_err) = self.network_client.delete_tap(&tap.name).await
                 {
-                    kmsg::warn!(@ "vmd", "Failed to cleanup TAP device {}: {}", tap.name, tap_err);
+                    eprintln!("Failed to cleanup TAP device {}: {}", tap.name, tap_err);
                 }
 
                 entry.state = VmState::Created;
@@ -395,7 +401,7 @@ impl VmActor {
             anyhow::bail!("VM is not running");
         }
 
-        kmsg::info!(@ "vmd", "Stopping VM {} (force={})", entry.config.name, force);
+        println!("Stopping VM {} (force={})", entry.config.name, force);
         entry.state = VmState::Stopping;
 
         if let Some(pid) = entry.pid {
@@ -408,7 +414,7 @@ impl VmActor {
         if let Some(tap) = entry.tap_device.take()
             && let Err(e) = self.network_client.delete_tap(&tap.name).await
         {
-            kmsg::warn!(@ "vmd", "Failed to delete TAP device {}: {}", tap.name, e);
+            eprintln!("Failed to delete TAP device {}: {}", tap.name, e);
         }
 
         entry.state = VmState::Stopped;
@@ -429,14 +435,14 @@ impl VmActor {
             anyhow::bail!("Cannot delete running VM");
         }
 
-        kmsg::info!(@ "vmd", "Deleting VM {}", vm_id);
+        println!("Deleting VM {}", vm_id);
 
         if let Err(e) = disk::delete_subvolume(vm_id, disk::DATA_DIR) {
-            kmsg::warn!(@ "vmd", "Failed to delete disk subvolume: {}", e);
+            eprintln!("Failed to delete disk subvolume: {}", e);
         }
 
         if let Err(e) = persistence::delete_vm(vm_id) {
-            kmsg::warn!(@ "vmd", "Failed to delete VM state file: {}", e);
+            eprintln!("Failed to delete VM state file: {}", e);
         }
 
         self.vms.remove(vm_id);
@@ -481,7 +487,7 @@ impl VmActor {
 
         tokio::fs::write(&path, data).await?;
 
-        kmsg::info!(@ "vmd", "Uploaded file {} ({} bytes)", path.display(), data.len());
+        println!("Uploaded file {} ({} bytes)", path.display(), data.len());
 
         Ok(path.to_string_lossy().to_string())
     }

@@ -21,7 +21,11 @@ pub fn create_raw_image(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
 
     create_sparse_file(file, size_bytes)?;
 
-    kmsg::info!(@ "vmd", "Created raw disk image {} ({} bytes)", path.display(), size_bytes);
+    println!(
+        "Created raw disk image {} ({} bytes)",
+        path.display(),
+        size_bytes
+    );
     Ok(path)
 }
 

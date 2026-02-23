@@ -25,14 +25,14 @@ pub async fn ensure_bridge_with_ip_transfer(
 }
 
 pub async fn attach_to_bridge(handle: &Handle, iface_name: &str, bridge_name: &str) -> Result<()> {
-    kmsg::info!("Attaching {} to bridge {}", iface_name, bridge_name);
+    println!("Attaching {} to bridge {}", iface_name, bridge_name);
 
     let iface_index = link::get_link_index(handle, iface_name).await?;
     let bridge_index = link::get_link_index(handle, bridge_name).await?;
 
     link::set_link_master(handle, iface_index, bridge_index).await?;
 
-    kmsg::info!("{} attached to bridge {}", iface_name, bridge_name);
+    println!("{} attached to bridge {}", iface_name, bridge_name);
     Ok(())
 }
 
@@ -90,7 +90,7 @@ async fn enslave_interface_to_bridge(
 
     link::bring_link_up(handle, phys_index).await.ok();
 
-    kmsg::info!("Enslaved {} to bridge {}", physical_iface, bridge_name);
+    println!("Enslaved {} to bridge {}", physical_iface, bridge_name);
 
     Ok(())
 }
@@ -114,10 +114,10 @@ async fn transfer_ip_to_bridge(
         // Restore gateway after IP is on bridge
         if let Some(gw) = gateway {
             route::add_default_route(handle, gw).await?;
-            kmsg::info!("Restored default route via {}", gw);
+            println!("Restored default route via {}", gw);
         }
 
-        kmsg::info!("Transferred IP {}/{} to bridge {}", ip, prefix, bridge_name);
+        println!("Transferred IP {}/{} to bridge {}", ip, prefix, bridge_name);
     }
 
     Ok(())

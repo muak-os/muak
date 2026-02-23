@@ -25,17 +25,17 @@ async fn main() -> Result<()> {
     sysconfig::init().context("Failed to initialize system configuration")?;
 
     let server = &sysconfig::system().ntp;
-    kmsg::info!("NTP server: {server}");
+    println!("NTP server: {server}");
 
     let notifier = NotifyClient::new("timed")?;
     notifier.status("Initializing", Health::Healthy)?;
 
     match ntp::sync(server).await {
         Ok(offset) => {
-            kmsg::info!("Initial time sync succeeded (offset: {offset:?})");
+            println!("Initial time sync succeeded (offset: {offset:?})");
         }
         Err(e) => {
-            kmsg::warn!("Initial time sync failed: {e:#}");
+            eprintln!("Initial time sync failed: {e:#}");
             notifier.status("Initial sync failed, retrying", Health::Degraded)?;
         }
     }
@@ -51,21 +51,21 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             _ = sigterm.recv() => {
-                kmsg::info!("SIGTERM received, shutting down");
+                println!("SIGTERM received, shutting down");
                 break;
             }
             _ = sigint.recv() => {
-                kmsg::info!("SIGINT received, shutting down");
+                println!("SIGINT received, shutting down");
                 break;
             }
             _ = interval.tick() => {
                 match ntp::sync(server).await {
                     Ok(offset) => {
-                        kmsg::info!("Time sync succeeded (offset: {offset:?})");
+                        println!("Time sync succeeded (offset: {offset:?})");
                         notifier.status("Synchronized", Health::Healthy)?;
                     }
                     Err(e) => {
-                        kmsg::warn!("Time sync failed: {e:#}");
+                        eprintln!("Time sync failed: {e:#}");
                         notifier.status("Sync failed", Health::Degraded)?;
                     }
                 }

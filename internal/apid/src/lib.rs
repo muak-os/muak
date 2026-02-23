@@ -99,7 +99,7 @@ pub async fn run(
         let (stream, peer_addr) = match timeout_result {
             Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
-                kmsg::warn!("Accept error: {}", e);
+                eprintln!("Accept error: {}", e);
                 continue;
             }
             Err(_) => continue,
@@ -143,7 +143,7 @@ async fn handle_tls_connection(
             .await;
         }
         Err(e) => {
-            kmsg::warn!("TLS handshake failed from {}: {:?}", peer_addr, e);
+            eprintln!("TLS handshake failed from {}: {:?}", peer_addr, e);
         }
     }
 }

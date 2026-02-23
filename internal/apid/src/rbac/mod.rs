@@ -72,7 +72,8 @@ mod tests {
     fn test_unauthenticated_methods_allowed() {
         assert!(check_access("/muak.auth.v1.AuthService/SubmitCsr", None).is_ok());
         assert!(check_access("/muak.provision.v1.ProvisionService/ListDisks", None).is_ok());
-        assert!(check_access("/muak.provision.v1.ProvisionService/GetLogs", None).is_ok());
+        assert!(check_access("/muak.log.v1.LogService/GetLogs", None).is_ok());
+        assert!(check_access("/muak.log.v1.LogService/FollowLogs", None).is_ok());
     }
 
     #[test]
@@ -105,7 +106,8 @@ mod tests {
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/AckEnrollment"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
-        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.provision.v1.ProvisionService/GetLogs"));
-        assert_eq!(UNAUTHENTICATED_METHODS.len(), 6);
+        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
+        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
+        assert_eq!(UNAUTHENTICATED_METHODS.len(), 7);
     }
 }

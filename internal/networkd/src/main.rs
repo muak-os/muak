@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let listener = UnixListener::bind(SOCKET_PATH)?;
     let stream = UnixListenerStream::new(listener);
 
-    kmsg::info!("Listening on {}", SOCKET_PATH);
+    println!("Listening on {}", SOCKET_PATH);
 
     notifier.ready(SOCKET_PATH)?;
 
@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     }
 
     notifier.stopping("Graceful shutdown")?;
-    kmsg::info!("Shutdown complete");
+    println!("Shutdown complete");
 
     Ok(())
 }

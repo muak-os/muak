@@ -39,7 +39,7 @@ pub fn install(
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    kmsg::info!("Starting installation to {}", disk_path);
+    println!("Starting installation to {}", disk_path);
 
     send_progress(
         &progress,
@@ -66,7 +66,7 @@ pub fn install(
 
         Some(hierarchy)
     } else {
-        kmsg::info!("Secure Boot disabled, skipping key generation and enrollment");
+        println!("Secure Boot disabled, skipping key generation and enrollment");
         None
     };
 
@@ -107,7 +107,7 @@ pub fn install(
 
     if let Some(ref hierarchy) = sb_hierarchy {
         sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
-        kmsg::info!("Secure Boot keys enrolled");
+        println!("Secure Boot keys enrolled");
     }
 
     send_progress(
@@ -167,11 +167,11 @@ pub fn install(
     luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
 
     if let Err(e) = uki::cleanup_dir(work_dir) {
-        kmsg::warn!("Failed to cleanup work dir: {}", e);
+        eprintln!("Failed to cleanup work dir: {}", e);
     }
 
     sync();
-    kmsg::info!("Installation completed successfully!");
+    println!("Installation completed successfully!");
 
     send_progress(
         &progress,
@@ -239,7 +239,7 @@ fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
 
     disk::try_unmount(mount_point);
 
-    kmsg::info!("UKI deployed to EFI partition");
+    println!("UKI deployed to EFI partition");
 
     Ok(())
 }
@@ -251,7 +251,7 @@ fn init_state_partition(
     server_pki: &ServerPki,
     sb_hierarchy: Option<&KeyHierarchy>,
 ) -> Result<()> {
-    kmsg::info!("Initializing STATE partition");
+    println!("Initializing STATE partition");
 
     let mount_point = "/run/mnt/state";
 
@@ -291,7 +291,7 @@ fn init_state_partition(
     sync();
     disk::try_unmount(mount_point);
 
-    kmsg::info!("STATE partition initialized");
+    println!("STATE partition initialized");
     Ok(())
 }
 
@@ -300,7 +300,7 @@ fn generate_pki_and_sign_csr(
     csr_pem: &str,
     config: &HostConfig,
 ) -> Result<(InstallResult, ServerPki, HostConfig)> {
-    kmsg::info!("Generating PKI and signing CSR");
+    println!("Generating PKI and signing CSR");
 
     let (ca_key, ca_cert) =
         pki::generate_ca_certificate("Muak CA").context("Failed to generate CA certificate")?;
@@ -330,7 +330,7 @@ fn generate_pki_and_sign_csr(
         .to_pem(LineEnding::LF)
         .context("Failed to encode admin certificate")?;
 
-    kmsg::info!("Admin fingerprint: {}", admin_fingerprint);
+    println!("Admin fingerprint: {}", admin_fingerprint);
 
     let mut config_with_auth = config.clone();
     config_with_auth.auth = AuthConfig {
@@ -392,6 +392,6 @@ fn send_progress(tx: &mpsc::Sender<InstallProgress>, step: InstallStep, message:
         })
         .is_err()
     {
-        kmsg::warn!("Progress receiver dropped during: {}", message);
+        eprintln!("Progress receiver dropped during: {}", message);
     }
 }

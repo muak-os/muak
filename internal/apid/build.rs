@@ -63,6 +63,7 @@ fn main() {
         "provision.proto",
         "process.proto",
         "security.proto",
+        "log.proto",
     ];
 
     let mut all_methods = Vec::new();
