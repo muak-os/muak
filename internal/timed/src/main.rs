@@ -62,7 +62,6 @@ async fn main() -> Result<()> {
                 match ntp::sync(server).await {
                     Ok(offset) => {
                         println!("Time sync succeeded (offset: {offset:?})");
-                        notifier.status("Synchronized", Health::Healthy)?;
                     }
                     Err(e) => {
                         eprintln!("Time sync failed: {e:#}");
