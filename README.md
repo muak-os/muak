@@ -8,7 +8,7 @@ Here is a list of features:
 - Immutable root filesystem with overlayfs to add extensions
 - Declarative config by design to prevent configuration drift
 - API driven using gRPC with mTLS authentication
-- Minimal with only one external binary by default
+- Minimal with no external binaries except your hypervisor of choice
 
 There are three prerequisites to run Muak that most if not all modern systems meet:
 
