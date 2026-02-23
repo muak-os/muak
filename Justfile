@@ -19,7 +19,7 @@ latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
 signing_args := env_var_or_default("SIGNING_ARGS", "")
 extensions := env_var_or_default("EXTENSIONS", "")
-artifacts := "_out"
+artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
 # Architecture - override with ARCH=aarch64 for arm build
 
@@ -132,7 +132,7 @@ uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_requ
 [script]
 iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
     printf "{{ cyan }}Building ISO for {{ arch }}{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host -v {{ justfile_directory() }}/{{ artifacts }}:/out \
+    {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out \
         -e BOOT_FILE={{ if arch == "aarch64" { "BOOTAA64.EFI" } else { "BOOTX64.EFI" } }} -e ARCH={{ arch }} alpine:3.23 sh -c '
         set -euo pipefail
         apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1
