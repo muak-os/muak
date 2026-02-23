@@ -87,6 +87,7 @@ installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
         --build-context pkg-networkd={{ release_dir }} \
         --build-context pkg-apid={{ release_dir }} \
         --build-context pkg-vmd={{ release_dir }} \
+        --build-context pkg-timed={{ release_dir }} \
         --build-context pkg-init={{ release_dir }} \
         --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release \
         --build-context pkg-kernel={{ artifacts }} \
@@ -286,6 +287,7 @@ _oci-build pkg:
                 --build-arg PKG_NETWORKD={{ registry }}/pkgs/networkd:{{ tag }} \
                 --build-arg PKG_APID={{ registry }}/pkgs/apid:{{ tag }} \
                 --build-arg PKG_VMD={{ registry }}/pkgs/vmd:{{ tag }} \
+                --build-arg PKG_TIMED={{ registry }}/pkgs/timed:{{ tag }} \
                 --build-arg PKG_INIT={{ registry }}/pkgs/init:{{ tag }} \
                 --build-arg PKG_STUB={{ registry }}/pkgs/stub:{{ tag }} \
                 --tag {{ registry }}/installer:{{ tag }} \

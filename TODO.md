@@ -1,8 +1,5 @@
 ## TODO
 
-- Support NTP protocol for time synchronization
-  - Configure NTP server in system config
-
 - Support for Raspbnerry Pi like devices using .img installation
 
 - Better CLI

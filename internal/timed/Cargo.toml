@@ -1,0 +1,23 @@
+[package]
+name = "timed"
+description = "NTP time synchronization daemon"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Internal crates
+kmsg = { workspace = true }
+notify = { workspace = true }
+sysconfig = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["rt", "macros", "net", "time", "signal"] }
+
+# System APIs
+rustix = { workspace = true, features = ["time"] }
+
+# Error handling
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

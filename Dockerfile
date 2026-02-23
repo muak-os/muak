@@ -12,6 +12,7 @@ ARG PKG_MODD=ghcr.io/sawangg/pkgs/modd:latest
 ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
 ARG PKG_VMD=ghcr.io/sawangg/pkgs/vmd:latest
+ARG PKG_TIMED=ghcr.io/sawangg/pkgs/timed:latest
 ARG PKG_INIT=ghcr.io/sawangg/pkgs/init:latest
 ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
 
@@ -24,6 +25,7 @@ FROM ${PKG_MODD} AS pkg-modd
 FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_VMD} AS pkg-vmd
+FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
@@ -61,6 +63,7 @@ COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
 COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
+COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 
