@@ -1,7 +1,7 @@
 # syntax = docker/dockerfile-upstream:1.20.0-labs
 
 ARG ALPINE_VERSION=3.23
-ARG KERNEL_VERSION=6.19.2
+ARG KERNEL_VERSION=6.19.3
 
 # ============================================================
 FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-build
@@ -37,11 +37,18 @@ RUN apk add --no-cache --no-scripts \
 
 WORKDIR /src
 
-RUN wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz" && \
-  tar -xJf linux-${KERNEL_VERSION}.tar.xz --strip-components=1 && \
-  rm linux-${KERNEL_VERSION}.tar.xz && \
-  mkdir -p certs && \
-  make mrproper
+RUN <<EOF
+set -euo pipefail
+MAJOR_VERSION=$(echo "${KERNEL_VERSION}" | cut -d. -f1)
+wget -q "https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}.x/linux-${KERNEL_VERSION}.tar.xz"
+wget -q "https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}.x/sha256sums.asc"
+grep "linux-${KERNEL_VERSION}.tar.xz" sha256sums.asc | sha256sum -c -
+rm sha256sums.asc
+tar -xJf linux-${KERNEL_VERSION}.tar.xz --strip-components=1
+rm linux-${KERNEL_VERSION}.tar.xz
+mkdir -p certs
+make mrproper
+EOF
 
 COPY pkgs/kernel/config-${TARGETARCH} .config
 COPY pkgs/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
