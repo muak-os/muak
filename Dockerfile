@@ -105,9 +105,7 @@ RUN apk add --no-cache cpio zstd
 
 WORKDIR /initramfs
 
-COPY --link --from=pkg-init /init /initramfs/init
-RUN chmod +x /initramfs/init
-
+COPY --link --chmod=755 --from=pkg-init /init /initramfs/init
 COPY --link --from=squashfs-builder /rootfs.sqsh /initramfs/rootfs.sqsh
 COPY --link --from=pkg-kernel /lib/modules /initramfs/lib/modules
 
