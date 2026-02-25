@@ -29,7 +29,6 @@
     - Btrfs snapshots create instant, space-efficient copies
     - Btrfs snapshots use COW, so only changed blocks consume space
     - Create one golden image, snapshot for each VM to avoid duplication
-  - Use Btrfs scrub to verify integrity of all data
   - **Allow /run/data to be on a different disk than rootfs**
 
 - Add e2e testing:

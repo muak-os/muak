@@ -100,6 +100,8 @@ async fn main() -> Result<()> {
         }
     });
 
+    let scrub_handle = tokio::spawn(disk::scrub::timer());
+
     tokio::select! {
         result = server => {
             if let Err(e) = result {
@@ -110,6 +112,7 @@ async fn main() -> Result<()> {
     }
 
     sigchld_handle.abort();
+    scrub_handle.abort();
     notifier.stopping("Graceful shutdown")?;
     println!("Shutdown complete");
 

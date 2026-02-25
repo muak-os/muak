@@ -171,6 +171,114 @@ pub struct QgroupLimitItem {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Scrub ioctls
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ioctl for starting a scrub operation.
+pub const BTRFS_IOC_SCRUB: Opcode =
+    opcode::read_write::<BtrfsIoctlScrubArgs>(BTRFS_IOCTL_MAGIC, 27);
+
+/// Scrub progress statistics reported by the kernel.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BtrfsScrubProgress {
+    pub data_extents_scrubbed: u64,
+    pub tree_extents_scrubbed: u64,
+    pub data_bytes_scrubbed: u64,
+    pub tree_bytes_scrubbed: u64,
+    pub read_errors: u64,
+    pub csum_errors: u64,
+    pub verify_errors: u64,
+    pub no_csum: u64,
+    pub csum_discards: u64,
+    pub super_errors: u64,
+    pub malloc_errors: u64,
+    pub uncorrectable_errors: u64,
+    pub corrected_errors: u64,
+    pub last_physical: u64,
+    pub unverified_errors: u64,
+}
+
+impl BtrfsScrubProgress {
+    /// Returns `true` if any errors were detected during the scrub.
+    pub fn has_errors(&self) -> bool {
+        self.read_errors > 0
+            || self.csum_errors > 0
+            || self.verify_errors > 0
+            || self.super_errors > 0
+            || self.uncorrectable_errors > 0
+            || self.unverified_errors > 0
+    }
+
+    /// Total number of errors of all types.
+    pub fn total_errors(&self) -> u64 {
+        self.read_errors
+            + self.csum_errors
+            + self.verify_errors
+            + self.super_errors
+            + self.uncorrectable_errors
+            + self.unverified_errors
+    }
+}
+
+/// Padding element count (109).
+const SCRUB_ARGS_UNUSED: usize = (1024 - 32 - size_of::<BtrfsScrubProgress>()) / 8;
+
+/// Arguments for the scrub ioctls.
+#[repr(C)]
+pub struct BtrfsIoctlScrubArgs {
+    pub devid: u64,
+    pub start: u64,
+    pub end: u64,
+    pub flags: u64,
+    pub progress: BtrfsScrubProgress,
+    pub unused: [u64; SCRUB_ARGS_UNUSED],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filesystem info ioctls
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ioctl for querying filesystem info.
+pub const BTRFS_IOC_FS_INFO: Opcode = opcode::read::<BtrfsIoctlFsInfoArgs>(BTRFS_IOCTL_MAGIC, 31);
+
+/// Ioctl for querying device info.
+pub const BTRFS_IOC_DEV_INFO: Opcode =
+    opcode::read_write::<BtrfsIoctlDevInfoArgs>(BTRFS_IOCTL_MAGIC, 30);
+
+/// Maximum UUID size in bytes.
+pub const BTRFS_UUID_SIZE: usize = 16;
+
+/// Maximum device path length.
+pub const BTRFS_DEVICE_PATH_NAME_MAX: usize = 1024;
+
+/// Filesystem info returned by `BTRFS_IOC_FS_INFO`.
+#[repr(C)]
+pub struct BtrfsIoctlFsInfoArgs {
+    pub max_id: u64,
+    pub num_devices: u64,
+    pub fsid: [u8; BTRFS_UUID_SIZE],
+    pub nodesize: u32,
+    pub sectorsize: u32,
+    pub clone_alignment: u32,
+    pub flags: u16,
+    pub generation: u64,
+    pub metadata_uuid: [u8; BTRFS_UUID_SIZE],
+    pub reserved: [u8; 888],
+}
+
+/// Device info returned by `BTRFS_IOC_DEV_INFO`.
+#[repr(C)]
+pub struct BtrfsIoctlDevInfoArgs {
+    pub devid: u64,
+    pub uuid: [u8; BTRFS_UUID_SIZE],
+    pub bytes_used: u64,
+    pub total_bytes: u64,
+    pub unused: [u64; 379],
+    pub path: [u8; BTRFS_DEVICE_PATH_NAME_MAX],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Block device ioctls
 // ─────────────────────────────────────────────────────────────────────────────
 

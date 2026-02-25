@@ -1,4 +1,5 @@
 mod image;
+pub mod scrub;
 
 pub use btrfs::{
     DiskUsage, create_subvolume, delete_subvolume, get_usage, list_subvolumes, set_quota,
