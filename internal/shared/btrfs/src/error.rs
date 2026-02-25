@@ -42,6 +42,13 @@ pub enum BtrfsError {
         source: rustix::io::Errno,
     },
 
+    /// Scrub operation failed.
+    #[error("Failed to scrub {mount_point}: {source}")]
+    Scrub {
+        mount_point: String,
+        source: rustix::io::Errno,
+    },
+
     /// Filesystem creation failed.
     #[error("Failed to create btrfs filesystem: {0}")]
     Mkfs(String),
