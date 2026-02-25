@@ -4,6 +4,10 @@ description = "Secure Boot key management tool for Linux systems"
 edition.workspace = true
 version.workspace = true
 
+[[bin]]
+name = "sbolt"
+required-features = ["cli"]
+
 [dependencies]
 # CLI
 clap = { workspace = true, optional = true }
