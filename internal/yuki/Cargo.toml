@@ -4,6 +4,10 @@ description = "UKI builder - add PE sections to EFI stub"
 edition.workspace = true
 version.workspace = true
 
+[[bin]]
+name = "yuki"
+required-features = ["cli"]
+
 [dependencies]
 # CLI
 clap = { workspace = true, optional = true }
