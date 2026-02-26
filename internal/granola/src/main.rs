@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
             name: "apid",
             binary: "/sbin/apid",
             args: apid_args,
-            depends_on: vec!["networkd", "provisiond"],
+            depends_on: vec!["networkd"],
         },
     ];
 

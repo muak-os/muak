@@ -30,6 +30,7 @@ async fn main() -> Result<()> {
 
     if is_installed {
         let _ = validation::check_and_handle_pending_validation()
+            .await
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 

@@ -73,7 +73,7 @@ pub fn get_update_status(update_id: &str) -> UpdateStatus {
 }
 
 /// Checks for pending validations and handles commit or rollback.
-pub fn check_and_handle_pending_validation() -> Result<()> {
+pub async fn check_and_handle_pending_validation() -> Result<()> {
     let marker = match load_validation_marker()? {
         Some(m) => m,
         None => return Ok(()),
@@ -94,7 +94,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
         println!("Health checks failed: {}", e);
         rollback_update(&marker, &format!("Health checks failed: {}", e))?;
     } else {
-        commit_update(&marker)?;
+        commit_update(&marker).await?;
     }
 
     Ok(())
@@ -158,14 +158,14 @@ fn check_network_interfaces() -> Result<()> {
 }
 
 /// Commits the update by installing the new UKI.
-fn commit_update(marker: &ValidationMarker) -> Result<()> {
+async fn commit_update(marker: &ValidationMarker) -> Result<()> {
     println!(
         "Validation succeeded, committing update {}",
         marker.update_id
     );
 
-    let efi_device = tokio::runtime::Handle::current()
-        .block_on(disk::find_partition_by_partname("EFI"))
+    let efi_device = disk::find_partition_by_partname("EFI")
+        .await
         .ok_or_else(|| anyhow::anyhow!("EFI partition not found"))?;
 
     let mount_point = "/run/mnt/efi";
