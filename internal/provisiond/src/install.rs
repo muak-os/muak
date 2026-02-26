@@ -1,5 +1,7 @@
 //! Installation workflow implementation for deploying Muak to a disk.
 
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -270,18 +272,27 @@ fn init_state_partition(
 
     std::fs::write(format!("{}/ca.crt", secrets_dir), &server_pki.ca_pem)
         .context("Failed to write CA certificate")?;
-    std::fs::write(format!("{}/ca.key", secrets_dir), &server_pki.ca_key_pem)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(format!("{}/ca.key", secrets_dir))
+        .and_then(|mut f| f.write_all(server_pki.ca_key_pem.as_bytes()))
         .context("Failed to write CA key")?;
     std::fs::write(
         format!("{}/server.crt", secrets_dir),
         &server_pki.server_cert_pem,
     )
     .context("Failed to write server certificate")?;
-    std::fs::write(
-        format!("{}/server.key", secrets_dir),
-        &server_pki.server_key_pem,
-    )
-    .context("Failed to write server key")?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(format!("{}/server.key", secrets_dir))
+        .and_then(|mut f| f.write_all(server_pki.server_key_pem.as_bytes()))
+        .context("Failed to write server key")?;
 
     if let Some(hierarchy) = sb_hierarchy {
         save_key_hierarchy(hierarchy, &Path::new(&secrets_dir).join("secureboot"))
@@ -329,8 +340,6 @@ fn generate_pki_and_sign_csr(
     let admin_cert_pem = admin_cert
         .to_pem(LineEnding::LF)
         .context("Failed to encode admin certificate")?;
-
-    println!("Admin fingerprint: {}", admin_fingerprint);
 
     let mut config_with_auth = config.clone();
     config_with_auth.auth = AuthConfig {
