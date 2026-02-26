@@ -20,9 +20,7 @@
   - Disable bridge when in maintenance mode
   - Full declarative config for network interfaces, bridges etc
 
-- Enhance sysconfig shared lib:
-  - Config versioning with tracking of changes over time
-  - **Allow config hot reload (SIGHUP or something)**
+- Config versioning with tracking of changes over time
 
 - Disk Manager Service:
   - Copy-on-Write disk creation for templates

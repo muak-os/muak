@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 /// Build script entry point.
-/// Generates default implementations for config structs based on ../../default.toml.
+/// Generates default implementations for config structs based on default.toml.
 fn main() {
     let default_toml_path = Path::new("../../default.toml");
     let default_toml = fs::read_to_string(default_toml_path).expect("Failed to read default.toml");

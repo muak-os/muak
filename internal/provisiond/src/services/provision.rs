@@ -38,10 +38,10 @@ impl ProvisionService for ProvisionServiceImpl {
             return Err(Status::invalid_argument("CSR is required"));
         }
 
-        let config_toml = String::from_utf8(req.config_toml)
+        let config_raw = String::from_utf8(req.config_toml)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config: sysconfig::HostConfig = sysconfig::parse_from_str(&config_toml)
+        let config: sysconfig::HostConfig = sysconfig::parse_from_str(&config_raw)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config

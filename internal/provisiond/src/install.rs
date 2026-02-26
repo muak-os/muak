@@ -79,20 +79,15 @@ pub fn install(
         InstallStep::GeneratingPki,
         "Generating PKI and signing CSR",
     );
-    let (client_result, server_pki, config_with_auth) =
-        generate_pki_and_sign_csr(admin_csr_pem, config)?;
+    let (client_result, server_pki, auth_config) = generate_pki_and_sign_csr(admin_csr_pem)?;
 
     send_progress(
         &progress,
         InstallStep::PullingImage,
-        &format!("Pulling installer image: {}", config_with_auth.system.image),
+        &format!("Pulling installer image: {}", config.system.image),
     );
     let work_dir = Path::new(constants::INSTALL_DIR);
-    let components = Uki::prepare(
-        &config_with_auth.system.image,
-        &config_with_auth.system.extensions,
-        work_dir,
-    )?;
+    let components = Uki::prepare(&config.system.image, &config.system.extensions, work_dir)?;
     let staged_uki = work_dir.join("staged.efi");
 
     send_progress(&progress, InstallStep::BuildingUki, "Building UKI");
@@ -160,7 +155,8 @@ pub fn install(
     );
     init_state_partition(
         &dm_state,
-        &config_with_auth,
+        &config,
+        &auth_config,
         &server_pki,
         sb_hierarchy.as_ref(),
     )?;
@@ -246,10 +242,11 @@ fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Initializes the STATE partition with config and secrets.
+/// Initializes the STATE partition with config, auth, and secrets.
 fn init_state_partition(
     device: &str,
     config: &HostConfig,
+    auth_config: &AuthConfig,
     server_pki: &ServerPki,
     sb_hierarchy: Option<&KeyHierarchy>,
 ) -> Result<()> {
@@ -263,9 +260,13 @@ fn init_state_partition(
     mount(device, mount_point, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
-    let config_toml = sysconfig::serialize(config).context("Failed to serialize config")?;
-    std::fs::write(format!("{}/config.toml", mount_point), config_toml)
+    let config = sysconfig::serialize(config).context("Failed to serialize config")?;
+    std::fs::write(format!("{}/config.toml", mount_point), config)
         .context("Failed to write config.toml")?;
+
+    let auth = sysconfig::serialize_auth(auth_config).context("Failed to serialize auth config")?;
+    std::fs::write(format!("{}/auth.toml", mount_point), auth)
+        .context("Failed to write auth.toml")?;
 
     let secrets_dir = format!("{}/secrets", mount_point);
     std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
@@ -307,10 +308,7 @@ fn init_state_partition(
 }
 
 /// Generates the CA, server, and signs the admin CSR.
-fn generate_pki_and_sign_csr(
-    csr_pem: &str,
-    config: &HostConfig,
-) -> Result<(InstallResult, ServerPki, HostConfig)> {
+fn generate_pki_and_sign_csr(csr_pem: &str) -> Result<(InstallResult, ServerPki, AuthConfig)> {
     println!("Generating PKI and signing CSR");
 
     let (ca_key, ca_cert) =
@@ -341,8 +339,7 @@ fn generate_pki_and_sign_csr(
         .to_pem(LineEnding::LF)
         .context("Failed to encode admin certificate")?;
 
-    let mut config_with_auth = config.clone();
-    config_with_auth.auth = AuthConfig {
+    let auth_config = AuthConfig {
         users: vec![AuthUser {
             fingerprint: admin_fingerprint,
             permissions: vec![Permission::Admin],
@@ -362,7 +359,7 @@ fn generate_pki_and_sign_csr(
         server_key_pem,
     };
 
-    Ok((client_result, server_pki, config_with_auth))
+    Ok((client_result, server_pki, auth_config))
 }
 
 /// Generates a random LUKS key.

@@ -72,8 +72,8 @@ impl AuthService for AuthServiceImpl {
     ) -> Result<Response<GetCsrStatusResponse>, Status> {
         let fingerprint = request.into_inner().fingerprint;
 
-        if let Some(config) = sysconfig::try_config()
-            && config.auth.revoked.contains(&fingerprint)
+        if let Some(auth) = sysconfig::try_auth()
+            && auth.revoked.contains(&fingerprint)
         {
             return Ok(Response::new(GetCsrStatusResponse {
                 status: CsrStatus::Rejected.into(),
@@ -167,9 +167,9 @@ impl AuthService for AuthServiceImpl {
             perms
         };
 
-        add_user_to_config(&cert_fingerprint, parsed_permissions)
+        add_user_to_auth(&cert_fingerprint, parsed_permissions)
             .await
-            .map_err(|e| Status::internal(format!("Failed to update config: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to update auth config: {}", e)))?;
 
         let _ = tokio::fs::remove_file(&pending_path).await;
 
@@ -201,12 +201,11 @@ impl AuthService for AuthServiceImpl {
         &self,
         _request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let config = sysconfig::try_config().ok_or_else(|| {
-            Status::failed_precondition("System not installed - config not available")
+        let auth = sysconfig::try_auth().ok_or_else(|| {
+            Status::failed_precondition("System not installed - auth config not available")
         })?;
 
-        let users: Vec<AuthorizedUser> = config
-            .auth
+        let users: Vec<AuthorizedUser> = auth
             .users
             .iter()
             .map(|u| AuthorizedUser {
@@ -215,7 +214,7 @@ impl AuthService for AuthServiceImpl {
             })
             .collect();
 
-        let revoked_fingerprints = config.auth.revoked.clone();
+        let revoked_fingerprints = auth.revoked.clone();
 
         Ok(Response::new(ListUsersResponse {
             users,
@@ -306,8 +305,8 @@ fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
 
 /// Checks if a fingerprint is already authorized.
 fn is_user_authorized(fingerprint: &str) -> bool {
-    sysconfig::try_config()
-        .map(|c| c.auth.users.iter().any(|u| u.fingerprint == fingerprint))
+    sysconfig::try_auth()
+        .map(|a| a.users.iter().any(|u| u.fingerprint == fingerprint))
         .unwrap_or(false)
 }
 
@@ -331,36 +330,40 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
     Ok((ca_pem, cert_pem))
 }
 
-/// Adds a user to the config.
-async fn add_user_to_config(
+/// Adds a user to the auth config and writes it to disk.
+async fn add_user_to_auth(
     fingerprint: &str,
     permissions: Vec<sysconfig::Permission>,
 ) -> Result<()> {
-    let mut config = sysconfig::try_config().cloned().unwrap_or_default();
+    let mut auth = sysconfig::try_auth()
+        .map(|a| (*a).clone())
+        .unwrap_or_default();
 
-    config.auth.users.push(sysconfig::AuthUser {
+    auth.users.push(sysconfig::AuthUser {
         fingerprint: fingerprint.to_string(),
         permissions,
     });
 
-    let config_str = sysconfig::serialize(&config)?;
-    tokio::fs::write(sysconfig::CONFIG_PATH, config_str).await?;
+    let auth_str = sysconfig::serialize_auth(&auth)?;
+    tokio::fs::write(sysconfig::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
 async fn revoke_user(fingerprint: &str) -> Result<()> {
-    let mut config = sysconfig::try_config().cloned().unwrap_or_default();
+    let mut auth = sysconfig::try_auth()
+        .map(|a| sysconfig::AuthConfig::clone(&a))
+        .unwrap_or_default();
 
-    config.auth.users.retain(|u| u.fingerprint != fingerprint);
+    auth.users.retain(|u| u.fingerprint != fingerprint);
 
-    if !config.auth.revoked.contains(&fingerprint.to_string()) {
-        config.auth.revoked.push(fingerprint.to_string());
+    if !auth.revoked.contains(&fingerprint.to_string()) {
+        auth.revoked.push(fingerprint.to_string());
     }
 
-    let config_str = sysconfig::serialize(&config)?;
-    tokio::fs::write(sysconfig::CONFIG_PATH, config_str).await?;
+    let auth_str = sysconfig::serialize_auth(&auth)?;
+    tokio::fs::write(sysconfig::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }
