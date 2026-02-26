@@ -5,7 +5,7 @@ version.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util"] }
 tokio-rustls = { workspace = true }
 
 # Cryptography

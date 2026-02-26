@@ -31,7 +31,7 @@ walkdir = { workspace = true }
 tempfile = { workspace = true }
 
 # HTTP
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true }
 
 [features]
 default = ["cli"]

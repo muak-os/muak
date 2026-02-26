@@ -1,6 +1,6 @@
 use anyhow::Result;
-use netlink_packet_route::link::{LinkAttribute, LinkFlags};
 use rtnetlink::Handle;
+use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use tokio_stream::StreamExt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,9 +99,7 @@ fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) 
                 mac_address.copy_from_slice(&addr[..6]);
             }
             LinkAttribute::LinkInfo(info) => {
-                is_virtual = info
-                    .iter()
-                    .any(|attr| matches!(attr, netlink_packet_route::link::LinkInfo::Kind(_)))
+                is_virtual = info.iter().any(|attr| matches!(attr, LinkInfo::Kind(_)))
             }
             _ => {}
         }

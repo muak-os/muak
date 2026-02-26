@@ -1,8 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result};
-use netlink_packet_route::address::AddressAttribute;
 use rtnetlink::Handle;
+use rtnetlink::packet_route::address::AddressAttribute;
 use tokio_stream::StreamExt;
 
 pub async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {

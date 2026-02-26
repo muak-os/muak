@@ -43,7 +43,7 @@ impl InsecureTlsConnector {
     }
 }
 
-impl tower::Service<Uri> for InsecureTlsConnector {
+impl tonic::codegen::Service<Uri> for InsecureTlsConnector {
     type Response = hyper_util::rt::TokioIo<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>;
     type Error = std::io::Error;
     type Future = std::pin::Pin<

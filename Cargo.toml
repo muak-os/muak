@@ -45,25 +45,25 @@ yuki = { path = "internal/yuki", default-features = false }
 
 ## Asynchronous
 tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+tokio-rustls = { version = "0.26", default-features = false }
 
 ## CLI
 clap = { version = "4.5", features = ["derive"] }
-owo-colors = "4.2"
+owo-colors = "4.3"
 
 ## Compression
 flate2 = "1.1"
 tar = "0.4"
-zstd = "0.13"
+zstd = { version = "0.13", default-features = false }
 
 ## Cryptography
-ring = "0.17"
-rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+ring = { version = "0.17", default-features = false, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-pemfile = "2.2"
 rustls-pki-types = "1.14"
 x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
-der = { version = "0.8.0-rc.10", features = ["alloc", "oid", "pem", "std"] }
+der = { version = "0.8.0", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.10"
 rsa = "0.10.0-rc.15"
@@ -76,7 +76,7 @@ zeroize = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 prost = "0.14"
-toml = "0.9"
+toml = "1.0"
 base64ct = { version = "1.8", features = ["std"] }
 const-oid = "0.10"
 
@@ -85,17 +85,17 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 ## Filesystem
-gptman = "3.0"
-fatfs = "0.3"
+gptman = { version = "3.0", default-features = false }
+fatfs = { version = "0.3", default-features = false, features = ["std"] }
 crc32c = "0.6"
-backhand = { version = "0.24", default-features = false, features = ["zstd"] }
+backhand = { version = "0.25", default-features = false, features = ["zstd"] }
 walkdir = "2.5"
-tempfile = "3.24"
+tempfile = { version = "3.26", default-features = false }
 
 ## gRPC
-tonic = { version = "0.14", features = ["tls-ring", "tls-connect-info", "transport", "channel"] }
+tonic = { version = "0.14", default-features = false, features = ["codegen", "transport", "router", "tls-ring"] }
 tonic-prost = "0.14"
-tonic-prost-build = "0.14"
+tonic-prost-build = { version = "0.14", default-features = false, features = ["transport", "cleanup-markdown"] }
 
 ## HTTP
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
@@ -104,19 +104,16 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 
 ## Networking
-rtnetlink = "0.20"
-netlink-packet-route = "0.28"
-netlink-packet-core = "0.8"
-tower = "0.5"
+rtnetlink = { version = "0.20", default-features = false, features = ["tokio_socket"] }
 
 ## System/platform APIs
-rustix = { version = "1.1", features = ["fs", "mount", "linux_latest"] }
-uefi = { version = "0.36", default-features = false }
-libc = "0.2"
+libc = { version = "0.2", default-features = false, features = ["std"] }
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "mount", "linux_latest"] }
+uefi = "0.36"
 
 ## Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
-uuid = { version = "1.20", features = ["v4", "v7"] }
+uuid = { version = "1.21", default-features = false, features = ["std", "v4", "v7"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

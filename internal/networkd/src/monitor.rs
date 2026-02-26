@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use netlink_packet_core::NetlinkPayload;
-use netlink_packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use rtnetlink::Handle;
+use rtnetlink::packet_core::NetlinkPayload;
+use rtnetlink::packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 

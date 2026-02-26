@@ -4,14 +4,36 @@ use anyhow::Result;
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::service_fn;
 
 use crate::proto::network::network_service_client::NetworkServiceClient;
 use crate::proto::network::{CreateTapRequest, DeleteTapRequest};
 
-async fn connect_unix(path: String) -> std::io::Result<TokioIo<UnixStream>> {
-    let stream = UnixStream::connect(path).await?;
-    Ok(TokioIo::new(stream))
+#[derive(Clone)]
+struct UnixConnector {
+    path: String,
+}
+
+impl tonic::codegen::Service<Uri> for UnixConnector {
+    type Response = TokioIo<UnixStream>;
+    type Error = std::io::Error;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _uri: Uri) -> Self::Future {
+        let path = self.path.clone();
+        Box::pin(async move {
+            let stream = UnixStream::connect(path).await?;
+            Ok(TokioIo::new(stream))
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -28,10 +50,7 @@ impl NetworkClient {
         }
 
         let channel = Endpoint::try_from("http://[::]:50051")?
-            .connect_with_connector(service_fn(move |_: Uri| {
-                let path = socket_path.clone();
-                connect_unix(path)
-            }))
+            .connect_with_connector(UnixConnector { path: socket_path })
             .await?;
 
         Ok(Self {

@@ -5,7 +5,7 @@ version.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["net", "sync", "macros", "time", "signal", "fs", "io-util", "rt-multi-thread", "process"] }
+tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util", "process"] }
 tokio-stream = { workspace = true }
 
 # Encoding
@@ -28,9 +28,6 @@ btrfs = { workspace = true }
 kmsg = { workspace = true }
 notify = { workspace = true }
 sysconfig = { workspace = true }
-
-# Networking
-tower = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }

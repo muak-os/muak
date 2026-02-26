@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::Handle;
 use rtnetlink::LinkUnspec;
+use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use tokio_stream::StreamExt;
 
 pub async fn find_link_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {

@@ -17,7 +17,7 @@ kmsg = { workspace = true }
 luks2 = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["process", "mount", "fs"] }
+rustix = { workspace = true, features = ["process"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

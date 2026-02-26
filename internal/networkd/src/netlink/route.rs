@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result};
-use netlink_packet_route::route::{RouteAddress, RouteAttribute};
+use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute};
 use rtnetlink::{Handle, RouteMessageBuilder};
 use tokio_stream::StreamExt;
 

@@ -17,7 +17,7 @@ prost = { workspace = true }
 # Cryptography
 ring = { workspace = true }
 x509-cert = { workspace = true }
-uuid = { workspace = true, features = ["v4", "v7"] }
+uuid = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -42,7 +42,7 @@ sbolt = { workspace = true }
 yuki = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["process", "system", "net", "mount", "fs"] }
+rustix = { workspace = true, features = ["process", "system", "net"] }
 libc = { workspace = true }
 
 [build-dependencies]

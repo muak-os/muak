@@ -11,10 +11,10 @@ thiserror = { workspace = true }
 crc32c = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["fs", "mount"] }
+rustix = { workspace = true }
 
 # Utilities
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true }
 
 [lints]
 workspace = true
