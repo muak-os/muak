@@ -40,7 +40,8 @@ pub fn check_access(path: &str, client_fingerprint: Option<&str>) -> Result<(), 
     match method_permission(path) {
         MethodRequirement::Unauthenticated => Ok(()),
         MethodRequirement::Unknown => Err(RbacError::UnknownMethod),
-        MethodRequirement::RequiresPermission(required) => {
+        MethodRequirement::RequiresPermission(required)
+        | MethodRequirement::MaintenanceOrPermission(required) => {
             let fingerprint = client_fingerprint.ok_or(RbacError::Unauthenticated)?;
 
             if sysconfig::auth().revoked.contains(&fingerprint.to_string()) {
@@ -71,9 +72,42 @@ mod tests {
     #[test]
     fn test_unauthenticated_methods_allowed() {
         assert!(check_access("/muak.auth.v1.AuthService/SubmitCsr", None).is_ok());
-        assert!(check_access("/muak.provision.v1.ProvisionService/ListDisks", None).is_ok());
-        assert!(check_access("/muak.log.v1.LogService/GetLogs", None).is_ok());
-        assert!(check_access("/muak.log.v1.LogService/FollowLogs", None).is_ok());
+        assert!(check_access("/muak.auth.v1.AuthService/GetCsrStatus", None).is_ok());
+        assert!(check_access("/muak.auth.v1.AuthService/AckEnrollment", None).is_ok());
+    }
+
+    #[test]
+    fn test_maintenance_methods_require_auth_outside_maintenance() {
+        assert!(matches!(
+            check_access("/muak.provision.v1.ProvisionService/Install", None),
+            Err(RbacError::Unauthenticated)
+        ));
+        assert!(matches!(
+            check_access("/muak.provision.v1.ProvisionService/ListDisks", None),
+            Err(RbacError::Unauthenticated)
+        ));
+        assert!(matches!(
+            check_access("/muak.log.v1.LogService/GetLogs", None),
+            Err(RbacError::Unauthenticated)
+        ));
+        assert!(matches!(
+            check_access("/muak.log.v1.LogService/FollowLogs", None),
+            Err(RbacError::Unauthenticated)
+        ));
+    }
+
+    #[test]
+    fn test_maintenance_methods_are_maintenance_or_permission() {
+        for path in MAINTENANCE_METHODS {
+            assert!(
+                matches!(
+                    method_permission(path),
+                    MethodRequirement::MaintenanceOrPermission(_)
+                ),
+                "Expected MaintenanceOrPermission for {}",
+                path
+            );
+        }
     }
 
     #[test]
@@ -104,10 +138,26 @@ mod tests {
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/SubmitCsr"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/GetCsrStatus"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/AckEnrollment"));
-        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
-        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
-        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
-        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
-        assert_eq!(UNAUTHENTICATED_METHODS.len(), 7);
+        assert_eq!(UNAUTHENTICATED_METHODS.len(), 3);
+    }
+
+    #[test]
+    fn test_maintenance_methods_list() {
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
+        assert_eq!(MAINTENANCE_METHODS.len(), 4);
+    }
+
+    #[test]
+    fn test_no_overlap_between_unauthenticated_and_maintenance() {
+        for method in UNAUTHENTICATED_METHODS {
+            assert!(
+                !MAINTENANCE_METHODS.contains(method),
+                "Method {} should not be in both unauthenticated and maintenance lists",
+                method
+            );
+        }
     }
 }

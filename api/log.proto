@@ -3,10 +3,10 @@ syntax = "proto3";
 package muak.log.v1;
 
 service LogService {
-  // @rbac: none
+  // @rbac: maintenance|system:read
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
-  // @rbac: none
+  // @rbac: maintenance|system:read
   rpc FollowLogs(FollowLogsRequest) returns (stream LogEntry);
 }
 

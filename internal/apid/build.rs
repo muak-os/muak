@@ -6,8 +6,9 @@
 //! # Annotation Format
 //!
 //! ```protobuf
-//! // @rbac: none                    // Unauthenticated
-//! // @rbac: vm:read                 // Requires permission
+//! // @rbac: none                    // Unauthenticated: no cert needed ever, dangerous!
+//! // @rbac: vm:read                 // Requires permission: always needs cert
+//! // @rbac: maintenance|system:read // Maintenance mode: no cert; installed: needs permission
 //! ```
 //!
 //! # Build Failures
@@ -49,7 +50,8 @@ struct RpcMethod {
 #[derive(Debug)]
 enum RbacRequirement {
     Unauthenticated,
-    RequiresPermission(String), // Rust enum variant name
+    RequiresPermission(String),
+    MaintenanceOrPermission(String),
 }
 
 fn main() {
@@ -256,6 +258,19 @@ fn parse_rbac_annotation(
         return Ok(RbacRequirement::Unauthenticated);
     }
 
+    if let Some(perm_str) = annotation.strip_prefix("maintenance|") {
+        let perm_str = perm_str.trim();
+        return perm_map
+            .get(perm_str)
+            .map(|v| RbacRequirement::MaintenanceOrPermission((*v).to_string()))
+            .ok_or_else(|| {
+                format!(
+                    "Unknown permission in maintenance annotation: '{}'",
+                    perm_str
+                )
+            });
+    }
+
     perm_map
         .get(annotation)
         .map(|v| RbacRequirement::RequiresPermission((*v).to_string()))
@@ -277,6 +292,7 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
          #[derive(Debug, Clone, PartialEq, Eq)]\n\
          pub enum MethodRequirement {\n\
          \x20   RequiresPermission(Permission),\n\
+         \x20   MaintenanceOrPermission(Permission),\n\
          \x20   Unauthenticated,\n\
          \x20   Unknown,\n\
          }\n\n",
@@ -295,6 +311,12 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
             RbacRequirement::RequiresPermission(perm) => {
                 format!(
                     "MethodRequirement::RequiresPermission(Permission::{})",
+                    perm
+                )
+            }
+            RbacRequirement::MaintenanceOrPermission(perm) => {
+                format!(
+                    "MethodRequirement::MaintenanceOrPermission(Permission::{})",
                     perm
                 )
             }
@@ -326,6 +348,21 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
     );
     for method in methods {
         if matches!(method.requirement, RbacRequirement::Unauthenticated) {
+            code.push_str(&format!("    \"{}\",\n", method.full_path));
+        }
+    }
+    code.push_str("];\n\n");
+
+    code.push_str(
+        "/// Methods that require no auth in maintenance mode but need a permission when installed.\n\
+         #[cfg(test)]\n\
+         pub const MAINTENANCE_METHODS: &[&str] = &[\n",
+    );
+    for method in methods {
+        if matches!(
+            method.requirement,
+            RbacRequirement::MaintenanceOrPermission(_)
+        ) {
             code.push_str(&format!("    \"{}\",\n", method.full_path));
         }
     }

@@ -3,7 +3,7 @@ syntax = "proto3";
 package muak.provision.v1;
 
 service ProvisionService {
-    // @rbac: none
+    // @rbac: maintenance|admin
     rpc Install(InstallRequest) returns (stream InstallProgress);
 
     // @rbac: system:update
@@ -15,7 +15,7 @@ service ProvisionService {
     // @rbac: system:read
     rpc GetUpdateStatus(GetUpdateStatusRequest) returns (GetUpdateStatusResponse);
 
-    // @rbac: none
+    // @rbac: maintenance|system:read
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
 
     // @rbac: system:read
