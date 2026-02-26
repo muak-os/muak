@@ -12,7 +12,6 @@ pub mod update;
 pub mod vm;
 
 use anyhow::{Result, bail};
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{
@@ -20,6 +19,7 @@ use crate::client::{
     VmServiceClient, connect, connect_tls_insecure,
 };
 use crate::config::ClientConfig;
+use crate::ui;
 use crate::{Cli, Commands};
 
 /// Resolves the connection based on CLI flags and config.
@@ -131,7 +131,9 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
                 if config.has_credentials_for_endpoint(endpoint) {
                     println!(
                         "{}",
-                        "Existing credentials found for this server. Remove the context to reinstall.".yellow()
+                        ui::style::warn(
+                            "Existing credentials found for this server. Remove the context to reinstall."
+                        )
                     );
                     return Ok(true);
                 }

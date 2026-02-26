@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use owo_colors::OwoColorize;
 
 use crate::config::{ClientConfig, ServerContext};
+use crate::ui;
 
 /// Context subcommands.
 #[derive(Clone, clap::Subcommand)]
@@ -56,7 +56,7 @@ fn list() -> Result<()> {
     if names.is_empty() {
         println!(
             "{}",
-            "No contexts configured. Run 'muakctl install' to add a server.".yellow()
+            ui::style::warn("No contexts configured. Run 'muakctl install' to add a server.")
         );
         return Ok(());
     }
@@ -67,16 +67,16 @@ fn list() -> Result<()> {
             continue;
         };
         let marker = if current == Some(name) {
-            "*".green().to_string()
+            ui::style::positive("*").to_string()
         } else {
             " ".to_string()
         };
         let creds = if ctx.has_credentials() {
-            "mTLS".green().to_string()
+            ui::style::positive("mTLS").to_string()
         } else {
-            "insecure".yellow().to_string()
+            ui::style::warn("insecure").to_string()
         };
-        println!("{} {} ({}) [{}]", marker, name, ctx.endpoint, creds);
+        println!("{marker} {name} ({}) [{creds}]", ctx.endpoint);
     }
 
     Ok(())
@@ -88,7 +88,7 @@ fn use_context(name: &str) -> Result<()> {
     config.set_current(name)?;
     config.save()?;
 
-    println!("Switched to context '{}'", name.green());
+    println!("Switched to context '{}'", ui::style::positive(name));
     Ok(())
 }
 
@@ -99,22 +99,19 @@ fn info() -> Result<()> {
     let Some((name, ctx)) = config.current_context() else {
         println!(
             "{}",
-            "No current context. Run 'muakctl context use <name>' to select one.".yellow()
+            ui::style::warn("No current context. Run 'muakctl context use <name>' to select one.")
         );
         return Ok(());
     };
 
-    println!("{}: {}", "Context".bold(), name);
-    println!("{}: {}", "Endpoint".bold(), ctx.endpoint);
-    println!(
-        "{}: {}",
-        "Credentials".bold(),
-        if ctx.has_credentials() {
-            "mTLS configured".green().to_string()
-        } else {
-            "None (insecure)".yellow().to_string()
-        }
-    );
+    println!("{}: {name}", ui::style::label("Context"));
+    println!("{}: {}", ui::style::label("Endpoint"), ctx.endpoint);
+    let cred_status = if ctx.has_credentials() {
+        ui::style::positive("mTLS configured").to_string()
+    } else {
+        ui::style::warn("None (insecure)").to_string()
+    };
+    println!("{}: {cred_status}", ui::style::label("Credentials"));
 
     Ok(())
 }
@@ -160,11 +157,11 @@ fn add(
     if actual_name != name {
         println!(
             "Added context '{}' (renamed from '{}' to avoid collision)",
-            actual_name.green(),
+            ui::style::positive(&actual_name),
             name
         );
     } else {
-        println!("Added context '{}'", actual_name.green());
+        println!("Added context '{}'", ui::style::positive(&actual_name));
     }
 
     Ok(())
@@ -176,6 +173,6 @@ fn remove(name: &str) -> Result<()> {
     config.remove_context(name)?;
     config.save()?;
 
-    println!("Removed context '{}'", name.green());
+    println!("Removed context '{}'", ui::style::positive(name));
     Ok(())
 }

@@ -1,17 +1,19 @@
 use anyhow::Result;
-use owo_colors::OwoColorize;
 
 use crate::client::{
     GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient, UpdateRequest,
     UpdateStatus, connect,
 };
 use crate::config::ServerContext;
+use crate::ui;
 
 /// Handles the update command with polling for completion
 pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
 
-    println!("{}", format!("Starting update to {image}...").blue());
+    let steps = ui::Steps::new();
+    let prepare_msg = format!("Preparing update to {image}...");
+    steps.start(&prepare_msg);
 
     let channel = connect(ctx, 600).await?;
     let mut client = ProvisionServiceClient::new(channel);
@@ -24,13 +26,17 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
     let resp = response.into_inner();
 
     if !resp.success {
-        eprintln!("{}", format!("Update failed: {}", resp.error).red());
+        let msg = format!("Update failed: {}", resp.error);
+        steps.fail(&msg);
+        steps.finish().await;
         std::process::exit(1);
     }
 
     let update_id = resp.update_id.clone();
-    println!("{}", format!("Update prepared. ID: {update_id}").green());
-    println!("{}", "Triggering update...".yellow());
+    let prepared_msg = format!("Update prepared. ID: {update_id}");
+    steps.complete(&prepared_msg);
+
+    steps.start("Triggering update...");
 
     let update_channel = connect(ctx, 10).await?;
     let mut update_client = ProvisionServiceClient::new(update_channel);
@@ -42,12 +48,14 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
     {
         let resp = response.into_inner();
         if !resp.success {
-            eprintln!("{}", format!("Update failed: {}", resp.error).red());
+            let msg = format!("Update failed: {}", resp.error);
+            steps.fail(&msg);
+            steps.finish().await;
             std::process::exit(1);
         }
     }
 
-    println!("{}", "Waiting for system to come back online...".yellow());
+    steps.start("Waiting for system to come back online...");
 
     let timeout = std::time::Duration::from_secs(60 * 5);
     let poll_interval = std::time::Duration::from_secs(2);
@@ -55,10 +63,8 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
 
     loop {
         if start.elapsed() > timeout {
-            eprintln!(
-                "{}",
-                "Timeout waiting for system to come back online after update".red()
-            );
+            steps.fail("Timeout waiting for system to come back online after update");
+            steps.finish().await;
             std::process::exit(1);
         }
 
@@ -80,17 +86,15 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
                 let resp = response.into_inner();
                 match UpdateStatus::try_from(resp.status).unwrap_or(UpdateStatus::Unknown) {
                     UpdateStatus::Committed => {
-                        println!(
-                            "{}",
-                            format!("Update {update_id} committed successfully!").green()
-                        );
+                        let msg = format!("Update {update_id} committed successfully!");
+                        steps.complete(&msg);
+                        steps.finish().await;
                         return Ok(());
                     }
                     UpdateStatus::RolledBack => {
-                        eprintln!(
-                            "{}",
-                            format!("Update {update_id} rolled back: {}", resp.error).red()
-                        );
+                        let msg = format!("Update {update_id} rolled back: {}", resp.error);
+                        steps.fail(&msg);
+                        steps.finish().await;
                         std::process::exit(1);
                     }
                     UpdateStatus::Pending | UpdateStatus::Unknown => {

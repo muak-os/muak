@@ -1,11 +1,9 @@
-use std::io::{Write, stdin, stdout};
-
-use anyhow::{Context, Result, bail};
-use owo_colors::OwoColorize;
+use anyhow::{Context, Result};
 use tonic::transport::Channel;
 
 use crate::client::{FactoryResetRequest, ProvisionServiceClient};
 use crate::config::ClientConfig;
+use crate::ui;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 
@@ -17,61 +15,59 @@ pub async fn handle(
 ) -> Result<()> {
     println!(
         "{}",
-        "WARNING: This will perform a factory reset!".red().bold()
+        ui::style::error("WARNING: This will perform a factory reset!")
     );
     println!(
         "{}",
-        "All data, VMs, and configuration will be permanently deleted.".red()
+        ui::style::error_text("All data, VMs, and configuration will be permanently deleted.")
     );
     println!(
         "{}",
-        "The system will reboot into maintenance mode.\n".red()
+        ui::style::error_text("The system will reboot into maintenance mode.\n")
     );
 
-    if !force && !prompt_confirmation()? {
-        println!("{}", "Factory reset cancelled.".yellow());
+    if !force && !ui::prompt::confirm_phrase("", CONFIRM_PHRASE)? {
+        println!("{}", ui::style::warn("Factory reset cancelled."));
         return Ok(());
     }
 
-    println!("{}", "Initiating factory reset...".blue());
+    let steps = ui::Steps::new();
+
+    steps.start("Initiating factory reset...");
 
     let request = tonic::Request::new(FactoryResetRequest {});
 
-    let response = client
-        .factory_reset(request)
-        .await
-        .context("Failed to send factory reset request")?;
+    let response = match client.factory_reset(request).await {
+        Ok(r) => r,
+        Err(e) => {
+            steps.fail("Factory reset failed");
+            steps.finish().await;
+            return Err(e).context("Failed to send factory reset request");
+        }
+    };
 
     let resp = response.into_inner();
 
-    if resp.success {
-        println!("{}", "Factory reset initiated successfully.".green());
-        println!("{}", "System will reboot into maintenance mode...".yellow());
-
-        if let Some(ctx_name) = context_name
-            && let Ok(mut config) = ClientConfig::load()
-            && config.remove_context(&ctx_name).is_ok()
-            && config.save().is_ok()
-        {
-            println!(
-                "{}",
-                format!("Removed context '{}' (credentials invalidated).", ctx_name).blue()
-            );
-        }
-    } else {
-        bail!("Factory reset failed: {}", resp.error);
+    if !resp.success {
+        let msg = format!("Factory reset failed: {}", resp.error);
+        steps.fail(&msg);
+        steps.finish().await;
+        return Err(anyhow::anyhow!("{msg}"));
     }
 
+    steps.complete("Factory reset initiated");
+
+    if let Some(ctx_name) = context_name
+        && let Ok(mut config) = ClientConfig::load()
+        && config.remove_context(&ctx_name).is_ok()
+        && config.save().is_ok()
+    {
+        let msg = format!("Removed context '{ctx_name}'");
+        steps.complete(&msg);
+    }
+
+    steps.start("Rebooting into maintenance mode...");
+    steps.finish().await;
+
     Ok(())
-}
-
-/// Prompts user to type confirmation phrase for factory reset.
-fn prompt_confirmation() -> Result<bool> {
-    print!("Type '{}' to confirm: ", CONFIRM_PHRASE.bold());
-    stdout().flush()?;
-
-    let mut input = String::new();
-    stdin().read_line(&mut input)?;
-
-    Ok(input.trim() == CONFIRM_PHRASE)
 }

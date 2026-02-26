@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{GetConfigRequest, ProvisionServiceClient};
 use crate::format::{format_timestamp, time::TimeSeparator};
+use crate::ui;
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -26,7 +26,11 @@ pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {
             let resp = response.into_inner();
 
             if !resp.error.is_empty() {
-                eprintln!("{}", format!("Error: {}", resp.error).red());
+                eprintln!(
+                    "{} {}",
+                    ui::style::error("Error:"),
+                    ui::style::error_text(&resp.error)
+                );
                 std::process::exit(1);
             }
 
@@ -39,7 +43,10 @@ pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {
             let filename = format!("config-{timestamp}.toml");
 
             std::fs::write(&filename, &config_str)?;
-            println!("{}", format!("Exported config to {filename}").green());
+            println!(
+                "{}",
+                ui::style::success(&format!("Exported config to {filename}"))
+            );
         }
     }
 

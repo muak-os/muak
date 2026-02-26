@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Subcommand;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{GetSecurityStateRequest, SecurityServiceClient};
+use crate::ui;
 
 #[derive(Subcommand)]
 pub enum SecurityAction {
@@ -22,15 +22,15 @@ pub async fn handle(
             let response = client.get_security_state(request).await?;
             let resp = response.into_inner();
 
-            println!("{}", "Security State".green().bold());
+            println!("{}", ui::style::header("Security State"));
 
-            let (label, color_fn): (&str, fn(&str) -> String) = if resp.secure_boot_enabled {
-                ("Enabled", |s| s.green().to_string())
+            let status = if resp.secure_boot_enabled {
+                ui::style::positive("Enabled").to_string()
             } else {
-                ("Disabled", |s| s.red().to_string())
+                ui::style::negative("Disabled").to_string()
             };
 
-            println!("  Secure Boot: {}", color_fn(label));
+            println!("  Secure Boot: {status}");
         }
     }
     Ok(())

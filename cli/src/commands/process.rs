@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::Subcommand;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{ListProcessesRequest, ProcessServiceClient};
 use crate::format::{format_timestamp, time::TimeSeparator};
+use crate::ui;
 
 #[derive(Subcommand)]
 pub enum ProcessAction {
@@ -24,22 +24,17 @@ pub async fn handle(
             let resp = response.into_inner();
 
             if resp.processes.is_empty() {
-                println!("{}", "No processes running".yellow());
+                println!("{}", ui::style::warn("No processes running"));
             } else {
-                println!(
-                    "{}",
-                    format!("{:<8} {:<20} {:<15} STARTED", "PID", "COMMAND", "STATUS")
-                        .green()
-                        .bold()
-                );
+                let mut table = ui::Table::new().header(&["PID", "COMMAND", "STATUS", "STARTED"]);
+
                 for p in resp.processes {
                     let started = format_timestamp(p.started_at, TimeSeparator::Display);
-
-                    println!(
-                        "{:<8} {:<20} {:<15} {}",
-                        p.pid, p.command, p.status, started
-                    );
+                    let pid_str = p.pid.to_string();
+                    table = table.row(&[&pid_str, &p.command, &p.status, &started]);
                 }
+
+                table.print();
             }
         }
     }
