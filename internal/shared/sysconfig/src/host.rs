@@ -1,10 +1,15 @@
 //! Immutable host system configuration.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, Result};
+
+pub const CONFIG_PATH: &str = "/run/state/config.toml";
+
+pub(crate) static CONFIG: OnceLock<HostConfig> = OnceLock::new();
 
 const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
 
@@ -70,6 +75,16 @@ pub struct NetworkConfig {
 #[serde(default)]
 pub struct VmConfig {
     pub auto_restart: bool,
+}
+
+/// Initializes the host config.
+pub fn init() -> Result<()> {
+    let config = load_from_path(Path::new(CONFIG_PATH))?;
+    config.validate()?;
+    CONFIG
+        .set(config)
+        .map_err(|_| ConfigError::AlreadyInitialized)?;
+    Ok(())
 }
 
 /// Serializes a [`HostConfig`] to a TOML string.

@@ -18,9 +18,6 @@
 //! }
 //! ```
 
-use std::path::Path;
-use std::sync::OnceLock;
-
 pub mod auth;
 mod error;
 mod host;
@@ -29,25 +26,14 @@ pub mod permission;
 pub use auth::{AUTH_PATH, AuthConfig, AuthUser, serialize as serialize_auth};
 pub use error::{ConfigError, Result};
 pub use host::{
-    HostConfig, NetworkConfig, SystemConfig, VmConfig, load_from_path, parse_from_str, serialize,
-    serialize_default,
+    CONFIG_PATH, HostConfig, NetworkConfig, SystemConfig, VmConfig, load_from_path, parse_from_str,
+    serialize, serialize_default,
 };
 pub use permission::Permission;
 
-pub const CONFIG_PATH: &str = "/run/state/config.toml";
-
-static CONFIG: OnceLock<HostConfig> = OnceLock::new();
-
-/// Initializes the global config and auth cache.
-///
-/// Loads system config from `CONFIG_PATH` (validating it) and bootstraps
-/// the auth cache from `AUTH_PATH`. Must be called before any access.
+/// Initializes the host config and auth cache.
 pub fn init() -> Result<()> {
-    let config = load_from_path(Path::new(CONFIG_PATH))?;
-    config.validate()?;
-    CONFIG
-        .set(config)
-        .map_err(|_| ConfigError::AlreadyInitialized)?;
+    host::init()?;
     auth::init()?;
     Ok(())
 }
@@ -99,10 +85,10 @@ pub fn try_auth() -> Option<std::sync::Arc<AuthConfig>> {
 ///
 /// Panics if [`init()`] has not been called.
 pub fn config() -> &'static HostConfig {
-    CONFIG.get().expect("Config not initialized")
+    host::CONFIG.get().expect("Config not initialized")
 }
 
 /// Returns the global host configuration, or `None` before [`init()`].
 pub fn try_config() -> Option<&'static HostConfig> {
-    CONFIG.get()
+    host::CONFIG.get()
 }
