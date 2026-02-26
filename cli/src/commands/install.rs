@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use owo_colors::OwoColorize;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
@@ -9,6 +8,7 @@ use crate::client::{
     GetConfigRequest, InstallRequest, InstallStep, ProvisionServiceClient, connect,
 };
 use crate::config::{ClientConfig, ServerContext};
+use crate::ui;
 
 /// Data received upon successful completion of the install process.
 struct CompletedInstall {
@@ -51,7 +51,8 @@ pub async fn handle(
         csr: csr_pem,
     });
 
-    println!("{}", format!("Installing Muak to {target_disk}...").blue());
+    let msg = format!("Installing Muak to {target_disk}...");
+    println!("{}", ui::style::info(&msg));
 
     let response = client
         .install(request)
@@ -61,16 +62,17 @@ pub async fn handle(
     let mut stream = response.into_inner();
     let mut result_data: Option<CompletedInstall> = None;
 
+    let steps = ui::Steps::new();
+
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving install progress")?;
         let step = InstallStep::try_from(progress.step).unwrap_or(InstallStep::Unknown);
 
         match step {
             InstallStep::Failed => {
-                eprintln!(
-                    "{}",
-                    format!("Installation failed: {}", progress.error).red()
-                );
+                let msg = format!("Installation failed: {}", progress.error);
+                steps.fail(&msg);
+                steps.finish().await;
                 std::process::exit(1);
             }
             InstallStep::Completed => {
@@ -81,7 +83,7 @@ pub async fn handle(
                 });
             }
             _ => {
-                print_step(&progress.message);
+                steps.start(&progress.message);
             }
         }
     }
@@ -89,6 +91,9 @@ pub async fn handle(
     let result = result_data.ok_or_else(|| {
         anyhow::anyhow!("Install stream ended without a completion or failure message")
     })?;
+
+    let msg = format!("Successfully installed Muak to {target_disk}");
+    steps.complete(&msg);
 
     let context_name = if result.server_name.is_empty() {
         "default"
@@ -107,32 +112,21 @@ pub async fn handle(
     client_config.set_current(&actual_name)?;
     client_config.save()?;
 
-    println!(
-        "{}",
-        format!("Successfully installed Muak to {target_disk}").green()
-    );
-    println!(
-        "{}",
-        format!("Context '{}' added and set as current.", actual_name).green()
-    );
+    wait_for_reboot(&ctx, &steps).await?;
+    steps.finish().await;
 
-    wait_for_reboot(&ctx).await
-}
+    let msg = format!("Context '{}' added and set as current.", actual_name);
+    println!("{}", ui::style::success(&msg));
 
-/// Prints a step message
-fn print_step(message: &str) {
-    println!("{}", format!("{message}").yellow());
+    Ok(())
 }
 
 /// Polls the server after reboot to verify the install succeeded.
-async fn wait_for_reboot(ctx: &ServerContext) -> Result<()> {
-    println!(
-        "{}",
-        "\nSystem will reboot automatically in 3 seconds...".yellow()
-    );
+async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::Steps) -> Result<()> {
+    steps.start("Rebooting system...");
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    println!("{}", "Waiting for system to come back online...".yellow());
+    steps.start("Waiting for system to come back online...");
 
     let timeout = std::time::Duration::from_secs(60 * 5);
     let poll_interval = std::time::Duration::from_secs(2);
@@ -140,21 +134,11 @@ async fn wait_for_reboot(ctx: &ServerContext) -> Result<()> {
 
     loop {
         if start.elapsed() > timeout {
-            eprintln!(
-                "{}",
-                "\nWARNING: Timed out waiting for system to come back online after install."
-                    .red()
-                    .bold()
-            );
-            eprintln!(
-                "{}",
-                "The installation completed but the system did not respond within 5 minutes.".red()
-            );
-            eprintln!(
-                "{}",
-                "Please check the system manually to verify it booted correctly.".red()
-            );
-            std::process::exit(1);
+            steps.fail("Timed out waiting for system to come back online");
+            return Err(anyhow::anyhow!(
+                "The installation completed but the system did not respond within 5 minutes.\n\
+                 Please check the system manually to verify it booted correctly."
+            ));
         }
 
         let channel = match connect(ctx, 10).await {
@@ -171,10 +155,7 @@ async fn wait_for_reboot(ctx: &ServerContext) -> Result<()> {
             .await
         {
             Ok(_) => {
-                println!(
-                    "{}",
-                    "System is back online. Installation verified successfully!".green()
-                );
+                steps.complete("System is back online. Installation verified successfully!");
                 return Ok(());
             }
             Err(_) => {

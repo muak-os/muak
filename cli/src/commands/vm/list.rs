@@ -1,11 +1,11 @@
 use anyhow::Result;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{ListVmsRequest, VmServiceClient};
 use crate::format::{
     format_size, format_timestamp, hypervisor_to_string, time::TimeSeparator, vm_state_to_string,
 };
+use crate::ui;
 
 /// Lists all VMs.
 pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
@@ -15,17 +15,20 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
     let resp = response.into_inner();
 
     if resp.vms.is_empty() {
-        println!("{}", "No VMs".yellow());
+        println!("{}", ui::style::warn("No VMs"));
     } else {
-        println!(
-            "{}",
-            format!(
-                "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<12} {:<8} CREATED",
-                "VM ID", "NAME", "STATE", "VMM", "CPUS", "MEMORY(MB)", "DISK", "PID"
-            )
-            .green()
-            .bold()
-        );
+        let mut table = ui::Table::new().header(&[
+            "VM ID",
+            "NAME",
+            "STATE",
+            "VMM",
+            "CPUS",
+            "MEMORY(MB)",
+            "DISK",
+            "PID",
+            "CREATED",
+        ]);
+
         for vm in resp.vms {
             let created = format_timestamp(vm.created_at, TimeSeparator::Display);
 
@@ -52,11 +55,16 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
                 "-".to_string()
             };
 
-            println!(
-                "{:<36} {:<20} {:<12} {:<17} {:<6} {:<10} {:<12} {:<8} {}",
-                vm.vm_id, vm.name, state_str, vmm_str, cpus, memory_mb, disk_str, pid_str, created
-            );
+            let cpus_str = cpus.to_string();
+            let mem_str = memory_mb.to_string();
+
+            table = table.row(&[
+                &vm.vm_id, &vm.name, state_str, vmm_str, &cpus_str, &mem_str, &disk_str, &pid_str,
+                &created,
+            ]);
         }
+
+        table.print();
     }
 
     Ok(())

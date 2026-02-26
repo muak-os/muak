@@ -1,11 +1,11 @@
 use anyhow::Result;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::LogServiceClient;
 use crate::client::log_service::{
     self, FollowLogsRequest, GetLogsRequest, GetLogsResponse, LogEntry,
 };
+use crate::ui;
 
 /// Fetches and displays service logs.
 pub async fn handle(
@@ -64,8 +64,8 @@ fn print_entry(entry: &LogEntry) {
     let line = format!("[{}] {}", entry.service, entry.message);
 
     if entry.stream() == log_service::Stream::Stderr {
-        println!("{}", line.red());
+        println!("{}", ui::style::error_text(&line));
     } else {
-        println!("{}", line);
+        println!("{line}");
     }
 }

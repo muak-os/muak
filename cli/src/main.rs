@@ -4,6 +4,7 @@ mod client;
 mod commands;
 mod config;
 mod format;
+pub mod ui;
 
 use std::path::PathBuf;
 
@@ -14,7 +15,6 @@ use commands::context::ContextAction;
 use commands::process::ProcessAction;
 use commands::security::SecurityAction;
 use commands::vm::VmAction;
-use owo_colors::OwoColorize;
 
 #[derive(Parser)]
 #[command(name = "muak")]
@@ -116,8 +116,17 @@ fn handle_error(err: &anyhow::Error) {
             tonic::Code::InvalidArgument => status.message(),
             _ => status.message(),
         };
-        eprintln!("{} {}", "Error:".red().bold(), msg.red());
+        eprintln!(
+            "{} {}",
+            ui::style::error("Error:"),
+            ui::style::error_text(msg)
+        );
     } else {
-        eprintln!("{} {}", "Error:".red().bold(), err.red());
+        let msg = err.to_string();
+        eprintln!(
+            "{} {}",
+            ui::style::error("Error:"),
+            ui::style::error_text(&msg)
+        );
     }
 }

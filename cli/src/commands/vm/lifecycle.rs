@@ -1,8 +1,8 @@
 use anyhow::Result;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{DeleteVmRequest, StartVmRequest, StopVmRequest, VmServiceClient};
+use crate::ui;
 
 /// Starts a VM.
 pub async fn handle_start(client: &mut VmServiceClient<Channel>, vm_id: String) -> Result<()> {
@@ -14,9 +14,12 @@ pub async fn handle_start(client: &mut VmServiceClient<Channel>, vm_id: String) 
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", format!("Started VM: {vm_id}").green());
+        println!("{}", ui::style::success(&format!("Started VM: {vm_id}")));
     } else {
-        eprintln!("{}", format!("Error starting VM: {}", resp.error).red());
+        eprintln!(
+            "{}",
+            ui::style::error_text(&format!("Error starting VM: {}", resp.error))
+        );
         std::process::exit(1);
     }
 
@@ -38,9 +41,12 @@ pub async fn handle_stop(
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", format!("Stopped VM: {vm_id}").green());
+        println!("{}", ui::style::success(&format!("Stopped VM: {vm_id}")));
     } else {
-        eprintln!("{}", format!("Error stopping VM: {}", resp.error).red());
+        eprintln!(
+            "{}",
+            ui::style::error_text(&format!("Error stopping VM: {}", resp.error))
+        );
         std::process::exit(1);
     }
 
@@ -57,9 +63,12 @@ pub async fn handle_delete(client: &mut VmServiceClient<Channel>, vm_id: String)
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", format!("Deleted VM: {vm_id}").green());
+        println!("{}", ui::style::success(&format!("Deleted VM: {vm_id}")));
     } else {
-        eprintln!("{}", format!("Error deleting VM: {}", resp.error).red());
+        eprintln!(
+            "{}",
+            ui::style::error_text(&format!("Error deleting VM: {}", resp.error))
+        );
         std::process::exit(1);
     }
 

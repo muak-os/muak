@@ -1,8 +1,8 @@
 use anyhow::Result;
-use owo_colors::OwoColorize;
 use tonic::transport::Channel;
 
 use crate::client::{GetVmSerialLogRequest, VmServiceClient};
+use crate::ui;
 
 /// Gets VM serial logs.
 pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: i64) -> Result<()> {
@@ -19,7 +19,7 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: 
     } else {
         eprintln!(
             "{}",
-            format!("Error getting VM serial log: {}", resp.error).red()
+            ui::style::error_text(&format!("Error getting VM serial log: {}", resp.error))
         );
         std::process::exit(1);
     }

@@ -12,7 +12,7 @@ tokio-rustls = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
-owo-colors = { workspace = true }
+crossterm = { workspace = true }
 
 # Cryptography
 rustls = { workspace = true }
