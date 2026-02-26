@@ -41,7 +41,7 @@ async fn resolve_connection(
         let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
             anyhow::anyhow!("--insecure requires --endpoint to specify the server address.")
         })?;
-        let channel = connect_tls_insecure(endpoint, timeout_secs).await?;
+        let channel = connect_tls_insecure(endpoint, timeout_secs).await?.0;
         return Ok((channel, endpoint.clone(), None));
     }
 

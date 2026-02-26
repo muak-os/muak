@@ -2,7 +2,7 @@ mod connector;
 mod upload;
 
 use anyhow::{Context, Result, bail};
-use connector::InsecureTlsConnector;
+use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 pub use upload::upload_file;
 
@@ -75,20 +75,57 @@ pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> 
         .connect_timeout(connect_timeout)
         .timeout(request_timeout);
 
-    endpoint
-        .connect()
-        .await
-        .with_context(|| format!("Failed to connect to {}", ctx.endpoint))
+    endpoint.connect().await.map_err(|e| {
+        if is_tls_error(&e) {
+            anyhow::anyhow!(
+                "TLS handshake failed with {}. \
+                 If the server is in maintenance mode, use --insecure.",
+                ctx.endpoint,
+            )
+        } else {
+            anyhow::anyhow!("Failed to connect to {}: {}", ctx.endpoint, e)
+        }
+    })
 }
 
-/// Connects via TLS without verifying server certificate (TOFU model).
-pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<Channel> {
+/// Connects via TLS without verifying the server certificate (TOFU model).
+pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Channel, String)> {
     let connect_timeout = std::time::Duration::from_secs(5);
     let request_timeout = std::time::Duration::from_secs(timeout_secs);
 
-    let connector = InsecureTlsConnector::new(server)?;
+    let state = TofuState::default();
+    let connector = TofuTlsConnector::new(server, state.clone())?;
 
     // Use http:// scheme to bypass tonic's TLS check - our connector handles TLS internally
+    let endpoint = Endpoint::from_shared(format!("http://{server}"))
+        .context("Invalid server address")?
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout);
+
+    let channel = endpoint
+        .connect_with_connector(connector)
+        .await
+        .with_context(|| format!("Failed to connect to {} (TLS)", server))?;
+
+    let fingerprint = state
+        .fingerprint()
+        .context("Server certificate fingerprint not captured during TLS handshake")?;
+
+    Ok((channel, fingerprint))
+}
+
+/// Connects via TLS with certificate pinning: only accepts a server whose
+/// certificate fingerprint matches the provided value.
+pub async fn connect_tls_pinned(
+    server: &str,
+    timeout_secs: u64,
+    expected_fingerprint: &str,
+) -> Result<Channel> {
+    let connect_timeout = std::time::Duration::from_secs(5);
+    let request_timeout = std::time::Duration::from_secs(timeout_secs);
+
+    let connector = PinnedTlsConnector::new(server, expected_fingerprint)?;
+
     let endpoint = Endpoint::from_shared(format!("http://{server}"))
         .context("Invalid server address")?
         .connect_timeout(connect_timeout)
@@ -97,5 +134,25 @@ pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<Cha
     endpoint
         .connect_with_connector(connector)
         .await
-        .with_context(|| format!("Failed to connect to {} (TLS)", server))
+        .with_context(|| format!("Failed to connect to {} (TLS pinned)", server))
+}
+
+/// Checks if an error (or any of its causes) indicates a TLS handshake failure
+/// rather than a network-level issue (connection refused, timeout, etc.).
+fn is_tls_error(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        let msg = e.to_string().to_lowercase();
+        if msg.contains("certificate")
+            || msg.contains("handshake")
+            || msg.contains("tls")
+            || msg.contains("ssl")
+            || msg.contains("unknownca")
+            || msg.contains("unknown ca")
+        {
+            return true;
+        }
+        current = e.source();
+    }
+    false
 }

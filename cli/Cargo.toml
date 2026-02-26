@@ -15,6 +15,7 @@ clap = { workspace = true, features = ["env"] }
 crossterm = { workspace = true }
 
 # Cryptography
+ring = { workspace = true }
 rustls = { workspace = true }
 
 # Encoding

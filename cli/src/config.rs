@@ -36,6 +36,7 @@ pub struct ServerContext {
 pub struct PendingEnrollment {
     pub fingerprint: String,
     pub key: String,
+    pub server_fingerprint: String,
 }
 
 /// Gets the muak config directory path.
@@ -95,7 +96,6 @@ impl ClientConfig {
     }
 
     /// Add a new context, handling name collisions.
-    /// Returns the actual name used (may differ if collision occurred).
     pub fn add_context(&mut self, name: &str, ctx: ServerContext) -> String {
         let actual_name = resolve_name_collision(&self.contexts, name);
         self.contexts.insert(actual_name.clone(), ctx);
@@ -145,12 +145,19 @@ impl ClientConfig {
     }
 
     /// Starts an enrollment by saving the pending state.
-    pub fn start_enrollment(&mut self, endpoint: &str, key_pem: &str, fingerprint: &str) {
+    pub fn start_enrollment(
+        &mut self,
+        endpoint: &str,
+        key_pem: &str,
+        fingerprint: &str,
+        server_fingerprint: &str,
+    ) {
         self.pending.insert(
             endpoint.to_string(),
             PendingEnrollment {
                 fingerprint: fingerprint.to_string(),
                 key: Base64::encode_string(key_pem.as_bytes()),
+                server_fingerprint: server_fingerprint.to_string(),
             },
         );
     }
@@ -161,7 +168,6 @@ impl ClientConfig {
     }
 
     /// Completes an enrollment by creating a context and clearing pending state.
-    /// Returns the context name used.
     pub fn complete_enrollment(
         &mut self,
         endpoint: &str,
@@ -195,7 +201,6 @@ impl ServerContext {
     }
 
     /// Decode credentials from base64.
-    /// Returns (ca, crt, key) if all credentials are present.
     pub fn credentials(&self) -> Result<Option<Credentials>> {
         let (ca, crt, key) = match (&self.ca, &self.crt, &self.key) {
             (Some(ca), Some(crt), Some(key)) => (ca, crt, key),

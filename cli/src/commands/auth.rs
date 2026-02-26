@@ -10,7 +10,7 @@ use tonic::transport::Channel;
 use crate::client::{
     AckEnrollmentRequest, ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest,
     ListPendingCsrsRequest, ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
-    connect_tls_insecure,
+    connect_tls_insecure, connect_tls_pinned,
 };
 use crate::config::ClientConfig;
 use crate::ui;
@@ -20,7 +20,7 @@ pub enum AuthAction {
     Requests,
     Approve {
         fingerprint: String,
-        #[arg(long, default_value = "vm:read")]
+        #[arg(long, default_value = "system:read")]
         permissions: String,
     },
     Revoke {
@@ -255,33 +255,38 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         return Ok(());
     }
 
-    let (fingerprint, key_pem) = if let Some(pending) = config.get_pending(endpoint) {
-        println!(
-            "Resuming pending enrollment for {}",
-            ui::style::accent(endpoint)
-        );
-        let key = Base64::decode_vec(&pending.key).context("Failed to decode pending key")?;
-        let key_pem = String::from_utf8(key).context("Invalid key encoding")?;
-        (pending.fingerprint.clone(), key_pem)
-    } else {
-        println!("Generating key pair...");
-        let (key_pem, csr_pem) = pki::generate_csr("muak-client")?;
-        let fingerprint = pki::compute_csr_fingerprint(&csr_pem)?;
+    let (fingerprint, key_pem, server_fingerprint) =
+        if let Some(pending) = config.get_pending(endpoint) {
+            println!(
+                "Resuming pending enrollment for {}",
+                ui::style::accent(endpoint)
+            );
+            let key = Base64::decode_vec(&pending.key).context("Failed to decode pending key")?;
+            let key_pem = String::from_utf8(key).context("Invalid key encoding")?;
+            (
+                pending.fingerprint.clone(),
+                key_pem,
+                pending.server_fingerprint.clone(),
+            )
+        } else {
+            println!("Generating key pair...");
+            let (key_pem, csr_pem) = pki::generate_csr("muak-client")?;
+            let fingerprint = pki::compute_csr_fingerprint(&csr_pem)?;
 
-        config.start_enrollment(endpoint, &key_pem, &fingerprint);
-        config.save()?;
+            println!("Submitting certificate request...");
+            let (channel, server_fp) = connect_tls_insecure(endpoint, 30).await?;
+            let mut client = AuthServiceClient::new(channel);
 
-        println!("Submitting certificate request...");
-        let channel = connect_tls_insecure(endpoint, 30).await?;
-        let mut client = AuthServiceClient::new(channel);
+            client
+                .submit_csr(SubmitCsrRequest { csr_pem })
+                .await
+                .context("Failed to submit CSR")?;
 
-        client
-            .submit_csr(SubmitCsrRequest { csr_pem })
-            .await
-            .context("Failed to submit CSR")?;
+            config.start_enrollment(endpoint, &key_pem, &fingerprint, &server_fp);
+            config.save()?;
 
-        (fingerprint, key_pem)
-    };
+            (fingerprint, key_pem, server_fp)
+        };
 
     let display_fp = if fingerprint.len() >= 16 {
         &fingerprint[..16]
@@ -297,7 +302,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
 
     let spinner = ui::Spinner::start("Waiting for admin approval... (Ctrl+C to resume later)");
 
-    let channel = connect_tls_insecure(endpoint, 30).await?;
+    let channel = connect_tls_pinned(endpoint, 30, &server_fingerprint).await?;
     let mut client = AuthServiceClient::new(channel);
 
     loop {
@@ -310,9 +315,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
 
         let status = response.into_inner();
         match status.status() {
-            CsrStatus::Pending => {
-                // Spinner is already animating.
-            }
+            CsrStatus::Pending => {}
             CsrStatus::Approved => {
                 spinner.success("Approved!").await;
 
