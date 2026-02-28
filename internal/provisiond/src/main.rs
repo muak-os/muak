@@ -1,16 +1,15 @@
 //! Provisioning daemon for Muak.
-//!
-//! Handles all provisioning operations including installation, updates,
-//! certificate management, and security state queries.
 
 mod constants;
 mod disk;
+mod efi;
 mod install;
+mod reboot;
 mod reset;
 mod services;
+mod streaming;
 mod uki;
 mod update;
-mod validation;
 
 use anyhow::{Context, Result};
 use tokio::net::UnixListener;
@@ -29,7 +28,7 @@ async fn main() -> Result<()> {
     let is_installed = std::path::Path::new(sysconfig::CONFIG_PATH).exists();
 
     if is_installed {
-        let _ = validation::check_and_handle_pending_validation()
+        let _ = update::check_and_handle_pending_validation()
             .await
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }

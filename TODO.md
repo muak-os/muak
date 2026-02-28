@@ -22,12 +22,12 @@
 
 - Config versioning with tracking of changes over time
 
-- Disk Manager Service:
-  - Copy-on-Write disk creation for templates
-    - Btrfs snapshots create instant, space-efficient copies
-    - Btrfs snapshots use COW, so only changed blocks consume space
-    - Create one golden image, snapshot for each VM to avoid duplication
-  - **Allow /run/data to be on a different disk than rootfs**
+- Copy-on-Write disk creation for templates
+  - Btrfs snapshots create instant, space-efficient copies
+  - Btrfs snapshots use COW, so only changed blocks consume space
+  - Create one golden image, snapshot for each VM to avoid duplication
+
+- **Allow /run/data to be on a different disk than rootfs**
 
 - Add e2e testing:
   - Unit tests & Integration tests
@@ -35,6 +35,9 @@
   - Target 80% coverage
   - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
   - Deterministic simulation tests?
+
+- Enchance `vmd`:
+  - Allow for iso images for vms
 
 - Only allow signed installer images to be installed
 

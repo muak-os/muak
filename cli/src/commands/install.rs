@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
-use crate::client::{
-    GetConfigRequest, InstallRequest, InstallStep, ProvisionServiceClient, connect,
-};
+use crate::client::{GetConfigRequest, InstallRequest, ProvisionServiceClient, connect};
 use crate::config::{ClientConfig, ServerContext};
 use crate::ui;
 
@@ -66,25 +64,22 @@ pub async fn handle(
 
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving install progress")?;
-        let step = InstallStep::try_from(progress.step).unwrap_or(InstallStep::Unknown);
 
-        match step {
-            InstallStep::Failed => {
-                let msg = format!("Installation failed: {}", progress.error);
-                steps.fail(&msg);
-                steps.finish().await;
-                std::process::exit(1);
-            }
-            InstallStep::Completed => {
-                result_data = Some(CompletedInstall {
-                    ca_pem: progress.ca_pem,
-                    client_cert_pem: progress.client_cert_pem,
-                    server_name: progress.server_name,
-                });
-            }
-            _ => {
-                steps.start(&progress.message);
-            }
+        if !progress.error.is_empty() {
+            let msg = format!("Installation failed: {}", progress.error);
+            steps.fail(&msg);
+            steps.finish().await;
+            std::process::exit(1);
+        }
+
+        if !progress.ca_pem.is_empty() {
+            result_data = Some(CompletedInstall {
+                ca_pem: progress.ca_pem,
+                client_cert_pem: progress.client_cert_pem,
+                server_name: progress.server_name,
+            });
+        } else {
+            steps.start(&progress.message);
         }
     }
 

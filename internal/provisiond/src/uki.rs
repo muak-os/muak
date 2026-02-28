@@ -43,7 +43,11 @@ impl Uki {
     }
 
     /// Prepares UKI components from an installer image and extensions.
-    pub fn prepare(installer_image: &str, extensions: &[String], work_dir: &Path) -> Result<Self> {
+    pub async fn prepare(
+        installer_image: &str,
+        extensions: &[String],
+        work_dir: &Path,
+    ) -> Result<Self> {
         let config = UkiConfig {
             installer_image,
             extensions,
@@ -61,8 +65,8 @@ impl Uki {
             )
         })?;
 
-        pull_installer(config.installer_image, parent)?;
-        build_initramfs(parent, &uki.initramfs, config.extensions)?;
+        pull_installer(config.installer_image, parent).await?;
+        build_initramfs(parent, &uki.initramfs, config.extensions).await?;
         write_cmdline(&uki.cmdline, config.cmdline)?;
 
         Ok(uki)
@@ -200,11 +204,11 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
 }
 
 /// Pulls the installer image and extracts components.
-fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
+async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    tokio::runtime::Handle::current()
-        .block_on(imager::pull_image(image, dest_dir))
+    imager::pull_image(image, dest_dir)
+        .await
         .context("Failed to pull installer image")?;
 
     verify_installer_files(dest_dir)?;
@@ -228,15 +232,15 @@ fn verify_installer_files(base_dir: &Path) -> Result<()> {
 }
 
 /// Builds the initramfs with extensions.
-fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
+async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
     let base_initramfs = base_dir.join("base-initramfs.img");
 
     if !base_initramfs.exists() {
         bail!("Base initramfs not found at {}", base_initramfs.display());
     }
 
-    tokio::runtime::Handle::current()
-        .block_on(imager::build_initramfs(&base_initramfs, extensions, output))
+    imager::build_initramfs(&base_initramfs, extensions, output)
+        .await
         .context("Failed to build initramfs")?;
 
     if !output.exists() {

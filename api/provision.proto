@@ -7,7 +7,7 @@ service ProvisionService {
     rpc Install(InstallRequest) returns (stream InstallProgress);
 
     // @rbac: system:update
-    rpc PrepareUpdate(PrepareUpdateRequest) returns (PrepareUpdateResponse);
+    rpc PrepareUpdate(PrepareUpdateRequest) returns (stream PrepareUpdateProgress);
 
     // @rbac: system:update
     rpc Update(UpdateRequest) returns (UpdateResponse);
@@ -47,37 +47,20 @@ message InstallRequest {
     string csr = 3;
 }
 
-enum InstallStep {
-    UNKNOWN = 0;
-    VALIDATING = 1;
-    GENERATING_KEYS = 2;
-    GENERATING_PKI = 3;
-    PULLING_IMAGE = 4;
-    BUILDING_UKI = 5;
-    SIGNING_UKI = 6;
-    PARTITIONING = 7;
-    FORMATTING = 8;
-    DEPLOYING = 9;
-    INITIALIZING = 10;
-    COMPLETED = 11;
-    FAILED = 12;
-}
-
 message InstallProgress {
-    InstallStep step = 1;
-    string message = 2;
-    string ca_pem = 3;
-    string client_cert_pem = 4;
-    string server_name = 5;
-    string error = 6;
+    string message = 1;
+    string ca_pem = 2;
+    string client_cert_pem = 3;
+    string server_name = 4;
+    string error = 5;
 }
 
 message PrepareUpdateRequest {
     string image = 1;
 }
 
-message PrepareUpdateResponse {
-    bool success = 1;
+message PrepareUpdateProgress {
+    string message = 1;
     string update_id = 2;
     string error = 3;
 }

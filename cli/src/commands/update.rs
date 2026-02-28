@@ -1,4 +1,5 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use tokio_stream::StreamExt;
 
 use crate::client::{
     GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient, UpdateRequest,
@@ -7,13 +8,11 @@ use crate::client::{
 use crate::config::ServerContext;
 use crate::ui;
 
-/// Handles the update command with polling for completion
+/// Handles the update command with polling for completion.
 pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
     let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
 
     let steps = ui::Steps::new();
-    let prepare_msg = format!("Preparing update to {image}...");
-    steps.start(&prepare_msg);
 
     let channel = connect(ctx, 600).await?;
     let mut client = ProvisionServiceClient::new(channel);
@@ -22,17 +21,35 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
             image: image.clone(),
         }))
-        .await?;
-    let resp = response.into_inner();
+        .await
+        .context("Failed to send prepare_update request")?;
 
-    if !resp.success {
-        let msg = format!("Update failed: {}", resp.error);
-        steps.fail(&msg);
+    let mut stream = response.into_inner();
+    let mut update_id = String::new();
+
+    while let Some(progress) = stream.next().await {
+        let progress = progress.context("Error receiving prepare_update progress")?;
+
+        if !progress.error.is_empty() {
+            let msg = format!("Update preparation failed: {}", progress.error);
+            steps.fail(&msg);
+            steps.finish().await;
+            std::process::exit(1);
+        }
+
+        if !progress.update_id.is_empty() {
+            update_id = progress.update_id;
+        } else {
+            steps.start(&progress.message);
+        }
+    }
+
+    if update_id.is_empty() {
+        steps.fail("Prepare update stream ended without completion");
         steps.finish().await;
         std::process::exit(1);
     }
 
-    let update_id = resp.update_id.clone();
     let prepared_msg = format!("Update prepared. ID: {update_id}");
     steps.complete(&prepared_msg);
 

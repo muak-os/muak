@@ -15,4 +15,4 @@ pub use gpt::{create_partitions, delete_partitions, has_existing_partitions};
 pub use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub use sysfs::find_partition_by_partname;
 pub use sysfs::{list_disks, validate_block_device, validate_disk_size};
-pub use utils::{get_disk_mounts, unmount_all, wipe_disk};
+pub use utils::{validate_install_target, wipe_disk};

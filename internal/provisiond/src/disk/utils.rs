@@ -5,6 +5,7 @@ use std::io::{Seek, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use rustix::fs::sync;
 use rustix::mount::{UnmountFlags, unmount};
 
 use super::constants::MB;
@@ -77,20 +78,52 @@ pub fn wipe_disk(disk: &str) -> Result<()> {
 
     let disk_size = f.seek(std::io::SeekFrom::End(0))?;
 
-    // Wipe first 10MB (removes primary GPT and any MBR/partition tables)
     f.seek(std::io::SeekFrom::Start(0))?;
-    let zeros = vec![0u8; (10 * MB) as usize];
-    f.write_all(&zeros)?;
+    f.write_all(&vec![0u8; (10 * MB) as usize])?;
 
-    // Wipe last 1MB (removes backup GPT at end of disk)
     if disk_size > MB {
-        let backup_start = disk_size - MB;
-        f.seek(std::io::SeekFrom::Start(backup_start))?;
-        let backup_zeros = vec![0u8; MB as usize];
-        f.write_all(&backup_zeros)?;
+        f.seek(std::io::SeekFrom::Start(disk_size - MB))?;
+        f.write_all(&vec![0u8; MB as usize])?;
     }
 
     f.sync_all()?;
+
+    Ok(())
+}
+
+/// Validates that a disk is suitable as an install target.
+pub fn validate_install_target(disk_path: &str, force: bool) -> Result<()> {
+    if !force && Path::new(sysconfig::CONFIG_PATH).exists() {
+        bail!(
+            "Cannot install from an already-installed system. Boot from live ISO or use --force."
+        );
+    }
+
+    if !Path::new(disk_path).exists() {
+        bail!("Disk '{}' does not exist", disk_path);
+    }
+
+    super::validate_block_device(disk_path)?;
+    super::validate_disk_size(disk_path)?;
+
+    let mounted = get_disk_mounts(disk_path);
+    if !mounted.is_empty() && !force {
+        bail!(
+            "Cannot install: {} is mounted at {}. Use --force to unmount automatically.",
+            mounted[0].device,
+            mounted[0].mount_point
+        );
+    }
+
+    sync();
+    unmount_all(&mounted)?;
+
+    if !force && super::has_existing_partitions(disk_path)? {
+        bail!(
+            "Disk '{}' has existing partitions. Use --force to overwrite.",
+            disk_path
+        );
+    }
 
     Ok(())
 }

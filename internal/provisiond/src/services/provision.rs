@@ -1,19 +1,15 @@
 //! gRPC service implementation for provisioning operations.
 
-use std::pin::Pin;
-
-use anyhow::Context;
-use rustix::fs::sync;
-use rustix::system::{RebootCommand, reboot};
 use tonic::{Request, Response, Status};
 
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::*;
 use crate::disk;
 use crate::install;
+use crate::reboot;
 use crate::reset;
+use crate::streaming;
 use crate::update;
-use crate::validation;
 
 /// Creates the ProvisionService gRPC server.
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
@@ -25,8 +21,8 @@ pub struct ProvisionServiceImpl;
 
 #[tonic::async_trait]
 impl ProvisionService for ProvisionServiceImpl {
-    type InstallStream =
-        Pin<Box<dyn tokio_stream::Stream<Item = Result<InstallProgress, Status>> + Send>>;
+    type InstallStream = streaming::ProgressStream<InstallProgress>;
+    type PrepareUpdateStream = streaming::ProgressStream<PrepareUpdateProgress>;
 
     async fn install(
         &self,
@@ -48,112 +44,65 @@ impl ProvisionService for ProvisionServiceImpl {
             .validate_for_install()
             .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {}", e)))?;
 
-        println!(
-            "Install request: disk={}, force={}, image={}",
-            config.system.disk, config.system.image, req.force,
-        );
-
         let server_name = config.system.name.clone();
         let force = req.force;
         let csr = req.csr;
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<InstallProgress, Status>>(32);
-
-        tokio::spawn(async move {
-            let progress_tx = tx.clone();
-            let (install_tx, mut install_rx) = tokio::sync::mpsc::channel::<InstallProgress>(32);
-
-            let forward_tx = tx.clone();
-            let forward_handle = tokio::spawn(async move {
-                while let Some(progress) = install_rx.recv().await {
-                    if forward_tx.send(Ok(progress)).await.is_err() {
-                        break;
-                    }
-                }
-            });
-
-            let disk = config.system.disk.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                install::install(&disk, force, &config, &csr, install_tx)
-            })
-            .await;
-
-            let _ = forward_handle.await;
-
-            let result = match result {
-                Ok(inner) => inner,
-                Err(e) => Err(anyhow::anyhow!("Install task panicked: {}", e)),
-            };
-
-            match result {
-                Ok(result) => {
-                    let _ = progress_tx
-                        .send(Ok(InstallProgress {
-                            step: InstallStep::Completed as i32,
-                            message: "Installation completed successfully".to_string(),
-                            ca_pem: result.ca_pem,
-                            client_cert_pem: result.admin_cert_pem,
+        let stream = streaming::run(
+            move |progress_tx| async move {
+                let disk = config.system.disk.clone();
+                install::run(&disk, force, &config, &csr, progress_tx).await
+            },
+            move |result, out_tx| {
+                let msg = match result {
+                    Ok(r) => {
+                        reboot::schedule(3);
+                        Ok(InstallProgress {
+                            ca_pem: r.ca_pem,
+                            client_cert_pem: r.admin_cert_pem,
                             server_name,
                             ..Default::default()
-                        }))
-                        .await;
-
-                    tokio::spawn(async {
-                        kmsg::info!("System will reboot in 3 seconds...");
-                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                        kmsg::info!("Rebooting now...");
-                        tokio::task::spawn_blocking(|| {
-                            sync();
-                            let _ = reboot(RebootCommand::Restart);
                         })
-                        .await
-                        .ok();
-                    });
-                }
-                Err(e) => {
-                    let _ = progress_tx
-                        .send(Ok(InstallProgress {
-                            step: InstallStep::Failed as i32,
-                            message: "Installation failed".to_string(),
-                            error: format!("{:#}", e),
-                            ..Default::default()
-                        }))
-                        .await;
-                }
-            }
-        });
+                    }
+                    Err(e) => Ok(InstallProgress {
+                        error: format!("{:#}", e),
+                        ..Default::default()
+                    }),
+                };
+                let _ = out_tx.try_send(msg);
+            },
+        );
 
-        Ok(Response::new(Box::pin(
-            tokio_stream::wrappers::ReceiverStream::new(rx),
-        )))
+        Ok(Response::new(stream))
     }
 
     async fn prepare_update(
         &self,
         request: Request<PrepareUpdateRequest>,
-    ) -> Result<Response<PrepareUpdateResponse>, Status> {
+    ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
         let req = request.into_inner();
-        println!("Update request: image={}", req.image);
-
         let config = sysconfig::config();
         let extensions = config.system.extensions.clone();
         let image = req.image;
 
-        match tokio::task::spawn_blocking(move || update::prepare(&image, &extensions))
-            .await
-            .context("Prepare update task panicked")
-        {
-            Ok(Ok(update_id)) => Ok(Response::new(PrepareUpdateResponse {
-                success: true,
-                update_id,
-                error: String::new(),
-            })),
-            Ok(Err(e)) | Err(e) => Ok(Response::new(PrepareUpdateResponse {
-                success: false,
-                update_id: String::new(),
-                error: format!("{}", e),
-            })),
-        }
+        let stream = streaming::run(
+            move |progress_tx| async move { update::prepare(&image, &extensions, progress_tx).await },
+            |result, out_tx| {
+                let msg = match result {
+                    Ok(update_id) => Ok(PrepareUpdateProgress {
+                        update_id,
+                        ..Default::default()
+                    }),
+                    Err(e) => Ok(PrepareUpdateProgress {
+                        error: format!("{:#}", e),
+                        ..Default::default()
+                    }),
+                };
+                let _ = out_tx.try_send(msg);
+            },
+        );
+
+        Ok(Response::new(stream))
     }
 
     async fn update(
@@ -162,7 +111,7 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<UpdateResponse>, Status> {
         let update_id = request.into_inner().update_id;
 
-        match tokio::task::spawn_blocking(move || update::update(&update_id)).await {
+        match tokio::task::spawn_blocking(move || update::kexec::run(&update_id)).await {
             Ok(Ok(_)) => unreachable!("If we're here, something went really wrong in kexec"),
             Ok(Err(e)) => Ok(Response::new(UpdateResponse {
                 success: false,
@@ -181,15 +130,15 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<GetUpdateStatusResponse>, Status> {
         let update_id = request.into_inner().update_id;
 
-        let status = tokio::task::spawn_blocking(move || validation::get_update_status(&update_id))
+        let status = tokio::task::spawn_blocking(move || update::status(&update_id))
             .await
             .map_err(|e| Status::internal(format!("Task failed: {}", e)))?;
 
         let (proto_status, error) = match status {
-            validation::UpdateStatus::Unknown => (0, String::new()),
-            validation::UpdateStatus::Pending => (1, String::new()),
-            validation::UpdateStatus::Committed => (2, String::new()),
-            validation::UpdateStatus::RolledBack(reason) => (3, reason),
+            update::UpdateStatus::Unknown => (0, String::new()),
+            update::UpdateStatus::Pending => (1, String::new()),
+            update::UpdateStatus::Committed => (2, String::new()),
+            update::UpdateStatus::RolledBack(reason) => (3, reason),
         };
 
         Ok(Response::new(GetUpdateStatusResponse {
@@ -206,7 +155,7 @@ impl ProvisionService for ProvisionServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {}", e)))?;
 
-        let proto_disks: Vec<DiskInfo> = disks
+        let proto_disks = disks
             .into_iter()
             .map(|d| DiskInfo {
                 name: d.name,
@@ -265,18 +214,7 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<FactoryResetResponse>, Status> {
         match tokio::task::spawn_blocking(reset::factory_reset).await {
             Ok(Ok(())) => {
-                tokio::spawn(async {
-                    kmsg::info!("System will reboot in 3 seconds...");
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    kmsg::info!("Rebooting now...");
-                    tokio::task::spawn_blocking(|| {
-                        sync();
-                        let _ = reboot(RebootCommand::Restart);
-                    })
-                    .await
-                    .ok();
-                });
-
+                reboot::schedule(3);
                 Ok(Response::new(FactoryResetResponse {
                     success: true,
                     error: String::new(),
