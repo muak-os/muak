@@ -9,6 +9,6 @@ mod types;
 
 pub use device::is_available;
 pub use errors::{Error, Result};
-pub use operations::{SealedBlob, seal, seal_to_pcr11, unseal, unseal_from_blob};
+pub use operations::{SealedBlob, seal, unseal};
 pub use pcr::{compute_policy_digest, predict_pcr11};
 pub use types::SHA256_DIGEST_SIZE;

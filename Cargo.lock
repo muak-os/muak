@@ -2919,7 +2919,6 @@ dependencies = [
  "base64ct",
  "ring",
  "thiserror 2.0.18",
- "zeroize",
 ]
 
 [[package]]

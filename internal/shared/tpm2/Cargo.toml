@@ -6,7 +6,6 @@ version.workspace = true
 [dependencies]
 # Cryptography
 ring = { workspace = true }
-zeroize = { workspace = true }
 
 # Encoding
 base64ct = { workspace = true }

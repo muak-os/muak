@@ -228,10 +228,12 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Vec<u8>>> {
         Err(_) => return Ok(None),
     };
 
-    let blob = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob)
+    let blob_bytes = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob)
         .context("Failed to decode TPM2 blob from LUKS token")?;
+    let blob =
+        tpm2::SealedBlob::deserialize(&blob_bytes).context("Failed to deserialize TPM2 blob")?;
 
-    match tpm2::unseal_from_blob(&blob) {
+    match tpm2::unseal(&blob) {
         Ok(key) => {
             kmsg::info!("LUKS key unsealed from TPM2");
             Ok(Some(key))

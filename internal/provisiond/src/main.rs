@@ -6,6 +6,7 @@ mod efi;
 mod install;
 mod reboot;
 mod reset;
+mod secrets;
 mod services;
 mod streaming;
 mod uki;

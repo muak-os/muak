@@ -1,7 +1,5 @@
 //! High-level TPM2 seal/unseal operations.
 
-use zeroize::Zeroize;
-
 use crate::commands;
 use crate::device::Device;
 use crate::errors::{Error, Result};
@@ -109,25 +107,6 @@ pub fn unseal(blob: &SealedBlob) -> Result<Vec<u8>> {
     let _ = commands::flush_context(&mut dev, obj_handle);
 
     result
-}
-
-/// Seals data to predicted PCR#11 values computed from UKI sections.
-pub fn seal_to_pcr11(
-    data: &[u8],
-    sections: &[(&str, &[u8])],
-) -> Result<(Vec<u8>, [u8; SHA256_DIGEST_SIZE])> {
-    let expected_pcr = pcr::predict_pcr11(sections);
-    let (blob, policy_digest) = seal(data, &expected_pcr)?;
-    Ok((blob.serialize(), policy_digest))
-}
-
-/// Unseals data from a serialized blob using current PCR#11 values.
-pub fn unseal_from_blob(blob_data: &[u8]) -> Result<Vec<u8>> {
-    let blob = SealedBlob::deserialize(blob_data)?;
-    let mut result = unseal(&blob)?;
-    let out = result.clone();
-    result.zeroize();
-    Ok(out)
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ use crate::constants;
 use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
 use crate::efi;
+use crate::secrets;
 use crate::services::proto::provision::InstallProgress;
 use crate::streaming;
 use crate::uki::Uki;
@@ -74,10 +75,17 @@ pub async fn run(
     )
     .await;
     let work_dir = Path::new(constants::INSTALL_DIR);
-    let uki = Uki::prepare(&config.system.image, &config.system.extensions, work_dir)
-        .await?
-        .with_luks_key(&luks_key);
+    let mut uki = Uki::prepare(&config.system.image, &config.system.extensions, work_dir).await?;
     let staged_uki = work_dir.join("staged.efi");
+
+    let tpm2_token = if tpm2::is_available() {
+        let token =
+            secrets::seal_to_token(&luks_key, &uki).context("Failed to seal LUKS key to TPM2")?;
+        Some(token)
+    } else {
+        uki = uki.with_luks_key(&luks_key);
+        None
+    };
 
     streaming::send_progress(
         &progress,
@@ -140,6 +148,11 @@ pub async fn run(
     )
     .map_err(|e| anyhow::anyhow!("Format task panicked: {}", e))
     .and_then(|(a, b)| a.and(b))?;
+
+    if let Some(ref token) = tpm2_token {
+        secrets::write_token_to_devices(token, &[&state_part, &data_part])?;
+        println!("LUKS key sealed to TPM2 with PCR#11 values");
+    }
 
     let (luks_key_c, luks_key_d) = (luks_key.clone(), luks_key.clone());
     let (state_part_b, data_part_b) = (state_part.clone(), data_part.clone());
