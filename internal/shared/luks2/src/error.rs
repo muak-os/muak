@@ -46,6 +46,9 @@ pub enum Error {
 
     #[error("invalid header field: {0}")]
     InvalidField(String),
+
+    #[error("TPM2 token not found")]
+    NoTpm2Token,
 }
 
 /// Result type for LUKS2 operations.

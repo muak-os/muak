@@ -44,10 +44,6 @@
   - Generate SBOM
   - Consolidate crypto crates and primitives to `internal/shared/crypto` if possible
 
-- Support for TPM2:
-  - Add TPM PCR#11 measurements in stub (.pcrsig & .pcrkey sections in UKI file)
-  - Prefer TPM2 backend when available to store disk encryption keys
-
 - Support for containers like LXC and Docker
 
 - Support Apple M1/M2 using Asahi Linux

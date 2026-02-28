@@ -20,6 +20,7 @@ pub struct Uki {
     pub stub: PathBuf,
     pub initramfs: PathBuf,
     pub cmdline: PathBuf,
+    pub luks_key: Option<Vec<u8>>,
 }
 
 impl Uki {
@@ -31,7 +32,14 @@ impl Uki {
             stub: arch_dir.join("stub.efi"),
             initramfs: arch_dir.join("initramfs.img"),
             cmdline: arch_dir.join("cmdline.txt"),
+            luks_key: None,
         }
+    }
+
+    /// Sets the LUKS key to embed in the UKI.
+    pub fn with_luks_key(mut self, key: &[u8]) -> Self {
+        self.luks_key = Some(key.to_vec());
+        self
     }
 
     /// Prepares UKI components from an installer image and extensions.
@@ -61,7 +69,7 @@ impl Uki {
     }
 
     /// Builds the UKI binary from components.
-    pub fn build(&self, output: &Path, luks_key: Option<&[u8]>) -> Result<()> {
+    pub fn build(&self, output: &Path) -> Result<()> {
         ensure_parent_exists(output)?;
 
         let buffer = yuki::build(
@@ -70,7 +78,7 @@ impl Uki {
             &self.initramfs,
             &self.cmdline,
             None,
-            luks_key,
+            self.luks_key.as_deref(),
         )
         .context("Failed to build UKI")?;
 
@@ -81,7 +89,7 @@ impl Uki {
     }
 
     /// Builds the UKI atomically using a temp file and rename.
-    pub fn build_atomic(&self, output: &Path, luks_key: Option<&[u8]>) -> Result<()> {
+    pub fn build_atomic(&self, output: &Path) -> Result<()> {
         ensure_parent_exists(output)?;
 
         let temp_output = get_temp_path(output);
@@ -91,7 +99,7 @@ impl Uki {
             &self.initramfs,
             &self.cmdline,
             None,
-            luks_key,
+            self.luks_key.as_deref(),
         )
         .context("Failed to build UKI")?;
 
@@ -112,6 +120,24 @@ impl Uki {
         Ok(())
     }
 
+    /// Reads the UKI component files and returns section data for PCR prediction.
+    pub fn read_section_data(&self) -> Result<Vec<(String, Vec<u8>)>> {
+        let linux = std::fs::read(&self.kernel)
+            .with_context(|| format!("Failed to read {}", self.kernel.display()))?;
+        let cmdline = std::fs::read(&self.cmdline)
+            .with_context(|| format!("Failed to read {}", self.cmdline.display()))?;
+        let initrd = std::fs::read(&self.initramfs)
+            .with_context(|| format!("Failed to read {}", self.initramfs.display()))?;
+
+        let sections = vec![
+            (".linux".to_string(), linux),
+            (".cmdline".to_string(), cmdline),
+            (".initrd".to_string(), initrd),
+        ];
+
+        Ok(sections)
+    }
+
     /// Sign a UKI file in-place with the given Secure Boot key hierarchy.
     pub fn sign(uki_path: &Path, hierarchy: &sbolt::keys::KeyHierarchy) -> Result<()> {
         let uki_data = std::fs::read(uki_path)
@@ -129,7 +155,7 @@ impl Uki {
 }
 
 /// Returns the full path to the UKI on the EFI partition.
-pub fn get_uki_path(efi_mount: &Path) -> Result<PathBuf> {
+pub fn get_path(efi_mount: &Path) -> Result<PathBuf> {
     let filename = get_uki_filename()?;
     Ok(efi_mount.join("EFI").join("BOOT").join(filename))
 }

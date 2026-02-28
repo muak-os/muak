@@ -1229,6 +1229,7 @@ dependencies = [
  "luks2",
  "rustix",
  "tempfile",
+ "tpm2",
 ]
 
 [[package]]
@@ -1889,6 +1890,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tpm2",
  "uuid",
  "x509-cert",
  "yuki",
@@ -2909,6 +2911,16 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
+
+[[package]]
+name = "tpm2"
+version = "0.1.1-beta"
+dependencies = [
+ "base64ct",
+ "ring",
+ "thiserror 2.0.18",
+ "zeroize",
+]
 
 [[package]]
 name = "tracing"

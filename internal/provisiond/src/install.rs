@@ -87,11 +87,45 @@ pub fn install(
         &format!("Pulling installer image: {}", config.system.image),
     );
     let work_dir = Path::new(constants::INSTALL_DIR);
-    let components = Uki::prepare(&config.system.image, &config.system.extensions, work_dir)?;
-    let staged_uki = work_dir.join("staged.efi");
+    let staged_path = work_dir.join("staged.efi");
+    let uki = Uki::prepare(&config.system.image, &config.system.extensions, work_dir)?;
 
     send_progress(&progress, InstallStep::BuildingUki, "Building UKI");
-    components.build(&staged_uki, Some(&luks_key))?;
+
+    let tpm2_token = if tpm2::is_available() {
+        println!("TPM2 detected, sealing LUKS key to PCR#11");
+
+        let section_data = uki
+            .read_section_data()
+            .context("Failed to read UKI sections for PCR prediction")?;
+
+        let sections_ref: Vec<(&str, &[u8])> = section_data
+            .iter()
+            .map(|(name, data)| (name.as_str(), data.as_slice()))
+            .collect();
+
+        let (sealed_blob, policy_hash) = tpm2::seal_to_pcr11(&luks_key, &sections_ref)
+            .context("Failed to seal LUKS key to TPM2")?;
+
+        let token = luks2::Tpm2Token {
+            r#type: "tpm2".to_string(),
+            keyslots: vec!["0".to_string()],
+            tpm2_pcrs: vec![11],
+            tpm2_hash_alg: "sha256".to_string(),
+            tpm2_blob: <base64ct::Base64 as base64ct::Encoding>::encode_string(&sealed_blob),
+            tpm2_policy_hash: <base64ct::Base64 as base64ct::Encoding>::encode_string(&policy_hash),
+        };
+
+        uki.build(&staged_path)?;
+
+        println!("LUKS key sealed to TPM2 PCR#11");
+        Some(token)
+    } else {
+        println!("No TPM2 detected, embedding LUKS key in UKI");
+        let unsafe_uki = uki.with_luks_key(&luks_key);
+        unsafe_uki.build(&staged_path)?;
+        None
+    };
 
     if let Some(ref hierarchy) = sb_hierarchy {
         send_progress(
@@ -99,7 +133,7 @@ pub fn install(
             InstallStep::SigningUki,
             "Signing UKI for Secure Boot",
         );
-        Uki::sign(&staged_uki, hierarchy)?;
+        Uki::sign(&staged_path, hierarchy)?;
     }
 
     if let Some(ref hierarchy) = sb_hierarchy {
@@ -128,6 +162,12 @@ pub fn install(
         || luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA"),
     )?;
 
+    if let Some(ref token) = tpm2_token {
+        luks2::write_tpm2_token(&state_part, token)
+            .context("Failed to write TPM2 token to STATE")?;
+        luks2::write_tpm2_token(&data_part, token).context("Failed to write TPM2 token to DATA")?;
+    }
+
     run_parallel(
         || luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE"),
         || luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA"),
@@ -146,7 +186,7 @@ pub fn install(
         InstallStep::Deploying,
         "Deploying UKI to EFI partition",
     );
-    deploy_uki_to_efi(&efi_part, &staged_uki)?;
+    deploy_uki_to_efi(&efi_part, &staged_path)?;
 
     send_progress(
         &progress,
@@ -229,7 +269,7 @@ fn deploy_uki_to_efi(efi_device: &str, staged_uki: &Path) -> Result<()> {
 
     std::fs::create_dir_all(format!("{}/EFI/BOOT", mount_point))?;
 
-    let uki_path = uki::get_uki_path(Path::new(mount_point))?;
+    let uki_path = uki::get_path(Path::new(mount_point))?;
     std::fs::copy(staged_uki, &uki_path)
         .with_context(|| format!("Failed to copy UKI to {}", uki_path.display()))?;
 

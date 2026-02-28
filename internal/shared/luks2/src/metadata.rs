@@ -24,6 +24,21 @@ pub struct Metadata {
     pub config: Config,
 }
 
+/// TPM2 token stored in LUKS2 metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tpm2Token {
+    pub r#type: String,
+    pub keyslots: Vec<String>,
+    #[serde(rename = "tpm2-pcrs")]
+    pub tpm2_pcrs: Vec<u32>,
+    #[serde(rename = "tpm2-hash-alg")]
+    pub tpm2_hash_alg: String,
+    #[serde(rename = "tpm2-blob")]
+    pub tpm2_blob: String,
+    #[serde(rename = "tpm2-policy-hash")]
+    pub tpm2_policy_hash: String,
+}
+
 /// A LUKS2 keyslot entry.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Keyslot {
@@ -173,6 +188,44 @@ impl Metadata {
     pub fn deserialize(data: &[u8]) -> Result<Self> {
         let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
         Ok(serde_json::from_slice(&data[..end])?)
+    }
+
+    /// Sets a TPM2 token in the metadata, replacing any existing one.
+    pub fn set_tpm2_token(&mut self, token: &Tpm2Token) -> Result<()> {
+        let value = serde_json::to_value(token)?;
+        let id = self.find_or_alloc_tpm2_token_id();
+        self.tokens.insert(id, value);
+        Ok(())
+    }
+
+    /// Reads the first TPM2 token from metadata.
+    pub fn get_tpm2_token(&self) -> Result<Tpm2Token> {
+        for value in self.tokens.values() {
+            if let Some(t) = value.get("type").and_then(|v| v.as_str()) {
+                if t == "tpm2" {
+                    let token: Tpm2Token = serde_json::from_value(value.clone())?;
+                    return Ok(token);
+                }
+            }
+        }
+        Err(Error::NoTpm2Token)
+    }
+
+    /// Finds existing TPM2 token ID or allocates the next available one.
+    fn find_or_alloc_tpm2_token_id(&self) -> String {
+        for (id, value) in &self.tokens {
+            if let Some(t) = value.get("type").and_then(|v| v.as_str()) {
+                if t == "tpm2" {
+                    return id.clone();
+                }
+            }
+        }
+
+        let mut next_id = 0u32;
+        while self.tokens.contains_key(&next_id.to_string()) {
+            next_id += 1;
+        }
+        next_id.to_string()
     }
 }
 

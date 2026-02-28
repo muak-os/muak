@@ -17,6 +17,7 @@ members = [
     "internal/shared/notify",
     "internal/shared/pki",
     "internal/shared/sysconfig",
+    "internal/shared/tpm2",
     "internal/stub",
     "internal/vmd",
     "internal/yuki",
@@ -39,6 +40,7 @@ notify = { path = "internal/shared/notify" }
 pki = { path = "internal/shared/pki" }
 sbolt = { path = "internal/sbolt", default-features = false }
 sysconfig = { path = "internal/shared/sysconfig" }
+tpm2 = { path = "internal/shared/tpm2" }
 yuki = { path = "internal/yuki", default-features = false }
 
 # External crates

@@ -19,6 +19,7 @@ use constants::{
 pub use error::{Error, Result};
 use header::Header;
 use metadata::Metadata;
+pub use metadata::Tpm2Token;
 use ring::rand::SecureRandom;
 use zeroize::Zeroize;
 
@@ -180,6 +181,39 @@ fn device_size(device: &str) -> Result<u64> {
     let mut file = std::fs::File::open(device)?;
     let size = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
     Ok(size)
+}
+
+/// Reads the TPM2 token from a LUKS2 device header.
+pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
+    let json_buf = dm::read_device(
+        device,
+        BINARY_HEADER_SIZE as u64,
+        DEFAULT_JSON_SIZE as usize,
+    )?;
+    let meta = Metadata::deserialize(&json_buf)?;
+    meta.get_tpm2_token()
+}
+
+/// Writes a TPM2 token to both copies of the LUKS2 JSON metadata.
+pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
+    let json_buf = dm::read_device(
+        device,
+        BINARY_HEADER_SIZE as u64,
+        DEFAULT_JSON_SIZE as usize,
+    )?;
+    let mut meta = Metadata::deserialize(&json_buf)?;
+    meta.set_tpm2_token(token)?;
+
+    let new_json = meta.serialize(DEFAULT_JSON_SIZE)?;
+
+    dm::write_device(device, BINARY_HEADER_SIZE as u64, &new_json)?;
+    dm::write_device(
+        device,
+        DEFAULT_HEADER_SIZE + BINARY_HEADER_SIZE as u64,
+        &new_json,
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]

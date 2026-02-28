@@ -9,6 +9,7 @@ mod log;
 mod pe;
 mod peloader;
 mod security;
+mod tpm2;
 
 use std::os::uefi as uefi_std;
 
@@ -82,15 +83,21 @@ fn main() -> Result<()> {
         // boot services phase. The slice is used only for reading PE section data.
         unsafe { std::slice::from_raw_parts(base_addr as *const u8, image_size as usize) };
     let sections = UkiSections::parse(image_data)?;
-    let kernel_bytes = sections.require_kernel()?;
+
+    for (name, data) in sections.iter_sections() {
+        match tpm2::measure_section(name, data) {
+            Ok(()) => info!("TPM2: measured {} ({} bytes) into PCR#11", name, data.len()),
+            Err(e) => warn!("TPM2: skipping measurement for {}: {}", name, e),
+        }
+    }
 
     info!(
         "Kernel: {} bytes at {:p}",
-        kernel_bytes.len(),
-        kernel_bytes.as_ptr()
+        sections.linux.len(),
+        sections.linux.as_ptr()
     );
 
-    let kernel = KernelPe::parse(kernel_bytes)?;
+    let kernel = KernelPe::parse(sections.linux)?;
     info!(
         "Kernel PE: entry=0x{:x}, base=0x{:x}, size=0x{:x}",
         kernel.entry_point_rva, kernel.image_base, kernel.size_of_image
