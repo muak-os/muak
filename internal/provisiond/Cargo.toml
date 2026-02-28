@@ -39,6 +39,7 @@ notify = { workspace = true }
 pki = { workspace = true }
 sysconfig = { workspace = true }
 sbolt = { workspace = true }
+tpm2 = { workspace = true }
 yuki = { workspace = true }
 
 # System/platform APIs

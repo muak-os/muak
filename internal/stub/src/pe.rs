@@ -13,17 +13,14 @@ const NX_COMPAT: u16 = 0x0100;
 /// Minimum `MajorImageVersion` — indicates `LINUX_INITRD_MEDIA_GUID` support
 const MIN_IMAGE_VERSION: u16 = 1;
 
-/// Parsed UKI sections from the PE image
+/// Parsed UKI sections from the PE image.
 pub struct UkiSections<'a> {
-    pub kernel: Option<&'a [u8]>,
+    pub linux: &'a [u8],
     pub initrd: Option<&'a [u8]>,
     pub cmdline: Option<&'a [u8]>,
     pub dtb: Option<&'a [u8]>,
     pub luks: Option<&'a [u8]>,
 }
-
-/// Number of UKI sections we track
-const UKI_SECTION_COUNT: u8 = 5;
 
 impl<'a> UkiSections<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
@@ -34,15 +31,11 @@ impl<'a> UkiSections<'a> {
 
         let sections = pe.section_table();
 
-        let mut result = UkiSections {
-            kernel: None,
-            initrd: None,
-            cmdline: None,
-            dtb: None,
-            luks: None,
-        };
-
-        let mut found: u8 = 0;
+        let mut linux: Option<&'a [u8]> = None;
+        let mut initrd: Option<&'a [u8]> = None;
+        let mut cmdline: Option<&'a [u8]> = None;
+        let mut dtb: Option<&'a [u8]> = None;
+        let mut luks: Option<&'a [u8]> = None;
 
         for section in sections.iter() {
             let name = std::str::from_utf8(&section.name)
@@ -73,26 +66,34 @@ impl<'a> UkiSections<'a> {
             let section_data = &data[rva..rva + vs];
 
             match name {
-                ".linux" => result.kernel = Some(section_data),
-                ".initrd" => result.initrd = Some(section_data),
-                ".cmdline" => result.cmdline = Some(section_data),
-                ".dtb" => result.dtb = Some(section_data),
-                ".luks" => result.luks = Some(section_data),
+                ".linux" => linux = Some(section_data),
+                ".initrd" => initrd = Some(section_data),
+                ".cmdline" => cmdline = Some(section_data),
+                ".dtb" => dtb = Some(section_data),
+                ".luks" => luks = Some(section_data),
                 _ => unreachable!(),
-            }
-
-            found += 1;
-            if found == UKI_SECTION_COUNT {
-                break;
             }
         }
 
-        Ok(result)
+        Ok(UkiSections {
+            linux: linux.ok_or_else(|| anyhow!("UKI missing required .linux section"))?,
+            initrd,
+            cmdline,
+            dtb,
+            luks,
+        })
     }
 
-    pub fn require_kernel(&self) -> Result<&'a [u8]> {
-        self.kernel
-            .ok_or_else(|| anyhow!("no .linux section found"))
+    /// Returns an iterator over sections to measure, in spec canonical order.
+    pub fn iter_sections(&self) -> impl Iterator<Item = (&'static str, &'a [u8])> {
+        [
+            (".linux", Some(self.linux)),
+            (".cmdline", self.cmdline),
+            (".initrd", self.initrd),
+            (".dtb", self.dtb),
+        ]
+        .into_iter()
+        .filter_map(|(name, data)| data.map(|d| (name, d)))
     }
 }
 

@@ -1,7 +1,4 @@
 //! Mount operations for early boot.
-//!
-//! Provides functions to mount pseudo filesystems and the root filesystem
-//! using squashfs and overlay mounts.
 
 mod extensions;
 mod partition;
@@ -148,7 +145,14 @@ pub fn mount_persistent() -> Result<bool> {
         return Ok(false);
     };
 
-    let luks_key = parse_luks_key();
+    let luks_key = match try_tpm2_unseal(&state_dev) {
+        Ok(Some(key)) => Some(key),
+        Ok(None) => parse_luks_key(),
+        Err(e) => {
+            kmsg::error!("TPM2 unseal failed, booting into maintenance mode: {}", e);
+            return Ok(false);
+        }
+    };
 
     let state_mount_dev = if let Some(ref key) = luks_key {
         luks2::open(&state_dev, DM_STATE, key)
@@ -211,6 +215,32 @@ fn is_live_boot() -> bool {
     std::fs::read_to_string("/proc/cmdline")
         .map(|c| c.split_whitespace().any(|t| t == "muak.mode=live"))
         .unwrap_or(false)
+}
+
+/// Attempts to unseal the LUKS key from the TPM2 token in the LUKS2 header.
+fn try_tpm2_unseal(device: &str) -> Result<Option<Vec<u8>>> {
+    if !tpm2::is_available() {
+        return Ok(None);
+    }
+
+    let token = match luks2::read_tpm2_token(device) {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+
+    let blob = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob)
+        .context("Failed to decode TPM2 blob from LUKS token")?;
+
+    match tpm2::unseal_from_blob(&blob) {
+        Ok(key) => {
+            kmsg::info!("LUKS key unsealed from TPM2");
+            Ok(Some(key))
+        }
+        Err(e) => {
+            kmsg::error!("TPM2 unseal failed: {}", e);
+            Err(anyhow::anyhow!("TPM2 unseal failed: {}", e))
+        }
+    }
 }
 
 /// Parses the LUKS key from `/proc/cmdline`.

@@ -115,7 +115,7 @@ impl ProvisionService for ProvisionServiceImpl {
                         .send(Ok(InstallProgress {
                             step: InstallStep::Failed as i32,
                             message: "Installation failed".to_string(),
-                            error: format!("{}", e),
+                            error: format!("{:#}", e),
                             ..Default::default()
                         }))
                         .await;

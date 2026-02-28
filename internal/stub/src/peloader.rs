@@ -118,8 +118,8 @@ fn map_kernel_sections(kernel: &KernelPe<'_>) -> Result<*mut u8> {
     Ok(base_ptr)
 }
 
-/// Locates a protocol by GUID using raw Boot Services FFI
-unsafe fn locate_protocol_raw(guid: &Guid) -> Option<*mut c_void> {
+/// Locates a protocol by GUID using raw Boot Services FFI.
+pub unsafe fn locate_protocol_raw(guid: &Guid) -> Option<*mut c_void> {
     let st = uefi::table::system_table_raw()?;
     // SAFETY: system table and boot services are valid during boot services phase
     let bs = unsafe { &*(*st.as_ptr()).boot_services };
