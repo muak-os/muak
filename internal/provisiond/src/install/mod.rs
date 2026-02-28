@@ -46,12 +46,24 @@ pub async fn run(
     streaming::send_progress(
         &progress,
         InstallProgress {
-            message: "Generating cryptographic keys".to_string(),
+            message: "Enrolling secureboot keys".to_string(),
             ..Default::default()
         },
     )
     .await;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
+    if let Some(ref hierarchy) = sb_hierarchy {
+        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
+    }
+
+    streaming::send_progress(
+        &progress,
+        InstallProgress {
+            message: "Generating encryption keys".to_string(),
+            ..Default::default()
+        },
+    )
+    .await;
     let luks_key = pki::generate_luks_key()?;
 
     streaming::send_progress(
@@ -89,10 +101,6 @@ pub async fn run(
     )
     .await;
     uki.build(&staged_uki, sb_hierarchy.as_ref())?;
-
-    if let Some(ref hierarchy) = sb_hierarchy {
-        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
-    }
 
     streaming::send_progress(
         &progress,
