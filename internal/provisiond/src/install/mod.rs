@@ -88,18 +88,9 @@ pub async fn run(
         },
     )
     .await;
-    uki.build(&staged_uki)?;
+    uki.build(&staged_uki, sb_hierarchy.as_ref())?;
 
     if let Some(ref hierarchy) = sb_hierarchy {
-        streaming::send_progress(
-            &progress,
-            InstallProgress {
-                message: "Signing UKI for Secure Boot".to_string(),
-                ..Default::default()
-            },
-        )
-        .await;
-        Uki::sign(&staged_uki, hierarchy)?;
         sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
     }
 

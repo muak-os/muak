@@ -25,14 +25,17 @@ pub async fn apply() -> Result<()> {
     let staged = Path::new(UPDATE_DIR).join("staged.efi");
 
     secrets::resolve_luks_key(&mut uki, state_device.as_deref(), data_device.as_deref())?;
-    uki.build(&staged)?;
 
-    if sysconfig::system().secureboot {
-        let hierarchy = sbolt::keys::load_key_hierarchy(&Path::new(SECRETS_DIR).join("secureboot"))
-            .context("Failed to load Secure Boot keys for UKI signing")?;
-        Uki::sign(&staged, &hierarchy)?;
-    }
+    let hierarchy = if sysconfig::system().secureboot {
+        Some(
+            sbolt::keys::load_key_hierarchy(&Path::new(SECRETS_DIR).join("secureboot"))
+                .context("Failed to load Secure Boot keys for UKI signing")?,
+        )
+    } else {
+        None
+    };
 
+    uki.build(&staged, hierarchy.as_ref())?;
     efi::deploy(&efi_device, &staged)?;
 
     if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {

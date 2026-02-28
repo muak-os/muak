@@ -61,8 +61,12 @@ impl Uki {
         Ok(uki)
     }
 
-    /// Builds the UKI binary from components.
-    pub fn build(&self, output: &Path) -> Result<()> {
+    /// Builds the UKI binary and optionally signs it for Secure Boot.
+    pub fn build(
+        &self,
+        output: &Path,
+        hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+    ) -> Result<()> {
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
@@ -70,9 +74,18 @@ impl Uki {
 
         let buffer = yuki::build(&self).context("Failed to build UKI")?;
 
-        std::fs::write(output, &buffer).context("Failed to write the UKI")?;
+        let final_buffer = if let Some(hierarchy) = hierarchy {
+            let signed = sbolt::pe::sign(&buffer, &hierarchy.db.signer, &hierarchy.db.certificate)
+                .context("Failed to sign UKI")?;
+            kmsg::info!("UKI signed successfully");
+            signed
+        } else {
+            buffer
+        };
 
+        std::fs::write(output, &final_buffer).context("Failed to write the UKI")?;
         kmsg::info!("Successfully built UKI at {}", output.display());
+
         Ok(())
     }
 
@@ -90,21 +103,6 @@ impl Uki {
             (".cmdline".to_string(), cmdline),
             (".initrd".to_string(), initrd),
         ])
-    }
-
-    /// Signs a UKI file in-place with the given Secure Boot key hierarchy.
-    pub fn sign(uki_path: &Path, hierarchy: &sbolt::keys::KeyHierarchy) -> Result<()> {
-        let uki_data = std::fs::read(uki_path)
-            .with_context(|| format!("Failed to read UKI from {}", uki_path.display()))?;
-
-        let signed = sbolt::pe::sign(&uki_data, &hierarchy.db.signer, &hierarchy.db.certificate)
-            .context("Failed to sign UKI")?;
-
-        std::fs::write(uki_path, &signed)
-            .with_context(|| format!("Failed to write signed UKI to {}", uki_path.display()))?;
-
-        kmsg::info!("UKI signed successfully");
-        Ok(())
     }
 }
 
