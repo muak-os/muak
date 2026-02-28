@@ -78,14 +78,7 @@ pub async fn run(
     let mut uki = Uki::prepare(&config.system.image, &config.system.extensions, work_dir).await?;
     let staged_uki = work_dir.join("staged.efi");
 
-    let tpm2_token = if tpm2::is_available() {
-        let token =
-            secrets::seal_to_token(&luks_key, &uki).context("Failed to seal LUKS key to TPM2")?;
-        Some(token)
-    } else {
-        uki = uki.with_luks_key(&luks_key);
-        None
-    };
+    let seal_result = secrets::seal_luks_key(&luks_key, &mut uki)?;
 
     streaming::send_progress(
         &progress,
@@ -149,7 +142,7 @@ pub async fn run(
     .map_err(|e| anyhow::anyhow!("Format task panicked: {}", e))
     .and_then(|(a, b)| a.and(b))?;
 
-    if let Some(ref token) = tpm2_token {
+    if let secrets::SealResult::Sealed(ref token) = seal_result {
         secrets::write_token_to_devices(token, &[&state_part, &data_part])?;
         println!("LUKS key sealed to TPM2 with PCR#11 values");
     }

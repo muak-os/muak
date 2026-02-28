@@ -24,11 +24,7 @@ pub async fn apply() -> Result<()> {
     let mut uki = Uki::from_dir(Path::new(UPDATE_DIR));
     let staged = Path::new(UPDATE_DIR).join("staged.efi");
 
-    let luks_key =
-        secrets::resolve_luks_key(&mut uki, state_device.as_deref(), data_device.as_deref())?;
-    if let Some(key) = luks_key {
-        uki = uki.with_luks_key(&key);
-    }
+    secrets::resolve_luks_key(&mut uki, state_device.as_deref(), data_device.as_deref())?;
     uki.build(&staged)?;
 
     if sysconfig::system().secureboot {

@@ -42,12 +42,6 @@ impl Uki {
         })
     }
 
-    /// Sets the LUKS key to embed in the UKI.
-    pub fn with_luks_key(mut self, key: &[u8]) -> Self {
-        self.luks_key = Some(key.to_vec());
-        self
-    }
-
     /// Prepares UKI components from an installer image and extensions.
     pub async fn prepare(
         installer_image: &str,
