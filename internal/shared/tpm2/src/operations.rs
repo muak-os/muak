@@ -130,12 +130,6 @@ pub fn unseal_from_blob(blob_data: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Reads the current PCR#11 SHA-256 value from the TPM.
-pub fn read_pcr11() -> Result<[u8; SHA256_DIGEST_SIZE]> {
-    let mut dev = Device::open()?;
-    commands::read_pcr(&mut dev, crate::types::PCR_INDEX)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

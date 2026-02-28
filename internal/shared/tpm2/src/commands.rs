@@ -260,32 +260,6 @@ pub fn handle_exists(dev: &mut Device, handle: u32) -> Result<bool> {
     Ok(found_handle == handle)
 }
 
-/// Reads the SHA-256 value of a single PCR.
-pub fn read_pcr(dev: &mut Device, pcr_index: u32) -> Result<[u8; SHA256_DIGEST_SIZE]> {
-    let mut cmd = CommandBuffer::new(TPM2_ST_NO_SESSIONS, TPM2_CC_PCR_READ);
-    cmd.write_u32(1);
-    cmd.write_u16(TPM2_ALG_SHA256);
-    cmd.write_u8(3);
-    let byte_index = (pcr_index / 8) as usize;
-    let bit_index = pcr_index % 8;
-    let mut bitmap = [0u8; 3];
-    bitmap[byte_index] = 1 << bit_index;
-    cmd.write_bytes(&bitmap);
-
-    let resp = dev.transact(&cmd.finalize())?;
-    let mut r = ResponseReader::new(&resp[10..]);
-    let _update_counter = r.read_u32()?;
-    let _sel_count = r.read_u32()?;
-    let _sel_hash = r.read_u16()?;
-    let _sel_sz = r.read_u8()?;
-    let _sel_bm = r.read_bytes(3)?;
-    let _dig_count = r.read_u32()?;
-    let digest = r.read_sized()?;
-    let mut out = [0u8; SHA256_DIGEST_SIZE];
-    out.copy_from_slice(&digest[..SHA256_DIGEST_SIZE]);
-    Ok(out)
-}
-
 /// Makes a transient object persistent (or removes it if already persistent).
 pub fn evict_control(
     dev: &mut Device,

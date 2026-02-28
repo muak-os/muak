@@ -42,7 +42,7 @@ fn run() -> Result<()> {
     match mount::mount_persistent() {
         Ok(true) => kmsg::info!("Persistent partitions mounted"),
         Ok(false) => kmsg::info!("No persistent partitions found (maintenance mode)"),
-        Err(e) => kmsg::warn!("Failed to mount persistent partitions: {:#}", e),
+        Err(e) => return Err(e),
     }
 
     kmsg::info!("Switching to new root");
