@@ -21,7 +21,10 @@ pub fn deploy(efi_device: &str, staged_uki: &Path) -> Result<()> {
 
     std::fs::create_dir_all(format!("{}/EFI/BOOT", MOUNT_POINT))?;
 
-    let uki_path = uki::get_path(Path::new(MOUNT_POINT))?;
+    let uki_path = Path::new(MOUNT_POINT)
+        .join("EFI")
+        .join("BOOT")
+        .join(uki::UKI_FILENAME);
     std::fs::copy(staged_uki, &uki_path)
         .with_context(|| format!("Failed to copy UKI to {}", uki_path.display()))?;
 

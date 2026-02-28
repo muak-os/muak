@@ -45,14 +45,14 @@ mod cli {
             None => None,
         };
 
-        let buffer = yuki::build(
-            &args.stub,
-            &args.linux,
-            &args.initrd,
-            &args.cmdline,
-            args.dtb.as_deref(),
-            luks_data.as_deref(),
-        )
+        let buffer = yuki::build(&yuki::Components {
+            stub: args.stub.clone(),
+            kernel: args.linux.clone(),
+            initramfs: args.initrd.clone(),
+            cmdline: args.cmdline.clone(),
+            dtb: args.dtb.clone(),
+            luks_key: luks_data,
+        })
         .context("Failed to create UKI")?;
 
         std::fs::write(&args.output, &buffer)

@@ -1,10 +1,7 @@
 //! Yuki - A library to create Unified Kernel Images (UKI) for Linux on UEFI systems.
-//!
-//! This library provides the core functionality for building UKIs by embedding
-//! PE sections (cmdline, dtb, linux, initrd) into an EFI stub.
 
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::result::Result;
 
 mod binary;
@@ -15,75 +12,56 @@ mod section;
 
 pub use error::YukiError;
 
+/// Paths to the components required to build a Unified Kernel Image.
+pub struct Components {
+    pub stub: PathBuf,
+    pub kernel: PathBuf,
+    pub initramfs: PathBuf,
+    pub cmdline: PathBuf,
+    pub dtb: Option<PathBuf>,
+    pub luks_key: Option<Vec<u8>>,
+}
+
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
-///
-/// This function takes a PE format EFI stub and embeds the Linux kernel, initrd,
-/// command line, optional device tree blob and optional LUKS key as PE sections
-/// to create a bootable UKI.
-///
-/// # Arguments
-///
-/// * `stub_path` - Path to the EFI stub file
-/// * `linux_path` - Path to the Linux kernel image
-/// * `initrd_path` - Path to the initrd image
-/// * `cmdline_path` - Path to the kernel command line file
-/// * `dtb_path` - Optional path to a device tree blob (for ARM64 platforms)
-/// * `luks_data` - Optional raw LUKS key bytes to embed as a `.luks` PE section
-///
-/// # Returns
-///
-/// The UKI buffer as a `Vec<u8>`.
-///
-/// # Errors
-///
-/// Returns a `YukiError` if:
-/// - Any input file cannot be read
-/// - The stub file is not a valid PE file
-/// - The PE structure is invalid
 ///
 /// # Example
 ///
 /// ```no_run
-/// # use std::path::Path;
-/// let buffer = yuki::build(
-///     Path::new("stub.efi"),
-///     Path::new("kernel"),
-///     Path::new("initrd.img"),
-///     Path::new("cmdline.txt"),
-///     None, // No DTB
-///     None, // No LUKS key
-/// )?;
+/// use std::path::PathBuf;
+/// let buffer = yuki::build(&yuki::Components {
+///     stub: PathBuf::from("stub.efi"),
+///     kernel: PathBuf::from("vmlinuz"),
+///     initramfs: PathBuf::from("initramfs.img"),
+///     cmdline: PathBuf::from("cmdline.txt"),
+///     dtb: None,
+///     luks_key: None,
+/// })?;
 /// # Ok::<(), yuki::YukiError>(())
 /// ```
-pub fn build(
-    stub_path: &Path,
-    linux_path: &Path,
-    initrd_path: &Path,
-    cmdline_path: &Path,
-    dtb_path: Option<&Path>,
-    luks_data: Option<&[u8]>,
-) -> Result<Vec<u8>, YukiError> {
-    let mut stub = fs::read(stub_path).map_err(|e| YukiError::ReadError {
-        file: stub_path.display().to_string(),
+pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
+    let mut stub = fs::read(&c.stub).map_err(|e| YukiError::ReadError {
+        file: c.stub.display().to_string(),
         source: e,
     })?;
 
-    let linux = fs::read(linux_path).map_err(|e| YukiError::ReadError {
-        file: linux_path.display().to_string(),
+    let linux = fs::read(&c.kernel).map_err(|e| YukiError::ReadError {
+        file: c.kernel.display().to_string(),
         source: e,
     })?;
 
-    let initrd = fs::read(initrd_path).map_err(|e| YukiError::ReadError {
-        file: initrd_path.display().to_string(),
+    let initrd = fs::read(&c.initramfs).map_err(|e| YukiError::ReadError {
+        file: c.initramfs.display().to_string(),
         source: e,
     })?;
 
-    let cmdline = fs::read(cmdline_path).map_err(|e| YukiError::ReadError {
-        file: cmdline_path.display().to_string(),
+    let cmdline = fs::read(&c.cmdline).map_err(|e| YukiError::ReadError {
+        file: c.cmdline.display().to_string(),
         source: e,
     })?;
 
-    let dtb = dtb_path
+    let dtb = c
+        .dtb
+        .as_ref()
         .map(|path| {
             fs::read(path).map_err(|e| YukiError::ReadError {
                 file: path.display().to_string(),
@@ -91,6 +69,8 @@ pub fn build(
             })
         })
         .transpose()?;
+
+    let luks_data = c.luks_key.as_deref();
 
     let metadata = pe::extract_metadata(&stub)?;
 

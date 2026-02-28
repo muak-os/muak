@@ -1,39 +1,45 @@
-//! Unified Kernel Image (UKI) building and management.
+//! Unified Kernel Image building and management.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
 use crate::constants;
 
-/// Configuration for UKI preparation.
-struct UkiConfig<'a> {
-    installer_image: &'a str,
-    extensions: &'a [String],
-    work_dir: &'a Path,
-    cmdline: &'a str,
+#[cfg(target_arch = "x86_64")]
+pub const UKI_FILENAME: &str = "BOOTX64.EFI";
+
+#[cfg(target_arch = "aarch64")]
+pub const UKI_FILENAME: &str = "BOOTAA64.EFI";
+
+/// Wrapper around yuki::Components to provide additional functionality for UKI management.
+pub struct Uki(yuki::Components);
+
+impl std::ops::Deref for Uki {
+    type Target = yuki::Components;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-/// Components of a Unified Kernel Image.
-pub struct Uki {
-    pub kernel: PathBuf,
-    pub stub: PathBuf,
-    pub initramfs: PathBuf,
-    pub cmdline: PathBuf,
-    pub luks_key: Option<Vec<u8>>,
+impl std::ops::DerefMut for Uki {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl Uki {
     /// Creates a Uki instance by locating components in a base directory.
     pub fn from_dir(base_dir: &Path) -> Self {
         let arch_dir = base_dir.join(std::env::consts::ARCH);
-        Self {
-            kernel: arch_dir.join("vmlinuz"),
+        Self(yuki::Components {
             stub: arch_dir.join("stub.efi"),
+            kernel: arch_dir.join("vmlinuz"),
             initramfs: arch_dir.join("initramfs.img"),
             cmdline: arch_dir.join("cmdline.txt"),
+            dtb: None,
             luks_key: None,
-        }
+        })
     }
 
     /// Sets the LUKS key to embed in the UKI.
@@ -48,79 +54,31 @@ impl Uki {
         extensions: &[String],
         work_dir: &Path,
     ) -> Result<Self> {
-        let config = UkiConfig {
-            installer_image,
-            extensions,
-            work_dir,
-            cmdline: constants::DEFAULT_CMDLINE,
-        };
-
-        let uki = Self::from_dir(config.work_dir);
+        let uki = Self::from_dir(work_dir);
         let parent = uki.kernel.parent().context("Invalid UKI path")?;
 
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "Failed to create work dir for {}",
-                &config.work_dir.display()
-            )
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create work dir for {}", work_dir.display()))?;
 
-        pull_installer(config.installer_image, parent).await?;
-        build_initramfs(parent, &uki.initramfs, config.extensions).await?;
-        write_cmdline(&uki.cmdline, config.cmdline)?;
+        pull_installer(installer_image, parent).await?;
+        build_initramfs(parent, &uki.initramfs, extensions).await?;
+        write_cmdline(&uki.cmdline, constants::DEFAULT_CMDLINE)?;
 
         Ok(uki)
     }
 
     /// Builds the UKI binary from components.
     pub fn build(&self, output: &Path) -> Result<()> {
-        ensure_parent_exists(output)?;
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
 
-        let buffer = yuki::build(
-            &self.stub,
-            &self.kernel,
-            &self.initramfs,
-            &self.cmdline,
-            None,
-            self.luks_key.as_deref(),
-        )
-        .context("Failed to build UKI")?;
+        let buffer = yuki::build(&self).context("Failed to build UKI")?;
 
         std::fs::write(output, &buffer).context("Failed to write the UKI")?;
 
         kmsg::info!("Successfully built UKI at {}", output.display());
-        Ok(())
-    }
-
-    /// Builds the UKI atomically using a temp file and rename.
-    pub fn build_atomic(&self, output: &Path) -> Result<()> {
-        ensure_parent_exists(output)?;
-
-        let temp_output = get_temp_path(output);
-        let buffer = yuki::build(
-            &self.stub,
-            &self.kernel,
-            &self.initramfs,
-            &self.cmdline,
-            None,
-            self.luks_key.as_deref(),
-        )
-        .context("Failed to build UKI")?;
-
-        std::fs::write(&temp_output, &buffer).context("Failed to write the UKI")?;
-
-        std::fs::rename(&temp_output, output).with_context(|| {
-            format!(
-                "Failed to atomically rename {} to {}",
-                temp_output.display(),
-                output.display()
-            )
-        })?;
-
-        kmsg::info!(
-            "Successfully built and atomically installed UKI at {}",
-            output.display()
-        );
         Ok(())
     }
 
@@ -133,16 +91,14 @@ impl Uki {
         let initrd = std::fs::read(&self.initramfs)
             .with_context(|| format!("Failed to read {}", self.initramfs.display()))?;
 
-        let sections = vec![
+        Ok(vec![
             (".linux".to_string(), linux),
             (".cmdline".to_string(), cmdline),
             (".initrd".to_string(), initrd),
-        ];
-
-        Ok(sections)
+        ])
     }
 
-    /// Sign a UKI file in-place with the given Secure Boot key hierarchy.
+    /// Signs a UKI file in-place with the given Secure Boot key hierarchy.
     pub fn sign(uki_path: &Path, hierarchy: &sbolt::keys::KeyHierarchy) -> Result<()> {
         let uki_data = std::fs::read(uki_path)
             .with_context(|| format!("Failed to read UKI from {}", uki_path.display()))?;
@@ -156,41 +112,6 @@ impl Uki {
         kmsg::info!("UKI signed successfully");
         Ok(())
     }
-}
-
-/// Returns the full path to the UKI on the EFI partition.
-pub fn get_path(efi_mount: &Path) -> Result<PathBuf> {
-    let filename = get_uki_filename()?;
-    Ok(efi_mount.join("EFI").join("BOOT").join(filename))
-}
-
-/// Returns the UKI filename based on architecture.
-fn get_uki_filename() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok("BOOTX64.EFI"),
-        "aarch64" => Ok("BOOTAA64.EFI"),
-        other => bail!("Unsupported architecture: {}", other),
-    }
-}
-
-/// Generates a temp path for atomic writes.
-fn get_temp_path(path: &Path) -> PathBuf {
-    let mut temp = path.to_path_buf();
-    let filename = temp
-        .file_name()
-        .map(|f| format!("{}.new", f.to_string_lossy()))
-        .unwrap_or_else(|| "BOOT.EFI.new".to_string());
-    temp.set_file_name(filename);
-    temp
-}
-
-/// Ensures the parent directory exists.
-fn ensure_parent_exists(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
-    }
-    Ok(())
 }
 
 /// Pulls the installer image and extracts components.
