@@ -173,16 +173,6 @@ fn get_uki_filename() -> Result<&'static str> {
     }
 }
 
-/// Cleans up the work directory.
-pub fn cleanup_dir(work_dir: &Path) -> Result<()> {
-    if work_dir.exists() {
-        std::fs::remove_dir_all(work_dir)
-            .with_context(|| format!("Failed to clean up work dir {}", work_dir.display()))?;
-        kmsg::info!("Cleaned up work directory {}", work_dir.display());
-    }
-    Ok(())
-}
-
 /// Generates a temp path for atomic writes.
 fn get_temp_path(path: &Path) -> PathBuf {
     let mut temp = path.to_path_buf();

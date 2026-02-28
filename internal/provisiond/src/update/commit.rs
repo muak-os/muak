@@ -4,19 +4,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rustix::fs::sync;
-use sysconfig::{CONFIG_PATH, HostConfig};
 
-use super::marker::ValidationMarker;
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::disk;
 use crate::uki::{self, Uki};
 
 /// Mounts the EFI partition, deploys the new UKI, then unmounts.
-pub async fn commit(marker: &ValidationMarker) -> Result<()> {
-    println!(
-        "Validation succeeded, committing update {}",
-        marker.update_id
-    );
+pub async fn apply() -> Result<()> {
+    println!("Validation succeeded, committing update.",);
 
     let efi_device = disk::find_partition_by_partname("EFI")
         .await
@@ -28,12 +23,7 @@ pub async fn commit(marker: &ValidationMarker) -> Result<()> {
     let mount_point = "/run/mnt/efi";
     disk::mount_efi_partition(&efi_device, mount_point)?;
 
-    let result = deploy_uki(
-        marker,
-        mount_point,
-        state_device.as_deref(),
-        data_device.as_deref(),
-    );
+    let result = deploy_uki(mount_point, state_device.as_deref(), data_device.as_deref());
 
     disk::try_unmount(mount_point);
 
@@ -42,7 +32,6 @@ pub async fn commit(marker: &ValidationMarker) -> Result<()> {
 
 /// Builds and signs the new UKI on the EFI partition and updates the system config.
 fn deploy_uki(
-    marker: &ValidationMarker,
     mount_point: &str,
     state_device: Option<&str>,
     data_device: Option<&str>,
@@ -109,23 +98,11 @@ fn deploy_uki(
         Uki::sign(&uki_path, &hierarchy)?;
     }
 
-    update_config_image(&marker.target_image)?;
-    super::cleanup();
+    if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
+        eprintln!("Failed to cleanup update work dir: {}", e);
+    }
+
     sync();
-
-    Ok(())
-}
-
-/// Updates the system image field in config.toml.
-fn update_config_image(new_image: &str) -> Result<()> {
-    let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config.toml")?;
-    let mut config: HostConfig =
-        sysconfig::parse_from_str(&contents).context("Failed to parse config.toml")?;
-
-    config.system.image = new_image.to_string();
-
-    let updated_toml = sysconfig::serialize(&config).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
 
     Ok(())
 }

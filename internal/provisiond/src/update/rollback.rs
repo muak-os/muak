@@ -9,6 +9,7 @@ use rustix::system::{RebootCommand, reboot};
 use serde::{Deserialize, Serialize};
 
 use super::marker::ValidationMarker;
+use crate::constants::UPDATE_DIR;
 
 /// Information about a rolled-back update.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,17 +21,24 @@ pub struct RollbackInfo {
 }
 
 /// Saves rollback info, cleans up staging files, and reboots into the old kernel.
-pub fn rollback(m: &ValidationMarker, reason: &str) -> Result<()> {
-    println!("Rolling back update {}: {}", m.update_id, reason);
-    save(m, reason)?;
-    super::cleanup();
+pub fn rollback(marker: &ValidationMarker, reason: &str) -> Result<()> {
+    println!("Rolling back update {}: {}", marker.update_id, reason);
+
+    save(marker, reason)?;
+    super::update_config_image(&marker.old_image)?;
+
+    if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
+        eprintln!("Failed to cleanup update work dir: {}", e);
+    }
+
     sync();
+
     reboot(RebootCommand::Restart).context("Failed to reboot for rollback")?;
     unreachable!("If we're here, something went really wrong")
 }
 
 /// Persists rollback information to `/run/state/rollbacks/<update_id>.json`.
-fn save(m: &ValidationMarker, reason: &str) -> Result<()> {
+fn save(marker: &ValidationMarker, reason: &str) -> Result<()> {
     let rollbacks_dir = Path::new("/run/state/rollbacks");
     std::fs::create_dir_all(rollbacks_dir).context("Failed to create rollbacks dir")?;
 
@@ -40,8 +48,8 @@ fn save(m: &ValidationMarker, reason: &str) -> Result<()> {
         .as_secs() as i64;
 
     let info = RollbackInfo {
-        update_id: m.update_id.clone(),
-        failed_image: m.target_image.clone(),
+        update_id: marker.update_id.clone(),
+        failed_image: marker.target_image.clone(),
         reason: reason.to_string(),
         rolled_back_at: now,
     };

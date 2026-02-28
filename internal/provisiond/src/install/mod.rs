@@ -17,7 +17,7 @@ use crate::disk;
 use crate::efi;
 use crate::services::proto::provision::InstallProgress;
 use crate::streaming;
-use crate::uki::{self, Uki};
+use crate::uki::Uki;
 
 /// Installs Muak to the specified disk with the given configuration.
 pub async fn run(
@@ -191,7 +191,7 @@ pub async fn run(
     luks2::close(DM_STATE).context("Failed to close LUKS STATE mapping")?;
     luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
 
-    if let Err(e) = uki::cleanup_dir(work_dir) {
+    if let Err(e) = std::fs::remove_dir_all(work_dir) {
         eprintln!("Failed to cleanup work dir: {}", e);
     }
 

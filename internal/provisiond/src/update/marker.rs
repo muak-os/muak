@@ -7,20 +7,19 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::UPDATE_DIR;
-use crate::uki;
 
 /// Marker file tracking update validation state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationMarker {
     pub update_id: String,
     pub target_image: String,
-    pub current_image: String,
+    pub old_image: String,
     pub timestamp: i64,
 }
 
 /// Creates a validation marker for the given target image.
 pub fn create(target_image: &str) -> Result<ValidationMarker> {
-    let current_image = sysconfig::system().image.clone();
+    let old_image = sysconfig::system().image.clone();
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -30,7 +29,7 @@ pub fn create(target_image: &str) -> Result<ValidationMarker> {
     Ok(ValidationMarker {
         update_id: format!("update-{}", timestamp),
         target_image: target_image.to_string(),
-        current_image,
+        old_image,
         timestamp,
     })
 }

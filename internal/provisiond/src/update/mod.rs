@@ -13,12 +13,13 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use rollback::RollbackInfo;
 use rustix::fs::sync;
+use sysconfig::{CONFIG_PATH, HostConfig};
 use tokio::sync::mpsc;
 
 use crate::constants::UPDATE_DIR;
 use crate::services::proto::provision::PrepareUpdateProgress;
 use crate::streaming;
-use crate::uki::{self, Uki};
+use crate::uki::Uki;
 
 /// Status of a system update.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,11 +85,12 @@ pub async fn prepare(
     )
     .await;
 
-    let m = marker::create(image)?;
-    marker::save(&staging_dir, &m)?;
+    update_config_image(image)?;
+    let marker = marker::create(image)?;
+    marker::save(&staging_dir, &marker)?;
     sync();
 
-    Ok(m.update_id)
+    Ok(marker.update_id)
 }
 
 /// Checks for a pending validation marker and commits or rolls back.
@@ -108,9 +110,16 @@ fn create_staging_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Removes the update staging directory.
-pub fn cleanup() {
-    if let Err(e) = uki::cleanup_dir(Path::new(UPDATE_DIR)) {
-        eprintln!("Failed to cleanup update work dir: {}", e);
-    }
+/// Updates the host system config with a new image.
+pub(super) fn update_config_image(image: &str) -> Result<()> {
+    let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config.toml")?;
+    let mut config: HostConfig =
+        sysconfig::parse_from_str(&contents).context("Failed to parse config.toml")?;
+
+    config.system.image = image.to_string();
+
+    let updated_toml = sysconfig::serialize(&config).context("Failed to serialize config")?;
+    std::fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
+
+    Ok(())
 }

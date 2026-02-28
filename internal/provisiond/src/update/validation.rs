@@ -7,32 +7,32 @@ use super::marker::ValidationMarker;
 use super::rollback;
 
 /// Decides whether to commit or roll back a pending update.
-pub async fn check_pending(m: &ValidationMarker) -> Result<()> {
+pub async fn check_pending(marker: &ValidationMarker) -> Result<()> {
     println!(
         "Found pending validation for update {} -> {}",
-        m.current_image, m.target_image
+        marker.old_image, marker.target_image
     );
 
-    if is_old_kernel(m) {
+    if is_old_kernel(marker) {
         println!(
             "Update {} failed - new kernel did not boot successfully",
-            &m.update_id
+            &marker.update_id
         );
-        rollback::rollback(m, "Kernel failed to boot (kexec failure)")?;
+        rollback::rollback(marker, "Kernel failed to boot (kexec failure)")?;
     } else if let Err(e) = health_checks() {
         println!("Health checks failed: {}", e);
-        rollback::rollback(m, &format!("Health checks failed: {}", e))?;
+        rollback::rollback(marker, &format!("Health checks failed: {}", e))?;
     } else {
-        commit::commit(m).await?;
+        commit::apply().await?;
     }
 
     Ok(())
 }
 
 /// Returns true if the current cmdline lacks the update marker (kexec did not boot).
-fn is_old_kernel(m: &ValidationMarker) -> bool {
+fn is_old_kernel(marker: &ValidationMarker) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
-    !cmdline.contains(&format!("muak.update_id={}", m.update_id))
+    !cmdline.contains(&format!("muak.update_id={}", marker.update_id))
 }
 
 /// Runs all health checks required to declare the update valid.
