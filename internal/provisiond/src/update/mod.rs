@@ -110,7 +110,26 @@ pub async fn check_and_handle_pending_validation() -> Result<()> {
         return Ok(());
     };
 
+    if !has_update_marker() {
+        cleanup_stale();
+        return Ok(());
+    }
+
     validation::check_pending(&update_id, &snapshot_path).await
+}
+
+/// Returns true if the current boot has the update marker in the cmdline.
+fn has_update_marker() -> bool {
+    std::fs::read_to_string("/proc/cmdline")
+        .unwrap_or_default()
+        .contains("muak.update_id=")
+}
+
+/// Removes stale update files left from a previous boot cycle.
+fn cleanup_stale() {
+    if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
+        eprintln!("Failed to cleanup stale update dir: {}", e);
+    }
 }
 
 /// Creates the staging directory for update files.
