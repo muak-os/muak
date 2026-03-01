@@ -35,6 +35,7 @@ pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> 
 
     sync();
 
+    kmsg::info!("Rebooting for rollback of update {}: {}", update_id, reason);
     reboot(RebootCommand::Restart).context("Failed to reboot for rollback")?;
     unreachable!("If we're here, something went really wrong")
 }

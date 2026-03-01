@@ -20,6 +20,7 @@ const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 pub fn run(update_id: &str) -> Result<()> {
     let uki = Uki::from_dir(std::path::Path::new(UPDATE_DIR));
     load(&uki, update_id).context("Failed to load new kernel with kexec")?;
+    kmsg::info!("kexec booting into update {}", update_id);
     reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {}", e))?;
     unreachable!("If we reach here, something went really wrong")
 }
