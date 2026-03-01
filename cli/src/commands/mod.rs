@@ -178,9 +178,11 @@ async fn handle_cmd(
             image,
             config: config_path,
         } => {
-            let ctx_name = context
-                .as_ref()
-                .expect("context is always Some when not insecure");
+            let ctx_name = context.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "'update' requires an installed system and cannot be used in maintenance mode!"
+                )
+            })?;
             let config = ClientConfig::load()?;
             let ctx = config
                 .get_context(ctx_name)
