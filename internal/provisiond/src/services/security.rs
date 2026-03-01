@@ -24,14 +24,22 @@ impl SecurityService for SecurityServiceImpl {
 
         let state = if enabled {
             SecureBootState::Enabled
-        } else if sysconfig::system().secureboot {
+        } else if sysconfig::system().secureboot
+            && sbolt::efi::get_pk()
+                .map_err(|e| Status::internal(format!("Failed to read PK from firmware: {}", e)))?
+                .is_some()
+        {
             SecureBootState::Pending
         } else {
             SecureBootState::Disabled
         };
 
+        let setup_mode = sbolt::efi::get_setup_mode()
+            .map_err(|e| Status::internal(format!("Failed to read Setup Mode state: {}", e)))?;
+
         Ok(Response::new(GetSecurityStateResponse {
             secure_boot: state.into(),
+            setup_mode,
         }))
     }
 }

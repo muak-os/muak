@@ -36,6 +36,14 @@ pub async fn handle(
             };
 
             println!("  Secure Boot: {status}");
+
+            let setup_mode = if resp.setup_mode {
+                ui::style::negative("Enabled").to_string()
+            } else {
+                ui::style::positive("Disabled").to_string()
+            };
+
+            println!("  Setup Mode:  {setup_mode}");
         }
     }
     Ok(())

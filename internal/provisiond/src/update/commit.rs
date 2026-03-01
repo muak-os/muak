@@ -26,21 +26,21 @@ pub async fn apply() -> Result<()> {
 
     secrets::resolve_luks_key(&mut uki, state_device.as_deref(), data_device.as_deref())?;
 
-    let first_enablement = is_first_secureboot_enablement();
     let sb_hierarchy = if sysconfig::system().secureboot {
-        if first_enablement {
-            Some(generate_sb_hierarchy()?)
-        } else {
-            Some(load_sb_hierarchy()?)
-        }
+        Some(resolve_sb_hierarchy()?)
     } else {
         None
     };
 
     uki.build(&staged, sb_hierarchy.as_ref())?;
 
-    if let (true, Some(ref hierarchy)) = (first_enablement, sb_hierarchy.as_ref()) {
-        sbolt::efi::enroll_keys(hierarchy)
+    let needs_enrollment = sb_hierarchy.is_some()
+        && sbolt::efi::get_pk()
+            .context("Failed to read PK from firmware")?
+            .is_none();
+
+    if needs_enrollment {
+        sbolt::efi::enroll_keys(sb_hierarchy.as_ref().expect("checked above"))
             .context("Failed to enroll Secure Boot keys into firmware")?;
     }
 
@@ -53,23 +53,15 @@ pub async fn apply() -> Result<()> {
     Ok(())
 }
 
-/// Returns true if this is the first time Secure Boot is being enabled.
-fn is_first_secureboot_enablement() -> bool {
-    sysconfig::system().secureboot && !Path::new(SECRETS_DIR).join("secureboot").exists()
-}
-
-/// Generates a new Secure Boot key hierarchy and saves it to disk.
-fn generate_sb_hierarchy() -> Result<sbolt::keys::KeyHierarchy> {
-    let h = sbolt::keys::KeyHierarchy::generate("Muak")
-        .context("Failed to generate Secure Boot keys")?;
-    sbolt::keys::save_key_hierarchy(&h, &Path::new(SECRETS_DIR).join("secureboot"))
-        .context("Failed to save Secure Boot keys")?;
-
-    Ok(h)
-}
-
-/// Loads the Secure Boot key hierarchy from disk.
-fn load_sb_hierarchy() -> Result<sbolt::keys::KeyHierarchy> {
-    sbolt::keys::load_key_hierarchy(&Path::new(SECRETS_DIR).join("secureboot"))
-        .context("Failed to load Secure Boot keys")
+/// Returns the Secure Boot key hierarchy, generating and persisting it if not yet on disk.
+fn resolve_sb_hierarchy() -> Result<sbolt::keys::KeyHierarchy> {
+    let dir = Path::new(SECRETS_DIR).join("secureboot");
+    if dir.exists() {
+        sbolt::keys::load_key_hierarchy(&dir).context("Failed to load Secure Boot keys")
+    } else {
+        let keys = sbolt::keys::KeyHierarchy::generate("Muak")
+            .context("Failed to generate Secure Boot keys")?;
+        sbolt::keys::save_key_hierarchy(&keys, &dir).context("Failed to save Secure Boot keys")?;
+        Ok(keys)
+    }
 }

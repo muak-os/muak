@@ -18,4 +18,5 @@ message GetSecurityStateRequest {}
 
 message GetSecurityStateResponse {
   SecureBootState secure_boot = 1;
+  bool setup_mode = 2;
 }

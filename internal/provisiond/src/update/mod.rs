@@ -72,12 +72,9 @@ pub async fn prepare(
     let staging_dir = create_staging_dir()?;
 
     if let Some(ref cfg) = new_config {
-        if cfg.system.secureboot
-            && !sysconfig::system().secureboot
-            && !sbolt::efi::get_setup_mode().unwrap_or(false)
-        {
+        if cfg.system.secureboot && !sbolt::efi::get_setup_mode().unwrap_or(false) {
             bail!(
-                "Firmware is not in Setup Mode, cannot enable Secure Boot via update. \
+                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
                  Please reboot and reset your firmware to Setup Mode and try again."
             );
         }
