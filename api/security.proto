@@ -7,8 +7,15 @@ service SecurityService {
   rpc GetSecurityState(GetSecurityStateRequest) returns (GetSecurityStateResponse);
 }
 
+enum SecureBootState {
+  SECURE_BOOT_STATE_UNSPECIFIED = 0;
+  SECURE_BOOT_STATE_DISABLED = 1;
+  SECURE_BOOT_STATE_ENABLED = 2;
+  SECURE_BOOT_STATE_PENDING = 3;
+}
+
 message GetSecurityStateRequest {}
 
 message GetSecurityStateResponse {
-  bool secure_boot_enabled = 1;
+  SecureBootState secure_boot = 1;
 }

@@ -9,7 +9,7 @@ mod validation;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use sysconfig::{CONFIG_PATH, HostConfig};
@@ -70,6 +70,19 @@ pub async fn prepare(
     .await;
 
     let staging_dir = create_staging_dir()?;
+
+    if let Some(ref cfg) = new_config {
+        if cfg.system.secureboot
+            && !sysconfig::system().secureboot
+            && !sbolt::efi::get_setup_mode().unwrap_or(false)
+        {
+            bail!(
+                "Firmware is not in Setup Mode, cannot enable Secure Boot via update. \
+                 Please reboot and reset your firmware to Setup Mode and try again."
+            );
+        }
+    }
+
     Uki::prepare(image, extensions, &staging_dir).await?;
 
     streaming::send_progress(
@@ -132,7 +145,6 @@ pub(super) fn update_config(new_config: &HostConfig) -> Result<()> {
 
     let mut merged = new_config.clone();
     merged.system.disk = config.system.disk.clone();
-    merged.system.secureboot = config.system.secureboot;
 
     let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, updated_config).context("Failed to write updated config")?;

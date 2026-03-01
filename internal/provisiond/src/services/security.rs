@@ -3,7 +3,7 @@
 use tonic::{Request, Response, Status};
 
 use super::proto::security::security_service_server::{SecurityService, SecurityServiceServer};
-use super::proto::security::{GetSecurityStateRequest, GetSecurityStateResponse};
+use super::proto::security::{GetSecurityStateRequest, GetSecurityStateResponse, SecureBootState};
 
 /// Creates the SecurityService gRPC server.
 pub fn service() -> SecurityServiceServer<SecurityServiceImpl> {
@@ -19,11 +19,19 @@ impl SecurityService for SecurityServiceImpl {
         &self,
         _request: Request<GetSecurityStateRequest>,
     ) -> Result<Response<GetSecurityStateResponse>, Status> {
-        let secure_boot_enabled = sbolt::efi::get_secure_boot()
+        let enabled = sbolt::efi::get_secure_boot()
             .map_err(|e| Status::internal(format!("Failed to read Secure Boot state: {}", e)))?;
 
+        let state = if enabled {
+            SecureBootState::Enabled
+        } else if sysconfig::system().secureboot {
+            SecureBootState::Pending
+        } else {
+            SecureBootState::Disabled
+        };
+
         Ok(Response::new(GetSecurityStateResponse {
-            secure_boot_enabled,
+            secure_boot: state.into(),
         }))
     }
 }

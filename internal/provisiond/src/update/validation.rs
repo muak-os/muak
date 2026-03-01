@@ -19,7 +19,7 @@ pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> 
     );
 
     if is_old_kernel(update_id) {
-        println!(
+        eprintln!(
             "Update {} failed - new kernel did not boot successfully",
             update_id
         );
@@ -29,14 +29,15 @@ pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> 
             "Kernel failed to boot (kexec failure)",
         )?;
     } else if let Err(e) = health_checks() {
-        println!("Health checks failed: {}", e);
+        eprintln!("Health checks failed: {}", e);
         rollback::apply(
             update_id,
             snapshot_path,
             &format!("Health checks failed: {}", e),
         )?;
-    } else {
-        commit::apply().await?;
+    } else if let Err(e) = commit::apply().await {
+        eprintln!("Commit failed: {}", e);
+        rollback::apply(update_id, snapshot_path, &format!("Commit failed: {}", e))?;
     }
 
     Ok(())

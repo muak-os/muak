@@ -14,7 +14,7 @@ pub const UPDATE_DIR: &str = "/run/state/update";
 pub const DEFAULT_CMDLINE: &str =
     include_str!("../../../pkgs/kernel/cmdline-amd64.txt").trim_ascii();
 
-/// Default kernel command line for aarch64 architecture.
+/// Default kernel command line for AArch64 architecture.
 #[cfg(target_arch = "aarch64")]
 pub const DEFAULT_CMDLINE: &str =
     include_str!("../../../pkgs/kernel/cmdline-arm64.txt").trim_ascii();

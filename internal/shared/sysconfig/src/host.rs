@@ -60,11 +60,11 @@ impl HostConfig {
                 installed.system.disk, self.system.disk
             )));
         }
-        if self.system.secureboot != installed.system.secureboot {
-            return Err(ConfigError::ValidationError(format!(
-                "system.secureboot cannot be changed after install (installed: {}, requested: {})",
-                installed.system.secureboot, self.system.secureboot
-            )));
+        if installed.system.secureboot && !self.system.secureboot {
+            return Err(ConfigError::ValidationError(
+                "system.secureboot cannot be disabled after Secure Boot keys have been enrolled"
+                    .to_string(),
+            ));
         }
         Ok(())
     }
@@ -180,6 +180,60 @@ mod tests {
         let default_str = toml::to_string_pretty(&HostConfig::default()).unwrap();
         let config: HostConfig = toml::from_str(&default_str).unwrap();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_for_update_rejects_disk_change() {
+        let mut installed = HostConfig::default();
+        installed.system.port = 8080;
+        installed.system.disk = "/dev/sda".to_string();
+
+        let mut requested = installed.clone();
+        requested.system.disk = "/dev/sdb".to_string();
+
+        assert!(requested.validate_for_update(&installed).is_err());
+    }
+
+    #[test]
+    fn test_validate_for_update_allows_secureboot_false_to_true() {
+        let mut installed = HostConfig::default();
+        installed.system.port = 8080;
+        installed.system.secureboot = false;
+
+        let mut requested = installed.clone();
+        requested.system.secureboot = true;
+
+        assert!(requested.validate_for_update(&installed).is_ok());
+    }
+
+    #[test]
+    fn test_validate_for_update_rejects_secureboot_true_to_false() {
+        let mut installed = HostConfig::default();
+        installed.system.port = 8080;
+        installed.system.secureboot = true;
+
+        let mut requested = installed.clone();
+        requested.system.secureboot = false;
+
+        assert!(requested.validate_for_update(&installed).is_err());
+    }
+
+    #[test]
+    fn test_validate_for_update_allows_secureboot_unchanged_false() {
+        let mut installed = HostConfig::default();
+        installed.system.port = 8080;
+        installed.system.secureboot = false;
+
+        assert!(installed.clone().validate_for_update(&installed).is_ok());
+    }
+
+    #[test]
+    fn test_validate_for_update_allows_secureboot_unchanged_true() {
+        let mut installed = HostConfig::default();
+        installed.system.port = 8080;
+        installed.system.secureboot = true;
+
+        assert!(installed.clone().validate_for_update(&installed).is_ok());
     }
 
     #[test]
