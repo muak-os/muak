@@ -81,12 +81,41 @@ impl ProvisionService for ProvisionServiceImpl {
         request: Request<PrepareUpdateRequest>,
     ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
         let req = request.into_inner();
-        let config = sysconfig::config();
-        let extensions = config.system.extensions.clone();
-        let image = req.image;
+        let installed = sysconfig::config();
+
+        let (image, extensions, new_config) = if !req.config.is_empty() {
+            let raw = String::from_utf8(req.config).map_err(|e| {
+                Status::invalid_argument(format!("Config is not valid UTF-8: {}", e))
+            })?;
+
+            let cfg: sysconfig::HostConfig = sysconfig::parse_from_str(&raw)
+                .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
+
+            cfg.validate_for_update(installed)
+                .map_err(|e| Status::invalid_argument(format!("Config rejected: {}", e)))?;
+
+            sysconfig::check_no_downgrade(&cfg.system.image, &installed.system.image)
+                .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+
+            let image = cfg.system.image.clone();
+            let extensions = cfg.system.extensions.clone();
+            (image, extensions, Some(cfg))
+        } else {
+            let image = if req.image.is_empty() {
+                installed.system.image.clone()
+            } else {
+                sysconfig::check_no_downgrade(&req.image, &installed.system.image)
+                    .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+                req.image.clone()
+            };
+            let extensions = installed.system.extensions.clone();
+            (image, extensions, None)
+        };
 
         let stream = streaming::run(
-            move |progress_tx| async move { update::prepare(&image, &extensions, progress_tx).await },
+            move |progress_tx| async move {
+                update::prepare(&image, &extensions, new_config, progress_tx).await
+            },
             |result, out_tx| {
                 let msg = match result {
                     Ok(update_id) => Ok(PrepareUpdateProgress {
@@ -191,8 +220,8 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<GetConfigResponse>, Status> {
         if let Some(config) = sysconfig::try_config() {
             match sysconfig::serialize(config) {
-                Ok(config_toml) => Ok(Response::new(GetConfigResponse {
-                    config: config_toml.into_bytes(),
+                Ok(config_bytes) => Ok(Response::new(GetConfigResponse {
+                    config: config_bytes.into_bytes(),
                     error: String::new(),
                 })),
                 Err(e) => Ok(Response::new(GetConfigResponse {

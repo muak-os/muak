@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{ConfigError, Result};
 
 pub const CONFIG_PATH: &str = "/run/state/config.toml";
+pub const CONFIG_EXTENSION: &str = "toml";
 
 pub(crate) static CONFIG: OnceLock<HostConfig> = OnceLock::new();
 
@@ -46,6 +47,24 @@ impl HostConfig {
             return Err(ConfigError::ValidationError(
                 "system.disk must be specified for installation".to_string(),
             ));
+        }
+        Ok(())
+    }
+
+    /// Validates that the config is acceptable for an update operation.
+    pub fn validate_for_update(&self, installed: &HostConfig) -> Result<()> {
+        self.validate()?;
+        if self.system.disk != installed.system.disk {
+            return Err(ConfigError::ValidationError(format!(
+                "system.disk cannot be changed after install (installed: '{}', requested: '{}')",
+                installed.system.disk, self.system.disk
+            )));
+        }
+        if self.system.secureboot != installed.system.secureboot {
+            return Err(ConfigError::ValidationError(format!(
+                "system.secureboot cannot be changed after install (installed: {}, requested: {})",
+                installed.system.secureboot, self.system.secureboot
+            )));
         }
         Ok(())
     }

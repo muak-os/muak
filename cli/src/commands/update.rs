@@ -1,25 +1,59 @@
-use anyhow::{Context, Result};
+use std::path::PathBuf;
+
+use anyhow::{Context, Result, bail};
 use tokio_stream::StreamExt;
 
 use crate::client::{
-    GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient, UpdateRequest,
-    UpdateStatus, connect,
+    GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient,
+    UpdateRequest, UpdateStatus, connect,
 };
 use crate::config::ServerContext;
 use crate::ui;
 
-/// Handles the update command with polling for completion.
-pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
-    let image = image.unwrap_or_else(|| "ghcr.io/sawangg/installer:latest".to_string());
-
-    let steps = ui::Steps::new();
+/// Handles the update command.
+pub async fn handle(
+    ctx: &ServerContext,
+    image: Option<String>,
+    config_path: Option<PathBuf>,
+) -> Result<()> {
+    if image.is_some() && config_path.is_some() {
+        bail!("--image and --config are mutually exclusive!");
+    }
 
     let channel = connect(ctx, 600).await?;
     let mut client = ProvisionServiceClient::new(channel);
 
+    let installed = fetch_installed_config(&mut client).await?;
+
+    let (image_str, config_bytes) = if let Some(ref path) = config_path {
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read '{}'", path.display()))?;
+
+        let cfg = sysconfig::parse_from_str(&raw)
+            .with_context(|| format!("invalid TOML in '{}'", path.display()))?;
+
+        cfg.validate_for_update(&installed)
+            .with_context(|| format!("config rejected: '{}'", path.display()))?;
+
+        sysconfig::check_no_downgrade(&cfg.system.image, &installed.system.image)
+            .with_context(|| format!("version check failed for '{}'", path.display()))?;
+
+        (String::new(), raw.into_bytes())
+    } else if let Some(ref img) = image {
+        sysconfig::check_no_downgrade(img, &installed.system.image)
+            .with_context(|| format!("version check failed for image '{}'", img))?;
+
+        (img.clone(), Vec::new())
+    } else {
+        bail!("Either --image or --config must be provided for update!");
+    };
+
+    let steps = ui::Steps::new();
+
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
-            image: image.clone(),
+            image: image_str,
+            config: config_bytes,
         }))
         .await
         .context("Failed to send prepare_update request")?;
@@ -124,4 +158,23 @@ pub async fn handle(ctx: &ServerContext, image: Option<String>) -> Result<()> {
             }
         }
     }
+}
+
+/// Fetches and parses the installed config from the server.
+async fn fetch_installed_config(
+    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
+) -> Result<sysconfig::HostConfig> {
+    let resp = client
+        .get_config(tonic::Request::new(GetConfigRequest {}))
+        .await
+        .context("Failed to fetch installed config from server")?
+        .into_inner();
+
+    if !resp.error.is_empty() {
+        bail!("Server returned error fetching config: {}", resp.error);
+    }
+
+    let raw = String::from_utf8(resp.config).context("Server returned non-UTF-8 config")?;
+
+    sysconfig::parse_from_str(&raw).context("Failed to parse installed config from server")
 }

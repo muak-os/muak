@@ -22,14 +22,16 @@ pub mod auth;
 mod error;
 mod host;
 pub mod permission;
+pub mod version;
 
-pub use auth::{AUTH_PATH, AuthConfig, AuthUser, serialize as serialize_auth};
+pub use auth::{AUTH_EXTENSION, AUTH_PATH, AuthConfig, AuthUser, serialize as serialize_auth};
 pub use error::{ConfigError, Result};
 pub use host::{
-    CONFIG_PATH, HostConfig, NetworkConfig, SystemConfig, VmConfig, load_from_path, parse_from_str,
-    serialize, serialize_default,
+    CONFIG_EXTENSION, CONFIG_PATH, HostConfig, NetworkConfig, SystemConfig, VmConfig,
+    load_from_path, parse_from_str, serialize, serialize_default,
 };
 pub use permission::Permission;
+pub use version::check_no_downgrade;
 
 /// Initializes the host config and auth cache.
 pub fn init() -> Result<()> {

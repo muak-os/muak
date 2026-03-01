@@ -68,6 +68,8 @@ pub enum Commands {
     Update {
         #[arg(long)]
         image: Option<String>,
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
     Reset {
         #[arg(long)]

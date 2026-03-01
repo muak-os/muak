@@ -57,6 +57,7 @@ message InstallProgress {
 
 message PrepareUpdateRequest {
     string image = 1;
+    bytes config = 2;
 }
 
 message PrepareUpdateProgress {

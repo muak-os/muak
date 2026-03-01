@@ -8,8 +8,10 @@ use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 use serde::{Deserialize, Serialize};
 
-use super::marker::ValidationMarker;
+use super::snapshot;
 use crate::constants::UPDATE_DIR;
+
+pub const ROLLBACKS_DIR: &str = "/run/state/rollbacks";
 
 /// Information about a rolled-back update.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,12 +22,12 @@ pub struct RollbackInfo {
     pub rolled_back_at: i64,
 }
 
-/// Saves rollback info, cleans up staging files, and reboots into the old kernel.
-pub fn rollback(marker: &ValidationMarker, reason: &str) -> Result<()> {
-    println!("Rolling back update {}: {}", marker.update_id, reason);
+/// Saves rollback info, restores the previous config, cleans-up staging files and reboots into the old kernel.
+pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
+    println!("Rolling back update {}: {}", update_id, reason);
 
-    save(marker, reason)?;
-    super::update_config_image(&marker.old_image)?;
+    save(update_id, reason)?;
+    snapshot::restore(snapshot_path)?;
 
     if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
         eprintln!("Failed to cleanup update work dir: {}", e);
@@ -37,25 +39,26 @@ pub fn rollback(marker: &ValidationMarker, reason: &str) -> Result<()> {
     unreachable!("If we're here, something went really wrong")
 }
 
-/// Persists rollback information to `/run/state/rollbacks/<update_id>.json`.
-fn save(marker: &ValidationMarker, reason: &str) -> Result<()> {
-    let rollbacks_dir = Path::new("/run/state/rollbacks");
-    std::fs::create_dir_all(rollbacks_dir).context("Failed to create rollbacks dir")?;
+/// Persists rollback information.
+fn save(update_id: &str, reason: &str) -> Result<()> {
+    std::fs::create_dir_all(ROLLBACKS_DIR).context("Failed to create rollbacks dir")?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
 
+    let failed_image = sysconfig::system().image.clone();
+
     let info = RollbackInfo {
-        update_id: marker.update_id.clone(),
-        failed_image: marker.target_image.clone(),
+        update_id: update_id.to_string(),
+        failed_image,
         reason: reason.to_string(),
         rolled_back_at: now,
     };
 
     let data = serde_json::to_string_pretty(&info)?;
-    let path = rollbacks_dir.join(format!("{}.json", info.update_id));
+    let path = Path::new(ROLLBACKS_DIR).join(format!("{}.json", info.update_id));
     std::fs::write(path, data).context("Failed to write rollback info")?;
 
     Ok(())

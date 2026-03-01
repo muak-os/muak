@@ -1,5 +1,7 @@
 ## TODO
 
+- Fix CI caching
+
 - Support for Raspbnerry Pi like devices using .img installation
 
 - Better CLI
@@ -37,11 +39,10 @@
   - Deterministic simulation tests?
 
 - Enchance `vmd`:
-  - Allow for iso images for vms
+  - Allow for ISO images for vms
+  - Rework commands to be pass through to the hypervisor
 
 - Only allow signed installer images to be installed
-
-- Allow update with config file to update system config
 
 - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM

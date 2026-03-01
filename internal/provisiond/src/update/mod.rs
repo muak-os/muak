@@ -2,16 +2,15 @@
 
 mod commit;
 pub mod kexec;
-pub mod marker;
 mod rollback;
+pub(super) mod snapshot;
 mod validation;
 
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rollback::RollbackInfo;
+use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use sysconfig::{CONFIG_PATH, HostConfig};
 use tokio::sync::mpsc;
@@ -32,7 +31,7 @@ pub enum UpdateStatus {
 
 /// Returns the current status of a given update ID.
 pub fn status(update_id: &str) -> UpdateStatus {
-    let rollback_path = Path::new("/run/state/rollbacks").join(format!("{}.json", update_id));
+    let rollback_path = Path::new(ROLLBACKS_DIR).join(format!("{}.json", update_id));
     if rollback_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&rollback_path)
             && let Ok(info) = serde_json::from_str::<RollbackInfo>(&contents)
@@ -47,11 +46,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
         return UpdateStatus::Committed;
     }
 
-    let marker_path = Path::new(UPDATE_DIR).join("pending-validation.json");
-    if let Ok(contents) = std::fs::read_to_string(&marker_path)
-        && let Ok(m) = serde_json::from_str::<marker::ValidationMarker>(&contents)
-        && m.update_id == update_id
-    {
+    if snapshot::path(update_id).exists() {
         return UpdateStatus::Pending;
     }
 
@@ -62,6 +57,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
 pub async fn prepare(
     image: &str,
     extensions: &[String],
+    new_config: Option<HostConfig>,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
     streaming::send_progress(
@@ -85,22 +81,26 @@ pub async fn prepare(
     )
     .await;
 
-    update_config_image(image)?;
-    let marker = marker::create(image)?;
-    marker::save(&staging_dir, &marker)?;
+    let update_id = snapshot::create(&staging_dir)?;
+
+    if let Some(cfg) = new_config {
+        update_config(&cfg)?;
+    } else {
+        update_config_image(image)?;
+    }
+
     sync();
 
-    Ok(marker.update_id)
+    Ok(update_id)
 }
 
-/// Checks for a pending validation marker and commits or rolls back.
+/// Checks for a pending update snapshot and commits or rolls back.
 pub async fn check_and_handle_pending_validation() -> Result<()> {
-    let m = match marker::load()? {
-        Some(m) => m,
-        None => return Ok(()),
+    let Some((update_id, snapshot_path)) = snapshot::find_pending()? else {
+        return Ok(());
     };
 
-    validation::check_pending(&m).await
+    validation::check_pending(&update_id, &snapshot_path).await
 }
 
 /// Creates the staging directory for update files.
@@ -110,16 +110,32 @@ fn create_staging_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Updates the host system config with a new image.
+/// Updates the host system config with a new image, preserving all other fields.
 pub(super) fn update_config_image(image: &str) -> Result<()> {
-    let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config.toml")?;
+    let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let mut config: HostConfig =
-        sysconfig::parse_from_str(&contents).context("Failed to parse config.toml")?;
+        sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
 
     config.system.image = image.to_string();
 
-    let updated_toml = sysconfig::serialize(&config).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, updated_toml).context("Failed to write updated config.toml")?;
+    let updated_config = sysconfig::serialize(&config).context("Failed to serialize config")?;
+    std::fs::write(CONFIG_PATH, updated_config).context("Failed to write updated config")?;
+
+    Ok(())
+}
+
+/// Writes all mutable fields from `new_config` into the existing config on-disk.
+pub(super) fn update_config(new_config: &HostConfig) -> Result<()> {
+    let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
+    let config: HostConfig =
+        sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
+
+    let mut merged = new_config.clone();
+    merged.system.disk = config.system.disk.clone();
+    merged.system.secureboot = config.system.secureboot;
+
+    let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
+    std::fs::write(CONFIG_PATH, updated_config).context("Failed to write updated config")?;
 
     Ok(())
 }

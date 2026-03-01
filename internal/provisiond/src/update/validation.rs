@@ -1,27 +1,40 @@
 //! Post-kexec validation: decide to commit or roll back the update.
 
+use std::path::Path;
+
 use anyhow::{Context, Result, bail};
 
 use super::commit;
-use super::marker::ValidationMarker;
 use super::rollback;
+use super::snapshot;
 
 /// Decides whether to commit or roll back a pending update.
-pub async fn check_pending(marker: &ValidationMarker) -> Result<()> {
+pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> {
+    let old_image = snapshot::read_image(snapshot_path)?;
+    let target_image = sysconfig::system().image.clone();
+
     println!(
         "Found pending validation for update {} -> {}",
-        marker.old_image, marker.target_image
+        old_image, target_image
     );
 
-    if is_old_kernel(marker) {
+    if is_old_kernel(update_id) {
         println!(
             "Update {} failed - new kernel did not boot successfully",
-            &marker.update_id
+            update_id
         );
-        rollback::rollback(marker, "Kernel failed to boot (kexec failure)")?;
+        rollback::apply(
+            update_id,
+            snapshot_path,
+            "Kernel failed to boot (kexec failure)",
+        )?;
     } else if let Err(e) = health_checks() {
         println!("Health checks failed: {}", e);
-        rollback::rollback(marker, &format!("Health checks failed: {}", e))?;
+        rollback::apply(
+            update_id,
+            snapshot_path,
+            &format!("Health checks failed: {}", e),
+        )?;
     } else {
         commit::apply().await?;
     }
@@ -30,9 +43,9 @@ pub async fn check_pending(marker: &ValidationMarker) -> Result<()> {
 }
 
 /// Returns true if the current cmdline lacks the update marker (kexec did not boot).
-fn is_old_kernel(marker: &ValidationMarker) -> bool {
+fn is_old_kernel(update_id: &str) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
-    !cmdline.contains(&format!("muak.update_id={}", marker.update_id))
+    !cmdline.contains(&format!("muak.update_id={}", update_id))
 }
 
 /// Runs all health checks required to declare the update valid.

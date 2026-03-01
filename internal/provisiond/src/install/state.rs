@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
-use sysconfig::{AuthConfig, HostConfig};
+use sysconfig::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, HostConfig};
 
 use super::pki::ServerPki;
 use crate::disk;
@@ -30,14 +30,20 @@ pub fn init(
     mount(device, MOUNT_POINT, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
-    let config_toml = sysconfig::serialize(config).context("Failed to serialize config")?;
-    std::fs::write(format!("{}/config.toml", MOUNT_POINT), config_toml)
-        .context("Failed to write config.toml")?;
+    let config_bytes = sysconfig::serialize(config).context("Failed to serialize config")?;
+    std::fs::write(
+        format!("{}/config.{}", MOUNT_POINT, CONFIG_EXTENSION),
+        config_bytes,
+    )
+    .context("Failed to write config")?;
 
-    let auth_toml =
+    let auth_bytes =
         sysconfig::serialize_auth(auth_config).context("Failed to serialize auth config")?;
-    std::fs::write(format!("{}/auth.toml", MOUNT_POINT), auth_toml)
-        .context("Failed to write auth.toml")?;
+    std::fs::write(
+        format!("{}/auth.{}", MOUNT_POINT, AUTH_EXTENSION),
+        auth_bytes,
+    )
+    .context("Failed to write auth config")?;
 
     let secrets_dir = format!("{}/secrets", MOUNT_POINT);
     std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;

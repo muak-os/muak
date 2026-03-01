@@ -10,6 +10,7 @@ use crate::Permission;
 use crate::error::Result;
 
 pub const AUTH_PATH: &str = "/run/state/auth.toml";
+pub const AUTH_EXTENSION: &str = "toml";
 
 /// Cached auth state with mtime-based invalidation.
 struct AuthCache {
