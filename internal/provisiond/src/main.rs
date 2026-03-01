@@ -12,12 +12,14 @@ mod streaming;
 mod uki;
 mod update;
 
+use std::os::unix::io::FromRawFd;
+use std::os::unix::net::UnixListener as StdUnixListener;
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-
-const GRPC_SOCKET_PATH: &str = "/run/provisiond.sock";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,7 +28,7 @@ async fn main() -> Result<()> {
 
     sysconfig::init().context("Failed to initialize system configuration")?;
 
-    let is_installed = std::path::Path::new(sysconfig::CONFIG_PATH).exists();
+    let is_installed = Path::new(sysconfig::CONFIG_PATH).exists();
 
     if is_installed {
         let _ = update::check_and_handle_pending_validation()
@@ -34,19 +36,20 @@ async fn main() -> Result<()> {
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 
-    if std::path::Path::new(GRPC_SOCKET_PATH).exists() {
-        std::fs::remove_file(GRPC_SOCKET_PATH)?;
-    }
-
-    let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
+    // SAFETY: granola pre-binds the socket and passes it as FD 3 before exec.
+    let std_listener = unsafe { StdUnixListener::from_raw_fd(3) };
+    std_listener
+        .set_nonblocking(true)
+        .context("Failed to set listener non-blocking")?;
+    let listener = UnixListener::from_std(std_listener).context("Failed to create UnixListener")?;
 
     let notifier =
         notify::NotifyClient::new("provisiond").context("Failed to create notify client")?;
     notifier
-        .ready(GRPC_SOCKET_PATH)
+        .ready()
         .context("Failed to send ready notification")?;
 
-    println!("gRPC server listening on {}", GRPC_SOCKET_PATH);
+    kmsg::info!("provisiond started");
 
     Server::builder()
         .add_service(services::auth::service())

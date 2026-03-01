@@ -7,7 +7,8 @@ mod grpc;
 mod hypervisor;
 mod persistence;
 
-use std::path::Path;
+use std::os::unix::io::FromRawFd;
+use std::os::unix::net::UnixListener as StdUnixListener;
 
 use actor::start_vm_actor;
 use anyhow::Result;
@@ -30,8 +31,6 @@ pub mod proto {
     }
 }
 
-const SOCKET_PATH: &str = "/run/vmd.sock";
-const NETWORKD_SOCKET: &str = "/run/networkd.sock";
 const STATE_DIR: &str = "/run/state/vmd";
 
 /// Entry point for the VM daemon
@@ -58,21 +57,19 @@ async fn main() -> Result<()> {
 
     tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
 
-    let network_client = NetworkClient::connect(NETWORKD_SOCKET).await?;
+    let network_client = NetworkClient::connect("/run/services/networkd.sock").await?;
     println!("Connected to networkd");
 
     let vm_handle = start_vm_actor(network_client, kvm_available).await;
 
-    if Path::new(SOCKET_PATH).exists() {
-        std::fs::remove_file(SOCKET_PATH)?;
-    }
-
-    let listener = UnixListener::bind(SOCKET_PATH)?;
+    // SAFETY: granola pre-binds the socket and passes it as FD 3 before exec.
+    let std_listener = unsafe { StdUnixListener::from_raw_fd(3) };
+    std_listener.set_nonblocking(true)?;
+    let listener = UnixListener::from_std(std_listener)?;
     let stream = UnixListenerStream::new(listener);
 
-    kmsg::info!(@ "vmd", "Listening on {}", SOCKET_PATH);
-
-    notifier.ready(SOCKET_PATH)?;
+    notifier.ready()?;
+    kmsg::info!("vmd started");
 
     let service = VmServiceImpl::new(vm_handle);
 

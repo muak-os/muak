@@ -1,11 +1,11 @@
+use std::os::fd::OwnedFd;
 use std::time::Instant;
 
 /// Blueprint for a supervised service.
 #[derive(Clone, Debug)]
 pub struct ServiceDef {
     pub name: &'static str,
-    pub binary: &'static str,
-    pub args: Vec<String>,
+    pub command: Vec<String>,
     pub depends_on: Vec<&'static str>,
 }
 
@@ -25,7 +25,7 @@ pub struct ServiceState {
     pub def: ServiceDef,
     pub pid: Option<i32>,
     pub status: ServiceStatus,
-    pub socket_path: Option<String>,
+    pub listener_fd: Option<OwnedFd>,
     pub restart_count: u32,
     pub last_restart: Option<Instant>,
 }
@@ -36,7 +36,7 @@ impl ServiceState {
             def,
             pid: None,
             status: ServiceStatus::Pending,
-            socket_path: None,
+            listener_fd: None,
             restart_count: 0,
             last_restart: None,
         }

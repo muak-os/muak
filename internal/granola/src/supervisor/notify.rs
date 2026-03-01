@@ -12,13 +12,12 @@ mod proto {
 
 pub use proto::{Health, Notify, notify::Notification};
 
-const NOTIFY_SOCKET: &str = "/run/granola-notify.sock";
+const NOTIFY_SOCKET: &str = "/run/services/granola-notify.sock";
 
 /// Processed notification ready for the supervisor to act on.
 pub enum ServiceNotification {
     Ready {
         service_name: String,
-        socket_path: String,
     },
     StatusUpdate {
         service_name: String,
@@ -29,7 +28,7 @@ pub enum ServiceNotification {
     },
 }
 
-/// Listens for protobuf notifications from supervised services over a UNIX datagram socket.
+/// Listens for notifications from supervised services over a UNIX datagram socket.
 pub struct NotifyListener {
     socket: UnixDatagram,
 }
@@ -72,15 +71,9 @@ impl NotifyListener {
 
         match notification {
             Notification::Ready(ready) => {
-                kmsg::info!(
-                    "Service {} ready (PID {}, socket: {})",
-                    notify.service_name,
-                    ready.pid,
-                    ready.socket_path
-                );
+                kmsg::info!("Service {} ready (PID {})", notify.service_name, ready.pid,);
                 Some(ServiceNotification::Ready {
                     service_name: notify.service_name,
-                    socket_path: ready.socket_path,
                 })
             }
             Notification::Status(status) => {

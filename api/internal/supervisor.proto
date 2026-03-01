@@ -14,7 +14,6 @@ message Notify {
 }
 
 message Ready {
-  string socket_path = 1;
   uint32 pid = 2;
 }
 

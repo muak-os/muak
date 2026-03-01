@@ -14,9 +14,6 @@ use tokio::signal::unix::{SignalKind, signal};
 /// Poll interval between NTP synchronizations.
 const POLL_INTERVAL: Duration = Duration::from_secs(64);
 
-/// Sentinel socket path for supervisor readiness.
-const SOCKET_PATH: &str = "/run/timed.sock";
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     kmsg::init("timed")?;
@@ -40,7 +37,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    notifier.ready(SOCKET_PATH)?;
+    notifier.ready()?;
 
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;

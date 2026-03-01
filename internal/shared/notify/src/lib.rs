@@ -15,7 +15,7 @@ pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
 }
 
-const DEFAULT_NOTIFY_SOCKET: &str = "/run/granola-notify.sock";
+const DEFAULT_NOTIFY_SOCKET: &str = "/run/services/granola-notify.sock";
 
 /// Client for sending notifications to the supervisor.
 pub struct NotifyClient {
@@ -41,11 +41,10 @@ impl NotifyClient {
     }
 
     /// Notifies supervisor that service is ready.
-    pub fn ready(&self, socket_path: &str) -> Result<(), io::Error> {
+    pub fn ready(&self) -> Result<(), io::Error> {
         let notify = Notify {
             service_name: self.service_name.clone(),
             notification: Some(Notification::Ready(Ready {
-                socket_path: socket_path.to_string(),
                 pid: std::process::id(),
             })),
         };
@@ -129,7 +128,7 @@ mod tests {
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
-        let result = client.ready("/run/test.sock");
+        let result = client.ready();
         assert!(result.is_ok());
     }
 
@@ -169,15 +168,11 @@ mod tests {
     #[test]
     fn test_ready_message_serialization() {
         let service_name = "test-service".to_string();
-        let socket_path_str = "/run/test.sock".to_string();
         let pid = std::process::id();
 
         let notify = Notify {
             service_name: service_name.clone(),
-            notification: Some(Notification::Ready(Ready {
-                socket_path: socket_path_str.clone(),
-                pid,
-            })),
+            notification: Some(Notification::Ready(Ready { pid })),
         };
 
         let bytes = notify.encode_to_vec();
@@ -186,7 +181,6 @@ mod tests {
         assert_eq!(decoded.service_name, service_name);
         match decoded.notification {
             Some(Notification::Ready(ready)) => {
-                assert_eq!(ready.socket_path, socket_path_str);
                 assert_eq!(ready.pid, pid);
             }
             _ => panic!("Expected Ready notification"),
@@ -348,28 +342,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ready_with_empty_socket_path() {
-        let notify = Notify {
-            service_name: "test".to_string(),
-            notification: Some(Notification::Ready(Ready {
-                socket_path: "".to_string(),
-                pid: 0,
-            })),
-        };
-
-        let bytes = notify.encode_to_vec();
-        let decoded = Notify::decode(&bytes[..]).expect("Failed to decode");
-
-        match decoded.notification {
-            Some(Notification::Ready(ready)) => {
-                assert_eq!(ready.socket_path, "");
-                assert_eq!(ready.pid, 0);
-            }
-            _ => panic!("Expected Ready notification"),
-        }
-    }
-
-    #[test]
     fn test_notification_delivery() {
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -379,9 +351,7 @@ mod tests {
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
-        client
-            .ready("/run/test.sock")
-            .expect("Failed to send ready");
+        client.ready().expect("Failed to send ready");
 
         let mut buf = vec![0u8; 4096];
         let (len, _) = server_socket
@@ -393,7 +363,6 @@ mod tests {
         assert_eq!(decoded.service_name, "test-service");
         match decoded.notification {
             Some(Notification::Ready(ready)) => {
-                assert_eq!(ready.socket_path, "/run/test.sock");
                 assert_eq!(ready.pid, std::process::id());
             }
             _ => panic!("Expected Ready notification"),
@@ -410,9 +379,7 @@ mod tests {
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
-        client
-            .ready("/run/test.sock")
-            .expect("Failed to send ready");
+        client.ready().expect("Failed to send ready");
         client
             .status("Running", Health::Healthy)
             .expect("Failed to send status");

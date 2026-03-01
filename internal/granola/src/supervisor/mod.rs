@@ -4,12 +4,13 @@ mod notify;
 mod reaper;
 mod restart;
 mod service;
+mod socket;
 mod spawner;
 
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use logger::LogWriter;
 use notify::{NotifyListener, ServiceNotification};
 use reaper::Reaper;
@@ -17,6 +18,8 @@ use restart::RestartQueue;
 pub use service::ServiceDef;
 use service::{ServiceState, ServiceStatus};
 use tokio::signal::unix::{SignalKind, signal};
+
+const SERVICES_DIR: &str = "/run/services";
 
 /// Manages the life cycle of all system services.
 pub struct Supervisor {
@@ -29,11 +32,18 @@ pub struct Supervisor {
 
 impl Supervisor {
     pub fn new(service_defs: Vec<ServiceDef>, logger: LogWriter) -> Result<Self> {
+        std::fs::create_dir_all(SERVICES_DIR).context("Failed to create services dir")?;
+
         let services = service_defs
             .into_iter()
             .map(|def| {
                 let name = def.name;
-                (name, ServiceState::new(def))
+                let mut state = ServiceState::new(def);
+                match socket::pre_bind(&socket::path(name)) {
+                    Ok(fd) => state.listener_fd = Some(fd),
+                    Err(e) => kmsg::warn!("Failed to pre-bind socket for {}: {}", name, e),
+                }
+                (name, state)
             })
             .collect();
 
@@ -121,13 +131,9 @@ impl Supervisor {
 
     fn apply_notification(&mut self, notification: ServiceNotification) {
         match notification {
-            ServiceNotification::Ready {
-                service_name,
-                socket_path,
-            } => {
+            ServiceNotification::Ready { service_name } => {
                 if let Some(state) = self.services.get_mut(service_name.as_str()) {
                     state.status = ServiceStatus::Ready;
-                    state.socket_path = Some(socket_path);
                     state.restart_count = 0;
                 } else {
                     kmsg::warn!("Notification from unknown service: {}", service_name);
@@ -173,7 +179,6 @@ impl Supervisor {
         };
 
         state.pid = None;
-        state.socket_path = None;
 
         if RestartQueue::should_restart(state, exit_code) {
             self.restart_queue.schedule(state);

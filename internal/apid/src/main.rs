@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     let tls_acceptor = apid::setup_tls(args.maintenance_mode)?;
 
     kmsg::info!("API daemon ready, listening on {}", addr);
-    notifier.ready(&format!("tcp://{}", args.listen_addr))?;
+    notifier.ready()?;
 
     let shutdown = setup_shutdown_handler();
 

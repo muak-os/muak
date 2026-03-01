@@ -13,8 +13,6 @@ use kmod::{AliasDb, DepDb, ModuleLoader, load_module};
 use notify::{Health, NotifyClient};
 use uevent::{UeventAction, UeventListener};
 
-const SOCKET_PATH: &str = "/run/modd.sock";
-
 /// Entry point that handles fatal errors.
 fn main() {
     if let Err(e) = run() {
@@ -55,7 +53,7 @@ fn run() -> Result<()> {
     let listener = UeventListener::new()?;
     println!("Listening for kernel uevents");
 
-    notifier.ready(SOCKET_PATH)?;
+    notifier.ready()?;
 
     loop {
         let event = match listener.recv() {

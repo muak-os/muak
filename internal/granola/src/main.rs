@@ -3,6 +3,8 @@
 mod services;
 mod supervisor;
 
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use supervisor::logger::LogReader;
 use supervisor::{ServiceDef, Supervisor};
@@ -10,7 +12,7 @@ use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-const GRPC_SOCKET_PATH: &str = "/run/granola.sock";
+const GRPC_SOCKET_PATH: &str = "/run/services/granola.sock";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,50 +21,45 @@ async fn main() -> Result<()> {
 
     sysconfig::init().context("Failed to initialize system configuration")?;
 
-    let mut apid_args = vec![
+    let mut apid_command = vec![
+        "/sbin/apid".to_string(),
         "--listen".to_string(),
         format!("0.0.0.0:{}", sysconfig::system().port),
     ];
 
-    let is_installed = std::path::Path::new(sysconfig::CONFIG_PATH).exists();
+    let is_installed = Path::new(sysconfig::CONFIG_PATH).exists();
 
     if is_installed {
         kmsg::info!("Running from INSTALLED DISK");
     } else {
-        kmsg::info!("CURRENTLY IN MAINTENANCE MODE");
-        kmsg::info!("   Run 'muakctl install --config <config.toml>' to install");
-        apid_args.push("--maintenance".to_string());
+        kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
+        apid_command.push("--maintenance".to_string());
     }
 
     let mut services = vec![
         ServiceDef {
             name: "modd",
-            binary: "/sbin/modd",
-            args: vec![],
+            command: vec!["/sbin/modd".to_string()],
             depends_on: vec![],
         },
         ServiceDef {
             name: "networkd",
-            binary: "/sbin/networkd",
-            args: vec![],
+            command: vec!["/sbin/networkd".to_string()],
             depends_on: vec![],
         },
         ServiceDef {
             name: "provisiond",
-            binary: "/sbin/provisiond",
-            args: vec![],
+            command: vec!["/sbin/provisiond".to_string()],
             depends_on: vec![],
         },
         ServiceDef {
             name: "timed",
-            binary: "/sbin/timed",
-            args: vec![],
+            command: vec!["/sbin/timed".to_string()],
             depends_on: vec!["networkd"],
         },
         ServiceDef {
             name: "apid",
-            binary: "/sbin/apid",
-            args: apid_args,
+            command: apid_command,
             depends_on: vec!["networkd"],
         },
     ];
@@ -70,8 +67,7 @@ async fn main() -> Result<()> {
     if is_installed {
         services.push(ServiceDef {
             name: "vmd",
-            binary: "/sbin/vmd",
-            args: vec![],
+            command: vec!["/sbin/vmd".to_string()],
             depends_on: vec!["networkd"],
         });
     } else {
@@ -99,7 +95,7 @@ async fn main() -> Result<()> {
 
 /// Runs the gRPC server for internal service communication.
 async fn run_grpc_server(reader: LogReader) -> Result<()> {
-    if std::path::Path::new(GRPC_SOCKET_PATH).exists() {
+    if Path::new(GRPC_SOCKET_PATH).exists() {
         std::fs::remove_file(GRPC_SOCKET_PATH)?;
     }
 

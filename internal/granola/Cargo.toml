@@ -19,7 +19,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["process"] }
+rustix = { workspace = true, features = ["net", "process"] }
 
 # Internal
 kmsg = { workspace = true }

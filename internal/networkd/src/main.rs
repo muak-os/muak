@@ -1,4 +1,4 @@
-//! Network daemon for Muak - Manages network interfaces, DHCP, DNS, and connectivity
+//! Network daemon for Muak to manage network interfaces, DHCP, DNS, and connectivity
 
 mod actor;
 mod config;
@@ -14,7 +14,8 @@ mod services;
 mod slaac;
 mod socket;
 
-use std::path::Path;
+use std::os::unix::io::FromRawFd;
+use std::os::unix::net::UnixListener as StdUnixListener;
 
 use actor::start_network_actor;
 use anyhow::Result;
@@ -30,9 +31,6 @@ pub mod proto {
     tonic::include_proto!("muak.internal.network");
 }
 
-const SOCKET_PATH: &str = "/run/networkd.sock";
-
-/// Entry point for the network daemon
 #[tokio::main]
 async fn main() -> Result<()> {
     kmsg::init("networkd")?;
@@ -48,16 +46,14 @@ async fn main() -> Result<()> {
     notifier.status("Discovering interfaces and acquiring DHCP", Health::Healthy)?;
     network_handle.initialize_with_retry().await?;
 
-    if Path::new(SOCKET_PATH).exists() {
-        std::fs::remove_file(SOCKET_PATH)?;
-    }
-
-    let listener = UnixListener::bind(SOCKET_PATH)?;
+    // SAFETY: granola pre-binds the socket and passes it as FD 3 before exec.
+    let std_listener = unsafe { StdUnixListener::from_raw_fd(3) };
+    std_listener.set_nonblocking(true)?;
+    let listener = UnixListener::from_std(std_listener)?;
     let stream = UnixListenerStream::new(listener);
 
-    println!("Listening on {}", SOCKET_PATH);
-
-    notifier.ready(SOCKET_PATH)?;
+    notifier.ready()?;
+    kmsg::info!("networkd started");
 
     let service = NetworkServiceImpl::new(network_handle);
 
