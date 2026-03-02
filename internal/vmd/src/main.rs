@@ -69,7 +69,6 @@ async fn main() -> Result<()> {
     let stream = UnixListenerStream::new(listener);
 
     notifier.ready()?;
-    kmsg::info!("vmd started");
 
     let service = VmServiceImpl::new(vm_handle);
 
