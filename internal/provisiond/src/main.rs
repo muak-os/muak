@@ -3,6 +3,7 @@
 mod constants;
 mod disk;
 mod efi;
+mod history;
 mod install;
 mod reboot;
 mod reset;

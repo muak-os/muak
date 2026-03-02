@@ -16,6 +16,7 @@ use sysconfig::{CONFIG_PATH, HostConfig};
 use tokio::sync::mpsc;
 
 use crate::constants::UPDATE_DIR;
+use crate::history::{self, ChangeKind};
 use crate::services::proto::provision::PrepareUpdateProgress;
 use crate::streaming;
 use crate::uki::Uki;
@@ -58,6 +59,7 @@ pub async fn prepare(
     image: &str,
     extensions: &[String],
     new_config: Option<HostConfig>,
+    author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
     streaming::send_progress(
@@ -94,9 +96,9 @@ pub async fn prepare(
     let update_id = snapshot::create(&staging_dir)?;
 
     if let Some(cfg) = new_config {
-        update_config(&cfg)?;
+        update_config(&update_id, &cfg, author)?;
     } else {
-        update_config_image(image)?;
+        update_config_image(&update_id, image, author)?;
     }
 
     sync();
@@ -140,7 +142,7 @@ fn create_staging_dir() -> Result<PathBuf> {
 }
 
 /// Updates the host system config with a new image, preserving all other fields.
-pub(super) fn update_config_image(image: &str) -> Result<()> {
+pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let mut config: HostConfig =
         sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
@@ -148,13 +150,17 @@ pub(super) fn update_config_image(image: &str) -> Result<()> {
     config.system.image = image.to_string();
 
     let updated_config = sysconfig::serialize(&config).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, updated_config).context("Failed to write updated config")?;
+    std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
+
+    if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
+        eprintln!("Failed to record config history: {}", e);
+    }
 
     Ok(())
 }
 
-/// Writes all mutable fields from `new_config` into the existing config on-disk.
-pub(super) fn update_config(new_config: &HostConfig) -> Result<()> {
+/// Writes all mutable fields to the existing config on-disk.
+pub(super) fn update_config(update_id: &str, new_config: &HostConfig, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let config: HostConfig =
         sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
@@ -163,7 +169,11 @@ pub(super) fn update_config(new_config: &HostConfig) -> Result<()> {
     merged.system.disk = config.system.disk.clone();
 
     let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, updated_config).context("Failed to write updated config")?;
+    std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
+
+    if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
+        eprintln!("Failed to record config history: {}", e);
+    }
 
     Ok(())
 }

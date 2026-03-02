@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use sysconfig::{CONFIG_EXTENSION, CONFIG_PATH};
 
 use crate::constants::UPDATE_DIR;
+use crate::history::{self, ChangeKind};
 
 /// Generates a unique update ID and saves a copy of the current config to `UPDATE_DIR`.
 pub fn create(staging_dir: &Path) -> Result<String> {
@@ -56,6 +57,22 @@ pub fn path(update_id: &str) -> PathBuf {
     Path::new(UPDATE_DIR).join(format!("{}.{}", update_id, CONFIG_EXTENSION))
 }
 
+pub fn find(dir: &Path, update_id: &str) -> Result<PathBuf> {
+    let path = std::fs::read_dir(dir)
+        .context("Failed to read dir")?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.extension().and_then(|s| s.to_str()) == Some(CONFIG_EXTENSION)
+                && p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.ends_with(update_id))
+                    .unwrap_or(false)
+        });
+
+    path.with_context(|| format!("No snapshot found for update_id '{}'", update_id))
+}
+
 /// Reads `system.image` from a snapshot file.
 pub fn read_image(snapshot_path: &Path) -> Result<String> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
@@ -64,10 +81,15 @@ pub fn read_image(snapshot_path: &Path) -> Result<String> {
     Ok(cfg.system.image)
 }
 
-/// Restores the system config from a snapshot file, overwriting the current.
-pub fn restore(snapshot_path: &Path) -> Result<()> {
+/// Restores the system config from a snapshot file, overwriting the current, and records history.
+pub fn restore(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    fs::write(CONFIG_PATH, contents).context("Failed to restore config from snapshot")?;
+    fs::write(CONFIG_PATH, &contents).context("Failed to restore config from snapshot")?;
+
+    if let Err(e) = history::record(update_id, "system", ChangeKind::Rollback, &contents) {
+        eprintln!("Failed to record rollback history: {}", e);
+    }
+
     Ok(())
 }
 

@@ -22,8 +22,6 @@
   - Disable bridge when in maintenance mode
   - Full declarative config for network interfaces, bridges etc
 
-- Config versioning with tracking of changes over time
-
 - Copy-on-Write disk creation for templates
   - Btrfs snapshots create instant, space-efficient copies
   - Btrfs snapshots use COW, so only changed blocks consume space

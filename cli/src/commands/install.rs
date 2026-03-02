@@ -26,15 +26,13 @@ pub async fn handle(
 
     let (key_pem, csr_pem) = pki::generate_csr("muak-admin")?;
 
-    let config_toml = std::fs::read_to_string(&config_path).context(format!(
+    let config_raw = std::fs::read_to_string(&config_path).context(format!(
         "Failed to read config file '{}'",
         config_path.display()
     ))?;
 
-    let config = sysconfig::parse_from_str(&config_toml).context(format!(
-        "Invalid TOML in config file '{}'",
-        config_path.display()
-    ))?;
+    let config = sysconfig::parse_from_str(&config_raw)
+        .context(format!("Invalid config file '{}'", config_path.display()))?;
 
     config.validate_for_install().context(format!(
         "Invalid config for install in '{}'",
@@ -45,7 +43,7 @@ pub async fn handle(
 
     let request = tonic::Request::new(InstallRequest {
         force,
-        config_toml: config_toml.into_bytes(),
+        config_bytes: config_raw.into_bytes(),
         csr: csr_pem,
     });
 

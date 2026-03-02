@@ -12,6 +12,7 @@ use sysconfig::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, HostConfig};
 
 use super::pki::ServerPki;
 use crate::disk;
+use crate::history::{self, ChangeKind};
 
 /// Mount point for the STATE partition during provisioning.
 const MOUNT_POINT: &str = "/run/mnt/state";
@@ -33,7 +34,7 @@ pub fn init(
     let config_bytes = sysconfig::serialize(config).context("Failed to serialize config")?;
     std::fs::write(
         format!("{}/config.{}", MOUNT_POINT, CONFIG_EXTENSION),
-        config_bytes,
+        &config_bytes,
     )
     .context("Failed to write config")?;
 
@@ -72,6 +73,10 @@ pub fn init(
     if let Some(hierarchy) = sb_hierarchy {
         save_key_hierarchy(hierarchy, &Path::new(&secrets_dir).join("secureboot"))
             .context("Failed to save Secure Boot keys")?;
+    }
+
+    if let Err(e) = history::record("install", "system", ChangeKind::Install, &config_bytes) {
+        eprintln!("Failed to record install history: {}", e);
     }
 
     sync();

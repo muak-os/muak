@@ -21,6 +21,12 @@ service ProvisionService {
     // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 
+    // @rbac: system:read
+    rpc GetConfigHistory(GetConfigHistoryRequest) returns (GetConfigHistoryResponse);
+
+    // @rbac: system:read
+    rpc GetConfigSnapshot(GetConfigSnapshotRequest) returns (GetConfigSnapshotResponse);
+
     // @rbac: admin
     rpc FactoryReset(FactoryResetRequest) returns (FactoryResetResponse);
 }
@@ -43,7 +49,7 @@ message GetUpdateStatusResponse {
 
 message InstallRequest {
     bool force = 1;
-    bytes config_toml = 2;
+    bytes config_bytes = 2;
     string csr = 3;
 }
 
@@ -104,6 +110,31 @@ message ListDisksResponse {
 message GetConfigRequest {}
 
 message GetConfigResponse {
+    bytes config = 1;
+    string error = 2;
+}
+
+message ConfigHistoryEntry {
+    int64 timestamp = 1;
+    string update_id = 2;
+    string author = 3;
+    string change_kind = 4;
+}
+
+message GetConfigHistoryRequest {
+    uint32 limit = 1;
+}
+
+message GetConfigHistoryResponse {
+    repeated ConfigHistoryEntry entries = 1;
+    string error = 2;
+}
+
+message GetConfigSnapshotRequest {
+    string update_id = 1;
+}
+
+message GetConfigSnapshotResponse {
     bytes config = 1;
     string error = 2;
 }

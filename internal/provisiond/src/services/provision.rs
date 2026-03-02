@@ -5,6 +5,7 @@ use tonic::{Request, Response, Status};
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::*;
 use crate::disk;
+use crate::history;
 use crate::install;
 use crate::reboot;
 use crate::reset;
@@ -34,7 +35,7 @@ impl ProvisionService for ProvisionServiceImpl {
             return Err(Status::invalid_argument("CSR is required"));
         }
 
-        let config_raw = String::from_utf8(req.config_toml)
+        let config_raw = String::from_utf8(req.config_bytes)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
         let config: sysconfig::HostConfig = sysconfig::parse_from_str(&config_raw)
@@ -80,6 +81,7 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         request: Request<PrepareUpdateRequest>,
     ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
+        let author = extract_author(&request);
         let req = request.into_inner();
         let installed = sysconfig::config();
 
@@ -114,7 +116,7 @@ impl ProvisionService for ProvisionServiceImpl {
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                update::prepare(&image, &extensions, new_config, progress_tx).await
+                update::prepare(&image, &extensions, new_config, &author, progress_tx).await
             },
             |result, out_tx| {
                 let msg = match result {
@@ -237,6 +239,62 @@ impl ProvisionService for ProvisionServiceImpl {
         }
     }
 
+    async fn get_config_history(
+        &self,
+        request: Request<GetConfigHistoryRequest>,
+    ) -> Result<Response<GetConfigHistoryResponse>, Status> {
+        let limit = request.into_inner().limit as usize;
+        let effective_limit = if limit == 0 { 100 } else { limit };
+
+        match tokio::task::spawn_blocking(move || history::list(effective_limit)).await {
+            Ok(Ok(entries)) => {
+                let proto_entries = entries
+                    .into_iter()
+                    .map(|e| ConfigHistoryEntry {
+                        timestamp: e.timestamp,
+                        update_id: e.update_id,
+                        author: e.author,
+                        change_kind: e.change_kind.to_string(),
+                    })
+                    .collect();
+                Ok(Response::new(GetConfigHistoryResponse {
+                    entries: proto_entries,
+                    error: String::new(),
+                }))
+            }
+            Ok(Err(e)) => Ok(Response::new(GetConfigHistoryResponse {
+                entries: Vec::new(),
+                error: format!("{:#}", e),
+            })),
+            Err(e) => Ok(Response::new(GetConfigHistoryResponse {
+                entries: Vec::new(),
+                error: format!("Task panicked: {}", e),
+            })),
+        }
+    }
+
+    async fn get_config_snapshot(
+        &self,
+        request: Request<GetConfigSnapshotRequest>,
+    ) -> Result<Response<GetConfigSnapshotResponse>, Status> {
+        let update_id = request.into_inner().update_id;
+
+        match tokio::task::spawn_blocking(move || history::config(&update_id)).await {
+            Ok(Ok(config)) => Ok(Response::new(GetConfigSnapshotResponse {
+                config: config.into_bytes(),
+                error: String::new(),
+            })),
+            Ok(Err(e)) => Ok(Response::new(GetConfigSnapshotResponse {
+                config: Vec::new(),
+                error: format!("{:#}", e),
+            })),
+            Err(e) => Ok(Response::new(GetConfigSnapshotResponse {
+                config: Vec::new(),
+                error: format!("Task panicked: {}", e),
+            })),
+        }
+    }
+
     async fn factory_reset(
         &self,
         _request: Request<FactoryResetRequest>,
@@ -259,4 +317,14 @@ impl ProvisionService for ProvisionServiceImpl {
             })),
         }
     }
+}
+
+/// Extracts the mTLS client certificate fingerprint from the request metadata.
+fn extract_author<T>(request: &Request<T>) -> String {
+    request
+        .metadata()
+        .get("x-client-fingerprint")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string()
 }
