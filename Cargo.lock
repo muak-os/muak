@@ -888,6 +888,7 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "kmsg",
+ "notify",
  "prost",
  "rustix",
  "sysconfig",
@@ -1579,9 +1580,7 @@ dependencies = [
 name = "notify"
 version = "0.1.1-beta"
 dependencies = [
- "prost",
  "tempfile",
- "tonic-prost-build",
 ]
 
 [[package]]

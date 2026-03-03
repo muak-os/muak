@@ -1,16 +1,9 @@
 use std::os::unix::net::UnixDatagram;
 
 use anyhow::{Context, Result};
-use prost::Message;
+use notify::Health;
 
 use super::service::ServiceStatus;
-
-#[allow(clippy::excessive_nesting)]
-mod proto {
-    include!(concat!(env!("OUT_DIR"), "/muak.internal.supervisor.rs"));
-}
-
-pub use proto::{Health, Notify, notify::Notification};
 
 const NOTIFY_SOCKET: &str = "/run/services/granola-notify.sock";
 
@@ -53,58 +46,70 @@ impl NotifyListener {
         let mut buf = [0u8; 4096];
 
         while let Ok((len, _)) = self.socket.recv_from(&mut buf) {
-            let Ok(notify) = Notify::decode(&buf[..len]) else {
+            let Ok(text) = std::str::from_utf8(&buf[..len]) else {
                 continue;
             };
-
-            if let Some(notification) = self.decode_notification(notify) {
+            if let Some(notification) = parse_notification(text) {
                 notifications.push(notification);
             }
         }
 
         notifications
     }
+}
 
-    /// Converts a raw `Notify` protobuf message into a higher-level `ServiceNotification`.
-    fn decode_notification(&self, notify: Notify) -> Option<ServiceNotification> {
-        let notification = notify.notification?;
+/// Parses a text notification datagram into a `ServiceNotification`.
+fn parse_notification(text: &str) -> Option<ServiceNotification> {
+    let mut service_name: Option<&str> = None;
+    let mut ready_pid: Option<u32> = None;
+    let mut status_msg: Option<&str> = None;
+    let mut health: Option<Health> = None;
+    let mut stopping_reason: Option<&str> = None;
+    let mut is_watchdog = false;
 
-        match notification {
-            Notification::Ready(ready) => {
-                kmsg::info!("Service {} ready (PID {})", notify.service_name, ready.pid,);
-                Some(ServiceNotification::Ready {
-                    service_name: notify.service_name,
-                })
-            }
-            Notification::Status(status) => {
-                let health = Health::try_from(status.health).unwrap_or(Health::Healthy);
-                kmsg::info!(
-                    "Service {} status: {} (health: {:?})",
-                    notify.service_name,
-                    status.message,
-                    health
-                );
-                let new_status = if health == Health::Degraded {
-                    ServiceStatus::Degraded
-                } else {
-                    return None;
-                };
-                Some(ServiceNotification::StatusUpdate {
-                    service_name: notify.service_name,
-                    new_status,
-                })
-            }
-            Notification::Stopping(stopping) => {
-                kmsg::info!(
-                    "Service {} stopping: {}",
-                    notify.service_name,
-                    stopping.reason
-                );
-                Some(ServiceNotification::Stopping {
-                    service_name: notify.service_name,
-                })
-            }
-            Notification::Watchdog(_) => None,
+    for line in text.lines() {
+        if let Some(v) = line.strip_prefix("SERVICE_NAME=") {
+            service_name = Some(v);
+        } else if let Some(v) = line.strip_prefix("READY=") {
+            ready_pid = v.parse().ok();
+        } else if let Some(v) = line.strip_prefix("STATUS=") {
+            status_msg = Some(v);
+        } else if let Some(v) = line.strip_prefix("HEALTH=") {
+            health = v.parse().ok();
+        } else if let Some(v) = line.strip_prefix("STOPPING=") {
+            stopping_reason = Some(v);
+        } else if line == "WATCHDOG=1" {
+            is_watchdog = true;
         }
     }
+
+    let name = service_name?.to_owned();
+
+    if let Some(pid) = ready_pid {
+        kmsg::info!("Service {} ready (PID {})", name, pid);
+        return Some(ServiceNotification::Ready { service_name: name });
+    }
+
+    if let Some(msg) = status_msg {
+        let h = health.unwrap_or(Health::Healthy);
+        kmsg::info!("Service {} status: {} (health: {:?})", name, msg, h);
+        if h == Health::Degraded {
+            return Some(ServiceNotification::StatusUpdate {
+                service_name: name,
+                new_status: ServiceStatus::Degraded,
+            });
+        }
+        return None;
+    }
+
+    if let Some(reason) = stopping_reason {
+        kmsg::info!("Service {} stopping: {}", name, reason);
+        return Some(ServiceNotification::Stopping { service_name: name });
+    }
+
+    if is_watchdog {
+        return None;
+    }
+
+    None
 }
