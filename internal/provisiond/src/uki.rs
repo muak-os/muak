@@ -4,13 +4,19 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use crate::constants;
-
 #[cfg(target_arch = "x86_64")]
 pub const UKI_FILENAME: &str = "BOOTX64.EFI";
 
 #[cfg(target_arch = "aarch64")]
 pub const UKI_FILENAME: &str = "BOOTAA64.EFI";
+
+/// Default kernel command line for x86_64 architecture.
+#[cfg(target_arch = "x86_64")]
+const DEFAULT_CMDLINE: &str = include_str!("../../../pkgs/kernel/cmdline-amd64.txt").trim_ascii();
+
+/// Default kernel command line for AArch64 architecture.
+#[cfg(target_arch = "aarch64")]
+const DEFAULT_CMDLINE: &str = include_str!("../../../pkgs/kernel/cmdline-arm64.txt").trim_ascii();
 
 /// Wrapper around yuki::Components to provide additional functionality for UKI management.
 pub struct Uki(yuki::Components);
@@ -56,7 +62,7 @@ impl Uki {
 
         pull_installer(installer_image, parent).await?;
         build_initramfs(parent, &uki.initramfs, extensions).await?;
-        write_cmdline(&uki.cmdline, constants::DEFAULT_CMDLINE)?;
+        write_cmdline(&uki.cmdline, DEFAULT_CMDLINE)?;
 
         Ok(uki)
     }

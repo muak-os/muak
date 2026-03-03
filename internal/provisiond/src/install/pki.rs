@@ -7,7 +7,8 @@ use x509_cert::Certificate;
 use x509_cert::der::EncodePem;
 use x509_cert::der::pem::LineEnding;
 
-use crate::constants::LUKS_KEY_SIZE;
+/// Size of the LUKS key in bytes.
+const LUKS_KEY_SIZE: usize = 64;
 
 /// PKI materials returned to the client after install.
 pub struct InstallResult {

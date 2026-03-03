@@ -11,7 +11,6 @@ use rustix::fs::sync;
 use sysconfig::HostConfig;
 use tokio::sync::mpsc;
 
-use crate::constants;
 use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
 use crate::efi;
@@ -19,6 +18,9 @@ use crate::secrets;
 use crate::services::proto::provision::InstallProgress;
 use crate::streaming;
 use crate::uki::Uki;
+
+/// Working directory for installation operations.
+const INSTALL_DIR: &str = "/run/install";
 
 /// Installs Muak to the specified disk with the given configuration.
 pub async fn run(
@@ -159,7 +161,7 @@ async fn prepare_uki(
     sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
 ) -> Result<PreparedUki> {
     send_progress(progress, &format!("Pulling installer image: {}", image)).await;
-    let work_dir = Path::new(constants::INSTALL_DIR);
+    let work_dir = Path::new(INSTALL_DIR);
     let mut uki = Uki::prepare(image, extensions, work_dir).await?;
     let staged_path = work_dir.join("staged.efi");
 
