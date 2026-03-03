@@ -107,22 +107,47 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
 }
 
 async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Result<()> {
-    let from_update_id = from.unwrap_or_default();
-    let to_update_id = to.unwrap_or_default();
-
-    if from_update_id.is_empty() && to_update_id.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text("At least one of --from or --to must be specified.")
-        );
-        std::process::exit(1);
-    }
-
     let mut client = ProvisionServiceClient::new(channel);
 
-    let from = fetch_config_at(&mut client, &from_update_id).await?;
-    let to = fetch_config_at(&mut client, &to_update_id).await?;
+    let (from, to) = match (from, to) {
+        (Some(f), Some(t)) => {
+            let a = fetch_snapshot(&mut client, &f).await?;
+            let b = fetch_snapshot(&mut client, &t).await?;
+            (a, b)
+        }
+        (None, Some(t)) => {
+            let entries = fetch_history(&mut client).await?;
+            let predecessor = entries
+                .iter()
+                .skip_while(|e| e.update_id != t)
+                .nth(1)
+                .map(|e| e.update_id.as_str());
+            match predecessor {
+                Some(prev) => {
+                    let a = fetch_snapshot(&mut client, prev).await?;
+                    let b = fetch_snapshot(&mut client, &t).await?;
+                    (a, b)
+                }
+                None => {
+                    println!(
+                        "{}",
+                        ui::style::muted("No previous entry to compare against.")
+                    );
+                    return Ok(());
+                }
+            }
+        }
+        _ => {
+            eprintln!(
+                "{} {}",
+                ui::style::error("Error:"),
+                ui::style::error_text(
+                    "Specify --to <update-id>, or both --from <update-id> --to <update-id>."
+                )
+            );
+            std::process::exit(1);
+        }
+    };
 
     let changes = diff_configs(&from, &to)?;
 
@@ -146,16 +171,34 @@ async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Res
     Ok(())
 }
 
-async fn fetch_config_at(
+async fn fetch_history(
+    client: &mut ProvisionServiceClient<Channel>,
+) -> Result<Vec<crate::client::ConfigHistoryEntry>> {
+    let resp = client
+        .get_config_history(tonic::Request::new(GetConfigHistoryRequest { limit: 0 }))
+        .await?
+        .into_inner();
+    if !resp.error.is_empty() {
+        eprintln!(
+            "{} {}",
+            ui::style::error("Error:"),
+            ui::style::error_text(&resp.error)
+        );
+        std::process::exit(1);
+    }
+    Ok(resp.entries)
+}
+
+async fn fetch_snapshot(
     client: &mut ProvisionServiceClient<Channel>,
     update_id: &str,
 ) -> Result<String> {
-    let response = client
+    let resp = client
         .get_config_snapshot(tonic::Request::new(GetConfigSnapshotRequest {
             update_id: update_id.to_string(),
         }))
-        .await?;
-    let resp = response.into_inner();
+        .await?
+        .into_inner();
     if !resp.error.is_empty() {
         eprintln!(
             "{} {}",
