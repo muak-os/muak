@@ -3,7 +3,7 @@ use std::time::Instant;
 
 /// Blueprint for a supervised service.
 #[derive(Clone, Debug)]
-pub struct ServiceDef {
+pub struct Service {
     pub name: &'static str,
     pub command: Vec<String>,
     pub depends_on: Vec<&'static str>,
@@ -22,7 +22,7 @@ pub enum ServiceStatus {
 
 /// Runtime state for a single supervised service.
 pub struct ServiceState {
-    pub def: ServiceDef,
+    pub service: Service,
     pub pid: Option<i32>,
     pub status: ServiceStatus,
     pub listener_fd: Option<OwnedFd>,
@@ -31,9 +31,9 @@ pub struct ServiceState {
 }
 
 impl ServiceState {
-    pub fn new(def: ServiceDef) -> Self {
+    pub fn new(service: Service) -> Self {
         Self {
-            def,
+            service,
             pid: None,
             status: ServiceStatus::Pending,
             listener_fd: None,

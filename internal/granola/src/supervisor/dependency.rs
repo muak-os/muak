@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use super::service::{ServiceDef, ServiceState, ServiceStatus};
+use super::service::{Service, ServiceState, ServiceStatus};
 
 /// Checks if all dependencies of a service definition are in the `Ready` state.
-pub fn are_satisfied(def: &ServiceDef, services: &HashMap<&'static str, ServiceState>) -> bool {
-    def.depends_on.iter().all(|dep| {
+pub fn are_satisfied(service: &Service, services: &HashMap<&'static str, ServiceState>) -> bool {
+    service.depends_on.iter().all(|dep| {
         services
             .get(dep)
             .is_some_and(|s| s.status == ServiceStatus::Ready)
@@ -16,7 +16,7 @@ pub fn collect_startable(services: &HashMap<&'static str, ServiceState>) -> Vec<
     services
         .iter()
         .filter(|(_, state)| {
-            state.status == ServiceStatus::Pending && are_satisfied(&state.def, services)
+            state.status == ServiceStatus::Pending && are_satisfied(&state.service, services)
         })
         .map(|(name, _)| *name)
         .collect()

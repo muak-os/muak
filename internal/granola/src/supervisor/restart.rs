@@ -52,14 +52,14 @@ impl RestartQueue {
 
         kmsg::info!(
             "Will restart {} (attempt {}/{}) after {:?}",
-            state.def.name,
+            state.service.name,
             state.restart_count,
             MAX_RESTART_ATTEMPTS,
             RESTART_DELAY
         );
 
         self.pending.push(PendingRestart {
-            name: state.def.name,
+            name: state.service.name,
             due_at: Instant::now() + RESTART_DELAY,
         });
     }
@@ -69,7 +69,7 @@ impl RestartQueue {
         state.status = ServiceStatus::Failed;
         kmsg::error!(
             "Service {} failed permanently after {} restarts",
-            state.def.name,
+            state.service.name,
             state.restart_count
         );
     }

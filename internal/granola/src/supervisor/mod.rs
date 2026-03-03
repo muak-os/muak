@@ -15,7 +15,7 @@ use logger::LogWriter;
 use notify::{NotifyListener, ServiceNotification};
 use reaper::Reaper;
 use restart::RestartQueue;
-pub use service::ServiceDef;
+pub use service::Service;
 use service::{ServiceState, ServiceStatus};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -31,7 +31,7 @@ pub struct Supervisor {
 }
 
 impl Supervisor {
-    pub fn new(service_defs: Vec<ServiceDef>, logger: LogWriter) -> Result<Self> {
+    pub fn new(service_defs: Vec<Service>, logger: LogWriter) -> Result<Self> {
         std::fs::create_dir_all(SERVICES_DIR).context("Failed to create services dir")?;
 
         let services = service_defs
@@ -183,7 +183,6 @@ impl Supervisor {
         if RestartQueue::should_restart(state, exit_code) {
             self.restart_queue.schedule(state);
         } else if exit_code == Some(0) {
-            // Clean exit, not a failure.
             state.status = ServiceStatus::Stopping;
             kmsg::info!("Service {} exited cleanly, will not restart", name);
         } else {
@@ -196,7 +195,7 @@ impl Supervisor {
         let due = self.restart_queue.take_due(|name| {
             services
                 .get(name)
-                .is_some_and(|s| dependency::are_satisfied(&s.def, services))
+                .is_some_and(|s| dependency::are_satisfied(&s.service, services))
         });
 
         for name in due {

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use supervisor::logger::LogReader;
-use supervisor::{ServiceDef, Supervisor};
+use supervisor::{Service, Supervisor};
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -37,27 +37,27 @@ async fn main() -> Result<()> {
     }
 
     let mut services = vec![
-        ServiceDef {
+        Service {
             name: "modd",
             command: vec!["/sbin/modd".to_string()],
             depends_on: vec![],
         },
-        ServiceDef {
+        Service {
             name: "networkd",
             command: vec!["/sbin/networkd".to_string()],
             depends_on: vec![],
         },
-        ServiceDef {
+        Service {
             name: "provisiond",
             command: vec!["/sbin/provisiond".to_string()],
             depends_on: vec![],
         },
-        ServiceDef {
+        Service {
             name: "timed",
             command: vec!["/sbin/timed".to_string()],
             depends_on: vec!["networkd"],
         },
-        ServiceDef {
+        Service {
             name: "apid",
             command: apid_command,
             depends_on: vec!["networkd"],
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     ];
 
     if is_installed {
-        services.push(ServiceDef {
+        services.push(Service {
             name: "vmd",
             command: vec!["/sbin/vmd".to_string()],
             depends_on: vec!["networkd"],

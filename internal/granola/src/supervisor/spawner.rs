@@ -19,7 +19,7 @@ pub struct SpawnResult {
 /// Spawns the binary for a service and updates its state.
 pub fn spawn(state: &mut ServiceState) -> Result<SpawnResult> {
     let (bin, args) = state
-        .def
+        .service
         .command
         .split_first()
         .context("command must not be empty")?;
@@ -58,7 +58,7 @@ pub fn spawn(state: &mut ServiceState) -> Result<SpawnResult> {
     state.pid = Some(pid);
     state.status = ServiceStatus::Starting;
 
-    kmsg::info!("Spawned {} with PID {}", state.def.name, pid);
+    kmsg::info!("Spawned {} with PID {}", state.service.name, pid);
 
     Ok(SpawnResult {
         pid,
