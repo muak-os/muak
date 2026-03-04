@@ -11,7 +11,10 @@ use crate::ui;
 #[derive(Subcommand)]
 pub enum ConfigAction {
     Generate,
-    Export,
+    Export {
+        #[arg(long)]
+        from: Option<String>,
+    },
     History {
         #[arg(long, short, default_value = "10")]
         limit: u32,
@@ -30,29 +33,34 @@ pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {
         ConfigAction::Generate => {
             unreachable!("Generate is handled in main before connecting")
         }
-        ConfigAction::Export => export(channel).await,
+        ConfigAction::Export { from } => export(channel, from).await,
         ConfigAction::History { limit } => history(channel, limit).await,
         ConfigAction::Diff { from, to } => diff(channel, from, to).await,
     }
 }
 
-async fn export(channel: Channel) -> Result<()> {
+async fn export(channel: Channel, from: Option<String>) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
-    let response = client
-        .get_config(tonic::Request::new(GetConfigRequest {}))
-        .await?;
-    let resp = response.into_inner();
 
-    if !resp.error.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&resp.error)
-        );
-        std::process::exit(1);
-    }
+    let config = if let Some(update_id) = from {
+        fetch_snapshot(&mut client, &update_id).await?
+    } else {
+        let response = client
+            .get_config(tonic::Request::new(GetConfigRequest {}))
+            .await?;
+        let resp = response.into_inner();
 
-    let config_str = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
+        if !resp.error.is_empty() {
+            eprintln!(
+                "{} {}",
+                ui::style::error("Error:"),
+                ui::style::error_text(&resp.error)
+            );
+            std::process::exit(1);
+        }
+
+        String::from_utf8(resp.config).context("Invalid UTF-8 in config")?
+    };
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -60,7 +68,7 @@ async fn export(channel: Channel) -> Result<()> {
     let timestamp = format_timestamp(now.as_secs() as i64, TimeSeparator::Filename);
     let filename = format!("config-{timestamp}.toml");
 
-    std::fs::write(&filename, &config_str)?;
+    std::fs::write(&filename, &config)?;
     println!(
         "{}",
         ui::style::success(&format!("Exported config to {filename}"))
