@@ -1,4 +1,10 @@
-# Atomic Updates
+---
+title: Atomic Updates
+description: How Muak performs zero-risk OS updates using kexec and automatic rollback on failure.
+section: maintenance
+order: 1
+draft: false
+---
 
 Muak updates are atomic: the running system is never partially modified. Either the new kernel boots and passes
 validation, or the system automatically reverts to the previous state. There is no manual rollback step and no

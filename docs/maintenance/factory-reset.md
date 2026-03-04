@@ -1,4 +1,10 @@
-# Factory Reset
+---
+title: Factory Reset
+description: How to wipe all persistent state from a Muak node while preserving the boot image.
+section: maintenance
+order: 3
+draft: false
+---
 
 A factory reset wipes all persistent data from a Muak node by deleting and re-formatting the STATE and DATA partitions. The EFI partition and its UKI are left intact — the node will still boot into live mode after the reset.
 

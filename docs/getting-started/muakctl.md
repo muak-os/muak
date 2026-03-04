@@ -1,4 +1,10 @@
-# muakctl
+---
+title: muakctl
+description: Install and use muakctl, the command-line client for managing Muak nodes over mTLS gRPC.
+section: getting started
+order: 3
+draft: false
+---
 
 `muakctl` is the command-line client for Muak. It communicates with the node over
 mTLS gRPC (HTTP/2). Every Muak operation like installing, managing VMs, updating, inspecting logs

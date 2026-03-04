@@ -1,4 +1,10 @@
-# System Requirements
+---
+title: System Requirements
+description: Hardware and software prerequisites for running Muak on bare metal.
+section: getting started
+order: 4
+draft: false
+---
 
 ## Hardware
 

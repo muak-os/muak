@@ -1,4 +1,10 @@
-# Philosophy
+---
+title: Philosophy
+description: The design principles behind Muak — immutability, minimal footprint, and API-first management.
+section: learn more
+order: 2
+draft: false
+---
 
 Muak is built around a small set of design principles that inform every decision — from the choice of hypervisors to the absence of a shell.
 

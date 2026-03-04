@@ -1,4 +1,10 @@
-# Installation
+---
+title: Installation
+description: Step-by-step guide to installing Muak onto a physical disk from live media.
+section: maintenance
+order: 4
+draft: false
+---
 
 Installation writes Muak to a physical disk. It is a one-time, destructive operation: the target disk is completely wiped and repartitioned. After a successful install, the system reboots into the installed image.
 

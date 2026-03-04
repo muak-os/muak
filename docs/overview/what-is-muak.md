@@ -1,10 +1,16 @@
-# What is Muak?
+---
+title: What is Muak?
+description: An introduction to Muak — a minimal, immutable, API-driven Linux distribution built to run virtual machines on bare metal.
+section: overview
+order: 1
+draft: false
+---
 
 Muak is a minimal, immutable, API-driven Linux distribution built to run virtual machines. Boot it
 on bare metal and have VMs running in minutes — managed entirely through a single gRPC API secured
 with mutual TLS.
 
-## The four pillars
+## The five pillars
 
 **API-managed.** There is no shell. There is no SSH. Every operation — install, configure, launch a
 VM, update the OS, revoke a certificate — goes through a single declarative gRPC API. This

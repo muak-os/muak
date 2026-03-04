@@ -1,4 +1,10 @@
-# Architecture
+---
+title: Architecture
+description: How Muak is structured as an atomic, modular system — from the UKI image to its daemon composition.
+section: learn more
+order: 1
+draft: false
+---
 
 Muak is designed to be **atomic** in deployment and **modular** in composition.
 

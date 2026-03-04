@@ -1,4 +1,10 @@
-# Getting Started
+---
+title: Getting Started
+description: Full walkthrough of a bare-metal Muak installation from image build to running your first VM.
+section: getting started
+order: 1
+draft: false
+---
 
 This guide walks you through a full bare-metal installation of Muak from scratch: building the
 image, booting from live media, installing to disk, and running your first VM.

@@ -1,4 +1,10 @@
-# Configuration History
+---
+title: Configuration History
+description: How Muak records configuration changes over time and how to retrieve past snapshots.
+section: maintenance
+order: 2
+draft: false
+---
 
 Every time the system configuration changes — on install, update, or rollback — Muak records a history entry. This lets you see what changed, when, and by whom, and retrieve exact configuration snapshots from any point in time.
 

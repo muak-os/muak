@@ -1,4 +1,10 @@
-# Machine Configuration
+---
+title: Machine Configuration
+description: Reference for the TOML configuration file used to configure a Muak node.
+section: configure
+order: 1
+draft: false
+---
 
 Muak is configured via a single TOML file that is applied at installation time and
 updated via `muakctl update --config`.
