@@ -41,6 +41,9 @@ pub(crate) async fn pull_to_dir(
         let selected_manifest = manifest::select_platform(&manifest.manifests)?;
         let platform_url = manifest::build_url(&image_ref, &selected_manifest.digest);
         let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
+
+        verify::check_signature(&platform_json, signature_key).await?;
+
         let platform_manifest = manifest::parse(&platform_json)?;
         platform_manifest.layers
     } else {

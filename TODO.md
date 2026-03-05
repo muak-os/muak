@@ -39,6 +39,8 @@
   - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
   - Deterministic simulation tests?
 
+- Sign all extensions and verify them in `imager`
+
 - Enchance `vmd`:
   - Allow for ISO images for vms
   - Rework commands to be pass through to the hypervisor

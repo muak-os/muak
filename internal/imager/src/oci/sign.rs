@@ -1,8 +1,8 @@
 //! OCI image signing.
 //!
 //! Signs an OCI image by adding a `dev.muak.sig` annotation to the manifest
-//! containing a base64url-encoded ECDSA P-256 DER signature over the image's
-//! config digest string.
+//! containing a base64url-encoded ECDSA P-256 DER signature over the manifest's
+//! own SHA-256 content digest.
 
 use base64ct::{Base64Url, Encoding};
 use reqwest::Client;
@@ -10,23 +10,13 @@ use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair};
 
 use crate::error::{ImagerError, Result};
-use crate::image::ImageReference;
+use crate::image::{ImageReference, OciManifest};
 use crate::oci::USER_AGENT;
 use crate::oci::auth::fetch_auth_token;
 use crate::oci::manifest;
-use crate::oci::verify::SIG_ANNOTATION;
+use crate::oci::verify::{SIG_ANNOTATION, sha256_hex};
 
 /// Sign an OCI image manifest in the registry.
-///
-/// Fetches the manifest at `reference`, signs the config digest string with the
-/// ECDSA P-256 private key, and pushes the manifest back with a `dev.muak.sig`
-/// annotation containing the base64url-encoded DER signature.
-///
-/// `privkey_pem` must be a PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`). Generate with:
-/// ```sh
-/// openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out cosign.key
-/// openssl pkey -pubout -in cosign.key -out cosign.pub
-/// ```
 pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = Client::builder()
@@ -35,24 +25,111 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
         .map_err(|e| ImagerError::NetworkError(format!("Failed to create HTTP client: {}", e)))?;
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
+    let key_pair = parse_pem_private_key(privkey_pem)?;
+    let rng = SystemRandom::new();
+
     let manifest_url = manifest::build_url(&image_ref, &image_ref.tag);
     let manifest_json = manifest::fetch(&client, &manifest_url, token.as_deref()).await?;
+    let parsed: OciManifest = manifest::parse(&manifest_json)?;
 
-    let key_pair = parse_pem_private_key(privkey_pem)?;
+    if !parsed.manifests.is_empty() {
+        for descriptor in &parsed.manifests {
+            let platform_url = manifest::build_url(&image_ref, &descriptor.digest);
+            let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
+            let (signed_bytes, content_type) =
+                build_signed_manifest(&platform_json, &key_pair, &rng)?;
+            push_manifest(
+                &client,
+                &image_ref,
+                token.as_deref(),
+                &signed_bytes,
+                &content_type,
+                &descriptor.digest,
+            )
+            .await?;
+        }
+    }
 
-    let mut manifest_value: serde_json::Value = serde_json::from_str(&manifest_json)
+    let (signed_bytes, content_type) = build_signed_manifest(&manifest_json, &key_pair, &rng)?;
+    push_manifest(
+        &client,
+        &image_ref,
+        token.as_deref(),
+        &signed_bytes,
+        &content_type,
+        &image_ref.tag,
+    )
+    .await
+}
+
+/// Compute the canonical payload for signing a manifest JSON string.
+pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, Vec<u8>)> {
+    let mut value: serde_json::Value = serde_json::from_str(manifest_json)
         .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
 
-    let config_digest = extract_config_digest(&manifest_value)?;
+    if let Some(obj) = value.as_object_mut() {
+        let remove_annotations =
+            if let Some(annotations) = obj.get_mut("annotations").and_then(|a| a.as_object_mut()) {
+                annotations.remove(SIG_ANNOTATION);
+                annotations.is_empty()
+            } else {
+                false
+            };
+        if remove_annotations {
+            obj.remove("annotations");
+        }
+    }
 
-    // Sign the config digest string bytes — stable regardless of manifest JSON formatting.
-    let rng = SystemRandom::new();
+    sort_keys(&mut value);
+
+    let canonical = serde_json::to_vec(&value).map_err(|e| {
+        ImagerError::OciParseError(format!("Failed to serialise canonical manifest: {}", e))
+    })?;
+
+    let digest = format!("sha256:{}", sha256_hex(&canonical));
+    Ok((digest, canonical))
+}
+
+/// Recursively sort all JSON object keys in lexicographic order.
+fn sort_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<(String, serde_json::Value)> = map
+                .iter_mut()
+                .map(|(k, v)| {
+                    sort_keys(v);
+                    (k.clone(), v.clone())
+                })
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            *map = entries.into_iter().collect();
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                sort_keys(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Build a signed manifest: compute the payload, sign it, inject the annotation,
+/// and return `(signed_bytes, content_type)`.
+fn build_signed_manifest(
+    manifest_json: &str,
+    key_pair: &EcdsaKeyPair,
+    rng: &SystemRandom,
+) -> Result<(Vec<u8>, String)> {
+    let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
+
     let sig = key_pair
-        .sign(&rng, config_digest.as_bytes())
+        .sign(rng, digest.as_bytes())
         .map_err(|_| ImagerError::SignatureVerificationFailed("Signing failed".to_string()))?;
     let sig_b64 = Base64Url::encode_string(sig.as_ref());
 
-    // Inject the annotation and PUT the manifest back.
+    let mut manifest_value: serde_json::Value = serde_json::from_str(manifest_json)
+        .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
+
     manifest_value
         .as_object_mut()
         .ok_or_else(|| ImagerError::InvalidOciFormat("Manifest is not a JSON object".to_string()))?
@@ -67,35 +144,17 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
             serde_json::Value::String(sig_b64),
         );
 
-    let signed_manifest = serde_json::to_vec(&manifest_value)
-        .map_err(|e| ImagerError::OciParseError(format!("Failed to serialise manifest: {}", e)))?;
-
     let content_type = manifest_value
         .get("mediaType")
         .and_then(|v| v.as_str())
         .unwrap_or("application/vnd.oci.image.manifest.v1+json")
         .to_string();
 
-    push_manifest(
-        &client,
-        &image_ref,
-        token.as_deref(),
-        &signed_manifest,
-        &content_type,
-    )
-    .await
-}
+    let signed_bytes = serde_json::to_vec(&manifest_value).map_err(|e| {
+        ImagerError::OciParseError(format!("Failed to serialise signed manifest: {}", e))
+    })?;
 
-/// Extract the config digest string from a parsed manifest Value.
-pub(crate) fn extract_config_digest(manifest_value: &serde_json::Value) -> Result<String> {
-    manifest_value
-        .get("config")
-        .and_then(|c| c.get("digest"))
-        .and_then(|d| d.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            ImagerError::InvalidOciFormat("Manifest has no config.digest field".to_string())
-        })
+    Ok((signed_bytes, content_type))
 }
 
 /// Push a manifest to the registry via PUT.
@@ -105,8 +164,9 @@ async fn push_manifest(
     token: Option<&str>,
     body: &[u8],
     content_type: &str,
+    reference: &str,
 ) -> Result<()> {
-    let url = manifest::build_url(image_ref, &image_ref.tag);
+    let url = manifest::build_url(image_ref, reference);
     let mut request = client
         .put(&url)
         .header("Content-Type", content_type)
@@ -173,26 +233,7 @@ fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_sign_verify_roundtrip() {
-        use ring::signature::KeyPair;
-
-        let rng = SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
-        let key_pair =
-            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
-                .unwrap();
-
-        let message = b"sha256:f572bca63a6f63ee16e3ff053a27f8b0afaa510bd9a474b4412c48ec8351c225";
-        let sig = key_pair.sign(&rng, message).unwrap();
-
-        let pub_key = ring::signature::UnparsedPublicKey::new(
-            &ring::signature::ECDSA_P256_SHA256_ASN1,
-            key_pair.public_key().as_ref(),
-        );
-        assert!(pub_key.verify(message, sig.as_ref()).is_ok());
-    }
+    use crate::oci::verify::sha256_hex;
 
     #[test]
     fn test_base64url_roundtrip() {
@@ -203,20 +244,81 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_config_digest_ok() {
-        let manifest: serde_json::Value = serde_json::from_str(
-            r#"{"config":{"digest":"sha256:abc123","mediaType":"application/vnd.oci.image.config.v1+json","size":100}}"#,
-        )
-        .unwrap();
-        assert_eq!(extract_config_digest(&manifest).unwrap(), "sha256:abc123");
+    fn test_manifest_signing_payload_strips_sig_annotation() {
+        let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
+        let (digest, canonical) = manifest_signing_payload(manifest_json).unwrap();
+
+        let canonical_str = std::str::from_utf8(&canonical).unwrap();
+        assert!(
+            !canonical_str.contains("dev.muak.sig"),
+            "canonical bytes must not contain the sig annotation"
+        );
+        assert!(
+            canonical_str.contains("keep"),
+            "unrelated annotations must be preserved"
+        );
+
+        let expected = format!("sha256:{}", sha256_hex(&canonical));
+        assert_eq!(digest, expected);
     }
 
     #[test]
-    fn test_extract_config_digest_missing() {
-        let manifest: serde_json::Value = serde_json::from_str(r#"{"layers":[]}"#).unwrap();
-        assert!(matches!(
-            extract_config_digest(&manifest).unwrap_err(),
-            ImagerError::InvalidOciFormat(_)
-        ));
+    fn test_build_signed_manifest_roundtrip() {
+        use ring::signature::{
+            ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair, UnparsedPublicKey,
+        };
+
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let key_pair =
+            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+                .unwrap();
+
+        let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
+
+        let (signed_bytes, _content_type) =
+            build_signed_manifest(manifest_json, &key_pair, &rng).unwrap();
+
+        let signed_value: serde_json::Value = serde_json::from_slice(&signed_bytes).unwrap();
+        let sig_b64 = signed_value["annotations"][SIG_ANNOTATION]
+            .as_str()
+            .expect("annotation must be present");
+        let sig_bytes = Base64Url::decode_vec(sig_b64).unwrap();
+
+        let (digest, _) = manifest_signing_payload(manifest_json).unwrap();
+        let pub_key = UnparsedPublicKey::new(
+            &ring::signature::ECDSA_P256_SHA256_ASN1,
+            key_pair.public_key().as_ref(),
+        );
+        assert!(
+            pub_key.verify(digest.as_bytes(), &sig_bytes).is_ok(),
+            "signature must verify against the canonical manifest digest"
+        );
+    }
+
+    #[test]
+    fn test_manifest_signing_payload_idempotent() {
+        let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
+        let (digest1, _) = manifest_signing_payload(manifest_json).unwrap();
+
+        let mut value: serde_json::Value = serde_json::from_str(manifest_json).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .entry("annotations")
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
+            .as_object_mut()
+            .unwrap()
+            .insert(
+                SIG_ANNOTATION.to_string(),
+                serde_json::Value::String("somesig".to_string()),
+            );
+        let signed_json = serde_json::to_string(&value).unwrap();
+
+        let (digest2, _) = manifest_signing_payload(&signed_json).unwrap();
+        assert_eq!(
+            digest1, digest2,
+            "stripping the annotation must give the same payload on re-sign"
+        );
     }
 }

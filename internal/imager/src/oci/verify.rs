@@ -5,7 +5,7 @@ use ring::signature;
 use serde_json::Value;
 
 use crate::error::{ImagerError, Result};
-use crate::oci::sign::extract_config_digest;
+use crate::oci::sign::manifest_signing_payload;
 
 /// Annotation key used to store the image signature.
 pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
@@ -76,6 +76,10 @@ pub(crate) fn verify_local_digest(
 /// Check the `SIG_ANNOTATION` annotation on the manifest against the provided public key.
 pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> Result<()> {
     let Some(pem) = pubkey_pem else {
+        eprintln!(
+            "WARNING: No public key provided — manifest signature verification is DISABLED. \
+             This image has not been authenticated and may have been tampered with."
+        );
         return Ok(());
     };
 
@@ -95,7 +99,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
         })?
         .to_string();
 
-    let config_digest = extract_config_digest(&manifest_value)?;
+    let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
 
     let sig_bytes = Base64Url::decode_vec(&sig_b64).map_err(|e| {
         ImagerError::SignatureVerificationFailed(format!(
@@ -110,7 +114,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
         signature::UnparsedPublicKey::new(&signature::ECDSA_P256_SHA256_ASN1, &pubkey_der);
 
     public_key
-        .verify(config_digest.as_bytes(), &sig_bytes)
+        .verify(digest.as_bytes(), &sig_bytes)
         .map_err(|_| {
             ImagerError::SignatureVerificationFailed(
                 "Signature verification failed: image was not signed by the trusted key"
@@ -277,12 +281,13 @@ mod tests {
         assert!(parse_pem_public_key("not a pem file").is_err());
     }
 
-    /// check_signature extracts config.digest and verifies the signature against it.
     #[tokio::test]
-    async fn test_check_signature_config_digest_roundtrip() {
+    async fn test_check_signature_manifest_digest_roundtrip() {
         use base64ct::{Base64Url, Encoding};
         use ring::rand::SystemRandom;
         use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+
+        use crate::oci::sign::manifest_signing_payload;
 
         let rng = SystemRandom::new();
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
@@ -290,36 +295,79 @@ mod tests {
             EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
                 .unwrap();
 
-        let config_digest =
-            "sha256:f572bca63a6f63ee16e3ff053a27f8b0afaa510bd9a474b4412c48ec8351c225";
-        let sig = key_pair.sign(&rng, config_digest.as_bytes()).unwrap();
-        let sig_b64 = Base64Url::encode_string(sig.as_ref());
-
-        // Build a manifest with the annotation and a config.digest field.
-        let manifest = serde_json::json!({
+        let manifest_bare = serde_json::json!({
             "schemaVersion": 2,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
             "config": {
                 "mediaType": "application/vnd.oci.image.config.v1+json",
-                "digest": config_digest,
+                "digest": "sha256:f572bca63a6f63ee16e3ff053a27f8b0afaa510bd9a474b4412c48ec8351c225",
                 "size": 100
             },
-            "layers": [],
-            "annotations": { SIG_ANNOTATION: sig_b64 }
+            "layers": []
         });
-        let manifest_json = serde_json::to_string(&manifest).unwrap();
+        let manifest_bare_json = serde_json::to_string(&manifest_bare).unwrap();
 
-        // Build a minimal PKCS#8 SubjectPublicKeyInfo PEM from the raw public key bytes.
+        let (digest, _) = manifest_signing_payload(&manifest_bare_json).unwrap();
+        let sig = key_pair.sign(&rng, digest.as_bytes()).unwrap();
+        let sig_b64 = Base64Url::encode_string(sig.as_ref());
+
+        let mut manifest_signed = manifest_bare.clone();
+        manifest_signed["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
+        let manifest_signed_json = serde_json::to_string(&manifest_signed).unwrap();
+
         let pub_raw = key_pair.public_key().as_ref();
-        // Wrap uncompressed EC point in SubjectPublicKeyInfo for P-256.
         let spki = build_p256_spki(pub_raw);
         let pub_pem = format!(
             "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
             base64ct::Base64::encode_string(&spki)
         );
 
-        let result = check_signature(&manifest_json, Some(&pub_pem)).await;
+        let result = check_signature(&manifest_signed_json, Some(&pub_pem)).await;
         assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_check_signature_tampered_manifest_fails() {
+        use base64ct::{Base64Url, Encoding};
+        use ring::rand::SystemRandom;
+        use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+
+        use crate::oci::sign::manifest_signing_payload;
+
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let key_pair =
+            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+                .unwrap();
+
+        let manifest_bare = serde_json::json!({
+            "schemaVersion": 2,
+            "config": {"digest": "sha256:abc", "size": 1},
+            "layers": []
+        });
+        let manifest_bare_json = serde_json::to_string(&manifest_bare).unwrap();
+        let (digest, _) = manifest_signing_payload(&manifest_bare_json).unwrap();
+        let sig = key_pair.sign(&rng, digest.as_bytes()).unwrap();
+        let sig_b64 = Base64Url::encode_string(sig.as_ref());
+
+        // Attacker injects a malicious layer after signing.
+        let mut tampered = manifest_bare.clone();
+        tampered["layers"] = serde_json::json!([{"digest":"sha256:evil","size":999}]);
+        tampered["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
+        let tampered_json = serde_json::to_string(&tampered).unwrap();
+
+        let pub_raw = key_pair.public_key().as_ref();
+        let spki = build_p256_spki(pub_raw);
+        let pub_pem = format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
+            base64ct::Base64::encode_string(&spki)
+        );
+
+        let result = check_signature(&tampered_json, Some(&pub_pem)).await;
+        assert!(
+            result.is_err(),
+            "tampered manifest must NOT verify successfully"
+        );
     }
 
     /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
