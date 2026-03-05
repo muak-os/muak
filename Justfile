@@ -37,9 +37,9 @@ push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
 platform := if arch == "aarch64" { "linux/arm64" } else { "linux/amd64" }
 progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
-tag := env_var_or_default("TAG", `git describe --tag --always --dirty --match 'v[0-9]*' 2>/dev/null || echo dev`)
+tag := env_var_or_default("TAG", "latest")
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg TAG=" + tag + " " + provenance_arg
+common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch +  " " + provenance_arg
 
 # Colors
 
@@ -58,13 +58,14 @@ reset := '\e[0m'
 dev: (build "--release" "") installer sign extract extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
-# Build kernel to local artifacts
-kernel: _ensure-artifacts (_require-pkg "kernel")
-    @printf "{{ cyan }}Building kernel locally{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
-        --output type=local,dest={{ artifacts }} \
-        --file pkgs/kernel/Dockerfile \
-        .
+# Build kernel image (use `just extract --image ...` to extract artifacts locally)
+kernel:
+  @printf "{{ cyan }}Building kernel{{ reset }}\n"
+  {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
+      --tag {{ registry }}/kernel:{{ tag }} \
+      {{ push_arg }} \
+      --file pkgs/kernel/Dockerfile \
+      .
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
 [arg("release", long, value="--release")]
@@ -207,7 +208,6 @@ oci *pkgs: _require-docker-for-push
     pkgs="{{ pkgs }}"
     if [ -z "$pkgs" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just oci <pkg1> [pkg2...]\n"
-        printf "{{ yellow }}Special packages:{{ reset }} kernel, installer, cli\n"
         exit 1
     fi
     for pkg in $pkgs; do
@@ -317,13 +317,7 @@ _oci-build pkg:
     case "{{ pkg }}" in
         kernel)
             printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
-                --tag {{ registry }}/kernel:{{ tag }} \
-                $latest_tag \
-                {{ push_arg }} \
-                --target kernel-package \
-                --file pkgs/kernel/Dockerfile \
-                .
+            just kernel
             ;;
         installer)
             printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"

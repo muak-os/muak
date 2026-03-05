@@ -17,8 +17,8 @@ rustup component add rust-analyzer --toolchain nightly
 
 ```sh
 # Create a signing key for the kernel and place it in pkgs/kernel/
-SIGNING_ARGS="--secret id=kernel_key,src=pkgs/kernel/kernel-signing-key.pem" just kernel
-just dev
+SIGNING_ARGS="--secret id=kernel_key,src=pkgs/kernel/kernel-signing-key.pem" REGISTRY="localhost" just kernel
+REGISTRY="localhost" PUSH="true" just dev
 ```
 
 ## Build locally with extensions
@@ -34,5 +34,4 @@ EXTENSIONS="_out/oci/cloud-hypervisor" just dev
 ```sh
 rustup target add aarch64-unknown-linux-musl
 rustup target add aarch64-unknown-uefi --toolchain nightly
-ARCH=aarch64 just dev
-```
+ARCH=aarch64 REGISTRY="localhost" PUSH="true" just dev```
