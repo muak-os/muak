@@ -364,9 +364,9 @@ _local-build pkg:
     printf "{{ cyan }}Building local:{{ reset }} {{ pkg }} -> {{ artifacts }}/oci/{{ pkg }}\n"
     mkdir -p {{ artifacts }}/oci
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-        --tag localhost/muak-{{ pkg }}:{{ tag }} \
+        --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
         --load \
         --file pkgs/{{ pkg }}/Dockerfile \
         .
-    {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} localhost/muak-{{ pkg }}:{{ tag }}
-    {{ container_runtime }} rmi localhost/muak-{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true
+    {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} {{ registry }}/pkgs/{{ pkg }}:{{ tag }}
+    {{ container_runtime }} rmi {{ registry }}/pkgs/{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true
