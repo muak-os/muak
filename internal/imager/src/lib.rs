@@ -110,7 +110,7 @@ fn spawn_extension_batch(
 
 /// Process a single extension: pull/extract and create squashfs.
 async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
-    let (name, temp_dir) = if Path::new(&ext).exists() {
+    let (name, temp_dir) = if is_local_path(&ext) {
         let name = Path::new(&ext)
             .file_name()
             .ok_or(ImagerError::InvalidOciFormat(
@@ -131,4 +131,10 @@ async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
         .map_err(|e| ImagerError::SquashfsError(e.to_string()))??;
 
     Ok((format!("extensions/{}.sqsh", name), sqsh_data))
+}
+
+/// Returns true if the extension string refers to a local filesystem path.
+fn is_local_path(ext: &str) -> bool {
+    let p = Path::new(ext);
+    p.is_absolute() || ext.starts_with("./") || ext.starts_with("../") || p.exists()
 }
