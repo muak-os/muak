@@ -55,7 +55,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → extract → extensions → uki → iso)
-dev: (build "--release" "") installer sign extract extensions uki iso
+dev: (build "--release" "") installer sign (extract registry + "/installer:" + tag) extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -127,17 +127,15 @@ installer prod="false":
     fi
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
-# Extract installer image assets from a registry image to local artifacts
+# Extract an OCI image filesystem to local artifacts
+[arg("image", long="image")]
 [script]
-extract: _ensure-artifacts
-    image="{{ registry }}/installer:{{ tag }}"
-    printf "{{ cyan }}Extracting installer assets from $image{{ reset }}\n"
-    cid=$({{ container_runtime }} create "$image")
-    for f in base-initramfs.img vmlinuz stub.efi; do
-        {{ container_runtime }} cp "$cid:/$f" {{ artifacts }}/$f
-    done
+extract image: _ensure-artifacts
+    printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
+    cid=$({{ container_runtime }} create "{{ image }}")
+    {{ container_runtime }} export "$cid" | tar -x -C {{ artifacts }}
     {{ container_runtime }} rm "$cid" >/dev/null
-    printf "{{ green }}Installer assets extracted to {{ artifacts }}/{{ reset }}\n"
+    printf "{{ green }}Assets extracted to {{ artifacts }}/{{ reset }}\n"
 
 # Sign the installer image in the registry using cosign static key
 [script]
