@@ -17,7 +17,7 @@ rustup component add rust-analyzer --toolchain nightly
 
 ```sh
 # Create a signing key for the kernel and place it in pkgs/kernel/
-SIGNING_ARGS="--secret id=kernel_key,src=pkgs/kernel/kernel-signing-key.pem" REGISTRY="localhost" just kernel
+KERNEL_SIGNING="--secret id=kernel_key,src=pkgs/kernel/kernel-signing-key.pem" REGISTRY="localhost" just kernel
 REGISTRY="localhost" PUSH="true" just dev
 ```
 
