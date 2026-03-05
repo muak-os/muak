@@ -55,7 +55,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → extract → extensions → uki → iso)
-dev: (build "--release" "") installer sign (extract registry + "/installer:" + tag) extensions uki iso
+dev: (build "--release" "") installer sign extract extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -127,26 +127,26 @@ installer prod="false":
     fi
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
-# Extract an OCI image filesystem to local artifacts
+# Extract an OCI image filesystem to local artifacts (default to installer image)
 [arg("image", long="image")]
 [script]
-extract image: _ensure-artifacts
+extract image=(registry + "/installer:" + tag): _ensure-artifacts
     printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
     cid=$({{ container_runtime }} create "{{ image }}")
     {{ container_runtime }} export "$cid" | tar -x -C {{ artifacts }}
     {{ container_runtime }} rm "$cid" >/dev/null
     printf "{{ green }}Assets extracted to {{ artifacts }}/{{ reset }}\n"
 
-# Sign the installer image in the registry using cosign static key
+# Sign an OCI image in the registry using cosign static key (default to installer image)
+[arg("image", long="image")]
 [script]
-sign:
-    image="{{ registry }}/installer:{{ tag }}"
+sign image=(registry + "/installer:" + tag):
     key="{{ cosign_key }}"
     if [ ! -f "$key" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} cosign private key not found at $key\n"
         exit 1
     fi
-    printf "{{ cyan }}Signing installer image: $image{{ reset }}\n"
+    printf "{{ cyan }}Signing image: {{ image }}{{ reset }}\n"
     {{ container_runtime }} run --rm \
         --network=host \
         -e COSIGN_PASSWORD="" \
@@ -156,8 +156,8 @@ sign:
             --use-signing-config=false \
             --allow-http-registry \
             --yes \
-            "$image"
-    printf "{{ green }}Installer image signed successfully{{ reset }}\n"
+            "{{ image }}"
+    printf "{{ green }}Image signed successfully{{ reset }}\n"
 
 # Extend base initramfs with specified extensions (set EXTENSIONS="ext1 ext2")
 [script]
