@@ -46,6 +46,16 @@ pub enum ImagerError {
 
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+
+    #[error("Digest mismatch for {resource}: expected {expected}, got {actual}")]
+    DigestMismatch {
+        resource: String,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("Signature verification failed: {0}")]
+    SignatureVerificationFailed(String),
 }
 
 /// Result type alias for imager operations.

@@ -1192,9 +1192,11 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "backhand",
+ "base64ct",
  "clap",
  "flate2",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tar",

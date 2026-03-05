@@ -12,11 +12,18 @@ pub const UKI_FILENAME: &str = "BOOTAA64.EFI";
 
 /// Default kernel command line for x86_64 architecture.
 #[cfg(target_arch = "x86_64")]
-const DEFAULT_CMDLINE: &str = include_str!("../../../pkgs/kernel/cmdline-amd64.txt").trim_ascii();
+const DEFAULT_CMDLINE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../pkgs/kernel/cmdline-amd64.txt"))
+        .trim_ascii();
 
 /// Default kernel command line for AArch64 architecture.
 #[cfg(target_arch = "aarch64")]
-const DEFAULT_CMDLINE: &str = include_str!("../../../pkgs/kernel/cmdline-arm64.txt").trim_ascii();
+const DEFAULT_CMDLINE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../pkgs/kernel/cmdline-arm64.txt"))
+        .trim_ascii();
+
+/// Cosign public key for installer image verification, PEM-encoded, embedded at compile time.
+const COSIGN_PUB_PEM: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../cosign.pub"));
 
 /// Wrapper around yuki::Components to provide additional functionality for UKI management.
 pub struct Uki(yuki::Components);
@@ -116,7 +123,7 @@ impl Uki {
 async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    imager::pull_image(image, dest_dir)
+    imager::pull_image(image, dest_dir, Some(COSIGN_PUB_PEM))
         .await
         .context("Failed to pull installer image")?;
 

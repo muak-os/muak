@@ -4,6 +4,10 @@ description = "Create initramfs from OCI images"
 edition.workspace = true
 version.workspace = true
 
+[[bin]]
+name = "imager"
+required-features = ["cli"]
+
 [dependencies]
 # Async
 tokio = { workspace = true, features = ["fs", "io-util"] }
@@ -16,6 +20,10 @@ clap = { workspace = true, optional = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
+
+# Cryptography
+base64ct = { workspace = true }
+ring = { workspace = true }
 
 # Encoding
 serde = { workspace = true }

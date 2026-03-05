@@ -17,7 +17,8 @@ registry := env_var_or_default("REGISTRY", "ghcr.io/sawangg")
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
-signing_args := env_var_or_default("SIGNING_ARGS", "")
+kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
+cosign_key := env_var_or_default("COSIGN_KEY", "cosign.key")
 extensions := env_var_or_default("EXTENSIONS", "")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
@@ -53,14 +54,14 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (packages → installer → extensions → uki → iso)
+# Full local development build (packages → installer → sign → extensions → uki → iso)
 dev: build-release installer extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
 kernel: _ensure-artifacts (_require-pkg "kernel")
     @printf "{{ cyan }}Building kernel locally{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ signing_args }} {{ pull_arg }} \
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
         --output type=local,dest={{ artifacts }} \
         --file pkgs/kernel/Dockerfile \
         .
@@ -96,6 +97,28 @@ installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
         .
     @printf "{{ green }}Installer assets extracted to {{ artifacts }}/{{ reset }}\n"
 
+# Sign the installer image in the registry using cosign static key
+[script]
+sign:
+    image="{{ registry }}/installer:{{ tag }}"
+    key="{{ cosign_key }}"
+    if [ ! -f "$key" ]; then
+        printf "{{ red }}{{ bold }}Error:{{ reset }} cosign private key not found at $key\n"
+        exit 1
+    fi
+    printf "{{ cyan }}Signing installer image: $image{{ reset }}\n"
+    {{ container_runtime }} run --rm \
+        --network=host \
+        -e COSIGN_PASSWORD="" \
+        -e COSIGN_PRIVATE_KEY="$(cat "$key")" \
+        gcr.io/projectsigstore/cosign sign \
+            --key env://COSIGN_PRIVATE_KEY \
+            --use-signing-config=false \
+            --allow-http-registry \
+            --yes \
+            "$image"
+    printf "{{ green }}Installer image signed successfully{{ reset }}\n"
+
 # Extend base initramfs with specified extensions (set EXTENSIONS="ext1 ext2")
 [script]
 extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just installer")
@@ -117,7 +140,7 @@ extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just i
 
 # Build UKI (Unified Kernel Image)
 [script]
-uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just installer") (_require artifacts / "initramfs.img" "just extensions")
+uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just extensions")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
     { tr -d '\n' < pkgs/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ release_dir }}/yuki \
@@ -269,7 +292,7 @@ _oci-build pkg:
     case "{{ pkg }}" in
         kernel)
             printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ signing_args }} {{ pull_arg }} \
+            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
                 --tag {{ registry }}/kernel:{{ tag }} \
                 $latest_tag \
                 {{ push_arg }} \

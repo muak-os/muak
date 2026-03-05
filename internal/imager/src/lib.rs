@@ -30,12 +30,15 @@ const MAX_CONCURRENT_EXTENSIONS: usize = 8;
 ///
 /// * `reference` - Image reference (e.g., "alpine:latest", "ghcr.io/org/image:v1")
 /// * `output` - Output directory path
+/// * `pubkey_pem` - Optional PEM-encoded ECDSA P-256 cosign public key. When `None`,
+///   the key embedded at compile time (`cosign.pub` at the repository root) is used.
 ///
 /// # Errors
 ///
 /// Returns an `ImagerError` if:
 /// - The image cannot be downloaded or accessed
 /// - The OCI structure is invalid
+/// - Cosign signature verification fails
 /// - Layer extraction fails
 /// - IO operations fail
 ///
@@ -44,13 +47,18 @@ const MAX_CONCURRENT_EXTENSIONS: usize = 8;
 /// ```no_run
 /// # use std::path::Path;
 /// # async fn example() -> imager::Result<()> {
-/// imager::pull_image("alpine:latest", Path::new("/tmp/alpine")).await?;
+/// // Use the default embedded key
+/// imager::pull_image("alpine:latest", Path::new("/tmp/alpine"), None).await?;
+///
+/// // Use a custom key
+/// let key = std::fs::read_to_string("/path/to/custom.pub").unwrap();
+/// imager::pull_image("registry.local/my-image:latest", Path::new("/tmp/out"), Some(&key)).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn pull_image(reference: &str, output: &Path) -> Result<()> {
+pub async fn pull_image(reference: &str, output: &Path, pubkey_pem: Option<&str>) -> Result<()> {
     tokio::fs::create_dir_all(output).await?;
-    pull_to_dir(reference, output).await
+    pull_to_dir(reference, output, pubkey_pem).await
 }
 
 /// Build a compressed CPIO archive containing squashfs files for each extension.
@@ -215,7 +223,7 @@ async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
         (name, dir)
     } else {
         let name = image::ImageReference::parse(&ext).image_name();
-        let dir = pull_to_temp(&ext).await?;
+        let dir = pull_to_temp(&ext, None).await?;
         (name, dir)
     };
 

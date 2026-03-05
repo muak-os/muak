@@ -7,8 +7,9 @@ use tar::Archive;
 use crate::error::{ImagerError, Result};
 use crate::image::ImageReference;
 use crate::oci::http::build_authenticated_request;
+use crate::oci::verify::verify_blob_digest;
 
-/// Download blob bytes from the registry.
+/// Download blob bytes from the registry and verify its digest.
 pub(crate) async fn download_blob(
     client: &Client,
     image_ref: &ImageReference,
@@ -24,11 +25,15 @@ pub(crate) async fn download_blob(
     );
 
     let response = build_authenticated_request(client, &blob_url, token, &[]).await?;
-    response
+    let bytes = response
         .bytes()
         .await
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to read blob response: {}", e)))
-        .map(|b| b.to_vec())
+        .map_err(|e| ImagerError::NetworkError(format!("Failed to read blob response: {}", e)))?
+        .to_vec();
+
+    verify_blob_digest(&bytes, digest)?;
+
+    Ok(bytes)
 }
 
 /// Extract tar archive from bytes to destination.
@@ -39,3 +44,4 @@ pub(crate) fn extract_archive(bytes: &[u8], dest: &Path) -> Result<()> {
         .unpack(dest)
         .map_err(|e| ImagerError::LayerExtractionError(format!("Failed to extract tar: {}", e)))
 }
+
