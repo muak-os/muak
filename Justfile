@@ -54,8 +54,8 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (packages → installer → sign → extract → extensions → uki → iso)
-dev: build-release installer sign extract extensions uki iso
+# Full local development build (build → installer → sign → extract → extensions → uki → iso)
+dev: (build "--release" "") installer sign extract extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -66,41 +66,66 @@ kernel: _ensure-artifacts (_require-pkg "kernel")
         --file pkgs/kernel/Dockerfile \
         .
 
-# Build all Rust packages with cargo (debug)
-build:
-    @printf "{{ cyan }}Building Rust packages (debug){{ reset }}\n"
-    cargo build --target {{ arch }}-unknown-linux-musl
-    cargo +nightly build --target {{ arch }}-unknown-uefi --features uefi -p stub
-
-# Build all Rust packages with cargo (release)
-build-release:
-    @printf "{{ cyan }}Building Rust packages (release){{ reset }}\n"
-    cargo build --release --target {{ arch }}-unknown-linux-musl
-    cargo +nightly build --release --target {{ arch }}-unknown-uefi --features uefi -p stub
-
-# Build installer with local binaries
+# Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
+[arg("release", long, value="--release")]
 [script]
-installer: (_require artifacts / "vmlinuz" "just kernel")
-    printf "{{ cyan }}Building installer with local binaries{{ reset }}\n"
+build release="" *pkgs:
+    printf "{{ cyan }}Building Rust packages{{ reset }}\n"
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            if [ "$pkg" = "stub" ]; then
+                cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+            else
+                cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            fi
+        done
+    else
+        cargo build {{ release }} --target {{ arch }}-unknown-linux-musl
+        cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+    fi
+
+# Build installer image (default uses local binaries, --prod pulls from registry)
+[arg("prod", long="prod", value="true")]
+[script]
+installer prod="false":
+    printf "{{ cyan }}Building installer{{ reset }}\n"
+    if [ "{{ prod }}" = "false" ]; then
+        test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} first\n"; exit 1; }
+        pkg_args=(
+            --build-context pkg-granola={{ release_dir }}
+            --build-context pkg-provisiond={{ release_dir }}
+            --build-context pkg-modd={{ release_dir }}
+            --build-context pkg-networkd={{ release_dir }}
+            --build-context pkg-apid={{ release_dir }}
+            --build-context pkg-vmd={{ release_dir }}
+            --build-context pkg-timed={{ release_dir }}
+            --build-context pkg-init={{ release_dir }}
+            --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
+            --build-context pkg-kernel={{ artifacts }}
+        )
+    else
+        pkg_args=(
+            --build-arg pkg-kernel={{ registry }}/kernel:{{ tag }}
+            --build-arg pkg-granola={{ registry }}/pkgs/granola:{{ tag }}
+            --build-arg pkg-provisiond={{ registry }}/pkgs/provisiond:{{ tag }}
+            --build-arg pkg-modd={{ registry }}/pkgs/modd:{{ tag }}
+            --build-arg pkg-networkd={{ registry }}/pkgs/networkd:{{ tag }}
+            --build-arg pkg-apid={{ registry }}/pkgs/apid:{{ tag }}
+            --build-arg pkg-vmd={{ registry }}/pkgs/vmd:{{ tag }}
+            --build-arg pkg-timed={{ registry }}/pkgs/timed:{{ tag }}
+            --build-arg pkg-init={{ registry }}/pkgs/init:{{ tag }}
+            --build-arg pkg-stub={{ registry }}/pkgs/stub:{{ tag }}
+        )
+    fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
-        --build-context pkg-granola={{ release_dir }} \
-        --build-context pkg-provisiond={{ release_dir }} \
-        --build-context pkg-modd={{ release_dir }} \
-        --build-context pkg-networkd={{ release_dir }} \
-        --build-context pkg-apid={{ release_dir }} \
-        --build-context pkg-vmd={{ release_dir }} \
-        --build-context pkg-timed={{ release_dir }} \
-        --build-context pkg-init={{ release_dir }} \
-        --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release \
-        --build-context pkg-kernel={{ artifacts }} \
+        "${pkg_args[@]}" \
         --tag {{ registry }}/installer:{{ tag }} \
-        --load \
         --file Dockerfile \
         .
     if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
         podman push {{ registry }}/installer:{{ tag }} --tls-verify=false
     fi
-    printf "{{ green }}Successfully built installer at {{ registry }}/installer:{{ tag }}{{ reset }}\n"
+    printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Extract installer image assets from a registry image to local artifacts
 [script]
@@ -319,22 +344,7 @@ _oci-build pkg:
             ;;
         installer)
             printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-                --build-arg PKG_KERNEL={{ registry }}/kernel:{{ tag }} \
-                --build-arg PKG_GRANOLA={{ registry }}/pkgs/granola:{{ tag }} \
-                --build-arg PKG_PROVISIOND={{ registry }}/pkgs/provisiond:{{ tag }} \
-                --build-arg PKG_MODD={{ registry }}/pkgs/modd:{{ tag }} \
-                --build-arg PKG_NETWORKD={{ registry }}/pkgs/networkd:{{ tag }} \
-                --build-arg PKG_APID={{ registry }}/pkgs/apid:{{ tag }} \
-                --build-arg PKG_VMD={{ registry }}/pkgs/vmd:{{ tag }} \
-                --build-arg PKG_TIMED={{ registry }}/pkgs/timed:{{ tag }} \
-                --build-arg PKG_INIT={{ registry }}/pkgs/init:{{ tag }} \
-                --build-arg PKG_STUB={{ registry }}/pkgs/stub:{{ tag }} \
-                --tag {{ registry }}/installer:{{ tag }} \
-                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/installer:latest" || echo "") \
-                {{ push_arg }} \
-                --file Dockerfile \
-                .
+            just installer --prod
             ;;
         cli)
             printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
