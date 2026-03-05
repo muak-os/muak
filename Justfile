@@ -54,8 +54,8 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (packages → installer → sign → extensions → uki → iso)
-dev: build-release installer extensions uki iso
+# Full local development build (packages → installer → sign → extract → extensions → uki → iso)
+dev: build-release installer sign extract extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
@@ -79,9 +79,10 @@ build-release:
     cargo +nightly build --release --target {{ arch }}-unknown-uefi --features uefi -p stub
 
 # Build installer with local binaries
-installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
-    @printf "{{ cyan }}Building installer with local binaries{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+[script]
+installer: (_require artifacts / "vmlinuz" "just kernel")
+    printf "{{ cyan }}Building installer with local binaries{{ reset }}\n"
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
         --build-context pkg-granola={{ release_dir }} \
         --build-context pkg-provisiond={{ release_dir }} \
         --build-context pkg-modd={{ release_dir }} \
@@ -92,10 +93,26 @@ installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
         --build-context pkg-init={{ release_dir }} \
         --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release \
         --build-context pkg-kernel={{ artifacts }} \
-        --output type=local,dest={{ artifacts }} \
+        --tag {{ registry }}/installer:{{ tag }} \
+        --load \
         --file Dockerfile \
         .
-    @printf "{{ green }}Installer assets extracted to {{ artifacts }}/{{ reset }}\n"
+    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
+        podman push {{ registry }}/installer:{{ tag }} --tls-verify=false
+    fi
+    printf "{{ green }}Successfully built installer at {{ registry }}/installer:{{ tag }}{{ reset }}\n"
+
+# Extract installer image assets from a registry image to local artifacts
+[script]
+extract: _ensure-artifacts
+    image="{{ registry }}/installer:{{ tag }}"
+    printf "{{ cyan }}Extracting installer assets from $image{{ reset }}\n"
+    cid=$({{ container_runtime }} create "$image")
+    for f in base-initramfs.img vmlinuz stub.efi; do
+        {{ container_runtime }} cp "$cid:/$f" {{ artifacts }}/$f
+    done
+    {{ container_runtime }} rm "$cid" >/dev/null
+    printf "{{ green }}Installer assets extracted to {{ artifacts }}/{{ reset }}\n"
 
 # Sign the installer image in the registry using cosign static key
 [script]
