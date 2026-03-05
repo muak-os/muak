@@ -1,4 +1,6 @@
-## TODO
+# TODO
+
+- Fix build chain to not split between oci and local. Just do oci and then extract locally
 
 - Fix CI caching
 
@@ -21,6 +23,7 @@
   - Allow creation of multiple bridges
   - Disable bridge when in maintenance mode
   - Full declarative config for network interfaces, bridges etc
+  - Support air gap connectivity check
 
 - Copy-on-Write disk creation for templates
   - Btrfs snapshots create instant, space-efficient copies
@@ -35,6 +38,8 @@
   - Target 80% coverage
   - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
   - Deterministic simulation tests?
+
+- Sign all extensions and verify them in `imager`
 
 - Enchance `vmd`:
   - Allow for ISO images for vms

@@ -62,6 +62,21 @@ jobs:
           CI_ARGS="--builder=${{ steps.buildx.outputs.name }} --cache-from=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache-${{ matrix.arch }} --cache-to=type=registry,ref=${{ env.REGISTRY }}/sawangg/installer:buildcache-${{ matrix.arch }},mode=max" \
           just oci installer
 
+      - name: Setup cosign key
+        run: |
+          echo "${{ secrets.COSIGN_KEY }}" > cosign.key
+          chmod 600 cosign.key
+
+      - name: Sign installer (${{ matrix.arch }})
+        run: |
+          TAG=${{ steps.tag.outputs.tag }} \
+          REGISTRY=${{ env.REGISTRY }}/sawangg \
+          just sign
+
+      - name: Cleanup cosign key
+        if: always()
+        run: rm -f cosign.key
+
       - name: Build summary
         run: |
           echo "### Installer (${{ matrix.arch }}) Built :rocket:" >> $GITHUB_STEP_SUMMARY

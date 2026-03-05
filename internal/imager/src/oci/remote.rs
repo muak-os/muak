@@ -4,21 +4,26 @@ use reqwest::Client;
 
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciDescriptor};
-use crate::oci::USER_AGENT;
 use crate::oci::auth::fetch_auth_token;
 use crate::oci::layer;
 use crate::oci::manifest;
+use crate::oci::verify;
+use crate::oci::{self, USER_AGENT};
 
 /// Maximum number of concurrent layer downloads.
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
-pub(crate) async fn pull_to_temp(reference: &str) -> Result<PathBuf> {
-    let temp = create_temp_dir("oci-")?;
-    pull_to_dir(reference, temp.path()).await?;
+pub(crate) async fn pull_to_temp(reference: &str, pubkey_pem: Option<&str>) -> Result<PathBuf> {
+    let temp = oci::create_temp_dir("oci-")?;
+    pull_to_dir(reference, temp.path(), pubkey_pem).await?;
     Ok(temp.keep())
 }
 
-pub(crate) async fn pull_to_dir(reference: &str, dest: &Path) -> Result<()> {
+pub(crate) async fn pull_to_dir(
+    reference: &str,
+    dest: &Path,
+    signature_key: Option<&str>,
+) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = Client::builder()
         .user_agent(USER_AGENT)
@@ -31,12 +36,18 @@ pub(crate) async fn pull_to_dir(reference: &str, dest: &Path) -> Result<()> {
     let manifest = manifest::parse(&manifest_json)?;
 
     let layers = if !manifest.manifests.is_empty() {
+        verify::check_signature(&manifest_json, signature_key).await?;
+
         let selected_manifest = manifest::select_platform(&manifest.manifests)?;
         let platform_url = manifest::build_url(&image_ref, &selected_manifest.digest);
         let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
+
+        verify::check_signature(&platform_json, signature_key).await?;
+
         let platform_manifest = manifest::parse(&platform_json)?;
         platform_manifest.layers
     } else {
+        verify::check_signature(&manifest_json, signature_key).await?;
         manifest.layers
     };
 
@@ -101,17 +112,4 @@ async fn download_and_extract_layer(
     tokio::task::spawn_blocking(move || layer::extract_archive(&bytes, &dest))
         .await
         .map_err(|e| ImagerError::LayerExtractionError(e.to_string()))?
-}
-
-pub(crate) fn create_temp_dir(prefix: &str) -> Result<tempfile::TempDir> {
-    let locations = ["/run", "/tmp"];
-    for &dir in &locations {
-        if let Ok(temp) = tempfile::Builder::new().prefix(prefix).tempdir_in(dir) {
-            return Ok(temp);
-        }
-    }
-    Err(ImagerError::TempDirError(format!(
-        "Failed to create temp dir in any of: {:?}",
-        locations
-    )))
 }

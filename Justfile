@@ -17,7 +17,8 @@ registry := env_var_or_default("REGISTRY", "ghcr.io/sawangg")
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
-signing_args := env_var_or_default("SIGNING_ARGS", "")
+kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
+signature:= env_var_or_default("SIGNATURE", "signature.key")
 extensions := env_var_or_default("EXTENSIONS", "")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
@@ -53,48 +54,95 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (packages → installer → extensions → uki → iso)
-dev: build-release installer extensions uki iso
+# Full local development build (build → installer → sign → extract → extensions → uki → iso)
+dev: (build "--release" "") installer sign extract extensions uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel to local artifacts
 kernel: _ensure-artifacts (_require-pkg "kernel")
     @printf "{{ cyan }}Building kernel locally{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ signing_args }} {{ pull_arg }} \
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
         --output type=local,dest={{ artifacts }} \
         --file pkgs/kernel/Dockerfile \
         .
 
-# Build all Rust packages with cargo (debug)
-build:
-    @printf "{{ cyan }}Building Rust packages (debug){{ reset }}\n"
-    cargo build --target {{ arch }}-unknown-linux-musl
-    cargo +nightly build --target {{ arch }}-unknown-uefi --features uefi -p stub
+# Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
+[arg("release", long, value="--release")]
+[script]
+build release="" *pkgs:
+    printf "{{ cyan }}Building Rust packages{{ reset }}\n"
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            if [ "$pkg" = "stub" ]; then
+                cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+            else
+                cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            fi
+        done
+    else
+        cargo build {{ release }} --target {{ arch }}-unknown-linux-musl
+        cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+    fi
 
-# Build all Rust packages with cargo (release)
-build-release:
-    @printf "{{ cyan }}Building Rust packages (release){{ reset }}\n"
-    cargo build --release --target {{ arch }}-unknown-linux-musl
-    cargo +nightly build --release --target {{ arch }}-unknown-uefi --features uefi -p stub
-
-# Build installer with local binaries
-installer: _ensure-artifacts (_require artifacts / "vmlinuz" "just kernel")
-    @printf "{{ cyan }}Building installer with local binaries{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-        --build-context pkg-granola={{ release_dir }} \
-        --build-context pkg-provisiond={{ release_dir }} \
-        --build-context pkg-modd={{ release_dir }} \
-        --build-context pkg-networkd={{ release_dir }} \
-        --build-context pkg-apid={{ release_dir }} \
-        --build-context pkg-vmd={{ release_dir }} \
-        --build-context pkg-timed={{ release_dir }} \
-        --build-context pkg-init={{ release_dir }} \
-        --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release \
-        --build-context pkg-kernel={{ artifacts }} \
-        --output type=local,dest={{ artifacts }} \
+# Build installer image (default uses local binaries, --prod pulls from registry)
+[arg("prod", long="prod", value="true")]
+[script]
+installer prod="false":
+    printf "{{ cyan }}Building installer{{ reset }}\n"
+    if [ "{{ prod }}" = "false" ]; then
+        test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} first\n"; exit 1; }
+        pkg_args=(
+            --build-context pkg-granola={{ release_dir }}
+            --build-context pkg-provisiond={{ release_dir }}
+            --build-context pkg-modd={{ release_dir }}
+            --build-context pkg-networkd={{ release_dir }}
+            --build-context pkg-apid={{ release_dir }}
+            --build-context pkg-vmd={{ release_dir }}
+            --build-context pkg-timed={{ release_dir }}
+            --build-context pkg-init={{ release_dir }}
+            --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
+            --build-context pkg-kernel={{ artifacts }}
+        )
+    else
+        pkg_args=(
+            --build-arg pkg-kernel={{ registry }}/kernel:{{ tag }}
+            --build-arg pkg-granola={{ registry }}/pkgs/granola:{{ tag }}
+            --build-arg pkg-provisiond={{ registry }}/pkgs/provisiond:{{ tag }}
+            --build-arg pkg-modd={{ registry }}/pkgs/modd:{{ tag }}
+            --build-arg pkg-networkd={{ registry }}/pkgs/networkd:{{ tag }}
+            --build-arg pkg-apid={{ registry }}/pkgs/apid:{{ tag }}
+            --build-arg pkg-vmd={{ registry }}/pkgs/vmd:{{ tag }}
+            --build-arg pkg-timed={{ registry }}/pkgs/timed:{{ tag }}
+            --build-arg pkg-init={{ registry }}/pkgs/init:{{ tag }}
+            --build-arg pkg-stub={{ registry }}/pkgs/stub:{{ tag }}
+        )
+    fi
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
+        "${pkg_args[@]}" \
+        --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
         .
-    @printf "{{ green }}Installer assets extracted to {{ artifacts }}/{{ reset }}\n"
+    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
+        podman push {{ registry }}/installer:{{ tag }} --tls-verify=false
+    fi
+    printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
+
+# Extract an OCI image filesystem to local artifacts (default to installer image)
+[arg("image", long="image")]
+[script]
+extract image=(registry + "/installer:" + tag): _ensure-artifacts
+    printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
+    cid=$({{ container_runtime }} create "{{ image }}")
+    {{ container_runtime }} export "$cid" | tar -x -C {{ artifacts }}
+    {{ container_runtime }} rm "$cid" >/dev/null
+    printf "{{ green }}Assets extracted to {{ artifacts }}/{{ reset }}\n"
+
+# Sign an OCI image in the registry (default to installer image)
+[arg("image", long="image")]
+sign image=(registry + "/installer:" + tag): (build "--release" "imager")
+    {{ release_dir }}/imager sign \
+        --image "{{ image }}" \
+        --key "{{ signature }}"
 
 # Extend base initramfs with specified extensions (set EXTENSIONS="ext1 ext2")
 [script]
@@ -117,7 +165,7 @@ extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just i
 
 # Build UKI (Unified Kernel Image)
 [script]
-uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just installer") (_require artifacts / "initramfs.img" "just extensions")
+uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just extensions")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
     { tr -d '\n' < pkgs/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ release_dir }}/yuki \
@@ -269,7 +317,7 @@ _oci-build pkg:
     case "{{ pkg }}" in
         kernel)
             printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ signing_args }} {{ pull_arg }} \
+            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
                 --tag {{ registry }}/kernel:{{ tag }} \
                 $latest_tag \
                 {{ push_arg }} \
@@ -279,22 +327,7 @@ _oci-build pkg:
             ;;
         installer)
             printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-                --build-arg PKG_KERNEL={{ registry }}/kernel:{{ tag }} \
-                --build-arg PKG_GRANOLA={{ registry }}/pkgs/granola:{{ tag }} \
-                --build-arg PKG_PROVISIOND={{ registry }}/pkgs/provisiond:{{ tag }} \
-                --build-arg PKG_MODD={{ registry }}/pkgs/modd:{{ tag }} \
-                --build-arg PKG_NETWORKD={{ registry }}/pkgs/networkd:{{ tag }} \
-                --build-arg PKG_APID={{ registry }}/pkgs/apid:{{ tag }} \
-                --build-arg PKG_VMD={{ registry }}/pkgs/vmd:{{ tag }} \
-                --build-arg PKG_TIMED={{ registry }}/pkgs/timed:{{ tag }} \
-                --build-arg PKG_INIT={{ registry }}/pkgs/init:{{ tag }} \
-                --build-arg PKG_STUB={{ registry }}/pkgs/stub:{{ tag }} \
-                --tag {{ registry }}/installer:{{ tag }} \
-                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/installer:latest" || echo "") \
-                {{ push_arg }} \
-                --file Dockerfile \
-                .
+            just installer --prod
             ;;
         cli)
             printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
@@ -324,9 +357,9 @@ _local-build pkg:
     printf "{{ cyan }}Building local:{{ reset }} {{ pkg }} -> {{ artifacts }}/oci/{{ pkg }}\n"
     mkdir -p {{ artifacts }}/oci
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-        --tag localhost/muak-{{ pkg }}:{{ tag }} \
+        --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
         --load \
         --file pkgs/{{ pkg }}/Dockerfile \
         .
-    {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} localhost/muak-{{ pkg }}:{{ tag }}
-    {{ container_runtime }} rmi localhost/muak-{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true
+    {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} {{ registry }}/pkgs/{{ pkg }}:{{ tag }}
+    {{ container_runtime }} rmi {{ registry }}/pkgs/{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true
