@@ -44,4 +44,3 @@ pub(crate) fn extract_archive(bytes: &[u8], dest: &Path) -> Result<()> {
         .unpack(dest)
         .map_err(|e| ImagerError::LayerExtractionError(format!("Failed to extract tar: {}", e)))
 }
-

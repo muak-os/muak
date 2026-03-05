@@ -18,7 +18,7 @@ push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
 kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
-cosign_key := env_var_or_default("COSIGN_KEY", "cosign.key")
+signature:= env_var_or_default("SIGNATURE", "signature.key")
 extensions := env_var_or_default("EXTENSIONS", "")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
@@ -137,27 +137,12 @@ extract image=(registry + "/installer:" + tag): _ensure-artifacts
     {{ container_runtime }} rm "$cid" >/dev/null
     printf "{{ green }}Assets extracted to {{ artifacts }}/{{ reset }}\n"
 
-# Sign an OCI image in the registry using cosign static key (default to installer image)
+# Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
-[script]
-sign image=(registry + "/installer:" + tag):
-    key="{{ cosign_key }}"
-    if [ ! -f "$key" ]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} cosign private key not found at $key\n"
-        exit 1
-    fi
-    printf "{{ cyan }}Signing image: {{ image }}{{ reset }}\n"
-    {{ container_runtime }} run --rm \
-        --network=host \
-        -e COSIGN_PASSWORD="" \
-        -e COSIGN_PRIVATE_KEY="$(cat "$key")" \
-        gcr.io/projectsigstore/cosign sign \
-            --key env://COSIGN_PRIVATE_KEY \
-            --use-signing-config=false \
-            --allow-http-registry \
-            --yes \
-            "{{ image }}"
-    printf "{{ green }}Image signed successfully{{ reset }}\n"
+sign image=(registry + "/installer:" + tag): (build "--release" "imager")
+    {{ release_dir }}/imager sign \
+        --image "{{ image }}" \
+        --key "{{ signature }}"
 
 # Extend base initramfs with specified extensions (set EXTENSIONS="ext1 ext2")
 [script]

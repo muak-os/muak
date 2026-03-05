@@ -1,20 +1,14 @@
 //! OCI integrity and signature verification.
 
-use base64ct::{Base64, Encoding};
-use reqwest::Client;
+use base64ct::{Base64Url, Encoding};
 use ring::signature;
-use serde::Deserialize;
+use serde_json::Value;
 
 use crate::error::{ImagerError, Result};
-use crate::image::ImageReference;
-use crate::oci::http::build_authenticated_request;
-use crate::oci::manifest;
+use crate::oci::sign::extract_config_digest;
 
-/// Annotation key used by cosign to store the base64-encoded signature.
-const COSIGN_SIGNATURE_ANNOTATION: &str = "dev.cosignproject.cosign/signature";
-
-/// OCI media type for cosign simple-signing payloads.
-const SIMPLE_SIGNING_MEDIA_TYPE: &str = "application/vnd.dev.cosign.simplesigning.v1+json";
+/// Annotation key used to store the image signature.
+pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 
 /// Compute the SHA-256 hex digest of the given bytes.
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
@@ -79,161 +73,56 @@ pub(crate) fn verify_local_digest(
     Ok(())
 }
 
-/// Cosign `SimpleSigning` payload structure.
-#[derive(Deserialize)]
-struct SimpleSigning {
-    critical: Critical,
-}
-
-#[derive(Deserialize)]
-struct Critical {
-    image: ImageIdentity,
-    #[serde(rename = "type")]
-    payload_type: String,
-}
-
-#[derive(Deserialize)]
-struct ImageIdentity {
-    #[serde(rename = "docker-manifest-digest")]
-    docker_manifest_digest: String,
-}
-
-/// Cosign signature layer descriptor with annotations.
-#[derive(Deserialize)]
-struct CosignLayer {
-    #[serde(default)]
-    annotations: std::collections::HashMap<String, String>,
-    digest: String,
-}
-
-/// Cosign signature manifest.
-#[derive(Deserialize)]
-struct CosignManifest {
-    #[serde(default)]
-    layers: Vec<CosignLayer>,
-}
-
-/// Verify the cosign signature for an OCI image manifest.
-pub(crate) async fn check_cosign(
-    client: &Client,
-    image_ref: &ImageReference,
-    manifest_json: &str,
-    token: Option<&str>,
-    pubkey_pem: Option<&str>,
-) -> Result<()> {
-    // No key supplied — skip signature verification entirely.
+/// Check the `SIG_ANNOTATION` annotation on the manifest against the provided public key.
+pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> Result<()> {
     let Some(pem) = pubkey_pem else {
         return Ok(());
     };
 
-    let manifest_digest = format!("sha256:{}", sha256_hex(manifest_json.as_bytes()));
-    let sig_tag = cosign_signature_tag(&manifest_digest);
-
-    let sig_manifest_url = manifest::build_url(image_ref, &sig_tag);
-    let sig_manifest_json = manifest::fetch(client, &sig_manifest_url, token)
-        .await
-        .map_err(|_| {
-            ImagerError::SignatureVerificationFailed(format!(
-                "No cosign signature found for {} (looked for tag {})",
-                manifest_digest, sig_tag
-            ))
-        })?;
-
-    let sig_manifest: CosignManifest = serde_json::from_str(&sig_manifest_json).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
-            "Failed to parse cosign signature manifest: {}",
-            e
-        ))
+    let manifest_value: Value = serde_json::from_str(manifest_json).map_err(|e| {
+        ImagerError::SignatureVerificationFailed(format!("Failed to parse manifest JSON: {}", e))
     })?;
 
-    let sig_layer = sig_manifest.layers.first().ok_or_else(|| {
-        ImagerError::SignatureVerificationFailed(
-            "Cosign signature manifest contains no layers".to_string(),
-        )
-    })?;
-
-    let sig_b64 = sig_layer
-        .annotations
-        .get(COSIGN_SIGNATURE_ANNOTATION)
+    let sig_b64 = manifest_value
+        .get("annotations")
+        .and_then(|a| a.get(SIG_ANNOTATION))
+        .and_then(|v| v.as_str())
         .ok_or_else(|| {
             ImagerError::SignatureVerificationFailed(format!(
-                "Cosign signature layer missing '{}' annotation",
-                COSIGN_SIGNATURE_ANNOTATION
+                "Manifest has no '{}' annotation — image is not signed",
+                SIG_ANNOTATION
             ))
+        })?
+        .to_string();
+
+    let config_digest = extract_config_digest(&manifest_value)?;
+
+    let sig_bytes = Base64Url::decode_vec(&sig_b64).map_err(|e| {
+        ImagerError::SignatureVerificationFailed(format!(
+            "Failed to decode signature annotation: {}",
+            e
+        ))
+    })?;
+
+    let pubkey_der = parse_pem_public_key(pem)?;
+
+    let public_key =
+        signature::UnparsedPublicKey::new(&signature::ECDSA_P256_SHA256_ASN1, &pubkey_der);
+
+    public_key
+        .verify(config_digest.as_bytes(), &sig_bytes)
+        .map_err(|_| {
+            ImagerError::SignatureVerificationFailed(
+                "Signature verification failed: image was not signed by the trusted key"
+                    .to_string(),
+            )
         })?;
-
-    let payload_bytes = download_raw_blob(client, image_ref, &sig_layer.digest, token).await?;
-
-    let payload: SimpleSigning = serde_json::from_slice(&payload_bytes).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
-            "Failed to parse cosign SimpleSigning payload: {}",
-            e
-        ))
-    })?;
-
-    if payload.critical.payload_type != SIMPLE_SIGNING_MEDIA_TYPE {
-        return Err(ImagerError::SignatureVerificationFailed(format!(
-            "Unexpected payload type: {}",
-            payload.critical.payload_type
-        )));
-    }
-
-    if payload.critical.image.docker_manifest_digest != manifest_digest {
-        return Err(ImagerError::SignatureVerificationFailed(format!(
-            "Signature payload digest {} does not match manifest digest {}",
-            payload.critical.image.docker_manifest_digest, manifest_digest
-        )));
-    }
-
-    let sig_bytes = Base64::decode_vec(sig_b64).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
-            "Failed to decode cosign signature from base64: {}",
-            e
-        ))
-    })?;
-
-    // Verify the ECDSA P-256 signature over the payload.
-    let public_key = parse_pem_ec_public_key(pem)?;
-    verify_ecdsa_p256(&public_key, &payload_bytes, &sig_bytes)?;
 
     Ok(())
 }
 
-/// Build the cosign signature tag from a manifest digest.
-fn cosign_signature_tag(digest: &str) -> String {
-    digest.replace(':', "-") + ".sig"
-}
-
-/// Download raw blob bytes without digest verification (for signature payloads).
-async fn download_raw_blob(
-    client: &Client,
-    image_ref: &ImageReference,
-    digest: &str,
-    token: Option<&str>,
-) -> Result<Vec<u8>> {
-    let blob_url = format!(
-        "{}://{}/v2/{}/blobs/{}",
-        image_ref.scheme(),
-        image_ref.registry,
-        image_ref.name,
-        digest
-    );
-
-    let response = build_authenticated_request(client, &blob_url, token, &[]).await?;
-    response
-        .bytes()
-        .await
-        .map_err(|e| {
-            ImagerError::SignatureVerificationFailed(format!(
-                "Failed to download cosign payload blob: {}",
-                e
-            ))
-        })
-        .map(|b| b.to_vec())
-}
-
-/// Parse a PEM-encoded ECDSA P-256 public key and return the raw SubjectPublicKeyInfo bytes.
-fn parse_pem_ec_public_key(pem: &str) -> Result<Vec<u8>> {
+/// Parse a PEM-encoded ECDSA P-256 public key and return the raw SubjectPublicKeyInfo DER bytes.
+pub(crate) fn parse_pem_public_key(pem: &str) -> Result<Vec<u8>> {
     let mut b64 = String::new();
     let mut in_block = false;
 
@@ -253,29 +142,33 @@ fn parse_pem_ec_public_key(pem: &str) -> Result<Vec<u8>> {
 
     if b64.is_empty() {
         return Err(ImagerError::SignatureVerificationFailed(
-            "Failed to parse cosign public key PEM: no key data found".to_string(),
+            "No public key data found in PEM".to_string(),
         ));
     }
 
-    Base64::decode_vec(&b64).map_err(|e| {
+    let spki = base64ct::Base64::decode_vec(&b64).map_err(|e| {
         ImagerError::SignatureVerificationFailed(format!(
-            "Failed to decode cosign public key from base64: {}",
+            "Failed to decode public key from PEM: {}",
             e
         ))
-    })
-}
+    })?;
 
-/// Verify an ECDSA P-256 SHA-256 signature.
-fn verify_ecdsa_p256(public_key_der: &[u8], message: &[u8], sig: &[u8]) -> Result<()> {
-    let public_key =
-        signature::UnparsedPublicKey::new(&signature::ECDSA_P256_SHA256_ASN1, public_key_der);
+    const POINT_OFFSET: usize = 26; // 2 (outer SEQ tag+len) + 21 (AlgId) + 2 (BIT STRING tag+len) + 1 (unused bits)
+    const POINT_LEN: usize = 65; // 0x04 || x[32] || y[32]
 
-    public_key.verify(message, sig).map_err(|_| {
-        ImagerError::SignatureVerificationFailed(
-            "ECDSA P-256 signature verification failed: the image was not signed by the trusted key"
-                .to_string(),
-        )
-    })
+    if spki.len() < POINT_OFFSET + POINT_LEN {
+        return Err(ImagerError::SignatureVerificationFailed(
+            "Public key SPKI DER is too short to contain a P-256 point".to_string(),
+        ));
+    }
+
+    if spki[POINT_OFFSET] != 0x04 {
+        return Err(ImagerError::SignatureVerificationFailed(
+            "Public key is not an uncompressed EC point (expected 0x04 prefix)".to_string(),
+        ));
+    }
+
+    Ok(spki[POINT_OFFSET..POINT_OFFSET + POINT_LEN].to_vec())
 }
 
 #[cfg(test)]
@@ -283,60 +176,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_cosign_signature_tag() {
-        let digest = "sha256:abcdef1234567890";
-        assert_eq!(cosign_signature_tag(digest), "sha256-abcdef1234567890.sig");
-    }
-
-    #[test]
-    fn test_cosign_signature_tag_no_colon() {
-        let digest = "abcdef1234567890";
-        assert_eq!(cosign_signature_tag(digest), "abcdef1234567890.sig");
-    }
-
-    #[test]
-    fn test_parse_pem_valid() {
-        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----\n";
-        let result = parse_pem_ec_public_key(pem);
-        assert!(result.is_ok());
-        assert!(!result.unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_parse_pem_empty() {
-        let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
-        let result = parse_pem_ec_public_key(pem);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_pem_no_markers() {
-        let pem = "not a pem file";
-        let result = parse_pem_ec_public_key(pem);
-        assert!(result.is_err());
-    }
-
-    // ── sha256_hex ───────────────────────────────────────────────────────────
-
-    #[test]
     fn test_sha256_hex_empty() {
-        let hash = sha256_hex(b"");
         assert_eq!(
-            hash,
+            sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
 
     #[test]
     fn test_sha256_hex_hello() {
-        let hash = sha256_hex(b"hello");
         assert_eq!(
-            hash,
+            sha256_hex(b"hello"),
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
     }
-
-    // ── verify_blob_digest ───────────────────────────────────────────────────
 
     #[test]
     fn test_verify_blob_digest_ok() {
@@ -349,40 +202,144 @@ mod tests {
     fn test_verify_blob_digest_mismatch() {
         let data = b"hello";
         let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-        let err = verify_blob_digest(data, digest).unwrap_err();
-        assert!(matches!(err, ImagerError::DigestMismatch { .. }));
+        assert!(matches!(
+            verify_blob_digest(data, digest).unwrap_err(),
+            ImagerError::DigestMismatch { .. }
+        ));
     }
 
     #[test]
     fn test_verify_blob_digest_unsupported_algorithm() {
         let data = b"hello";
         let digest = "md5:abcdef";
-        let err = verify_blob_digest(data, digest).unwrap_err();
-        assert!(matches!(err, ImagerError::DigestMismatch { .. }));
+        assert!(matches!(
+            verify_blob_digest(data, digest).unwrap_err(),
+            ImagerError::DigestMismatch { .. }
+        ));
     }
-
-    // ── verify_local_digest ──────────────────────────────────────────────────
 
     #[test]
     fn test_verify_local_digest_ok() {
-        let data = b"hello";
-        let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-        assert!(verify_local_digest(data, digest, std::path::Path::new("/fake/path")).is_ok());
+        assert!(
+            verify_local_digest(
+                b"hello",
+                "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                std::path::Path::new("/fake")
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn test_verify_local_digest_ok_no_prefix() {
-        let data = b"hello";
-        let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-        assert!(verify_local_digest(data, digest, std::path::Path::new("/fake/path")).is_ok());
+        assert!(
+            verify_local_digest(
+                b"hello",
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                std::path::Path::new("/fake")
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn test_verify_local_digest_mismatch() {
-        let data = b"hello";
-        let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-        let err =
-            verify_local_digest(data, digest, std::path::Path::new("/fake/path")).unwrap_err();
-        assert!(matches!(err, ImagerError::DigestMismatch { .. }));
+        assert!(matches!(
+            verify_local_digest(
+                b"hello",
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                std::path::Path::new("/fake")
+            )
+            .unwrap_err(),
+            ImagerError::DigestMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parse_pem_valid() {
+        // Real P-256 public key in PKCS#8 SubjectPublicKeyInfo PEM format.
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
+        let result = parse_pem_public_key(pem);
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+        let bytes = result.unwrap();
+        assert_eq!(bytes.len(), 65, "expected 65-byte uncompressed point");
+        assert_eq!(bytes[0], 0x04, "expected uncompressed point prefix 0x04");
+    }
+
+    #[test]
+    fn test_parse_pem_empty() {
+        let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
+        assert!(parse_pem_public_key(pem).is_err());
+    }
+
+    #[test]
+    fn test_parse_pem_no_markers() {
+        assert!(parse_pem_public_key("not a pem file").is_err());
+    }
+
+    /// check_signature extracts config.digest and verifies the signature against it.
+    #[tokio::test]
+    async fn test_check_signature_config_digest_roundtrip() {
+        use base64ct::{Base64Url, Encoding};
+        use ring::rand::SystemRandom;
+        use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let key_pair =
+            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+                .unwrap();
+
+        let config_digest =
+            "sha256:f572bca63a6f63ee16e3ff053a27f8b0afaa510bd9a474b4412c48ec8351c225";
+        let sig = key_pair.sign(&rng, config_digest.as_bytes()).unwrap();
+        let sig_b64 = Base64Url::encode_string(sig.as_ref());
+
+        // Build a manifest with the annotation and a config.digest field.
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": config_digest,
+                "size": 100
+            },
+            "layers": [],
+            "annotations": { SIG_ANNOTATION: sig_b64 }
+        });
+        let manifest_json = serde_json::to_string(&manifest).unwrap();
+
+        // Build a minimal PKCS#8 SubjectPublicKeyInfo PEM from the raw public key bytes.
+        let pub_raw = key_pair.public_key().as_ref();
+        // Wrap uncompressed EC point in SubjectPublicKeyInfo for P-256.
+        let spki = build_p256_spki(pub_raw);
+        let pub_pem = format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
+            base64ct::Base64::encode_string(&spki)
+        );
+
+        let result = check_signature(&manifest_json, Some(&pub_pem)).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+    }
+
+    /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
+    fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
+        // OID for id-ecPublicKey + OID for P-256 (prime256v1)
+        let algorithm: &[u8] = &[
+            0x30, 0x13, // SEQUENCE
+            0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID id-ecPublicKey
+            0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // OID prime256v1
+        ];
+        let bit_string_len = 1 + pub_raw.len(); // leading 0x00 unused-bits byte
+        let content_len = algorithm.len() + 2 + bit_string_len; // 2 = tag+len for BIT STRING
+        let mut der = Vec::new();
+        der.push(0x30); // SEQUENCE
+        der.push(content_len as u8);
+        der.extend_from_slice(algorithm);
+        der.push(0x03); // BIT STRING
+        der.push(bit_string_len as u8);
+        der.push(0x00); // unused bits
+        der.extend_from_slice(pub_raw);
+        der
     }
 }

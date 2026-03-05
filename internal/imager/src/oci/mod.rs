@@ -13,6 +13,7 @@ mod auth;
 mod http;
 mod layer;
 mod manifest;
+pub(crate) mod sign;
 pub(crate) mod verify;
 
 pub mod local;

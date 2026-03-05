@@ -22,7 +22,7 @@ pub(crate) async fn pull_to_temp(reference: &str, pubkey_pem: Option<&str>) -> R
 pub(crate) async fn pull_to_dir(
     reference: &str,
     dest: &Path,
-    cosign_key: Option<&str>,
+    signature_key: Option<&str>,
 ) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = Client::builder()
@@ -36,14 +36,7 @@ pub(crate) async fn pull_to_dir(
     let manifest = manifest::parse(&manifest_json)?;
 
     let layers = if !manifest.manifests.is_empty() {
-        verify::check_cosign(
-            &client,
-            &image_ref,
-            &manifest_json,
-            token.as_deref(),
-            cosign_key,
-        )
-        .await?;
+        verify::check_signature(&manifest_json, signature_key).await?;
 
         let selected_manifest = manifest::select_platform(&manifest.manifests)?;
         let platform_url = manifest::build_url(&image_ref, &selected_manifest.digest);
@@ -51,14 +44,7 @@ pub(crate) async fn pull_to_dir(
         let platform_manifest = manifest::parse(&platform_json)?;
         platform_manifest.layers
     } else {
-        verify::check_cosign(
-            &client,
-            &image_ref,
-            &manifest_json,
-            token.as_deref(),
-            cosign_key,
-        )
-        .await?;
+        verify::check_signature(&manifest_json, signature_key).await?;
         manifest.layers
     };
 

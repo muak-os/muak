@@ -17,6 +17,7 @@ pub use error::{ImagerError, Result};
 // Import OCI functions directly from submodules
 use oci::local::extract_local_oci_layout;
 use oci::remote::{pull_to_dir, pull_to_temp};
+use oci::sign::sign_manifest;
 
 /// Maximum number of extensions to process concurrently.
 const MAX_CONCURRENT_EXTENSIONS: usize = 8;
@@ -59,6 +60,11 @@ const MAX_CONCURRENT_EXTENSIONS: usize = 8;
 pub async fn pull_image(reference: &str, output: &Path, pubkey_pem: Option<&str>) -> Result<()> {
     tokio::fs::create_dir_all(output).await?;
     pull_to_dir(reference, output, pubkey_pem).await
+}
+
+/// Sign an OCI image manifest in the registry.
+pub async fn sign_image(reference: &str, privkey_pem: &str) -> Result<()> {
+    sign_manifest(reference, privkey_pem).await
 }
 
 /// Build a compressed CPIO archive containing squashfs files for each extension.

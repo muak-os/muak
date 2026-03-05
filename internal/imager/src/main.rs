@@ -35,7 +35,13 @@ mod cli {
             output: PathBuf,
 
             #[arg(long, value_name = "PATH")]
-            cosign_key: Option<PathBuf>,
+            pub_key: Option<PathBuf>,
+        },
+        Sign {
+            #[arg(short, long)]
+            image: String,
+            #[arg(long, value_name = "PATH")]
+            key: PathBuf,
         },
     }
 
@@ -60,12 +66,12 @@ mod cli {
             Command::Pull {
                 image,
                 output,
-                cosign_key,
+                pub_key,
             } => {
-                let key_contents = cosign_key
+                let key_contents = pub_key
                     .map(|p| {
                         std::fs::read_to_string(&p).with_context(|| {
-                            format!("Failed to read cosign public key from {}", p.display())
+                            format!("Failed to read public key from {}", p.display())
                         })
                     })
                     .transpose()?;
@@ -74,6 +80,16 @@ mod cli {
                     .await
                     .context("Failed to pull image")?;
                 println!("Successfully extracted image to {}", output.display());
+            }
+            Command::Sign { image, key } => {
+                let privkey_pem = std::fs::read_to_string(&key).with_context(|| {
+                    format!("Failed to read private key from {}", key.display())
+                })?;
+
+                imager::sign_image(&image, &privkey_pem)
+                    .await
+                    .context("Failed to sign image")?;
+                println!("Successfully signed {}", image);
             }
         }
 
