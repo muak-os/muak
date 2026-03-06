@@ -272,7 +272,7 @@ coverage *pkgs:
         done
         cargo llvm-cov nextest $pkg_args
     else
-        cargo llvm-cov nextest
+        cargo llvm-cov nextest -E 'not package(e2e)'
     fi
 
 # Check kernel config against KSPP security hardening recommendations
