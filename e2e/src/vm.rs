@@ -9,28 +9,64 @@ use tokio::time::{sleep, timeout};
 use crate::artifacts::Artifacts;
 use crate::port;
 
-const APID_GUEST_PORT: u16 = 50051;
+/// RAII guard that wraps a [`TestVm`] and dumps the serial log and stderr to
+/// the test's stderr whenever the test thread is panicking (i.e. on failure).
+pub struct TestFixture {
+    pub vm: TestVm,
+}
+
+impl TestFixture {
+    pub async fn boot_live(artifacts: &Artifacts) -> Result<Self> {
+        Ok(Self {
+            vm: TestVm::boot_live(artifacts).await?,
+        })
+    }
+
+    pub async fn boot_install(artifacts: &Artifacts, disk_gib: u64) -> Result<Self> {
+        Ok(Self {
+            vm: TestVm::boot_install(artifacts, disk_gib).await?,
+        })
+    }
+}
+
+impl Drop for TestFixture {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            let serial = self
+                .vm
+                .read_serial()
+                .unwrap_or_else(|e| format!("<error: {e}>"));
+            let stderr = self
+                .vm
+                .read_stderr()
+                .unwrap_or_else(|e| format!("<error: {e}>"));
+            eprintln!("\n--- serial log ---\n{serial}\n--- stderr ---\n{stderr}");
+        }
+    }
+}
+
+pub const APID_GUEST_PORT: u16 = 50051;
 const APID_READY_MARKER: &str = "[apid] API daemon ready, listening on";
 
-/// Boot mode for the QEMU VM.
+/// Boot mode for the VM.
 pub enum BootMode {
     Live,
     Install { disk_gib: u64 },
 }
 
-/// A running QEMU VM with port-forwarded access to apid.
-pub struct QemuVm {
+/// A running VM with port-forwarded access to apid.
+pub struct TestVm {
     process: Child,
     pub host_port: u16,
     pub serial_log: PathBuf,
-    pub qemu_stderr_log: PathBuf,
+    pub stderr_log: PathBuf,
     _serial_file: NamedTempFile,
-    _qemu_stderr_file: NamedTempFile,
+    _stderr_file: NamedTempFile,
     _ovmf_vars: NamedTempFile,
     _disk: Option<NamedTempFile>,
 }
 
-impl QemuVm {
+impl TestVm {
     /// Boots a VM in live mode (ISO only, no persistent disk).
     pub async fn boot_live(artifacts: &Artifacts) -> Result<Self> {
         Self::boot(artifacts, BootMode::Live).await
@@ -47,7 +83,7 @@ impl QemuVm {
         let serial_file = NamedTempFile::new().context("failed to create serial log tempfile")?;
         let serial_path = serial_file.path().to_path_buf();
 
-        let stderr_file = NamedTempFile::new().context("failed to create QEMU stderr tempfile")?;
+        let stderr_file = NamedTempFile::new().context("failed to create stderr tempfile")?;
         let stderr_path = stderr_file.path().to_path_buf();
 
         let ovmf_vars = NamedTempFile::new().context("failed to create OVMF VARS tempfile")?;
@@ -76,8 +112,6 @@ impl QemuVm {
                 "if=pflash,format=raw,file={}",
                 ovmf_vars.path().display()
             ))
-            .arg("-cdrom")
-            .arg(&artifacts.iso)
             .arg("-netdev")
             .arg(&hostfwd)
             .arg("-device")
@@ -85,8 +119,29 @@ impl QemuVm {
             .arg("-serial")
             .arg(format!("file:{}", serial_path.display()))
             .arg("-display")
-            .arg("none")
-            .arg("-no-reboot");
+            .arg("none");
+
+        match mode {
+            BootMode::Live => {
+                cmd.arg("-drive")
+                    .arg(format!(
+                        "file={},format=raw,media=cdrom,if=none,id=cdrom0,readonly=on",
+                        artifacts.iso.display()
+                    ))
+                    .arg("-device")
+                    .arg("ide-cd,drive=cdrom0,bootindex=1")
+                    .arg("-no-reboot");
+            }
+            BootMode::Install { .. } => {
+                cmd.arg("-drive")
+                    .arg(format!(
+                        "file={},format=raw,media=cdrom,if=none,id=cdrom0,readonly=on",
+                        artifacts.iso.display()
+                    ))
+                    .arg("-device")
+                    .arg("ide-cd,drive=cdrom0,bootindex=2");
+            }
+        }
 
         let disk = match &mode {
             BootMode::Live => None,
@@ -104,7 +159,7 @@ impl QemuVm {
                         disk_file.path().display()
                     ))
                     .arg("-device")
-                    .arg("nvme,serial=deadbeef,drive=nvme0");
+                    .arg("nvme,serial=deadbeef,drive=nvme0,bootindex=1");
 
                 Some(disk_file)
             }
@@ -114,7 +169,7 @@ impl QemuVm {
             stderr_file
                 .as_file()
                 .try_clone()
-                .context("failed to clone QEMU stderr file handle")?,
+                .context("failed to clone stderr file handle")?,
         );
 
         let process = cmd.spawn().context("failed to spawn qemu-system-x86_64")?;
@@ -123,9 +178,9 @@ impl QemuVm {
             process,
             host_port,
             serial_log: serial_path,
-            qemu_stderr_log: stderr_path,
+            stderr_log: stderr_path,
             _serial_file: serial_file,
-            _qemu_stderr_file: stderr_file,
+            _stderr_file: stderr_file,
             _ovmf_vars: ovmf_vars,
             _disk: disk,
         })
@@ -135,11 +190,11 @@ impl QemuVm {
     pub async fn wait_ready(&self, dur: Duration) -> Result<()> {
         timeout(dur, self.poll_serial_ready()).await.map_err(|_| {
             let serial = self.read_serial().unwrap_or_default();
-            let qemu_err = self.read_qemu_stderr().unwrap_or_default();
+            let stderr = self.read_stderr().unwrap_or_default();
             anyhow::anyhow!(
                 "VM did not become ready within {}s (no '{}' in serial log)\
                      \n\n--- serial log ---\n{serial}\
-                     \n\n--- qemu stderr ---\n{qemu_err}",
+                     \n\n--- stderr ---\n{stderr}",
                 dur.as_secs(),
                 APID_READY_MARKER,
             )
@@ -169,7 +224,8 @@ impl QemuVm {
 
     /// Reads the full serial console log captured from the VM.
     pub fn read_serial(&self) -> Result<String> {
-        std::fs::read_to_string(&self.serial_log).context("failed to read serial log")
+        let raw = std::fs::read(&self.serial_log).context("failed to read serial log")?;
+        Ok(String::from_utf8_lossy(raw.trim_ascii()).replace('\0', ""))
     }
 
     /// Returns the last `n` lines of the serial log.
@@ -180,9 +236,10 @@ impl QemuVm {
         Ok(lines[start..].join("\n"))
     }
 
-    /// Reads the QEMU process stderr log.
-    pub fn read_qemu_stderr(&self) -> Result<String> {
-        std::fs::read_to_string(&self.qemu_stderr_log).context("failed to read QEMU stderr log")
+    /// Reads the process stderr log.
+    pub fn read_stderr(&self) -> Result<String> {
+        let raw = std::fs::read(&self.stderr_log).context("failed to read stderr log")?;
+        Ok(String::from_utf8_lossy(raw.trim_ascii()).replace('\0', ""))
     }
 
     /// Asserts that the serial log contains the given substring.
@@ -194,16 +251,13 @@ impl QemuVm {
         Ok(())
     }
 
-    /// Sends SIGKILL to the QEMU process.
+    /// Sends SIGKILL to the process.
     pub async fn kill(&mut self) -> Result<()> {
-        self.process
-            .kill()
-            .await
-            .context("failed to kill QEMU process")
+        self.process.kill().await.context("failed to kill process")
     }
 }
 
-impl Drop for QemuVm {
+impl Drop for TestVm {
     fn drop(&mut self) {
         let _ = self.process.start_kill();
     }

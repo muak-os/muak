@@ -29,101 +29,98 @@ impl Cli {
     }
 
     /// Runs `muakctl` with the given arguments, injecting `--endpoint` and `MUAK_CONFIG`.
-    pub fn run<I, S>(&self, args: I) -> Result<Output>
+    /// Pass `insecure: true` to also add `--insecure` (TOFU mode).
+    pub async fn run<I, S>(&self, args: I, insecure: bool) -> Result<Output>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = std::process::Command::new(&self.bin)
-            .env("MUAK_CONFIG", self.config_path())
+        let mut cmd = tokio::process::Command::new(&self.bin);
+        cmd.env("MUAK_CONFIG", self.config_path())
             .env("HOME", self.config_dir.path())
             .arg("--endpoint")
-            .arg(&self.endpoint)
-            .args(args)
+            .arg(&self.endpoint);
+        if insecure {
+            cmd.arg("--insecure");
+        }
+        cmd.args(args)
             .output()
-            .with_context(|| format!("failed to execute {}", self.bin.display()))?;
-
-        Ok(output)
+            .await
+            .with_context(|| format!("failed to execute {}", self.bin.display()))
     }
 
-    /// Runs `muakctl` in insecure (TOFU) mode.
-    pub fn run_insecure<I, S>(&self, args: I) -> Result<Output>
+    #[doc(hidden)]
+    pub async fn assert_success_impl<I, S>(&self, args: I, insecure: bool) -> Result<String>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = std::process::Command::new(&self.bin)
-            .env("MUAK_CONFIG", self.config_path())
-            .env("HOME", self.config_dir.path())
-            .arg("--endpoint")
-            .arg(&self.endpoint)
-            .arg("--insecure")
-            .args(args)
-            .output()
-            .with_context(|| format!("failed to execute {}", self.bin.display()))?;
-
-        Ok(output)
-    }
-
-    /// Runs a command and asserts it exits successfully, returning stdout as a string.
-    pub fn assert_success<I, S>(&self, args: I) -> Result<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let output = self.run(args)?;
+        let flag = if insecure { " --insecure" } else { "" };
+        let output = self.run(args, insecure).await?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             bail!(
-                "muakctl exited with {}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+                "muakctl{flag} exited with {}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
                 output.status
             );
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Runs a command in insecure mode and asserts it exits successfully.
-    pub fn assert_success_insecure<I, S>(&self, args: I) -> Result<String>
+    #[doc(hidden)]
+    pub async fn assert_output_contains_impl<I, S>(
+        &self,
+        args: I,
+        needle: &str,
+        insecure: bool,
+    ) -> Result<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = self.run_insecure(args)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            bail!(
-                "muakctl --insecure exited with {}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
-                output.status
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    }
-
-    /// Runs a command and asserts the stdout contains the given needle.
-    pub fn assert_output_contains<I, S>(&self, args: I, needle: &str) -> Result<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let stdout = self.assert_success(args)?;
+        let stdout = self.assert_success_impl(args, insecure).await?;
         if !stdout.contains(needle) {
             bail!("stdout does not contain '{needle}'\n--- stdout ---\n{stdout}");
         }
         Ok(())
     }
+}
 
-    /// Runs a command in insecure mode and asserts the stdout contains the given needle.
-    pub fn assert_output_contains_insecure<I, S>(&self, args: I, needle: &str) -> Result<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let stdout = self.assert_success_insecure(args)?;
-        if !stdout.contains(needle) {
-            bail!("stdout does not contain '{needle}'\n--- stdout ---\n{stdout}");
-        }
-        Ok(())
-    }
+/// Asserts that `muakctl` exits successfully and returns stdout.
+///
+/// Usage: `assert_success!(cli, ["arg1", "arg2"])`
+#[macro_export]
+macro_rules! assert_success {
+    ($cli:expr, $args:expr) => {
+        $cli.assert_success_impl($args, false)
+    };
+}
+
+/// Asserts that `muakctl --insecure` exits successfully and returns stdout.
+///
+/// Usage: `assert_success_insecure!(cli, ["arg1", "arg2"])`
+#[macro_export]
+macro_rules! assert_success_insecure {
+    ($cli:expr, $args:expr) => {
+        $cli.assert_success_impl($args, true)
+    };
+}
+
+/// Asserts that `muakctl` stdout contains the given needle.
+#[macro_export]
+macro_rules! assert_output_contains {
+    ($cli:expr, $args:expr, $needle:expr) => {
+        $cli.assert_output_contains_impl($args, $needle, false)
+    };
+}
+
+/// Asserts that `muakctl --insecure` stdout contains the given needle.
+///
+/// Usage: `assert_output_contains_insecure!(cli, ["arg1"], "needle")`
+#[macro_export]
+macro_rules! assert_output_contains_insecure {
+    ($cli:expr, $args:expr, $needle:expr) => {
+        $cli.assert_output_contains_impl($args, $needle, true)
+    };
 }
