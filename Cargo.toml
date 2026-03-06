@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "cli",
+    "e2e",
     "internal/apid",
     "internal/granola",
     "internal/imager",

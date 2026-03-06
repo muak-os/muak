@@ -241,8 +241,25 @@ test *pkgs:
         done
         cargo nextest run $pkg_args
     else
-        cargo nextest run
+        cargo nextest run -E 'not package(e2e)'
     fi
+
+# Run E2E tests suite (requires: qemu, built artifacts)
+[script]
+e2e:
+    printf "{{ cyan }}Running E2E tests{{ reset }}\n"
+    if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
+        printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
+        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out alpine:3.23 sh -c '
+        set -euo pipefail
+        apk add --no-cache wget libarchive-tools >/dev/null 2>&1
+        wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm
+        bsdtar -xf /tmp/edk2.rpm -C /tmp
+        cp /tmp/usr/share/edk2/ovmf/OVMF_VARS.fd /out/OVMF_VARS.fd
+        cp /tmp/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd /out/OVMF_CODE.secboot.fd'
+        printf "{{ green }}OVMF firmware files ready{{ reset }}\n"
+    fi
+    MUAK_ARTIFACTS={{ artifacts }} cargo nextest run -E 'package(e2e)' --test-threads 2
 
 # Run tests with coverage (e.g., just coverage or just coverage yuki)
 [script]
