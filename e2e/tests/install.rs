@@ -1,12 +1,11 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use e2e::artifacts::Artifacts;
 use e2e::cli::Cli;
-use e2e::vm::{APID_GUEST_PORT, TestFixture};
+use e2e::vm::TestFixture;
 use e2e::{assert_success, assert_success_insecure};
-use tempfile::NamedTempFile;
 
-const INSTALL_DISK_GIB: u64 = 5;
 const DEFAULT_REGISTRY: &str = "ghcr.io/sawangg";
 const DEFAULT_TAG: &str = "latest";
 
@@ -16,22 +15,11 @@ fn install_image() -> String {
     format!("{registry}/installer:{tag}")
 }
 
-/// Minimum TOML config for a QEMU test install: no secureboot (no SB key enrollment in the
-/// emulated firmware), NVMe target disk, default installer image.
-fn install_config(port: u16) -> String {
-    let image = install_image();
-    format!(
-        "[system]\nname = \"muak\"\ndisk = \"/dev/nvme0n1\"\nimage = \"{image}\"\nsecureboot = false\nport = {port}\n"
-    )
-}
-
-/// Full install flow: boots in maintenance mode, installs to NVMe, waits for the automatic
-/// reboot, then verifies the installed system is reachable with mTLS.
 #[tokio::test]
 async fn install_and_verify_mtls() {
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
-    let mut fixture = TestFixture::boot_install(&artifacts, INSTALL_DISK_GIB)
+    let fixture = TestFixture::boot_install(&artifacts)
         .await
         .expect("failed to boot install VM");
 
@@ -44,12 +32,18 @@ async fn install_and_verify_mtls() {
     let cli =
         Cli::new(&artifacts.cli_bin, fixture.vm.host_port).expect("failed to create CLI driver");
 
-    // Write the install config to a temp file so muakctl can read it.
-    let config_file = NamedTempFile::new().expect("failed to create config tempfile");
-    std::fs::write(config_file.path(), install_config(APID_GUEST_PORT))
-        .expect("failed to write install config");
+    let config_file = cli
+        .generate_config(&HashMap::from([
+            ("system.secureboot", toml::Value::Boolean(false)),
+            (
+                "system.disk",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
+            ("system.image", toml::Value::String(install_image())),
+        ]))
+        .await
+        .expect("failed to generate install config");
 
-    // muakctl install drives the full install + post-reboot poll internally.
     let stdout = tokio::time::timeout(
         Duration::from_secs(60),
         assert_success_insecure!(
@@ -70,13 +64,11 @@ async fn install_and_verify_mtls() {
         "unexpected install output: {stdout}"
     );
 
-    // After install the VM rebooted and granola logs this when running from the installed disk.
     fixture
         .vm
         .assert_serial_contains("[granola] Running from INSTALLED DISK")
         .expect("installed-boot marker not found in serial log");
 
-    // muakctl install saved an mTLS context — verify it works with an authenticated call.
     let disks = assert_success!(cli, ["disks"])
         .await
         .expect("authenticated muakctl disks failed");
@@ -85,6 +77,4 @@ async fn install_and_verify_mtls() {
         disks.contains("nvme0n1"),
         "expected nvme0n1 in disk listing, got: {disks}"
     );
-
-    fixture.vm.kill().await.expect("failed to kill VM");
 }

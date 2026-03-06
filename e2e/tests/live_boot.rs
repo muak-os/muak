@@ -9,7 +9,7 @@ use e2e::vm::TestFixture;
 async fn vm_boots_and_apid_reachable() {
     let artifacts = Artifacts::from_env().expect("failed to resolve test artifacts");
 
-    let mut fixture = TestFixture::boot_live(&artifacts)
+    let fixture = TestFixture::boot_live(&artifacts)
         .await
         .expect("failed to boot QEMU VM");
 
@@ -25,6 +25,4 @@ async fn vm_boots_and_apid_reachable() {
     assert_success_insecure!(cli, ["disks"])
         .await
         .expect("muak disks failed");
-
-    fixture.vm.kill().await.expect("failed to kill VM");
 }

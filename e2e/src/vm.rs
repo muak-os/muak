@@ -9,8 +9,7 @@ use tokio::time::{sleep, timeout};
 use crate::artifacts::Artifacts;
 use crate::port;
 
-/// RAII guard that wraps a [`TestVm`] and dumps the serial log and stderr to
-/// the test's stderr whenever the test thread is panicking (i.e. on failure).
+/// Wraps a [`TestVm`] and dumps the serial log and stderr when panic occurs.
 pub struct TestFixture {
     pub vm: TestVm,
 }
@@ -22,9 +21,9 @@ impl TestFixture {
         })
     }
 
-    pub async fn boot_install(artifacts: &Artifacts, disk_gib: u64) -> Result<Self> {
+    pub async fn boot_install(artifacts: &Artifacts) -> Result<Self> {
         Ok(Self {
-            vm: TestVm::boot_install(artifacts, disk_gib).await?,
+            vm: TestVm::boot_install(artifacts).await?,
         })
     }
 }
@@ -45,13 +44,13 @@ impl Drop for TestFixture {
     }
 }
 
-pub const APID_GUEST_PORT: u16 = 50051;
+pub const APID_PORT: u16 = 50051;
 const APID_READY_MARKER: &str = "[apid] API daemon ready, listening on";
 
 /// Boot mode for the VM.
 pub enum BootMode {
     Live,
-    Install { disk_gib: u64 },
+    Install,
 }
 
 /// A running VM with port-forwarded access to apid.
@@ -73,8 +72,8 @@ impl TestVm {
     }
 
     /// Boots a VM in install mode (ISO + NVMe disk).
-    pub async fn boot_install(artifacts: &Artifacts, disk_gib: u64) -> Result<Self> {
-        Self::boot(artifacts, BootMode::Install { disk_gib }).await
+    pub async fn boot_install(artifacts: &Artifacts) -> Result<Self> {
+        Self::boot(artifacts, BootMode::Install).await
     }
 
     async fn boot(artifacts: &Artifacts, mode: BootMode) -> Result<Self> {
@@ -90,7 +89,7 @@ impl TestVm {
         std::fs::copy(&artifacts.ovmf_vars, ovmf_vars.path())
             .context("failed to copy OVMF_VARS.secboot.fd")?;
 
-        let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:{APID_GUEST_PORT}");
+        let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:{APID_PORT}");
 
         let mut cmd = Command::new("qemu-system-x86_64");
         cmd.arg("-enable-kvm")
@@ -132,7 +131,7 @@ impl TestVm {
                     .arg("ide-cd,drive=cdrom0,bootindex=1")
                     .arg("-no-reboot");
             }
-            BootMode::Install { .. } => {
+            BootMode::Install => {
                 cmd.arg("-drive")
                     .arg(format!(
                         "file={},format=raw,media=cdrom,if=none,id=cdrom0,readonly=on",
@@ -145,12 +144,12 @@ impl TestVm {
 
         let disk = match &mode {
             BootMode::Live => None,
-            BootMode::Install { disk_gib } => {
+            BootMode::Install => {
                 let disk_file =
                     NamedTempFile::new().context("failed to create NVMe disk tempfile")?;
                 disk_file
                     .as_file()
-                    .set_len(disk_gib * 1024 * 1024 * 1024)
+                    .set_len(5 * 1024 * 1024 * 1024)
                     .context("failed to allocate NVMe disk image")?;
 
                 cmd.arg("-drive")
@@ -210,30 +209,10 @@ impl TestVm {
         }
     }
 
-    /// Waits until the forwarded TCP port stops accepting connections (e.g. during reboot).
-    pub async fn wait_port_closed(&self, dur: Duration) -> Result<()> {
-        let addr = format!("127.0.0.1:{}", self.host_port);
-        timeout(dur, poll_tcp_closed(&addr)).await.map_err(|_| {
-            anyhow::anyhow!(
-                "port {} did not close within {}s",
-                self.host_port,
-                dur.as_secs()
-            )
-        })?
-    }
-
     /// Reads the full serial console log captured from the VM.
     pub fn read_serial(&self) -> Result<String> {
         let raw = std::fs::read(&self.serial_log).context("failed to read serial log")?;
         Ok(String::from_utf8_lossy(raw.trim_ascii()).replace('\0', ""))
-    }
-
-    /// Returns the last `n` lines of the serial log.
-    pub fn tail_serial(&self, n: usize) -> Result<String> {
-        let log = self.read_serial()?;
-        let lines: Vec<&str> = log.lines().collect();
-        let start = lines.len().saturating_sub(n);
-        Ok(lines[start..].join("\n"))
     }
 
     /// Reads the process stderr log.
@@ -250,24 +229,10 @@ impl TestVm {
         }
         Ok(())
     }
-
-    /// Sends SIGKILL to the process.
-    pub async fn kill(&mut self) -> Result<()> {
-        self.process.kill().await.context("failed to kill process")
-    }
 }
 
 impl Drop for TestVm {
     fn drop(&mut self) {
-        let _ = self.process.start_kill();
-    }
-}
-
-async fn poll_tcp_closed(addr: &str) -> Result<()> {
-    loop {
-        if tokio::net::TcpStream::connect(addr).await.is_err() {
-            return Ok(());
-        }
-        sleep(Duration::from_millis(500)).await;
+        let _ = self.process.kill();
     }
 }
