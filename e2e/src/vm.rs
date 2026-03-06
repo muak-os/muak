@@ -233,6 +233,6 @@ impl TestVm {
 
 impl Drop for TestVm {
     fn drop(&mut self) {
-        let _ = self.process.kill();
+        let _ = self.process.start_kill();
     }
 }

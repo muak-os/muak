@@ -259,7 +259,7 @@ e2e:
         cp /tmp/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd /out/OVMF_CODE.secboot.fd'
         printf "{{ green }}OVMF firmware files ready{{ reset }}\n"
     fi
-    MUAK_ARTIFACTS={{ artifacts }} cargo nextest run -E 'package(e2e)' --test-threads 2
+    MUAK_ARTIFACTS={{ artifacts }} cargo nextest run -E 'package(e2e)' --test-threads 3
 
 # Run tests with coverage (e.g., just coverage or just coverage yuki)
 [script]

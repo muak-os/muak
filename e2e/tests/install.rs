@@ -16,7 +16,7 @@ fn install_image() -> String {
 }
 
 #[tokio::test]
-async fn install_and_verify_mtls() {
+async fn install() {
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
     let fixture = TestFixture::boot_install(&artifacts)
@@ -76,5 +76,68 @@ async fn install_and_verify_mtls() {
     assert!(
         disks.contains("nvme0n1"),
         "expected nvme0n1 in disk listing, got: {disks}"
+    );
+}
+
+#[tokio::test]
+async fn install_secureboot() {
+    let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
+
+    let fixture = TestFixture::boot_install(&artifacts)
+        .await
+        .expect("failed to boot install VM");
+
+    fixture
+        .vm
+        .wait_ready(Duration::from_secs(60))
+        .await
+        .expect("maintenance-mode apid did not become ready");
+
+    let cli =
+        Cli::new(&artifacts.cli_bin, fixture.vm.host_port).expect("failed to create CLI driver");
+
+    let config_file = cli
+        .generate_config(&HashMap::from([
+            (
+                "system.disk",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
+            ("system.image", toml::Value::String(install_image())),
+        ]))
+        .await
+        .expect("failed to generate install config");
+
+    let stdout = tokio::time::timeout(
+        Duration::from_secs(60),
+        assert_success_insecure!(
+            cli,
+            [
+                "install",
+                "--config",
+                &config_file.path().display().to_string(),
+            ]
+        ),
+    )
+    .await
+    .expect("install timed out after 5 minutes")
+    .expect("muakctl install failed");
+
+    assert!(
+        stdout.contains("Installation verified successfully") || stdout.contains("installed"),
+        "unexpected install output: {stdout}"
+    );
+
+    fixture
+        .vm
+        .assert_serial_contains("[granola] Running from INSTALLED DISK")
+        .expect("installed-boot marker not found in serial log");
+
+    let security = assert_success!(cli, ["security", "state"])
+        .await
+        .expect("authenticated muakctl security state failed");
+
+    assert!(
+        security.contains("Secure Boot: Enabled"),
+        "expected Secure Boot to be enabled, got: {security}"
     );
 }

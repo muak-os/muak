@@ -39,6 +39,7 @@ impl Cli {
         let mut cmd = tokio::process::Command::new(&self.bin);
         cmd.env("MUAK_CONFIG", self.config_path())
             .env("HOME", self.config_dir.path())
+            .env("NO_COLOR", "1")
             .arg("--endpoint")
             .arg(&self.endpoint);
         if insecure {
