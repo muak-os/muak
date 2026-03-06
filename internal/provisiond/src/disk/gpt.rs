@@ -2,14 +2,13 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, Write};
-use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use gptman::{GPT, GPTPartitionEntry};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
-use super::utils::format_partition_name;
+use super::utils::{format_partition_name, wait_for_device};
 
 /// Checks if a disk has existing partitions in its GPT.
 pub fn has_existing_partitions(disk: &str) -> Result<bool> {
@@ -144,23 +143,7 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     let state_part = format_partition_name(disk, 2);
     let data_part = format_partition_name(disk, 3);
 
-    kmsg::info!("Waiting for partition device nodes to appear...");
-
-    for i in 0..30 {
-        if Path::new(&efi_part).exists() {
-            kmsg::info!(
-                "Partition devices created successfully after {} attempts",
-                i + 1
-            );
-            break;
-        }
-
-        if i == 29 {
-            bail!("Timeout waiting for partition devices to appear. BLKPG may have failed.");
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    wait_for_device(&efi_part)?;
 
     Ok((efi_part, state_part, data_part))
 }
