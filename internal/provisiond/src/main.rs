@@ -5,10 +5,10 @@ mod disk;
 mod efi;
 mod history;
 mod install;
+mod ipc;
 mod reboot;
 mod reset;
 mod secrets;
-mod services;
 mod streaming;
 mod uki;
 mod update;
@@ -53,9 +53,9 @@ async fn main() -> Result<()> {
     kmsg::info!("provisiond started");
 
     Server::builder()
-        .add_service(services::auth::service())
-        .add_service(services::provision::service())
-        .add_service(services::security::service())
+        .add_service(ipc::auth::service())
+        .add_service(ipc::provision::service())
+        .add_service(ipc::security::service())
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 

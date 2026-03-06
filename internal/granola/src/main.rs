@@ -1,6 +1,6 @@
 //! PID 1 supervisor for Muak.
 
-mod services;
+mod ipc;
 mod supervisor;
 
 use std::path::Path;
@@ -102,8 +102,8 @@ async fn run_grpc_server(reader: LogReader) -> Result<()> {
     let listener = UnixListener::bind(GRPC_SOCKET_PATH)?;
 
     Server::builder()
-        .add_service(services::process::service())
-        .add_service(services::log::service(reader))
+        .add_service(ipc::process::service())
+        .add_service(ipc::log::service(reader))
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 

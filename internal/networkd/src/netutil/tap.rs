@@ -5,7 +5,7 @@ use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Opcode, Setter, ioctl};
 
 use crate::netlink::link;
-use crate::services::bridge;
+use crate::netutil::bridge;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IFF_TAP: i16 = 0x0002;

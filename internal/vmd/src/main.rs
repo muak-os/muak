@@ -3,8 +3,8 @@
 mod actor;
 mod clients;
 mod disk;
-mod grpc;
 mod hypervisor;
+mod ipc;
 mod persistence;
 
 use std::os::unix::io::FromRawFd;
@@ -13,7 +13,7 @@ use std::os::unix::net::UnixListener as StdUnixListener;
 use actor::start_vm_actor;
 use anyhow::Result;
 use clients::NetworkClient;
-use grpc::VmServiceImpl;
+use ipc::VmServiceImpl;
 use notify::{Health, NotifyClient};
 use rustix::process::{Pid, WaitOptions, waitpid};
 use tokio::net::UnixListener;

@@ -14,8 +14,8 @@ use tokio::sync::mpsc;
 use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
 use crate::efi;
+use crate::ipc::proto::provision::InstallProgress;
 use crate::secrets;
-use crate::services::proto::provision::InstallProgress;
 use crate::streaming;
 use crate::uki::Uki;
 

@@ -5,12 +5,12 @@ mod config;
 mod connectivity;
 mod dhcpv4;
 mod dns;
-mod grpc;
 mod interface;
+mod ipc;
 mod model;
 mod monitor;
 mod netlink;
-mod services;
+mod netutil;
 mod slaac;
 mod socket;
 
@@ -19,7 +19,7 @@ use std::os::unix::net::UnixListener as StdUnixListener;
 
 use actor::start_network_actor;
 use anyhow::Result;
-use grpc::NetworkServiceImpl;
+use ipc::NetworkServiceImpl;
 use notify::{Health, NotifyClient};
 use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};

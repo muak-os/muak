@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 
 use crate::constants::UPDATE_DIR;
 use crate::history::{self, ChangeKind};
-use crate::services::proto::provision::PrepareUpdateProgress;
+use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::streaming;
 use crate::uki::Uki;
 

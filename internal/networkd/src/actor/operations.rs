@@ -15,7 +15,7 @@ use crate::model::{
     LinkStateKind, NetworkStateKind,
 };
 use crate::netlink::{address, link, route};
-use crate::services::{bridge, tap};
+use crate::netutil::{bridge, tap};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl NetworkActor {

@@ -6,9 +6,9 @@ use tonic::{Request, Response, Status};
 
 use crate::actor::NetworkActorHandle;
 use crate::model::{ConnectivityStatus, NetworkStateKind};
+use crate::netutil::tap::{format_mac_address, generate_mac_address};
 use crate::proto::network_service_server::NetworkService;
 use crate::proto::*;
-use crate::services::tap::{format_mac_address, generate_mac_address};
 
 pub struct NetworkServiceImpl {
     handle: NetworkActorHandle,
