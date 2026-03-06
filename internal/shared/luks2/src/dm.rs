@@ -4,7 +4,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use rustix::fs::{CWD, FileType, Mode, OFlags, mknodat, open};
-use rustix::ioctl::{Opcode, Updater, ioctl, opcode};
+use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, Updater, ioctl, opcode};
 use zeroize::Zeroize;
 
 use crate::constants::{
@@ -18,6 +18,32 @@ const DM_CONTROL_PATH: &str = "/dev/mapper/control";
 const DM_DEV_CREATE: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, DM_DEV_CREATE_NR);
 const DM_DEV_SUSPEND: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, DM_DEV_SUSPEND_NR);
 const DM_TABLE_BUF_SIZE: usize = 16384;
+const DM_TABLE_LOAD: Opcode = opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, 9);
+
+/// Raw-pointer ioctl wrapper.
+struct DmTableLoadIoctl {
+    ptr: *mut std::ffi::c_void,
+}
+
+unsafe impl Ioctl for DmTableLoadIoctl {
+    type Output = ();
+    const IS_MUTATING: bool = true;
+
+    fn opcode(&self) -> Opcode {
+        DM_TABLE_LOAD
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.ptr
+    }
+
+    unsafe fn output_from_ptr(
+        _out: IoctlOutput,
+        _ptr: *mut std::ffi::c_void,
+    ) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
 
 /// dm_ioctl header matching the kernel ABI.
 #[repr(C)]
@@ -214,13 +240,14 @@ fn dm_table_load(fd: &rustix::fd::OwnedFd, params: &CryptParams<'_>) -> Result<(
     buf[params_offset..params_offset + params_bytes.len()].copy_from_slice(params_bytes);
     buf[params_offset + params_bytes.len()] = 0;
 
-    // SAFETY: buf is large enough and laid out per the kernel dm-ioctl ABI
+    // SAFETY: buf is large enough and laid out per the kernel dm-ioctl ABI; the
+    // DmTableLoadIoctl wrapper passes the raw pointer directly.
     unsafe {
         ioctl(
             fd,
-            Updater::<{ opcode::read_write::<DmIoctl>(DM_IOCTL_TYPE, 9) }, DmIoctl>::new(
-                &mut *(buf.as_mut_ptr() as *mut DmIoctl),
-            ),
+            DmTableLoadIoctl {
+                ptr: buf.as_mut_ptr().cast(),
+            },
         )
     }
     .map_err(|e| Error::DeviceMapper(format!("DM_TABLE_LOAD failed: {e}")))?;
