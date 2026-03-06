@@ -11,6 +11,7 @@ use crate::ui;
 #[derive(Subcommand)]
 pub enum ConfigAction {
     Generate,
+    Get,
     Export {
         #[arg(long)]
         from: Option<String>,
@@ -33,10 +34,32 @@ pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {
         ConfigAction::Generate => {
             unreachable!("Generate is handled in main before connecting")
         }
+        ConfigAction::Get => get(channel).await,
         ConfigAction::Export { from } => export(channel, from).await,
         ConfigAction::History { limit } => history(channel, limit).await,
         ConfigAction::Diff { from, to } => diff(channel, from, to).await,
     }
+}
+
+async fn get(channel: Channel) -> Result<()> {
+    let mut client = ProvisionServiceClient::new(channel);
+    let resp = client
+        .get_config(tonic::Request::new(GetConfigRequest {}))
+        .await?
+        .into_inner();
+
+    if !resp.error.is_empty() {
+        eprintln!(
+            "{} {}",
+            ui::style::error("Error:"),
+            ui::style::error_text(&resp.error)
+        );
+        std::process::exit(1);
+    }
+
+    let config = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
+    print!("{config}");
+    Ok(())
 }
 
 async fn export(channel: Channel, from: Option<String>) -> Result<()> {

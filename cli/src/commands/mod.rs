@@ -123,6 +123,14 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
             auth::enroll(endpoint).await?;
             return Ok(true);
         }
+        Commands::Update { image, config } => {
+            if image.is_some() && config.is_some() {
+                bail!("--image and --config are mutually exclusive!");
+            }
+            if image.is_none() && config.is_none() {
+                bail!("Either --image or --config must be provided for update!");
+            }
+        }
         Commands::Install { force: false, .. } => {
             if cli.insecure
                 && let Some(endpoint) = &cli.endpoint
