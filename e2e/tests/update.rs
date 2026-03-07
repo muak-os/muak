@@ -84,6 +84,72 @@ async fn update_config() {
 }
 
 #[tokio::test]
+async fn update_config_secureboot() {
+    let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
+    let (fixture, cli) = boot_and_install(
+        &artifacts,
+        HashMap::from([("system.secureboot", toml::Value::Boolean(false))]),
+    )
+    .await;
+
+    let update_cfg = cli
+        .generate_config(&HashMap::from([
+            (
+                "system.disk",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
+            ("system.image", toml::Value::String(install_image())),
+            ("system.secureboot", toml::Value::Boolean(true)),
+        ]))
+        .await
+        .expect("failed to generate update config");
+
+    let stdout = tokio::time::timeout(
+        Duration::from_secs(60),
+        assert_success!(
+            cli,
+            [
+                "update",
+                "--config",
+                &update_cfg.path().display().to_string(),
+            ]
+        ),
+    )
+    .await
+    .expect("update --config timed out after 10 minutes")
+    .expect("muakctl update --config failed");
+
+    assert!(
+        stdout.contains("committed successfully"),
+        "expected 'committed successfully' in update --config output, got: {stdout}"
+    );
+
+    let config_out = assert_success!(cli, ["config", "get"])
+        .await
+        .expect("muakctl config get failed after update");
+
+    assert!(
+        config_out.contains(&install_image()),
+        "expected updated image '{}' in config get output, got: {config_out}",
+        install_image()
+    );
+
+    fixture
+        .vm
+        .assert_serial_contains("muak.update_id=")
+        .expect("kexec update marker not found in serial log");
+
+    let security = assert_success!(cli, ["security", "state"])
+        .await
+        .expect("authenticated muakctl security state failed");
+
+    assert!(
+        security.contains("Secure Boot: Pending (firmware reboot required)"),
+        "expected Secure Boot to be enabled, got: {security}"
+    );
+}
+
+#[tokio::test]
 async fn update_rejects_image_and_config_together() {
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (_, cli) = boot_and_install(&artifacts, HashMap::new()).await;
