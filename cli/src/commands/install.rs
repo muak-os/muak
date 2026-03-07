@@ -117,8 +117,6 @@ pub async fn handle(
 /// Polls the server after reboot to verify the install succeeded.
 async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::Steps) -> Result<()> {
     steps.start("Rebooting system...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
     steps.start("Waiting for system to come back online...");
 
     let timeout = std::time::Duration::from_secs(60 * 5);

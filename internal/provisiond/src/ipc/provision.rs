@@ -57,7 +57,7 @@ impl ProvisionService for ProvisionServiceImpl {
             move |result, out_tx| {
                 let msg = match result {
                     Ok(r) => {
-                        reboot::schedule(3);
+                        reboot::schedule(1);
                         Ok(InstallProgress {
                             ca_pem: r.ca_pem,
                             client_cert_pem: r.admin_cert_pem,
@@ -301,7 +301,7 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<FactoryResetResponse>, Status> {
         match tokio::task::spawn_blocking(reset::factory_reset).await {
             Ok(Ok(())) => {
-                reboot::schedule(3);
+                reboot::schedule(1);
                 Ok(Response::new(FactoryResetResponse {
                     success: true,
                     error: String::new(),
