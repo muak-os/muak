@@ -10,6 +10,7 @@ use hyper::body::Bytes;
 
 #[tokio::test]
 async fn test_proxy_to_backend_success() {
+    // ARRANGE
     let backend = MockBackend::success()
         .await
         .expect("Failed to create mock backend");
@@ -23,8 +24,11 @@ async fn test_proxy_to_backend_success() {
 
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
+    // ASSERT
     assert!(result.is_ok(), "Proxy should succeed: {:?}", result.err());
 
     let response = result.unwrap();
@@ -39,6 +43,7 @@ async fn test_proxy_to_backend_success() {
 
 #[tokio::test]
 async fn test_proxy_to_backend_connection_error() {
+    // ARRANGE
     let req = Request::builder()
         .method("POST")
         .uri("/test.Service/Method")
@@ -47,8 +52,11 @@ async fn test_proxy_to_backend_connection_error() {
 
     let socket_path = "/nonexistent/path/to/socket.sock";
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
+    // ASSERT
     assert!(result.is_err(), "Should fail for non-existent socket");
     let err = result.unwrap_err();
     assert!(
@@ -60,6 +68,7 @@ async fn test_proxy_to_backend_connection_error() {
 
 #[tokio::test]
 async fn test_proxy_to_backend_with_body() {
+    // ARRANGE
     let backend = MockBackend::success()
         .await
         .expect("Failed to create mock backend");
@@ -74,8 +83,11 @@ async fn test_proxy_to_backend_with_body() {
 
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
+    // ASSERT
     assert!(
         result.is_ok(),
         "Proxy with body should succeed: {:?}",
@@ -87,6 +99,7 @@ async fn test_proxy_to_backend_with_body() {
 
 #[tokio::test]
 async fn test_proxy_receives_response_body() {
+    // ARRANGE
     let backend = MockBackend::start(|_req| {
         hyper::Response::builder()
             .status(200)
@@ -108,10 +121,13 @@ async fn test_proxy_receives_response_body() {
 
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
+    // ASSERT
     let body_bytes = response
         .into_body()
         .collect()
@@ -126,6 +142,7 @@ async fn test_proxy_receives_response_body() {
 
 #[tokio::test]
 async fn test_proxy_preserves_uri_path() {
+    // ARRANGE
     let backend = MockBackend::start(|req| {
         hyper::Response::builder()
             .status(200)
@@ -147,10 +164,13 @@ async fn test_proxy_preserves_uri_path() {
 
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
+    // ASSERT
     let received_path = response.headers().get("x-received-path");
     assert!(received_path.is_some(), "Should have received path header");
     assert_eq!(
@@ -164,6 +184,7 @@ async fn test_proxy_preserves_uri_path() {
 
 #[tokio::test]
 async fn test_proxy_preserves_headers() {
+    // ARRANGE
     let backend = MockBackend::start(|req| {
         let custom_value = req
             .headers()
@@ -192,10 +213,13 @@ async fn test_proxy_preserves_headers() {
 
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
+
+    // ACT
     let response = proxy::proxy_to_backend(&pool, req, socket_path)
         .await
         .expect("Proxy should succeed");
 
+    // ASSERT
     let echoed = response.headers().get("x-echoed-custom");
     assert!(echoed.is_some(), "Should have echoed header");
     assert_eq!(echoed.unwrap(), "test-value-123", "Header value preserved");
@@ -205,6 +229,7 @@ async fn test_proxy_preserves_headers() {
 
 #[tokio::test]
 async fn test_proxy_multiple_requests() {
+    // ARRANGE
     let backend = MockBackend::success()
         .await
         .expect("Failed to create mock backend");
@@ -212,6 +237,7 @@ async fn test_proxy_multiple_requests() {
     let socket_path = backend.socket_path.to_str().unwrap();
     let pool = BackendPool::from_socket(socket_path);
 
+    // ACT & ASSERT
     for i in 0..3 {
         let req = Request::builder()
             .method("POST")
@@ -234,6 +260,7 @@ async fn test_proxy_multiple_requests() {
 
 #[tokio::test]
 async fn test_proxy_error_includes_socket_path() {
+    // ARRANGE
     let socket_path = "/tmp/specific_test_socket_path_12345.sock";
     let pool = BackendPool::from_socket(socket_path);
     let req = Request::builder()
@@ -242,8 +269,10 @@ async fn test_proxy_error_includes_socket_path() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
+    // ACT
     let result = proxy::proxy_to_backend(&pool, req, socket_path).await;
 
+    // ASSERT
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(

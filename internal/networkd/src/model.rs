@@ -118,6 +118,7 @@ mod tests {
 
     #[test]
     fn dhcp_lease_expiry_is_obtained_plus_lease_time() {
+        // ARRANGE
         let obtained = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
         let lease = DhcpLease {
             obtained_at: obtained,
@@ -126,11 +127,17 @@ mod tests {
             rebind_time: Duration::from_secs(3150),
         };
         let expected = obtained + Duration::from_secs(3600);
-        assert_eq!(lease.expiry(), expected);
+
+        // ACT
+        let result = lease.expiry();
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn dhcp_lease_expiry_at_epoch() {
+        // ARRANGE
         let lease = DhcpLease {
             obtained_at: SystemTime::UNIX_EPOCH,
             lease_time: Duration::from_secs(86400),
@@ -138,12 +145,20 @@ mod tests {
             rebind_time: Duration::from_secs(75600),
         };
         let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(86400);
-        assert_eq!(lease.expiry(), expected);
+
+        // ACT
+        let result = lease.expiry();
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn connectivity_result_default() {
+        // ACT
         let r = ConnectivityResult::default();
+
+        // ASSERT
         assert_eq!(r.status, ConnectivityStatus::Unknown);
         assert!(!r.dns_ok);
         assert!(!r.https_ok);
@@ -153,7 +168,10 @@ mod tests {
 
     #[test]
     fn network_snapshot_empty_defaults() {
+        // ACT
         let snap = NetworkSnapshot::empty();
+
+        // ASSERT
         assert_eq!(snap.state, NetworkStateKind::Uninitialized);
         assert!(snap.primary.is_none());
         assert!(snap.backups.is_empty());

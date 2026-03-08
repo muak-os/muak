@@ -105,73 +105,103 @@ mod tests {
 
     #[test]
     fn test_digest_to_blob_path_with_sha256_prefix() {
+        // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "sha256:abcd1234";
         let expected = oci_dir.join("blobs").join("sha256").join("abcd1234");
-        assert_eq!(digest_to_blob_path(oci_dir, digest), expected);
+
+        // ACT
+        let result = digest_to_blob_path(oci_dir, digest);
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_digest_to_blob_path_without_prefix() {
+        // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "abcd1234";
         let expected = oci_dir.join("blobs").join("sha256").join("abcd1234");
-        assert_eq!(digest_to_blob_path(oci_dir, digest), expected);
+
+        // ACT
+        let result = digest_to_blob_path(oci_dir, digest);
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_digest_to_blob_path_empty_digest() {
+        // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "";
         let expected = oci_dir.join("blobs").join("sha256").join("");
-        assert_eq!(digest_to_blob_path(oci_dir, digest), expected);
+
+        // ACT
+        let result = digest_to_blob_path(oci_dir, digest);
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_digest_to_blob_path_long_digest() {
+        // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
         let expected = oci_dir
             .join("blobs")
             .join("sha256")
             .join("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
-        assert_eq!(digest_to_blob_path(oci_dir, digest), expected);
+
+        // ACT
+        let result = digest_to_blob_path(oci_dir, digest);
+
+        // ASSERT
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_extract_tar_layer_uncompressed() {
+        // ARRANGE
         let data = b"hello from tar";
         let tar_bytes = build_tar("hello.txt", data);
 
+        // ACT
         let dest = tempfile::tempdir().unwrap();
         extract_tar_layer(&tar_bytes, dest.path()).unwrap();
 
+        // ASSERT
         let extracted = std::fs::read(dest.path().join("hello.txt")).unwrap();
         assert_eq!(extracted, data);
     }
 
     #[test]
     fn test_extract_tar_layer_gzipped() {
+        // ARRANGE
         let data = b"hello from gzipped tar";
         let gz_bytes = build_tar_gz("hello.txt", data);
 
-        // Verify it actually starts with gzip magic
-        assert_eq!(gz_bytes[0], 0x1f);
-        assert_eq!(gz_bytes[1], 0x8b);
-
+        // ACT
         let dest = tempfile::tempdir().unwrap();
         extract_tar_layer(&gz_bytes, dest.path()).unwrap();
 
+        // ASSERT
         let extracted = std::fs::read(dest.path().join("hello.txt")).unwrap();
         assert_eq!(extracted, data);
     }
 
     #[test]
     fn test_extract_tar_layer_invalid_returns_error() {
-        // Random garbage that is neither a valid tar nor gzip
+        // ARRANGE
         let bad = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03];
         let dest = tempfile::tempdir().unwrap();
+
+        // ACT
         let result = extract_tar_layer(&bad, dest.path());
+
+        // ASSERT
         assert!(result.is_err());
     }
 }

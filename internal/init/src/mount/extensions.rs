@@ -38,6 +38,7 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_finds_sqsh_files() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("app.sqsh"), b"").expect("Failed to create app.sqsh");
@@ -46,8 +47,10 @@ mod tests {
         std::fs::write(temp.path().join("readme.txt"), b"").expect("Failed to create readme.txt");
         std::fs::write(temp.path().join("config.json"), b"").expect("Failed to create config.json");
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(extensions.len(), 3, "Should find 3 .sqsh files");
         assert!(
             extensions.iter().any(|e| e.ends_with("app.sqsh")),
@@ -65,6 +68,7 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_ignores_non_sqsh() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("file.tar.gz"), b"").unwrap();
@@ -72,17 +76,22 @@ mod tests {
         std::fs::write(temp.path().join("file.squashfs"), b"").unwrap();
         std::fs::write(temp.path().join("filesqsh"), b"").unwrap();
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(extensions.len(), 0, "Should not find any .sqsh files");
     }
 
     #[test]
     fn test_discover_extensions_empty_directory() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(
             extensions.len(),
             0,
@@ -92,10 +101,13 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_nonexistent_directory() {
+        // ARRANGE
         let nonexistent = Path::new("/nonexistent/extensions");
 
+        // ACT
         let extensions = discover_extensions_in(nonexistent);
 
+        // ASSERT
         assert_eq!(
             extensions.len(),
             0,
@@ -105,14 +117,17 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_nested_directories() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir(temp.path().join("subdir")).unwrap();
         std::fs::write(temp.path().join("root.sqsh"), b"").unwrap();
         std::fs::write(temp.path().join("subdir/nested.sqsh"), b"").unwrap();
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(
             extensions.len(),
             1,
@@ -126,12 +141,15 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_returns_full_paths() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("test.sqsh"), b"").unwrap();
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(extensions.len(), 1);
         assert!(
             extensions[0].starts_with(temp.path().to_str().unwrap()),
@@ -145,14 +163,17 @@ mod tests {
 
     #[test]
     fn test_discover_extensions_case_sensitive() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("lowercase.sqsh"), b"").unwrap();
         std::fs::write(temp.path().join("uppercase.SQSH"), b"").unwrap();
         std::fs::write(temp.path().join("mixed.Sqsh"), b"").unwrap();
 
+        // ACT
         let extensions = discover_extensions_in(temp.path());
 
+        // ASSERT
         assert_eq!(
             extensions.len(),
             1,

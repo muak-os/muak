@@ -141,28 +141,36 @@ mod tests {
 
     #[test]
     fn test_build_router_solicitation() {
+        // ARRANGE
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+
+        // ACT
         let pkt = build_router_solicitation(&mac);
 
+        // ASSERT
         assert_eq!(pkt[0], ICMPV6_ROUTER_SOLICITATION);
-        assert_eq!(pkt[1], 0); // code
+        assert_eq!(pkt[1], 0);
         assert_eq!(pkt[8], ND_OPT_SOURCE_LL_ADDR);
-        assert_eq!(pkt[9], 1); // length
+        assert_eq!(pkt[9], 1);
         assert_eq!(&pkt[10..16], &mac);
     }
 
     #[test]
     fn test_parse_router_advertisement_minimal() {
+        // ARRANGE
         let mut data = vec![0u8; 16];
         data[0] = ICMPV6_ROUTER_ADVERTISEMENT;
-        data[4] = 64; // hop limit
-        data[5] = 0xC0; // M=1, O=1
+        data[4] = 64;
+        data[5] = 0xC0;
         data[6] = 0x07;
-        data[7] = 0x08; // router lifetime = 1800
+        data[7] = 0x08;
 
         let source = "fe80::1".parse().unwrap();
+
+        // ACT
         let ra = parse_router_advertisement(&data, source).unwrap();
 
+        // ASSERT
         assert_eq!(ra.hop_limit, 64);
         assert!(ra.managed_flag);
         assert!(ra.other_flag);

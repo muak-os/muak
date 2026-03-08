@@ -1,7 +1,7 @@
 //! Notify - A small library for sending notifications to the supervisor.
 //!
 //! This library provides a client for services to communicate to the
-//! supervisor PID 1 via UNIX domain sockets using a plain text protocol.
+//! supervisor PID 1 via UNIX domain sockets using a plaintext protocol.
 
 use std::io;
 use std::os::unix::net::UnixDatagram;
@@ -117,52 +117,70 @@ mod tests {
 
     #[test]
     fn test_notify_client_new() {
+        // ACT
         let client = NotifyClient::new("test-service").expect("Failed to create client");
+
+        // ASSERT
         assert_eq!(client.service_name, "test-service");
         assert_eq!(client.socket_path, DEFAULT_NOTIFY_SOCKET);
     }
 
     #[test]
     fn test_notify_client_new_with_custom_socket() {
+        // ACT
         let client = NotifyClient::new_with_socket("test-service", "/tmp/test.sock")
             .expect("Failed to create client");
+
+        // ASSERT
         assert_eq!(client.service_name, "test-service");
         assert_eq!(client.socket_path, "/tmp/test.sock");
     }
 
     #[test]
     fn test_ready_no_server() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
+
+        // ACT & ASSERT
         assert!(client.ready().is_ok());
     }
 
     #[test]
     fn test_status_no_server() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
+
+        // ACT & ASSERT
         assert!(client.status("Service is running", Health::Healthy).is_ok());
     }
 
     #[test]
     fn test_stopping_no_server() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
+
+        // ACT & ASSERT
         assert!(client.stopping("Shutting down gracefully").is_ok());
     }
 
     #[test]
     fn test_watchdog_no_server() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
+
+        // ACT & ASSERT
         assert!(client.watchdog().is_ok());
     }
 
@@ -174,6 +192,7 @@ mod tests {
 
     #[test]
     fn test_ready_wire_format() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
@@ -181,20 +200,25 @@ mod tests {
             .expect("Failed to create client");
 
         let pid = std::process::id();
+
+        // ACT
         client.ready().expect("Failed to send ready");
 
+        // ASSERT
         let msg = recv_str(&server);
         assert_eq!(msg, format!("SERVICE_NAME=test-service\nREADY={pid}"));
     }
 
     #[test]
     fn test_status_wire_format() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT & ASSERT
         client
             .status("Service is healthy", Health::Healthy)
             .expect("Failed to send status");
@@ -222,13 +246,17 @@ mod tests {
 
     #[test]
     fn test_stopping_wire_format() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT
         client.stopping("Received SIGTERM").expect("Failed to send");
+
+        // ASSERT
         assert_eq!(
             recv_str(&server),
             "SERVICE_NAME=test-service\nSTOPPING=Received SIGTERM"
@@ -237,30 +265,37 @@ mod tests {
 
     #[test]
     fn test_watchdog_wire_format() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT
         client.watchdog().expect("Failed to send");
+
+        // ASSERT
         assert_eq!(recv_str(&server), "SERVICE_NAME=test-service\nWATCHDOG=1");
     }
 
     #[test]
     fn test_multiple_notifications() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT
         client.ready().expect("Failed to send ready");
         client
             .status("Running", Health::Healthy)
             .expect("Failed to send status");
         client.watchdog().expect("Failed to send watchdog");
 
+        // ASSERT
         let pid = std::process::id();
         assert_eq!(
             recv_str(&server),
@@ -275,6 +310,7 @@ mod tests {
 
     #[test]
     fn test_socket_permissions_error() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("readonly.sock");
 
@@ -288,13 +324,17 @@ mod tests {
         let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT
         let result = client.watchdog();
         fs::remove_file(&socket_path).ok();
+
+        // ASSERT
         assert!(result.is_ok() || result.is_err());
     }
 
     #[test]
     fn test_health_from_str_roundtrip() {
+        // ACT & ASSERT
         for h in [Health::Healthy, Health::Degraded, Health::Unhealthy] {
             assert_eq!(h.as_str().parse::<Health>(), Ok(h));
         }
@@ -303,10 +343,12 @@ mod tests {
 
     #[test]
     fn test_service_name_special_characters() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
 
+        // ACT & ASSERT
         for name in ["service-dashes", "service.dots", "service_underscores"] {
             let client = NotifyClient::new_with_socket(name, socket_path.to_str().unwrap())
                 .expect("Failed to create client");
@@ -318,16 +360,20 @@ mod tests {
 
     #[test]
     fn test_long_status_message() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
         let client = NotifyClient::new_with_socket("test", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
+        // ACT
         let long_msg = "x".repeat(1000);
         client
             .status(&long_msg, Health::Healthy)
             .expect("Failed to send");
+
+        // ASSERT
         let received = recv_str(&server);
         assert!(received.contains(&long_msg));
     }

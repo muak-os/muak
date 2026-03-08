@@ -1,30 +1,4 @@
 //! Role-Based Access Control (RBAC) for the API gateway.
-//!
-//! This module provides declarative permission rules and access checking
-//! for gRPC methods. All methods are deny-by-default unless explicitly
-//! listed in the rules.
-//!
-//! # Architecture
-//!
-//! RBAC rules are generated at build time from proto file annotations.
-//! Each RPC method in `api/*.proto` must have an `// @rbac:` comment
-//! specifying its permission requirements.
-//!
-//! - `error`: Error types for access control failures
-//! - `user`: Authenticated user wrapper with permission helpers
-//! - Generated code provides `MethodRequirement` and `method_permission()`
-//!
-//! # Example
-//!
-//! ```ignore
-//! use crate::rbac::check_access;
-//!
-//! let result = check_access(path, client_fingerprint.as_deref());
-//! match result {
-//!     Ok(()) => { /* proceed with request */ }
-//!     Err(e) => return grpc_error(e.grpc_status_code(), &e.grpc_message()),
-//! }
-//! ```
 
 mod error;
 mod user;
@@ -73,6 +47,7 @@ mod tests {
 
     #[test]
     fn test_unauthenticated_methods_allowed() {
+        // ASSERT
         assert!(check_access("/muak.auth.v1.AuthService/SubmitCsr", None).is_ok());
         assert!(check_access("/muak.auth.v1.AuthService/GetCsrStatus", None).is_ok());
         assert!(check_access("/muak.auth.v1.AuthService/AckEnrollment", None).is_ok());
@@ -80,6 +55,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_methods_require_auth_outside_maintenance() {
+        // ASSERT
         assert!(matches!(
             check_access("/muak.provision.v1.ProvisionService/Install", None),
             Err(RbacError::Unauthenticated)
@@ -100,6 +76,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_methods_are_maintenance_or_permission() {
+        // ASSERT
         for path in MAINTENANCE_METHODS {
             assert!(
                 matches!(
@@ -114,29 +91,55 @@ mod tests {
 
     #[test]
     fn test_unknown_method_denied() {
-        let result = check_access("/muak.vm.v1.VmService/UnknownMethod", Some("fp"));
+        // ARRANGE
+        let path = "/muak.vm.v1.VmService/UnknownMethod";
+        let fingerprint = "fp";
+
+        // ACT
+        let result = check_access(path, Some(fingerprint));
+
+        // ASSERT
         assert!(matches!(result, Err(RbacError::UnknownMethod)));
     }
 
     #[test]
     fn test_unknown_service_denied() {
-        let result = check_access("/unknown.Service/Method", Some("fp"));
+        // ARRANGE
+        let path = "/unknown.Service/Method";
+        let fingerprint = "fp";
+
+        // ACT
+        let result = check_access(path, Some(fingerprint));
+
+        // ASSERT
         assert!(matches!(result, Err(RbacError::UnknownMethod)));
     }
 
     #[test]
     fn test_authenticated_without_cert_denied() {
-        let result = check_access("/muak.vm.v1.VmService/CreateVm", None);
+        // ARRANGE
+        let path = "/muak.vm.v1.VmService/CreateVm";
+
+        // ACT
+        let result = check_access(path, None);
+
+        // ASSERT
         assert!(matches!(result, Err(RbacError::Unauthenticated)));
     }
 
     #[test]
     fn test_known_methods_not_empty() {
+        // ARRANG
+        let count = KNOWN_METHODS.len();
+
+        // ASSERT
         assert!(!KNOWN_METHODS.is_empty());
+        assert!(count > 0);
     }
 
     #[test]
     fn test_unauthenticated_methods_list() {
+        // ASSERT
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/SubmitCsr"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/GetCsrStatus"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/AckEnrollment"));
@@ -145,6 +148,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_methods_list() {
+        // ASSERT
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
@@ -154,6 +158,7 @@ mod tests {
 
     #[test]
     fn test_no_overlap_between_unauthenticated_and_maintenance() {
+        // ASSERT
         for method in UNAUTHENTICATED_METHODS {
             assert!(
                 !MAINTENANCE_METHODS.contains(method),

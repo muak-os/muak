@@ -60,8 +60,10 @@ mod tests {
 
     #[test]
     fn test_has_permission() {
+        // ARRANGE
         let user = AuthenticatedUser::new(vec![Permission::VmRead, Permission::VmCreate]);
 
+        // ACT & ASSERT
         assert!(user.has_permission(Permission::VmRead));
         assert!(user.has_permission(Permission::VmCreate));
 
@@ -71,8 +73,10 @@ mod tests {
 
     #[test]
     fn test_admin_has_all_permissions() {
+        // ARRANGE
         let admin_user = AuthenticatedUser::new(vec![Permission::Admin]);
 
+        // ACT & ASSERT
         assert!(admin_user.has_permission(Permission::VmRead));
         assert!(admin_user.has_permission(Permission::VmCreate));
         assert!(admin_user.has_permission(Permission::VmDelete));
@@ -84,8 +88,10 @@ mod tests {
 
     #[test]
     fn test_regular_user_limited_access() {
+        // ARRANGE
         let regular_user = AuthenticatedUser::new(vec![Permission::VmRead]);
 
+        // ACT & ASSERT
         assert!(regular_user.has_permission(Permission::VmRead));
 
         assert!(!regular_user.has_permission(Permission::VmCreate));
@@ -95,22 +101,29 @@ mod tests {
 
     #[test]
     fn test_is_admin() {
+        // ARRANGE
         let regular = AuthenticatedUser::new(vec![Permission::VmRead]);
         let admin = AuthenticatedUser::new(vec![Permission::Admin]);
 
+        // ACT & ASSERT
         assert!(!regular.is_admin());
         assert!(admin.is_admin());
     }
 
     #[test]
     fn test_permission_count() {
+        // ARRANGE
         let user = AuthenticatedUser::new(vec![
             Permission::VmRead,
             Permission::VmCreate,
             Permission::VmRead, // Duplicate
         ]);
 
+        // ACT
+        let count = user.permission_count();
+
+        // ASSERT
         // HashSet deduplicates
-        assert_eq!(user.permission_count(), 2);
+        assert_eq!(count, 2);
     }
 }

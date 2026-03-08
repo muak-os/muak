@@ -64,8 +64,13 @@ mod tests {
 
     #[test]
     fn vm_state_invalid_falls_back_to_unknown() {
-        assert_eq!(vm_state_to_string(99), "unknown");
-        assert_eq!(vm_state_to_string(-1), "unknown");
+        // ARRANGE
+        let invalid_state_1 = 99;
+        let invalid_state_2 = -1;
+
+        // ACT & ASSERT
+        assert_eq!(vm_state_to_string(invalid_state_1), "unknown");
+        assert_eq!(vm_state_to_string(invalid_state_2), "unknown");
     }
 
     #[test]
@@ -90,7 +95,12 @@ mod tests {
 
     #[test]
     fn hypervisor_invalid_falls_back_to_unknown() {
-        assert_eq!(hypervisor_to_string(99), "unknown");
-        assert_eq!(hypervisor_to_string(-1), "unknown");
+        // ARRANGE
+        let invalid_hypervisor_1 = 99;
+        let invalid_hypervisor_2 = -1;
+
+        // ACT & ASSERT
+        assert_eq!(hypervisor_to_string(invalid_hypervisor_1), "unknown");
+        assert_eq!(hypervisor_to_string(invalid_hypervisor_2), "unknown");
     }
 }

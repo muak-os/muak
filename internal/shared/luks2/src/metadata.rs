@@ -232,9 +232,11 @@ mod tests {
 
     #[test]
     fn test_metadata_new() {
+        // ACT
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
 
+        // ASSERT
         assert!(meta.keyslots.is_empty());
         assert!(meta.tokens.is_empty());
         assert!(meta.digests.is_empty());
@@ -252,12 +254,15 @@ mod tests {
 
     #[test]
     fn test_add_keyslot() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
         let kdf_salt = [0x42u8; 64];
 
+        // ACT
         meta.add_keyslot("0", &kdf_salt);
 
+        // ASSERT
         assert_eq!(meta.keyslots.len(), 1);
         let keyslot = meta.keyslots.get("0").unwrap();
 
@@ -275,15 +280,18 @@ mod tests {
 
     #[test]
     fn test_add_multiple_keyslots() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
 
         let salt1 = [0x01u8; 64];
         let salt2 = [0x02u8; 64];
 
+        // ACT
         meta.add_keyslot("0", &salt1);
         meta.add_keyslot("1", &salt2);
 
+        // ASSERT
         assert_eq!(meta.keyslots.len(), 2);
         assert!(meta.keyslots.contains_key("0"));
         assert!(meta.keyslots.contains_key("1"));
@@ -291,18 +299,24 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_roundtrip() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
         let kdf_salt = [0x42u8; 64];
         meta.add_keyslot("0", &kdf_salt);
 
         let json_size = 4096u64;
+
+        // ACT
         let serialized = meta.serialize(json_size).unwrap();
 
+        // ASSERT
         assert_eq!(serialized.len(), json_size as usize);
 
+        // ACT
         let deserialized = Metadata::deserialize(&serialized).unwrap();
 
+        // ASSERT
         assert_eq!(deserialized.keyslots.len(), meta.keyslots.len());
         assert_eq!(deserialized.segments.len(), meta.segments.len());
         assert_eq!(deserialized.config.json_size, meta.config.json_size);
@@ -315,22 +329,30 @@ mod tests {
 
     #[test]
     fn test_deserialize_with_null_padding() {
+        // ARRANGE
         let json = r#"{"keyslots":{},"tokens":{},"segments":{"0":{"type":"crypt","offset":"16777216","iv_tweak":"0","size":"dynamic","encryption":"aes-xts-plain64","sector_size":4096}},"digests":{},"config":{"json_size":"12288","keyslots_size":"16744448"}}"#;
         let mut data = json.as_bytes().to_vec();
-        data.extend(vec![0u8; 100]); // Add null padding
+        data.extend(vec![0u8; 100]);
 
+        // ACT
         let result = Metadata::deserialize(&data);
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_serialize_padding() {
+        // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
 
         let json_size = 4096u64;
+
+        // ACT
         let serialized = meta.serialize(json_size).unwrap();
 
+        // ASSERT
         let mut json_end = serialized.len();
         for i in 0..serialized.len() {
             if serialized[i] == 0 {
@@ -346,10 +368,14 @@ mod tests {
 
     #[test]
     fn test_segment_structure() {
+        // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
 
+        // ACT
         let segment = meta.segments.get("0").unwrap();
+
+        // ASSERT
         assert_eq!(segment.r#type, "crypt");
         assert_eq!(segment.offset, DEFAULT_HEADER_SIZE.to_string());
         assert_eq!(segment.iv_tweak, "0");
@@ -360,13 +386,16 @@ mod tests {
 
     #[test]
     fn test_keyslot_kdf_parameters() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
         let kdf_salt = [0x42u8; 64];
 
+        // ACT
         meta.add_keyslot("0", &kdf_salt);
         let keyslot = meta.keyslots.get("0").unwrap();
 
+        // ASSERT
         assert_eq!(keyslot.kdf.time, Some(1));
         assert_eq!(keyslot.kdf.memory, Some(65536));
         assert_eq!(keyslot.kdf.cpus, Some(4));
@@ -374,13 +403,16 @@ mod tests {
 
     #[test]
     fn test_keyslot_area_parameters() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
         let kdf_salt = [0x42u8; 64];
 
+        // ACT
         meta.add_keyslot("0", &kdf_salt);
         let keyslot = meta.keyslots.get("0").unwrap();
 
+        // ASSERT
         assert_eq!(keyslot.area.r#type, "raw");
         assert_eq!(keyslot.area.offset, DEFAULT_KEYSLOT_AREA_OFFSET.to_string());
         assert_eq!(keyslot.area.size, DEFAULT_KEYSLOT_AREA_SIZE.to_string());
@@ -390,13 +422,16 @@ mod tests {
 
     #[test]
     fn test_af_structure() {
+        // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
         let kdf_salt = [0x42u8; 64];
 
+        // ACT
         meta.add_keyslot("0", &kdf_salt);
         let keyslot = meta.keyslots.get("0").unwrap();
 
+        // ASSERT
         assert_eq!(keyslot.af.r#type, "luks1");
         assert_eq!(keyslot.af.stripes, AF_STRIPES);
         assert_eq!(keyslot.af.hash, "sha256");
@@ -404,14 +439,19 @@ mod tests {
 
     #[test]
     fn test_deserialize_invalid_json() {
+        // ARRANGE
         let data = b"not valid json".to_vec();
 
+        // ACT
         let result = Metadata::deserialize(&data);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_different_sector_sizes() {
+        // ACT & ASSERT
         for &sector_size in &[512, 1024, 2048, 4096, 8192] {
             let meta = Metadata::new(sector_size);
             let segment = meta.segments.get("0").unwrap();
@@ -421,15 +461,18 @@ mod tests {
 
     #[test]
     fn test_serialize_json_size_limits() {
+        // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
 
+        // ACT
         let small_size = 256u64;
         let result = meta.serialize(small_size);
-        assert!(result.is_err());
-
         let large_size = 4096u64;
         let serialized = meta.serialize(large_size).unwrap();
+
+        // ASSERT
+        assert!(result.is_err());
         assert_eq!(serialized.len(), large_size as usize);
     }
 }

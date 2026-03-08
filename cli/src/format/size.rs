@@ -57,7 +57,12 @@ mod tests {
 
     #[test]
     fn boundary_kb_to_mb() {
-        assert!(format_size(1024 * 1024 - 1).ends_with("KB"));
-        assert_eq!(format_size(1024 * 1024), "1MB");
+        // ARRANGE
+        let below_mb = 1024 * 1024 - 1;
+        let at_mb = 1024 * 1024;
+
+        // ACT & ASSERT
+        assert!(format_size(below_mb).ends_with("KB"));
+        assert_eq!(format_size(at_mb), "1MB");
     }
 }

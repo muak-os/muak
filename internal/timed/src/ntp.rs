@@ -125,59 +125,69 @@ mod tests {
 
     #[test]
     fn test_build_request() {
+        // ARRANGE
         let packet = build_request();
         assert_eq!(packet.len(), NTP_PACKET_SIZE);
 
+        // ACT
         let li = (packet[0] >> 6) & 0x03;
         let vn = (packet[0] >> 3) & 0x07;
         let mode = packet[0] & 0x07;
 
+        // ASSERT
         assert_eq!(li, 0, "Leap indicator should be 0");
         assert_eq!(vn, 4, "Version should be 4");
         assert_eq!(mode, 3, "Mode should be 3 (client)");
-
-        // All other bytes should be zero.
         assert!(packet[1..].iter().all(|&b| b == 0));
     }
 
     #[test]
     fn test_parse_response_valid() {
+        // ARRANGE
         let mut packet = [0u8; NTP_PACKET_SIZE];
 
-        // Set transmit timestamp to 2024-01-01 00:00:00 UTC.
-        // Unix timestamp: 1704067200
-        // NTP timestamp: 1704067200 + 2208988800 = 3913056000
         let ntp_secs: u32 = 3_913_056_000;
         packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
             .copy_from_slice(&ntp_secs.to_be_bytes());
 
+        // ACT
         let ts = parse_response(&packet).expect("Should parse successfully");
+
+        // ASSERT
         assert_eq!(ts.tv_sec, 1_704_067_200);
         assert_eq!(ts.tv_nsec, 0);
     }
 
     #[test]
     fn test_parse_response_with_fraction() {
+        // ARRANGE
         let mut packet = [0u8; NTP_PACKET_SIZE];
 
         let ntp_secs: u32 = 3_913_056_000;
         packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
             .copy_from_slice(&ntp_secs.to_be_bytes());
 
-        // Half a second in NTP fractional format = 2^31 = 2147483648
         let frac: u32 = 2_147_483_648;
         packet[field::TX_TIMESTAMP_FRAC..field::TX_TIMESTAMP_FRAC + 4]
             .copy_from_slice(&frac.to_be_bytes());
 
+        // ACT
         let ts = parse_response(&packet).expect("Should parse successfully");
+
+        // ASSERT
         assert_eq!(ts.tv_sec, 1_704_067_200);
         assert_eq!(ts.tv_nsec, 500_000_000);
     }
 
     #[test]
     fn test_parse_response_zero_timestamp() {
+        // ARRANGE
         let packet = [0u8; NTP_PACKET_SIZE];
+
+        // ACT
         let result = parse_response(&packet);
+
+        // ASSERT
         assert!(result.is_err(), "Zero timestamp should be rejected");
     }
 }

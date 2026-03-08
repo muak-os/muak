@@ -108,9 +108,13 @@ mod tests {
 
     #[test]
     fn test_parse_uevent_add_with_modalias() {
+        // ARRANGE
         let data = b"add@/devices/pci0000:00/0000:00:1f.6\0ACTION=add\0DEVPATH=/devices/pci0000:00/0000:00:1f.6\0SUBSYSTEM=pci\0MODALIAS=pci:v00008086d00001234\0";
+
+        // ACT
         let event = parse_uevent(data);
 
+        // ASSERT
         assert_eq!(event.action, UeventAction::Add);
         assert_eq!(event.modalias, Some("pci:v00008086d00001234".to_string()));
         assert_eq!(event.subsystem, Some("pci".to_string()));
@@ -118,18 +122,26 @@ mod tests {
 
     #[test]
     fn test_parse_uevent_remove() {
+        // ARRANGE
         let data = b"remove@/devices/usb/1-1\0ACTION=remove\0SUBSYSTEM=usb\0";
+
+        // ACT
         let event = parse_uevent(data);
 
+        // ASSERT
         assert_eq!(event.action, UeventAction::Remove);
         assert_eq!(event.modalias, None);
     }
 
     #[test]
     fn test_parse_uevent_no_modalias() {
+        // ARRANGE
         let data = b"add@/devices/virtual/net/lo\0ACTION=add\0SUBSYSTEM=net\0";
+
+        // ACT
         let event = parse_uevent(data);
 
+        // ASSERT
         assert_eq!(event.action, UeventAction::Add);
         assert_eq!(event.modalias, None);
     }

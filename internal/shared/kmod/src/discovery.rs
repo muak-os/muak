@@ -57,44 +57,64 @@ mod tests {
 
     #[test]
     fn test_read_modalias_valid() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
         std::fs::write(&modalias_path, "pci:v00008086d00001234\n").expect("write failed");
 
+        // ACT
         let result = read_modalias(dir.path());
+
+        // ASSERT
         assert_eq!(result, Some("pci:v00008086d00001234".to_string()));
     }
 
     #[test]
     fn test_read_modalias_with_whitespace() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
         std::fs::write(&modalias_path, "  usb:v1234p5678  \n").expect("write failed");
 
+        // ACT
         let result = read_modalias(dir.path());
+
+        // ASSERT
         assert_eq!(result, Some("usb:v1234p5678".to_string()));
     }
 
     #[test]
     fn test_read_modalias_empty() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
         std::fs::write(&modalias_path, "").expect("write failed");
 
+        // ACT
         let result = read_modalias(dir.path());
+
+        // ASSERT
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_read_modalias_no_file() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
+
+        // ACT
         let result = read_modalias(dir.path());
+
+        // ASSERT
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_read_modalias_nonexistent_path() {
+        // ACT
         let result = read_modalias(Path::new("/nonexistent/device/path"));
+
+        // ASSERT
         assert_eq!(result, None);
     }
 
@@ -119,31 +139,38 @@ mod tests {
 
     #[test]
     fn test_for_each_modalias_empty_sysfs() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut collected = Vec::new();
 
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert!(collected.is_empty());
     }
 
     #[test]
     fn test_for_each_modalias_nonexistent_path() {
+        // ARRANGE
         let mut collected = Vec::new();
 
+        // ACT
         let result = for_each_modalias_in(Path::new("/nonexistent/sys/bus"), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert!(collected.is_empty());
     }
 
     #[test]
     fn test_for_each_modalias_single_bus_single_device() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
             dir.path(),
@@ -151,16 +178,20 @@ mod tests {
         );
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(collected, vec!["pci:v00008086d00001234"]);
     }
 
     #[test]
     fn test_for_each_modalias_multiple_buses() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
             dir.path(),
@@ -172,10 +203,13 @@ mod tests {
         );
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(collected.len(), 3);
         assert!(collected.contains(&"pci:v00008086d00001234".to_string()));
@@ -185,6 +219,7 @@ mod tests {
 
     #[test]
     fn test_for_each_modalias_multiple_devices_per_bus() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
             dir.path(),
@@ -199,16 +234,20 @@ mod tests {
         );
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(collected.len(), 3);
     }
 
     #[test]
     fn test_for_each_modalias_device_without_modalias() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
             dir.path(),
@@ -216,16 +255,19 @@ mod tests {
                 "pci",
                 &[
                     ("0000:00:1f.0", Some("pci:v00008086d00001234")),
-                    ("0000:00:1f.1", None), // No modalias
+                    ("0000:00:1f.1", None),
                 ],
             )],
         );
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0], "pci:v00008086d00001234");
@@ -233,15 +275,19 @@ mod tests {
 
     #[test]
     fn test_for_each_modalias_bus_without_devices_dir() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         std::fs::create_dir_all(dir.path().join("pci")).expect("create bus dir");
         create_mock_sysfs(dir.path(), &[("usb", &[("1-1", Some("usb:v1234p5678"))])]);
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0], "usb:v1234p5678");
@@ -249,16 +295,20 @@ mod tests {
 
     #[test]
     fn test_for_each_modalias_empty_modalias() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let bus_dir = dir.path().join("pci").join("devices").join("0000:00:00.0");
         std::fs::create_dir_all(&bus_dir).expect("create dirs");
         std::fs::write(bus_dir.join("modalias"), "").expect("write empty");
 
         let mut collected = Vec::new();
+
+        // ACT
         let result = for_each_modalias_in(dir.path(), &mut |m| {
             collected.push(m.to_string());
         });
 
+        // ASSERT
         assert!(result.is_ok());
         assert!(collected.is_empty());
     }

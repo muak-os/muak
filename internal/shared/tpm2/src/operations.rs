@@ -115,34 +115,41 @@ mod tests {
 
     #[test]
     fn test_sealed_blob_roundtrip() {
+        // ARRANGE
         let blob = SealedBlob {
             pub_data: vec![1, 2, 3, 4, 5],
             priv_data: vec![10, 20, 30],
         };
 
+        // ACT
         let serialized = blob.serialize();
         let deserialized = SealedBlob::deserialize(&serialized).expect("should deserialize");
 
+        // ASSERT
         assert_eq!(deserialized.pub_data, vec![1, 2, 3, 4, 5]);
         assert_eq!(deserialized.priv_data, vec![10, 20, 30]);
     }
 
     #[test]
     fn test_sealed_blob_empty() {
+        // ARRANGE
         let blob = SealedBlob {
             pub_data: vec![],
             priv_data: vec![],
         };
 
+        // ACT
         let serialized = blob.serialize();
         let deserialized = SealedBlob::deserialize(&serialized).expect("should deserialize");
 
+        // ASSERT
         assert!(deserialized.pub_data.is_empty());
         assert!(deserialized.priv_data.is_empty());
     }
 
     #[test]
     fn test_sealed_blob_invalid() {
+        // ACT & ASSERT
         assert!(SealedBlob::deserialize(&[]).is_err());
         assert!(SealedBlob::deserialize(&[0, 0]).is_err());
         assert!(SealedBlob::deserialize(&[5, 0, 1]).is_err());

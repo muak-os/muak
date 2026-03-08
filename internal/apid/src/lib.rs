@@ -154,31 +154,38 @@ mod tests {
 
     #[test]
     fn test_parse_args_maintenance_flag() {
+        // ARRANGE
         let args: Vec<String> = "apid --maintenance"
             .split_whitespace()
             .map(String::from)
             .collect();
 
+        // ASSERT
         assert!(args.iter().any(|a| a == "--maintenance"));
     }
 
     #[test]
     fn test_args_struct() {
+        // ARRANGE
         let args = Args::new("127.0.0.1:8443".to_string(), true);
+        let args2 = Args::new("0.0.0.0:443".to_string(), false);
+
+        // ASSERT
         assert_eq!(args.listen_addr, "127.0.0.1:8443");
         assert!(args.maintenance_mode);
 
-        let args2 = Args::new("0.0.0.0:443".to_string(), false);
         assert_eq!(args2.listen_addr, "0.0.0.0:443");
         assert!(!args2.maintenance_mode);
     }
 
     #[test]
     fn test_args_equality() {
+        // ARRANGE
         let args1 = Args::new("127.0.0.1:8443".to_string(), true);
         let args2 = Args::new("127.0.0.1:8443".to_string(), true);
         let args3 = Args::new("127.0.0.1:8443".to_string(), false);
 
+        // ACT & ASSERT
         assert_eq!(args1, args2);
         assert_ne!(args1, args3);
     }

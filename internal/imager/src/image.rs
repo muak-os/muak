@@ -98,7 +98,13 @@ mod tests {
 
     #[test]
     fn test_parse_docker_hub_image() {
-        let img = ImageReference::parse("alpine:latest");
+        // ARRANGE
+        let reference = "alpine:latest";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
         assert_eq!(img.name, "alpine");
         assert_eq!(img.tag, "latest");
@@ -106,7 +112,13 @@ mod tests {
 
     #[test]
     fn test_parse_ghcr_image() {
-        let img = ImageReference::parse("ghcr.io/org/image:v1.0");
+        // ARRANGE
+        let reference = "ghcr.io/org/image:v1.0";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.registry, "ghcr.io");
         assert_eq!(img.name, "org/image");
         assert_eq!(img.tag, "v1.0");
@@ -114,7 +126,13 @@ mod tests {
 
     #[test]
     fn test_parse_private_registry() {
-        let img = ImageReference::parse("192.168.1.100:5000/myimage:tag");
+        // ARRANGE
+        let reference = "192.168.1.100:5000/myimage:tag";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.registry, "192.168.1.100:5000");
         assert_eq!(img.name, "myimage");
         assert_eq!(img.tag, "tag");
@@ -123,13 +141,25 @@ mod tests {
 
     #[test]
     fn test_image_name_extraction() {
-        let img = ImageReference::parse("ghcr.io/org/my-extension:v1");
+        // ARRANGE
+        let reference = "ghcr.io/org/my-extension:v1";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.image_name(), "my-extension");
     }
 
     #[test]
     fn test_parse_image_no_tag() {
-        let img = ImageReference::parse("alpine");
+        // ARRANGE
+        let reference = "alpine";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
         assert_eq!(img.name, "alpine");
         assert_eq!(img.tag, "latest");
@@ -137,7 +167,13 @@ mod tests {
 
     #[test]
     fn test_parse_image_with_namespace() {
-        let img = ImageReference::parse("library/alpine:3.14");
+        // ARRANGE
+        let reference = "library/alpine:3.14";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
         assert_eq!(img.name, "library/alpine");
         assert_eq!(img.tag, "3.14");
@@ -145,25 +181,49 @@ mod tests {
 
     #[test]
     fn test_parse_image_empty_string() {
-        let img = ImageReference::parse("");
+        // ARRANGE
+        let reference = "";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.tag, "latest");
     }
 
     #[test]
     fn test_parse_image_invalid_registry() {
-        let img = ImageReference::parse("invalid@registry.com/image:tag");
+        // ARRANGE
+        let reference = "invalid@registry.com/image:tag";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.tag, "tag");
     }
 
     #[test]
     fn test_scheme_https_for_docker_io() {
-        let img = ImageReference::parse("alpine:latest");
+        // ARRANGE
+        let reference = "alpine:latest";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.scheme(), "https");
     }
 
     #[test]
     fn test_scheme_http_for_private() {
-        let img = ImageReference::parse("192.168.1.1:5000/image:tag");
+        // ARRANGE
+        let reference = "192.168.1.1:5000/image:tag";
+
+        // ACT
+        let img = ImageReference::parse(reference);
+
+        // ASSERT
         assert_eq!(img.scheme(), "http");
     }
 }

@@ -61,6 +61,7 @@ mod tests {
 
     #[test]
     fn test_grpc_status_codes() {
+        // ASSERT
         assert_eq!(RbacError::Unauthenticated.grpc_status_code(), 16);
         assert_eq!(RbacError::CertificateRevoked.grpc_status_code(), 7);
         assert_eq!(RbacError::UnknownCertificate.grpc_status_code(), 7);
@@ -77,6 +78,7 @@ mod tests {
 
     #[test]
     fn test_error_messages() {
+        // ASSERT
         assert_eq!(
             RbacError::Unauthenticated.to_string(),
             "client certificate required"

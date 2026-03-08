@@ -101,7 +101,10 @@ mod tests {
 
     #[test]
     fn new_is_empty() {
+        // ARRANGE & ACT
         let t = Table::new();
+
+        // ASSERT
         assert!(t.headers.is_empty());
         assert!(t.rows.is_empty());
         assert!(t.widths.is_empty());
@@ -115,23 +118,32 @@ mod tests {
 
     #[test]
     fn header_sets_widths() {
+        // ARRANGE & ACT
         let t = Table::new().header(&["Name", "Status"]);
+
+        // ASSERT
         assert_eq!(t.widths, vec![4, 6]);
     }
 
     #[test]
     fn row_expands_widths() {
+        // ARRANGE & ACT
         let t = Table::new()
             .header(&["Name", "Status"])
             .row(&["a-very-long-name", "running"]);
+
+        // ASSERT
         assert_eq!(t.widths[0], 16);
         assert_eq!(t.widths[1], 7);
     }
 
     #[test]
     fn format_row_pads_all_but_last() {
+        // ARRANGE & ACT
         let t = Table::new().header(&["AA", "BB"]).row(&["x", "y"]);
         let row = t.format_row(&["x".to_string(), "y".to_string()]);
+
+        // ASSERT
         assert_eq!(row, "x   y");
     }
 
@@ -144,23 +156,32 @@ mod tests {
 
     #[test]
     fn sub_row_prepends_prefix_to_first_cell() {
+        // ARRANGE & ACT
         let t = Table::new()
             .header(&["Name", "Status"])
             .sub_row("└", &["child", "ok"]);
+
+        // ASSERT
         assert_eq!(t.rows[0][0], "  └ child");
     }
 
     #[test]
     fn sub_row_expands_width_for_prefixed_cell() {
+        // ARRANGE & ACT
         let t = Table::new()
             .header(&["N", "S"])
             .sub_row("→", &["child", "ok"]);
+
+        // ASSERT
         assert_eq!(t.widths[0], "  → child".len());
     }
 
     #[test]
     fn row_without_prior_header_grows_widths() {
+        // ARRANGE & ACT
         let t = Table::new().row(&["hello", "world"]);
+
+        // ASSERT
         assert_eq!(t.widths, vec![5, 5]);
     }
 }

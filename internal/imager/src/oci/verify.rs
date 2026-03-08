@@ -181,6 +181,7 @@ mod tests {
 
     #[test]
     fn test_sha256_hex_empty() {
+        // ACT & ASSERT
         assert_eq!(
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -189,6 +190,7 @@ mod tests {
 
     #[test]
     fn test_sha256_hex_hello() {
+        // ACT & ASSERT
         assert_eq!(
             sha256_hex(b"hello"),
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -197,73 +199,103 @@ mod tests {
 
     #[test]
     fn test_verify_blob_digest_ok() {
+        // ARRANGE
         let data = b"hello";
         let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-        assert!(verify_blob_digest(data, digest).is_ok());
+
+        // ACT
+        let result = verify_blob_digest(data, digest);
+
+        // ASSERT
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_verify_blob_digest_mismatch() {
+        // ARRANGE
         let data = b"hello";
         let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        // ACT
+        let result = verify_blob_digest(data, digest);
+
+        // ASSERT
         assert!(matches!(
-            verify_blob_digest(data, digest).unwrap_err(),
+            result.unwrap_err(),
             ImagerError::DigestMismatch { .. }
         ));
     }
 
     #[test]
     fn test_verify_blob_digest_unsupported_algorithm() {
+        // ARRANGE
         let data = b"hello";
         let digest = "md5:abcdef";
+
+        // ACT
+        let result = verify_blob_digest(data, digest);
+
+        // ASSERT
         assert!(matches!(
-            verify_blob_digest(data, digest).unwrap_err(),
+            result.unwrap_err(),
             ImagerError::DigestMismatch { .. }
         ));
     }
 
     #[test]
     fn test_verify_local_digest_ok() {
-        assert!(
-            verify_local_digest(
-                b"hello",
-                "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-                std::path::Path::new("/fake")
-            )
-            .is_ok()
-        );
+        // ARRANGE
+        let data = b"hello";
+        let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let path = std::path::Path::new("/fake");
+
+        // ACT
+        let result = verify_local_digest(data, digest, path);
+
+        // ASSERT
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_verify_local_digest_ok_no_prefix() {
-        assert!(
-            verify_local_digest(
-                b"hello",
-                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-                std::path::Path::new("/fake")
-            )
-            .is_ok()
-        );
+        // ARRANGE
+        let data = b"hello";
+        let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let path = std::path::Path::new("/fake");
+
+        // ACT
+        let result = verify_local_digest(data, digest, path);
+
+        // ASSERT
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_verify_local_digest_mismatch() {
+        // ARRANGE
+        let data = b"hello";
+        let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        let path = std::path::Path::new("/fake");
+
+        // ACT
+        let result = verify_local_digest(data, digest, path);
+
+        // ASSERT
         assert!(matches!(
-            verify_local_digest(
-                b"hello",
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-                std::path::Path::new("/fake")
-            )
-            .unwrap_err(),
+            result.unwrap_err(),
             ImagerError::DigestMismatch { .. }
         ));
     }
 
     #[test]
     fn test_parse_pem_valid() {
-        // Real P-256 public key in PKCS#8 SubjectPublicKeyInfo PEM format.
+        // ARRANGE
         let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
+
+        // ACT
         let result = parse_pem_public_key(pem);
+
+        // ASSERT
         assert!(result.is_ok(), "expected Ok, got: {:?}", result);
         let bytes = result.unwrap();
         assert_eq!(bytes.len(), 65, "expected 65-byte uncompressed point");
@@ -272,17 +304,28 @@ mod tests {
 
     #[test]
     fn test_parse_pem_empty() {
+        // ARRANGE
         let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
+
+        // ACT & ASSERT
         assert!(parse_pem_public_key(pem).is_err());
     }
 
     #[test]
     fn test_parse_pem_no_markers() {
-        assert!(parse_pem_public_key("not a pem file").is_err());
+        // ARRANGE
+        let input = "not a pem file";
+
+        // ACT
+        let result = parse_pem_public_key(input);
+
+        // ASSERT
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_check_signature_manifest_digest_roundtrip() {
+        // ARRANGE
         use base64ct::{Base64Url, Encoding};
         use ring::rand::SystemRandom;
         use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
@@ -322,12 +365,16 @@ mod tests {
             base64ct::Base64::encode_string(&spki)
         );
 
+        // ACT
         let result = check_signature(&manifest_signed_json, Some(&pub_pem)).await;
+
+        // ASSERT
         assert!(result.is_ok(), "expected Ok, got: {:?}", result);
     }
 
     #[tokio::test]
     async fn test_check_signature_tampered_manifest_fails() {
+        // ARRANGE
         use base64ct::{Base64Url, Encoding};
         use ring::rand::SystemRandom;
         use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
@@ -350,7 +397,6 @@ mod tests {
         let sig = key_pair.sign(&rng, digest.as_bytes()).unwrap();
         let sig_b64 = Base64Url::encode_string(sig.as_ref());
 
-        // Attacker injects a malicious layer after signing.
         let mut tampered = manifest_bare.clone();
         tampered["layers"] = serde_json::json!([{"digest":"sha256:evil","size":999}]);
         tampered["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
@@ -363,7 +409,10 @@ mod tests {
             base64ct::Base64::encode_string(&spki)
         );
 
+        // ACT
         let result = check_signature(&tampered_json, Some(&pub_pem)).await;
+
+        // ASSERT
         assert!(
             result.is_err(),
             "tampered manifest must NOT verify successfully"

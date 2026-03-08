@@ -278,24 +278,30 @@ mod tests {
 
     #[test]
     fn test_compute_hash_minimal_pe() {
+        // ARRANGE
         let pe = build_test_pe(0x200, 0x200);
-        let hash = compute_hash(&pe).expect("compute_hash should succeed");
-        assert_eq!(hash.len(), 32);
 
+        // ACT
+        let hash = compute_hash(&pe).expect("compute_hash should succeed");
         let hash2 = compute_hash(&pe).expect("second call should succeed");
+
+        // ASSERT
+        assert_eq!(hash.len(), 32);
         assert_eq!(hash, hash2);
     }
 
     #[test]
     fn test_headers_end_uses_size_of_headers() {
+        // ARRANGE
         let section_offset: u32 = 0x400;
-
         let pe_a = build_test_pe(0x200, section_offset);
         let pe_b = build_test_pe(0x400, section_offset);
 
+        // ACT
         let hash_a = compute_hash(&pe_a).expect("hash A");
         let hash_b = compute_hash(&pe_b).expect("hash B");
 
+        // ASSERT
         assert_ne!(
             hash_a, hash_b,
             "hashes must differ when SizeOfHeaders differs"

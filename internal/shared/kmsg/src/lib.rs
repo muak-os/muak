@@ -226,46 +226,74 @@ mod tests {
 
     #[test]
     fn test_level_debug_trait() {
+        // ARRANGE
         let levels = vec![Level::Error, Level::Warn, Level::Info, Level::Debug];
+
+        // ACT
         for level in levels {
             let debug_str = format!("{:?}", level);
+
+            // ASSERT
             assert!(!debug_str.is_empty());
         }
     }
 
     #[test]
     fn test_init_fails_on_second_call() {
-        if DEFAULT_COMPONENT.get().is_some() {
+        // ARRANGE
+        let already_initialized = DEFAULT_COMPONENT.get().is_some();
+
+        if already_initialized {
+            // ACT
             let result = init("second-init");
+
+            // ASSERT
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), InitError::AlreadyInitialized));
         } else {
+            // ACT - First initialization
             let first = init("first-init");
+
+            // ASSERT
             assert!(first.is_ok());
+
+            // ACT - Second initialization
             let second = init("second-init");
+
+            // ASSERT
             assert!(second.is_err());
         }
     }
 
     #[test]
     fn test_write_log_with_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("my-component"), "test message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_write_log_without_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Error, None, "error message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_write_log_all_levels() {
-        for level in [Level::Error, Level::Warn, Level::Info, Level::Debug] {
+        // ARRANGE
+        let levels = [Level::Error, Level::Warn, Level::Info, Level::Debug];
+
+        // ACT & ASSERT
+        for level in levels {
             let result = std::panic::catch_unwind(|| {
                 write_log(level, Some("test"), "message");
             });
@@ -275,199 +303,277 @@ mod tests {
 
     #[test]
     fn test_print_function() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("simple print message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_print_with_newlines() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("line1\nline2");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_print_empty_string() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_error_macro_without_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!("Test error message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_error_macro_with_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!(@ "network", "Connection failed");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_error_macro_with_format_args() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!("Error code: {}", 404);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_warn_macro_without_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!("Test warning message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_warn_macro_with_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!(@ "config", "Missing key");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_warn_macro_with_format_args() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!("Warning: {} warnings found", 5);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_info_macro_without_component() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             info!("Test info message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_info_macro_with_component() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             info!(@ "server", "Server started");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_info_macro_with_format_args() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             info!("Port: {}", 8080);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     #[cfg(feature = "debug")]
     fn test_debug_macro_without_component() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             debug!("Test debug message");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     #[cfg(feature = "debug")]
     fn test_debug_macro_with_component() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             debug!(@ "parser", "Parsing token");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     #[cfg(feature = "debug")]
     fn test_debug_macro_with_format_args() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             debug!("Debug value: {:?}", vec![1, 2, 3]);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_long_message_no_panic() {
+        // ARRANGE
         let prefix_overhead = "<6>[test] \n".len();
         let safe_size = MAX_KMSG_SIZE - prefix_overhead - 1;
         let long_message = "x".repeat(safe_size);
+
+        // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), &long_message);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     #[cfg(not(debug_assertions))]
     fn test_message_truncation_in_release() {
+        // ARRANGE
         let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
+
+        // ACT
         write_log(Level::Info, Some("test"), &long_message);
     }
 
     #[test]
     #[cfg(debug_assertions)]
     fn test_message_truncation_panics_in_debug() {
+        // ARRANGE
         let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
+
+        // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), &long_message);
         });
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_empty_message() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_message_with_special_chars() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "Special: !@#$%^&*()");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_message_with_unicode() {
+        // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "Unicode: 日本語 🎉");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_component_with_special_chars() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("my-component.v1"), "test");
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_nested_formatting() {
+        // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             info!("Values: {}, {:?}, {}", 42, "test", true);
         });
+
+        // ASSERT
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_init_error_debug() {
+        // ARRANGE
         let err = InitError::AlreadyInitialized;
+
+        // ACT
         let debug_str = format!("{:?}", err);
+
+        // ASSERT
         assert!(debug_str.contains("AlreadyInitialized"));
     }
 }

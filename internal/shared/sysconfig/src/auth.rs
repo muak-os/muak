@@ -154,13 +154,17 @@ mod tests {
 
     #[test]
     fn test_auth_config_defaults() {
+        // ARRANGE & ACT
         let config = AuthConfig::default();
+
+        // ASSERT
         assert!(config.users.is_empty());
         assert!(config.revoked.is_empty());
     }
 
     #[test]
     fn test_auth_round_trip() {
+        // ARRANGE
         let config = AuthConfig {
             users: vec![AuthUser {
                 fingerprint: "abc123".to_string(),
@@ -169,9 +173,11 @@ mod tests {
             revoked: vec!["revoked_fp".to_string()],
         };
 
+        // ACT
         let serialized = serialize(&config).unwrap();
         let deserialized = parse(&serialized).unwrap();
 
+        // ASSERT
         assert_eq!(deserialized.users.len(), 1);
         assert_eq!(deserialized.users[0].fingerprint, "abc123");
         assert_eq!(deserialized.revoked, vec!["revoked_fp"]);
@@ -179,13 +185,20 @@ mod tests {
 
     #[test]
     fn test_load_from_nonexistent_path() {
-        let config = load_from_path(Path::new("/nonexistent/auth.toml")).unwrap();
+        // ARRANGE
+        let path = Path::new("/nonexistent/auth.toml");
+
+        // ACT
+        let config = load_from_path(path).unwrap();
+
+        // ASSERT
         assert!(config.users.is_empty());
         assert!(config.revoked.is_empty());
     }
 
     #[test]
     fn test_load_from_tempfile() {
+        // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.toml");
         std::fs::write(
@@ -194,34 +207,55 @@ mod tests {
         )
         .unwrap();
 
+        // ACT
         let config = load_from_path(&path).unwrap();
+
+        // ASSERT
         assert_eq!(config.users.len(), 1);
         assert_eq!(config.users[0].fingerprint, "fp1");
     }
 
     #[test]
     fn test_file_mtime_nonexistent_returns_zero() {
+        // ACT
         let mtime = file_mtime("/nonexistent/path/to/file.toml");
+
+        // ASSERT
         assert_eq!(mtime, 0);
     }
 
     #[test]
     fn test_file_mtime_existing_file_returns_nonzero() {
+        // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.toml");
         std::fs::write(&path, "data").unwrap();
+
+        // ACT
         let mtime = file_mtime(path.to_str().unwrap());
+
+        // ASSERT
         assert!(mtime > 0);
     }
 
     #[test]
     fn test_try_auth_returns_none_before_init() {
-        let _ = try_auth();
+        // ARRANGE & ACT
+        let result = try_auth();
+
+        // ASSERT
+        let _ = result;
     }
 
     #[test]
     fn test_parse_invalid_toml_returns_error() {
-        let result = parse("not valid toml ][[[");
+        // ARRANGE
+        let invalid_toml = "not valid toml ][[[";
+
+        // ACT
+        let result = parse(invalid_toml);
+
+        // ASSERT
         assert!(result.is_err());
     }
 }

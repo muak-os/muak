@@ -96,8 +96,13 @@ mod tests {
 
     #[test]
     fn test_create_archive_single_file() {
+        // ARRANGE
         let files = vec![("test.txt".to_string(), b"hello world".to_vec())];
+
+        // ACT
         let result = create_archive(&files).unwrap();
+
+        // ASSERT
         assert!(!result.is_empty());
         assert!(
             result
@@ -108,11 +113,16 @@ mod tests {
 
     #[test]
     fn test_create_archive_multiple_files() {
+        // ARRANGE
         let files = vec![
             ("file1.txt".to_string(), b"content1".to_vec()),
             ("file2.txt".to_string(), b"content2".to_vec()),
         ];
+
+        // ACT
         let result = create_archive(&files).unwrap();
+
+        // ASSERT
         assert!(!result.is_empty());
         assert!(
             result
@@ -128,23 +138,38 @@ mod tests {
 
     #[test]
     fn test_create_archive_empty_files() {
+        // ARRANGE
         let files: Vec<(String, Vec<u8>)> = vec![];
+
+        // ACT
         let result = create_archive(&files).unwrap();
+
+        // ASSERT
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_create_archive_empty_data() {
+        // ARRANGE
         let files = vec![("empty.txt".to_string(), vec![])];
+
+        // ACT
         let result = create_archive(&files).unwrap();
+
+        // ASSERT
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_create_archive_large_data() {
+        // ARRANGE
         let large_data = vec![0u8; 10000];
         let files = vec![("large.bin".to_string(), large_data)];
+
+        // ACT
         let result = create_archive(&files).unwrap();
+
+        // ASSERT
         assert!(result.len() > 10000);
     }
 }

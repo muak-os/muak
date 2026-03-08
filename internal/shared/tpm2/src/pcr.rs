@@ -74,47 +74,68 @@ mod tests {
 
     #[test]
     fn test_predict_pcr11_empty() {
+        // ACT
         let result = predict_pcr11(&[]);
+
+        // ASSERT
         assert_eq!(result, [0u8; SHA256_DIGEST_SIZE]);
     }
 
     #[test]
     fn test_predict_pcr11_deterministic() {
+        // ARRANGE
         let sections = [
             (".cmdline", b"console=ttyS0" as &[u8]),
             (".linux", &[0xDE, 0xAD]),
             (".initrd", &[0xBE, 0xEF]),
         ];
 
+        // ACT
         let a = predict_pcr11(&sections);
         let b = predict_pcr11(&sections);
+
+        // ASSERT
         assert_eq!(a, b);
     }
 
     #[test]
     fn test_predict_pcr11_order_matters() {
+        // ARRANGE
         let s1 = [(".cmdline", b"a" as &[u8]), (".linux", b"b" as &[u8])];
         let s2 = [(".linux", b"b" as &[u8]), (".cmdline", b"a" as &[u8])];
 
+        // ACT
         let a = predict_pcr11(&s1);
         let b = predict_pcr11(&s2);
+
+        // ASSERT
         assert_ne!(a, b);
     }
 
     #[test]
     fn test_policy_digest_deterministic() {
+        // ARRANGE
         let pcr = [0x42u8; SHA256_DIGEST_SIZE];
+
+        // ACT
         let a = compute_policy_digest(&pcr);
         let b = compute_policy_digest(&pcr);
+
+        // ASSERT
         assert_eq!(a, b);
     }
 
     #[test]
     fn test_policy_digest_different_pcrs() {
+        // ARRANGE
         let pcr_a = [0x01u8; SHA256_DIGEST_SIZE];
         let pcr_b = [0x02u8; SHA256_DIGEST_SIZE];
+
+        // ACT
         let a = compute_policy_digest(&pcr_a);
         let b = compute_policy_digest(&pcr_b);
+
+        // ASSERT
         assert_ne!(a, b);
     }
 }

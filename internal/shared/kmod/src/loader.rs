@@ -118,17 +118,23 @@ mod tests {
 
     #[test]
     fn test_module_loader_new() {
+        // ACT
         let loader = ModuleLoader::new(PathBuf::from("/lib/modules/test"));
+
+        // ASSERT
         assert_eq!(loader.loaded_count(), 0);
     }
 
     #[test]
     fn test_module_loader_tracks_loaded() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
+        // ACT
         loader.loaded.insert("test_module".to_string());
 
+        // ASSERT
         assert!(loader.is_loaded("test_module"));
         assert!(!loader.is_loaded("other_module"));
         assert_eq!(loader.loaded_count(), 1);
@@ -136,48 +142,65 @@ mod tests {
 
     #[test]
     fn test_module_loader_load_by_path_invalid_path() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
+        // ACT
         let result = loader.load_by_path("invalid/path/noextension");
+
+        // ASSERT
         assert!(matches!(result, Err(LoadError::InvalidPath(_))));
     }
 
     #[test]
     fn test_module_loader_load_by_path_not_found() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
+        // ACT
         let result = loader.load_by_path("kernel/nonexistent.ko");
+
+        // ASSERT
         assert!(matches!(result, Err(LoadError::NotFound(_))));
     }
 
     #[test]
     fn test_module_loader_skip_already_loaded() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
         loader.loaded.insert("already_loaded".to_string());
 
+        // ACT
         let result = loader.load_by_path("kernel/already_loaded.ko");
+
+        // ASSERT
         assert!(matches!(result, Ok(false)));
     }
 
     #[test]
     fn test_read_module_plain_ko() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("test.ko");
 
         let expected_data = b"ELF module data here";
         std::fs::write(&module_path, expected_data).expect("write failed");
 
+        // ACT
         let result = read_module(&module_path);
+
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(result.expect("read failed"), expected_data);
     }
 
     #[test]
     fn test_read_module_zstd_compressed() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("test.ko.zst");
 
@@ -185,41 +208,56 @@ mod tests {
         let compressed = zstd::encode_all(&original_data[..], 3).expect("compression failed");
         std::fs::write(&module_path, &compressed).expect("write failed");
 
+        // ACT
         let result = read_module(&module_path);
+
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(result.expect("read failed"), original_data);
     }
 
     #[test]
     fn test_read_module_invalid_zstd() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("bad.ko.zst");
 
         std::fs::write(&module_path, b"not valid zstd data").expect("write failed");
 
+        // ACT
         let result = read_module(&module_path);
+
+        // ASSERT
         assert!(matches!(result, Err(LoadError::Decompress(_))));
     }
 
     #[test]
     fn test_read_module_not_found() {
+        // ACT
         let result = read_module(Path::new("/nonexistent/module.ko"));
+
+        // ASSERT
         assert!(matches!(result, Err(LoadError::Io(_))));
     }
 
     #[test]
     fn test_read_module_empty_file() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("empty.ko");
         std::fs::write(&module_path, b"").expect("write failed");
 
+        // ACT
         let result = read_module(&module_path);
+
+        // ASSERT
         assert!(result.is_ok());
         assert!(result.expect("read failed").is_empty());
     }
 
     #[test]
     fn test_load_module_empty_dep_db() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
 
         let dep_path = dir.path().join("modules.dep");
@@ -228,14 +266,17 @@ mod tests {
         let dep_db = dep::DepDb::load(&dep_path).expect("load dep db");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
+        // ACT
         let result = load_module("nonexistent", &dep_db, &mut loader);
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(result.expect("load failed"), 0);
     }
 
     #[test]
     fn test_load_module_respects_load_order() {
+        // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
 
         let dep_path = dir.path().join("modules.dep");
@@ -248,8 +289,10 @@ mod tests {
         let dep_db = dep::DepDb::load(&dep_path).expect("load dep db");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
+        // ACT
         let result = load_module("a", &dep_db, &mut loader);
 
+        // ASSERT
         assert!(matches!(result, Err(LoadError::NotFound(_))));
     }
 }

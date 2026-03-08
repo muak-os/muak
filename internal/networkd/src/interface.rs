@@ -206,6 +206,7 @@ mod tests {
 
     #[test]
     fn test_is_ethernet_interface() {
+        // ACT & ASSERT
         assert!(is_ethernet_interface("eth0"));
         assert!(is_ethernet_interface("enp3s0"));
         assert!(!is_ethernet_interface("lo"));
@@ -215,39 +216,52 @@ mod tests {
 
     #[test]
     fn test_select_primary_prefers_carrier() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::NoCarrier),
             make_interface("eth1", LinkState::Up),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eth1");
     }
 
     #[test]
     fn test_select_primary_prefers_no_carrier_over_down() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::Down),
             make_interface("eth1", LinkState::NoCarrier),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eth1");
     }
 
     #[test]
     fn test_select_primary_prefers_better_naming() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("eno1", LinkState::Up),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eno1");
     }
 
     #[test]
     fn test_naming_priority_order() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("enp3s0", LinkState::Up),
@@ -255,36 +269,48 @@ mod tests {
             make_interface("eno1", LinkState::Up),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eno1");
     }
 
     #[test]
     fn test_carrier_overrides_naming() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eno1", LinkState::NoCarrier),
             make_interface("eth0", LinkState::Up),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eth0");
     }
 
     #[test]
     fn test_select_backups_excludes_primary() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("eth1", LinkState::Up),
             make_interface("eth2", LinkState::Down),
         ];
 
+        // ACT
         let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
+
+        // ASSERT
         assert_eq!(backups.len(), 2);
         assert!(backups.iter().all(|i| i.name != "eth0"));
     }
 
     #[test]
     fn test_select_backups_sorted_by_priority() {
+        // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkState::Up),
             make_interface("eth1", LinkState::Down),
@@ -292,7 +318,10 @@ mod tests {
             make_interface("enp3s0", LinkState::Up),
         ];
 
+        // ACT
         let backups = InterfaceSelector::select_backups(&interfaces, "eth0");
+
+        // ASSERT
         assert_eq!(backups[0].name, "eno1");
         assert_eq!(backups[1].name, "enp3s0");
         assert_eq!(backups[2].name, "eth1");
@@ -300,20 +329,31 @@ mod tests {
 
     #[test]
     fn test_empty_interfaces() {
+        // ARRANGE
         let interfaces: Vec<Interface> = vec![];
+
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert!(primary.is_none());
     }
 
     #[test]
     fn test_single_interface() {
+        // ARRANGE
         let interfaces = vec![make_interface("eth0", LinkState::Down)];
+
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eth0");
     }
 
     #[test]
     fn test_has_carrier() {
+        // ACT & ASSERT
         assert!(make_interface("eth0", LinkState::Up).has_carrier());
         assert!(!make_interface("eth0", LinkState::NoCarrier).has_carrier());
         assert!(!make_interface("eth0", LinkState::Down).has_carrier());
@@ -321,6 +361,7 @@ mod tests {
 
     #[test]
     fn test_tiebreaker_prefers_lower_index() {
+        // ARRANGE
         let interfaces = vec![
             make_interface_with_index("eth0", 8, LinkState::Down),
             make_interface_with_index("eth1", 9, LinkState::Down),
@@ -328,7 +369,10 @@ mod tests {
             make_interface_with_index("eth3", 11, LinkState::Down),
         ];
 
+        // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
         assert_eq!(primary.unwrap().name, "eth0");
         assert_eq!(primary.unwrap().index, 8);
     }

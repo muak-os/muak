@@ -119,9 +119,13 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_returns_64_char_hex() {
+        // ARRANGE
         let test_data = b"test certificate data";
+
+        // ACT
         let fingerprint = extract_fingerprint(test_data);
 
+        // ASSERT
         assert_eq!(
             fingerprint.len(),
             64,
@@ -131,9 +135,13 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_is_lowercase_hex() {
+        // ARRANGE
         let test_data = b"test certificate data";
+
+        // ACT
         let fingerprint = extract_fingerprint(test_data);
 
+        // ASSERT
         assert!(
             fingerprint
                 .chars()
@@ -145,19 +153,24 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_deterministic() {
+        // ARRANGE
         let test_data = b"same input data";
 
+        // ACT
         let fp1 = extract_fingerprint(test_data);
         let fp2 = extract_fingerprint(test_data);
 
+        // ASSERT
         assert_eq!(fp1, fp2, "Same input should produce same fingerprint");
     }
 
     #[test]
     fn test_extract_fingerprint_different_inputs() {
+        // ARRANGE
         let fp1 = extract_fingerprint(b"first certificate");
         let fp2 = extract_fingerprint(b"second certificate");
 
+        // ASSERT
         assert_ne!(
             fp1, fp2,
             "Different inputs should produce different fingerprints"
@@ -166,8 +179,10 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_empty_input() {
+        // ACT
         let fingerprint = extract_fingerprint(&[]);
 
+        // ASSERT
         assert_eq!(fingerprint.len(), 64);
         assert_eq!(
             fingerprint,
@@ -177,13 +192,16 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_with_real_cert() {
+        // ARRANGE
         let (_, ca_cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
         let cert_der =
             x509_cert::der::Encode::to_der(&ca_cert).expect("Failed to encode certificate to DER");
 
+        // ACT
         let fingerprint = extract_fingerprint(&cert_der);
 
+        // ASSERT
         assert_eq!(
             fingerprint.len(),
             64,
@@ -199,15 +217,18 @@ mod tests {
 
     #[test]
     fn test_extract_fingerprint_matches_pki_compute() {
+        // ARRANGE
         let (_, cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
         let cert_der =
             x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
 
+        // ACT
         let our_fingerprint = extract_fingerprint(&cert_der);
         let pki_fingerprint =
             pki::compute_cert_fingerprint(&cert).expect("Failed to compute pki fingerprint");
 
+        // ASSERT
         assert_eq!(
             our_fingerprint, pki_fingerprint,
             "Our fingerprint should match pki crate's computation"
@@ -216,8 +237,10 @@ mod tests {
 
     #[test]
     fn test_generate_ephemeral_tls_config() {
+        // ACT
         let result = generate_ephemeral_tls_config();
 
+        // ASSERT
         assert!(
             result.is_ok(),
             "Should be able to generate ephemeral TLS config: {:?}",
@@ -227,6 +250,7 @@ mod tests {
 
     #[test]
     fn test_load_tls_config_with_valid_paths() {
+        // ARRANGE
         let (ca_signer, ca_cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let (server_signer, server_cert) =
@@ -268,12 +292,14 @@ mod tests {
             .write_all(server_key_pem.as_bytes())
             .expect("Failed to write server key");
 
+        // ACT
         let result = load_tls_config_with_paths(
             ca_file.path().to_str().unwrap(),
             server_cert_file.path().to_str().unwrap(),
             server_key_file.path().to_str().unwrap(),
         );
 
+        // ASSERT
         assert!(
             result.is_ok(),
             "Should load TLS config from valid paths: {:?}",
@@ -283,12 +309,15 @@ mod tests {
 
     #[test]
     fn test_load_tls_config_with_missing_ca() {
-        let result = load_tls_config_with_paths(
-            "/nonexistent/ca.crt",
-            "/nonexistent/server.crt",
-            "/nonexistent/server.key",
-        );
+        // ARRANGE
+        let ca_path = "/nonexistent/ca.crt";
+        let server_cert_path = "/nonexistent/server.crt";
+        let server_key_path = "/nonexistent/server.key";
 
+        // ACT
+        let result = load_tls_config_with_paths(ca_path, server_cert_path, server_key_path);
+
+        // ASSERT
         assert!(result.is_err(), "Should fail with missing CA cert");
         match result {
             Err(e) => {

@@ -169,10 +169,12 @@ mod tests {
 
     #[test]
     fn set_milestone_arithmetic() {
+        // ARRANGE
         let total: u64 = 1000;
         let mut last_milestone: u8 = 0;
         let mut fired: Vec<u8> = Vec::new();
 
+        // ACT
         for pos in [0u64, 249, 250, 499, 500, 749, 750, 999, 1000] {
             let current = pos.min(total);
             let pct = (current * 100 / total) as u8;
@@ -183,19 +185,25 @@ mod tests {
             }
         }
 
+        // ASSERT
         assert_eq!(fired, vec![25, 50, 75, 100]);
     }
 
     #[test]
     fn set_milestone_zero_total_never_fires() {
+        // ARRANGE
         let total: u64 = 0;
         let current: u64 = 0;
+
+        // ACT
         let pct = if total > 0 {
             (current * 100 / total) as u8
         } else {
             0
         };
         let milestone = pct / 25;
+
+        // ASSERT
         assert_eq!(milestone, 0);
     }
 }

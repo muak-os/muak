@@ -101,6 +101,7 @@ mod tests {
 
     #[test]
     fn test_extract_tag() {
+        // ACT & ASSERT
         assert_eq!(extract_tag("ghcr.io/foo/bar:v1.2.3"), "v1.2.3");
         assert_eq!(extract_tag("ghcr.io/foo/bar:latest"), "latest");
         assert_eq!(extract_tag("ghcr.io/foo/bar"), "");
@@ -116,6 +117,7 @@ mod tests {
 
     #[test]
     fn test_parse_versions() {
+        // ACT & ASSERT
         assert_eq!(
             parse_image_version("img:latest").unwrap(),
             ImageVersion::Latest
@@ -139,19 +141,16 @@ mod tests {
 
     #[test]
     fn test_downgrade_detection() {
-        // semver downgrades
+        // ACT & ASSERT
         assert!(check_no_downgrade("img:v0.1.0", "img:v0.2.0").is_err());
         assert!(check_no_downgrade("img:v1.0.0", "img:v2.0.0").is_err());
         assert!(check_no_downgrade("img:v1.2.3", "img:v1.2.4").is_err());
 
-        // same version is allowed (re-apply)
         assert!(check_no_downgrade("img:v1.2.3", "img:v1.2.3").is_ok());
 
-        // upgrades are allowed
         assert!(check_no_downgrade("img:v1.3.0", "img:v1.2.9").is_ok());
         assert!(check_no_downgrade("img:v2.0.0", "img:v1.99.99").is_ok());
 
-        // latest is always allowed in either direction
         assert!(check_no_downgrade("img:latest", "img:v99.0.0").is_ok());
         assert!(check_no_downgrade("img:latest", "img:latest").is_ok());
         assert!(check_no_downgrade("img:v1.0.0", "img:latest").is_ok());

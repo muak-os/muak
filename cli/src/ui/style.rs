@@ -201,7 +201,11 @@ mod tests {
     // Plain path: every function returns the original string unchanged.
     #[test]
     fn plain_success() {
-        assert_eq!(plain_str(make_success("ok", false)), "ok");
+        // ARRANGE & ACT
+        let result = plain_str(make_success("ok", false));
+
+        // ASSERT
+        assert_eq!(result, "ok");
     }
 
     #[test]
@@ -262,7 +266,11 @@ mod tests {
     // Colored path: Display output must contain the original string.
     #[test]
     fn colored_success_contains_text() {
-        assert!(colored_display(make_success("ok", true)).contains("ok"));
+        // ARRANGE & ACT
+        let result = colored_display(make_success("ok", true));
+
+        // ASSERT
+        assert!(result.contains("ok"));
     }
 
     #[test]
@@ -318,6 +326,10 @@ mod tests {
     // Display impl: plain variant formats to the raw string.
     #[test]
     fn display_plain_equals_input() {
-        assert_eq!(make_success("hello", false).to_string(), "hello");
+        // ARRANGE & ACT
+        let result = make_success("hello", false).to_string();
+
+        // ASSERT
+        assert_eq!(result, "hello");
     }
 }
