@@ -6,11 +6,9 @@ use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
 
-use crate::supervisor::SERVICES_DIR;
-
-/// Returns the canonical socket path for a named service.
-pub fn path(name: &str) -> PathBuf {
-    PathBuf::from(format!("{SERVICES_DIR}/{name}.sock"))
+/// Returns the canonical socket path for a named service within a services directory.
+pub fn path(services_dir: &Path, name: &str) -> PathBuf {
+    services_dir.join(format!("{name}.sock"))
 }
 
 /// Pre-binds and listens on a UNIX stream socket.

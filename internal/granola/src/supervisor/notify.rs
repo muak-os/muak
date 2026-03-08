@@ -1,11 +1,10 @@
 use std::os::unix::net::UnixDatagram;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use notify::Health;
 
 use super::service::ServiceStatus;
-
-const NOTIFY_SOCKET: &str = "/run/services/granola-notify.sock";
 
 /// Processed notification ready for the supervisor to act on.
 pub enum ServiceNotification {
@@ -27,15 +26,16 @@ pub struct NotifyListener {
 }
 
 impl NotifyListener {
-    pub fn new() -> Result<Self> {
-        let _ = std::fs::remove_file(NOTIFY_SOCKET);
+    pub fn new(services_dir: &Path) -> Result<Self> {
+        let socket_path = services_dir.join("granola-notify.sock");
+        let _ = std::fs::remove_file(&socket_path);
 
-        let socket = UnixDatagram::bind(NOTIFY_SOCKET).context("Failed to bind notify socket")?;
+        let socket = UnixDatagram::bind(&socket_path).context("Failed to bind notify socket")?;
         socket
             .set_nonblocking(true)
             .context("Failed to set notify socket to non-blocking")?;
 
-        kmsg::info!("Supervisor listening on {}", NOTIFY_SOCKET);
+        kmsg::info!("Supervisor listening on {}", socket_path.display());
 
         Ok(Self { socket })
     }

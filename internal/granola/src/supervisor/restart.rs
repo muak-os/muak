@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use super::service::{ServiceState, ServiceStatus};
 
 const RESTART_DELAY: Duration = Duration::from_secs(1);
-const MAX_RESTART_ATTEMPTS: u32 = 5;
+pub const MAX_RESTART_ATTEMPTS: u32 = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 /// A pending restart entry with a scheduled time.
