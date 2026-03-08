@@ -17,3 +17,52 @@ pub fn format_size(bytes: u64) -> String {
         format!("{bytes}B")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytes() {
+        assert_eq!(format_size(0), "0B");
+        assert_eq!(format_size(1), "1B");
+        assert_eq!(format_size(1023), "1023B");
+    }
+
+    #[test]
+    fn kilobytes() {
+        assert_eq!(format_size(1024), "1KB");
+        assert_eq!(format_size(2048), "2KB");
+        assert_eq!(format_size(1024 * 1023), "1023KB");
+    }
+
+    #[test]
+    fn megabytes() {
+        assert_eq!(format_size(1024 * 1024), "1MB");
+        assert_eq!(format_size(5 * 1024 * 1024), "5MB");
+    }
+
+    #[test]
+    fn gigabytes() {
+        assert_eq!(format_size(1024 * 1024 * 1024), "1.00GB");
+        assert_eq!(format_size(2 * 1024 * 1024 * 1024), "2.00GB");
+    }
+
+    #[test]
+    fn terabytes() {
+        let tb = 1024u64 * 1024 * 1024 * 1024;
+        assert_eq!(format_size(tb), "1.00TB");
+        assert_eq!(format_size(2 * tb), "2.00TB");
+    }
+
+    #[test]
+    fn boundary_kb_to_mb() {
+        // ARRANGE
+        let below_mb = 1024 * 1024 - 1;
+        let at_mb = 1024 * 1024;
+
+        // ACT & ASSERT
+        assert!(format_size(below_mb).ends_with("KB"));
+        assert_eq!(format_size(at_mb), "1MB");
+    }
+}

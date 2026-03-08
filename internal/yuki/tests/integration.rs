@@ -30,13 +30,14 @@ impl TestEnv {
 
 #[test]
 fn test_build_creates_valid_uki() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(4096));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(8192));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -47,6 +48,7 @@ fn test_build_creates_valid_uki() {
     })
     .expect("build should succeed");
 
+    // ASSERT
     assert_eq!(&uki[0..2], b"MZ", "output should start with MZ");
 
     let pe = PeFile64::parse(&*uki).expect("output should be valid PE64");
@@ -70,14 +72,15 @@ fn test_build_creates_valid_uki() {
 
 #[test]
 fn test_build_with_dtb() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(4096));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(8192));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
     let dtb_path = env.write_file("device.dtb", &fake_dtb(1024));
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -88,6 +91,7 @@ fn test_build_with_dtb() {
     })
     .expect("build with DTB should succeed");
 
+    // ASSERT
     let pe = PeFile64::parse(&*uki).expect("output should be valid PE64");
     let section_names: Vec<&[u8]> = pe.section_table().iter().map(|s| &s.name[..]).collect();
 
@@ -100,8 +104,8 @@ fn test_build_with_dtb() {
 
 #[test]
 fn test_build_preserves_original_sections() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub = generate_minimal_stub();
     let original_pe = PeFile64::parse(&*stub).expect("generated stub should be valid PE");
     let original_section_count = original_pe.section_table().len();
@@ -111,6 +115,7 @@ fn test_build_preserves_original_sections() {
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -122,6 +127,7 @@ fn test_build_preserves_original_sections() {
     .expect("build should succeed");
     let result_pe = PeFile64::parse(&*uki).expect("output should be valid PE");
 
+    // ASSERT
     assert_eq!(
         result_pe.section_table().len(),
         original_section_count + 3,
@@ -131,13 +137,14 @@ fn test_build_preserves_original_sections() {
 
 #[test]
 fn test_build_with_large_files() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024 * 1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(2 * 1024 * 1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -148,6 +155,7 @@ fn test_build_with_large_files() {
     })
     .expect("build with large files should succeed");
 
+    // ASSERT
     assert!(uki.len() > 3 * 1024 * 1024);
 
     PeFile64::parse(&*uki).expect("large UKI should be valid PE64");
@@ -155,13 +163,14 @@ fn test_build_with_large_files() {
 
 #[test]
 fn test_build_handles_empty_cmdline() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", b"");
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -172,17 +181,19 @@ fn test_build_handles_empty_cmdline() {
     })
     .expect("empty cmdline should be allowed");
 
+    // ASSERT
     PeFile64::parse(&*uki).expect("should be valid PE");
 }
 
 #[test]
 fn test_build_rejects_missing_stub() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: env.temp.path().join("nonexistent.efi"),
         kernel: kernel_path,
@@ -192,6 +203,7 @@ fn test_build_rejects_missing_stub() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::ReadError { .. })),
         "should fail with ReadError for missing stub, got: {:?}",
@@ -201,13 +213,14 @@ fn test_build_rejects_missing_stub() {
 
 #[test]
 fn test_build_rejects_invalid_pe_stub() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", b"this is not a PE file at all");
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -217,6 +230,7 @@ fn test_build_rejects_invalid_pe_stub() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::PeParseError(_))),
         "should fail with PE parse error for invalid stub, got: {:?}",
@@ -226,12 +240,13 @@ fn test_build_rejects_invalid_pe_stub() {
 
 #[test]
 fn test_build_rejects_missing_kernel() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: env.temp.path().join("nonexistent"),
@@ -241,6 +256,7 @@ fn test_build_rejects_missing_kernel() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::ReadError { .. })),
         "should fail with ReadError for missing kernel"
@@ -249,12 +265,13 @@ fn test_build_rejects_missing_kernel() {
 
 #[test]
 fn test_build_rejects_missing_initrd() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -264,6 +281,7 @@ fn test_build_rejects_missing_initrd() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::ReadError { .. })),
         "should fail with ReadError for missing initrd"
@@ -272,12 +290,13 @@ fn test_build_rejects_missing_initrd() {
 
 #[test]
 fn test_build_rejects_missing_cmdline() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -287,6 +306,7 @@ fn test_build_rejects_missing_cmdline() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::ReadError { .. })),
         "should fail with ReadError for missing cmdline"
@@ -295,13 +315,14 @@ fn test_build_rejects_missing_cmdline() {
 
 #[test]
 fn test_build_rejects_missing_dtb_when_specified() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let result = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -311,6 +332,7 @@ fn test_build_rejects_missing_dtb_when_specified() {
         luks_key: None,
     });
 
+    // ASSERT
     assert!(
         matches!(result, Err(yuki::YukiError::ReadError { .. })),
         "should fail with ReadError for missing DTB"
@@ -319,8 +341,8 @@ fn test_build_rejects_missing_dtb_when_specified() {
 
 #[test]
 fn test_sections_contain_correct_data() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let kernel_data = fake_kernel(1024);
     let initrd_data = fake_initrd(2048);
     let cmdline_data = sample_cmdline();
@@ -330,6 +352,7 @@ fn test_sections_contain_correct_data() {
     let initrd_path = env.write_file("initrd.img", &initrd_data);
     let cmdline_path = env.write_file("cmdline.txt", &cmdline_data);
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -340,6 +363,7 @@ fn test_sections_contain_correct_data() {
     })
     .expect("build should succeed");
 
+    // ASSERT
     let pe = PeFile64::parse(&*uki).expect("should be valid PE");
 
     for section in pe.section_table().iter() {
@@ -371,13 +395,14 @@ fn test_sections_contain_correct_data() {
 
 #[test]
 fn test_linux_section_is_executable() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -388,6 +413,7 @@ fn test_linux_section_is_executable() {
     })
     .expect("build should succeed");
 
+    // ASSERT
     let pe = PeFile64::parse(&*uki).expect("should be valid PE");
 
     let linux_section = pe
@@ -410,13 +436,14 @@ fn test_linux_section_is_executable() {
 
 #[test]
 fn test_data_sections_are_not_executable() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -427,6 +454,7 @@ fn test_data_sections_are_not_executable() {
     })
     .expect("build should succeed");
 
+    // ASSERT
     let pe = PeFile64::parse(&*uki).expect("should be valid PE");
 
     for section in pe.section_table().iter() {
@@ -444,13 +472,14 @@ fn test_data_sections_are_not_executable() {
 
 #[test]
 fn test_output_is_efi_application() {
+    // ARRANGE
     let env = TestEnv::new();
-
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
     let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
     let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
 
+    // ACT
     let uki = yuki::build(&yuki::Components {
         stub: stub_path,
         kernel: kernel_path,
@@ -461,6 +490,7 @@ fn test_output_is_efi_application() {
     })
     .expect("build should succeed");
 
+    // ASSERT
     let pe = PeFile64::parse(&*uki).expect("should be valid PE");
     let subsystem = pe.nt_headers().optional_header.subsystem.get(LE);
 
@@ -473,10 +503,13 @@ fn test_output_is_efi_application() {
 
 #[test]
 fn test_generated_stub_is_valid() {
+    // ARRANGE
     let stub = generate_minimal_stub();
 
+    // ACT
     assert_eq!(&stub[0..2], b"MZ", "should have DOS signature");
 
+    // ASSERT
     let pe = PeFile64::parse(&*stub).expect("generated stub should be valid PE64");
 
     assert_eq!(pe.section_table().len(), 1, "should have 1 section");

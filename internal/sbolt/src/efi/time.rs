@@ -88,64 +88,73 @@ mod tests {
 
     #[test]
     fn days_to_ymd_unix_epoch() {
+        // ACT & ASSERT
         assert_ymd(0, (1970, 1, 1));
     }
 
     #[test]
     fn days_to_ymd_day_one() {
+        // ACT & ASSERT
         assert_ymd(1, (1970, 1, 2));
     }
 
     #[test]
     fn days_to_ymd_end_of_first_year() {
+        // ACT & ASSERT
         assert_ymd(364, (1970, 12, 31));
     }
 
     #[test]
     fn days_to_ymd_start_of_1971() {
+        // ACT & ASSERT
         assert_ymd(365, (1971, 1, 1));
     }
 
     #[test]
     fn days_to_ymd_start_of_1972() {
+        // ACT & ASSERT
         assert_ymd(730, (1972, 1, 1));
     }
 
     #[test]
     fn days_to_ymd_leap_day_1972() {
-        // 1972 is a leap year. Jan has 31 days, so Feb 29 is day 31+28 = 59
-        // from Jan 1. Day 730 = 1972-01-01, so 730 + 59 = 789.
+        // ACT & ASSERT
         assert_ymd(789, (1972, 2, 29));
     }
 
     #[test]
     fn days_to_ymd_march_1_1972() {
+        // ACT & ASSERT
         assert_ymd(790, (1972, 3, 1));
     }
 
     #[test]
     fn days_to_ymd_y2k() {
+        // ACT & ASSERT
         assert_ymd(10957, (2000, 1, 1));
     }
 
     #[test]
     fn days_to_ymd_2020() {
+        // ACT & ASSERT
         assert_ymd(18262, (2020, 1, 1));
     }
 
     #[test]
     fn days_to_ymd_2024_leap_day() {
-        // 2024-01-01 = day 19723. Feb 29 is 31 + 28 = 59 days after Jan 1.
+        // ACT & ASSERT
         assert_ymd(19723 + 59, (2024, 2, 29));
     }
 
     #[test]
     fn days_to_ymd_2024_march_1() {
+        // ACT & ASSERT
         assert_ymd(19723 + 60, (2024, 3, 1));
     }
 
     #[test]
     fn to_bytes_known_time() {
+        // ARRANGE
         let time = Time::new(TimeParams {
             year: 2024,
             month: 7,
@@ -159,7 +168,10 @@ mod tests {
         })
         .expect("valid time");
 
+        // ACT
         let bytes = to_bytes(&time);
+
+        // ASSERT
         assert_eq!(bytes.len(), 16);
 
         assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), 2024);
@@ -183,6 +195,7 @@ mod tests {
 
     #[test]
     fn to_bytes_zero_timezone() {
+        // ARRANGE
         let time = Time::new(TimeParams {
             year: 1970,
             month: 1,
@@ -196,8 +209,10 @@ mod tests {
         })
         .expect("valid time");
 
+        // ACT
         let bytes = to_bytes(&time);
 
+        // ASSERT
         assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), 1970);
         assert_eq!(bytes[2], 1);
         assert_eq!(bytes[3], 1);

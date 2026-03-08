@@ -54,6 +54,7 @@ mod tests {
 
     #[test]
     fn test_fallback_dns_valid() {
+        // ACT & ASSERT
         for dns in &FALLBACK_DNS {
             assert!(!dns.is_unspecified());
             assert!(!dns.is_loopback());

@@ -94,39 +94,39 @@ mod tests {
 
     #[test]
     fn build_x509_siglist_layout() {
+        // ACT
         let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT);
 
+        // ASSERT
         let expected_sig_size = SIGNATURE_DATA_HEADER_SIZE + FAKE_CERT.len();
         let expected_list_size = SIGNATURE_LIST_HEADER_SIZE + expected_sig_size;
         assert_eq!(siglist.len(), expected_list_size);
 
-        // [0..16] SignatureType = EFI_CERT_X509_GUID
         assert_eq!(&siglist[0..16], &EFI_CERT_X509_GUID.to_bytes());
 
-        // [16..20] SignatureListSize
         let list_size = u32::from_le_bytes(siglist[16..20].try_into().expect("4 bytes"));
         assert_eq!(list_size as usize, expected_list_size);
 
-        // [20..24] SignatureHeaderSize = 0
         let header_size = u32::from_le_bytes(siglist[20..24].try_into().expect("4 bytes"));
         assert_eq!(header_size, 0);
 
-        // [24..28] SignatureSize
         let sig_size = u32::from_le_bytes(siglist[24..28].try_into().expect("4 bytes"));
         assert_eq!(sig_size as usize, expected_sig_size);
 
-        // [28..44] Owner GUID
         assert_eq!(&siglist[28..44], &TEST_OWNER.to_bytes());
 
-        // [44..] cert data
         assert_eq!(&siglist[44..], FAKE_CERT);
     }
 
     #[test]
     fn roundtrip_build_then_parse() {
+        // ARRANGE
         let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT);
+
+        // ACT
         let db = SignatureDatabase::from_bytes(&siglist).expect("parse siglist");
 
+        // ASSERT
         assert_eq!(db.len(), 1);
         assert!(!db.is_empty());
         assert_eq!(db.to_bytes(), siglist);
@@ -134,7 +134,10 @@ mod tests {
 
     #[test]
     fn empty_database() {
+        // ACT
         let db = SignatureDatabase::new();
+
+        // ASSERT
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
         assert!(db.to_bytes().is_empty());
@@ -142,16 +145,25 @@ mod tests {
 
     #[test]
     fn add_x509_increments_count() {
+        // ARRANGE
         let mut db = SignatureDatabase::new();
+
+        // ACT
         db.add_x509(&TEST_OWNER, FAKE_CERT);
+
+        // ASSERT
         assert_eq!(db.len(), 1);
 
+        // ACT
         db.add_x509(&TEST_OWNER, b"second-cert");
+
+        // ASSERT
         assert_eq!(db.len(), 2);
     }
 
     #[test]
     fn multi_cert_roundtrip() {
+        // ARRANGE
         let cert_a = b"cert-alpha";
         let cert_b = b"cert-bravo";
 
@@ -159,39 +171,52 @@ mod tests {
         db.add_x509(&TEST_OWNER, cert_a);
         db.add_x509(&TEST_OWNER, cert_b);
 
+        // ACT
         let bytes = db.to_bytes();
         let db2 = SignatureDatabase::from_bytes(&bytes).expect("parse multi-cert db");
+
+        // ASSERT
         assert_eq!(db2.len(), 2);
         assert_eq!(db2.to_bytes(), bytes);
     }
 
     #[test]
     fn from_bytes_rejects_truncated_header() {
-        // Data shorter than SIGNATURE_LIST_HEADER_SIZE yields empty db
+        // ARRANGE
         let short = vec![0u8; SIGNATURE_LIST_HEADER_SIZE - 1];
+
+        // ACT
         let db = SignatureDatabase::from_bytes(&short).expect("parse short data");
+
+        // ASSERT
         assert!(db.is_empty());
     }
 
     #[test]
     fn from_bytes_rejects_invalid_list_size_too_small() {
+        // ARRANGE
         let mut data = vec![0u8; SIGNATURE_LIST_HEADER_SIZE];
-        // Set SignatureListSize to less than header size
         let bad_size = (SIGNATURE_LIST_HEADER_SIZE - 1) as u32;
         data[16..20].copy_from_slice(&bad_size.to_le_bytes());
 
+        // ACT
         let result = SignatureDatabase::from_bytes(&data);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn from_bytes_rejects_list_size_exceeding_data() {
+        // ARRANGE
         let mut data = vec![0u8; SIGNATURE_LIST_HEADER_SIZE];
-        // Set SignatureListSize larger than available data
         let bad_size = (SIGNATURE_LIST_HEADER_SIZE + 100) as u32;
         data[16..20].copy_from_slice(&bad_size.to_le_bytes());
 
+        // ACT
         let result = SignatureDatabase::from_bytes(&data);
+
+        // ASSERT
         assert!(result.is_err());
     }
 }

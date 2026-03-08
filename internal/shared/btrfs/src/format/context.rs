@@ -324,10 +324,10 @@ mod tests {
 
     #[test]
     fn test_mkfs_produces_valid_filesystem() {
+        // ARRANGE
         let path = "/tmp/btrfs_test_ours.img";
         let size: u64 = 5 * 1024 * 1024 * 1024; // 5 GiB
 
-        // Create sparse file
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -338,9 +338,10 @@ mod tests {
         file.set_len(size).expect("Failed to set file size");
 
         let mut ctx = MkfsContext::new(file, size, "STATE".to_string());
+
+        // ACT
         ctx.make_btrfs().expect("mkfs failed");
 
-        // Run btrfs check on the result
         let output = std::process::Command::new("btrfs")
             .args(["check", path])
             .output()
@@ -349,6 +350,7 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
+        // ASSERT
         assert!(
             output.status.success(),
             "btrfs check failed!\nstdout: {stdout}\nstderr: {stderr}"

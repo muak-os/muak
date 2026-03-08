@@ -108,6 +108,7 @@ mod tests {
 
     #[test]
     fn test_delete_initramfs_preserves_special_dirs() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir_all(temp.path().join("dev")).unwrap();
@@ -120,8 +121,10 @@ mod tests {
         std::fs::write(temp.path().join("init"), b"#!/bin/sh").unwrap();
         std::fs::write(temp.path().join("banner"), b"Welcome").unwrap();
 
+        // ACT
         delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
 
+        // ASSERT
         assert!(temp.path().join("dev").exists(), "/dev should be preserved");
         assert!(
             temp.path().join("proc").exists(),
@@ -150,22 +153,28 @@ mod tests {
 
     #[test]
     fn test_delete_initramfs_handles_empty_root() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
+        // ACT
         let result = delete_initramfs_at(temp.path());
 
+        // ASSERT
         assert!(result.is_ok(), "Should handle empty root directory");
     }
 
     #[test]
     fn test_delete_initramfs_handles_only_special_dirs() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir_all(temp.path().join("dev")).unwrap();
         std::fs::create_dir_all(temp.path().join("proc")).unwrap();
 
+        // ACT
         let result = delete_initramfs_at(temp.path());
 
+        // ASSERT
         assert!(
             result.is_ok(),
             "Should handle directory with only special dirs"
@@ -176,14 +185,17 @@ mod tests {
 
     #[test]
     fn test_delete_initramfs_removes_nested_structures() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir_all(temp.path().join("old/nested/deep")).unwrap();
         std::fs::write(temp.path().join("old/file.txt"), b"content").unwrap();
         std::fs::write(temp.path().join("old/nested/another.txt"), b"content").unwrap();
 
+        // ACT
         delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
 
+        // ASSERT
         assert!(
             !temp.path().join("old").exists(),
             "Entire nested structure should be deleted"
@@ -192,14 +204,17 @@ mod tests {
 
     #[test]
     fn test_find_init_in_sbin() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         let sbin = temp.path().join("sbin");
         std::fs::create_dir_all(&sbin).unwrap();
         std::fs::write(sbin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_ok(), "Should find init in /sbin");
         assert_eq!(
             result.unwrap(),
@@ -210,14 +225,17 @@ mod tests {
 
     #[test]
     fn test_find_init_in_bin() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         let bin = temp.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_ok(), "Should find init in /bin");
         assert_eq!(
             result.unwrap(),
@@ -228,12 +246,15 @@ mod tests {
 
     #[test]
     fn test_find_init_in_root() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("init"), b"#!/bin/sh\necho init").unwrap();
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_ok(), "Should find init in root");
         assert_eq!(
             result.unwrap(),
@@ -244,6 +265,7 @@ mod tests {
 
     #[test]
     fn test_find_init_prefers_sbin_over_bin() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         let sbin = temp.path().join("sbin");
@@ -253,8 +275,10 @@ mod tests {
         std::fs::write(sbin.join("init"), b"#!/bin/sh\necho sbin").unwrap();
         std::fs::write(bin.join("init"), b"#!/bin/sh\necho bin").unwrap();
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -265,13 +289,16 @@ mod tests {
 
     #[test]
     fn test_find_init_no_init_found() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir_all(temp.path().join("sbin")).unwrap();
         std::fs::create_dir_all(temp.path().join("bin")).unwrap();
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_err(), "Should fail when no init binary found");
         let err = result.unwrap_err().to_string();
         assert!(
@@ -282,10 +309,13 @@ mod tests {
 
     #[test]
     fn test_find_init_empty_root() {
+        // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
+        // ACT
         let result = find_init_in(temp.path());
 
+        // ASSERT
         assert!(result.is_err(), "Should fail with empty root");
     }
 }

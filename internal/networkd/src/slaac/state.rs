@@ -117,13 +117,14 @@ mod tests {
 
     #[test]
     fn test_managed_address_creation() {
-        let addr = ManagedAddress::new(
-            "2001:db8::1".parse().unwrap(),
-            64,
-            "fe80::1".parse().unwrap(),
-            3600,
-            1800,
-        );
+        // ARRANGE
+        let addr_ip = "2001:db8::1".parse().unwrap();
+        let router = "fe80::1".parse().unwrap();
+
+        // ACT
+        let addr = ManagedAddress::new(addr_ip, 64, router, 3600, 1800);
+
+        // ASSERT
         assert_eq!(addr.state, AddressState::Preferred);
         assert!(addr.is_valid());
         assert!(addr.is_preferred());
@@ -131,13 +132,25 @@ mod tests {
 
     #[test]
     fn test_managed_router_creation() {
-        let router = ManagedRouter::new("fe80::1".parse().unwrap(), 1800);
+        // ARRANGE
+        let router_ip = "fe80::1".parse().unwrap();
+
+        // ACT
+        let router = ManagedRouter::new(router_ip, 1800);
+
+        // ASSERT
         assert!(router.is_valid());
     }
 
     #[test]
     fn test_managed_dns_creation() {
-        let dns = ManagedDns::new("2620:fe::fe".parse().unwrap(), 3600);
+        // ARRANGE
+        let dns_ip = "2620:fe::fe".parse().unwrap();
+
+        // ACT
+        let dns = ManagedDns::new(dns_ip, 3600);
+
+        // ASSERT
         assert!(dns.is_valid());
     }
 }

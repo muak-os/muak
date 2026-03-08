@@ -335,15 +335,16 @@ mod tests {
 
     #[test]
     fn test_sign_produces_valid_win_certificate() {
+        // ARRANGE
         let pe = build_signable_pe();
         let (signer, cert) = test_signer_and_cert();
 
+        // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
 
-        // The signed PE must be larger than the original
+        // ASSERT
         assert!(signed.len() > pe.len());
 
-        // Read Certificate Table DD[4] to find the WIN_CERTIFICATE
         let pe_offset = read_u32_le(&signed, 0x3c).unwrap() as usize;
         let opt_offset = pe_offset + 4 + 20;
         let dd_offset = opt_offset + 112;
@@ -354,12 +355,10 @@ mod tests {
         assert!(cert_addr > 0, "cert table address must be set");
         assert!(cert_size > 8, "cert table must contain data");
 
-        // Verify WIN_CERTIFICATE header fields
         let dw_length = read_u32_le(&signed, cert_addr).unwrap();
         let w_revision = read_u16_le(&signed, cert_addr + 4).unwrap();
         let w_cert_type = read_u16_le(&signed, cert_addr + 6).unwrap();
 
-        // dwLength is the unpadded WIN_CERTIFICATE size; DD stores the 8-byte aligned size
         let aligned_dw_length = ((dw_length as usize) + 7) & !7;
         assert_eq!(
             aligned_dw_length, cert_size,
@@ -377,12 +376,14 @@ mod tests {
 
     #[test]
     fn test_sign_embeds_certificate_table() {
+        // ARRANGE
         let pe = build_signable_pe();
         let (signer, cert) = test_signer_and_cert();
 
+        // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
 
-        // Verify DD[4] is updated
+        // ASSERT
         let pe_offset = read_u32_le(&signed, 0x3c).unwrap() as usize;
         let opt_offset = pe_offset + 4 + 20;
         let cert_dd_offset = opt_offset + 112 + 4 * 8;
@@ -390,10 +391,8 @@ mod tests {
         let cert_addr = read_u32_le(&signed, cert_dd_offset).unwrap() as usize;
         let cert_size = read_u32_le(&signed, cert_dd_offset + 4).unwrap() as usize;
 
-        // cert_addr must be 8-byte aligned
         assert_eq!(cert_addr % 8, 0, "cert table must be 8-byte aligned");
 
-        // cert data must fit within the signed PE
         assert!(
             cert_addr + cert_size <= signed.len(),
             "cert table must be within file bounds"
@@ -402,18 +401,16 @@ mod tests {
 
     #[test]
     fn test_signed_pe_roundtrip_hash() {
+        // ARRANGE
         let pe = build_signable_pe();
         let (signer, cert) = test_signer_and_cert();
-
-        // Hash the unsigned PE
         let hash_unsigned = compute_hash(&pe).expect("hash unsigned");
 
-        // Sign the PE
+        // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign");
-
-        // Hash the signed PE (should exclude the certificate table)
         let hash_signed = compute_hash(&signed).expect("hash signed");
 
+        // ASSERT
         assert_eq!(
             hash_unsigned, hash_signed,
             "authenticode hash must be identical before and after signing"
@@ -422,8 +419,11 @@ mod tests {
 
     #[test]
     fn test_message_digest_matches_econtent_value_octets() {
+        // ARRANGE
         let pe = build_signable_pe();
         let (signer, cert) = test_signer_and_cert();
+
+        // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign");
 
         // Extract the PKCS#7 ContentInfo from the WIN_CERTIFICATE
@@ -434,28 +434,22 @@ mod tests {
         let dw_length = read_u32_le(&signed, cert_addr).unwrap() as usize;
         let pkcs7_bytes = &signed[cert_addr + 8..cert_addr + dw_length];
 
-        // Parse ContentInfo -> SignedData
         let ci = ContentInfo::from_der(pkcs7_bytes).expect("parse ContentInfo");
         let sd = ci
             .content
             .decode_as::<SignedData>()
             .expect("decode SignedData");
 
-        // Get eContent (should be a SEQUENCE containing the inner fields).
         let econtent_any = sd
             .encap_content_info
             .econtent
             .as_ref()
             .expect("eContent must be present");
 
-        // The eContent Any is a SEQUENCE. Get its value bytes (the inner
-        // fields without the SEQUENCE tag+length). This is what OVMF
-        // passes to OpenSSL's PKCS7_verify.
         let econtent_der = econtent_any.to_der().expect("econtent to der");
         assert_eq!(econtent_der[0], 0x30, "eContent must be a SEQUENCE");
 
-        // Strip the SEQUENCE tag+length to get the value octets.
-        // DER SEQUENCE tag is 0x30, followed by length encoding.
+        // ASSERT
         assert_eq!(econtent_der[0], 0x30);
         let (hdr_len, _content_len) = if econtent_der[1] < 0x80 {
             (2, econtent_der[1] as usize)
@@ -471,7 +465,6 @@ mod tests {
         };
         let value_octets = &econtent_der[hdr_len..];
 
-        // Extract messageDigest from signer info's signed attributes
         let signer_info = sd.signer_infos.0.iter().next().expect("signer info");
         let signed_attrs = signer_info.signed_attrs.as_ref().expect("signed attrs");
 
@@ -486,7 +479,6 @@ mod tests {
             .expect("decode md as OctetString");
         let message_digest = md_octet.as_bytes();
 
-        // Compute SHA-256 of the value octets
         let mut ctx = Context::new(&SHA256);
         ctx.update(value_octets);
         let computed = ctx.finish();

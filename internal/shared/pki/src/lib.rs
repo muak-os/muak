@@ -26,15 +26,14 @@ mod tests {
 
     #[test]
     fn test_generate_ca_and_server_cert() {
+        // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_cert_pem = ca_cert
             .to_pem(LineEnding::LF)
             .expect("Failed to encode CA cert");
         let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
 
-        assert!(ca_cert_pem.contains("BEGIN CERTIFICATE"));
-        assert!(ca_key_pem.contains("BEGIN PRIVATE KEY"));
-
+        // ACT
         let (server_key, server_cert) =
             generate_server_certificate("muak-server", &ca_key, &ca_cert)
                 .expect("Failed to generate server cert");
@@ -44,37 +43,42 @@ mod tests {
         let server_key_pem =
             pkcs8_to_pem(server_key.pkcs8_der()).expect("Failed to encode server key");
 
-        assert!(server_cert_pem.contains("BEGIN CERTIFICATE"));
-        assert!(server_key_pem.contains("BEGIN PRIVATE KEY"));
-
         let fingerprint =
             compute_cert_fingerprint(&server_cert).expect("Failed to compute fingerprint");
+
+        // ASSERT
+        assert!(ca_cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(ca_key_pem.contains("BEGIN PRIVATE KEY"));
+        assert!(server_cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(server_key_pem.contains("BEGIN PRIVATE KEY"));
         assert_eq!(fingerprint.len(), 64);
     }
 
     #[test]
     fn test_generate_and_sign_csr() {
+        // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
 
         let (key_pem, csr_pem) = generate_csr("test-client").expect("Failed to generate CSR");
-        assert!(!key_pem.is_empty());
-        assert!(!csr_pem.is_empty());
-
         let csr_fp = compute_csr_fingerprint(&csr_pem).expect("Failed to compute CSR fingerprint");
-        assert_eq!(csr_fp.len(), 64);
 
+        // ACT
         let (cert, cert_fp) =
             sign_csr(&csr_pem, &ca_key_pem, &ca_cert).expect("Failed to sign CSR");
-
-        assert_eq!(cert_fp.len(), 64);
-
         let cert_pem = cert.to_pem(LineEnding::LF).expect("Failed to encode cert");
+
+        // ASSERT
+        assert!(!key_pem.is_empty());
+        assert!(!csr_pem.is_empty());
+        assert_eq!(csr_fp.len(), 64);
+        assert_eq!(cert_fp.len(), 64);
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
     }
 
     #[test]
     fn test_load_ca_from_pem() {
+        // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_cert_pem = ca_cert
             .to_pem(LineEnding::LF)
@@ -85,8 +89,12 @@ mod tests {
             Certificate::from_pem(&ca_cert_pem).expect("Failed to parse CA certificate");
 
         let (_, csr_pem) = generate_csr("test-client").expect("Failed to generate CSR");
+
+        // ACT
         let (_, fp) =
             sign_csr(&csr_pem, &ca_key_pem, &loaded_cert).expect("Failed to sign with loaded CA");
+
+        // ASSERT
         assert_eq!(fp.len(), 64);
     }
 }

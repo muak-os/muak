@@ -233,18 +233,23 @@ mod tests {
 
     #[test]
     fn test_verify_candidate_correct_key() {
+        // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
 
         let digest = create_test_digest(&volume_key);
         meta.digests.insert("0".to_string(), digest);
 
+        // ACT
         let result = verify_candidate(&volume_key, "0", &meta);
+
+        // ASSERT
         assert!(result);
     }
 
     #[test]
     fn test_verify_candidate_wrong_key() {
+        // ARRANGE
         let correct_key = vec![0xABu8; 64];
         let wrong_key = vec![0xCDu8; 64];
         let mut meta = create_test_metadata();
@@ -252,33 +257,45 @@ mod tests {
         let digest = create_test_digest(&correct_key);
         meta.digests.insert("0".to_string(), digest);
 
+        // ACT
         let result = verify_candidate(&wrong_key, "0", &meta);
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_verify_candidate_no_matching_digest() {
+        // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let meta = create_test_metadata();
 
+        // ACT
         let result = verify_candidate(&volume_key, "0", &meta);
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_verify_candidate_wrong_keyslot() {
+        // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
 
         let digest = create_test_digest(&volume_key);
         meta.digests.insert("0".to_string(), digest);
 
+        // ACT
         let result = verify_candidate(&volume_key, "2", &meta);
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_verify_candidate_multiple_digests_one_matches() {
+        // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
         meta.add_keyslot("1", &[0x43u8; 64]);
@@ -290,25 +307,58 @@ mod tests {
         let digest1 = create_test_digest(&other_key);
         meta.digests.insert("1".to_string(), digest1);
 
+        // ACT
         let result = verify_candidate(&volume_key, "0", &meta);
         assert!(result);
 
         let result = verify_candidate(&volume_key, "1", &meta);
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_error_from_io() {
+        // ARRANGE
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+
+        // ACT
         let err: Error = io_err.into();
+
+        // ASSERT
         assert!(matches!(err, Error::Io(_)));
     }
 
     #[test]
     fn test_error_from_json() {
+        // ARRANGE
         let result: std::result::Result<serde_json::Value, _> = serde_json::from_str("invalid");
         let json_err = result.unwrap_err();
+
+        // ACT
         let err: Error = json_err.into();
+
+        // ASSERT
         assert!(matches!(err, Error::Json(_)));
+    }
+
+    #[test]
+    fn test_device_size_regular_file() {
+        // ARRANGE
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        let data = vec![0u8; 4096];
+        std::io::Write::write_all(&mut f, &data).unwrap();
+
+        // ACT
+        let size = device_size(f.path().to_str().unwrap()).unwrap();
+
+        // ASSERT
+        assert_eq!(size, 4096);
+    }
+
+    #[test]
+    fn test_device_size_nonexistent_returns_error() {
+        // ACT & ASSERT
+        let result = device_size("/nonexistent/dev/not_real");
+        assert!(result.is_err());
     }
 }

@@ -97,6 +97,7 @@ mod tests {
 
     #[test]
     fn build_descriptor_layout() {
+        // ARRANGE
         let var_name = "db";
         let vendor = guid!("d719b2cb-3d3a-4596-a3bc-dad00e67656f");
         let attrs = VariableAttributes::NON_VOLATILE
@@ -119,11 +120,12 @@ mod tests {
 
         let content = b"test-content";
 
+        // ACT
         let desc = build_descriptor(var_name, &vendor, attrs, &timestamp, content);
 
+        // ASSERT
         let mut offset = 0;
 
-        // UTF-16LE var_name: "db" -> [0x64, 0x00, 0x62, 0x00]
         let name_utf16: Vec<u16> = var_name.encode_utf16().collect();
         let name_len_bytes = name_utf16.len() * 2;
         for ch in &name_utf16 {
@@ -132,56 +134,51 @@ mod tests {
             offset += 2;
         }
 
-        // 16-byte vendor GUID
         assert_eq!(&desc[offset..offset + 16], &vendor.to_bytes());
         offset += 16;
 
-        // 4-byte attributes
         let got_attrs = u32::from_le_bytes(desc[offset..offset + 4].try_into().expect("4 bytes"));
         assert_eq!(got_attrs, attrs.bits());
         offset += 4;
 
-        // 16-byte EFI_TIME
         let time_bytes = super::time_to_bytes(&timestamp);
         assert_eq!(&desc[offset..offset + 16], &time_bytes);
         offset += 16;
 
-        // Content
         assert_eq!(&desc[offset..], content);
 
-        // Total length
         assert_eq!(desc.len(), name_len_bytes + 16 + 4 + 16 + content.len());
     }
 
     #[test]
     fn build_win_certificate_layout() {
+        // ARRANGE
         let fake_pkcs7 = b"fake-pkcs7-signature-data";
+
+        // ACT
         let wc = build_win_certificate(fake_pkcs7);
 
+        // ASSERT
         let expected_total = 24 + fake_pkcs7.len();
         assert_eq!(wc.len(), expected_total);
 
-        // [0..4] total size
         let total_size = u32::from_le_bytes(wc[0..4].try_into().expect("4 bytes"));
         assert_eq!(total_size as usize, expected_total);
 
-        // [4..6] revision = 0x0200
         let revision = u16::from_le_bytes(wc[4..6].try_into().expect("2 bytes"));
         assert_eq!(revision, 0x0200);
 
-        // [6..8] cert type = 0x0EF1
         let cert_type = u16::from_le_bytes(wc[6..8].try_into().expect("2 bytes"));
         assert_eq!(cert_type, 0x0EF1);
 
-        // [8..24] EFI_CERT_TYPE_PKCS7_GUID
         assert_eq!(&wc[8..24], &EFI_CERT_TYPE_PKCS7_GUID.to_bytes());
 
-        // [24..] pkcs7 data
         assert_eq!(&wc[24..], fake_pkcs7);
     }
 
     #[test]
     fn sign_efi_variable_structural_correctness() {
+        // ARRANGE
         let (signer, cert) = test_signer_and_cert();
         let var_name = "db";
         let vendor = guid!("d719b2cb-3d3a-4596-a3bc-dad00e67656f");
@@ -191,47 +188,40 @@ mod tests {
             | VariableAttributes::TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
         let content = b"test-siglist-data";
 
+        // ACT
         let payload = sign_efi_variable(var_name, &vendor, attrs, content, &signer, &cert)
             .expect("sign_efi_variable should succeed");
 
-        // [0..4] attributes
+        // ASSERT
         let got_attrs = u32::from_le_bytes(payload[0..4].try_into().expect("4 bytes"));
         assert_eq!(got_attrs, attrs.bits());
 
-        // [4..20] timestamp (16 bytes, should be non-zero)
         let timestamp_bytes = &payload[4..20];
         assert!(
             timestamp_bytes.iter().any(|&b| b != 0),
             "timestamp should not be all zeros"
         );
-        // Year should be reasonable (stored as u16 LE at bytes 0..2 of timestamp)
         let year = u16::from_le_bytes([timestamp_bytes[0], timestamp_bytes[1]]);
         assert!(year >= 2024 && year <= 2100, "year {year} out of range");
 
-        // [20..24] WIN_CERT dwLength
         let win_cert_size =
             u32::from_le_bytes(payload[20..24].try_into().expect("4 bytes")) as usize;
         assert!(win_cert_size >= 24, "WIN_CERT must be at least 24 bytes");
 
-        // [24..26] revision
         let revision = u16::from_le_bytes(payload[24..26].try_into().expect("2 bytes"));
         assert_eq!(revision, 0x0200);
 
-        // [26..28] cert type
         let cert_type = u16::from_le_bytes(payload[26..28].try_into().expect("2 bytes"));
         assert_eq!(cert_type, 0x0EF1);
 
-        // [28..44] PKCS7 GUID
         assert_eq!(&payload[28..44], &EFI_CERT_TYPE_PKCS7_GUID.to_bytes());
 
-        // Payload ends with content
         assert_eq!(
             &payload[payload.len() - content.len()..],
             content,
             "payload must end with the content bytes"
         );
 
-        // Total = 4 (attrs) + 16 (timestamp) + win_cert_size + content.len()
         assert_eq!(payload.len(), 4 + 16 + win_cert_size + content.len());
     }
 }

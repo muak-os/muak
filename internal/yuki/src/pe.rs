@@ -79,6 +79,7 @@ mod tests {
 
     #[test]
     fn test_pe_metadata_structure() {
+        // ARRANGE
         let metadata = PeMetadata {
             file_header_offset: 64,
             optional_header_offset: 84,
@@ -90,6 +91,7 @@ mod tests {
             current_section_count: 1,
         };
 
+        // ASSERT
         assert_eq!(metadata.file_header_offset, 64);
         assert_eq!(metadata.optional_header_offset, 84);
         assert_eq!(metadata.section_alignment, 4096);
@@ -98,36 +100,57 @@ mod tests {
 
     #[test]
     fn test_extract_metadata_invalid_pe() {
+        // ARRANGE
         let invalid_stub = vec![0u8; 100];
+
+        // ACT
         let result = extract_metadata(&invalid_stub);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_extract_metadata_too_small() {
+        // ARRANGE
         let stub = vec![0x4D, 0x5A];
+
+        // ACT
         let result = extract_metadata(&stub);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_extract_metadata_with_malformed_header() {
+        // ARRANGE
         let mut stub = vec![0u8; 100];
         stub[0] = 0xFF;
         stub[1] = 0xFF;
+
+        // ACT
         let result = extract_metadata(&stub);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_extract_metadata_missing_dos_header() {
+        // ARRANGE
         let stub = vec![];
+
+        // ACT
         let result = extract_metadata(&stub);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_update_pe_image_size_basic() {
+        // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {
             file_header_offset: 0,
@@ -141,8 +164,11 @@ mod tests {
         };
 
         let new_size = 16384u32;
+
+        // ACT
         update_image_size(&mut stub, &metadata, new_size);
 
+        // ASSERT
         let size_of_image_offset =
             metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([
@@ -157,6 +183,7 @@ mod tests {
 
     #[test]
     fn test_update_image_size_aligns_to_section_alignment() {
+        // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {
             file_header_offset: 0,
@@ -170,8 +197,11 @@ mod tests {
         };
 
         let unaligned_size = 5000u32;
+
+        // ACT
         update_image_size(&mut stub, &metadata, unaligned_size);
 
+        // ASSERT
         let size_of_image_offset =
             metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([
@@ -187,6 +217,7 @@ mod tests {
 
     #[test]
     fn test_update_image_size_out_of_bounds() {
+        // ARRANGE
         let mut stub = vec![0u8; 100];
         let metadata = PeMetadata {
             file_header_offset: 0,
@@ -199,12 +230,16 @@ mod tests {
             current_section_count: 0,
         };
 
+        // ACT
         update_image_size(&mut stub, &metadata, 10000);
+
+        // ASSERT
         assert_eq!(stub.len(), 100);
     }
 
     #[test]
     fn test_update_image_size_zero_alignment() {
+        // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {
             file_header_offset: 0,
@@ -218,8 +253,11 @@ mod tests {
         };
 
         let size = 5000u32;
+
+        // ACT
         update_image_size(&mut stub, &metadata, size);
 
+        // ASSERT
         let size_of_image_offset =
             metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
         let written_size = u32::from_le_bytes([

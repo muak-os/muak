@@ -137,3 +137,73 @@ fn format_bytes(bytes: u64) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_bytes_bytes() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn format_bytes_kb() {
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+        assert_eq!(format_bytes(1024 * 1024 - 1), "1024.0 KB");
+    }
+
+    #[test]
+    fn format_bytes_mb() {
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(1024 * 1024 * 512), "512.0 MB");
+    }
+
+    #[test]
+    fn format_bytes_gb() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024 * 2), "2.0 GB");
+    }
+
+    #[test]
+    fn set_milestone_arithmetic() {
+        // ARRANGE
+        let total: u64 = 1000;
+        let mut last_milestone: u8 = 0;
+        let mut fired: Vec<u8> = Vec::new();
+
+        // ACT
+        for pos in [0u64, 249, 250, 499, 500, 749, 750, 999, 1000] {
+            let current = pos.min(total);
+            let pct = (current * 100 / total) as u8;
+            let milestone = pct / 25;
+            if milestone > last_milestone {
+                last_milestone = milestone;
+                fired.push(pct);
+            }
+        }
+
+        // ASSERT
+        assert_eq!(fired, vec![25, 50, 75, 100]);
+    }
+
+    #[test]
+    fn set_milestone_zero_total_never_fires() {
+        // ARRANGE
+        let total: u64 = 0;
+        let current: u64 = 0;
+
+        // ACT
+        let pct = if total > 0 {
+            (current * 100 / total) as u8
+        } else {
+            0
+        };
+        let milestone = pct / 25;
+
+        // ASSERT
+        assert_eq!(milestone, 0);
+    }
+}

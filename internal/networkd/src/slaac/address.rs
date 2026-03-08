@@ -34,16 +34,26 @@ mod tests {
 
     #[test]
     fn test_mac_to_eui64() {
+        // ARRANGE
         let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
+
+        // ACT
         let eui64 = mac_to_eui64(&mac);
+
+        // ASSERT
         assert_eq!(eui64, [0x02, 0x1a, 0x2b, 0xff, 0xfe, 0x3c, 0x4d, 0x5e]);
     }
 
     #[test]
     fn test_generate_slaac_address() {
+        // ARRANGE
         let prefix = "2001:db8:abcd:1234::".parse::<Ipv6Addr>().unwrap();
         let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
+
+        // ACT
         let addr = generate_slaac_address(prefix, 64, &mac);
+
+        // ASSERT
         assert_eq!(
             addr,
             "2001:db8:abcd:1234:21a:2bff:fe3c:4d5e"

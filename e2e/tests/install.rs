@@ -8,6 +8,7 @@ use e2e::assert_success;
 
 #[tokio::test]
 async fn install() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
     let (fixture, cli) = boot_and_install(
@@ -16,10 +17,12 @@ async fn install() {
     )
     .await;
 
+    // ACT
     let disks = assert_success!(cli, ["disks"])
         .await
         .expect("authenticated muakctl disks failed");
 
+    // ASSERT
     assert!(
         disks.contains("nvme0n1"),
         "expected nvme0n1 in disk listing, got: {disks}"
@@ -33,14 +36,17 @@ async fn install() {
 
 #[tokio::test]
 async fn install_secureboot() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
     let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
 
+    // ACT
     let security = assert_success!(cli, ["security", "state"])
         .await
         .expect("authenticated muakctl security state failed");
 
+    // ASSERT
     assert!(
         security.contains("Secure Boot: Enabled"),
         "expected Secure Boot to be enabled, got: {security}"

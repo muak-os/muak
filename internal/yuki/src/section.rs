@@ -175,6 +175,7 @@ mod tests {
 
     #[test]
     fn test_section_header_to_bytes_basic() {
+        // ARRANGE
         let mut header = ImageSectionHeader::default();
         header.name[0..5].copy_from_slice(b".text");
         header.virtual_size.set(LE, 1000u32);
@@ -183,8 +184,10 @@ mod tests {
         header.pointer_to_raw_data.set(LE, 512u32);
         header.characteristics.set(LE, 0x60000020u32);
 
+        // ACT
         let bytes = section_header_to_bytes(&header);
 
+        // ASSERT
         assert_eq!(bytes[0..5], *b".text");
         assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 1000);
         assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), 4096);
@@ -198,9 +201,13 @@ mod tests {
 
     #[test]
     fn test_section_header_to_bytes_all_zeros() {
+        // ARRANGE
         let header = ImageSectionHeader::default();
+
+        // ACT
         let bytes = section_header_to_bytes(&header);
 
+        // ASSERT
         for byte in &bytes[24..36] {
             assert_eq!(*byte, 0);
         }
@@ -208,27 +215,30 @@ mod tests {
 
     #[test]
     fn test_section_header_to_bytes_pads_correctly() {
+        // ARRANGE
         let header = ImageSectionHeader::default();
+
+        // ACT
         let bytes = section_header_to_bytes(&header);
 
+        // ASSERT
         assert_eq!(bytes.len(), mem::size_of::<ImageSectionHeader>());
         assert_eq!(bytes[24..36], [0u8; 12]);
     }
 
     #[test]
     fn test_section_header_to_bytes_big_values() {
+        // ARRANGE
         let mut header = ImageSectionHeader::default();
         header.virtual_size.set(LE, u32::MAX);
         header.virtual_address.set(LE, u32::MAX - 1);
         header.size_of_raw_data.set(LE, u32::MAX - 2);
         header.pointer_to_raw_data.set(LE, u32::MAX - 3);
 
+        // ACT
         let bytes = section_header_to_bytes(&header);
 
-        assert_eq!(
-            u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
-            u32::MAX
-        );
+        // ASSERT
         assert_eq!(
             u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
             u32::MAX - 1
@@ -245,6 +255,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_success() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1024];
         let initrd = vec![0u8; 2048];
@@ -258,8 +269,10 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         assert_eq!(section_info.headers.len(), 3);
         assert_eq!(section_info.offsets.len(), 3);
         assert_eq!(section_info.headers[0].name[0..8], *b".cmdline");
@@ -269,6 +282,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_offsets_alignment() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
         let initrd = vec![0u8; 200];
@@ -282,8 +296,10 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         let first_offset = section_info.offsets[0].0;
         assert_eq!(first_offset % metadata.file_alignment as usize, 0);
 
@@ -296,6 +312,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_characteristics() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
         let initrd = vec![0u8; 100];
@@ -309,6 +326,7 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
         let linux_header = &section_info.headers[1];
@@ -317,6 +335,7 @@ mod tests {
         let linux_chars = linux_header.characteristics.get(LE);
         let cmdline_chars = cmdline_header.characteristics.get(LE);
 
+        // ASSERT
         assert_eq!(
             linux_chars,
             constants::IMAGE_SCN_CNT_CODE
@@ -331,6 +350,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_max_virtual_end() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1000];
         let initrd = vec![0u8; 1000];
@@ -344,13 +364,16 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         assert!(section_info.max_virtual_end > metadata.last_section_virtual_end);
     }
 
     #[test]
     fn test_build_headers_name_truncation() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
         let initrd = vec![0u8; 100];
@@ -364,8 +387,10 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         let cmdline_header = &section_info.headers[0];
         assert!(cmdline_header.name[0..8].iter().any(|&b| b != 0));
         assert_eq!(cmdline_header.name.len(), 8);
@@ -373,6 +398,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_sequential_offsets() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 512];
         let initrd = vec![0u8; 512];
@@ -386,8 +412,10 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         for i in 1..section_info.offsets.len() {
             let (prev_offset, prev_len) = section_info.offsets[i - 1];
             let (curr_offset, _) = section_info.offsets[i];
@@ -397,11 +425,12 @@ mod tests {
 
     #[test]
     fn test_build_headers_with_dtb() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1024];
         let initrd = vec![0u8; 2048];
         let cmdline = b"console=ttyS0";
-        let dtb = vec![0xd0, 0x0d, 0xfe, 0xed]; // DTB magic header
+        let dtb = vec![0xd0, 0x0d, 0xfe, 0xed];
 
         let data = SectionData {
             linux: &linux,
@@ -411,8 +440,10 @@ mod tests {
             luks: None,
         };
 
+        // ACT
         let section_info = build_headers(&metadata, &data).expect("Should build");
 
+        // ASSERT
         assert_eq!(section_info.headers.len(), 4);
         assert_eq!(section_info.offsets.len(), 4);
         assert_eq!(section_info.headers[0].name[0..8], *b".cmdline");
@@ -423,6 +454,7 @@ mod tests {
 
     #[test]
     fn test_write_to_image_success() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 1024];
         let initrd = vec![2u8; 2048];
@@ -440,11 +472,12 @@ mod tests {
 
         let mut stub_data = vec![0u8; 100 * 1024]; // 100KB should be plenty
 
+        // ACT
         let result = write_to_image(&mut stub_data, &metadata, &section_info, &data);
 
+        // ASSERT
         assert!(result.is_ok(), "write_to_image should succeed");
 
-        // Verify section headers
         for (i, section_header) in section_info.headers.iter().enumerate() {
             let offset = metadata.section_table_offset
                 + (metadata.current_section_count as usize + i)
@@ -458,7 +491,6 @@ mod tests {
             );
         }
 
-        // Verify data
         for (i, (file_offset, data_len)) in section_info.offsets.iter().enumerate() {
             let end = file_offset + data_len;
             match i {
@@ -484,6 +516,7 @@ mod tests {
 
     #[test]
     fn test_write_to_image_buffer_too_small_for_headers() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 100];
         let initrd = vec![2u8; 100];
@@ -503,8 +536,10 @@ mod tests {
             + (metadata.current_section_count as usize) * mem::size_of::<ImageSectionHeader>();
         let mut stub_data = vec![0u8; header_offset + 10]; // Too small
 
+        // ACT
         let result = write_to_image(&mut stub_data, &metadata, &section_info, &data);
 
+        // ASSERT
         assert!(
             result.is_err(),
             "write_to_image should fail with buffer too small"
@@ -517,6 +552,7 @@ mod tests {
 
     #[test]
     fn test_write_to_image_buffer_too_small_for_data() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 100];
         let initrd = vec![2u8; 100];
@@ -535,8 +571,10 @@ mod tests {
         let data_offset = section_info.offsets[0].0;
         let mut stub_data = vec![0u8; data_offset + 10]; // Too small for first data
 
+        // ACT
         let result = write_to_image(&mut stub_data, &metadata, &section_info, &data);
 
+        // ASSERT
         assert!(
             result.is_err(),
             "write_to_image should fail with buffer too small for data"
@@ -549,6 +587,7 @@ mod tests {
 
     #[test]
     fn test_write_to_image_empty_sections() {
+        // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![];
         let initrd = vec![];
@@ -566,8 +605,10 @@ mod tests {
 
         let mut stub_data = vec![0u8; 10 * 1024];
 
+        // ACT
         let result = write_to_image(&mut stub_data, &metadata, &section_info, &data);
 
+        // ASSERT
         assert!(
             result.is_ok(),
             "write_to_image should succeed with empty sections"

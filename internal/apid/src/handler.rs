@@ -104,117 +104,217 @@ mod tests {
 
     #[tokio::test]
     async fn test_route_request_process_service() {
+        // ARRANGE
         let path = "/muak.process.v1.ProcessService/List";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_log_service() {
+        // ARRANGE
         let path = "/muak.log.v1.LogService/GetLogs";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_log_service_follow() {
+        // ARRANGE
         let path = "/muak.log.v1.LogService/FollowLogs";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_provision_service() {
+        // ARRANGE
         let path = "/muak.provision.v1.ProvisionService/Install";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_auth_service() {
+        // ARRANGE
         let path = "/muak.auth.v1.AuthService/SubmitCsr";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_security_service() {
+        // ARRANGE
         let path = "/muak.security.v1.SecurityService/GetSecurityState";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
     async fn test_route_request_unknown_service() {
+        // ARRANGE
         let path = "/unknown.Service/Method";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, None);
     }
 
     #[tokio::test]
     async fn test_route_request_empty_path() {
-        let socket = route_request("").await;
+        // ARRANGE
+        let path = "";
+
+        // ACT
+        let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, None);
     }
 
     #[tokio::test]
     async fn test_route_request_root_path() {
-        let socket = route_request("/").await;
+        // ARRANGE
+        let path = "/";
+
+        // ACT
+        let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, None);
     }
 
     #[tokio::test]
     async fn test_route_request_partial_match_not_enough() {
-        let socket = route_request("/muak.process").await;
+        // ARRANGE
+        let socket_path = "/muak.process";
+
+        // ACT
+        let socket = route_request(socket_path).await;
+
+        // ASSERT
         assert_eq!(socket, None);
     }
 
     #[tokio::test]
     async fn test_route_request_vm_service_without_socket() {
+        // ARRANGE
         let path = "/muak.vm.v1.VmService/CreateVm";
+
+        // ACT
         let socket = route_request(path).await;
+
+        // ASSERT
         assert_eq!(socket, None);
     }
 
     #[test]
     fn test_grpc_error_response_status_is_200() {
-        let response = grpc_error(7, "test message");
+        // ARRANGE
+        let status_code = 7;
+        let message = "test message";
+
+        // ACT
+        let response = grpc_error(status_code, message);
+
+        // ASSERT
         assert_eq!(response.status().as_u16(), 200);
     }
 
     #[test]
     fn test_grpc_error_content_type() {
-        let response = grpc_error(7, "test message");
+        // ARRANGE
+        let status_code = 7;
+        let message = "test message";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let content_type = response.headers().get("content-type").unwrap();
+
+        // ASSERT
         assert_eq!(content_type, "application/grpc");
     }
 
     #[test]
     fn test_grpc_error_status_header() {
-        let response = grpc_error(7, "permission denied");
+        // ARRANGE
+        let status_code = 7;
+        let message = "permission denied";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let grpc_status = response.headers().get("grpc-status").unwrap();
+
+        // ASSERT
         assert_eq!(grpc_status, "7");
     }
 
     #[test]
     fn test_grpc_error_message_header() {
-        let response = grpc_error(12, "method not found");
+        // ARRANGE
+        let status_code = 12;
+        let message = "method not found";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let grpc_message = response.headers().get("grpc-message").unwrap();
+
+        // ASSERT
         assert_eq!(grpc_message, "method not found");
     }
 
     #[test]
     fn test_grpc_error_unauthenticated() {
-        let response = grpc_error(16, "client certificate required");
+        // ARRANGE
+        let status_code = 16;
+        let message = "client certificate required";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let grpc_status = response.headers().get("grpc-status").unwrap();
+
+        // ASSERT
         assert_eq!(grpc_status, "16");
     }
 
     #[test]
     fn test_grpc_error_unavailable() {
-        let response = grpc_error(14, "Backend unavailable: connection refused");
+        // ARRANGE
+        let status_code = 14;
+        let message = "Backend unavailable: connection refused";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let grpc_status = response.headers().get("grpc-status").unwrap();
         let grpc_message = response.headers().get("grpc-message").unwrap();
+
+        // ASSERT
         assert_eq!(grpc_status, "14");
         assert!(
             grpc_message
@@ -226,13 +326,21 @@ mod tests {
 
     #[test]
     fn test_grpc_error_empty_message() {
-        let response = grpc_error(0, "");
+        // ARRANGE
+        let status_code = 0;
+        let message = "";
+
+        // ACT
+        let response = grpc_error(status_code, message);
         let grpc_message = response.headers().get("grpc-message").unwrap();
+
+        // ASSERT
         assert_eq!(grpc_message, "");
     }
 
     #[test]
     fn test_service_prefixes_end_with_slash() {
+        // ARRANGE & ACT & ASSERT
         assert!(config::VM_SERVICE_PREFIX.ends_with('/'));
         assert!(config::PROCESS_SERVICE_PREFIX.ends_with('/'));
         assert!(config::PROVISION_SERVICE_PREFIX.ends_with('/'));
@@ -243,6 +351,7 @@ mod tests {
 
     #[test]
     fn test_service_prefixes_start_with_slash() {
+        // ARRANGE & ACT & ASSERT
         assert!(config::VM_SERVICE_PREFIX.starts_with('/'));
         assert!(config::PROCESS_SERVICE_PREFIX.starts_with('/'));
         assert!(config::PROVISION_SERVICE_PREFIX.starts_with('/'));

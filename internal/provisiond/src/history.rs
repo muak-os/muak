@@ -161,13 +161,17 @@ mod tests {
 
     #[test]
     fn test_stem_is_sortable() {
+        // ARRANGE
         let a = stem(1000, "update-1000");
         let b = stem(2000, "update-2000");
+
+        // ACT & ASSERT
         assert!(a < b);
     }
 
     #[test]
     fn test_change_kind_display() {
+        // ACT & ASSERT
         assert_eq!(ChangeKind::Install.to_string(), "install");
         assert_eq!(ChangeKind::Update.to_string(), "update");
         assert_eq!(ChangeKind::Rollback.to_string(), "rollback");

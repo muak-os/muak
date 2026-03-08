@@ -116,105 +116,196 @@ mod tests {
 
     #[test]
     fn test_glob_exact() {
-        assert!(glob_match("foo", "foo"));
-        assert!(!glob_match("foo", "bar"));
-        assert!(!glob_match("foo", "foobar"));
+        // ARRANGE
+        let test_cases = vec![
+            ("foo", "foo", true),
+            ("foo", "bar", false),
+            ("foo", "foobar", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_star() {
-        assert!(glob_match("*", "anything"));
-        assert!(glob_match("foo*", "foobar"));
-        assert!(glob_match("*bar", "foobar"));
-        assert!(glob_match("foo*bar", "fooXXXbar"));
-        assert!(glob_match("foo*bar", "foobar"));
-        assert!(!glob_match("foo*bar", "foobaz"));
+        // ARRANGE
+        let test_cases = vec![
+            ("*", "anything", true),
+            ("foo*", "foobar", true),
+            ("*bar", "foobar", true),
+            ("foo*bar", "fooXXXbar", true),
+            ("foo*bar", "foobar", true),
+            ("foo*bar", "foobaz", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_question() {
-        assert!(glob_match("fo?", "foo"));
-        assert!(glob_match("f??", "foo"));
-        assert!(!glob_match("fo?", "fo"));
-        assert!(!glob_match("fo?", "fooo"));
+        // ARRANGE
+        let test_cases = vec![
+            ("fo?", "foo", true),
+            ("f??", "foo", true),
+            ("fo?", "fo", false),
+            ("fo?", "fooo", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_empty_strings() {
-        assert!(glob_match("", ""));
-        assert!(!glob_match("", "foo"));
-        assert!(!glob_match("foo", ""));
-        assert!(glob_match("*", ""));
+        // ARRANGE
+        let test_cases = vec![
+            ("", "", true),
+            ("", "foo", false),
+            ("foo", "", false),
+            ("*", "", true),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_multiple_stars() {
-        assert!(glob_match("*foo*bar*", "XXXfooYYYbarZZZ"));
-        assert!(glob_match("*foo*bar*", "foobar"));
-        assert!(glob_match("**", "anything"));
-        assert!(glob_match("a*b*c", "abc"));
-        assert!(glob_match("a*b*c", "aXXXbYYYc"));
+        // ARRANGE
+        let test_cases = vec![
+            ("*foo*bar*", "XXXfooYYYbarZZZ", true),
+            ("*foo*bar*", "foobar", true),
+            ("**", "anything", true),
+            ("a*b*c", "abc", true),
+            ("a*b*c", "aXXXbYYYc", true),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_star_and_question_combined() {
-        assert!(glob_match("a?c*", "abcdef"));
-        assert!(glob_match("*?c", "abc"));
-        assert!(glob_match("a*?", "ab"));
-        assert!(glob_match("a*?", "abcd"));
-        assert!(!glob_match("a*?", "a"));
+        // ARRANGE
+        let test_cases = vec![
+            ("a?c*", "abcdef", true),
+            ("*?c", "abc", true),
+            ("a*?", "ab", true),
+            ("a*?", "abcd", true),
+            ("a*?", "a", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_consecutive_questions() {
-        assert!(glob_match("???", "abc"));
-        assert!(!glob_match("???", "ab"));
-        assert!(!glob_match("???", "abcd"));
+        // ARRANGE
+        let test_cases = vec![
+            ("???", "abc", true),
+            ("???", "ab", false),
+            ("???", "abcd", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_trailing_star() {
-        assert!(glob_match("foo*", "foo"));
-        assert!(glob_match("foo*", "foobar"));
-        assert!(glob_match("foo*", "foo123456789"));
+        // ARRANGE
+        let test_cases = vec![
+            ("foo*", "foo", true),
+            ("foo*", "foobar", true),
+            ("foo*", "foo123456789", true),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_leading_star() {
-        assert!(glob_match("*foo", "foo"));
-        assert!(glob_match("*foo", "barfoo"));
-        assert!(!glob_match("*foo", "foobar"));
+        // ARRANGE
+        let test_cases = vec![
+            ("*foo", "foo", true),
+            ("*foo", "barfoo", true),
+            ("*foo", "foobar", false),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_glob_backtracking() {
-        assert!(glob_match("a*a", "aa"));
-        assert!(glob_match("a*a", "aXa"));
-        assert!(glob_match("a*a", "aXXXa"));
-        assert!(glob_match("*a*a*a*", "aaa"));
-        assert!(glob_match("*a*a*a*", "XaYaZaW"));
+        // ARRANGE
+        let test_cases = vec![
+            ("a*a", "aa", true),
+            ("a*a", "aXa", true),
+            ("a*a", "aXXXa", true),
+            ("*a*a*a*", "aaa", true),
+            ("*a*a*a*", "XaYaZaW", true),
+        ];
+
+        // ACT & ASSERT
+        for (pattern, text, expected) in test_cases {
+            assert_eq!(glob_match(pattern, text), expected);
+        }
     }
 
     #[test]
     fn test_pci_modalias() {
+        // ARRANGE
         let pattern = "pci:v00008086d00001521sv*sd*bc*sc*i*";
-        assert!(glob_match(
-            pattern,
-            "pci:v00008086d00001521sv00001028sd00000001bc02sc00i00"
-        ));
-        assert!(!glob_match(
-            pattern,
-            "pci:v00008086d00001522sv00001028sd00000001bc02sc00i00"
-        ));
+        let test_cases = vec![
+            (
+                "pci:v00008086d00001521sv00001028sd00000001bc02sc00i00",
+                true,
+            ),
+            (
+                "pci:v00008086d00001522sv00001028sd00000001bc02sc00i00",
+                false,
+            ),
+        ];
+
+        // ACT & ASSERT
+        for (modalias, expected) in test_cases {
+            assert_eq!(glob_match(pattern, modalias), expected);
+        }
     }
 
     #[test]
     fn test_intel_i226v_modalias() {
+        // ARRANGE
         let pattern = "pci:v00008086d0000125Csv*sd*bc*sc*i*";
         let modalias = "pci:v00008086d0000125Csv00001043sd000087D2bc02sc00i00";
+        let modalias_lower = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
+
+        // ACT & ASSERT
         assert!(glob_match(pattern, modalias));
 
-        let modalias_lower = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
         assert!(!glob_match(pattern, modalias_lower));
 
         assert!(glob_match_icase(
@@ -225,22 +316,29 @@ mod tests {
 
     #[test]
     fn test_usb_modalias() {
+        // ARRANGE
         let pattern = "usb:v*p*d*dc*dsc*dp*ic03isc01ip01*";
-        assert!(glob_match(
-            pattern,
-            "usb:v046DpC52Bd2111dc00dsc00dp00ic03isc01ip01in00"
-        ));
+        let modalias = "usb:v046DpC52Bd2111dc00dsc00dp00ic03isc01ip01in00";
+
+        // ACT & ASSERT
+        assert!(glob_match(pattern, modalias));
     }
 
     #[test]
     fn test_acpi_modalias() {
+        // ARRANGE
         let pattern = "acpi:ACPI0003:";
-        assert!(glob_match(pattern, "acpi:ACPI0003:"));
-        assert!(!glob_match(pattern, "acpi:ACPI0004:"));
+        let test_cases = vec![("acpi:ACPI0003:", true), ("acpi:ACPI0004:", false)];
+
+        // ACT & ASSERT
+        for (modalias, expected) in test_cases {
+            assert_eq!(glob_match(pattern, modalias), expected);
+        }
     }
 
     #[test]
     fn test_parse_alias_line_valid() {
+        // ACT & ASSERT
         let result = parse_alias_line("alias pci:v00008086d* igb");
         assert_eq!(
             result,
@@ -250,6 +348,7 @@ mod tests {
 
     #[test]
     fn test_parse_alias_line_with_extra_spaces() {
+        // ACT & ASSERT
         let result = parse_alias_line("  alias   pci:pattern   module_name  ");
         assert_eq!(
             result,
@@ -259,29 +358,34 @@ mod tests {
 
     #[test]
     fn test_parse_alias_line_empty() {
+        // ACT & ASSERT
         assert_eq!(parse_alias_line(""), None);
         assert_eq!(parse_alias_line("   "), None);
     }
 
     #[test]
     fn test_parse_alias_line_comment() {
+        // ACT & ASSERT
         assert_eq!(parse_alias_line("# this is a comment"), None);
         assert_eq!(parse_alias_line("  # indented comment"), None);
     }
 
     #[test]
     fn test_parse_alias_line_no_alias_prefix() {
+        // ACT & ASSERT
         assert_eq!(parse_alias_line("not an alias line"), None);
         assert_eq!(parse_alias_line("alias_not_right pattern module"), None);
     }
 
     #[test]
     fn test_parse_alias_line_missing_module() {
+        // ACT & ASSERT
         assert_eq!(parse_alias_line("alias pattern_only"), None);
     }
 
     #[test]
     fn test_parse_alias_line_complex_pattern() {
+        // ACT & ASSERT
         let result = parse_alias_line("alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc");
         assert_eq!(
             result,
@@ -294,20 +398,29 @@ mod tests {
 
     #[test]
     fn test_alias_db_case_insensitive() {
+        // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc").expect("write failed");
 
         let db = AliasDb::load(file.path()).expect("load failed");
-
         let modalias = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
-        assert_eq!(db.find_module(modalias), Some("igc"));
+
+        // ACT
+        let result = db.find_module(modalias);
+
+        // ASSERT
+        assert_eq!(result, Some("igc"));
     }
 
     #[test]
     fn test_alias_db_empty_file() {
+        // ARRANGE
         let file = NamedTempFile::new().expect("Failed to create temp file");
+
+        // ACT
         let db = AliasDb::load(file.path()).expect("load failed");
 
+        // ASSERT
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
         assert_eq!(db.find_module("anything"), None);
@@ -315,6 +428,7 @@ mod tests {
 
     #[test]
     fn test_alias_db_with_comments_and_blanks() {
+        // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "# Comment line").expect("write failed");
         writeln!(file, "").expect("write failed");
@@ -322,8 +436,10 @@ mod tests {
         writeln!(file, "  # Another comment").expect("write failed");
         writeln!(file, "alias pattern2 module2").expect("write failed");
 
+        // ACT
         let db = AliasDb::load(file.path()).expect("load failed");
 
+        // ASSERT
         assert_eq!(db.len(), 2);
         assert_eq!(db.find_module("pattern1"), Some("module1"));
         assert_eq!(db.find_module("pattern2"), Some("module2"));
@@ -331,6 +447,7 @@ mod tests {
 
     #[test]
     fn test_alias_db_multiple_entries() {
+        // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:v00008086d00001521* igb").expect("write failed");
         writeln!(file, "alias pci:v00008086d0000125C* igc").expect("write failed");
@@ -338,6 +455,7 @@ mod tests {
 
         let db = AliasDb::load(file.path()).expect("load failed");
 
+        // ACT & ASSERT
         assert_eq!(db.len(), 3);
         assert!(!db.is_empty());
 
@@ -349,23 +467,30 @@ mod tests {
 
     #[test]
     fn test_alias_db_first_match_wins() {
+        // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:* first_module").expect("write failed");
         writeln!(file, "alias pci:v00008086* second_module").expect("write failed");
 
         let db = AliasDb::load(file.path()).expect("load failed");
 
-        assert_eq!(db.find_module("pci:v00008086d1234"), Some("first_module"));
+        // ACT
+        let result = db.find_module("pci:v00008086d1234");
+
+        // ASSERT
+        assert_eq!(result, Some("first_module"));
     }
 
     #[test]
     fn test_alias_db_load_nonexistent_file() {
+        // ACT & ASSERT
         let result = AliasDb::load(Path::new("/nonexistent/path/modules.alias"));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_alias_db_real_world_patterns() {
+        // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias usb:v*p*d*dc*dsc*dp*ic03isc01ip01* usbhid").expect("write failed");
         writeln!(file, "alias acpi*:ACPI0003:* ac").expect("write failed");
@@ -373,6 +498,7 @@ mod tests {
 
         let db = AliasDb::load(file.path()).expect("load failed");
 
+        // ACT & ASSERT
         assert_eq!(
             db.find_module("usb:v046dpC52bd2111dc00dsc00dp00ic03isc01ip01in00"),
             Some("usbhid")

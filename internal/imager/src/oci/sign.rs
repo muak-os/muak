@@ -232,22 +232,35 @@ fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
 
 #[cfg(test)]
 mod tests {
+    use ring::signature::{
+        ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair, UnparsedPublicKey,
+    };
+
     use super::*;
     use crate::oci::verify::sha256_hex;
 
     #[test]
     fn test_base64url_roundtrip() {
+        // ARRANGE
         let original = b"\x30\x44\x02\x20\xde\xad\xbe\xef";
+
+        // ACT
         let encoded = Base64Url::encode_string(original);
         let decoded = Base64Url::decode_vec(&encoded).unwrap();
+
+        // ASSERT
         assert_eq!(original.as_ref(), decoded.as_slice());
     }
 
     #[test]
     fn test_manifest_signing_payload_strips_sig_annotation() {
+        // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
+
+        // ACT
         let (digest, canonical) = manifest_signing_payload(manifest_json).unwrap();
 
+        // ASSERT
         let canonical_str = std::str::from_utf8(&canonical).unwrap();
         assert!(
             !canonical_str.contains("dev.muak.sig"),
@@ -258,15 +271,12 @@ mod tests {
             "unrelated annotations must be preserved"
         );
 
-        let expected = format!("sha256:{}", sha256_hex(&canonical));
-        assert_eq!(digest, expected);
+        assert_eq!(digest, format!("sha256:{}", sha256_hex(&canonical)));
     }
 
     #[test]
     fn test_build_signed_manifest_roundtrip() {
-        use ring::signature::{
-            ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair, UnparsedPublicKey,
-        };
+        // ARRANGE
 
         let rng = SystemRandom::new();
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
@@ -276,6 +286,7 @@ mod tests {
 
         let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
 
+        // ACT
         let (signed_bytes, _content_type) =
             build_signed_manifest(manifest_json, &key_pair, &rng).unwrap();
 
@@ -290,6 +301,8 @@ mod tests {
             &ring::signature::ECDSA_P256_SHA256_ASN1,
             key_pair.public_key().as_ref(),
         );
+
+        // ASSERT
         assert!(
             pub_key.verify(digest.as_bytes(), &sig_bytes).is_ok(),
             "signature must verify against the canonical manifest digest"
@@ -298,6 +311,7 @@ mod tests {
 
     #[test]
     fn test_manifest_signing_payload_idempotent() {
+        // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
         let (digest1, _) = manifest_signing_payload(manifest_json).unwrap();
 
@@ -315,7 +329,10 @@ mod tests {
             );
         let signed_json = serde_json::to_string(&value).unwrap();
 
+        // ACT
         let (digest2, _) = manifest_signing_payload(&signed_json).unwrap();
+
+        // ASSERT
         assert_eq!(
             digest1, digest2,
             "stripping the annotation must give the same payload on re-sign"

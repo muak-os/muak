@@ -6,8 +6,6 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 /// Fine-grained permissions for RBAC.
-///
-/// Permissions follow the `resource:action` naming convention.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Permission {
     // Full administrative access to all operations.
@@ -192,6 +190,7 @@ mod tests {
 
     #[test]
     fn test_permission_display() {
+        // ASSERT
         assert_eq!(Permission::Admin.to_string(), "admin");
         assert_eq!(Permission::VmRead.to_string(), "vm:read");
         assert_eq!(Permission::VmCreate.to_string(), "vm:create");
@@ -203,6 +202,7 @@ mod tests {
 
     #[test]
     fn test_permission_from_str() {
+        // ASSERT
         assert_eq!("admin".parse::<Permission>().unwrap(), Permission::Admin);
         assert_eq!("vm:read".parse::<Permission>().unwrap(), Permission::VmRead);
         assert_eq!(
@@ -231,7 +231,14 @@ mod tests {
 
     #[test]
     fn test_all_in_category() {
+        // ARRANGE & ACT
         let vm_perms = Permission::all_in_category("vm");
+        let system_perms = Permission::all_in_category("system");
+        let auth_perms = Permission::all_in_category("auth");
+        let process_perms = Permission::all_in_category("process");
+        let security_perms = Permission::all_in_category("security");
+
+        // ASSERT
         assert_eq!(vm_perms.len(), 6);
         assert!(vm_perms.contains(&Permission::VmRead));
         assert!(vm_perms.contains(&Permission::VmCreate));
@@ -240,20 +247,16 @@ mod tests {
         assert!(vm_perms.contains(&Permission::VmDelete));
         assert!(vm_perms.contains(&Permission::VmUpload));
 
-        let system_perms = Permission::all_in_category("system");
         assert_eq!(system_perms.len(), 2);
         assert!(system_perms.contains(&Permission::SystemRead));
         assert!(system_perms.contains(&Permission::SystemUpdate));
 
-        let auth_perms = Permission::all_in_category("auth");
         assert_eq!(auth_perms.len(), 1);
         assert!(auth_perms.contains(&Permission::AuthManage));
 
-        let process_perms = Permission::all_in_category("process");
         assert_eq!(process_perms.len(), 1);
         assert!(process_perms.contains(&Permission::ProcessRead));
 
-        let security_perms = Permission::all_in_category("security");
         assert_eq!(security_perms.len(), 1);
         assert!(security_perms.contains(&Permission::SecurityRead));
 
@@ -262,47 +265,51 @@ mod tests {
 
     #[test]
     fn test_expand_pattern_wildcards() {
+        // ARRANGE & ACT
         let vm_perms = Permission::expand_pattern("vm:*").unwrap();
-        assert_eq!(vm_perms.len(), 6);
-
         let system_perms = Permission::expand_pattern("system:*").unwrap();
-        assert_eq!(system_perms.len(), 2);
-
         let auth_perms = Permission::expand_pattern("auth:*").unwrap();
+        let process_perms = Permission::expand_pattern("process:*").unwrap();
+        let security_perms = Permission::expand_pattern("security:*").unwrap();
+
+        // ASSERT
+        assert_eq!(vm_perms.len(), 6);
+        assert_eq!(system_perms.len(), 2);
         assert_eq!(auth_perms.len(), 1);
         assert_eq!(auth_perms[0], Permission::AuthManage);
-
-        let process_perms = Permission::expand_pattern("process:*").unwrap();
         assert_eq!(process_perms.len(), 1);
         assert_eq!(process_perms[0], Permission::ProcessRead);
-
-        let security_perms = Permission::expand_pattern("security:*").unwrap();
         assert_eq!(security_perms.len(), 1);
         assert_eq!(security_perms[0], Permission::SecurityRead);
     }
 
     #[test]
     fn test_expand_pattern_single() {
+        // ARRANGE & ACT
         let perms = Permission::expand_pattern("vm:read").unwrap();
-        assert_eq!(perms, vec![Permission::VmRead]);
+        let admin_perms = Permission::expand_pattern("admin").unwrap();
 
-        let perms = Permission::expand_pattern("admin").unwrap();
-        assert_eq!(perms, vec![Permission::Admin]);
+        // ASSERT
+        assert_eq!(perms, vec![Permission::VmRead]);
+        assert_eq!(admin_perms, vec![Permission::Admin]);
     }
 
     #[test]
     fn test_expand_pattern_invalid() {
+        // ARRANGE & ACT
         let result = Permission::expand_pattern("invalid:*");
+        let result2 = Permission::expand_pattern("vm:invalid");
+
+        // ASSERT
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown permission category"));
-
-        let result = Permission::expand_pattern("vm:invalid");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown permission"));
+        assert!(result2.is_err());
+        assert!(result2.unwrap_err().contains("Unknown permission"));
     }
 
     #[test]
     fn test_category() {
+        // ASSERT
         assert_eq!(Permission::Admin.category(), None);
         assert_eq!(Permission::VmRead.category(), Some("vm"));
         assert_eq!(Permission::VmCreate.category(), Some("vm"));
@@ -314,6 +321,7 @@ mod tests {
 
     #[test]
     fn test_collapse_to_wildcards_complete_category() {
+        // ARRANGE
         let perms = vec![
             Permission::VmRead,
             Permission::VmCreate,
@@ -322,7 +330,11 @@ mod tests {
             Permission::VmDelete,
             Permission::VmUpload,
         ];
+
+        // ACT
         let collapsed = collapse(&perms);
+
+        // ASSERT
         assert_eq!(collapsed, vec!["vm:*"]);
 
         let perms = vec![Permission::SystemRead, Permission::SystemUpdate];
@@ -332,8 +344,13 @@ mod tests {
 
     #[test]
     fn test_collapse_to_wildcards_partial_category() {
+        // ARRANGE
         let perms = vec![Permission::VmRead, Permission::VmCreate];
+
+        // ACT
         let collapsed = collapse(&perms);
+
+        // ASSERT
         assert!(collapsed.contains(&"vm:read".to_string()));
         assert!(collapsed.contains(&"vm:create".to_string()));
         assert!(!collapsed.contains(&"vm:*".to_string()));
@@ -341,6 +358,7 @@ mod tests {
 
     #[test]
     fn test_collapse_to_wildcards_mixed() {
+        // ARRANGE
         let perms = vec![
             Permission::VmRead,
             Permission::VmCreate,
@@ -350,7 +368,11 @@ mod tests {
             Permission::VmUpload,
             Permission::SystemRead,
         ];
+
+        // ACT
         let collapsed = collapse(&perms);
+
+        // ASSERT
         assert!(collapsed.contains(&"vm:*".to_string()));
         assert!(collapsed.contains(&"system:read".to_string()));
         assert!(!collapsed.contains(&"system:*".to_string()));
@@ -358,19 +380,28 @@ mod tests {
 
     #[test]
     fn test_collapse_to_wildcards_admin() {
+        // ARRANGE
         let perms = vec![Permission::Admin, Permission::VmRead];
+
+        // ACT
         let collapsed = collapse(&perms);
+
+        // ASSERT
         assert_eq!(collapsed, vec!["admin"]);
     }
 
     #[test]
     fn test_collapse_to_wildcards_empty() {
+        // ACT
         let collapsed = collapse(&[]);
+
+        // ASSERT
         assert!(collapsed.is_empty());
     }
 
     #[test]
     fn test_permission_round_trip() {
+        // ARRANGE
         let permissions = [
             Permission::Admin,
             Permission::VmRead,
@@ -386,6 +417,7 @@ mod tests {
             Permission::SecurityRead,
         ];
 
+        // ACT & ASSERT
         for perm in permissions {
             let string = perm.to_string();
             let parsed = string.parse::<Permission>().unwrap();
@@ -395,6 +427,7 @@ mod tests {
 
     #[test]
     fn test_parse_permission() {
+        // ARRANGE
         #[derive(Debug, Serialize, Deserialize, PartialEq)]
         struct Wrapper {
             permissions: Vec<Permission>,
@@ -408,11 +441,13 @@ mod tests {
             ],
         };
 
+        // ACT
         let serialized = toml::to_string(&original).unwrap();
+        let deserialized: Wrapper = toml::from_str(&serialized).unwrap();
+
+        // ASSERT
         assert!(serialized.contains("\"vm:read\""));
         assert!(serialized.contains("\"auth:manage\""));
-
-        let deserialized: Wrapper = toml::from_str(&serialized).unwrap();
         assert_eq!(original, deserialized);
     }
 }

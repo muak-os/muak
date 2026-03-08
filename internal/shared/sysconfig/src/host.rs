@@ -139,51 +139,70 @@ mod tests {
 
     #[test]
     fn test_host_config_serialization() {
+        // ARRANGE
         let config = HostConfig::default();
+
+        // ACT
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: HostConfig = toml::from_str(&serialized).unwrap();
+
+        // ASSERT
         assert_eq!(config.system.port, deserialized.system.port);
     }
 
     #[test]
     fn test_validation_success() {
+        // ARRANGE
         let mut config = HostConfig::default();
         config.system.port = 8080;
         config.system.disk = "test".to_string();
+
+        // ACT & ASSERT
         assert!(config.validate().is_ok());
         assert!(config.validate_for_install().is_ok());
     }
 
     #[test]
     fn test_validation_failure_port_zero() {
+        // ARRANGE
         let mut config = HostConfig::default();
         config.system.port = 0;
+
+        // ACT & ASSERT
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_failure_empty_disk_install() {
+        // ARRANGE
         let mut config = HostConfig::default();
         config.system.port = 8080;
         config.system.disk = "".to_string();
+
+        // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
     }
 
     #[test]
     fn test_parse_from_str_invalid_toml() {
+        // ACT & ASSERT
         let result = toml::from_str::<HostConfig>("invalid toml");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_serialize_default() {
+        // ACT
         let default_str = toml::to_string_pretty(&HostConfig::default()).unwrap();
         let config: HostConfig = toml::from_str(&default_str).unwrap();
+
+        // ASSERT
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_validate_for_update_rejects_disk_change() {
+        // ARRANGE
         let mut installed = HostConfig::default();
         installed.system.port = 8080;
         installed.system.disk = "/dev/sda".to_string();
@@ -191,11 +210,13 @@ mod tests {
         let mut requested = installed.clone();
         requested.system.disk = "/dev/sdb".to_string();
 
+        // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
     }
 
     #[test]
     fn test_validate_for_update_allows_secureboot_false_to_true() {
+        // ARRANGE
         let mut installed = HostConfig::default();
         installed.system.port = 8080;
         installed.system.secureboot = false;
@@ -203,11 +224,13 @@ mod tests {
         let mut requested = installed.clone();
         requested.system.secureboot = true;
 
+        // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_ok());
     }
 
     #[test]
     fn test_validate_for_update_rejects_secureboot_true_to_false() {
+        // ARRANGE
         let mut installed = HostConfig::default();
         installed.system.port = 8080;
         installed.system.secureboot = true;
@@ -215,29 +238,35 @@ mod tests {
         let mut requested = installed.clone();
         requested.system.secureboot = false;
 
+        // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
     }
 
     #[test]
     fn test_validate_for_update_allows_secureboot_unchanged_false() {
+        // ARRANGE
         let mut installed = HostConfig::default();
         installed.system.port = 8080;
         installed.system.secureboot = false;
 
+        // ACT & ASSERT
         assert!(installed.clone().validate_for_update(&installed).is_ok());
     }
 
     #[test]
     fn test_validate_for_update_allows_secureboot_unchanged_true() {
+        // ARRANGE
         let mut installed = HostConfig::default();
         installed.system.port = 8080;
         installed.system.secureboot = true;
 
+        // ACT & ASSERT
         assert!(installed.clone().validate_for_update(&installed).is_ok());
     }
 
     #[test]
     fn test_config_ignores_unknown_sections() {
+        // ARRANGE
         let toml = r#"
 [system]
 name = "muak"
@@ -250,7 +279,11 @@ revoked = []
 fingerprint = "abc"
 permissions = ["admin"]
 "#;
+
+        // ACT
         let config: HostConfig = toml::from_str(toml).unwrap();
+
+        // ASSERT
         assert_eq!(config.system.name, "muak");
     }
 }

@@ -9,9 +9,11 @@ use e2e::assert_success;
 
 #[tokio::test]
 async fn update() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
 
+    // ACT
     let stdout = tokio::time::timeout(
         Duration::from_secs(60),
         assert_success!(cli, ["update", "--image", &install_image()]),
@@ -20,6 +22,7 @@ async fn update() {
     .expect("update timed out after 10 minutes")
     .expect("muakctl update failed");
 
+    // ASSERT
     assert!(
         stdout.contains("committed successfully"),
         "expected 'committed successfully' in update output, got: {stdout}"
@@ -33,6 +36,7 @@ async fn update() {
 
 #[tokio::test]
 async fn update_config() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
 
@@ -47,6 +51,7 @@ async fn update_config() {
         .await
         .expect("failed to generate update config");
 
+    // ACT
     let stdout = tokio::time::timeout(
         Duration::from_secs(60),
         assert_success!(
@@ -62,6 +67,7 @@ async fn update_config() {
     .expect("update --config timed out after 10 minutes")
     .expect("muakctl update --config failed");
 
+    // ASSERT
     assert!(
         stdout.contains("committed successfully"),
         "expected 'committed successfully' in update --config output, got: {stdout}"
@@ -85,6 +91,7 @@ async fn update_config() {
 
 #[tokio::test]
 async fn update_config_secureboot() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (fixture, cli) = boot_and_install(
         &artifacts,
@@ -104,6 +111,7 @@ async fn update_config_secureboot() {
         .await
         .expect("failed to generate update config");
 
+    // ACT
     let stdout = tokio::time::timeout(
         Duration::from_secs(60),
         assert_success!(
@@ -119,6 +127,7 @@ async fn update_config_secureboot() {
     .expect("update --config timed out after 10 minutes")
     .expect("muakctl update --config failed");
 
+    // ASSERT
     assert!(
         stdout.contains("committed successfully"),
         "expected 'committed successfully' in update --config output, got: {stdout}"
@@ -151,6 +160,7 @@ async fn update_config_secureboot() {
 
 #[tokio::test]
 async fn update_rejects_image_and_config_together() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (_, cli) = boot_and_install(&artifacts, HashMap::new()).await;
 
@@ -165,6 +175,7 @@ async fn update_rejects_image_and_config_together() {
         .await
         .expect("failed to generate config for rejection test");
 
+    // ACT
     let output = cli
         .run(
             [
@@ -179,6 +190,7 @@ async fn update_rejects_image_and_config_together() {
         .await
         .expect("failed to execute muakctl");
 
+    // ASSERT
     assert!(
         !output.status.success(),
         "expected non-zero exit when --image and --config are both given"
@@ -193,14 +205,17 @@ async fn update_rejects_image_and_config_together() {
 
 #[tokio::test]
 async fn update_rejects_no_source() {
+    // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (_, cli) = boot_and_install(&artifacts, HashMap::new()).await;
 
+    // ACT
     let output = cli
         .run(["update"], false)
         .await
         .expect("failed to execute muakctl");
 
+    // ASSERT
     assert!(
         !output.status.success(),
         "expected non-zero exit when neither --image nor --config is given"

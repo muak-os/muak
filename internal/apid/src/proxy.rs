@@ -131,7 +131,10 @@ mod tests {
 
     #[test]
     fn test_pool_has_all_backends() {
+        // ACT
         let pool = BackendPool::new();
+
+        // ASSERT
         assert!(pool.senders.contains_key(config::VMD_SOCKET));
         assert!(pool.senders.contains_key(config::GRANOLA_SOCKET));
         assert!(pool.senders.contains_key(config::PROVISIOND_SOCKET));
@@ -139,7 +142,10 @@ mod tests {
 
     #[test]
     fn test_pool_from_socket() {
+        // ACT
         let pool = BackendPool::from_socket("/tmp/test.sock");
+
+        // ASSERT
         assert!(pool.senders.contains_key("/tmp/test.sock"));
         assert_eq!(pool.senders.len(), 1);
     }

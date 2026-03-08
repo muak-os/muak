@@ -14,6 +14,13 @@ mod tests {
 
     #[test]
     fn test_btrfs_name_hash_default() {
-        assert_eq!(btrfs_name_hash(b"default"), 0x8dbfc2d2);
+        // ARRANGE
+        let name = b"default";
+
+        // ACT
+        let hash = btrfs_name_hash(name);
+
+        // ASSERT
+        assert_eq!(hash, 0x8dbfc2d2);
     }
 }

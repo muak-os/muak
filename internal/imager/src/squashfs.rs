@@ -122,39 +122,59 @@ mod tests {
 
     #[test]
     fn test_get_mode_regular_file() {
+        // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();
         let metadata = temp_file.as_file().metadata().unwrap();
+
+        // ACT
         let mode = get_mode(&metadata);
-        assert!(mode & 0o400 != 0); // readable by owner
+
+        // ASSERT
+        assert!(mode & 0o400 != 0);
     }
 
     #[test]
     fn test_get_mode_directory() {
+        // ARRANGE
         let temp_dir = tempfile::tempdir().unwrap();
         let metadata = temp_dir.path().metadata().unwrap();
+
+        // ACT
         let mode = get_mode(&metadata);
+
+        // ASSERT
         assert!(mode & 0o400 != 0);
     }
 
     #[test]
     fn test_get_mtime() {
+        // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();
         let metadata = temp_file.as_file().metadata().unwrap();
+
+        // ACT
         let mtime = get_mtime(&metadata);
+
+        // ASSERT
         assert!(mtime > 0);
     }
 
     #[test]
     fn test_get_mode_custom_permissions() {
+        // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();
         let mut perms = temp_file.as_file().metadata().unwrap().permissions();
         perms.set_mode(0o755);
         temp_file.as_file().set_permissions(perms).unwrap();
         let metadata = temp_file.as_file().metadata().unwrap();
+
+        // ACT
         let mode = get_mode(&metadata);
+
+        // ASSERT
         assert_eq!(mode & 0o777, 0o755);
     }
 }

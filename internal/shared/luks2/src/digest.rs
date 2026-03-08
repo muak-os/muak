@@ -70,18 +70,22 @@ mod tests {
 
     #[test]
     fn test_create_verify_roundtrip() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
+        // ACT
         let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
+        // ASSERT
         let result = verify(&volume_key, &digest).unwrap();
         assert!(result);
     }
 
     #[test]
     fn test_verify_wrong_key() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let wrong_key = vec![0x43u8; 64];
         let keyslot_ids = &["0"];
@@ -89,12 +93,16 @@ mod tests {
 
         let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
+        // ACT
         let result = verify(&wrong_key, &digest).unwrap();
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_verify_modified_key() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
@@ -104,19 +112,25 @@ mod tests {
         let mut modified_key = volume_key.clone();
         modified_key[0] ^= 0x01;
 
+        // ACT
         let result = verify(&modified_key, &digest).unwrap();
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_create_different_salts() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
+        // ACT
         let digest1 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
         let digest2 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
+        // ASSERT
         assert_ne!(digest1.salt, digest2.salt);
 
         assert!(verify(&volume_key, &digest1).unwrap());
@@ -125,12 +139,15 @@ mod tests {
 
     #[test]
     fn test_digest_structure() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0", "1"];
         let segment_ids = &["0", "1", "2"];
 
+        // ACT
         let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
+        // ASSERT
         assert_eq!(digest.r#type, "pbkdf2");
         assert_eq!(digest.hash, "sha256");
         assert_eq!(digest.iterations, DIGEST_ITERATIONS);
@@ -146,9 +163,10 @@ mod tests {
 
     #[test]
     fn test_verify_unsupported_digest_type() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let digest = Digest {
-            r#type: "argon2".to_string(), // Not supported
+            r#type: "argon2".to_string(),
             keyslots: vec!["0".to_string()],
             segments: vec!["0".to_string()],
             hash: "sha256".to_string(),
@@ -157,41 +175,53 @@ mod tests {
             digest: base64ct::Base64::encode_string(&[0x42u8; 32]),
         };
 
+        // ACT
         let result = verify(&volume_key, &digest);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_verify_zero_iterations() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let digest = Digest {
             r#type: "pbkdf2".to_string(),
             keyslots: vec!["0".to_string()],
             segments: vec!["0".to_string()],
             hash: "sha256".to_string(),
-            iterations: 0, // Invalid
+            iterations: 0,
             salt: base64ct::Base64::encode_string(&[0x42u8; 32]),
             digest: base64ct::Base64::encode_string(&[0x42u8; 32]),
         };
 
+        // ACT
         let result = verify(&volume_key, &digest);
+
+        // ASSERT
         assert!(result.is_err());
     }
 
     #[test]
     fn test_verify_empty_key() {
+        // ARRANGE
         let volume_key = vec![];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
         let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
+        // ACT
         let result = verify(&volume_key, &digest).unwrap();
+
+        // ASSERT
         assert!(result);
     }
 
     #[test]
     fn test_verify_different_key_sizes() {
+        // ARRANGE & ACT & ASSERT
         for size in [16, 32, 64, 128] {
             let volume_key = vec![0x42u8; size];
             let keyslot_ids = &["0"];
@@ -206,6 +236,7 @@ mod tests {
 
     #[test]
     fn test_verify_corrupted_digest() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
@@ -216,12 +247,16 @@ mod tests {
         decoded[0] ^= 0xFF;
         digest.digest = base64ct::Base64::encode_string(&decoded);
 
+        // ACT
         let result = verify(&volume_key, &digest).unwrap();
+
+        // ASSERT
         assert!(!result);
     }
 
     #[test]
     fn test_verify_corrupted_salt() {
+        // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
@@ -232,7 +267,10 @@ mod tests {
         decoded[0] ^= 0xFF;
         digest.salt = base64ct::Base64::encode_string(&decoded);
 
+        // ACT
         let result = verify(&volume_key, &digest).unwrap();
+
+        // ASSERT
         assert!(!result);
     }
 }
