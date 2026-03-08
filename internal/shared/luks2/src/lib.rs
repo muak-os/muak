@@ -311,4 +311,20 @@ mod tests {
         let err: Error = json_err.into();
         assert!(matches!(err, Error::Json(_)));
     }
+
+    #[test]
+    fn test_device_size_regular_file() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        let data = vec![0u8; 4096];
+        std::io::Write::write_all(&mut f, &data).unwrap();
+
+        let size = device_size(f.path().to_str().unwrap()).unwrap();
+        assert_eq!(size, 4096);
+    }
+
+    #[test]
+    fn test_device_size_nonexistent_returns_error() {
+        let result = device_size("/nonexistent/dev/not_real");
+        assert!(result.is_err());
+    }
 }

@@ -22,3 +22,75 @@ pub fn hypervisor_to_string(hypervisor: i32) -> &'static str {
         Hypervisor::Qemu => "qemu",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_state_unspecified() {
+        assert_eq!(vm_state_to_string(0), "unknown");
+    }
+
+    #[test]
+    fn vm_state_created() {
+        assert_eq!(vm_state_to_string(1), "created");
+    }
+
+    #[test]
+    fn vm_state_starting() {
+        assert_eq!(vm_state_to_string(2), "starting");
+    }
+
+    #[test]
+    fn vm_state_running() {
+        assert_eq!(vm_state_to_string(3), "running");
+    }
+
+    #[test]
+    fn vm_state_stopping() {
+        assert_eq!(vm_state_to_string(4), "stopping");
+    }
+
+    #[test]
+    fn vm_state_stopped() {
+        assert_eq!(vm_state_to_string(5), "stopped");
+    }
+
+    #[test]
+    fn vm_state_failed() {
+        assert_eq!(vm_state_to_string(6), "failed");
+    }
+
+    #[test]
+    fn vm_state_invalid_falls_back_to_unknown() {
+        assert_eq!(vm_state_to_string(99), "unknown");
+        assert_eq!(vm_state_to_string(-1), "unknown");
+    }
+
+    #[test]
+    fn hypervisor_unspecified() {
+        assert_eq!(hypervisor_to_string(0), "unknown");
+    }
+
+    #[test]
+    fn hypervisor_firecracker() {
+        assert_eq!(hypervisor_to_string(1), "firecracker");
+    }
+
+    #[test]
+    fn hypervisor_cloud_hypervisor() {
+        assert_eq!(hypervisor_to_string(2), "cloud-hypervisor");
+    }
+
+    #[test]
+    fn hypervisor_qemu() {
+        assert_eq!(hypervisor_to_string(3), "qemu");
+    }
+
+    #[test]
+    fn hypervisor_invalid_falls_back_to_unknown() {
+        assert_eq!(hypervisor_to_string(99), "unknown");
+        assert_eq!(hypervisor_to_string(-1), "unknown");
+    }
+}

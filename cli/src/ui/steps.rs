@@ -216,3 +216,139 @@ async fn render(mut rx: mpsc::Receiver<StepCmd>) {
     let _ = out.queue(cursor::Show);
     let _ = out.flush();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn buf() -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn output(w: &Vec<u8>) -> String {
+        String::from_utf8_lossy(w).into_owned()
+    }
+
+    #[test]
+    fn freeze_success_writes_checkmark_and_message() {
+        let mut w = buf();
+        freeze_success(&mut w, "done");
+        let s = output(&w);
+        assert!(s.contains("done"), "output: {s}");
+        assert!(s.contains('\u{2713}'), "output: {s}");
+    }
+
+    #[test]
+    fn freeze_fail_writes_cross_and_message() {
+        let mut w = buf();
+        freeze_fail(&mut w, "oops");
+        let s = output(&w);
+        assert!(s.contains("oops"), "output: {s}");
+        assert!(s.contains('\u{2717}'), "output: {s}");
+    }
+
+    #[test]
+    fn render_frame_writes_frame_and_message() {
+        let mut w = buf();
+        render_frame(&mut w, FRAMES[0], "loading");
+        let s = output(&w);
+        assert!(s.contains("loading"), "output: {s}");
+        assert!(s.contains(FRAMES[0]), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_start_sets_current_msg() {
+        let mut w = buf();
+        let mut msg: Option<String> = None;
+        let mut idx = 0usize;
+
+        let done = handle_cmd(
+            StepCmd::Start("step one".into()),
+            &mut w,
+            &mut msg,
+            &mut idx,
+        );
+        assert!(!done);
+        assert_eq!(msg.as_deref(), Some("step one"));
+        assert_eq!(idx, 1);
+        let s = output(&w);
+        assert!(s.contains("step one"), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_start_freezes_previous_msg() {
+        let mut w = buf();
+        let mut msg: Option<String> = Some("old step".into());
+        let mut idx = 0usize;
+
+        handle_cmd(
+            StepCmd::Start("new step".into()),
+            &mut w,
+            &mut msg,
+            &mut idx,
+        );
+        let s = output(&w);
+        assert!(s.contains("old step"), "output: {s}");
+        assert!(s.contains('\u{2713}'), "output: {s}");
+        assert!(s.contains("new step"), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_complete_freezes_as_success() {
+        let mut w = buf();
+        let mut msg: Option<String> = Some("current".into());
+        let mut idx = 0usize;
+
+        let done = handle_cmd(
+            StepCmd::Complete("all done".into()),
+            &mut w,
+            &mut msg,
+            &mut idx,
+        );
+        assert!(!done);
+        assert!(msg.is_none());
+        let s = output(&w);
+        assert!(s.contains("all done"), "output: {s}");
+        assert!(s.contains('\u{2713}'), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_fail_freezes_as_failure() {
+        let mut w = buf();
+        let mut msg: Option<String> = Some("current".into());
+        let mut idx = 0usize;
+
+        let done = handle_cmd(StepCmd::Fail("broke".into()), &mut w, &mut msg, &mut idx);
+        assert!(!done);
+        assert!(msg.is_none());
+        let s = output(&w);
+        assert!(s.contains("broke"), "output: {s}");
+        assert!(s.contains('\u{2717}'), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_stop_returns_true_and_freezes_current() {
+        let mut w = buf();
+        let mut msg: Option<String> = Some("last step".into());
+        let mut idx = 0usize;
+
+        let done = handle_cmd(StepCmd::Stop, &mut w, &mut msg, &mut idx);
+        assert!(done);
+        assert!(msg.is_none());
+        let s = output(&w);
+        assert!(s.contains("last step"), "output: {s}");
+        assert!(s.contains('\u{2713}'), "output: {s}");
+    }
+
+    #[test]
+    fn handle_cmd_stop_with_no_current_msg_returns_true() {
+        let mut w = buf();
+        let mut msg: Option<String> = None;
+        let mut idx = 0usize;
+
+        let done = handle_cmd(StepCmd::Stop, &mut w, &mut msg, &mut idx);
+        assert!(done);
+        let s = output(&w);
+        assert!(!s.contains('\u{2713}'), "expected no checkmark: {s}");
+    }
+}

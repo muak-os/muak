@@ -71,3 +71,78 @@ pub fn format_timestamp(timestamp: i64, separator: TimeSeparator) -> String {
 fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unix_epoch() {
+        assert_eq!(
+            format_timestamp(0, TimeSeparator::Display),
+            "1970-01-01 00:00:00"
+        );
+    }
+
+    #[test]
+    fn known_date_display() {
+        assert_eq!(
+            format_timestamp(1705329000, TimeSeparator::Display),
+            "2024-01-15 14:30:00"
+        );
+    }
+
+    #[test]
+    fn known_date_filename() {
+        assert_eq!(
+            format_timestamp(1705329000, TimeSeparator::Filename),
+            "2024-01-15_14-30-00"
+        );
+    }
+
+    #[test]
+    fn leap_year_feb_29() {
+        assert_eq!(
+            format_timestamp(951782400, TimeSeparator::Display),
+            "2000-02-29 00:00:00"
+        );
+    }
+
+    #[test]
+    fn non_leap_century_year() {
+        assert_eq!(
+            format_timestamp(1709251200, TimeSeparator::Display),
+            "2024-03-01 00:00:00"
+        );
+    }
+
+    #[test]
+    fn year_boundary_new_years_eve() {
+        assert_eq!(
+            format_timestamp(1704067199, TimeSeparator::Display),
+            "2023-12-31 23:59:59"
+        );
+    }
+
+    #[test]
+    fn year_boundary_new_years_day() {
+        assert_eq!(
+            format_timestamp(1704067200, TimeSeparator::Display),
+            "2024-01-01 00:00:00"
+        );
+    }
+
+    #[test]
+    fn midnight_fields() {
+        let s = format_timestamp(0, TimeSeparator::Display);
+        assert!(s.ends_with("00:00:00"));
+    }
+
+    #[test]
+    fn end_of_day_fields() {
+        assert_eq!(
+            format_timestamp(86399, TimeSeparator::Display),
+            "1970-01-01 23:59:59"
+        );
+    }
+}

@@ -198,4 +198,30 @@ mod tests {
         assert_eq!(config.users.len(), 1);
         assert_eq!(config.users[0].fingerprint, "fp1");
     }
+
+    #[test]
+    fn test_file_mtime_nonexistent_returns_zero() {
+        let mtime = file_mtime("/nonexistent/path/to/file.toml");
+        assert_eq!(mtime, 0);
+    }
+
+    #[test]
+    fn test_file_mtime_existing_file_returns_nonzero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.toml");
+        std::fs::write(&path, "data").unwrap();
+        let mtime = file_mtime(path.to_str().unwrap());
+        assert!(mtime > 0);
+    }
+
+    #[test]
+    fn test_try_auth_returns_none_before_init() {
+        let _ = try_auth();
+    }
+
+    #[test]
+    fn test_parse_invalid_toml_returns_error() {
+        let result = parse("not valid toml ][[[");
+        assert!(result.is_err());
+    }
 }

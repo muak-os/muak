@@ -317,7 +317,6 @@ mod tests {
     fn test_has_credentials_for_endpoint() {
         let mut config = ClientConfig::default();
 
-        // No credentials
         let ctx1 = ServerContext {
             endpoint: "server1:50051".to_string(),
             ca: None,
@@ -327,12 +326,10 @@ mod tests {
         config.add_context("no-creds", ctx1);
         assert!(!config.has_credentials_for_endpoint("server1:50051"));
 
-        // With credentials
         let ctx2 = ServerContext::from_pem("server2:50051", "ca", "crt", b"key");
         config.add_context("with-creds", ctx2);
         assert!(config.has_credentials_for_endpoint("server2:50051"));
 
-        // Non-existent endpoint
         assert!(!config.has_credentials_for_endpoint("unknown:50051"));
     }
 
@@ -340,10 +337,8 @@ mod tests {
     fn test_current_context() {
         let mut config = ClientConfig::default();
 
-        // No current context
         assert!(config.current_context().is_none());
 
-        // Add and set current
         let ctx = ServerContext::from_pem("localhost:50051", "ca", "crt", b"key");
         config.add_context("test", ctx);
         config.set_current("test").unwrap();
@@ -378,5 +373,157 @@ mod tests {
 
         let names = config.list_contexts();
         assert_eq!(names, vec!["alpha", "zebra"]);
+    }
+
+    #[test]
+    fn test_load_save_via_muak_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let path_str = path.to_str().unwrap().to_string();
+
+        // SAFETY: single-threaded test; no other threads read env at this point
+        unsafe { std::env::set_var("MUAK_CONFIG", &path_str) };
+
+        let config = ClientConfig::load().unwrap();
+        assert!(config.contexts.is_empty());
+
+        let mut config = ClientConfig::default();
+        config.add_context(
+            "prod",
+            ServerContext::from_pem("prod:50051", "ca", "crt", b"key"),
+        );
+        config.set_current("prod").unwrap();
+        config.save().unwrap();
+
+        let loaded = ClientConfig::load().unwrap();
+        assert_eq!(loaded.context.as_deref(), Some("prod"));
+        assert!(loaded.contexts.contains_key("prod"));
+
+        // SAFETY: single-threaded test; no other threads read env at this point
+        unsafe { std::env::remove_var("MUAK_CONFIG") };
+    }
+
+    #[test]
+    fn test_get_context() {
+        let mut config = ClientConfig::default();
+        assert!(config.get_context("missing").is_none());
+
+        config.add_context(
+            "srv",
+            ServerContext {
+                endpoint: "srv:50051".to_string(),
+                ca: None,
+                crt: None,
+                key: None,
+            },
+        );
+        let ctx = config.get_context("srv").unwrap();
+        assert_eq!(ctx.endpoint, "srv:50051");
+    }
+
+    #[test]
+    fn test_remove_context_not_found() {
+        let mut config = ClientConfig::default();
+        assert!(config.remove_context("ghost").is_err());
+    }
+
+    #[test]
+    fn test_remove_non_current_context() {
+        let mut config = ClientConfig::default();
+        config.add_context(
+            "a",
+            ServerContext {
+                endpoint: "a:50051".to_string(),
+                ca: None,
+                crt: None,
+                key: None,
+            },
+        );
+        config.add_context(
+            "b",
+            ServerContext {
+                endpoint: "b:50051".to_string(),
+                ca: None,
+                crt: None,
+                key: None,
+            },
+        );
+        config.set_current("a").unwrap();
+        config.remove_context("b").unwrap();
+        assert_eq!(config.context.as_deref(), Some("a"));
+        assert!(!config.contexts.contains_key("b"));
+    }
+
+    #[test]
+    fn test_credentials_none_when_fields_missing() {
+        let ctx = ServerContext {
+            endpoint: "x:50051".to_string(),
+            ca: None,
+            crt: None,
+            key: None,
+        };
+        assert!(!ctx.has_credentials());
+        let creds = ctx.credentials().unwrap();
+        assert!(creds.is_none());
+    }
+
+    #[test]
+    fn test_resolve_name_collision() {
+        let mut map: HashMap<String, ServerContext> = HashMap::new();
+        let name = resolve_name_collision(&map, "server");
+        assert_eq!(name, "server");
+
+        map.insert(
+            "server".to_string(),
+            ServerContext {
+                endpoint: "x:50051".to_string(),
+                ca: None,
+                crt: None,
+                key: None,
+            },
+        );
+        let name2 = resolve_name_collision(&map, "server");
+        assert!(name2.starts_with("server-"));
+        assert_ne!(name2, "server");
+    }
+
+    #[test]
+    fn test_enrollment_lifecycle() {
+        let mut config = ClientConfig::default();
+
+        config.start_enrollment("https://server:443", "key-pem", "fp123", "server-fp456");
+        let pending = config.get_pending("https://server:443").unwrap();
+        assert_eq!(pending.fingerprint, "fp123");
+        assert_eq!(pending.server_fingerprint, "server-fp456");
+
+        let name =
+            config.complete_enrollment("https://server:443", "myserver", "ca", "cert", b"key");
+        assert_eq!(config.context.as_deref(), Some(&name as &str));
+        assert!(config.get_pending("https://server:443").is_none());
+        assert!(config.contexts.contains_key(&name));
+    }
+
+    #[test]
+    fn test_cancel_enrollment() {
+        let mut config = ClientConfig::default();
+        config.start_enrollment("https://server:443", "key", "fp", "sfp");
+        assert!(config.get_pending("https://server:443").is_some());
+        config.cancel_enrollment("https://server:443");
+        assert!(config.get_pending("https://server:443").is_none());
+    }
+
+    #[test]
+    fn test_load_invalid_toml_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "not valid toml ][[[").unwrap();
+
+        // SAFETY: single-threaded test; no other threads read env at this point
+        unsafe { std::env::set_var("MUAK_CONFIG", path.to_str().unwrap()) };
+        let result = ClientConfig::load();
+
+        // SAFETY: same as above
+        unsafe { std::env::remove_var("MUAK_CONFIG") };
+        assert!(result.is_err());
     }
 }

@@ -94,3 +94,73 @@ impl Table {
         parts.join("")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_is_empty() {
+        let t = Table::new();
+        assert!(t.headers.is_empty());
+        assert!(t.rows.is_empty());
+        assert!(t.widths.is_empty());
+    }
+
+    #[test]
+    fn default_equals_new() {
+        let t: Table = Default::default();
+        assert!(t.headers.is_empty());
+    }
+
+    #[test]
+    fn header_sets_widths() {
+        let t = Table::new().header(&["Name", "Status"]);
+        assert_eq!(t.widths, vec![4, 6]);
+    }
+
+    #[test]
+    fn row_expands_widths() {
+        let t = Table::new()
+            .header(&["Name", "Status"])
+            .row(&["a-very-long-name", "running"]);
+        assert_eq!(t.widths[0], 16);
+        assert_eq!(t.widths[1], 7);
+    }
+
+    #[test]
+    fn format_row_pads_all_but_last() {
+        let t = Table::new().header(&["AA", "BB"]).row(&["x", "y"]);
+        let row = t.format_row(&["x".to_string(), "y".to_string()]);
+        assert_eq!(row, "x   y");
+    }
+
+    #[test]
+    fn format_row_single_cell_no_padding() {
+        let t = Table::new().header(&["Col"]);
+        let row = t.format_row(&["val".to_string()]);
+        assert_eq!(row, "val");
+    }
+
+    #[test]
+    fn sub_row_prepends_prefix_to_first_cell() {
+        let t = Table::new()
+            .header(&["Name", "Status"])
+            .sub_row("└", &["child", "ok"]);
+        assert_eq!(t.rows[0][0], "  └ child");
+    }
+
+    #[test]
+    fn sub_row_expands_width_for_prefixed_cell() {
+        let t = Table::new()
+            .header(&["N", "S"])
+            .sub_row("→", &["child", "ok"]);
+        assert_eq!(t.widths[0], "  → child".len());
+    }
+
+    #[test]
+    fn row_without_prior_header_grows_widths() {
+        let t = Table::new().row(&["hello", "world"]);
+        assert_eq!(t.widths, vec![5, 5]);
+    }
+}
