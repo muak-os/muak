@@ -200,25 +200,20 @@ impl Metadata {
 
     /// Reads the first TPM2 token from metadata.
     pub fn get_tpm2_token(&self) -> Result<Tpm2Token> {
-        for value in self.tokens.values() {
-            if let Some(t) = value.get("type").and_then(|v| v.as_str()) {
-                if t == "tpm2" {
-                    let token: Tpm2Token = serde_json::from_value(value.clone())?;
-                    return Ok(token);
-                }
-            }
-        }
-        Err(Error::NoTpm2Token)
+        let value = self
+            .tokens
+            .values()
+            .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("tpm2"))
+            .ok_or(Error::NoTpm2Token)?;
+        Ok(serde_json::from_value(value.clone())?)
     }
 
     /// Finds existing TPM2 token ID or allocates the next available one.
     fn find_or_alloc_tpm2_token_id(&self) -> String {
-        for (id, value) in &self.tokens {
-            if let Some(t) = value.get("type").and_then(|v| v.as_str()) {
-                if t == "tpm2" {
-                    return id.clone();
-                }
-            }
+        if let Some(id) = self.tokens.iter().find_map(|(id, v)| {
+            (v.get("type").and_then(|t| t.as_str()) == Some("tpm2")).then(|| id.clone())
+        }) {
+            return id;
         }
 
         let mut next_id = 0u32;
