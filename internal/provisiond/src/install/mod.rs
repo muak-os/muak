@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 pub use pki::InstallResult;
 use rustix::fs::sync;
-use sysconfig::HostConfig;
+use sysconfig::SystemConfig;
 use tokio::sync::mpsc;
 
 use crate::constants::{DM_DATA, DM_STATE};
@@ -26,15 +26,15 @@ const INSTALL_DIR: &str = "/run/install";
 pub async fn run(
     disk_path: &str,
     force: bool,
-    config: &HostConfig,
+    config: &SystemConfig,
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     let sb_hierarchy = setup_security(disk_path, force, config, &progress).await?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let uki = prepare_uki(
-        &config.system.image,
-        &config.system.extensions,
+        &config.host.image,
+        &config.host.extensions,
         &luks_key,
         &progress,
         sb_hierarchy.as_ref(),
@@ -81,7 +81,7 @@ pub async fn run(
 async fn setup_security(
     disk_path: &str,
     force: bool,
-    config: &HostConfig,
+    config: &SystemConfig,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<Option<sbolt::keys::KeyHierarchy>> {
     send_progress(progress, &format!("Validating disk {}", disk_path)).await;
@@ -100,8 +100,8 @@ async fn setup_security(
     Ok(sb_hierarchy)
 }
 
-fn generate_sb_hierarchy(config: &HostConfig) -> Result<Option<sbolt::keys::KeyHierarchy>> {
-    if !config.system.secureboot {
+fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::KeyHierarchy>> {
+    if !config.host.secureboot {
         return Ok(None);
     }
 
@@ -301,7 +301,7 @@ async fn deploy_uki(
 
 async fn initialize_state(
     dm_state: &str,
-    config: &HostConfig,
+    config: &SystemConfig,
     auth_config: &sysconfig::AuthConfig,
     server_pki: &pki::ServerPki,
     sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,

@@ -73,12 +73,12 @@ pub fn find(dir: &Path, update_id: &str) -> Result<PathBuf> {
     path.with_context(|| format!("No snapshot found for update_id '{}'", update_id))
 }
 
-/// Reads `system.image` from a snapshot file.
+/// Reads `host.image` from a snapshot file.
 pub fn read_image(snapshot_path: &Path) -> Result<String> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    let cfg: sysconfig::HostConfig =
+    let cfg: sysconfig::SystemConfig =
         sysconfig::parse_from_str(&contents).context("Failed to parse config snapshot")?;
-    Ok(cfg.system.image)
+    Ok(cfg.host.image)
 }
 
 /// Restores the system config from a snapshot file, overwriting the current, and records history.

@@ -38,20 +38,20 @@ impl ProvisionService for ProvisionServiceImpl {
         let config_raw = String::from_utf8(req.config_bytes)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config: sysconfig::HostConfig = sysconfig::parse_from_str(&config_raw)
+        let config: sysconfig::SystemConfig = sysconfig::parse_from_str(&config_raw)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config
             .validate_for_install()
             .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {}", e)))?;
 
-        let server_name = config.system.name.clone();
+        let server_name = config.host.name.clone();
         let force = req.force;
         let csr = req.csr;
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                let disk = config.system.disk.clone();
+                let disk = config.host.disk.clone();
                 install::run(&disk, force, &config, &csr, progress_tx).await
             },
             move |result, out_tx| {
@@ -90,27 +90,27 @@ impl ProvisionService for ProvisionServiceImpl {
                 Status::invalid_argument(format!("Config is not valid UTF-8: {}", e))
             })?;
 
-            let cfg: sysconfig::HostConfig = sysconfig::parse_from_str(&raw)
+            let cfg: sysconfig::SystemConfig = sysconfig::parse_from_str(&raw)
                 .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
             cfg.validate_for_update(installed)
                 .map_err(|e| Status::invalid_argument(format!("Config rejected: {}", e)))?;
 
-            sysconfig::check_no_downgrade(&cfg.system.image, &installed.system.image)
+            sysconfig::check_no_downgrade(&cfg.host.image, &installed.host.image)
                 .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
-            let image = cfg.system.image.clone();
-            let extensions = cfg.system.extensions.clone();
+            let image = cfg.host.image.clone();
+            let extensions = cfg.host.extensions.clone();
             (image, extensions, Some(cfg))
         } else {
             let image = if req.image.is_empty() {
-                installed.system.image.clone()
+                installed.host.image.clone()
             } else {
-                sysconfig::check_no_downgrade(&req.image, &installed.system.image)
+                sysconfig::check_no_downgrade(&req.image, &installed.host.image)
                     .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
                 req.image.clone()
             };
-            let extensions = installed.system.extensions.clone();
+            let extensions = installed.host.extensions.clone();
             (image, extensions, None)
         };
 

@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
 
     sysconfig::init().context("Failed to initialize system configuration")?;
 
-    let server = &sysconfig::system().ntp;
+    let server = &sysconfig::host().ntp;
     println!("NTP server: {server}");
 
     let notifier = NotifyClient::new("timed")?;

@@ -13,7 +13,7 @@ async fn install() {
 
     let (fixture, cli) = boot_and_install(
         &artifacts,
-        HashMap::from([("system.secureboot", toml::Value::Boolean(false))]),
+        HashMap::from([("host.secureboot", toml::Value::Boolean(false))]),
     )
     .await;
 

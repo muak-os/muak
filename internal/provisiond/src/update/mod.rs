@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
-use sysconfig::{CONFIG_PATH, HostConfig};
+use sysconfig::{CONFIG_PATH, SystemConfig};
 use tokio::sync::mpsc;
 
 use crate::constants::UPDATE_DIR;
@@ -58,7 +58,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
 pub async fn prepare(
     image: &str,
     extensions: &[String],
-    new_config: Option<HostConfig>,
+    new_config: Option<SystemConfig>,
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
@@ -76,7 +76,7 @@ pub async fn prepare(
     if let Some(ref cfg) = new_config {
         let secure_boot_active = sbolt::efi::get_secure_boot().unwrap_or(false);
         let setup_mode = sbolt::efi::get_setup_mode().unwrap_or(false);
-        if cfg.system.secureboot && !secure_boot_active && !setup_mode {
+        if cfg.host.secureboot && !secure_boot_active && !setup_mode {
             bail!(
                 "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
                  Please reboot and reset your firmware to Setup Mode and try again."
@@ -146,10 +146,10 @@ fn create_staging_dir() -> Result<PathBuf> {
 /// Updates the host system config with a new image, preserving all other fields.
 pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
-    let mut config: HostConfig =
+    let mut config: SystemConfig =
         sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
 
-    config.system.image = image.to_string();
+    config.host.image = image.to_string();
 
     let updated_config = sysconfig::serialize(&config).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
@@ -162,13 +162,17 @@ pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) ->
 }
 
 /// Writes all mutable fields to the existing config on-disk.
-pub(super) fn update_config(update_id: &str, new_config: &HostConfig, author: &str) -> Result<()> {
+pub(super) fn update_config(
+    update_id: &str,
+    new_config: &SystemConfig,
+    author: &str,
+) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
-    let config: HostConfig =
+    let config: SystemConfig =
         sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
 
     let mut merged = new_config.clone();
-    merged.system.disk = config.system.disk.clone();
+    merged.host.disk = config.host.disk.clone();
 
     let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;

@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     let mut apid_command = vec![
         "/sbin/apid".to_string(),
         "--listen".to_string(),
-        format!("0.0.0.0:{}", sysconfig::system().port),
+        format!("0.0.0.0:{}", sysconfig::host().port),
     ];
 
     let is_installed = Path::new(sysconfig::CONFIG_PATH).exists();

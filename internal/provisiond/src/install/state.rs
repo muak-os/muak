@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
-use sysconfig::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, HostConfig};
+use sysconfig::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
 
 use super::pki::ServerPki;
 use crate::disk;
@@ -20,7 +20,7 @@ const MOUNT_POINT: &str = "/run/mnt/state";
 /// Mounts the STATE partition and writes all initial configuration and secrets to it.
 pub fn init(
     device: &str,
-    config: &HostConfig,
+    config: &SystemConfig,
     auth_config: &AuthConfig,
     server_pki: &ServerPki,
     sb_hierarchy: Option<&KeyHierarchy>,

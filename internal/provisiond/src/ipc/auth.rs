@@ -85,7 +85,7 @@ impl AuthService for AuthServiceImpl {
 
         if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
             let server_name = sysconfig::try_config()
-                .map(|c| c.system.name.clone())
+                .map(|c| c.host.name.clone())
                 .unwrap_or_default();
 
             return Ok(Response::new(GetCsrStatusResponse {

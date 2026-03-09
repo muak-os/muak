@@ -56,7 +56,7 @@ impl Args {
 
 /// Parses command line arguments into an Args struct.
 pub fn parse_args(args: &[String]) -> Args {
-    let default_listen = format!("0.0.0.0:{}", sysconfig::system().port);
+    let default_listen = format!("0.0.0.0:{}", sysconfig::host().port);
 
     let listen_addr = args
         .iter()

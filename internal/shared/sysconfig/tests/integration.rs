@@ -9,7 +9,7 @@ fn test_load_from_path_with_file() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
     let config_content = r#"
-[system]
+[host]
 disk = "test_disk"
 image = "test_image"
 extensions = ["ext1", "ext2"]
@@ -27,7 +27,7 @@ auto_restart = false
     let config = parse_from_str(config_content).unwrap();
 
     // ASSERT
-    assert_eq!(config.system.disk, "test_disk");
+    assert_eq!(config.host.disk, "test_disk");
     assert_eq!(config.network.ipv6, true);
     assert_eq!(config.vm.auto_restart, false);
 }
@@ -38,7 +38,7 @@ fn test_load_from_path_fallback_to_default() {
     let default_str = serialize_default();
 
     // ACT
-    let config: HostConfig = toml::from_str(&default_str).unwrap();
+    let config: SystemConfig = toml::from_str(&default_str).unwrap();
 
     // ASSERT
     assert!(config.validate().is_ok());

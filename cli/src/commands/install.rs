@@ -39,7 +39,7 @@ pub async fn handle(
         config_path.display()
     ))?;
 
-    let target_disk = config.system.disk.clone();
+    let target_disk = config.host.disk.clone();
 
     let request = tonic::Request::new(InstallRequest {
         force,

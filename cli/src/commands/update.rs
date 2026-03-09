@@ -35,12 +35,12 @@ pub async fn handle(
         cfg.validate_for_update(&installed)
             .with_context(|| format!("config rejected: '{}'", path.display()))?;
 
-        sysconfig::check_no_downgrade(&cfg.system.image, &installed.system.image)
+        sysconfig::check_no_downgrade(&cfg.host.image, &installed.host.image)
             .with_context(|| format!("version check failed for '{}'", path.display()))?;
 
         (String::new(), raw.into_bytes())
     } else if let Some(ref img) = image {
-        sysconfig::check_no_downgrade(img, &installed.system.image)
+        sysconfig::check_no_downgrade(img, &installed.host.image)
             .with_context(|| format!("version check failed for image '{}'", img))?;
 
         (img.clone(), Vec::new())
@@ -163,7 +163,7 @@ pub async fn handle(
 /// Fetches and parses the installed config from the server.
 async fn fetch_installed_config(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-) -> Result<sysconfig::HostConfig> {
+) -> Result<sysconfig::SystemConfig> {
     let resp = client
         .get_config(tonic::Request::new(GetConfigRequest {}))
         .await

@@ -42,11 +42,8 @@ async fn update_config() {
 
     let update_cfg = cli
         .generate_config(&HashMap::from([
-            (
-                "system.disk",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("system.image", toml::Value::String(install_image())),
+            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            ("host.image", toml::Value::String(install_image())),
         ]))
         .await
         .expect("failed to generate update config");
@@ -95,18 +92,15 @@ async fn update_config_secureboot() {
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
     let (fixture, cli) = boot_and_install(
         &artifacts,
-        HashMap::from([("system.secureboot", toml::Value::Boolean(false))]),
+        HashMap::from([("host.secureboot", toml::Value::Boolean(false))]),
     )
     .await;
 
     let update_cfg = cli
         .generate_config(&HashMap::from([
-            (
-                "system.disk",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("system.image", toml::Value::String(install_image())),
-            ("system.secureboot", toml::Value::Boolean(true)),
+            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            ("host.image", toml::Value::String(install_image())),
+            ("host.secureboot", toml::Value::Boolean(true)),
         ]))
         .await
         .expect("failed to generate update config");
@@ -166,11 +160,8 @@ async fn update_rejects_image_and_config_together() {
 
     let dummy_cfg = cli
         .generate_config(&HashMap::from([
-            (
-                "system.disk",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("system.image", toml::Value::String(install_image())),
+            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            ("host.image", toml::Value::String(install_image())),
         ]))
         .await
         .expect("failed to generate config for rejection test");

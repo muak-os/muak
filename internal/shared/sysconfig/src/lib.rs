@@ -9,44 +9,44 @@
 //! ## Example
 //!
 //! ```rust,ignore
-//! use sysconfig::{init, system};
+//! use sysconfig::{init, host};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     init()?;
-//!     let disk = &system().disk;
+//!     let disk = &host().disk;
 //!     Ok(())
 //! }
 //! ```
 
 pub mod auth;
 mod error;
-mod host;
 pub mod permission;
+mod system;
 pub mod version;
 
 pub use auth::{AUTH_EXTENSION, AUTH_PATH, AuthConfig, AuthUser, serialize as serialize_auth};
 pub use error::{ConfigError, Result};
-pub use host::{
+pub use permission::Permission;
+pub use system::{
     CONFIG_EXTENSION, CONFIG_PATH, HostConfig, NetworkConfig, SystemConfig, VmConfig,
     load_from_path, parse_from_str, serialize, serialize_default,
 };
-pub use permission::Permission;
 pub use version::check_no_downgrade;
 
-/// Initializes the host config and auth cache.
+/// Initializes the system config and auth cache.
 pub fn init() -> Result<()> {
-    host::init()?;
+    system::init()?;
     auth::init()?;
     Ok(())
 }
 
-/// Returns the global system configuration.
+/// Returns the global host configuration.
 ///
 /// # Panics
 ///
 /// Panics if [`init()`] has not been called.
-pub fn system() -> &'static SystemConfig {
-    &config().system
+pub fn host() -> &'static HostConfig {
+    &config().host
 }
 
 /// Returns the global network configuration.
@@ -81,16 +81,16 @@ pub fn try_auth() -> Option<std::sync::Arc<AuthConfig>> {
     auth::try_auth()
 }
 
-/// Returns the global host configuration.
+/// Returns the global system configuration.
 ///
 /// # Panics
 ///
 /// Panics if [`init()`] has not been called.
-pub fn config() -> &'static HostConfig {
-    host::CONFIG.get().expect("Config not initialized")
+pub fn config() -> &'static SystemConfig {
+    system::CONFIG.get().expect("Config not initialized")
 }
 
-/// Returns the global host configuration, or `None` before [`init()`].
-pub fn try_config() -> Option<&'static HostConfig> {
-    host::CONFIG.get()
+/// Returns the global system configuration, or `None` before [`init()`].
+pub fn try_config() -> Option<&'static SystemConfig> {
+    system::CONFIG.get()
 }

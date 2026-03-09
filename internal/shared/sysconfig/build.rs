@@ -22,8 +22,8 @@ fn main() {
 fn generate_defaults(config: &toml::Value) -> String {
     let mut output = String::new();
 
-    if let Some(system) = config.get("system") {
-        output.push_str(&generate_impl_default("SystemConfig", system));
+    if let Some(host) = config.get("host") {
+        output.push_str(&generate_impl_default("HostConfig", host));
     }
     if let Some(network) = config.get("network") {
         output.push_str(&generate_impl_default("NetworkConfig", network));

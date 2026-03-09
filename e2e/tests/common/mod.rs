@@ -36,11 +36,8 @@ pub async fn boot_and_install(
         Cli::new(&artifacts.cli_bin, fixture.vm.host_port).expect("failed to create CLI driver");
 
     let mut config: HashMap<&str, toml::Value> = HashMap::from([
-        (
-            "system.disk",
-            toml::Value::String("/dev/nvme0n1".to_owned()),
-        ),
-        ("system.image", toml::Value::String(install_image())),
+        ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+        ("host.image", toml::Value::String(install_image())),
     ]);
     config.extend(extra_config);
 
