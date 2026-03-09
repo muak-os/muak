@@ -50,4 +50,4 @@ COPY --link --from=builder /granola /granola
 
 LABEL org.opencontainers.image.title="granola"
 LABEL org.opencontainers.image.description="Muak stage 2 init system"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

@@ -48,4 +48,4 @@ COPY --link --from=builder /networkd /networkd
 
 LABEL org.opencontainers.image.title="networkd"
 LABEL org.opencontainers.image.description="Muak network management daemon"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

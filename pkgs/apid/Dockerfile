@@ -49,4 +49,4 @@ COPY --link --from=builder /apid /apid
 
 LABEL org.opencontainers.image.title="apid"
 LABEL org.opencontainers.image.description="Muak external gRPC API daemon"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

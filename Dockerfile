@@ -5,16 +5,16 @@ ARG KERNEL_VERSION=6.19.6
 ARG COMPRESSION_LEVEL=19
 ARG SOURCE_DATE_EPOCH=0
 
-ARG PKG_KERNEL=ghcr.io/sawangg/pkgs/kernel:${KERNEL_VERSION}
-ARG PKG_GRANOLA=ghcr.io/sawangg/pkgs/granola:latest
-ARG PKG_PROVISIOND=ghcr.io/sawangg/pkgs/provisiond:latest
-ARG PKG_MODD=ghcr.io/sawangg/pkgs/modd:latest
-ARG PKG_NETWORKD=ghcr.io/sawangg/pkgs/networkd:latest
-ARG PKG_APID=ghcr.io/sawangg/pkgs/apid:latest
-ARG PKG_VMD=ghcr.io/sawangg/pkgs/vmd:latest
-ARG PKG_TIMED=ghcr.io/sawangg/pkgs/timed:latest
-ARG PKG_INIT=ghcr.io/sawangg/pkgs/init:latest
-ARG PKG_STUB=ghcr.io/sawangg/pkgs/stub:latest
+ARG PKG_KERNEL=ghcr.io/muak-os/pkgs/kernel:${KERNEL_VERSION}
+ARG PKG_GRANOLA=ghcr.io/muak-os/pkgs/granola:latest
+ARG PKG_PROVISIOND=ghcr.io/muak-os/pkgs/provisiond:latest
+ARG PKG_MODD=ghcr.io/muak-os/pkgs/modd:latest
+ARG PKG_NETWORKD=ghcr.io/muak-os/pkgs/networkd:latest
+ARG PKG_APID=ghcr.io/muak-os/pkgs/apid:latest
+ARG PKG_VMD=ghcr.io/muak-os/pkgs/vmd:latest
+ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
+ARG PKG_INIT=ghcr.io/muak-os/pkgs/init:latest
+ARG PKG_STUB=ghcr.io/muak-os/pkgs/stub:latest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Import packages
@@ -129,4 +129,4 @@ COPY --link --from=pkg-stub /stub.efi /stub.efi
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"
 LABEL org.opencontainers.image.version="${VERSION}"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

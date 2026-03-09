@@ -13,7 +13,7 @@ set script-interpreter := ["bash", "-euo", "pipefail"]
 
 # Global settings
 
-registry := env_var_or_default("REGISTRY", "ghcr.io/sawangg")
+registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")

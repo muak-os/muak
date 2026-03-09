@@ -128,4 +128,4 @@ COPY --from=modules-install /modules/lib/modules /lib/modules
 
 LABEL org.opencontainers.image.title="muak-kernel"
 LABEL org.opencontainers.image.description="Muak Linux kernel package"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

@@ -6,7 +6,7 @@ use e2e::assert_success_insecure;
 use e2e::cli::Cli;
 use e2e::vm::TestFixture;
 
-pub const DEFAULT_REGISTRY: &str = "ghcr.io/sawangg";
+pub const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 pub const DEFAULT_TAG: &str = "latest";
 
 /// The image used for the initial install.

@@ -47,4 +47,4 @@ COPY --link --from=builder /muakctl /muakctl
 
 LABEL org.opencontainers.image.title="muakctl"
 LABEL org.opencontainers.image.description="Muak command line interface"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

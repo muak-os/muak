@@ -47,4 +47,4 @@ COPY --link --from=builder /modd /modd
 
 LABEL org.opencontainers.image.title="modd"
 LABEL org.opencontainers.image.description="Muak module daemon for dynamic kernel module loading"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

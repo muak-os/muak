@@ -44,4 +44,4 @@ COPY --link --from=builder /stub.efi /stub.efi
 
 LABEL org.opencontainers.image.title="stub"
 LABEL org.opencontainers.image.description="Muak UEFI stub"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

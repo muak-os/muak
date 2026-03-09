@@ -15,7 +15,7 @@ and more is performed through `muakctl`.
 ### From source
 
 ```sh
-git clone https://github.com/sawangg/muak
+git clone https://github.com/muak-os/muak
 cd muak
 cargo build --release --bin muakctl --target x86_64-unknown-linux-musl
 # Binary: target/x86_64-unknown-linux-musl/release/muakctl

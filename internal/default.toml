@@ -7,7 +7,7 @@
 [system]
 name = "muak"
 disk = ""
-image = "ghcr.io/sawangg/installer:latest"
+image = "ghcr.io/muak-os/installer:latest"
 extensions = []
 secureboot = true
 port = 50051

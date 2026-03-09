@@ -48,4 +48,4 @@ COPY --link --from=builder /vmd /vmd
 
 LABEL org.opencontainers.image.title="vmd"
 LABEL org.opencontainers.image.description="Muak VM management daemon"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

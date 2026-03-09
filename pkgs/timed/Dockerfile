@@ -47,4 +47,4 @@ COPY --link --from=builder /timed /timed
 
 LABEL org.opencontainers.image.title="timed"
 LABEL org.opencontainers.image.description="Muak time synchronization daemon"
-LABEL org.opencontainers.image.source="https://github.com/Sawangg/muak"
+LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

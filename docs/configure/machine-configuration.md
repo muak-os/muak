@@ -20,7 +20,7 @@ name = "muak"
 disk = "/dev/sda"
 
 # OCI image reference for the installed system.
-image = "ghcr.io/sawangg/installer:latest"
+image = "ghcr.io/muak-os/installer:latest"
 
 # Additional squashfs extension OCI images to layer on top of the base rootfs.
 extensions = []
