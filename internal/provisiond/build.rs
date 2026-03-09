@@ -10,11 +10,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .expect("could not get parent directory");
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        internal_dir.join("default.toml").display()
-    );
-
     let workspace_root = internal_dir.parent().expect("could not get workspace root");
     println!(
         "cargo:rerun-if-changed={}",
