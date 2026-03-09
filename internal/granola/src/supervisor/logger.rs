@@ -30,13 +30,11 @@ pub struct LogEntry {
 /// Commands sent to the log actor.
 enum LogCommand {
     Append(LogEntry),
-
     Query {
         service: Option<String>,
         tail: usize,
         reply: oneshot::Sender<Vec<LogEntry>>,
     },
-
     Subscribe {
         reply: oneshot::Sender<broadcast::Receiver<LogEntry>>,
     },
@@ -231,4 +229,236 @@ pub fn kmsg(logger: &LogWriter) {
             logger.append("kernel", LogStream::Stdout, message);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(service: &str, stream: LogStream, message: &str, ts: u64) -> LogEntry {
+        LogEntry {
+            timestamp_nanos: ts,
+            service: service.to_string(),
+            stream,
+            message: message.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn append_and_query_single_service() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        // ACT
+        writer.append("svc", LogStream::Stdout, "hello".to_string());
+        writer.append("svc", LogStream::Stdout, "world".to_string());
+
+        // ASSERT
+        let entries = reader.query(Some("svc".to_string()), 0).await;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].message, "hello");
+        assert_eq!(entries[1].message, "world");
+    }
+
+    #[tokio::test]
+    async fn query_service_with_tail_returns_last_n() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+        for i in 0..5u32 {
+            writer.append("svc", LogStream::Stdout, format!("msg{i}"));
+        }
+
+        // ACT
+        let entries = reader.query(Some("svc".to_string()), 3).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].message, "msg2");
+        assert_eq!(entries[1].message, "msg3");
+        assert_eq!(entries[2].message, "msg4");
+    }
+
+    #[tokio::test]
+    async fn query_unknown_service_returns_empty() {
+        // ARRANGE
+        let (_writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        // ACT
+        let entries = reader.query(Some("no-such-svc".to_string()), 0).await;
+
+        // ASSERT
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn query_none_service_returns_all_sorted_by_timestamp() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        let handle = tokio::spawn(actor.run());
+
+        writer.append("svc-b", LogStream::Stdout, "from-b".to_string());
+        writer.append("svc-a", LogStream::Stdout, "from-a".to_string());
+
+        tokio::task::yield_now().await;
+
+        // ACT
+        let entries = reader.query(None, 0).await;
+        drop(handle);
+
+        // ASSERT
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].timestamp_nanos <= entries[1].timestamp_nanos);
+    }
+
+    #[tokio::test]
+    async fn query_all_with_tail_returns_last_n_across_services() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        for i in 0..4u32 {
+            writer.append("svc-a", LogStream::Stdout, format!("a{i}"));
+        }
+        for i in 0..4u32 {
+            writer.append("svc-b", LogStream::Stdout, format!("b{i}"));
+        }
+        tokio::task::yield_now().await;
+
+        // ACT
+        let entries = reader.query(None, 3).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn query_empty_string_service_returns_all() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+        writer.append("svc", LogStream::Stdout, "msg".to_string());
+        tokio::task::yield_now().await;
+
+        // ACT
+        let entries = reader.query(Some(String::new()), 0).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ring_buffer_evicts_oldest_entry_at_capacity() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        for i in 0..=MAX_ENTRIES_PER_SERVICE {
+            writer.append("svc", LogStream::Stdout, format!("msg{i}"));
+        }
+        tokio::task::yield_now().await;
+
+        // ACT
+        let entries = reader.query(Some("svc".to_string()), 0).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), MAX_ENTRIES_PER_SERVICE);
+        assert_eq!(entries[0].message, "msg1");
+        assert_eq!(
+            entries[MAX_ENTRIES_PER_SERVICE - 1].message,
+            format!("msg{MAX_ENTRIES_PER_SERVICE}")
+        );
+    }
+
+    #[tokio::test]
+    async fn actor_exits_when_all_senders_dropped() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        let handle = tokio::spawn(actor.run());
+
+        // ACT
+        drop(writer);
+        drop(reader);
+
+        // ASSERT
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .expect("actor did not exit within timeout")
+            .expect("actor task panicked");
+    }
+
+    #[tokio::test]
+    async fn subscribe_receives_live_entries() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        // ACT
+        let mut rx = reader.subscribe().await.expect("subscribe failed");
+        writer.append("svc", LogStream::Stderr, "live-msg".to_string());
+
+        // ASSERT
+        let entry = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for broadcast entry")
+            .expect("broadcast channel closed");
+        assert_eq!(entry.message, "live-msg");
+        assert_eq!(entry.stream, LogStream::Stderr);
+    }
+
+    #[tokio::test]
+    async fn log_entry_stream_field_preserved() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        // ACT
+        writer.append("svc", LogStream::Stdout, "out".to_string());
+        writer.append("svc", LogStream::Stderr, "err".to_string());
+
+        let entries = reader.query(Some("svc".to_string()), 0).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].stream, LogStream::Stdout);
+        assert_eq!(entries[1].stream, LogStream::Stderr);
+    }
+
+    #[test]
+    fn query_all_tail_larger_than_total_returns_all() {
+        // ARRANGE
+        let mut actor = LogActor {
+            rx: tokio::sync::mpsc::unbounded_channel().1,
+            entries: HashMap::new(),
+            broadcast_tx: broadcast::channel(BROADCAST_CAPACITY).0,
+        };
+        actor.handle_append(make_entry("svc", LogStream::Stdout, "a", 1));
+        actor.handle_append(make_entry("svc", LogStream::Stdout, "b", 2));
+
+        // ACT - tail larger than total entries; saturating_sub handles gracefully
+        let result = actor.query(&None, 100);
+
+        // ASSERT
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn query_service_tail_larger_than_ring_returns_all() {
+        // ARRANGE
+        let mut actor = LogActor {
+            rx: tokio::sync::mpsc::unbounded_channel().1,
+            entries: HashMap::new(),
+            broadcast_tx: broadcast::channel(BROADCAST_CAPACITY).0,
+        };
+        actor.handle_append(make_entry("svc", LogStream::Stdout, "a", 1));
+        actor.handle_append(make_entry("svc", LogStream::Stdout, "b", 2));
+
+        // ACT
+        let result = actor.query(&Some("svc".to_string()), 50);
+
+        // ASSERT
+        assert_eq!(result.len(), 2);
+    }
 }

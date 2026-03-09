@@ -113,3 +113,166 @@ fn parse_notification(text: &str) -> Option<ServiceNotification> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_notification_parsed() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nREADY=42";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        let Some(ServiceNotification::Ready { service_name }) = result else {
+            panic!("expected Ready notification");
+        };
+        assert_eq!(service_name, "myservice");
+    }
+
+    #[test]
+    fn ready_with_invalid_pid_falls_through() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nREADY=not-a-number";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn status_update_degraded_health() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nSTATUS=Things are bad\nHEALTH=degraded";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        let Some(ServiceNotification::StatusUpdate {
+            service_name,
+            new_status,
+        }) = result
+        else {
+            panic!("expected StatusUpdate notification");
+        };
+        assert_eq!(service_name, "myservice");
+        assert_eq!(new_status, ServiceStatus::Degraded);
+    }
+
+    #[test]
+    fn status_update_healthy_returns_none() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nSTATUS=All good\nHEALTH=healthy";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn status_update_unhealthy_returns_none() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nSTATUS=Very bad\nHEALTH=unhealthy";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn status_without_health_defaults_to_healthy_returns_none() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nSTATUS=Some status";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn stopping_notification_parsed() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nSTOPPING=graceful shutdown";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        let Some(ServiceNotification::Stopping { service_name }) = result else {
+            panic!("expected Stopping notification");
+        };
+        assert_eq!(service_name, "myservice");
+    }
+
+    #[test]
+    fn watchdog_only_returns_none() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nWATCHDOG=1";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn missing_service_name_returns_none() {
+        // ARRANGE
+        let text = "READY=42";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn empty_text_returns_none() {
+        // ARRANGE
+        let text = "";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn ready_takes_priority_over_status() {
+        // ARRANGE
+        let text = "SERVICE_NAME=myservice\nREADY=1\nSTATUS=Also present\nHEALTH=degraded";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(matches!(result, Some(ServiceNotification::Ready { .. })));
+    }
+
+    #[test]
+    fn all_fields_but_no_service_name_returns_none() {
+        // ARRANGE
+        let text = "READY=1\nSTATUS=msg\nHEALTH=degraded\nSTOPPING=reason\nWATCHDOG=1";
+
+        // ACT
+        let result = parse_notification(text);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+}

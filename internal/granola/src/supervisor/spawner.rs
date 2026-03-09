@@ -79,3 +79,43 @@ impl ProcessSpawner for Spawner {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::supervisor::service::{Service, ServiceState};
+
+    fn make_state(command: Vec<&'static str>) -> ServiceState {
+        ServiceState::new(Service {
+            name: "test-svc",
+            command: command.into_iter().map(str::to_string).collect(),
+            depends_on: vec![],
+        })
+    }
+
+    #[test]
+    fn empty_command_returns_error() {
+        // ARRANGE
+        let mut state = make_state(vec![]);
+
+        // ACT
+        let result = Spawner.spawn(&mut state);
+
+        // ASSERT
+        let err = result.err().expect("expected an error");
+        assert!(err.to_string().contains("command must not be empty"));
+    }
+
+    #[test]
+    fn nonexistent_binary_returns_error() {
+        // ARRANGE
+        let mut state = make_state(vec!["/nonexistent/binary/xyz_abc"]);
+
+        // ACT
+        let result = Spawner.spawn(&mut state);
+
+        // ASSERT
+        let err = result.err().expect("expected an error");
+        assert!(err.to_string().contains("Binary not found"));
+    }
+}

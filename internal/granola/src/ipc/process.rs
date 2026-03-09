@@ -85,3 +85,212 @@ fn parse_process_status(stat: &str) -> String {
     }
     "unknown".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) R 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "running");
+    }
+
+    #[test]
+    fn sleeping_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) S 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "sleeping");
+    }
+
+    #[test]
+    fn disk_sleep_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) D 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "disk_sleep");
+    }
+
+    #[test]
+    fn zombie_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) Z 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "zombie");
+    }
+
+    #[test]
+    fn stopped_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) T 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "stopped");
+    }
+
+    #[test]
+    fn tracing_stop_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) t 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "tracing_stop");
+    }
+
+    #[test]
+    fn dead_state_uppercase() {
+        // ARRANGE
+        let stat = "123 (my-proc) X 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "dead");
+    }
+
+    #[test]
+    fn dead_state_lowercase() {
+        // ARRANGE
+        let stat = "123 (my-proc) x 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "dead");
+    }
+
+    #[test]
+    fn wakekill_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) K 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "wakekill");
+    }
+
+    #[test]
+    fn waking_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) W 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "waking");
+    }
+
+    #[test]
+    fn parked_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) P 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "parked");
+    }
+
+    #[test]
+    fn idle_state() {
+        // ARRANGE
+        let stat = "123 (my-proc) I 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "idle");
+    }
+
+    #[test]
+    fn unknown_state_unrecognised_char() {
+        // ARRANGE
+        let stat = "123 (my-proc) Q 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "unknown");
+    }
+
+    #[test]
+    fn no_closing_paren_returns_unknown() {
+        // ARRANGE
+        let stat = "123 my-proc S 1 123";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "unknown");
+    }
+
+    #[test]
+    fn closing_paren_at_end_returns_unknown() {
+        // ARRANGE
+        let stat = "123 (my-proc)";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "unknown");
+    }
+
+    #[test]
+    fn process_name_containing_parens_uses_last_close_paren() {
+        // ARRANGE
+        let stat = "123 (my(proc)) S 1 123 123 0 -1 4194560";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "sleeping");
+    }
+
+    #[test]
+    fn empty_stat_returns_unknown() {
+        // ARRANGE
+        let stat = "";
+
+        // ACT
+        let result = parse_process_status(stat);
+
+        // ASSERT
+        assert_eq!(result, "unknown");
+    }
+}

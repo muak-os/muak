@@ -259,6 +259,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
+    use crate::supervisor::notify::ServiceNotification;
     use crate::supervisor::reaper::{ChildExit, ChildReaper};
     use crate::supervisor::service::ServiceStatus;
     use crate::supervisor::spawner::{ProcessSpawner, SpawnResult};
@@ -515,5 +516,156 @@ mod tests {
 
         // ASSERT
         assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Starting));
+    }
+
+    #[tokio::test]
+    async fn apply_notification_ready_sets_status_and_resets_count() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        sup.services.get_mut("svc").expect("svc").restart_count = 3;
+
+        // ACT
+        sup.apply_notification(ServiceNotification::Ready {
+            service_name: "svc".to_string(),
+        });
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Ready));
+        assert_eq!(sup.service_restart_count("svc"), Some(0));
+    }
+
+    #[tokio::test]
+    async fn apply_notification_ready_unknown_service_does_not_panic() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let mut sup = make_supervisor(vec![], spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.apply_notification(ServiceNotification::Ready {
+            service_name: "ghost".to_string(),
+        });
+    }
+
+    #[tokio::test]
+    async fn apply_notification_status_update_sets_degraded() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.apply_notification(ServiceNotification::StatusUpdate {
+            service_name: "svc".to_string(),
+            new_status: ServiceStatus::Degraded,
+        });
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Degraded));
+    }
+
+    #[tokio::test]
+    async fn apply_notification_stopping_sets_stopping() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.apply_notification(ServiceNotification::Stopping {
+            service_name: "svc".to_string(),
+        });
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Stopping));
+    }
+
+    #[tokio::test]
+    async fn signal_only_exit_schedules_restart() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.handle_service_exit("svc", 1234, None, Some(9));
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
+        assert_eq!(sup.service_restart_count("svc"), Some(1));
+    }
+
+    #[tokio::test]
+    async fn no_exit_code_no_signal_schedules_restart() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.handle_service_exit("svc", 1234, None, None);
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
+        assert_eq!(sup.service_restart_count("svc"), Some(1));
+    }
+
+    #[tokio::test]
+    async fn exit_for_unknown_service_does_not_panic() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let mut sup = make_supervisor(vec![], spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.handle_service_exit("ghost", 9999, Some(1), None);
+    }
+
+    #[tokio::test]
+    async fn process_pending_restarts_respawns_due_service() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", vec![])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        injector.inject("svc", Some(1));
+        let exits = sup.reaper.wait_for_exits().await;
+        sup.process_exits(exits);
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
+        assert_eq!(sup.service_restart_count("svc"), Some(1));
+
+        let not_yet_due = sup.restart_queue.take_due(|_| false);
+        assert!(not_yet_due.is_empty());
+
+        let due = sup.restart_queue.take_due(|_| true);
+
+        // ACT
+        for name in due {
+            sup.spawn_service(name).expect("spawn");
+        }
+
+        // ASSERT
+        let status = sup.service_status("svc").cloned();
+        assert!(
+            status == Some(ServiceStatus::Starting) || status == Some(ServiceStatus::Pending),
+            "unexpected status: {status:?}"
+        );
     }
 }
