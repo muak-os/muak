@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use anyhow::{Context, Result, bail};
+use config::SystemConfig;
 use tempfile::{NamedTempFile, TempDir};
 
 /// Drives the real `muakctl` binary with per-test isolation via a temporary config directory.
@@ -88,37 +88,22 @@ impl Cli {
         Ok(())
     }
 
-    /// Runs `muakctl config generate`, applies `patches`.
+    /// Runs `muakctl config generate`, applies `patch`, and writes the result to a temp file.
     pub async fn generate_config(
         &self,
-        patches: &HashMap<&str, toml::Value>,
+        patch: impl FnOnce(&mut SystemConfig),
     ) -> Result<NamedTempFile> {
         let raw = self
             .assert_success_impl(["config", "generate"], false)
             .await?;
-        let mut doc: toml::Value =
-            toml::from_str(&raw).context("failed to parse generated config")?;
-        for (key_path, value) in patches {
-            apply_patch(&mut doc, key_path, value.clone())?;
-        }
-        let patched = toml::to_string_pretty(&doc).context("failed to serialise patched config")?;
+        let mut cfg: SystemConfig =
+            config::parse_from_str(&raw).context("failed to parse generated config")?;
+        patch(&mut cfg);
+        let patched = config::serialize(&cfg).context("failed to serialise patched config")?;
         let tmp = NamedTempFile::new().context("failed to create config tempfile")?;
         std::fs::write(tmp.path(), patched).context("failed to write config tempfile")?;
         Ok(tmp)
     }
-}
-
-fn apply_patch(doc: &mut toml::Value, key_path: &str, value: toml::Value) -> Result<()> {
-    let (section, field) = key_path
-        .split_once('.')
-        .with_context(|| format!("patch key '{key_path}' must be in 'section.field' format"))?;
-    let table = doc
-        .get_mut(section)
-        .with_context(|| format!("config section '{section}' not found"))?
-        .as_table_mut()
-        .with_context(|| format!("config section '{section}' is not a table"))?;
-    table.insert(field.to_string(), value);
-    Ok(())
 }
 
 /// Asserts that `muakctl` exits successfully and returns stdout.

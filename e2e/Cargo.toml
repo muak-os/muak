@@ -8,15 +8,15 @@ version.workspace = true
 # Asynchronous
 tokio = { workspace = true, features = ["process", "net", "time", "io-util"] }
 
-# Encoding
-toml = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 # Filesystem
 tempfile = { workspace = true }
+
+# Internal
+config = { workspace = true }
 
 [lints]
 workspace = true

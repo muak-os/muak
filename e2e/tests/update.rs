@@ -1,6 +1,5 @@
 mod common;
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use common::{boot_and_install, install_image};
@@ -11,7 +10,7 @@ use e2e::assert_success;
 async fn update() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
+    let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await;
 
     // ACT
     let stdout = tokio::time::timeout(
@@ -38,16 +37,14 @@ async fn update() {
 async fn update_config() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
+    let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await;
 
+    let image = install_image();
     let update_cfg = cli
-        .generate_config(&HashMap::from([
-            (
-                "disk.system",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("host.image", toml::Value::String(install_image())),
-        ]))
+        .generate_config(|cfg| {
+            cfg.disk.system = "/dev/nvme0n1".to_owned();
+            cfg.host.image = image;
+        })
         .await
         .expect("failed to generate update config");
 
@@ -93,21 +90,18 @@ async fn update_config() {
 async fn update_config_secureboot() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(
-        &artifacts,
-        HashMap::from([("host.secureboot", toml::Value::Boolean(false))]),
-    )
+    let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
+        cfg.host.secureboot = false;
+    })
     .await;
 
+    let image = install_image();
     let update_cfg = cli
-        .generate_config(&HashMap::from([
-            (
-                "disk.system",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("host.image", toml::Value::String(install_image())),
-            ("host.secureboot", toml::Value::Boolean(true)),
-        ]))
+        .generate_config(|cfg| {
+            cfg.disk.system = "/dev/nvme0n1".to_owned();
+            cfg.host.image = image;
+            cfg.host.secureboot = true;
+        })
         .await
         .expect("failed to generate update config");
 
@@ -162,16 +156,14 @@ async fn update_config_secureboot() {
 async fn update_rejects_image_and_config_together() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (_, cli) = boot_and_install(&artifacts, HashMap::new()).await;
+    let (_, cli) = boot_and_install(&artifacts, |_| {}).await;
 
+    let image = install_image();
     let dummy_cfg = cli
-        .generate_config(&HashMap::from([
-            (
-                "disk.system",
-                toml::Value::String("/dev/nvme0n1".to_owned()),
-            ),
-            ("host.image", toml::Value::String(install_image())),
-        ]))
+        .generate_config(|cfg| {
+            cfg.disk.system = "/dev/nvme0n1".to_owned();
+            cfg.host.image = image;
+        })
         .await
         .expect("failed to generate config for rejection test");
 
@@ -207,7 +199,7 @@ async fn update_rejects_image_and_config_together() {
 async fn update_rejects_no_source() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (_, cli) = boot_and_install(&artifacts, HashMap::new()).await;
+    let (_, cli) = boot_and_install(&artifacts, |_| {}).await;
 
     // ACT
     let output = cli

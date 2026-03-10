@@ -649,10 +649,10 @@ name = "e2e"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "config",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "toml",
 ]
 
 [[package]]

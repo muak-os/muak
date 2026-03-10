@@ -1,7 +1,5 @@
 mod common;
 
-use std::collections::HashMap;
-
 use common::boot_and_install;
 use e2e::artifacts::Artifacts;
 use e2e::assert_success;
@@ -11,10 +9,9 @@ async fn install() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
-    let (fixture, cli) = boot_and_install(
-        &artifacts,
-        HashMap::from([("host.secureboot", toml::Value::Boolean(false))]),
-    )
+    let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
+        cfg.host.secureboot = false;
+    })
     .await;
 
     // ACT
@@ -39,7 +36,7 @@ async fn install_secureboot() {
     // ARRANGE
     let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
 
-    let (fixture, cli) = boot_and_install(&artifacts, HashMap::new()).await;
+    let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await;
 
     // ACT
     let security = assert_success!(cli, ["security", "state"])

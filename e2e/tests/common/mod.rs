@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Duration;
 
 use e2e::artifacts::Artifacts;
@@ -16,11 +15,11 @@ pub fn install_image() -> String {
     format!("{registry}/installer:{tag}")
 }
 
-/// Boots a VM, runs install with the given extra config keys, waits for the
+/// Boots a VM, runs install with the given extra config patch, waits for the
 /// installed system marker, and returns the fixture + CLI driver.
 pub async fn boot_and_install(
     artifacts: &Artifacts,
-    extra_config: HashMap<&'static str, toml::Value>,
+    extra_config: impl FnOnce(&mut config::SystemConfig),
 ) -> (TestFixture, Cli) {
     let fixture = TestFixture::boot_install(artifacts)
         .await
@@ -35,17 +34,13 @@ pub async fn boot_and_install(
     let cli =
         Cli::new(&artifacts.cli_bin, fixture.vm.host_port).expect("failed to create CLI driver");
 
-    let mut config: HashMap<&str, toml::Value> = HashMap::from([
-        (
-            "disk.system",
-            toml::Value::String("/dev/nvme0n1".to_owned()),
-        ),
-        ("host.image", toml::Value::String(install_image())),
-    ]);
-    config.extend(extra_config);
-
+    let image = install_image();
     let config_file = cli
-        .generate_config(&config)
+        .generate_config(|cfg| {
+            cfg.disk.system = "/dev/nvme0n1".to_owned();
+            cfg.host.image = image;
+            extra_config(cfg);
+        })
         .await
         .expect("failed to generate install config");
 
