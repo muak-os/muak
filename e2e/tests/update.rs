@@ -42,7 +42,10 @@ async fn update_config() {
 
     let update_cfg = cli
         .generate_config(&HashMap::from([
-            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            (
+                "disk.system",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
             ("host.image", toml::Value::String(install_image())),
         ]))
         .await
@@ -98,7 +101,10 @@ async fn update_config_secureboot() {
 
     let update_cfg = cli
         .generate_config(&HashMap::from([
-            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            (
+                "disk.system",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
             ("host.image", toml::Value::String(install_image())),
             ("host.secureboot", toml::Value::Boolean(true)),
         ]))
@@ -160,7 +166,10 @@ async fn update_rejects_image_and_config_together() {
 
     let dummy_cfg = cli
         .generate_config(&HashMap::from([
-            ("host.disk", toml::Value::String("/dev/nvme0n1".to_owned())),
+            (
+                "disk.system",
+                toml::Value::String("/dev/nvme0n1".to_owned()),
+            ),
             ("host.image", toml::Value::String(install_image())),
         ]))
         .await

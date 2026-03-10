@@ -91,14 +91,27 @@ pub fn wipe_disk(disk: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validates that a disk is suitable as an install target.
-pub fn validate_install_target(disk_path: &str, force: bool) -> Result<()> {
+/// Validates that the system and data disks are suitable install targets.
+pub fn validate_install_target(system_disk: &str, data_disk: &str, force: bool) -> Result<()> {
     if !force && Path::new(sysconfig::CONFIG_PATH).exists() {
         bail!(
             "Cannot install from an already-installed system. Boot from live ISO or use --force."
         );
     }
 
+    validate_disk(system_disk, force)
+        .with_context(|| format!("System disk '{}' failed validation", system_disk))?;
+
+    if data_disk != system_disk {
+        validate_disk(data_disk, force)
+            .with_context(|| format!("Data disk '{}' failed validation", data_disk))?;
+    }
+
+    Ok(())
+}
+
+/// Validates a disk as a suitable install target.
+fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
     if !Path::new(disk_path).exists() {
         bail!("Disk '{}' does not exist", disk_path);
     }
@@ -118,7 +131,8 @@ pub fn validate_install_target(disk_path: &str, force: bool) -> Result<()> {
     sync();
     unmount_all(&mounted)?;
 
-    if !force && super::has_existing_partitions(disk_path)? {
+    let has_partitions = super::has_existing_partitions(disk_path)?;
+    if has_partitions && !force {
         bail!(
             "Disk '{}' has existing partitions. Use --force to overwrite.",
             disk_path

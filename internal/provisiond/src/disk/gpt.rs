@@ -1,24 +1,45 @@
 //! GPT partition table management and manipulation.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
 use super::utils::{format_partition_name, wait_for_device};
 
+/// Returns `true` when `disk` has a valid MBR boot signature with a non-GPT partition type.
+fn is_mbr_disk(disk: &str) -> Result<bool> {
+    let mut f = File::open(disk)?;
+    let mut sector = [0u8; 512];
+    f.read_exact(&mut sector)?;
+
+    let boot_sig = u16::from_le_bytes([sector[510], sector[511]]);
+    if boot_sig != 0xAA55 {
+        return Ok(false);
+    }
+
+    // Partition type byte is at offset 446 + 4 = 450 (first entry).
+    let part_type = sector[450];
+    // 0x00 = empty entry (blank disk), 0xEE = GPT protective MBR — both are fine.
+    Ok(part_type != 0x00 && part_type != 0xEE)
+}
+
 /// Checks if a disk has existing partitions in its GPT.
 pub fn has_existing_partitions(disk: &str) -> Result<bool> {
-    let mut f = File::open(disk)?;
+    if is_mbr_disk(disk)? {
+        bail!(
+            "Disk '{}' has an MBR partition table. Only GPT disks are supported. \
+             Wipe the disk first or use a different one.",
+            disk
+        );
+    }
 
+    let mut f = File::open(disk)?;
     match GPT::find_from(&mut f) {
-        Ok(gpt) => {
-            let count = gpt.iter().count();
-            Ok(count > 0)
-        }
+        Ok(gpt) => Ok(gpt.iter().count() > 0),
         Err(_) => Ok(false),
     }
 }
@@ -27,18 +48,12 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
 fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
     let mut pmbr = [0u8; 512];
 
-    // Boot signature
     pmbr[510] = 0x55;
     pmbr[511] = 0xAA;
-
-    // Partition entry at offset 446
     pmbr[446] = 0x00; // Not bootable
     pmbr[450] = 0xEE; // GPT protective type
+    pmbr[454] = 0x01; // Starting LBA = 1
 
-    // Starting LBA = 1
-    pmbr[454] = 0x01;
-
-    // Size in sectors (total LBAs - 1)
     let total_lbas = disk_size / SECTOR_SIZE;
     let part_size = if total_lbas > 0 { total_lbas - 1 } else { 0 } as u32;
     pmbr[458..462].copy_from_slice(&part_size.to_le_bytes());
@@ -49,39 +64,45 @@ fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
     Ok(())
 }
 
-/// Creates EFI, STATE, and DATA partitions on the specified disk.
-pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
-    kmsg::info!("Creating GPT partition table on {}", disk);
+fn align_up(lba: u64, align: u64) -> u64 {
+    if lba.is_multiple_of(align) {
+        lba
+    } else {
+        lba + (align - (lba % align))
+    }
+}
 
+fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
+    let size = f.seek(std::io::SeekFrom::End(0))?;
+    Ok((f, size))
+}
 
-    let disk_size = f.seek(std::io::SeekFrom::End(0))?;
+fn verify_gpt(disk: &str) {
+    match OpenOptions::new().read(true).open(disk) {
+        Ok(mut f) => match GPT::find_from(&mut f) {
+            Ok(gpt) => {
+                let count = gpt.iter().filter(|(_, p)| p.is_used()).count();
+                kmsg::info!("Verified: GPT on {} has {} used partitions", disk, count);
+            }
+            Err(e) => kmsg::warn!("Could not verify GPT on {}: {}", disk, e),
+        },
+        Err(e) => kmsg::warn!("Could not open {} for GPT verification: {}", disk, e),
+    }
+}
 
-    kmsg::info!("Disk size: {} GB", disk_size / super::constants::GB);
+/// Creates EFI and STATE on the system disk.
+pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
+    kmsg::info!("Creating GPT with EFI+STATE on system disk {}", disk);
+
+    let (mut f, disk_size) = open_disk_rw(disk)?;
+    kmsg::info!("System disk size: {} GB", disk_size / super::constants::GB);
 
     let mut gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
 
-    let efi_sectors = EFI_SIZE / SECTOR_SIZE;
-    let state_sectors = STATE_SIZE / SECTOR_SIZE;
-
-    let first_usable = gpt.header.first_usable_lba;
-    let last_usable = gpt.header.last_usable_lba;
-
-    let align_lba: u64 = 2048;
-    let align_up = |lba: u64| -> u64 {
-        if lba.is_multiple_of(align_lba) {
-            lba
-        } else {
-            lba + (align_lba - (lba % align_lba))
-        }
-    };
-
-    let efi_start = if first_usable < align_lba {
-        align_lba
-    } else {
-        align_up(first_usable)
-    };
-    let efi_end = efi_start + efi_sectors - 1;
+    const ALIGN: u64 = 2048;
+    let efi_start = align_up(gpt.header.first_usable_lba.max(ALIGN), ALIGN);
+    let efi_end = efi_start + EFI_SIZE / SECTOR_SIZE - 1;
 
     gpt[1] = GPTPartitionEntry {
         partition_type_guid: EFI_GUID,
@@ -92,8 +113,8 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         partition_name: "EFI".into(),
     };
 
-    let state_start = align_up(efi_end + 1);
-    let state_end = state_start + state_sectors - 1;
+    let state_start = align_up(efi_end + 1, ALIGN);
+    let state_end = state_start + STATE_SIZE / SECTOR_SIZE - 1;
 
     gpt[2] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
@@ -104,10 +125,68 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
         partition_name: "STATE".into(),
     };
 
-    let data_start = align_up(state_end + 1);
-    let data_end = last_usable;
+    gpt.write_into(&mut f)?;
+    write_protective_mbr(&mut f, disk_size)?;
+    f.sync_all()?;
+    drop(f);
 
-    gpt[3] = GPTPartitionEntry {
+    verify_gpt(disk);
+
+    add_partition_blkpg(disk, 1, efi_start, efi_end)?;
+    add_partition_blkpg(disk, 2, state_start, state_end)?;
+
+    kmsg::info!("System partitions registered on {}", disk);
+
+    let efi_part = format_partition_name(disk, 1);
+    let state_part = format_partition_name(disk, 2);
+
+    wait_for_device(&efi_part)?;
+
+    Ok((efi_part, state_part))
+}
+
+/// Creates a DATA partition filling the remaining space on `disk`.
+pub fn create_data_partition(disk: &str) -> Result<String> {
+    let (mut f, disk_size) = open_disk_rw(disk)?;
+    kmsg::info!("Data disk size: {} GB", disk_size / super::constants::GB);
+
+    const ALIGN: u64 = 2048;
+
+    f.seek(std::io::SeekFrom::Start(0))?;
+    let (mut gpt, data_num, data_start) = match GPT::find_from(&mut f) {
+        Ok(existing) => {
+            let last_end = existing
+                .iter()
+                .filter(|(_, p)| p.is_used())
+                .map(|(_, p)| p.ending_lba)
+                .max()
+                .unwrap_or(existing.header.first_usable_lba.saturating_sub(1));
+            let next_num = existing
+                .iter()
+                .filter(|(_, p)| p.is_used())
+                .map(|(n, _)| n)
+                .max()
+                .map_or(1, |n| n + 1);
+            let start = align_up(last_end + 1, ALIGN);
+            kmsg::info!(
+                "Appending DATA as partition {} on existing GPT on {}",
+                next_num,
+                disk
+            );
+            (existing, next_num, start)
+        }
+        Err(_) => {
+            f.seek(std::io::SeekFrom::Start(0))?;
+            let gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
+            let start = align_up(gpt.header.first_usable_lba.max(ALIGN), ALIGN);
+            kmsg::info!("Creating new GPT with DATA as partition 1 on {}", disk);
+            (gpt, 1, start)
+        }
+    };
+
+    let data_end = gpt.header.last_usable_lba;
+
+    gpt[data_num] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
         unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
         starting_lba: data_start,
@@ -121,31 +200,16 @@ pub fn create_partitions(disk: &str) -> Result<(String, String, String)> {
     f.sync_all()?;
     drop(f);
 
-    let mut verify_f = OpenOptions::new().read(true).open(disk)?;
-    match GPT::find_from(&mut verify_f) {
-        Ok(verify_gpt) => {
-            let count = verify_gpt.iter().filter(|(_, p)| p.is_used()).count();
-            kmsg::info!("Verified: GPT has {} used partitions", count);
-        }
-        Err(e) => {
-            kmsg::warn!("Could not verify GPT: {}", e);
-        }
-    }
-    drop(verify_f);
+    verify_gpt(disk);
 
-    add_partition_blkpg(disk, 1, efi_start, efi_end)?;
-    add_partition_blkpg(disk, 2, state_start, state_end)?;
-    add_partition_blkpg(disk, 3, data_start, data_end)?;
+    add_partition_blkpg(disk, data_num, data_start, data_end)?;
 
-    kmsg::info!("All partitions registered successfully");
+    kmsg::info!("Data partition {} registered on {}", data_num, disk);
 
-    let efi_part = format_partition_name(disk, 1);
-    let state_part = format_partition_name(disk, 2);
-    let data_part = format_partition_name(disk, 3);
+    let data_part = format_partition_name(disk, data_num);
+    wait_for_device(&data_part)?;
 
-    wait_for_device(&efi_part)?;
-
-    Ok((efi_part, state_part, data_part))
+    Ok(data_part)
 }
 
 /// Deletes the specified partitions from the GPT and removes their device nodes from the kernel.

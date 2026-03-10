@@ -6,12 +6,15 @@
 
 [host]
 name = "muak"
-disk = ""
 image = "ghcr.io/muak-os/installer:latest"
 extensions = []
 secureboot = true
 port = 50051
 ntp = "pool.ntp.org"
+
+[disk]
+system = ""
+# data = ""
 
 [network]
 ipv6 = true

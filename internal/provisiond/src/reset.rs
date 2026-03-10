@@ -9,8 +9,9 @@ use crate::disk;
 pub fn factory_reset() -> Result<()> {
     kmsg::info!("Starting factory reset...");
 
-    let disk = sysconfig::config().host.disk.clone();
-    if disk.is_empty() {
+    let disk_config = &sysconfig::config().disk;
+    let system_disk = disk_config.system.clone();
+    if system_disk.is_empty() {
         bail!("System disk not configured");
     }
 
@@ -24,7 +25,13 @@ pub fn factory_reset() -> Result<()> {
         kmsg::warn!("Failed to close LUKS STATE mapping (may not exist): {}", e);
     }
 
-    disk::delete_partitions(&disk, &[2, 3])?;
+    if disk_config.is_split() {
+        let data_disk = disk_config.data_disk().to_string();
+        disk::delete_partitions(&system_disk, &[2])?;
+        disk::delete_partitions(&data_disk, &[1])?;
+    } else {
+        disk::delete_partitions(&system_disk, &[2, 3])?;
+    }
 
     kmsg::info!("Factory reset complete");
     Ok(())

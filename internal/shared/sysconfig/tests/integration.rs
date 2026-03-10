@@ -10,10 +10,12 @@ fn test_load_from_path_with_file() {
     let config_path = temp_dir.path().join("config.toml");
     let config_content = r#"
 [host]
-disk = "test_disk"
 image = "test_image"
 extensions = ["ext1", "ext2"]
 port = 8080
+
+[disk]
+system = "test_disk"
 
 [network]
 ipv6 = true
@@ -27,7 +29,7 @@ auto_restart = false
     let config = parse_from_str(config_content).unwrap();
 
     // ASSERT
-    assert_eq!(config.host.disk, "test_disk");
+    assert_eq!(config.disk.system, "test_disk");
     assert_eq!(config.network.ipv6, true);
     assert_eq!(config.vm.auto_restart, false);
 }

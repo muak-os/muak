@@ -22,15 +22,17 @@ use crate::uki::Uki;
 /// Working directory for installation operations.
 const INSTALL_DIR: &str = "/run/install";
 
-/// Installs Muak to the specified disk with the given configuration.
+/// Installs Muak to the specified disks with the given configuration.
 pub async fn run(
-    disk_path: &str,
+    system_disk: &str,
+    data_disk: &str,
     force: bool,
     config: &SystemConfig,
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    let sb_hierarchy = setup_security(disk_path, force, config, &progress).await?;
+    validate_disks(system_disk, data_disk, force, &progress).await?;
+    let sb_hierarchy = setup_security(config, &progress).await?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let uki = prepare_uki(
         &config.host.image,
@@ -41,7 +43,7 @@ pub async fn run(
     )
     .await?;
 
-    let partitions = partition_disk(disk_path, &progress).await?;
+    let partitions = partition_disks(system_disk, data_disk, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
     match uki.seal_result {
@@ -78,19 +80,27 @@ pub async fn run(
     Ok(pki_result.client_result)
 }
 
-async fn setup_security(
-    disk_path: &str,
+async fn validate_disks(
+    system_disk: &str,
+    data_disk: &str,
     force: bool,
-    config: &SystemConfig,
     progress: &mpsc::Sender<InstallProgress>,
-) -> Result<Option<sbolt::keys::KeyHierarchy>> {
-    send_progress(progress, &format!("Validating disk {}", disk_path)).await;
+) -> Result<()> {
+    send_progress(progress, "Validating disks").await;
     tokio::task::spawn_blocking({
-        let disk_path = disk_path.to_string();
-        move || disk::validate_install_target(&disk_path, force)
+        let system_disk = system_disk.to_string();
+        let data_disk = data_disk.to_string();
+        move || disk::validate_install_target(&system_disk, &data_disk, force)
     })
     .await??;
 
+    Ok(())
+}
+
+async fn setup_security(
+    config: &SystemConfig,
+    progress: &mpsc::Sender<InstallProgress>,
+) -> Result<Option<sbolt::keys::KeyHierarchy>> {
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     if let Some(ref hierarchy) = sb_hierarchy {
         send_progress(progress, "Enrolling secureboot keys").await;
@@ -183,26 +193,36 @@ struct PartitionInfo {
     data_part: String,
 }
 
-async fn partition_disk(
-    disk_path: &str,
+/// Partitions both the system disk (EFI + STATE) and the data disk (DATA).
+async fn partition_disks(
+    system_disk: &str,
+    data_disk: &str,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
-    send_progress(progress, &format!("Partitioning disk {}", disk_path)).await;
-    let result = tokio::task::spawn_blocking({
-        let disk_path = disk_path.to_string();
-        move || -> Result<_> {
-            disk::delete_all_partitions_blkpg(&disk_path)?;
-            disk::wipe_disk(&disk_path)?;
-            disk::create_partitions(&disk_path)
+    send_progress(progress, &format!("Partitioning {}", system_disk)).await;
+
+    tokio::task::spawn_blocking({
+        let system_disk = system_disk.to_string();
+        let data_disk = data_disk.to_string();
+        move || {
+            disk::delete_all_partitions_blkpg(&system_disk)?;
+            disk::wipe_disk(&system_disk)?;
+            let (efi_part, state_part) = disk::create_system_partitions(&system_disk)?;
+
+            if system_disk != data_disk {
+                disk::delete_all_partitions_blkpg(&data_disk)?;
+                disk::wipe_disk(&data_disk)?;
+            }
+            let data_part = disk::create_data_partition(&data_disk)?;
+
+            Ok(PartitionInfo {
+                efi_part,
+                state_part,
+                data_part,
+            })
         }
     })
-    .await??;
-
-    Ok(PartitionInfo {
-        efi_part: result.0,
-        state_part: result.1,
-        data_part: result.2,
-    })
+    .await?
 }
 
 async fn format_partitions(

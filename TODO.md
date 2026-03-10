@@ -1,10 +1,12 @@
 # TODO
 
-- Fix build chain to not split between oci and local. Just do oci and then extract locally
+- Handle rollback of updates properly in CLI
 
 - Fix CI caching
 
 - Support for Raspbnerry Pi like devices using .img installation
+
+- Support for containers like LXC and OCI
 
 - Better CLI
   - Handle different cli vs server versions for gRPC client/server compatibility
@@ -13,7 +15,7 @@
   - Create install script for users to easily install the CLI regardless of OS
   - Create a dashboard command with a TUI interface to display critical system information
 
-- Enhance networking:
+- Enhance `networkd`:
   - Fix order of things: no gateway = fail & no connectivity = fail
   - Automatic failover when primary interface fails
   - Bridge migration to back-up interface
@@ -30,30 +32,22 @@
   - Btrfs snapshots use COW, so only changed blocks consume space
   - Create one golden image, snapshot for each VM to avoid duplication
 
-- **Allow /run/data to be on a different disk than rootfs**
-
-- Add e2e testing:
-  - Unit tests & Integration tests
-  - Mock system calls etc
-  - Target 80% coverage
-  - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
-  - Deterministic simulation tests?
-
-- Sign all extensions and verify them in `imager`
+- Target 80% coverage using unit & integration tests
+- Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
+- Deterministic simulation tests?
 
 - Enchance `vmd`:
   - Allow for ISO images for vms
   - Rework commands to be pass through to the hypervisor
 
-- Only allow signed installer images to be installed
-
-- Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
-  - Generate SBOM
+- Improve security:
+  - Add SElinux & enforce
+  - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
+  - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
   - Consolidate crypto crates and primitives to `internal/shared/crypto` if possible
+  - Sign extensions and verify them in `imager` for better supply chain security
 
-- Support for containers like LXC and Docker
-
-- Support Apple M1/M2 using Asahi Linux
+- Support Apple M processor chips
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)
 - Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs or

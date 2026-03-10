@@ -172,7 +172,7 @@ pub(super) fn update_config(
         sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
 
     let mut merged = new_config.clone();
-    merged.host.disk = config.host.disk.clone();
+    merged.disk = config.disk.clone();
 
     let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;

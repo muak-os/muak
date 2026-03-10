@@ -14,12 +14,13 @@ pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
 
 const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
 
-/// Top-level system configuration covering host, network, and VM settings.
+/// Top-level system configuration covering host, disk, network, and VM settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 #[derive(Default)]
 pub struct SystemConfig {
     pub host: HostConfig,
+    pub disk: DiskConfig,
     pub network: NetworkConfig,
     pub vm: VmConfig,
 }
@@ -43,9 +44,9 @@ impl SystemConfig {
     /// Validates that the config is complete enough for installation.
     pub fn validate_for_install(&self) -> Result<()> {
         self.validate()?;
-        if self.host.disk.is_empty() {
+        if self.disk.system.is_empty() {
             return Err(ConfigError::ValidationError(
-                "host.disk must be specified for installation".to_string(),
+                "disk.system must be specified for installation".to_string(),
             ));
         }
         Ok(())
@@ -54,10 +55,17 @@ impl SystemConfig {
     /// Validates that the config is acceptable for an update operation.
     pub fn validate_for_update(&self, installed: &SystemConfig) -> Result<()> {
         self.validate()?;
-        if self.host.disk != installed.host.disk {
+        if self.disk.system != installed.disk.system {
             return Err(ConfigError::ValidationError(format!(
-                "host.disk cannot be changed after install (installed: '{}', requested: '{}')",
-                installed.host.disk, self.host.disk
+                "disk.system cannot be changed after install (installed: '{}', requested: '{}')",
+                installed.disk.system, self.disk.system
+            )));
+        }
+        if self.disk.data_disk() != installed.disk.data_disk() {
+            return Err(ConfigError::ValidationError(format!(
+                "disk.data cannot be changed after install (installed: '{}', requested: '{}')",
+                installed.disk.data_disk(),
+                self.disk.data_disk()
             )));
         }
         if installed.host.secureboot && !self.host.secureboot {
@@ -76,12 +84,34 @@ include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 #[serde(default)]
 pub struct HostConfig {
     pub name: String,
-    pub disk: String,
     pub image: String,
     pub extensions: Vec<String>,
     pub secureboot: bool,
     pub port: u16,
     pub ntp: String,
+}
+
+/// Disk assignment configuration for system and data partitions.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct DiskConfig {
+    pub system: String,
+    pub data: Option<String>,
+}
+
+impl DiskConfig {
+    /// Returns the effective data disk path, falling back to `system` when `data` is unset.
+    pub fn data_disk(&self) -> &str {
+        match &self.data {
+            Some(d) if !d.is_empty() => d.as_str(),
+            _ => &self.system,
+        }
+    }
+
+    /// Returns true when the data partition lives on a separate physical disk.
+    pub fn is_split(&self) -> bool {
+        matches!(&self.data, Some(d) if !d.is_empty() && d != &self.system)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +185,7 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
-        config.host.disk = "test".to_string();
+        config.disk.system = "/dev/sda".to_string();
 
         // ACT & ASSERT
         assert!(config.validate().is_ok());
@@ -177,7 +207,7 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
-        config.host.disk = "".to_string();
+        config.disk.system = String::new();
 
         // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
@@ -201,14 +231,29 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_rejects_disk_change() {
+    fn test_validate_for_update_rejects_system_disk_change() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
-        installed.host.disk = "/dev/sda".to_string();
+        installed.disk.system = "/dev/sda".to_string();
 
         let mut requested = installed.clone();
-        requested.host.disk = "/dev/sdb".to_string();
+        requested.disk.system = "/dev/sdb".to_string();
+
+        // ACT & ASSERT
+        assert!(requested.validate_for_update(&installed).is_err());
+    }
+
+    #[test]
+    fn test_validate_for_update_rejects_data_disk_change() {
+        // ARRANGE
+        let mut installed = SystemConfig::default();
+        installed.host.port = 8080;
+        installed.disk.system = "/dev/sda".to_string();
+        installed.disk.data = Some("/dev/sdb".to_string());
+
+        let mut requested = installed.clone();
+        requested.disk.data = Some("/dev/sdc".to_string());
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -285,5 +330,29 @@ permissions = ["admin"]
 
         // ASSERT
         assert_eq!(config.host.name, "muak");
+    }
+
+    #[test]
+    fn test_disk_config_data_disk_fallback() {
+        // ARRANGE
+        let mut disk = DiskConfig::default();
+        disk.system = "/dev/sda".to_string();
+
+        // ACT & ASSERT
+        assert_eq!(disk.data_disk(), "/dev/sda");
+        assert!(!disk.is_split());
+    }
+
+    #[test]
+    fn test_disk_config_split() {
+        // ARRANGE
+        let disk = DiskConfig {
+            system: "/dev/sda".to_string(),
+            data: Some("/dev/sdb".to_string()),
+        };
+
+        // ACT & ASSERT
+        assert_eq!(disk.data_disk(), "/dev/sdb");
+        assert!(disk.is_split());
     }
 }

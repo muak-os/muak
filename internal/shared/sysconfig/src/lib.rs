@@ -28,7 +28,7 @@ pub use auth::{AUTH_EXTENSION, AUTH_PATH, AuthConfig, AuthUser, serialize as ser
 pub use error::{ConfigError, Result};
 pub use permission::Permission;
 pub use system::{
-    CONFIG_EXTENSION, CONFIG_PATH, HostConfig, NetworkConfig, SystemConfig, VmConfig,
+    CONFIG_EXTENSION, CONFIG_PATH, DiskConfig, HostConfig, NetworkConfig, SystemConfig, VmConfig,
     load_from_path, parse_from_str, serialize, serialize_default,
 };
 pub use version::check_no_downgrade;

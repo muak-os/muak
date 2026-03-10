@@ -51,8 +51,15 @@ impl ProvisionService for ProvisionServiceImpl {
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                let disk = config.host.disk.clone();
-                install::run(&disk, force, &config, &csr, progress_tx).await
+                install::run(
+                    &config.disk.system.clone(),
+                    &config.disk.data_disk().to_string(),
+                    force,
+                    &config,
+                    &csr,
+                    progress_tx,
+                )
+                .await
             },
             move |result, out_tx| {
                 let msg = match result {
