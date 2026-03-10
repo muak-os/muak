@@ -397,4 +397,232 @@ permissions = ["admin"]
         assert_eq!(disk.data_disk(), "/dev/sdb");
         assert!(disk.is_split());
     }
+
+    #[test]
+    fn test_validation_failure_empty_name() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.name = String::new();
+        config.host.port = 8080;
+
+        // ACT & ASSERT
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_serialize_round_trip() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.port = 9090;
+        config.host.name = "testhost".to_string();
+        config.disk.system = "/dev/nvme0n1".to_string();
+        config.network.ipv6 = true;
+        config.vm.auto_restart = true;
+
+        // ACT
+        let s = serialize(&config).unwrap();
+        let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
+
+        // ASSERT
+        assert_eq!(restored.host.port, 9090);
+        assert_eq!(restored.host.name, "testhost");
+        assert_eq!(restored.disk.system, "/dev/nvme0n1");
+        assert!(restored.network.ipv6);
+        assert!(restored.vm.auto_restart);
+    }
+
+    #[test]
+    fn test_parse_from_str_valid() {
+        // ARRANGE
+        let toml_str = r#"
+[host]
+name = "myhost"
+port = 1234
+"#;
+
+        // ACT
+        let config = parse_from_str(toml_str).unwrap();
+
+        // ASSERT
+        assert_eq!(config.host.name, "myhost");
+        assert_eq!(config.host.port, 1234);
+    }
+
+    #[test]
+    fn test_parse_from_str_invalid_format_error() {
+        // ACT
+        let result = parse_from_str("[[[ invalid");
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_from_str_validation_error() {
+        // ARRANGE
+        let str = "[host]\nport = 0\n";
+
+        // ACT
+        let result = parse_from_str(str);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_from_path_existing_file() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let content = "[host]\nname = \"loaded\"\nport = 7777\n";
+        std::fs::write(&path, content).unwrap();
+
+        // ACT
+        let config = load_from_path(&path).unwrap();
+
+        // ASSERT
+        assert_eq!(config.host.name, "loaded");
+        assert_eq!(config.host.port, 7777);
+    }
+
+    #[test]
+    fn test_load_from_path_nonexistent_uses_default() {
+        // ARRANGE
+        let path = std::path::Path::new("/nonexistent/config.toml");
+
+        // ACT
+        let config = load_from_path(path).unwrap();
+
+        // ASSERT
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_disk_config_empty_data_string_falls_back_to_system() {
+        // ARRANGE
+        let disk = DiskConfig {
+            system: "/dev/sda".to_string(),
+            data: Some(String::new()),
+        };
+
+        // ACT & ASSERT
+        assert_eq!(disk.data_disk(), "/dev/sda");
+        assert!(!disk.is_split());
+    }
+
+    #[test]
+    fn test_diff_no_changes() {
+        // ARRANGE
+        let config = "[host]\nname = \"x\"\nport = 1\n";
+
+        // ACT
+        let changes = diff(config, config).unwrap();
+
+        // ASSERT
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_diff_changed_scalar() {
+        // ARRANGE
+        let a = "[host]\nname = \"alpha\"\nport = 8080\n";
+        let b = "[host]\nname = \"beta\"\nport = 8080\n";
+
+        // ACT
+        let changes = diff(a, b).unwrap();
+
+        // ASSERT
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].0, "host.name");
+        assert!(changes[0].1.contains("alpha"));
+        assert!(changes[0].2.contains("beta"));
+    }
+
+    #[test]
+    fn test_diff_added_key() {
+        // ARRANGE
+        let a = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
+        let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+
+        // ACT
+        let changes = diff(a, b).unwrap();
+
+        // ASSERT
+        let found = changes.iter().any(|(k, before, after)| {
+            k == "network.ipv6" && before.contains("false") && after.contains("true")
+        });
+        assert!(found, "expected network.ipv6 change, got: {:?}", changes);
+    }
+
+    #[test]
+    fn test_diff_removed_key() {
+        // ARRANGE
+        let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+        let b = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
+
+        // ACT
+        let changes = diff(a, b).unwrap();
+
+        // ASSERT
+        let found = changes.iter().any(|(k, before, after)| {
+            k == "network.ipv6" && before.contains("true") && after.contains("false")
+        });
+        assert!(found, "expected network.ipv6 change, got: {:?}", changes);
+    }
+
+    #[test]
+    fn test_diff_whole_section_added() {
+        // ARRANGE
+        let a = "[host]\nport = 1\n";
+        let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+
+        // ACT
+        let changes = diff(a, b).unwrap();
+
+        // ASSERT
+        let found = changes
+            .iter()
+            .any(|(k, before, _after)| k == "network" && before.is_empty());
+        assert!(found, "expected network section added, got: {:?}", changes);
+    }
+
+    #[test]
+    fn test_diff_whole_section_removed() {
+        // ARRANGE
+        let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+        let b = "[host]\nport = 1\n";
+
+        // ACT
+        let changes = diff(a, b).unwrap();
+
+        // ASSERT
+        let found = changes
+            .iter()
+            .any(|(k, _before, after)| k == "network" && after.is_empty());
+        assert!(
+            found,
+            "expected network section removed, got: {:?}",
+            changes
+        );
+    }
+
+    #[test]
+    fn test_host_config_fields() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.image = "myimage".to_string();
+        config.host.extensions = vec!["ext1".to_string()];
+        config.host.ntp = "pool.ntp.org".to_string();
+        config.host.secureboot = true;
+
+        // ACT
+        let s = serialize(&config).unwrap();
+        let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
+
+        // ASSERT
+        assert_eq!(restored.host.image, "myimage");
+        assert_eq!(restored.host.extensions, vec!["ext1"]);
+        assert_eq!(restored.host.ntp, "pool.ntp.org");
+        assert!(restored.host.secureboot);
+    }
 }

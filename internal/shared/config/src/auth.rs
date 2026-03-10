@@ -185,6 +185,48 @@ mod tests {
     }
 
     #[test]
+    fn test_auth_multiple_users_and_permissions() {
+        // ARRANGE
+        let config = AuthConfig {
+            users: vec![
+                AuthUser {
+                    fingerprint: "fp1".to_string(),
+                    permissions: vec![Permission::Admin, Permission::VmRead],
+                },
+                AuthUser {
+                    fingerprint: "fp2".to_string(),
+                    permissions: vec![Permission::SystemRead],
+                },
+            ],
+            revoked: vec!["dead_fp".to_string(), "another_dead".to_string()],
+        };
+
+        // ACT
+        let serialized = serialize(&config).unwrap();
+        let deserialized = parse(&serialized).unwrap();
+
+        // ASSERT
+        assert_eq!(deserialized.users.len(), 2);
+        assert_eq!(deserialized.users[0].permissions.len(), 2);
+        assert_eq!(deserialized.users[1].fingerprint, "fp2");
+        assert_eq!(deserialized.revoked.len(), 2);
+    }
+
+    #[test]
+    fn test_serialize_empty_config() {
+        // ARRANGE
+        let config = AuthConfig::default();
+
+        // ACT
+        let serialized = serialize(&config).unwrap();
+        let deserialized = parse(&serialized).unwrap();
+
+        // ASSERT
+        assert!(deserialized.users.is_empty());
+        assert!(deserialized.revoked.is_empty());
+    }
+
+    #[test]
     fn test_load_from_nonexistent_path() {
         // ARRANGE
         let path = Path::new("/nonexistent/auth.toml");
@@ -214,6 +256,30 @@ mod tests {
         // ASSERT
         assert_eq!(config.users.len(), 1);
         assert_eq!(config.users[0].fingerprint, "fp1");
+    }
+
+    #[test]
+    fn test_load_from_path_invalid_format_returns_error() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.toml");
+        std::fs::write(&path, "[[[ not valid toml").unwrap();
+
+        // ACT
+        let result = load_from_path(&path);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_with_mtime_nonexistent_returns_default() {
+        // ACT
+        let (config, mtime) = load_with_mtime();
+
+        // ASSERT
+        assert!(config.users.is_empty());
+        assert_eq!(mtime, 0);
     }
 
     #[test]
