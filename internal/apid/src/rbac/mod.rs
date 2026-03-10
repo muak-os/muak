@@ -18,7 +18,7 @@ pub fn check_access(path: &str, client_fingerprint: Option<&str>) -> Result<(), 
         | MethodRequirement::MaintenanceOrPermission(required) => {
             let fingerprint = client_fingerprint.ok_or(RbacError::Unauthenticated)?;
 
-            let auth = sysconfig::auth();
+            let auth = config::auth();
 
             if auth.revoked.contains(&fingerprint.to_string()) {
                 return Err(RbacError::CertificateRevoked);

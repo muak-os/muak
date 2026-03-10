@@ -10,14 +10,14 @@ use rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::TlsAcceptor;
 use x509_cert::der::Encode;
 
-use crate::config;
+use crate::constants;
 
 /// Loads TLS config from default disk paths.
 pub fn load_tls_config() -> Result<TlsAcceptor> {
     load_tls_config_with_paths(
-        config::CA_CERT_PATH,
-        config::SERVER_CERT_PATH,
-        config::SERVER_KEY_PATH,
+        constants::CA_CERT_PATH,
+        constants::SERVER_CERT_PATH,
+        constants::SERVER_KEY_PATH,
     )
 }
 

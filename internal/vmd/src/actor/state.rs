@@ -161,7 +161,7 @@ impl VmActor {
             if was_running {
                 entry.state = VmState::Stopped;
                 entry.tap_device = None;
-                if sysconfig::vm().auto_restart {
+                if config::vm().auto_restart {
                     pending_restarts.push(vm_id.clone());
                     println!("VM {} was running, will restart", entry.config.name);
                 } else {

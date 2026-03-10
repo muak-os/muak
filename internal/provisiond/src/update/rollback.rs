@@ -53,7 +53,7 @@ fn save(update_id: &str, reason: &str) -> Result<()> {
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let failed_image = sysconfig::host().image.clone();
+    let failed_image = config::host().image.clone();
 
     let info = RollbackInfo {
         update_id: update_id.to_string(),

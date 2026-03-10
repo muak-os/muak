@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Result, bail};
 use tokio::time::timeout;
 
-use crate::config::{CONNECTIVITY_OVERALL_TIMEOUT_SECS, CONNECTIVITY_PROBE_TIMEOUT_SECS};
+use crate::constants::{CONNECTIVITY_OVERALL_TIMEOUT_SECS, CONNECTIVITY_PROBE_TIMEOUT_SECS};
 use crate::model::{ConnectivityResult, ConnectivityStatus};
 
 #[derive(Debug, Clone)]

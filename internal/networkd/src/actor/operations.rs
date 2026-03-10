@@ -5,8 +5,8 @@ use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
-use crate::config;
 use crate::connectivity::{self, ConnectivityConfig};
+use crate::constants;
 use crate::dhcpv4::run_dhcp_client;
 use crate::dns::{configure_dns, configure_dns_v6};
 use crate::interface::{Interface, InterfaceSelector, LinkState, discover_ethernet_interfaces};
@@ -25,7 +25,7 @@ impl NetworkActor {
         self.discover_interfaces().await?;
         self.acquire_dhcp_on_primary(cmd_tx).await?;
 
-        if sysconfig::network().ipv6 {
+        if config::network().ipv6 {
             self.try_acquire_slaac_on_primary(cmd_tx).await;
         }
 
@@ -53,7 +53,7 @@ impl NetworkActor {
             bail!("no ethernet interfaces found");
         }
 
-        let timeout = Duration::from_secs(config::CARRIER_TIMEOUT_SECS);
+        let timeout = Duration::from_secs(constants::CARRIER_TIMEOUT_SECS);
         let carrier_states = self.probe_all_for_carrier(&discovered, timeout).await;
 
         let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
@@ -62,7 +62,7 @@ impl NetworkActor {
             self.publish_state();
             bail!(
                 "no carrier detected on any interface after {}s - check cable connections",
-                config::CARRIER_TIMEOUT_SECS
+                constants::CARRIER_TIMEOUT_SECS
             );
         }
 
@@ -453,19 +453,19 @@ impl NetworkActor {
 
         println!(
             "Setting up bridge {} with primary {}",
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             primary
         );
         bridge::ensure_bridge_with_ip_transfer(
             &self.handle,
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             &primary,
             gateway,
         )
         .await?;
         println!(
             "Bridge setup complete: {} <- {}",
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             primary
         );
 
@@ -483,7 +483,7 @@ impl NetworkActor {
 
         self.cancel_renewal_tasks(&primary);
 
-        let index = link::get_link_index(&self.handle, config::DEFAULT_BRIDGE).await?;
+        let index = link::get_link_index(&self.handle, constants::DEFAULT_BRIDGE).await?;
         self.track_bridge_interface(index, mac, lease.clone());
         self.clear_lease_from_primary(&primary);
         self.sync_and_publish();
@@ -491,9 +491,9 @@ impl NetworkActor {
         println!(
             "Transferring DHCP lease management from {} to {}",
             primary,
-            config::DEFAULT_BRIDGE
+            constants::DEFAULT_BRIDGE
         );
-        self.schedule_lease_renewal(cmd_tx.clone(), config::DEFAULT_BRIDGE.to_string(), lease);
+        self.schedule_lease_renewal(cmd_tx.clone(), constants::DEFAULT_BRIDGE.to_string(), lease);
 
         Ok(())
     }
@@ -531,19 +531,19 @@ impl NetworkActor {
 
         println!(
             "Setting up bridge {} with primary {}",
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             primary
         );
         bridge::ensure_bridge_with_ip_transfer(
             &self.handle,
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             &primary,
             gateway,
         )
         .await?;
         println!(
             "Bridge setup complete: {} <- {}",
-            config::DEFAULT_BRIDGE,
+            constants::DEFAULT_BRIDGE,
             primary
         );
 
@@ -559,7 +559,7 @@ impl NetworkActor {
         let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
 
         let br_snapshot = InterfaceSnapshot {
-            name: config::DEFAULT_BRIDGE.to_string(),
+            name: constants::DEFAULT_BRIDGE.to_string(),
             index,
             mac,
             link: LinkStateKind::Up,
@@ -581,7 +581,7 @@ impl NetworkActor {
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
         println!("Adding TAP interface: {}", name);
 
-        let index = tap::setup_tap_on_bridge(&self.handle, name, config::DEFAULT_BRIDGE).await?;
+        let index = tap::setup_tap_on_bridge(&self.handle, name, constants::DEFAULT_BRIDGE).await?;
 
         let snapshot = InterfaceSnapshot {
             name: name.to_string(),
@@ -612,7 +612,7 @@ impl NetworkActor {
     }
 
     fn start_connectivity_monitoring(&mut self, cmd_tx: mpsc::Sender<NetworkCommand>) {
-        let interval = std::time::Duration::from_secs(config::CONNECTIVITY_CHECK_INTERVAL_SECS);
+        let interval = std::time::Duration::from_secs(constants::CONNECTIVITY_CHECK_INTERVAL_SECS);
 
         let task = tokio::spawn(async move {
             let mut interval_timer =

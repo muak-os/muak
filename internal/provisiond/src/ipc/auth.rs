@@ -72,7 +72,7 @@ impl AuthService for AuthServiceImpl {
     ) -> Result<Response<GetCsrStatusResponse>, Status> {
         let fingerprint = request.into_inner().fingerprint;
 
-        if let Some(auth) = sysconfig::try_auth()
+        if let Some(auth) = config::try_auth()
             && auth.revoked.contains(&fingerprint)
         {
             return Ok(Response::new(GetCsrStatusResponse {
@@ -84,7 +84,7 @@ impl AuthService for AuthServiceImpl {
         }
 
         if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
-            let server_name = sysconfig::try_config()
+            let server_name = config::try_config()
                 .map(|c| c.host.name.clone())
                 .unwrap_or_default();
 
@@ -156,10 +156,10 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
 
-        let parsed_permissions: Vec<sysconfig::Permission> = {
+        let parsed_permissions: Vec<config::Permission> = {
             let mut perms = Vec::new();
             for pattern in &permissions {
-                match sysconfig::Permission::expand_pattern(pattern) {
+                match config::Permission::expand_pattern(pattern) {
                     Ok(expanded) => perms.extend(expanded),
                     Err(e) => return Err(Status::invalid_argument(e)),
                 }
@@ -201,7 +201,7 @@ impl AuthService for AuthServiceImpl {
         &self,
         _request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let auth = sysconfig::try_auth().ok_or_else(|| {
+        let auth = config::try_auth().ok_or_else(|| {
             Status::failed_precondition("System not installed - auth config not available")
         })?;
 
@@ -210,7 +210,7 @@ impl AuthService for AuthServiceImpl {
             .iter()
             .map(|u| AuthorizedUser {
                 fingerprint: u.fingerprint.clone(),
-                permissions: sysconfig::permission::collapse(&u.permissions),
+                permissions: config::permission::collapse(&u.permissions),
             })
             .collect();
 
@@ -305,7 +305,7 @@ fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
 
 /// Checks if a fingerprint is already authorized.
 fn is_user_authorized(fingerprint: &str) -> bool {
-    sysconfig::try_auth()
+    config::try_auth()
         .map(|a| a.users.iter().any(|u| u.fingerprint == fingerprint))
         .unwrap_or(false)
 }
@@ -331,29 +331,24 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
 }
 
 /// Adds a user to the auth config and writes it to disk.
-async fn add_user_to_auth(
-    fingerprint: &str,
-    permissions: Vec<sysconfig::Permission>,
-) -> Result<()> {
-    let mut auth = sysconfig::try_auth()
-        .map(|a| (*a).clone())
-        .unwrap_or_default();
+async fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
+    let mut auth = config::try_auth().map(|a| (*a).clone()).unwrap_or_default();
 
-    auth.users.push(sysconfig::AuthUser {
+    auth.users.push(config::AuthUser {
         fingerprint: fingerprint.to_string(),
         permissions,
     });
 
-    let auth_str = sysconfig::serialize_auth(&auth)?;
-    tokio::fs::write(sysconfig::AUTH_PATH, auth_str).await?;
+    let auth_str = config::serialize_auth(&auth)?;
+    tokio::fs::write(config::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
 async fn revoke_user(fingerprint: &str) -> Result<()> {
-    let mut auth = sysconfig::try_auth()
-        .map(|a| sysconfig::AuthConfig::clone(&a))
+    let mut auth = config::try_auth()
+        .map(|a| config::AuthConfig::clone(&a))
         .unwrap_or_default();
 
     auth.users.retain(|u| u.fingerprint != fingerprint);
@@ -362,8 +357,8 @@ async fn revoke_user(fingerprint: &str) -> Result<()> {
         auth.revoked.push(fingerprint.to_string());
     }
 
-    let auth_str = sysconfig::serialize_auth(&auth)?;
-    tokio::fs::write(sysconfig::AUTH_PATH, auth_str).await?;
+    let auth_str = config::serialize_auth(&auth)?;
+    tokio::fs::write(config::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }

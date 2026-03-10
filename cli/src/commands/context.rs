@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use config::{ClientConfig, ServerContext};
 
-use crate::config::{ClientConfig, ServerContext};
 use crate::ui;
 
 /// Context subcommands.

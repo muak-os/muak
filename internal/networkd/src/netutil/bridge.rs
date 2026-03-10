@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use anyhow::{Context, Result};
 use rtnetlink::{Handle, LinkBridge};
 
-use crate::config::{
+use crate::constants::{
     BRIDGE_CREATE_RETRIES, BRIDGE_CREATE_RETRY_DELAY_MS, INTERFACE_ENSLAVE_RETRIES,
     INTERFACE_ENSLAVE_RETRY_DELAY_MS,
 };

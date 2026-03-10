@@ -10,9 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use config::{CONFIG_PATH, SystemConfig};
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
-use sysconfig::{CONFIG_PATH, SystemConfig};
 use tokio::sync::mpsc;
 
 use crate::constants::UPDATE_DIR;
@@ -147,11 +147,11 @@ fn create_staging_dir() -> Result<PathBuf> {
 pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let mut config: SystemConfig =
-        sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
+        config::parse_from_str(&contents).context("Failed to parse config")?;
 
     config.host.image = image.to_string();
 
-    let updated_config = sysconfig::serialize(&config).context("Failed to serialize config")?;
+    let updated_config = config::serialize(&config).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
 
     if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
@@ -169,12 +169,12 @@ pub(super) fn update_config(
 ) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let config: SystemConfig =
-        sysconfig::parse_from_str(&contents).context("Failed to parse config")?;
+        config::parse_from_str(&contents).context("Failed to parse config")?;
 
     let mut merged = new_config.clone();
     merged.disk = config.disk.clone();
 
-    let updated_config = sysconfig::serialize(&merged).context("Failed to serialize config")?;
+    let updated_config = config::serialize(&merged).context("Failed to serialize config")?;
     std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
 
     if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {

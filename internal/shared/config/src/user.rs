@@ -7,6 +7,8 @@ use anyhow::{Context, Result, bail};
 use base64ct::{Base64, Encoding};
 use serde::{Deserialize, Serialize};
 
+use crate::codec::{Codec, TomlCodec};
+
 const CONFIG_FILE: &str = "config.toml";
 
 /// Decoded credentials: (CA, certificate, key).
@@ -39,13 +41,11 @@ pub struct PendingEnrollment {
     pub server_fingerprint: String,
 }
 
-/// Gets the muak config directory path.
 fn config_dir() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME environment variable not set")?;
     Ok(PathBuf::from(home).join(".config/muak"))
 }
 
-/// Gets the config file path, respecting MUAK_CONFIG env var.
 fn config_file_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("MUAK_CONFIG") {
         return Ok(PathBuf::from(path));
@@ -65,7 +65,8 @@ impl ClientConfig {
         let contents = std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read config from {:?}", path))?;
 
-        toml::from_str(&contents).with_context(|| format!("Failed to parse config from {:?}", path))
+        TomlCodec::decode(&contents)
+            .with_context(|| format!("Failed to parse config from {:?}", path))
     }
 
     /// Save config to disk.
@@ -77,7 +78,7 @@ impl ClientConfig {
                 .with_context(|| format!("Failed to create config directory {:?}", parent))?;
         }
 
-        let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
+        let contents = TomlCodec::encode(self).context("Failed to serialize config")?;
 
         std::fs::write(&path, contents)
             .with_context(|| format!("Failed to write config to {:?}", path))
@@ -110,7 +111,6 @@ impl ClientConfig {
 
         self.contexts.remove(name);
 
-        // Clear current context if it was the removed one
         if self.context.as_deref() == Some(name) {
             self.context = None;
         }
@@ -220,7 +220,6 @@ impl ServerContext {
     }
 }
 
-/// Resolve name collisions by appending a timestamp suffix.
 fn resolve_name_collision(existing: &HashMap<String, ServerContext>, base_name: &str) -> String {
     if !existing.contains_key(base_name) {
         return base_name.to_string();
@@ -242,8 +241,6 @@ mod tests {
 
     #[test]
     fn test_empty_config() {
-        // ARRANGE
-
         // ACT
         let config = ClientConfig::default();
 
@@ -369,7 +366,7 @@ mod tests {
         config.set_current("test").unwrap();
 
         // ASSERT
-        assert!(config.current_context().is_none() == false);
+        assert!(config.current_context().is_some());
         let (name, ctx) = config.current_context().unwrap();
         assert_eq!(name, "test");
         assert_eq!(ctx.endpoint, "localhost:50051");

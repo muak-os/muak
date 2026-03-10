@@ -11,6 +11,7 @@ pub mod security;
 pub mod update;
 pub mod vm;
 
+use ::config::ClientConfig;
 use anyhow::{Result, bail};
 use tonic::transport::Channel;
 
@@ -18,7 +19,6 @@ use crate::client::{
     LogServiceClient, ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient,
     VmServiceClient, connect, connect_tls_insecure,
 };
-use crate::config::ClientConfig;
 use crate::ui;
 use crate::{Cli, Commands};
 
@@ -101,7 +101,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
     match &cli.command {
         Commands::Config { action } => {
             if matches!(action, config::ConfigAction::Generate) {
-                print!("{}", sysconfig::serialize_default());
+                print!("{}", ::config::serialize_default());
                 return Ok(true);
             }
         }

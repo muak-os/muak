@@ -7,6 +7,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use serde::{Deserialize, Serialize};
 
 use crate::Permission;
+use crate::codec::{Codec, TomlCodec};
 use crate::error::Result;
 
 pub const AUTH_PATH: &str = "/run/state/auth.toml";
@@ -102,21 +103,21 @@ pub fn try_auth() -> Option<Arc<AuthConfig>> {
     Some(Arc::clone(&data))
 }
 
-/// Serializes an [`AuthConfig`] to a TOML string.
+/// Serializes an [`AuthConfig`] to a string.
 pub fn serialize(config: &AuthConfig) -> Result<String> {
-    toml::to_string_pretty(config).map_err(Into::into)
+    TomlCodec::encode(config)
 }
 
-/// Parses an [`AuthConfig`] from a TOML string.
+/// Parses an [`AuthConfig`] from a string.
 pub fn parse(contents: &str) -> Result<AuthConfig> {
-    toml::from_str(contents).map_err(Into::into)
+    TomlCodec::decode(contents)
 }
 
 /// Loads auth config from disk, returning defaults if the file doesn't exist.
 pub fn load_from_path(path: &Path) -> Result<AuthConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
-        toml::from_str(&contents).map_err(Into::into)
+        TomlCodec::decode(&contents)
     } else {
         Ok(AuthConfig::default())
     }
@@ -128,7 +129,7 @@ fn load_with_mtime() -> (AuthConfig, u64) {
     let config = match load_from_path(Path::new(AUTH_PATH)) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("sysconfig: failed to reload {}: {}", AUTH_PATH, e);
+            eprintln!("config: failed to reload {}: {}", AUTH_PATH, e);
             AuthConfig::default()
         }
     };
@@ -248,12 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_toml_returns_error() {
+    fn test_parse_invalid_format_returns_error() {
         // ARRANGE
-        let invalid_toml = "not valid toml ][[[";
+        let invalid = "not valid ][[[";
 
         // ACT
-        let result = parse(invalid_toml);
+        let result = parse(invalid);
 
         // ASSERT
         assert!(result.is_err());

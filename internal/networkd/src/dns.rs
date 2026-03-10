@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 
-use crate::config::RESOLV_CONF_PATH;
+use crate::constants::RESOLV_CONF_PATH;
 
 pub fn configure_dns(nameservers: &[Ipv4Addr]) -> Result<()> {
     if nameservers.is_empty() {

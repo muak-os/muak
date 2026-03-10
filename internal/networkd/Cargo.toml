@@ -29,7 +29,7 @@ hyper-util = { workspace = true }
 # Internal
 kmsg = { workspace = true }
 notify = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

@@ -26,7 +26,7 @@ pub async fn apply() -> Result<()> {
 
     secrets::resolve_luks_key(&mut uki, state_device.as_deref(), data_device.as_deref())?;
 
-    let sb_hierarchy = if sysconfig::host().secureboot {
+    let sb_hierarchy = if config::host().secureboot {
         Some(resolve_sb_hierarchy()?)
     } else {
         None

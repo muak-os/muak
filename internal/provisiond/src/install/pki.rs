@@ -1,8 +1,8 @@
 //! PKI generation and CSR signing for installation.
 
 use anyhow::{Context, Result};
+use config::{AuthConfig, AuthUser, Permission};
 use ring::rand::SecureRandom;
-use sysconfig::{AuthConfig, AuthUser, Permission};
 use x509_cert::Certificate;
 use x509_cert::der::EncodePem;
 use x509_cert::der::pem::LineEnding;

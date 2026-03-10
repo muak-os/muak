@@ -2,7 +2,6 @@
 
 mod client;
 mod commands;
-mod config;
 mod format;
 pub mod ui;
 

@@ -6,7 +6,7 @@ use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 
-use crate::config;
+use crate::constants;
 use crate::proxy::{self, BackendPool};
 use crate::rbac;
 
@@ -64,24 +64,24 @@ pub async fn handle_request(
 
 /// Routes a request path to the appropriate backend socket.
 pub async fn route_request(path: &str) -> Option<&'static str> {
-    if path.starts_with(config::VM_SERVICE_PREFIX) {
-        let socket_exists = tokio::fs::try_exists(config::VMD_SOCKET)
+    if path.starts_with(constants::VM_SERVICE_PREFIX) {
+        let socket_exists = tokio::fs::try_exists(constants::VMD_SOCKET)
             .await
             .unwrap_or(false);
         if !socket_exists {
             kmsg::warn!("VM service not available in maintenance mode");
             return None;
         }
-        Some(config::VMD_SOCKET)
-    } else if path.starts_with(config::PROCESS_SERVICE_PREFIX)
-        || path.starts_with(config::LOG_SERVICE_PREFIX)
+        Some(constants::VMD_SOCKET)
+    } else if path.starts_with(constants::PROCESS_SERVICE_PREFIX)
+        || path.starts_with(constants::LOG_SERVICE_PREFIX)
     {
-        Some(config::GRANOLA_SOCKET)
-    } else if path.starts_with(config::PROVISION_SERVICE_PREFIX)
-        || path.starts_with(config::AUTH_SERVICE_PREFIX)
-        || path.starts_with(config::SECURITY_SERVICE_PREFIX)
+        Some(constants::GRANOLA_SOCKET)
+    } else if path.starts_with(constants::PROVISION_SERVICE_PREFIX)
+        || path.starts_with(constants::AUTH_SERVICE_PREFIX)
+        || path.starts_with(constants::SECURITY_SERVICE_PREFIX)
     {
-        Some(config::PROVISIOND_SOCKET)
+        Some(constants::PROVISIOND_SOCKET)
     } else {
         None
     }
@@ -111,7 +111,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(constants::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
@@ -123,7 +123,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(constants::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
@@ -135,7 +135,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::GRANOLA_SOCKET));
+        assert_eq!(socket, Some(constants::GRANOLA_SOCKET));
     }
 
     #[tokio::test]
@@ -147,7 +147,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
+        assert_eq!(socket, Some(constants::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
@@ -159,7 +159,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
+        assert_eq!(socket, Some(constants::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
@@ -171,7 +171,7 @@ mod tests {
         let socket = route_request(path).await;
 
         // ASSERT
-        assert_eq!(socket, Some(config::PROVISIOND_SOCKET));
+        assert_eq!(socket, Some(constants::PROVISIOND_SOCKET));
     }
 
     #[tokio::test]
@@ -341,22 +341,22 @@ mod tests {
     #[test]
     fn test_service_prefixes_end_with_slash() {
         // ARRANGE & ACT & ASSERT
-        assert!(config::VM_SERVICE_PREFIX.ends_with('/'));
-        assert!(config::PROCESS_SERVICE_PREFIX.ends_with('/'));
-        assert!(config::PROVISION_SERVICE_PREFIX.ends_with('/'));
-        assert!(config::AUTH_SERVICE_PREFIX.ends_with('/'));
-        assert!(config::SECURITY_SERVICE_PREFIX.ends_with('/'));
-        assert!(config::LOG_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::VM_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::PROCESS_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::PROVISION_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::AUTH_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::SECURITY_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::LOG_SERVICE_PREFIX.ends_with('/'));
     }
 
     #[test]
     fn test_service_prefixes_start_with_slash() {
         // ARRANGE & ACT & ASSERT
-        assert!(config::VM_SERVICE_PREFIX.starts_with('/'));
-        assert!(config::PROCESS_SERVICE_PREFIX.starts_with('/'));
-        assert!(config::PROVISION_SERVICE_PREFIX.starts_with('/'));
-        assert!(config::AUTH_SERVICE_PREFIX.starts_with('/'));
-        assert!(config::SECURITY_SERVICE_PREFIX.starts_with('/'));
-        assert!(config::LOG_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::VM_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::PROCESS_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::PROVISION_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::AUTH_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::SECURITY_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::LOG_SERVICE_PREFIX.starts_with('/'));
     }
 }

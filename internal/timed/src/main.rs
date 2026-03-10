@@ -19,9 +19,9 @@ async fn main() -> Result<()> {
     kmsg::init("timed")?;
     kmsg::info!("Starting time synchronization daemon");
 
-    sysconfig::init().context("Failed to initialize system configuration")?;
+    config::init().context("Failed to initialize system configuration")?;
 
-    let server = &sysconfig::host().ntp;
+    let server = &config::host().ntp;
     println!("NTP server: {server}");
 
     let notifier = NotifyClient::new("timed")?;

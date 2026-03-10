@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     kmsg::init("apid")?;
     kmsg::info!("API daemon starting");
 
-    sysconfig::init()?;
+    config::init()?;
 
     let args = apid::parse_args(&std::env::args().collect::<Vec<_>>());
     let notifier = notify::NotifyClient::new("apid")?;

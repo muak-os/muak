@@ -38,7 +38,7 @@ impl ProvisionService for ProvisionServiceImpl {
         let config_raw = String::from_utf8(req.config_bytes)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {}", e)))?;
 
-        let config: sysconfig::SystemConfig = sysconfig::parse_from_str(&config_raw)
+        let config: config::SystemConfig = config::parse_from_str(&config_raw)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
         config
@@ -90,20 +90,20 @@ impl ProvisionService for ProvisionServiceImpl {
     ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
         let author = extract_author(&request);
         let req = request.into_inner();
-        let installed = sysconfig::config();
+        let installed = config::config();
 
         let (image, extensions, new_config) = if !req.config.is_empty() {
             let raw = String::from_utf8(req.config).map_err(|e| {
                 Status::invalid_argument(format!("Config is not valid UTF-8: {}", e))
             })?;
 
-            let cfg: sysconfig::SystemConfig = sysconfig::parse_from_str(&raw)
+            let cfg: config::SystemConfig = config::parse_from_str(&raw)
                 .map_err(|e| Status::invalid_argument(format!("Invalid config: {}", e)))?;
 
             cfg.validate_for_update(installed)
                 .map_err(|e| Status::invalid_argument(format!("Config rejected: {}", e)))?;
 
-            sysconfig::check_no_downgrade(&cfg.host.image, &installed.host.image)
+            config::check_no_downgrade(&cfg.host.image, &installed.host.image)
                 .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
             let image = cfg.host.image.clone();
@@ -113,7 +113,7 @@ impl ProvisionService for ProvisionServiceImpl {
             let image = if req.image.is_empty() {
                 installed.host.image.clone()
             } else {
-                sysconfig::check_no_downgrade(&req.image, &installed.host.image)
+                config::check_no_downgrade(&req.image, &installed.host.image)
                     .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
                 req.image.clone()
             };
@@ -227,8 +227,8 @@ impl ProvisionService for ProvisionServiceImpl {
         &self,
         _request: Request<GetConfigRequest>,
     ) -> Result<Response<GetConfigResponse>, Status> {
-        if let Some(config) = sysconfig::try_config() {
-            match sysconfig::serialize(config) {
+        if let Some(config) = config::try_config() {
+            match config::serialize(config) {
                 Ok(config_bytes) => Ok(Response::new(GetConfigResponse {
                     config: config_bytes.into_bytes(),
                     error: String::new(),

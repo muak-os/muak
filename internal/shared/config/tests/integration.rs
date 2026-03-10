@@ -1,6 +1,6 @@
 use std::fs;
 
-use sysconfig::*;
+use config::*;
 use tempfile::TempDir;
 
 #[test]
@@ -40,7 +40,7 @@ fn test_load_from_path_fallback_to_default() {
     let default_str = serialize_default();
 
     // ACT
-    let config: SystemConfig = toml::from_str(&default_str).unwrap();
+    let config = parse_from_str(&default_str).unwrap();
 
     // ASSERT
     assert!(config.validate().is_ok());

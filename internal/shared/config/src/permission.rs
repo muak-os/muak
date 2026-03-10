@@ -119,19 +119,18 @@ impl Permission {
 
     /// Expands a permission pattern (wildcard) to concrete permissions.
     pub fn expand_pattern(pattern: &str) -> Result<Vec<Permission>, String> {
-        if let Some(category) = pattern.strip_suffix(":*") {
-            let perms = Self::all_in_category(category);
-            if perms.is_empty() {
-                Err(format!(
-                    "Unknown permission category: '{}'. Valid categories: {}",
-                    category,
-                    CATEGORIES.join(", ")
-                ))
-            } else {
-                Ok(perms.to_vec())
-            }
+        let Some(category) = pattern.strip_suffix(":*") else {
+            return pattern.parse().map(|p| vec![p]);
+        };
+        let perms = Self::all_in_category(category);
+        if perms.is_empty() {
+            Err(format!(
+                "Unknown permission category: '{}'. Valid categories: {}",
+                category,
+                CATEGORIES.join(", ")
+            ))
         } else {
-            pattern.parse().map(|p| vec![p])
+            Ok(perms.to_vec())
         }
     }
 
@@ -442,8 +441,8 @@ mod tests {
         };
 
         // ACT
-        let serialized = toml::to_string(&original).unwrap();
-        let deserialized: Wrapper = toml::from_str(&serialized).unwrap();
+        let serialized = toml::to_string(&original).expect("serialization failed");
+        let deserialized: Wrapper = toml::from_str(&serialized).expect("deserialization failed");
 
         // ASSERT
         assert!(serialized.contains("\"vm:read\""));

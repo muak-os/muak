@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use config::{ClientConfig, ServerContext};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
 use crate::client::{GetConfigRequest, InstallRequest, ProvisionServiceClient, connect};
-use crate::config::{ClientConfig, ServerContext};
 use crate::ui;
 
 /// Data received upon successful completion of the install process.
@@ -31,7 +31,7 @@ pub async fn handle(
         config_path.display()
     ))?;
 
-    let config = sysconfig::parse_from_str(&config_raw)
+    let config = config::parse_from_str(&config_raw)
         .context(format!("Invalid config file '{}'", config_path.display()))?;
 
     config.validate_for_install().context(format!(

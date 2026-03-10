@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use sysconfig::{CONFIG_EXTENSION, CONFIG_PATH};
+use config::{CONFIG_EXTENSION, CONFIG_PATH};
 
 use crate::constants::UPDATE_DIR;
 use crate::history::{self, ChangeKind};
@@ -76,8 +76,8 @@ pub fn find(dir: &Path, update_id: &str) -> Result<PathBuf> {
 /// Reads `host.image` from a snapshot file.
 pub fn read_image(snapshot_path: &Path) -> Result<String> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    let cfg: sysconfig::SystemConfig =
-        sysconfig::parse_from_str(&contents).context("Failed to parse config snapshot")?;
+    let cfg: config::SystemConfig =
+        config::parse_from_str(&contents).context("Failed to parse config snapshot")?;
     Ok(cfg.host.image)
 }
 

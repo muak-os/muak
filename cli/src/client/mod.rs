@@ -2,11 +2,10 @@ mod connector;
 mod upload;
 
 use anyhow::{Context, Result, bail};
+use config::ServerContext;
 use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 pub use upload::upload_file;
-
-use crate::config::ServerContext;
 
 #[allow(clippy::excessive_nesting)]
 pub mod process_service {

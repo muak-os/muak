@@ -64,7 +64,7 @@ pub fn record(update_id: &str, author: &str, kind: ChangeKind, new_config: &str)
     std::fs::write(dir.join(format!("{}.json", stem)), json)
         .context("Failed to write history metadata")?;
     std::fs::write(
-        dir.join(format!("{}.{}", stem, sysconfig::CONFIG_EXTENSION)),
+        dir.join(format!("{}.{}", stem, config::CONFIG_EXTENSION)),
         new_config,
     )
     .context("Failed to write history config snapshot")?;
@@ -90,7 +90,7 @@ pub fn list(limit: usize) -> Result<Vec<HistoryEntry>> {
 /// Returns the config at `update_id`, or the live config if `update_id` is empty.
 pub fn config(update_id: &str) -> Result<String> {
     if update_id.is_empty() {
-        return std::fs::read_to_string(sysconfig::CONFIG_PATH)
+        return std::fs::read_to_string(config::CONFIG_PATH)
             .context("Failed to read current config");
     }
 
@@ -111,7 +111,7 @@ fn prune(dir: &Path, max_entries: usize) -> Result<()> {
     let to_delete = stems.len() - max_entries;
 
     for stem in stems.iter().take(to_delete) {
-        for ext in &["json", sysconfig::CONFIG_EXTENSION] {
+        for ext in &["json", config::CONFIG_EXTENSION] {
             let path = dir.join(format!("{}.{}", stem, ext));
             if let Err(e) = std::fs::remove_file(&path) {
                 eprintln!("Failed to prune history file {:?}: {}", path, e);

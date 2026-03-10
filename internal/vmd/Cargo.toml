@@ -27,7 +27,7 @@ hyper-util = { workspace = true }
 btrfs = { workspace = true }
 kmsg = { workspace = true }
 notify = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }

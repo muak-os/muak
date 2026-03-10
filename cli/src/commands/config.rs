@@ -180,7 +180,7 @@ async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Res
         }
     };
 
-    let changes = diff_configs(&from, &to)?;
+    let changes = config::diff(&from, &to).context("Failed to diff configs")?;
 
     if changes.is_empty() {
         println!("{}", ui::style::muted("No differences found."));
@@ -239,48 +239,4 @@ async fn fetch_snapshot(
         std::process::exit(1);
     }
     String::from_utf8(resp.config).context("Invalid UTF-8 in config snapshot")
-}
-
-fn diff_configs(from: &str, to: &str) -> Result<Vec<(String, String, String)>> {
-    let from: toml::Value = toml::from_str(from).context("Failed to parse 'from' config")?;
-    let to: toml::Value = toml::from_str(to).context("Failed to parse 'to' config")?;
-
-    let mut changes = Vec::new();
-    diff_values(&mut changes, "", &from, &to);
-    Ok(changes)
-}
-
-fn diff_values(
-    changes: &mut Vec<(String, String, String)>,
-    prefix: &str,
-    from: &toml::Value,
-    to: &toml::Value,
-) {
-    match (from, to) {
-        (toml::Value::Table(f), toml::Value::Table(t)) => {
-            for (key, fval) in f {
-                let path = if prefix.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{}.{}", prefix, key)
-                };
-                match t.get(key) {
-                    Some(tval) => diff_values(changes, &path, fval, tval),
-                    None => changes.push((path, fval.to_string(), String::new())),
-                }
-            }
-            for (key, tval) in t {
-                if !f.contains_key(key) {
-                    let path = if prefix.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{}.{}", prefix, key)
-                    };
-                    changes.push((path, String::new(), tval.to_string()));
-                }
-            }
-        }
-        (f, t) if f != t => changes.push((prefix.to_string(), f.to_string(), t.to_string())),
-        _ => {}
-    }
 }

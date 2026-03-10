@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use base64ct::{Base64, Encoding};
 use clap::Subcommand;
+use config::ClientConfig;
 use tonic::transport::Channel;
 
 use crate::client::{
@@ -12,7 +13,6 @@ use crate::client::{
     ListPendingCsrsRequest, ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
     connect_tls_insecure, connect_tls_pinned,
 };
-use crate::config::ClientConfig;
 use crate::ui;
 
 #[derive(Subcommand)]

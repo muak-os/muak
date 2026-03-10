@@ -1,8 +1,8 @@
 //! Network daemon for Muak to manage network interfaces, DHCP, DNS, and connectivity
 
 mod actor;
-mod config;
 mod connectivity;
+mod constants;
 mod dhcpv4;
 mod dns;
 mod interface;
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
     kmsg::init("networkd")?;
     kmsg::info!("Starting networkd");
 
-    sysconfig::init()?;
+    config::init()?;
 
     let notifier = NotifyClient::new("networkd")?;
     notifier.status("Initializing network subsystem", Health::Healthy)?;

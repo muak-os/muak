@@ -17,7 +17,7 @@ pub enum ConfigError {
     #[error("Config already initialized")]
     AlreadyInitialized,
 
-    #[error("Config not initialized - call sysconfig::init() first")]
+    #[error("Config not initialized - call config::init() first")]
     NotInitialized,
 }
 

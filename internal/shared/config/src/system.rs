@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
+use crate::codec::{Codec, TomlCodec};
 use crate::error::{ConfigError, Result};
 
 pub const CONFIG_PATH: &str = "/run/state/config.toml";
@@ -136,30 +137,71 @@ pub fn init() -> Result<()> {
     Ok(())
 }
 
-/// Serializes a [`SystemConfig`] to a TOML string.
+/// Serializes a [`SystemConfig`] to a string.
 pub fn serialize(config: &SystemConfig) -> Result<String> {
-    toml::to_string_pretty(config).map_err(Into::into)
+    TomlCodec::encode(config)
 }
 
-/// Serializes the default system configuration to a TOML string.
+/// Serializes the default system configuration to a string.
 pub fn serialize_default() -> String {
-    toml::to_string_pretty(&SystemConfig::default()).expect("Failed to serialize default config")
+    TomlCodec::encode(&SystemConfig::default()).expect("Failed to serialize default config")
 }
 
-/// Parses a [`SystemConfig`] from a TOML string, validating it.
+/// Parses a [`SystemConfig`] from a string, validating it.
 pub fn parse_from_str(contents: &str) -> Result<SystemConfig> {
-    let config: SystemConfig = toml::from_str(contents)?;
+    let config: SystemConfig = TomlCodec::decode(contents)?;
     config.validate()?;
     Ok(config)
+}
+
+/// Diffs two config strings, returning `(field_path, before, after)` for each changed field.
+pub fn diff(a: &str, b: &str) -> Result<Vec<(String, String, String)>> {
+    let a = TomlCodec::decode(a)?;
+    let b = TomlCodec::decode(b)?;
+    let mut changes = Vec::new();
+    diff_values(&mut changes, "", &a, &b);
+    Ok(changes)
+}
+
+fn join_path(prefix: &str, key: &str) -> String {
+    if prefix.is_empty() {
+        key.to_string()
+    } else {
+        format!("{}.{}", prefix, key)
+    }
+}
+
+fn diff_values(
+    changes: &mut Vec<(String, String, String)>,
+    prefix: &str,
+    a: &toml::Value,
+    b: &toml::Value,
+) {
+    let (toml::Value::Table(fa), toml::Value::Table(fb)) = (a, b) else {
+        if a != b {
+            changes.push((prefix.to_string(), a.to_string(), b.to_string()));
+        }
+        return;
+    };
+    for (key, va) in fa {
+        let path = join_path(prefix, key);
+        match fb.get(key) {
+            Some(vb) => diff_values(changes, &path, va, vb),
+            None => changes.push((path, va.to_string(), String::new())),
+        }
+    }
+    for (key, vb) in fb.iter().filter(|(k, _)| !fa.contains_key(*k)) {
+        changes.push((join_path(prefix, key), String::new(), vb.to_string()));
+    }
 }
 
 /// Loads system config from a file, falling back to defaults if not found.
 pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
-        toml::from_str(&contents).map_err(Into::into)
+        TomlCodec::decode(&contents)
     } else {
-        toml::from_str(DEFAULT_CONFIG).map_err(Into::into)
+        TomlCodec::decode(DEFAULT_CONFIG)
     }
 }
 
@@ -173,8 +215,8 @@ mod tests {
         let config = SystemConfig::default();
 
         // ACT
-        let serialized = toml::to_string_pretty(&config).unwrap();
-        let deserialized: SystemConfig = toml::from_str(&serialized).unwrap();
+        let serialized = TomlCodec::encode(&config).unwrap();
+        let deserialized: SystemConfig = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(config.host.port, deserialized.host.port);
@@ -216,15 +258,15 @@ mod tests {
     #[test]
     fn test_parse_from_str_invalid_toml() {
         // ACT & ASSERT
-        let result = toml::from_str::<SystemConfig>("invalid toml");
+        let result = TomlCodec::decode::<SystemConfig>("invalid toml");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_serialize_default() {
         // ACT
-        let default_str = toml::to_string_pretty(&SystemConfig::default()).unwrap();
-        let config: SystemConfig = toml::from_str(&default_str).unwrap();
+        let default_str = TomlCodec::encode(&SystemConfig::default()).unwrap();
+        let config: SystemConfig = TomlCodec::decode(&default_str).unwrap();
 
         // ASSERT
         assert!(config.validate().is_ok());
@@ -312,7 +354,7 @@ mod tests {
     #[test]
     fn test_config_ignores_unknown_sections() {
         // ARRANGE
-        let toml = r#"
+        let toml_str = r#"
 [host]
 name = "muak"
 port = 50051
@@ -326,7 +368,7 @@ permissions = ["admin"]
 "#;
 
         // ACT
-        let config: SystemConfig = toml::from_str(toml).unwrap();
+        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
 
         // ASSERT
         assert_eq!(config.host.name, "muak");

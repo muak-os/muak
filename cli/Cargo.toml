@@ -22,7 +22,6 @@ rustls = { workspace = true }
 base64ct = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
-toml = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -37,7 +36,7 @@ hyper-util = { workspace = true }
 
 # Internal
 pki = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

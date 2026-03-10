@@ -6,9 +6,9 @@ mod state;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use config::SystemConfig;
 pub use pki::InstallResult;
 use rustix::fs::sync;
-use sysconfig::SystemConfig;
 use tokio::sync::mpsc;
 
 use crate::constants::{DM_DATA, DM_STATE};
@@ -131,7 +131,7 @@ fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::Ke
 
 struct PkiResult {
     client_result: InstallResult,
-    auth_config: sysconfig::AuthConfig,
+    auth_config: config::AuthConfig,
     server_pki: pki::ServerPki,
 }
 
@@ -322,7 +322,7 @@ async fn deploy_uki(
 async fn initialize_state(
     dm_state: &str,
     config: &SystemConfig,
-    auth_config: &sysconfig::AuthConfig,
+    auth_config: &config::AuthConfig,
     server_pki: &pki::ServerPki,
     sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
     progress: &mpsc::Sender<InstallProgress>,

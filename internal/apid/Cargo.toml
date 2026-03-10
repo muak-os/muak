@@ -27,7 +27,7 @@ http-body-util = { workspace = true }
 kmsg = { workspace = true }
 notify = { workspace = true }
 pki = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

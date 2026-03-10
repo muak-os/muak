@@ -19,15 +19,15 @@ async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    sysconfig::init().context("Failed to initialize system configuration")?;
+    config::init().context("Failed to initialize system configuration")?;
 
     let mut apid_command = vec![
         "/sbin/apid".to_string(),
         "--listen".to_string(),
-        format!("0.0.0.0:{}", sysconfig::host().port),
+        format!("0.0.0.0:{}", config::host().port),
     ];
 
-    let is_installed = Path::new(sysconfig::CONFIG_PATH).exists();
+    let is_installed = Path::new(config::CONFIG_PATH).exists();
 
     if is_installed {
         kmsg::info!("Running from INSTALLED DISK");

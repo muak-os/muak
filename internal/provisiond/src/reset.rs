@@ -9,7 +9,7 @@ use crate::disk;
 pub fn factory_reset() -> Result<()> {
     kmsg::info!("Starting factory reset...");
 
-    let disk_config = &sysconfig::config().disk;
+    let disk_config = &config::config().disk;
     let system_disk = disk_config.system.clone();
     if system_disk.is_empty() {
         bail!("System disk not configured");

@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use config::ClientConfig;
 use tonic::transport::Channel;
 
 use crate::client::{FactoryResetRequest, ProvisionServiceClient};
-use crate::config::ClientConfig;
 use crate::ui;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";

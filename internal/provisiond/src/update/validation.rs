@@ -11,7 +11,7 @@ use super::snapshot;
 /// Decides whether to commit or roll back a pending update.
 pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let old_image = snapshot::read_image(snapshot_path)?;
-    let target_image = sysconfig::host().image.clone();
+    let target_image = config::host().image.clone();
 
     println!(
         "Found pending validation for update {} -> {}",

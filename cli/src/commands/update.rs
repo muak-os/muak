@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use config::ServerContext;
 use tokio_stream::StreamExt;
 
 use crate::client::{
     GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient,
     UpdateRequest, UpdateStatus, connect,
 };
-use crate::config::ServerContext;
 use crate::ui;
 
 /// Handles the update command.
@@ -29,18 +29,18 @@ pub async fn handle(
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read '{}'", path.display()))?;
 
-        let cfg = sysconfig::parse_from_str(&raw)
+        let cfg = config::parse_from_str(&raw)
             .with_context(|| format!("invalid TOML in '{}'", path.display()))?;
 
         cfg.validate_for_update(&installed)
             .with_context(|| format!("config rejected: '{}'", path.display()))?;
 
-        sysconfig::check_no_downgrade(&cfg.host.image, &installed.host.image)
+        config::check_no_downgrade(&cfg.host.image, &installed.host.image)
             .with_context(|| format!("version check failed for '{}'", path.display()))?;
 
         (String::new(), raw.into_bytes())
     } else if let Some(ref img) = image {
-        sysconfig::check_no_downgrade(img, &installed.host.image)
+        config::check_no_downgrade(img, &installed.host.image)
             .with_context(|| format!("version check failed for image '{}'", img))?;
 
         (img.clone(), Vec::new())
@@ -163,7 +163,7 @@ pub async fn handle(
 /// Fetches and parses the installed config from the server.
 async fn fetch_installed_config(
     client: &mut ProvisionServiceClient<tonic::transport::Channel>,
-) -> Result<sysconfig::SystemConfig> {
+) -> Result<config::SystemConfig> {
     let resp = client
         .get_config(tonic::Request::new(GetConfigRequest {}))
         .await
@@ -176,5 +176,5 @@ async fn fetch_installed_config(
 
     let raw = String::from_utf8(resp.config).context("Server returned non-UTF-8 config")?;
 
-    sysconfig::parse_from_str(&raw).context("Failed to parse installed config from server")
+    config::parse_from_str(&raw).context("Failed to parse installed config from server")
 }

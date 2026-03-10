@@ -37,7 +37,7 @@ kmsg = { workspace = true }
 luks2 = { workspace = true }
 notify = { workspace = true }
 pki = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 sbolt = { workspace = true }
 tpm2 = { workspace = true }
 yuki = { workspace = true }

@@ -8,7 +8,7 @@ version.workspace = true
 # Internal crates
 kmsg = { workspace = true }
 notify = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true, features = ["rt", "macros", "net", "time", "signal"] }

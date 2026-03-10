@@ -5,10 +5,10 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use config::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
-use sysconfig::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
 
 use super::pki::ServerPki;
 use crate::disk;
@@ -31,7 +31,7 @@ pub fn init(
     mount(device, MOUNT_POINT, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
-    let config_bytes = sysconfig::serialize(config).context("Failed to serialize config")?;
+    let config_bytes = config::serialize(config).context("Failed to serialize config")?;
     std::fs::write(
         format!("{}/config.{}", MOUNT_POINT, CONFIG_EXTENSION),
         &config_bytes,
@@ -39,7 +39,7 @@ pub fn init(
     .context("Failed to write config")?;
 
     let auth_bytes =
-        sysconfig::serialize_auth(auth_config).context("Failed to serialize auth config")?;
+        config::serialize_auth(auth_config).context("Failed to serialize auth config")?;
     std::fs::write(
         format!("{}/auth.{}", MOUNT_POINT, AUTH_EXTENSION),
         auth_bytes,

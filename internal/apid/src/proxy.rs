@@ -11,7 +11,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 
-use crate::config;
+use crate::constants;
 
 /// Boxed body type used by pooled connections.
 type BoxBody =
@@ -35,9 +35,9 @@ impl BackendPool {
     /// Creates a new pool with an entry for each known backend socket.
     pub fn new() -> Self {
         let mut senders = HashMap::new();
-        senders.insert(config::VMD_SOCKET.to_owned(), Mutex::new(None));
-        senders.insert(config::GRANOLA_SOCKET.to_owned(), Mutex::new(None));
-        senders.insert(config::PROVISIOND_SOCKET.to_owned(), Mutex::new(None));
+        senders.insert(constants::VMD_SOCKET.to_owned(), Mutex::new(None));
+        senders.insert(constants::GRANOLA_SOCKET.to_owned(), Mutex::new(None));
+        senders.insert(constants::PROVISIOND_SOCKET.to_owned(), Mutex::new(None));
         Self { senders }
     }
 
@@ -135,9 +135,9 @@ mod tests {
         let pool = BackendPool::new();
 
         // ASSERT
-        assert!(pool.senders.contains_key(config::VMD_SOCKET));
-        assert!(pool.senders.contains_key(config::GRANOLA_SOCKET));
-        assert!(pool.senders.contains_key(config::PROVISIOND_SOCKET));
+        assert!(pool.senders.contains_key(constants::VMD_SOCKET));
+        assert!(pool.senders.contains_key(constants::GRANOLA_SOCKET));
+        assert!(pool.senders.contains_key(constants::PROVISIOND_SOCKET));
     }
 
     #[test]

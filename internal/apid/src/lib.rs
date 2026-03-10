@@ -1,26 +1,6 @@
 //! `apid` - API Gateway Daemon for Muak
-//!
-//! This library provides the core functionality for the Muak API gateway,
-//! including mTLS authentication, RBAC enforcement, and HTTP/2 reverse
-//! proxying to backend services.
-//!
-//! # Architecture
-//!
-//! The API gateway operates as follows:
-//! 1. Accepts TLS connections (with optional client certificates)
-//! 2. Enforces RBAC based on gRPC method paths and client certificate fingerprints
-//! 3. Proxies authorized requests to backend services via UNIX sockets
-//!
-//! # Modules
-//!
-//! - [`config`]: Static configuration constants (paths, service prefixes)
-//! - [`tls`]: TLS configuration (persistent and ephemeral certificates)
-//! - [`server`]: HTTP/2 connection serving
-//! - [`handler`]: Request routing and RBAC enforcement
-//! - [`proxy`]: Backend communication via UNIX sockets
-//! - [`rbac`]: Role-Based Access Control logic
 
-pub mod config;
+pub mod constants;
 pub mod handler;
 pub mod proxy;
 pub mod rbac;
@@ -56,7 +36,7 @@ impl Args {
 
 /// Parses command line arguments into an Args struct.
 pub fn parse_args(args: &[String]) -> Args {
-    let default_listen = format!("0.0.0.0:{}", sysconfig::host().port);
+    let default_listen = format!("0.0.0.0:{}", config::host().port);
 
     let listen_addr = args
         .iter()

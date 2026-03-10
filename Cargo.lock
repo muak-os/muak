@@ -89,6 +89,7 @@ name = "apid"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "config",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -98,7 +99,6 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-pki-types",
- "sysconfig",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -392,6 +392,18 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "config"
+version = "0.1.1-beta"
+dependencies = [
+ "anyhow",
+ "base64ct",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
+]
 
 [[package]]
 name = "const-oid"
@@ -898,11 +910,11 @@ name = "granola"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "config",
  "kmsg",
  "notify",
  "prost",
  "rustix",
- "sysconfig",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -1476,6 +1488,7 @@ dependencies = [
  "anyhow",
  "base64ct",
  "clap",
+ "config",
  "crossterm",
  "hyper",
  "hyper-util",
@@ -1484,12 +1497,10 @@ dependencies = [
  "ring",
  "rustls",
  "serde",
- "sysconfig",
  "tempfile",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "toml",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -1554,6 +1565,7 @@ name = "networkd"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "config",
  "hyper-util",
  "kmsg",
  "libc",
@@ -1564,7 +1576,6 @@ dependencies = [
  "rtnetlink",
  "rustix",
  "serde",
- "sysconfig",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -1892,6 +1903,7 @@ dependencies = [
  "anyhow",
  "base64ct",
  "btrfs",
+ "config",
  "fatfs",
  "gptman",
  "imager",
@@ -1906,7 +1918,6 @@ dependencies = [
  "sbolt",
  "serde",
  "serde_json",
- "sysconfig",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -2563,16 +2574,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sysconfig"
-version = "0.1.1-beta"
-dependencies = [
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "toml",
-]
-
-[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2647,10 +2648,10 @@ name = "timed"
 version = "0.1.1-beta"
 dependencies = [
  "anyhow",
+ "config",
  "kmsg",
  "notify",
  "rustix",
- "sysconfig",
  "tokio",
 ]
 
@@ -3100,6 +3101,7 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "btrfs",
+ "config",
  "hyper-util",
  "kmsg",
  "libc",
@@ -3108,7 +3110,6 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
- "sysconfig",
  "tokio",
  "tokio-stream",
  "tonic",

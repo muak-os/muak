@@ -24,7 +24,7 @@ rustix = { workspace = true, features = ["net", "process"] }
 # Internal
 kmsg = { workspace = true }
 notify = { workspace = true }
-sysconfig = { workspace = true }
+config = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

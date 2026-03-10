@@ -27,9 +27,9 @@ async fn main() -> Result<()> {
     kmsg::init("provisiond")?;
     kmsg::info!("Provisioning daemon started");
 
-    sysconfig::init().context("Failed to initialize system configuration")?;
+    config::init().context("Failed to initialize system configuration")?;
 
-    let is_installed = Path::new(sysconfig::CONFIG_PATH).exists();
+    let is_installed = Path::new(config::CONFIG_PATH).exists();
 
     if is_installed {
         let _ = update::check_and_handle_pending_validation()

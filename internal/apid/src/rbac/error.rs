@@ -1,6 +1,6 @@
 //! Error types for RBAC operations.
 
-use sysconfig::Permission;
+use config::Permission;
 use thiserror::Error;
 
 /// Errors that can occur during RBAC access checks.

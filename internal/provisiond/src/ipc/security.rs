@@ -24,7 +24,7 @@ impl SecurityService for SecurityServiceImpl {
 
         let state = if enabled {
             SecureBootState::Enabled
-        } else if sysconfig::host().secureboot
+        } else if config::host().secureboot
             && sbolt::efi::get_pk()
                 .map_err(|e| Status::internal(format!("Failed to read PK from firmware: {}", e)))?
                 .is_some()
