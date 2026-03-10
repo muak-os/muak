@@ -26,7 +26,9 @@ impl Cli {
 
     /// Returns the path to the isolated MUAK_CONFIG file.
     pub fn config_path(&self) -> PathBuf {
-        self.config_dir.path().join("config.toml")
+        self.config_dir
+            .path()
+            .join(format!("config.{}", config::CONFIG_EXTENSION))
     }
 
     /// Runs `muakctl` with the given arguments, injecting `--endpoint` and `MUAK_CONFIG`.

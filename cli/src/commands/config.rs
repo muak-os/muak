@@ -89,7 +89,7 @@ async fn export(channel: Channel, from: Option<String>) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let timestamp = format_timestamp(now.as_secs() as i64, TimeSeparator::Filename);
-    let filename = format!("config-{timestamp}.toml");
+    let filename = format!("config-{}.{}", timestamp, config::CONFIG_EXTENSION);
 
     std::fs::write(&filename, &config)?;
     println!(

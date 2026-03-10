@@ -1,18 +1,6 @@
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").expect("could not get CARGO_MANIFEST_DIR");
-    let manifest_path = PathBuf::from(&manifest_dir);
-    let workspace_root = manifest_path
-        .parent()
-        .expect("could not get workspace root");
-
-    println!(
-        "cargo:rerun-if-changed={}",
-        workspace_root.join("internal/default.toml").display()
-    );
-
     let api_dir = if PathBuf::from("../../api").exists() {
         "../../api"
     } else if PathBuf::from("../api").exists() {

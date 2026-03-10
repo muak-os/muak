@@ -103,7 +103,7 @@ fn handle_error(err: &anyhow::Error) {
     if let Some(status) = err.downcast_ref::<tonic::Status>() {
         let msg = match status.code() {
             tonic::Code::FailedPrecondition if status.message() == "Server not installed" => {
-                "Server not installed. Run 'muakctl install --config <config.toml>' to set up."
+                "Server not installed. Run 'muakctl install --config <path>' to set up."
             }
             tonic::Code::Unauthenticated => {
                 "Authentication required. Run 'muakctl auth' to access this resource on the server."

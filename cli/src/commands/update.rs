@@ -30,7 +30,7 @@ pub async fn handle(
             .with_context(|| format!("failed to read '{}'", path.display()))?;
 
         let cfg = config::parse_from_str(&raw)
-            .with_context(|| format!("invalid TOML in '{}'", path.display()))?;
+            .with_context(|| format!("invalid format in '{}'", path.display()))?;
 
         cfg.validate_for_update(&installed)
             .with_context(|| format!("config rejected: '{}'", path.display()))?;
