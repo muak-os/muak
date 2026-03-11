@@ -1,5 +1,6 @@
 //! Immutable host system configuration.
 
+use std::net::IpAddr;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -39,6 +40,7 @@ impl SystemConfig {
                 "host.port must be greater than 0".to_string(),
             ));
         }
+        self.network.validate_dns()?;
         Ok(())
     }
 
@@ -119,6 +121,21 @@ impl DiskConfig {
 #[serde(default)]
 pub struct NetworkConfig {
     pub ipv6: bool,
+    pub dns: Vec<String>,
+}
+
+impl NetworkConfig {
+    /// Validates that all entries in `dns` are parseable IP addresses.
+    pub fn validate_dns(&self) -> Result<()> {
+        let invalid = self.dns.iter().find(|e| e.parse::<IpAddr>().is_err());
+        if let Some(entry) = invalid {
+            return Err(ConfigError::ValidationError(format!(
+                "network.dns contains invalid IP address: '{}'",
+                entry
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -417,6 +434,7 @@ permissions = ["admin"]
         config.host.name = "testhost".to_string();
         config.disk.system = "/dev/nvme0n1".to_string();
         config.network.ipv6 = true;
+        config.network.dns = vec!["9.9.9.9".to_string()];
         config.vm.auto_restart = true;
 
         // ACT
@@ -428,6 +446,7 @@ permissions = ["admin"]
         assert_eq!(restored.host.name, "testhost");
         assert_eq!(restored.disk.system, "/dev/nvme0n1");
         assert!(restored.network.ipv6);
+        assert_eq!(restored.network.dns, vec!["9.9.9.9"]);
         assert!(restored.vm.auto_restart);
     }
 

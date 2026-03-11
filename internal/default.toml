@@ -17,6 +17,11 @@ system = ""
 # data = ""
 
 [network]
+dns = [
+  "9.9.9.9",
+  "2620:fe::fe",
+  "2620:fe::9"
+]
 ipv6 = true
 
 [vm]

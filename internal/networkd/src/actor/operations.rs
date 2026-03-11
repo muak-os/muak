@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -352,8 +353,28 @@ impl NetworkActor {
             println!("No gateway in DHCP lease, skipping default route");
         }
 
-        if !ip.dns.is_empty() {
-            configure_dns(&ip.dns)?;
+        let dns = if ip.dns.is_empty() {
+            config::network()
+                .dns
+                .iter()
+                .filter_map(|s| match s.parse::<IpAddr>() {
+                    Ok(IpAddr::V4(a)) => Some(a),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            ip.dns.clone()
+        };
+
+        if ip.dns.is_empty() && !dns.is_empty() {
+            println!(
+                "No DNS from DHCP, using {} configured fallback server(s)",
+                dns.len()
+            );
+        }
+
+        if !dns.is_empty() {
+            configure_dns(&dns)?;
         }
 
         Ok(())

@@ -19,7 +19,7 @@ use super::icmpv6::{
     parse_router_advertisement,
 };
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
-use super::{FALLBACK_DNS, create_icmpv6_filter, set_icmpv6_filter};
+use super::{create_icmpv6_filter, fallback_dns_v6, set_icmpv6_filter};
 use crate::socket;
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
@@ -168,9 +168,9 @@ impl SlaacManager {
 
         let dns_servers: Vec<ManagedDns> = if ra.dns_servers.is_empty() {
             println!("SLAAC manager: no RDNSS in RA, using fallback DNS");
-            FALLBACK_DNS
-                .iter()
-                .map(|&s| ManagedDns::new(s, u32::MAX)) // Fallback never expires
+            fallback_dns_v6()
+                .into_iter()
+                .map(|s| ManagedDns::new(s, u32::MAX))
                 .collect()
         } else {
             ra.dns_servers
@@ -303,9 +303,9 @@ impl SlaacManager {
 
         if had_dns && self.dns_servers.is_empty() {
             println!("SLAAC manager: all RDNSS expired, using fallback");
-            self.dns_servers = FALLBACK_DNS
-                .iter()
-                .map(|&s| ManagedDns::new(s, u32::MAX))
+            self.dns_servers = fallback_dns_v6()
+                .into_iter()
+                .map(|s| ManagedDns::new(s, u32::MAX))
                 .collect();
         }
 

@@ -3,7 +3,7 @@ mod icmpv6;
 mod manager;
 mod state;
 
-use std::net::Ipv6Addr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::os::fd::{AsFd, AsRawFd};
 
 use anyhow::{Result, bail};
@@ -12,10 +12,17 @@ pub use manager::{SlaacEvent, SlaacManager};
 
 pub(crate) const ICMP6_FILTER: libc::c_int = 1;
 
-pub(crate) const FALLBACK_DNS: [Ipv6Addr; 2] = [
-    Ipv6Addr::new(0x2620, 0x00fe, 0, 0, 0, 0, 0, 0x00fe), // Quad9
-    Ipv6Addr::new(0x2620, 0x00fe, 0, 0, 0, 0, 0, 0x0009),
-];
+/// Returns the configured IPv6 fallback DNS servers from the config, filtering for IPv6 addresses.
+pub(crate) fn fallback_dns_v6() -> Vec<Ipv6Addr> {
+    config::network()
+        .dns
+        .iter()
+        .filter_map(|s| match s.parse::<IpAddr>() {
+            Ok(IpAddr::V6(addr)) => Some(addr),
+            _ => None,
+        })
+        .collect()
+}
 
 #[repr(C)]
 pub(crate) struct Icmp6Filter {
@@ -53,11 +60,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fallback_dns_valid() {
-        // ACT & ASSERT
-        for dns in &FALLBACK_DNS {
-            assert!(!dns.is_unspecified());
-            assert!(!dns.is_loopback());
+    fn test_fallback_dns_v6_filters_ipv4() {
+        // ARRANGE
+        let addrs: Vec<Ipv6Addr> = ["9.9.9.9", "2620:fe::fe", "2620:fe::9"]
+            .iter()
+            .filter_map(|s| match s.parse::<IpAddr>() {
+                Ok(IpAddr::V6(a)) => Some(a),
+                _ => None,
+            })
+            .collect();
+
+        // ASSERT
+        assert_eq!(addrs.len(), 2);
+        for addr in &addrs {
+            assert!(!addr.is_unspecified());
+            assert!(!addr.is_loopback());
         }
     }
 }
