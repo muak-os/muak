@@ -32,7 +32,7 @@ pub async fn run(
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     validate_disks(system_disk, data_disk, force, &progress).await?;
-    let sb_hierarchy = setup_security(config, &progress).await?;
+    let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let uki = prepare_uki(
         &config.host.image,
@@ -75,6 +75,8 @@ pub async fn run(
     close_luks_volumes()?;
     cleanup_work_dir(uki.work_dir)?;
 
+    enroll_secureboot_keys(sb_hierarchy.as_ref(), &progress).await?;
+
     sync();
 
     Ok(pki_result.client_result)
@@ -97,19 +99,6 @@ async fn validate_disks(
     Ok(())
 }
 
-async fn setup_security(
-    config: &SystemConfig,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<Option<sbolt::keys::KeyHierarchy>> {
-    let sb_hierarchy = generate_sb_hierarchy(config)?;
-    if let Some(ref hierarchy) = sb_hierarchy {
-        send_progress(progress, "Enrolling secureboot keys").await;
-        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
-    }
-
-    Ok(sb_hierarchy)
-}
-
 fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::KeyHierarchy>> {
     if !config.host.secureboot {
         return Ok(None);
@@ -123,10 +112,20 @@ fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::Ke
         );
     }
 
-    let hierarchy = sbolt::keys::KeyHierarchy::generate("Muak")
-        .context("Failed to generate Secure Boot keys")?;
+    sbolt::keys::KeyHierarchy::generate("Muak")
+        .context("Failed to generate Secure Boot keys")
+        .map(Some)
+}
 
-    Ok(Some(hierarchy))
+async fn enroll_secureboot_keys(
+    sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+    progress: &mpsc::Sender<InstallProgress>,
+) -> Result<()> {
+    if let Some(hierarchy) = sb_hierarchy {
+        send_progress(progress, "Enrolling secureboot keys").await;
+        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
+    }
+    Ok(())
 }
 
 struct PkiResult {
