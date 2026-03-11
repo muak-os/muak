@@ -123,11 +123,10 @@ fn handle_error(err: &anyhow::Error) {
             ui::style::error_text(msg)
         );
     } else {
-        let msg = err.to_string();
         eprintln!(
             "{} {}",
             ui::style::error("Error:"),
-            ui::style::error_text(&msg)
+            ui::style::error_text(&format!("{:#}", err))
         );
     }
 }
