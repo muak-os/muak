@@ -17,9 +17,8 @@ pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
 const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
 
 /// Top-level system configuration covering host, disk, network, and VM settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SystemConfig {
     pub host: HostConfig,
     pub disk: DiskConfig,
@@ -84,7 +83,7 @@ impl SystemConfig {
 include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct HostConfig {
     pub name: String,
     pub image: String,
@@ -96,7 +95,7 @@ pub struct HostConfig {
 
 /// Disk assignment configuration for system and data partitions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DiskConfig {
     pub system: String,
     pub data: Option<String>,
@@ -118,7 +117,7 @@ impl DiskConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub ipv6: bool,
     pub dns: Vec<String>,
@@ -139,7 +138,7 @@ impl NetworkConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct VmConfig {
     pub auto_restart: bool,
 }
@@ -369,26 +368,22 @@ mod tests {
     }
 
     #[test]
-    fn test_config_ignores_unknown_sections() {
+    fn test_config_rejects_unknown_sections() {
         // ARRANGE
         let toml_str = r#"
 [host]
 name = "muak"
 port = 50051
 
-[auth]
-revoked = []
-
-[[auth.users]]
-fingerprint = "abc"
-permissions = ["admin"]
+[system]
+image = "192.168.100.1:5000/installer:latest"
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let result: Result<SystemConfig> = TomlCodec::decode(toml_str);
 
         // ASSERT
-        assert_eq!(config.host.name, "muak");
+        assert!(result.is_err());
     }
 
     #[test]
