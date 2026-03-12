@@ -24,5 +24,12 @@ dns = [
 ]
 ipv6 = true
 
+[[network.interfaces]]
+name = "br0"
+type = "bridge"
+ipv4.dhcp = true
+ipv6.autoconf = true
+bridge.port = ["auto"]
+
 [vm]
 auto_restart = true

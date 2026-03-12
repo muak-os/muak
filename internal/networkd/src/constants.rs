@@ -1,5 +1,4 @@
 pub const RESOLV_CONF_PATH: &str = "/run/resolv.conf";
-pub const DEFAULT_BRIDGE: &str = "br0";
 pub const BRIDGE_CREATE_RETRIES: u8 = 30;
 pub const BRIDGE_CREATE_RETRY_DELAY_MS: u64 = 100;
 pub const INTERFACE_ENSLAVE_RETRIES: u8 = 5;

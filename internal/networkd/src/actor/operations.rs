@@ -2,6 +2,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use config::{BridgeConfig, InterfaceKind};
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
@@ -30,7 +31,7 @@ impl NetworkActor {
             self.try_acquire_slaac_on_primary(cmd_tx).await;
         }
 
-        self.setup_bridge_and_transfer_dhcp(cmd_tx).await?;
+        self.apply_interface_configs(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
         self.publish_state();
@@ -252,8 +253,6 @@ impl NetworkActor {
 
             SlaacEvent::AddressDeprecated { address } => {
                 println!("IPv6 address deprecated: {}", address);
-                // Address is still valid, just shouldn't be used for new connections
-                // We log this but don't remove the address yet
             }
 
             SlaacEvent::AddressExpired { address } => {
@@ -465,6 +464,92 @@ impl NetworkActor {
         }
     }
 
+    /// Returns the name of the first configured bridge interface, if any.
+    pub(super) fn bridge_name(&self) -> Option<&str> {
+        config::network()
+            .interfaces
+            .iter()
+            .find(|i| i.kind == InterfaceKind::Bridge)
+            .map(|i| i.name.as_str())
+    }
+
+    /// Applies all declarative interface configurations from config.
+    async fn apply_interface_configs(
+        &mut self,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        let interfaces = config::network().interfaces.clone();
+        for iface_cfg in &interfaces {
+            match iface_cfg.kind {
+                InterfaceKind::Bridge => {
+                    let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
+                    self.setup_bridge_from_config(&iface_cfg.name, &bridge_cfg, cmd_tx)
+                        .await?;
+                }
+                InterfaceKind::Ethernet => {}
+            }
+        }
+        Ok(())
+    }
+
+    async fn setup_bridge_from_config(
+        &mut self,
+        bridge_name: &str,
+        bridge_cfg: &BridgeConfig,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        let primary = self.get_primary_name()?;
+
+        let port_name = bridge_cfg
+            .port
+            .first()
+            .map(|p| {
+                if p == "auto" {
+                    primary.as_str()
+                } else {
+                    p.as_str()
+                }
+            })
+            .unwrap_or(primary.as_str());
+
+        let (lease, mac, gateway) = self.extract_lease_mac_and_gateway(port_name)?;
+
+        println!("Setting up bridge {} with port {}", bridge_name, port_name);
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, bridge_name, port_name, gateway)
+            .await?;
+        println!("Bridge setup complete: {} <- {}", bridge_name, port_name);
+
+        self.cancel_renewal_tasks(port_name);
+
+        let index = link::get_link_index(&self.handle, bridge_name).await?;
+        let ip = self.get_interface(port_name).and_then(|i| i.ip.clone());
+        let br_snapshot = InterfaceSnapshot {
+            name: bridge_name.to_string(),
+            index,
+            mac,
+            link: LinkStateKind::Up,
+            ip,
+            lease: Some(lease.clone()),
+            ipv6: None,
+        };
+        self.insert_interface(br_snapshot);
+
+        if let Some(port_iface) = self.get_interface_mut(port_name) {
+            port_iface.ip = None;
+            port_iface.lease = None;
+        }
+        self.sync_and_publish();
+
+        println!(
+            "Transferring DHCP lease management from {} to {}",
+            port_name, bridge_name
+        );
+        self.schedule_lease_renewal(cmd_tx.clone(), bridge_name.to_string(), lease);
+
+        Ok(())
+    }
+
+    /// Sets up the bridge on demand (gRPC `SetupBridge` RPC).
     pub(super) async fn setup_bridge(&mut self) -> Result<()> {
         let primary = self.get_primary_name()?;
         let gateway = self
@@ -472,137 +557,28 @@ impl NetworkActor {
             .and_then(|iface| iface.ip.as_ref())
             .and_then(|ip| ip.gateway);
 
-        println!(
-            "Setting up bridge {} with primary {}",
-            constants::DEFAULT_BRIDGE,
-            primary
-        );
-        bridge::ensure_bridge_with_ip_transfer(
-            &self.handle,
-            constants::DEFAULT_BRIDGE,
-            &primary,
-            gateway,
-        )
-        .await?;
-        println!(
-            "Bridge setup complete: {} <- {}",
-            constants::DEFAULT_BRIDGE,
-            primary
-        );
+        let bridge_name = self
+            .bridge_name()
+            .ok_or_else(|| anyhow::anyhow!("no bridge interface configured"))?
+            .to_string();
+
+        println!("Setting up bridge {} with primary {}", bridge_name, primary);
+        bridge::ensure_bridge_with_ip_transfer(&self.handle, &bridge_name, &primary, gateway)
+            .await?;
+        println!("Bridge setup complete: {} <- {}", bridge_name, primary);
 
         Ok(())
-    }
-
-    async fn setup_bridge_and_transfer_dhcp(
-        &mut self,
-        cmd_tx: &mpsc::Sender<NetworkCommand>,
-    ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-        let (lease, mac, gateway) = self.extract_lease_mac_and_gateway(&primary)?;
-
-        self.setup_bridge_with_gateway(gateway).await?;
-
-        self.cancel_renewal_tasks(&primary);
-
-        let index = link::get_link_index(&self.handle, constants::DEFAULT_BRIDGE).await?;
-        self.track_bridge_interface(index, mac, lease.clone());
-        self.clear_lease_from_primary(&primary);
-        self.sync_and_publish();
-
-        println!(
-            "Transferring DHCP lease management from {} to {}",
-            primary,
-            constants::DEFAULT_BRIDGE
-        );
-        self.schedule_lease_renewal(cmd_tx.clone(), constants::DEFAULT_BRIDGE.to_string(), lease);
-
-        Ok(())
-    }
-
-    fn get_primary_name(&self) -> Result<String> {
-        self.state
-            .primary
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no primary interface"))
-    }
-
-    fn extract_lease_mac_and_gateway(
-        &self,
-        iface_name: &str,
-    ) -> Result<(DhcpLease, [u8; 6], Option<std::net::Ipv4Addr>)> {
-        let iface = self
-            .get_interface(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
-
-        let lease = iface
-            .lease
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", iface_name))?;
-
-        let gateway = iface.ip.as_ref().and_then(|ip| ip.gateway);
-
-        Ok((lease, iface.mac, gateway))
-    }
-
-    async fn setup_bridge_with_gateway(
-        &mut self,
-        gateway: Option<std::net::Ipv4Addr>,
-    ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-
-        println!(
-            "Setting up bridge {} with primary {}",
-            constants::DEFAULT_BRIDGE,
-            primary
-        );
-        bridge::ensure_bridge_with_ip_transfer(
-            &self.handle,
-            constants::DEFAULT_BRIDGE,
-            &primary,
-            gateway,
-        )
-        .await?;
-        println!(
-            "Bridge setup complete: {} <- {}",
-            constants::DEFAULT_BRIDGE,
-            primary
-        );
-
-        Ok(())
-    }
-
-    fn track_bridge_interface(&mut self, index: u32, mac: [u8; 6], lease: DhcpLease) {
-        let primary = self
-            .state
-            .primary
-            .as_ref()
-            .expect("BUG: no primary interface set");
-        let ip = self.get_interface(primary).and_then(|i| i.ip.clone());
-
-        let br_snapshot = InterfaceSnapshot {
-            name: constants::DEFAULT_BRIDGE.to_string(),
-            index,
-            mac,
-            link: LinkStateKind::Up,
-            ip,
-            lease: Some(lease),
-            ipv6: None,
-        };
-
-        self.insert_interface(br_snapshot);
-    }
-
-    fn clear_lease_from_primary(&mut self, primary: &str) {
-        if let Some(iface) = self.get_interface_mut(primary) {
-            iface.ip = None;
-            iface.lease = None;
-        }
     }
 
     pub(super) async fn add_tap(&mut self, name: &str) -> Result<InterfaceSnapshot> {
         println!("Adding TAP interface: {}", name);
 
-        let index = tap::setup_tap_on_bridge(&self.handle, name, constants::DEFAULT_BRIDGE).await?;
+        let bridge_name = self
+            .bridge_name()
+            .ok_or_else(|| anyhow::anyhow!("no bridge interface configured"))?
+            .to_string();
+
+        let index = tap::setup_tap_on_bridge(&self.handle, name, &bridge_name).await?;
 
         let snapshot = InterfaceSnapshot {
             name: name.to_string(),
@@ -673,5 +649,30 @@ impl NetworkActor {
         }
 
         result
+    }
+
+    fn get_primary_name(&self) -> Result<String> {
+        self.state
+            .primary
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no primary interface"))
+    }
+
+    fn extract_lease_mac_and_gateway(
+        &self,
+        iface_name: &str,
+    ) -> Result<(DhcpLease, [u8; 6], Option<std::net::Ipv4Addr>)> {
+        let iface = self
+            .get_interface(iface_name)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
+
+        let lease = iface
+            .lease
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", iface_name))?;
+
+        let gateway = iface.ip.as_ref().and_then(|ip| ip.gateway);
+
+        Ok((lease, iface.mac, gateway))
     }
 }

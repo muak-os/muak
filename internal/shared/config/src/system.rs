@@ -121,6 +121,7 @@ impl DiskConfig {
 pub struct NetworkConfig {
     pub ipv6: bool,
     pub dns: Vec<String>,
+    pub interfaces: Vec<InterfaceConfig>,
 }
 
 impl NetworkConfig {
@@ -135,6 +136,54 @@ impl NetworkConfig {
         }
         Ok(())
     }
+}
+
+/// Declarative configuration for a single network interface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InterfaceConfig {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: InterfaceKind,
+    #[serde(default)]
+    pub ipv4: Option<Ipv4InterfaceConfig>,
+    #[serde(default)]
+    pub ipv6: Option<Ipv6InterfaceConfig>,
+    #[serde(default)]
+    pub bridge: Option<BridgeConfig>,
+}
+
+/// The type of network interface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InterfaceKind {
+    Bridge,
+    Ethernet,
+}
+
+/// IPv4 configuration for a network interface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ipv4InterfaceConfig {
+    pub dhcp: bool,
+    pub address: Option<std::net::Ipv4Addr>,
+    pub prefix: Option<u8>,
+    pub gateway: Option<std::net::Ipv4Addr>,
+}
+
+/// IPv6 configuration for a network interface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ipv6InterfaceConfig {
+    pub autoconf: bool,
+}
+
+/// Bridge-specific configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct BridgeConfig {
+    pub port: Vec<String>,
+    pub stp: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

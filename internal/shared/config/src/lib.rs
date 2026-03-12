@@ -11,10 +11,7 @@ pub mod version;
 pub use auth::{AUTH_EXTENSION, AUTH_PATH, AuthConfig, AuthUser, serialize as serialize_auth};
 pub use error::{ConfigError, Result};
 pub use permission::Permission;
-pub use system::{
-    CONFIG_EXTENSION, CONFIG_PATH, DiskConfig, HostConfig, NetworkConfig, SystemConfig, VmConfig,
-    diff, load_from_path, parse_from_str, serialize, serialize_default,
-};
+pub use system::*;
 pub use user::{ClientConfig, Credentials, PendingEnrollment, ServerContext};
 pub use version::check_no_downgrade;
 
