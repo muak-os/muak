@@ -10,6 +10,7 @@ fn test_load_from_path_with_file() {
     let config_path = temp_dir.path().join("config.toml");
     let config_content = r#"
 [host]
+name = "muak"
 image = "test_image"
 extensions = ["ext1", "ext2"]
 port = 8080

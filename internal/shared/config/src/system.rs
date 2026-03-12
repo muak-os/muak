@@ -17,13 +17,23 @@ pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
 const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
 
 /// Top-level system configuration covering host, disk, network, and VM settings.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemConfig {
+    #[serde(default)]
     pub host: HostConfig,
+    #[serde(default)]
     pub disk: DiskConfig,
+    #[serde(default)]
     pub network: NetworkConfig,
+    #[serde(default)]
     pub vm: VmConfig,
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        toml::from_str(DEFAULT_CONFIG).expect("embedded default.toml is invalid")
+    }
 }
 
 impl SystemConfig {
@@ -80,9 +90,7 @@ impl SystemConfig {
     }
 }
 
-include!(concat!(env!("OUT_DIR"), "/defaults.rs"));
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct HostConfig {
     pub name: String,
@@ -116,7 +124,7 @@ impl DiskConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub ipv6: bool,
@@ -186,7 +194,7 @@ pub struct BridgeConfig {
     pub stp: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct VmConfig {
     pub auto_restart: bool,
@@ -666,6 +674,19 @@ port = 1234
             found,
             "expected network section removed, got: {:?}",
             changes
+        );
+    }
+
+    #[test]
+    fn test_default_matches_default_config() {
+        let from: SystemConfig = TomlCodec::decode(DEFAULT_CONFIG).unwrap();
+        let from_default = SystemConfig::default();
+
+        let str = TomlCodec::encode(&from).unwrap();
+        let default_str = TomlCodec::encode(&from_default).unwrap();
+        assert_eq!(
+            str, default_str,
+            "Default impl has drifted from default config"
         );
     }
 
