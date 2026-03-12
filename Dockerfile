@@ -44,7 +44,6 @@ WORKDIR /rootfs
 RUN <<EOF
 set -euo pipefail
 mkdir -p sbin dev proc sys run etc lib/modules
-echo "nameserver 9.9.9.9" > run/resolv.conf
 ln -sf /run/resolv.conf etc/resolv.conf
 EOF
 
