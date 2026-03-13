@@ -1,10 +1,21 @@
 //! Immutable host system configuration.
 
-use std::net::IpAddr;
+mod disk;
+mod host;
+mod network;
+mod vm;
+
 use std::path::Path;
 use std::sync::OnceLock;
 
+pub use disk::DiskConfig;
+pub use host::HostConfig;
+pub use network::{
+    BridgeConfig, Cidr4, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
+    NetworkConfig,
+};
 use serde::{Deserialize, Serialize};
+pub use vm::VmConfig;
 
 use crate::codec::{Codec, TomlCodec};
 use crate::error::{ConfigError, Result};
@@ -14,7 +25,7 @@ pub const CONFIG_EXTENSION: &str = "toml";
 
 pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
 
-const DEFAULT_CONFIG: &str = include_str!("../../../default.toml");
+const DEFAULT_CONFIG: &str = include_str!("../../../../default.toml");
 
 /// Top-level system configuration covering host, disk, network, and VM settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,30 +67,13 @@ impl SystemConfig {
     /// Validates that the config is complete enough for installation.
     pub fn validate_for_install(&self) -> Result<()> {
         self.validate()?;
-        if self.disk.system.is_empty() {
-            return Err(ConfigError::ValidationError(
-                "disk.system must be specified for installation".to_string(),
-            ));
-        }
-        Ok(())
+        self.disk.validate_for_install()
     }
 
     /// Validates that the config is acceptable for an update operation.
     pub fn validate_for_update(&self, installed: &SystemConfig) -> Result<()> {
         self.validate()?;
-        if self.disk.system != installed.disk.system {
-            return Err(ConfigError::ValidationError(format!(
-                "disk.system cannot be changed after install (installed: '{}', requested: '{}')",
-                installed.disk.system, self.disk.system
-            )));
-        }
-        if self.disk.data_disk() != installed.disk.data_disk() {
-            return Err(ConfigError::ValidationError(format!(
-                "disk.data cannot be changed after install (installed: '{}', requested: '{}')",
-                installed.disk.data_disk(),
-                self.disk.data_disk()
-            )));
-        }
+        self.disk.validate_immutable(&installed.disk)?;
         if installed.host.secureboot && !self.host.secureboot {
             return Err(ConfigError::ValidationError(
                 "host.secureboot cannot be disabled after Secure Boot keys have been enrolled"
@@ -88,116 +82,6 @@ impl SystemConfig {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct HostConfig {
-    pub name: String,
-    pub image: String,
-    pub extensions: Vec<String>,
-    pub secureboot: bool,
-    pub port: u16,
-    pub ntp: String,
-}
-
-/// Disk assignment configuration for system and data partitions.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct DiskConfig {
-    pub system: String,
-    pub data: Option<String>,
-}
-
-impl DiskConfig {
-    /// Returns the effective data disk path, falling back to `system` when `data` is unset.
-    pub fn data_disk(&self) -> &str {
-        match &self.data {
-            Some(d) if !d.is_empty() => d.as_str(),
-            _ => &self.system,
-        }
-    }
-
-    /// Returns true when the data partition lives on a separate physical disk.
-    pub fn is_split(&self) -> bool {
-        matches!(&self.data, Some(d) if !d.is_empty() && d != &self.system)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct NetworkConfig {
-    pub ipv6: bool,
-    pub dns: Vec<String>,
-    pub interfaces: Vec<InterfaceConfig>,
-}
-
-impl NetworkConfig {
-    /// Validates that all entries in `dns` are parseable IP addresses.
-    pub fn validate_dns(&self) -> Result<()> {
-        let invalid = self.dns.iter().find(|e| e.parse::<IpAddr>().is_err());
-        if let Some(entry) = invalid {
-            return Err(ConfigError::ValidationError(format!(
-                "network.dns contains invalid IP address: '{}'",
-                entry
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// Declarative configuration for a single network interface.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InterfaceConfig {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub kind: InterfaceKind,
-    #[serde(default)]
-    pub ipv4: Option<Ipv4InterfaceConfig>,
-    #[serde(default)]
-    pub ipv6: Option<Ipv6InterfaceConfig>,
-    #[serde(default)]
-    pub bridge: Option<BridgeConfig>,
-}
-
-/// The type of network interface.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InterfaceKind {
-    Bridge,
-    Ethernet,
-}
-
-/// IPv4 configuration for a network interface.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct Ipv4InterfaceConfig {
-    pub dhcp: bool,
-    pub address: Option<std::net::Ipv4Addr>,
-    pub prefix: Option<u8>,
-    pub gateway: Option<std::net::Ipv4Addr>,
-}
-
-/// IPv6 configuration for a network interface.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct Ipv6InterfaceConfig {
-    pub autoconf: bool,
-}
-
-/// Bridge-specific configuration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct BridgeConfig {
-    pub port: Vec<String>,
-    pub stp: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct VmConfig {
-    pub auto_restart: bool,
 }
 
 /// Initializes the host config.
@@ -236,6 +120,16 @@ pub fn diff(a: &str, b: &str) -> Result<Vec<(String, String, String)>> {
     Ok(changes)
 }
 
+/// Loads system config from a file, falling back to defaults if not found.
+pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
+    if path.exists() {
+        let contents = std::fs::read_to_string(path)?;
+        TomlCodec::decode(&contents)
+    } else {
+        TomlCodec::decode(DEFAULT_CONFIG)
+    }
+}
+
 fn join_path(prefix: &str, key: &str) -> String {
     if prefix.is_empty() {
         key.to_string()
@@ -265,16 +159,6 @@ fn diff_values(
     }
     for (key, vb) in fb.iter().filter(|(k, _)| !fa.contains_key(*k)) {
         changes.push((join_path(prefix, key), String::new(), vb.to_string()));
-    }
-}
-
-/// Loads system config from a file, falling back to defaults if not found.
-pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
-    if path.exists() {
-        let contents = std::fs::read_to_string(path)?;
-        TomlCodec::decode(&contents)
-    } else {
-        TomlCodec::decode(DEFAULT_CONFIG)
     }
 }
 
@@ -444,30 +328,6 @@ image = "192.168.100.1:5000/installer:latest"
     }
 
     #[test]
-    fn test_disk_config_data_disk_fallback() {
-        // ARRANGE
-        let mut disk = DiskConfig::default();
-        disk.system = "/dev/sda".to_string();
-
-        // ACT & ASSERT
-        assert_eq!(disk.data_disk(), "/dev/sda");
-        assert!(!disk.is_split());
-    }
-
-    #[test]
-    fn test_disk_config_split() {
-        // ARRANGE
-        let disk = DiskConfig {
-            system: "/dev/sda".to_string(),
-            data: Some("/dev/sdb".to_string()),
-        };
-
-        // ACT & ASSERT
-        assert_eq!(disk.data_disk(), "/dev/sdb");
-        assert!(disk.is_split());
-    }
-
-    #[test]
     fn test_validation_failure_empty_name() {
         // ARRANGE
         let mut config = SystemConfig::default();
@@ -566,19 +426,6 @@ port = 1234
 
         // ASSERT
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_disk_config_empty_data_string_falls_back_to_system() {
-        // ARRANGE
-        let disk = DiskConfig {
-            system: "/dev/sda".to_string(),
-            data: Some(String::new()),
-        };
-
-        // ACT & ASSERT
-        assert_eq!(disk.data_disk(), "/dev/sda");
-        assert!(!disk.is_split());
     }
 
     #[test]

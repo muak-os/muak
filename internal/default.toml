@@ -31,5 +31,13 @@ ipv4.dhcp = true
 ipv6.autoconf = true
 bridge.port = ["auto"]
 
+# [[network.interfaces]]
+# name = "eth0"
+# type = "ethernet"
+# ipv4.dhcp = false
+# ipv4.addresses = ["192.168.1.10/24", "192.168.1.11/24"]
+# ipv4.gateway = "192.168.1.1"
+# ipv6.autoconf = true
+
 [vm]
 auto_restart = true

@@ -22,9 +22,6 @@
   - Recovery from degraded state (stays degraded)
   - Support custom proxy
   - Support for self-signed certificates
-  - Allow creation of multiple bridges
-  - Disable bridge when in maintenance mode
-  - Full declarative config for network interfaces, bridges etc
   - Support air gap connectivity check
 
 - Copy-on-Write disk creation for templates
@@ -50,7 +47,6 @@
 - Support Apple M processor chips
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)
-- Orchestrator for multipe node cluster to manage VMs when one node fails or updates, like Kubernetes but for VMs or
-  like Proxmox VE cluster management
+- Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
 - Make the VM themselves declarative
 - Add custom hypervisor using the rust-vmm crates for better performance and control

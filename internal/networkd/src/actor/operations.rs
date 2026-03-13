@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use config::{BridgeConfig, InterfaceKind};
+use config::{BridgeConfig, Cidr4, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
@@ -486,7 +486,15 @@ impl NetworkActor {
                     self.setup_bridge_from_config(&iface_cfg.name, &bridge_cfg, cmd_tx)
                         .await?;
                 }
-                InterfaceKind::Ethernet => {}
+                InterfaceKind::Ethernet => {
+                    self.setup_ethernet_from_config(
+                        &iface_cfg.name,
+                        iface_cfg.ipv4.as_ref(),
+                        iface_cfg.ipv6.as_ref(),
+                        cmd_tx,
+                    )
+                    .await?;
+                }
             }
         }
         Ok(())
@@ -547,6 +555,157 @@ impl NetworkActor {
         self.schedule_lease_renewal(cmd_tx.clone(), bridge_name.to_string(), lease);
 
         Ok(())
+    }
+
+    async fn setup_ethernet_from_config(
+        &mut self,
+        iface_name: &str,
+        ipv4_cfg: Option<&Ipv4InterfaceConfig>,
+        ipv6_cfg: Option<&Ipv6InterfaceConfig>,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) -> Result<()> {
+        let primary = self.get_primary_name()?;
+
+        if iface_name == primary {
+            if let Some(ipv4) = ipv4_cfg
+                && !ipv4.dhcp
+                && !ipv4.addresses.is_empty()
+            {
+                let index = self
+                    .get_interface(iface_name)
+                    .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?
+                    .index;
+                self.cancel_renewal_tasks(iface_name);
+                for cidr in &ipv4.addresses {
+                    address::remove_ipv4(&self.handle, index, cidr.address)
+                        .await
+                        .ok();
+                }
+                self.apply_static_ipv4(iface_name, index, &ipv4.addresses, ipv4.gateway)
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        if !self.has_interface(iface_name) {
+            bail!("ethernet interface '{}' not found", iface_name);
+        }
+
+        println!("Configuring ethernet interface: {}", iface_name);
+        let index = link::ensure_link_up(&self.handle, iface_name).await?;
+
+        match ipv4_cfg {
+            Some(ipv4) if ipv4.dhcp => {
+                self.acquire_dhcp(iface_name, cmd_tx).await?;
+            }
+            Some(ipv4) if !ipv4.addresses.is_empty() => {
+                self.apply_static_ipv4(iface_name, index, &ipv4.addresses, ipv4.gateway)
+                    .await?;
+            }
+            _ => {}
+        }
+
+        if let Some(ipv6) = ipv6_cfg
+            && ipv6.autoconf
+            && config::network().ipv6
+        {
+            self.try_acquire_slaac_on_interface(iface_name, cmd_tx)
+                .await;
+        }
+
+        println!("Ethernet interface configured: {}", iface_name);
+        Ok(())
+    }
+
+    async fn apply_static_ipv4(
+        &mut self,
+        iface_name: &str,
+        index: u32,
+        addresses: &[Cidr4],
+        gateway: Option<std::net::Ipv4Addr>,
+    ) -> Result<()> {
+        for cidr in addresses {
+            address::ensure_ipv4(&self.handle, index, cidr.address, cidr.prefix).await?;
+        }
+
+        if let Some(gw) = gateway {
+            println!("Setting default route via {} on {}", gw, iface_name);
+            route::ensure_default_route(&self.handle, gw).await?;
+        }
+
+        let dns = config::network()
+            .dns
+            .iter()
+            .filter_map(|s| s.parse::<std::net::IpAddr>().ok())
+            .filter_map(|ip| match ip {
+                std::net::IpAddr::V4(a) => Some(a),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        if !dns.is_empty() {
+            configure_dns(&dns)?;
+        }
+
+        let primary_addr = addresses.first().expect("addresses is non-empty");
+        let ip = crate::model::IpConfig {
+            address: primary_addr.address,
+            prefix_len: primary_addr.prefix,
+            gateway,
+            dns,
+        };
+
+        let iface_snap = self
+            .get_interface_mut(iface_name)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
+        iface_snap.ip = Some(ip);
+        self.sync_and_publish();
+
+        println!(
+            "Static IPv4 configured on {}: {}",
+            iface_name,
+            addresses
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        Ok(())
+    }
+
+    async fn try_acquire_slaac_on_interface(
+        &mut self,
+        iface_name: &str,
+        cmd_tx: &mpsc::Sender<NetworkCommand>,
+    ) {
+        let Ok(mac) = self.get_interface_mac(iface_name) else {
+            eprintln!("Cannot start SLAAC on {}: MAC not found", iface_name);
+            return;
+        };
+
+        println!("Starting SLAAC on interface: {}", iface_name);
+
+        let (slaac_tx, mut slaac_rx) = mpsc::channel::<SlaacEvent>(16);
+
+        match SlaacManager::new(iface_name.to_string(), mac, slaac_tx) {
+            Ok(manager) => {
+                tokio::spawn(manager.run());
+
+                let cmd_tx = cmd_tx.clone();
+                tokio::spawn(async move {
+                    while let Some(event) = slaac_rx.recv().await {
+                        if cmd_tx.send(NetworkCommand::Slaac(event)).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                println!("SLAAC started on {}", iface_name);
+            }
+            Err(e) => {
+                println!("SLAAC not available on {}: {}", iface_name, e);
+            }
+        }
     }
 
     /// Sets up the bridge on demand (gRPC `SetupBridge` RPC).
