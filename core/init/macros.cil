@@ -1,0 +1,118 @@
+; Muak SELinux policy macros
+;
+; Common allow-rule patterns used across service domains. Compile this file
+; before any per-service CIL files so that macro definitions are available.
+
+; Read /proc entries: dir search + file read.
+(macro allow_proc_read ((type domain))
+    (allow domain proc_t (dir      (read search)))
+    (allow domain proc_t (file     (read open getattr)))
+    (allow domain proc_t (lnk_file (read)))
+    (allow domain domain (dir      (search)))
+    (allow domain domain (file     (read getattr))))
+
+; Read /sys entries: dir search + file read + symlink follow.
+(macro allow_sysfs_read ((type domain))
+    (allow domain sysfs_t (dir      (read search getattr)))
+    (allow domain sysfs_t (file     (read open getattr)))
+    (allow domain sysfs_t (lnk_file (read))))
+
+; Read and write /sys entries (for daemons that configure sysfs knobs).
+(macro allow_sysfs_rw ((type domain))
+    (allow domain sysfs_t (dir      (read search getattr)))
+    (allow domain sysfs_t (file     (read write open getattr)))
+    (allow domain sysfs_t (lnk_file (read))))
+
+; Read /dev entries: dir search + chr_file read/write.
+(macro allow_devtmpfs_read ((type domain))
+    (allow domain devtmpfs_t (dir      (read search)))
+    (allow domain devtmpfs_t (chr_file (read write open getattr))))
+
+; Read muak_run_t sockets (for daemons that connect to a socket owned by
+; another service but do not create their own).
+(macro allow_run_socket_rw ((type domain))
+    (allow domain muak_run_t (dir      (read search)))
+    (allow domain muak_run_t (file     (read open getattr)))
+    (allow domain muak_run_t (sock_file (read write getattr))))
+
+; Full read/write/create ownership of muak_run_t (for daemons that own
+; files and sockets under /run).
+(macro allow_run_rw ((type domain))
+    (allow domain muak_run_t (dir       (read write search create add_name remove_name rmdir getattr mounton)))
+    (allow domain muak_run_t (file      (read write create open getattr setattr unlink rename)))
+    (allow domain muak_run_t (sock_file (read write create unlink getattr))))
+
+; Read-only access to muak_state_t (configuration/state under /run/state).
+; Also grants access to unlabeled_t files/dirs: btrfs inodes written without a
+; security xattr (e.g. by provisiond during install) default to unlabeled_t.
+(macro allow_state_read ((type domain))
+    (allow domain muak_state_t (dir  (read search)))
+    (allow domain muak_state_t (file (read open getattr)))
+    (allow domain unlabeled_t  (dir  (read search getattr)))
+    (allow domain unlabeled_t  (file (read open getattr))))
+
+; Read/write access to muak_state_t.
+; Also grants unlabeled_t write access for the same reason as above.
+(macro allow_state_rw ((type domain))
+    (allow domain muak_state_t (dir  (read write search create add_name remove_name)))
+    (allow domain muak_state_t (file (read write create open getattr unlink setattr)))
+    (allow domain unlabeled_t  (dir  (read write search create add_name remove_name rmdir getattr)))
+    (allow domain unlabeled_t  (file (read write create open getattr setattr unlink rename))))
+
+; Read/write access to muak_data_t.
+(macro allow_data_rw ((type domain))
+    (allow domain muak_data_t (dir  (read write search create add_name remove_name)))
+    (allow domain muak_data_t (file (read write create open getattr unlink setattr))))
+
+; Standard IPC set used by supervised daemons that communicate over a Unix
+; stream socket to granola and a dgram socket for fire-and-forget notifications.
+(macro allow_daemon_ipc ((type domain))
+    (allow domain self (unix_stream_socket (create connectto read write shutdown)))
+    (allow domain self (unix_dgram_socket  (create connect write))))
+
+; Declare a confined service domain and its entrypoint exec type, wire the
+; domain transition from granola_t, add the exec type to sqsh_file_type,
+; grant kernel_t overlay-mounter permissions on the exec type, grant common
+; runtime permissions every service needs, and allow granola to exec and
+; transition into it.
+;
+; kernel_t needs read/execute/open/map on the exec type because overlayfs
+; performs Phase-2 permission checks on lower-layer inodes using the mounter's
+; credentials (captured at mount time). The overlay is mounted by init while
+; still in kernel_t, so every execve() on the overlay triggers a kernel_t
+; check against the real squashfs inode in addition to the caller's own check.
+;
+; Every service also needs: fd:use on kernel_t (inherited /dev/console fd),
+; fifo_file:write on granola_t (stdout/stderr pipes from Stdio::piped()),
+; unix_stream_socket:read/write on granola_t (pre-bound listener socket fd 3),
+; dir:search on unlabeled_t (overlay root inode has no xattr),
+; dir:search on tmpfs_t (tmpfs root at /run to reach service sockets/state),
+; dir:search on file_t + lnk_file:read (rootfs traversal for /etc, /lib, etc),
+; chr_file:write on devtmpfs_t (all services write to /dev/kmsg via kmsg lib),
+; unix_dgram_socket:sendto on granola_t (notify client sends to granola sock),
+; and process:getsched/sigchld on self (Rust/tokio runtime scheduling params).
+;
+; Usage: (call declare_service (svc_t svc_exec_t))
+(macro declare_service ((type svc_t) (type svc_exec_t))
+    (roletype system_r svc_t)
+    (roletype object_r svc_exec_t)
+    (typeattributeset sqsh_file_type (svc_exec_t))
+    (allow svc_t svc_exec_t (file (read execute entrypoint getattr open map)))
+    (allow granola_t svc_exec_t (file (read execute getattr open map)))
+    (allow kernel_t svc_exec_t (file (read execute getattr open map)))
+    (allow granola_t svc_t      (process (transition share noatsecure siginh rlimitinh)))
+    (allow svc_t granola_t (fd (use)))
+    (allow svc_t kernel_t  (fd (use)))
+    (allow svc_t unlabeled_t (chr_file (read write open getattr)))
+    (allow svc_t unlabeled_t (dir (search)))
+    (allow svc_t tmpfs_t     (dir (search)))
+    (allow svc_t file_t      (dir (search)))
+    (allow svc_t file_t      (lnk_file (read)))
+    (allow svc_t devtmpfs_t  (dir (search)))
+    (allow svc_t devtmpfs_t  (chr_file (write open)))
+    (allow svc_t granola_t (fifo_file (write getattr)))
+    (allow svc_t granola_t (unix_stream_socket (connectto accept read write getattr getopt)))
+    (allow svc_t granola_t (unix_dgram_socket (sendto)))
+    (allow svc_t self (process (getsched sigchld signal)))
+    (allow svc_t self (unix_stream_socket (create connect read write getattr getopt setopt shutdown)))
+    (typetransition granola_t svc_exec_t process svc_t))

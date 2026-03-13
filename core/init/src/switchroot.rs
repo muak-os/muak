@@ -5,13 +5,12 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use rustix::mount::{MountFlags, mount, mount_move};
+use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
 /// Switches to the new root filesystem and executes the init process.
 pub fn switch(newroot: &str) -> Result<()> {
     move_mounts(newroot).context("move_mounts failed")?;
-    bind_modules(newroot).context("bind_modules failed")?;
     chdir(newroot).context("chdir newroot failed")?;
     chroot(".").context("chroot failed")?;
     chdir("/").context("chdir / failed")?;
@@ -33,22 +32,6 @@ fn move_mounts(newroot: &str) -> Result<()> {
     Ok(())
 }
 
-/// Bind-mounts /lib/modules from initramfs into the new root
-fn bind_modules(newroot: &str) -> Result<()> {
-    let source = Path::new("/lib/modules");
-    if !source.exists() {
-        return Ok(());
-    }
-
-    let target = format!("{}/lib/modules", newroot);
-    std::fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
-
-    mount(source, target.as_str(), "", MountFlags::BIND, None)
-        .with_context(|| format!("Failed to bind mount {} to {}", source.display(), target))?;
-
-    Ok(())
-}
-
 fn delete_initramfs() -> Result<()> {
     delete_initramfs_at(Path::new("/"))
 }
@@ -62,7 +45,7 @@ pub fn delete_initramfs_at(root: &Path) -> Result<()> {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        if matches!(name_str.as_ref(), "dev" | "proc" | "sys" | "run" | "lib") {
+        if matches!(name_str.as_ref(), "dev" | "proc" | "sys" | "run") {
             continue;
         }
 
@@ -120,7 +103,6 @@ mod tests {
         std::fs::create_dir_all(temp.path().join("proc")).unwrap();
         std::fs::create_dir_all(temp.path().join("sys")).unwrap();
         std::fs::create_dir_all(temp.path().join("run")).unwrap();
-        std::fs::create_dir_all(temp.path().join("lib")).unwrap();
         std::fs::create_dir_all(temp.path().join("old")).unwrap();
         std::fs::create_dir_all(temp.path().join("tmp")).unwrap();
         std::fs::write(temp.path().join("init"), b"#!/bin/sh").unwrap();
@@ -137,7 +119,6 @@ mod tests {
         );
         assert!(temp.path().join("sys").exists(), "/sys should be preserved");
         assert!(temp.path().join("run").exists(), "/run should be preserved");
-        assert!(temp.path().join("lib").exists(), "/lib should be preserved");
         assert!(
             !temp.path().join("old").exists(),
             "Regular directory /old should be deleted"

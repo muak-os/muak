@@ -1,0 +1,54 @@
+; Muak SELinux policy: consoled (console status display daemon)
+
+; Declare the consoled process domain and its executable file type.
+(type consoled_t)
+(type consoled_exec_t)
+
+; Register consoled as a confined service: creates role bindings, entrypoint
+; permissions, and the granola_t -> consoled_t domain transition on exec.
+(call declare_service (consoled_t consoled_exec_t))
+
+; Allow consoled to fork child processes.
+(allow consoled_t self (process (fork)))
+
+; Grant consoled sys_tty_config for configuring the virtual console
+; (/dev/tty0) terminal attributes (raw mode, window size queries).
+(allow consoled_t self (capability (sys_tty_config)))
+
+; Grant consoled CAP_SYSLOG for reading the kernel ring buffer via /dev/kmsg.
+(allow consoled_t self (capability2 (syslog)))
+
+; Allow consoled to read the kernel syslog ring buffer (system:syslog_read is
+; checked in addition to capability2:syslog when reading /dev/kmsg).
+(allow consoled_t kernel_t (system (syslog_read)))
+
+; Allow standard Unix socket IPC with granola (stream for commands, dgram for
+; status notifications).
+(call allow_daemon_ipc (consoled_t))
+
+; Allow consoled to read /proc (process info, kernel tunables).
+(call allow_proc_read (consoled_t))
+
+; Allow consoled to access /dev: read directory and read/write character
+; devices (/dev/tty0 for display output, /dev/kmsg for kernel log input).
+(allow consoled_t devtmpfs_t (dir      (read search)))
+(allow consoled_t devtmpfs_t (chr_file (read write open getattr ioctl)))
+
+; Allow consoled to read and write sockets owned by other services under /run
+; (connects to granola's socket but does not create its own).
+(call allow_run_socket_rw (consoled_t))
+
+; Allow consoled to read service state from /run/state (config.toml for display).
+(call allow_state_read (consoled_t))
+
+; Allow consoled to read /sys entries (network interface types, EFI secure boot
+; status for display on the console).
+(call allow_sysfs_read (consoled_t))
+
+; Allow consoled to read EFI variables (SecureBoot status for display).
+(allow consoled_t efivarfs_t (dir  (read search)))
+(allow consoled_t efivarfs_t (file (read open getattr)))
+
+; Allow consoled to read files from the rootfs overlay (/etc/resolv.conf for
+; DNS display).
+(allow consoled_t file_t (file (read open getattr)))

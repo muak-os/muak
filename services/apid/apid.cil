@@ -1,0 +1,48 @@
+; Muak SELinux policy: apid (API gateway daemon)
+
+; Declare the apid process domain and its executable file type.
+(type apid_t)
+(type apid_exec_t)
+
+; Register apid as a confined service: creates role bindings, entrypoint
+; permissions, and the granola_t -> apid_t domain transition on exec.
+(call declare_service (apid_t apid_exec_t))
+
+; Allow apid to fork child processes (e.g. for request handling).
+(allow apid_t self (process (fork)))
+
+; Allow apid to bind to privileged ports (< 1024) for the API listener.
+(allow apid_t self (capability (net_bind_service)))
+
+; Allow apid to create, bind, listen on, and use TCP sockets (serves the
+; HTTP/HTTPS API endpoint). setopt/getopt: SO_REUSEADDR etc via tokio.
+(allow apid_t self (tcp_socket (create bind listen accept read write shutdown setopt getopt getattr)))
+
+; Allow standard Unix socket IPC with granola (stream for commands, dgram for
+; notifications).
+(call allow_daemon_ipc (apid_t))
+
+; Allow apid to read /proc (process info, system stats for API responses).
+(call allow_proc_read  (apid_t))
+
+; Allow apid full read/write access to /run (PID file, API socket).
+(call allow_run_rw     (apid_t))
+
+; Allow apid to read and write service state (update configuration via API).
+(call allow_state_rw   (apid_t))
+
+; Allow apid to read files from the rootfs overlay (TLS certs, shared libs).
+(allow apid_t file_t (file (read open getattr)))
+
+; Allow apid to bind TCP sockets to network addresses and serve API traffic.
+; All network objects are unlabeled_t (no per-port/node labels).
+(allow apid_t unlabeled_t (tcp_socket    (name_bind node_bind)))
+(allow apid_t unlabeled_t (node          (sendto recvfrom)))
+(allow apid_t unlabeled_t (association   (sendto recvfrom)))
+(allow apid_t unlabeled_t (netif         (ingress egress)))
+
+; Allow apid to connect to backend service sockets for proxying API requests.
+(allow apid_t vmd_t         (unix_stream_socket (connectto)))
+(allow apid_t granola_t     (unix_stream_socket (connectto)))
+(allow apid_t provisiond_t  (unix_stream_socket (connectto)))
+(allow apid_t networkd_t    (unix_stream_socket (connectto)))

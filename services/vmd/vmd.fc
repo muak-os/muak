@@ -1,0 +1,1 @@
+sbin/vmd system_u:object_r:vmd_exec_t:s0

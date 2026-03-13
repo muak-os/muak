@@ -33,6 +33,23 @@ FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Create SELinux policy
+# ─────────────────────────────────────────────────────────────────────────────
+FROM docker.io/debian:trixie-slim AS selinux-policy-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  secilc \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /policy
+
+COPY --link **/*.cil ./
+
+RUN secilc -c 34 -o policy.34 -f /dev/null \
+  base.cil macros.cil \
+  $(find . -name '*.cil' ! -name 'base.cil' ! -name 'macros.cil' | LC_ALL=c sort)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
@@ -45,7 +62,7 @@ WORKDIR /rootfs
 
 RUN <<EOF
 set -euo pipefail
-mkdir -p sbin dev proc sys run etc/services lib/modules
+mkdir -p sbin dev proc sys run etc/services etc/selinux lib/modules
 ln -sf /run/resolv.conf etc/resolv.conf
 EOF
 
@@ -67,6 +84,8 @@ COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
 COPY --link --from=pkg-consoled /consoled /rootfs/sbin/consoled
 
+COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
+
 COPY --link --from=services services/*/*.service /rootfs/etc/services/
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
@@ -84,15 +103,35 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 RUN apk add --no-cache squashfs-tools
 
 COPY --link --from=rootfs-base /rootfs /rootfs
+COPY --link --from=selinux-policy-builder /policy/policy.34 /rootfs/etc/selinux/policy.34
+
+COPY --link core/init/core.fc /fc/core.fc
+COPY --link services/*/*.fc /fc/
 
 RUN <<EOF
 set -euo pipefail
+
+cat /fc/*.fc > /tmp/file-contexts.txt
+
+default="system_u:object_r:file_t:s0"
+: > /tmp/selinux-labels.pf
+
+cd /rootfs
+find . -mindepth 1 | sed 's|^\./||' | LC_ALL=C sort | while read -r path; do
+    ctx=$(awk -v p="$path" '
+        $1 == p { print $2; exit }
+        index($1, "*") && p ~ "^" substr($1, 1, length($1)-1) { print $2; exit }
+    ' /tmp/file-contexts.txt)
+    printf '%s x security.selinux=%s\n' "$path" "${ctx:-$default}" >> /tmp/selinux-labels.pf
+done || true
+
 mksquashfs /rootfs /rootfs.sqsh \
   -comp zstd \
   -Xcompression-level ${COMPRESSION_LEVEL} \
   -b 1M \
   -noappend \
-  -no-progress
+  -no-progress \
+  -pf /tmp/selinux-labels.pf
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,5 +171,4 @@ COPY --link --from=pkg-stub /stub.efi /stub.efi
 
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"
-LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

@@ -50,6 +50,14 @@ pub fn mount_pseudo() -> Result<()> {
         Some("mode=0755"),
     )?;
 
+    create_and_mount(
+        "/sys/fs/selinux",
+        "selinuxfs",
+        "selinuxfs",
+        MountFlags::NOSUID | MountFlags::NOEXEC | MountFlags::NODEV,
+        None,
+    )?;
+
     if Path::new("/sys/firmware/efi").exists() {
         create_and_mount(
             "/sys/firmware/efi/efivars",
