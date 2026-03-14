@@ -38,6 +38,8 @@ bridge.port = ["auto"]
 # ipv4.addresses = ["192.168.1.10/24", "192.168.1.11/24"]
 # ipv4.gateway = "192.168.1.1"
 # ipv6.autoconf = true
+# ipv6.addresses = ["2001:db8::1/64"]
+# ipv6.gateway = "2001:db8::1"
 
 [vm]
 auto_restart = true

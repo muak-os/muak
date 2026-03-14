@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use config::{BridgeConfig, Cidr4, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
+use config::{BridgeConfig, Cidr4, Cidr6, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
@@ -605,12 +605,14 @@ impl NetworkActor {
             _ => {}
         }
 
-        if let Some(ipv6) = ipv6_cfg
-            && ipv6.autoconf
-            && config::network().ipv6
-        {
-            self.try_acquire_slaac_on_interface(iface_name, cmd_tx)
-                .await;
+        if let Some(ipv6) = ipv6_cfg {
+            if !ipv6.addresses.is_empty() {
+                self.apply_static_ipv6(iface_name, index, &ipv6.addresses, ipv6.gateway)
+                    .await?;
+            } else if ipv6.autoconf && config::network().ipv6 {
+                self.try_acquire_slaac_on_interface(iface_name, cmd_tx)
+                    .await;
+            }
         }
 
         println!("Ethernet interface configured: {}", iface_name);
@@ -663,6 +665,63 @@ impl NetworkActor {
 
         println!(
             "Static IPv4 configured on {}: {}",
+            iface_name,
+            addresses
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        Ok(())
+    }
+
+    async fn apply_static_ipv6(
+        &mut self,
+        iface_name: &str,
+        index: u32,
+        addresses: &[Cidr6],
+        gateway: Option<std::net::Ipv6Addr>,
+    ) -> Result<()> {
+        for cidr in addresses {
+            address::ensure_ipv6(&self.handle, index, cidr.address, cidr.prefix).await?;
+        }
+
+        if let Some(gw) = gateway {
+            println!("Setting IPv6 default route via {} on {}", gw, iface_name);
+            route::ensure_default_route_v6(&self.handle, gw).await?;
+        }
+
+        let dns: Vec<std::net::Ipv6Addr> = config::network()
+            .dns
+            .iter()
+            .filter_map(|s| s.parse::<IpAddr>().ok())
+            .filter_map(|ip| match ip {
+                IpAddr::V6(a) => Some(a),
+                _ => None,
+            })
+            .collect();
+
+        if !dns.is_empty() {
+            configure_dns_v6(&dns)?;
+        }
+
+        let primary_addr = addresses.first().expect("addresses is non-empty");
+        let ipv6 = crate::model::Ipv6Config {
+            address: primary_addr.address,
+            prefix_len: primary_addr.prefix,
+            gateway,
+            dns,
+        };
+
+        let iface_snap = self
+            .get_interface_mut(iface_name)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
+        iface_snap.ipv6 = Some(ipv6);
+        self.state.ipv6 = true;
+        self.sync_and_publish();
+
+        println!(
+            "Static IPv6 configured on {}: {}",
             iface_name,
             addresses
                 .iter()

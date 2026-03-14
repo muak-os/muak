@@ -11,8 +11,8 @@ use std::sync::OnceLock;
 pub use disk::DiskConfig;
 pub use host::HostConfig;
 pub use network::{
-    BridgeConfig, Cidr4, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
-    NetworkConfig,
+    BridgeConfig, Cidr4, Cidr6, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig,
+    Ipv6InterfaceConfig, NetworkConfig,
 };
 use serde::{Deserialize, Serialize};
 pub use vm::VmConfig;
