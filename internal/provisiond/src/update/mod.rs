@@ -42,7 +42,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
         return UpdateStatus::RolledBack("Unknown error".to_string());
     }
 
-    if validation::is_validating() {
+    if snapshot::path(update_id).exists() {
         return UpdateStatus::Pending;
     }
 
@@ -51,21 +51,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
         return UpdateStatus::Committed;
     }
 
-    if snapshot::path(update_id).exists() {
-        return UpdateStatus::Pending;
-    }
-
     UpdateStatus::Unknown
-}
-
-/// Signals that the CLI has contacted provisiond during validation.
-pub fn signal_cli_contact() {
-    validation::signal_cli_contact();
-}
-
-/// Returns true while post-kexec validation is still running.
-pub fn is_validating() -> bool {
-    validation::is_validating()
 }
 
 /// Prepares an update by staging the UKI components.
@@ -134,7 +120,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     }
 
     tokio::spawn(async move {
-        if let Err(e) = validation::check_pending(&update_id, &snapshot_path).await {
+        if let Err(e) = validation::validate(&update_id, &snapshot_path).await {
             kmsg::warn!("Pending validation failed: {}", e);
         }
     });
@@ -202,4 +188,9 @@ pub(super) fn update_config(
     }
 
     Ok(())
+}
+
+/// Signals that the CLI has contacted provisiond during validation.
+pub fn signal_cli_contact() {
+    validation::signal_cli_contact();
 }

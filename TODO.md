@@ -1,7 +1,5 @@
 # TODO
 
-- Handle rollback of updates properly in CLI
-
 - Fix CI caching
 
 - Support for Raspbnerry Pi like devices using .img installation

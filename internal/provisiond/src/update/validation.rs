@@ -1,7 +1,6 @@
 //! Post-kexec validation: decide to commit or roll back the update.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -11,20 +10,10 @@ use super::commit;
 use super::rollback;
 use super::snapshot;
 
-const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(60);
-
 static CLI_CONTACT: Notify = Notify::const_new();
-static VALIDATING: AtomicBool = AtomicBool::new(false);
+const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Decides whether to commit or roll back a pending update.
-pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> {
-    VALIDATING.store(true, Ordering::Release);
-    let result = validate(update_id, snapshot_path).await;
-    VALIDATING.store(false, Ordering::Release);
-    result
-}
-
-async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
+pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let old_image = snapshot::read_image(snapshot_path)?;
     let target_image = config::host().image.clone();
 
@@ -86,11 +75,7 @@ pub fn signal_cli_contact() {
     CLI_CONTACT.notify_one();
 }
 
-/// Returns true while post-kexec validation is still running.
-pub fn is_validating() -> bool {
-    VALIDATING.load(Ordering::Acquire)
-}
-
+/// Returns true if the current cmdline lacks the update marker (kexec did not boot).
 fn is_old_kernel(update_id: &str) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
     !cmdline.contains(&format!("muak.update_id={}", update_id))
