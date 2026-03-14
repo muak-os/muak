@@ -3,7 +3,7 @@ mod icmpv6;
 mod manager;
 mod state;
 
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::Ipv6Addr;
 use std::os::fd::{AsFd, AsRawFd};
 
 use anyhow::{Result, bail};
@@ -14,14 +14,7 @@ pub(crate) const ICMP6_FILTER: libc::c_int = 1;
 
 /// Returns the configured IPv6 fallback DNS servers from the config, filtering for IPv6 addresses.
 pub(crate) fn fallback_dns_v6() -> Vec<Ipv6Addr> {
-    config::network()
-        .dns
-        .iter()
-        .filter_map(|s| match s.parse::<IpAddr>() {
-            Ok(IpAddr::V6(addr)) => Some(addr),
-            _ => None,
-        })
-        .collect()
+    config::network().ipv6_dns()
 }
 
 #[repr(C)]
@@ -57,6 +50,8 @@ pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
 
     #[test]

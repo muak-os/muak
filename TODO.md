@@ -14,9 +14,8 @@
   - Create a dashboard command with a TUI interface to display critical system information
 
 - Enhance `networkd`:
-  - Fix order of things: no gateway = fail & no connectivity = fail
-  - Automatic failover when primary interface fails
-  - Bridge migration to back-up interface
+  - Configurable failover when primary interface fails
+    - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
   - Support custom proxy
   - Support for self-signed certificates
@@ -34,6 +33,8 @@
 - Enchance `vmd`:
   - Allow for ISO images for vms
   - Rework commands to be pass through to the hypervisor
+
+- Better logging accross the codebase with kmsg, --debug flag in journal to print a lot more
 
 - Improve security:
   - Add SElinux & enforce

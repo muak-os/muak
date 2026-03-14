@@ -10,6 +10,7 @@ use crate::error::{ConfigError, Result};
 #[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub ipv6: bool,
+    pub connectivity_probe: Option<String>,
     pub dns: Vec<String>,
     pub interfaces: Vec<InterfaceConfig>,
 }
@@ -25,6 +26,28 @@ impl NetworkConfig {
             )));
         }
         Ok(())
+    }
+
+    /// Returns all IPv4 addresses from the configured DNS list.
+    pub fn ipv4_dns(&self) -> Vec<Ipv4Addr> {
+        self.dns
+            .iter()
+            .filter_map(|s| match s.parse::<IpAddr>() {
+                Ok(IpAddr::V4(a)) => Some(a),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Returns all IPv6 addresses from the configured DNS list.
+    pub fn ipv6_dns(&self) -> Vec<Ipv6Addr> {
+        self.dns
+            .iter()
+            .filter_map(|s| match s.parse::<IpAddr>() {
+                Ok(IpAddr::V6(a)) => Some(a),
+                _ => None,
+            })
+            .collect()
     }
 }
 

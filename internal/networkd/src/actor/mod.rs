@@ -1,7 +1,12 @@
+mod bridge;
 mod commands;
+mod dhcp;
 mod events;
+mod init;
 mod operations;
+mod slaac_coord;
 mod state;
+mod static_ip;
 
 use anyhow::Result;
 pub use commands::NetworkCommand;

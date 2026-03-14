@@ -299,6 +299,7 @@ impl SlaacManager {
         }
 
         let had_dns = !self.dns_servers.is_empty();
+        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
         self.dns_servers.retain(|dns| now < dns.expires_at);
 
         if had_dns && self.dns_servers.is_empty() {
@@ -309,9 +310,12 @@ impl SlaacManager {
                 .collect();
         }
 
-        if had_dns && !self.dns_servers.is_empty() {
-            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
-            let _ = self.event_tx.send(SlaacEvent::DnsUpdated { servers }).await;
+        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+        if dns_after != dns_before {
+            let _ = self
+                .event_tx
+                .send(SlaacEvent::DnsUpdated { servers: dns_after })
+                .await;
         }
     }
 

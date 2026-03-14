@@ -1,6 +1,7 @@
 use super::state::NetworkActor;
 use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
 use crate::monitor::NetworkEvent;
+use crate::netutil::format_mac_address;
 
 impl NetworkActor {
     pub(super) async fn handle_event(&mut self, event: NetworkEvent) {
@@ -35,26 +36,25 @@ impl NetworkActor {
     }
 
     async fn on_link_down(&mut self, name: String, index: u32) {
-        kmsg::info!(@ "networkd", "Event: Link down {} (index {})", name, index);
+        kmsg::info!("Event: Link down {} (index {})", name, index);
 
         let Some(iface) = self.get_interface_mut(&name) else {
             return;
         };
         iface.link = LinkStateKind::Down;
         self.sync_and_publish();
+
+        if self.is_primary_interface(&name) {
+            self.handle_primary_failure(&name);
+        }
     }
 
     async fn on_link_added(&mut self, name: String, index: u32, mac: [u8; 6]) {
         kmsg::info!(
-            "Event: Link added {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
+            "Event: Link added {} (index {}, MAC {})",
             name,
             index,
-            mac[0],
-            mac[1],
-            mac[2],
-            mac[3],
-            mac[4],
-            mac[5]
+            format_mac_address(&mac)
         );
 
         if self.has_interface(&name) {
@@ -115,8 +115,8 @@ impl NetworkActor {
         self.publish_state();
 
         if !self.state.backups.is_empty() {
-            println!("Backup interfaces available: {:?}", self.state.backups);
-            // TODO: Implement automatic failover
+            // TODO: Here is where we could trigger a failover to a backup interface.
+            kmsg::info!("Backup interfaces available: {:?}", self.state.backups);
         }
     }
 
@@ -135,12 +135,12 @@ impl NetworkActor {
     }
 
     fn assign_as_primary(&mut self, name: String) {
-        println!("Assigning {} as primary interface", name);
+        kmsg::info!("Assigning {} as primary interface", name);
         self.state.primary = Some(name);
     }
 
     fn add_to_backups(&mut self, name: String) {
-        println!("Adding {} to backup interfaces", name);
+        kmsg::info!("Adding {} to backup interfaces", name);
         self.state.backups.push(name);
     }
 

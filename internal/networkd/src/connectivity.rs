@@ -16,10 +16,18 @@ pub struct ConnectivityConfig {
 
 impl Default for ConnectivityConfig {
     fn default() -> Self {
+        Self::from_network_config()
+    }
+}
+
+impl ConnectivityConfig {
+    pub fn from_network_config() -> Self {
+        let host = config::network()
+            .connectivity_probe
+            .clone()
+            .unwrap_or_else(|| "muak.dev".to_string());
         Self {
-            target: ConnectivityTarget {
-                host: "muak.dev".to_string(),
-            },
+            target: ConnectivityTarget { host },
             probe_timeout: Duration::from_secs(CONNECTIVITY_PROBE_TIMEOUT_SECS),
             overall_timeout: Duration::from_secs(CONNECTIVITY_OVERALL_TIMEOUT_SECS),
         }

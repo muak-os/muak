@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 use crate::netlink::link;
+use crate::netutil::format_mac_address;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -174,15 +175,10 @@ async fn handle_new_link(
         None => {
             if let Some(mac_addr) = mac {
                 println!(
-                    "New link added: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})",
+                    "New link added: {} (index {}, MAC {})",
                     name,
                     index,
-                    mac_addr[0],
-                    mac_addr[1],
-                    mac_addr[2],
-                    mac_addr[3],
-                    mac_addr[4],
-                    mac_addr[5]
+                    format_mac_address(&mac_addr)
                 );
                 let _ = tx
                     .send(NetworkEvent::LinkAdded {

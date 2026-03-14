@@ -23,6 +23,7 @@ dns = [
   "2620:fe::9"
 ]
 ipv6 = true
+connectivity_probe = "muak.dev"
 
 [[network.interfaces]]
 name = "br0"

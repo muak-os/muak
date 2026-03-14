@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result};
+use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
 
 use crate::constants::{
@@ -9,14 +10,15 @@ use crate::constants::{
 };
 use crate::netlink::{address, link, retry, route};
 
-pub async fn ensure_bridge_with_ip_transfer(
+pub async fn ensure_bridge_with_config(
     handle: &Handle,
     bridge_name: &str,
     physical_iface: &str,
     gateway: Option<Ipv4Addr>,
+    stp: bool,
 ) -> Result<()> {
     let phys_index = link::get_link_index(handle, physical_iface).await?;
-    let br_index = ensure_bridge_exists(handle, bridge_name).await?;
+    let br_index = create_or_reconfigure_bridge(handle, bridge_name, stp).await?;
 
     enslave_interface_to_bridge(handle, phys_index, br_index, physical_iface, bridge_name).await?;
     transfer_ip_to_bridge(handle, phys_index, br_index, bridge_name, gateway).await?;
@@ -36,20 +38,30 @@ pub async fn attach_to_bridge(handle: &Handle, iface_name: &str, bridge_name: &s
     Ok(())
 }
 
-async fn ensure_bridge_exists(handle: &Handle, bridge_name: &str) -> Result<u32> {
+async fn create_or_reconfigure_bridge(
+    handle: &Handle,
+    bridge_name: &str,
+    stp: bool,
+) -> Result<u32> {
     if link::link_exists(handle, bridge_name).await? {
         let index = link::get_link_index(handle, bridge_name).await?;
         link::bring_link_up(handle, index).await?;
         return Ok(index);
     }
 
-    create_bridge(handle, bridge_name).await
+    create_bridge(handle, bridge_name, stp).await
 }
 
-async fn create_bridge(handle: &Handle, bridge_name: &str) -> Result<u32> {
+async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<u32> {
+    let stp_state = if stp {
+        BridgeStpState::KernelStp
+    } else {
+        BridgeStpState::Disabled
+    };
+
     handle
         .link()
-        .add(LinkBridge::new(bridge_name).build())
+        .add(LinkBridge::new(bridge_name).stp_state(stp_state).build())
         .execute()
         .await
         .context("failed to create bridge")?;

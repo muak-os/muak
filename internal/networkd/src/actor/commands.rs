@@ -53,7 +53,7 @@ impl NetworkActor {
                 let _ = reply.send(result);
             }
             NetworkCommand::SetupBridge { reply } => {
-                let result = self.setup_bridge().await;
+                let result = self.setup_bridge(cmd_tx).await;
                 let _ = reply.send(result);
             }
             NetworkCommand::AddTap { name, reply } => {

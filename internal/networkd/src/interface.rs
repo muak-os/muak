@@ -3,6 +3,8 @@ use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use tokio_stream::StreamExt;
 
+use crate::netutil::format_mac_address;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkState {
     Up,
@@ -65,15 +67,10 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
         };
 
         kmsg::info!(
-            "Discovered interface: {} (index {}, MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, state: {})",
+            "Discovered interface: {} (index {}, MAC {}, state: {})",
             name,
             link_msg.header.index,
-            mac_address[0],
-            mac_address[1],
-            mac_address[2],
-            mac_address[3],
-            mac_address[4],
-            mac_address[5],
+            format_mac_address(&mac_address),
             link_state
         );
 

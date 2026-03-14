@@ -99,11 +99,10 @@ pub async fn find_ipv6(handle: &Handle, index: u32) -> Result<Option<(Ipv6Addr, 
         if addr.header.index != index {
             continue;
         }
-        if let Some(v6) = find_v6_in_attributes(&addr.attributes) {
-            // Skip link-local addresses (fe80::/10)
-            if !v6.segments()[0] == 0xfe80 {
-                return Ok(Some((v6, addr.header.prefix_len)));
-            }
+        if let Some(v6) = find_v6_in_attributes(&addr.attributes)
+            && v6.segments()[0] != 0xfe80
+        {
+            return Ok(Some((v6, addr.header.prefix_len)));
         }
     }
 
