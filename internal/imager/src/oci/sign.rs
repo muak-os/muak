@@ -240,7 +240,7 @@ mod tests {
     use crate::oci::verify::sha256_hex;
 
     #[test]
-    fn test_base64url_roundtrip() {
+    fn base64url_roundtrip() {
         // ARRANGE
         let original = b"\x30\x44\x02\x20\xde\xad\xbe\xef";
 
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn test_manifest_signing_payload_strips_sig_annotation() {
+    fn manifest_signing_payload_strips_sig_annotation() {
         // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
 
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_signed_manifest_roundtrip() {
+    fn build_signed_manifest_roundtrip() {
         // ARRANGE
 
         let rng = SystemRandom::new();
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn test_manifest_signing_payload_idempotent() {
+    fn manifest_signing_payload_idempotent() {
         // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
         let (digest1, _) = manifest_signing_payload(manifest_json).unwrap();

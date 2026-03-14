@@ -69,7 +69,7 @@ mod tests {
     use crate::metadata::Digest;
 
     #[test]
-    fn test_create_verify_roundtrip() {
+    fn create_verify_roundtrip() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_wrong_key() {
+    fn verify_wrong_key() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let wrong_key = vec![0x43u8; 64];
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_modified_key() {
+    fn verify_modified_key() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_different_salts() {
+    fn create_different_salts() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_structure() {
+    fn digest_structure() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0", "1"];
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_unsupported_digest_type() {
+    fn verify_unsupported_digest_type() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let digest = Digest {
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_zero_iterations() {
+    fn verify_zero_iterations() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let digest = Digest {
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_empty_key() {
+    fn verify_empty_key() {
         // ARRANGE
         let volume_key = vec![];
         let keyslot_ids = &["0"];
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_different_key_sizes() {
+    fn verify_different_key_sizes() {
         // ARRANGE & ACT & ASSERT
         for size in [16, 32, 64, 128] {
             let volume_key = vec![0x42u8; size];
@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_corrupted_digest() {
+    fn verify_corrupted_digest() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];
@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_corrupted_salt() {
+    fn verify_corrupted_salt() {
         // ARRANGE
         let volume_key = vec![0x42u8; 64];
         let keyslot_ids = &["0"];

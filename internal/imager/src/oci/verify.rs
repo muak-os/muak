@@ -180,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sha256_hex_empty() {
+    fn sha256_hex_empty() {
         // ACT & ASSERT
         assert_eq!(
             sha256_hex(b""),
@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sha256_hex_hello() {
+    fn sha256_hex_hello() {
         // ACT & ASSERT
         assert_eq!(
             sha256_hex(b"hello"),
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_blob_digest_ok() {
+    fn verify_blob_digest_ok() {
         // ARRANGE
         let data = b"hello";
         let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_blob_digest_mismatch() {
+    fn verify_blob_digest_mismatch() {
         // ARRANGE
         let data = b"hello";
         let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_blob_digest_unsupported_algorithm() {
+    fn verify_blob_digest_unsupported_algorithm() {
         // ARRANGE
         let data = b"hello";
         let digest = "md5:abcdef";
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_local_digest_ok() {
+    fn verify_local_digest_ok() {
         // ARRANGE
         let data = b"hello";
         let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_local_digest_ok_no_prefix() {
+    fn verify_local_digest_ok_no_prefix() {
         // ARRANGE
         let data = b"hello";
         let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_local_digest_mismatch() {
+    fn verify_local_digest_mismatch() {
         // ARRANGE
         let data = b"hello";
         let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_pem_valid() {
+    fn parse_pem_valid() {
         // ARRANGE
         let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
 
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_pem_empty() {
+    fn parse_pem_empty() {
         // ARRANGE
         let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
 
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_pem_no_markers() {
+    fn parse_pem_no_markers() {
         // ARRANGE
         let input = "not a pem file";
 
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_signature_manifest_digest_roundtrip() {
+    async fn check_signature_manifest_digest_roundtrip() {
         // ARRANGE
         use base64ct::{Base64Url, Encoding};
         use ring::rand::SystemRandom;
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_signature_tampered_manifest_fails() {
+    async fn check_signature_tampered_manifest_fails() {
         // ARRANGE
         use base64ct::{Base64Url, Encoding};
         use ring::rand::SystemRandom;

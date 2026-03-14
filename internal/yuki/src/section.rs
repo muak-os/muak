@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn test_section_header_to_bytes_basic() {
+    fn section_header_to_bytes_basic() {
         // ARRANGE
         let mut header = ImageSectionHeader::default();
         header.name[0..5].copy_from_slice(b".text");
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test_section_header_to_bytes_all_zeros() {
+    fn section_header_to_bytes_all_zeros() {
         // ARRANGE
         let header = ImageSectionHeader::default();
 
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn test_section_header_to_bytes_pads_correctly() {
+    fn section_header_to_bytes_pads_correctly() {
         // ARRANGE
         let header = ImageSectionHeader::default();
 
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_section_header_to_bytes_big_values() {
+    fn section_header_to_bytes_big_values() {
         // ARRANGE
         let mut header = ImageSectionHeader::default();
         header.virtual_size.set(LE, u32::MAX);
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_success() {
+    fn build_headers_success() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1024];
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_offsets_alignment() {
+    fn build_headers_offsets_alignment() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_characteristics() {
+    fn build_headers_characteristics() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_max_virtual_end() {
+    fn build_headers_max_virtual_end() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1000];
@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_name_truncation() {
+    fn build_headers_name_truncation() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 100];
@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_sequential_offsets() {
+    fn build_headers_sequential_offsets() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 512];
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_headers_with_dtb() {
+    fn build_headers_with_dtb() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![0u8; 1024];
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_image_success() {
+    fn write_to_image_success() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 1024];
@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_image_buffer_too_small_for_headers() {
+    fn write_to_image_buffer_too_small_for_headers() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 100];
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_image_buffer_too_small_for_data() {
+    fn write_to_image_buffer_too_small_for_data() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![1u8; 100];
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_image_empty_sections() {
+    fn write_to_image_empty_sections() {
         // ARRANGE
         let metadata = create_test_metadata();
         let linux = vec![];

@@ -130,7 +130,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pool_has_all_backends() {
+    fn pool_has_all_backends() {
         // ACT
         let pool = BackendPool::new();
 
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pool_from_socket() {
+    fn pool_from_socket() {
         // ACT
         let pool = BackendPool::from_socket("/tmp/test.sock");
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_acquire_unknown_socket_errors() {
+    async fn acquire_unknown_socket_errors() {
         let pool = BackendPool::new();
         let result = pool.acquire("/nonexistent.sock").await;
         assert!(result.is_err());

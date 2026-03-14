@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_hash_minimal_pe() {
+    fn compute_hash_minimal_pe() {
         // ARRANGE
         let pe = build_test_pe(0x200, 0x200);
 
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_headers_end_uses_size_of_headers() {
+    fn headers_end_uses_size_of_headers() {
         // ARRANGE
         let section_offset: u32 = 0x400;
         let pe_a = build_test_pe(0x200, section_offset);

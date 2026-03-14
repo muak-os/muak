@@ -111,7 +111,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_module_name_zst() {
+    fn get_module_name_zst() {
         // ARRANGE
         let path = "kernel/drivers/net/ethernet/intel/igc/igc.ko.zst";
 
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_module_name_ko() {
+    fn get_module_name_ko() {
         // ARRANGE
         let path = "kernel/drivers/virtio/virtio.ko";
 
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_module_name_unsupported_extension() {
+    fn get_module_name_unsupported_extension() {
         // ARRANGE
         let path_xz = "kernel/fs/ext4/ext4.ko.xz";
         let path_gz = "kernel/fs/ext4/ext4.ko.gz";
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_module_name_no_extension() {
+    fn get_module_name_no_extension() {
         // ARRANGE
         let path = "kernel/drivers/some_module";
 
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_module_name_empty() {
+    fn get_module_name_empty() {
         // ARRANGE
         let path = "";
 
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_load_empty_file() {
+    fn depdb_load_empty_file() {
         // ARRANGE
         let file = NamedTempFile::new().expect("Failed to create temp file");
 
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_load_single_module_no_deps() {
+    fn depdb_load_single_module_no_deps() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/drivers/net/igc/igc.ko.zst:").expect("write failed");
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_load_module_with_deps() {
+    fn depdb_load_module_with_deps() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(
@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_load_nonexistent_file() {
+    fn depdb_load_nonexistent_file() {
         // ACT
         let result = DepDb::load(Path::new("/nonexistent/modules.dep"));
 
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_load_malformed_lines() {
+    fn depdb_load_malformed_lines() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/drivers/broken.ko.zst").expect("write failed");
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_get_path_exists() {
+    fn depdb_get_path_exists() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/drivers/net/e1000e/e1000e.ko.zst:").expect("write failed");
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn test_depdb_get_path_not_exists() {
+    fn depdb_get_path_not_exists() {
         // ARRANGE
         let file = NamedTempFile::new().expect("Failed to create temp file");
         let db = DepDb::load(file.path()).expect("load failed");
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_no_deps() {
+    fn resolve_load_order_no_deps() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst:").expect("write failed");
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_single_dep() {
+    fn resolve_load_order_single_dep() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_chain() {
+    fn resolve_load_order_chain() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_diamond() {
+    fn resolve_load_order_diamond() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst kernel/c.ko.zst").expect("write failed");
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_circular_deps() {
+    fn resolve_load_order_circular_deps() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_missing_dep() {
+    fn resolve_load_order_missing_dep() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "kernel/a.ko.zst: kernel/b.ko.zst").expect("write failed");
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_unknown_module() {
+    fn resolve_load_order_unknown_module() {
         // ARRANGE
         let file = NamedTempFile::new().expect("Failed to create temp file");
         let db = DepDb::load(file.path()).expect("load failed");
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_load_order_multiple_deps() {
+    fn resolve_load_order_multiple_deps() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_real_modules_dep_format() {
+    fn real_modules_dep_format() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(

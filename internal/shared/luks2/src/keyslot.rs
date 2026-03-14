@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_split_merge_roundtrip() {
+    fn af_split_merge_roundtrip() {
         // ARRANGE
         let key = vec![0xABu8; 64];
         let stripes = 100;
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_split_different_stripes() {
+    fn af_split_different_stripes() {
         // ARRANGE
         let key = vec![0x42u8; 32];
 
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_merge_wrong_size() {
+    fn af_merge_wrong_size() {
         // ARRANGE
         let data = vec![0x42u8; 100];
 
@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_split_changes_with_same_key() {
+    fn af_split_changes_with_same_key() {
         // ARRANGE
         let key = vec![0x42u8; 64];
         let stripes = 100;
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_unsupported_kdf() {
+    fn derive_key_unsupported_kdf() {
         // ARRANGE
         let mut keyslot = create_test_keyslot();
         keyslot.kdf.r#type = "pbkdf2".to_string();
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_same_passphrase_same_result() {
+    fn derive_key_same_passphrase_same_result() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_different_passphrase_different_result() {
+    fn derive_key_different_passphrase_different_result() {
         // ARRANGE
         let keyslot = create_test_keyslot();
 
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_produces_expected_size() {
+    fn derive_key_produces_expected_size() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_diffuse_deterministic() {
+    fn af_diffuse_deterministic() {
         // ARRANGE
         let mut data1 = vec![0x42u8; 64];
         let mut data2 = data1.clone();
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_diffuse_changes_data() {
+    fn af_diffuse_changes_data() {
         // ARRANGE
         let original = vec![0x42u8; 64];
         let mut data = original.clone();
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypt_decrypt_keyslot_roundtrip() {
+    fn encrypt_decrypt_keyslot_roundtrip() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decrypt_keyslot_wrong_passphrase() {
+    fn decrypt_keyslot_wrong_passphrase() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let correct_passphrase = b"correct_password";
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypt_keyslot_produces_different_output() {
+    fn encrypt_keyslot_produces_different_output() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_split_minimum_stripes() {
+    fn af_split_minimum_stripes() {
         // ARRANGE
         let key = vec![0x42u8; 64];
         let stripes = 1;
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_merge_with_corrupted_data() {
+    fn af_merge_with_corrupted_data() {
         // ARRANGE
         let key = vec![0x42u8; 64];
         let stripes = 100;
@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_empty_passphrase() {
+    fn derive_key_empty_passphrase() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"";
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_key_long_passphrase() {
+    fn derive_key_long_passphrase() {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = vec![0x42u8; 1000];

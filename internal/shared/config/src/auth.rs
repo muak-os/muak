@@ -154,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_auth_config_defaults() {
+    fn auth_config_defaults() {
         // ARRANGE & ACT
         let config = AuthConfig::default();
 
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_auth_round_trip() {
+    fn auth_round_trip() {
         // ARRANGE
         let config = AuthConfig {
             users: vec![AuthUser {
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_auth_multiple_users_and_permissions() {
+    fn auth_multiple_users_and_permissions() {
         // ARRANGE
         let config = AuthConfig {
             users: vec![
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_empty_config() {
+    fn serialize_empty_config() {
         // ARRANGE
         let config = AuthConfig::default();
 
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_from_nonexistent_path() {
+    fn load_from_nonexistent_path() {
         // ARRANGE
         let path = Path::new("/nonexistent/auth.toml");
 
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_from_tempfile() {
+    fn load_from_tempfile() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.toml");
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_from_path_invalid_format_returns_error() {
+    fn load_from_path_invalid_format_returns_error() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.toml");
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_with_mtime_nonexistent_returns_default() {
+    fn load_with_mtime_nonexistent_returns_default() {
         // ACT
         let (config, mtime) = load_with_mtime();
 
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file_mtime_nonexistent_returns_zero() {
+    fn file_mtime_nonexistent_returns_zero() {
         // ACT
         let mtime = file_mtime("/nonexistent/path/to/file.toml");
 
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file_mtime_existing_file_returns_nonzero() {
+    fn file_mtime_existing_file_returns_nonzero() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.toml");
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_auth_returns_none_before_init() {
+    fn try_auth_returns_none_before_init() {
         // ARRANGE & ACT
         let result = try_auth();
 
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_format_returns_error() {
+    fn parse_invalid_format_returns_error() {
         // ARRANGE
         let invalid = "not valid ][[[";
 

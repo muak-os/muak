@@ -201,7 +201,7 @@ mod tests {
     use crate::system::SystemConfig;
 
     #[test]
-    fn test_cidr4_parse_valid() {
+    fn cidr4_parse_valid() {
         // ARRANGE / ACT
         let cidr: Cidr4 = "192.168.1.10/24".parse().unwrap();
 
@@ -211,34 +211,34 @@ mod tests {
     }
 
     #[test]
-    fn test_cidr4_parse_prefix_zero() {
+    fn cidr4_parse_prefix_zero() {
         let cidr: Cidr4 = "0.0.0.0/0".parse().unwrap();
         assert_eq!(cidr.prefix, 0);
     }
 
     #[test]
-    fn test_cidr4_parse_prefix_32() {
+    fn cidr4_parse_prefix_32() {
         let cidr: Cidr4 = "10.0.0.1/32".parse().unwrap();
         assert_eq!(cidr.prefix, 32);
     }
 
     #[test]
-    fn test_cidr4_parse_rejects_missing_slash() {
+    fn cidr4_parse_rejects_missing_slash() {
         assert!("192.168.1.1".parse::<Cidr4>().is_err());
     }
 
     #[test]
-    fn test_cidr4_parse_rejects_invalid_ip() {
+    fn cidr4_parse_rejects_invalid_ip() {
         assert!("999.0.0.1/24".parse::<Cidr4>().is_err());
     }
 
     #[test]
-    fn test_cidr4_parse_rejects_prefix_over_32() {
+    fn cidr4_parse_rejects_prefix_over_32() {
         assert!("192.168.1.1/33".parse::<Cidr4>().is_err());
     }
 
     #[test]
-    fn test_cidr4_display_round_trip() {
+    fn cidr4_display_round_trip() {
         // ARRANGE
         let input = "10.0.0.5/16";
 
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cidr4_serde_round_trip() {
+    fn cidr4_serde_round_trip() {
         // ARRANGE
         #[derive(Serialize, Deserialize)]
         struct Wrapper {
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_dns_valid() {
+    fn validate_dns_valid() {
         // ARRANGE
         let cfg = NetworkConfig {
             dns: vec!["9.9.9.9".to_string(), "2620:fe::fe".to_string()],
@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_dns_invalid() {
+    fn validate_dns_invalid() {
         // ARRANGE
         let cfg = NetworkConfig {
             dns: vec!["not-an-ip".to_string()],
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_addresses_deserialization() {
+    fn multiple_addresses_deserialization() {
         // ARRANGE
         let toml_str = r#"
 [[network.interfaces]]
@@ -322,7 +322,7 @@ ipv4.gateway = "192.168.1.1"
     }
 
     #[test]
-    fn test_dhcp_interface_has_empty_addresses_by_default() {
+    fn dhcp_interface_has_empty_addresses_by_default() {
         // ARRANGE
         let toml_str = r#"
 [[network.interfaces]]
@@ -342,7 +342,7 @@ ipv4.dhcp = true
     }
 
     #[test]
-    fn test_cidr6_parse_valid() {
+    fn cidr6_parse_valid() {
         // ARRANGE / ACT
         let cidr: Cidr6 = "2001:db8::1/64".parse().unwrap();
 
@@ -352,34 +352,34 @@ ipv4.dhcp = true
     }
 
     #[test]
-    fn test_cidr6_parse_prefix_zero() {
+    fn cidr6_parse_prefix_zero() {
         let cidr: Cidr6 = "::/0".parse().unwrap();
         assert_eq!(cidr.prefix, 0);
     }
 
     #[test]
-    fn test_cidr6_parse_prefix_128() {
+    fn cidr6_parse_prefix_128() {
         let cidr: Cidr6 = "::1/128".parse().unwrap();
         assert_eq!(cidr.prefix, 128);
     }
 
     #[test]
-    fn test_cidr6_parse_rejects_missing_slash() {
+    fn cidr6_parse_rejects_missing_slash() {
         assert!("2001:db8::1".parse::<Cidr6>().is_err());
     }
 
     #[test]
-    fn test_cidr6_parse_rejects_invalid_ip() {
+    fn cidr6_parse_rejects_invalid_ip() {
         assert!("gggg::1/64".parse::<Cidr6>().is_err());
     }
 
     #[test]
-    fn test_cidr6_parse_rejects_prefix_over_128() {
+    fn cidr6_parse_rejects_prefix_over_128() {
         assert!("::1/129".parse::<Cidr6>().is_err());
     }
 
     #[test]
-    fn test_cidr6_display_round_trip() {
+    fn cidr6_display_round_trip() {
         // ARRANGE
         let input = "2001:db8::1/64";
 
@@ -391,7 +391,7 @@ ipv4.dhcp = true
     }
 
     #[test]
-    fn test_cidr6_serde_round_trip() {
+    fn cidr6_serde_round_trip() {
         // ARRANGE
         #[derive(Serialize, Deserialize)]
         struct Wrapper {
@@ -413,7 +413,7 @@ ipv4.dhcp = true
     }
 
     #[test]
-    fn test_static_ipv6_interface_deserialization() {
+    fn static_ipv6_interface_deserialization() {
         // ARRANGE
         let toml_str = r#"
 [[network.interfaces]]
@@ -440,7 +440,7 @@ ipv6.gateway = "2001:db8::1"
     }
 
     #[test]
-    fn test_autoconf_interface_has_empty_addresses_by_default() {
+    fn autoconf_interface_has_empty_addresses_by_default() {
         // ARRANGE
         let toml_str = r#"
 [[network.interfaces]]

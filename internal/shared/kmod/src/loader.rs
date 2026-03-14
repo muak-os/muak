@@ -117,7 +117,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_module_loader_new() {
+    fn module_loader_new() {
         // ACT
         let loader = ModuleLoader::new(PathBuf::from("/lib/modules/test"));
 
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_module_loader_tracks_loaded() {
+    fn module_loader_tracks_loaded() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_module_loader_load_by_path_invalid_path() {
+    fn module_loader_load_by_path_invalid_path() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_module_loader_load_by_path_not_found() {
+    fn module_loader_load_by_path_not_found() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn test_module_loader_skip_already_loaded() {
+    fn module_loader_skip_already_loaded() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_module_plain_ko() {
+    fn read_module_plain_ko() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("test.ko");
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_module_zstd_compressed() {
+    fn read_module_zstd_compressed() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("test.ko.zst");
@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_module_invalid_zstd() {
+    fn read_module_invalid_zstd() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("bad.ko.zst");
@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_module_not_found() {
+    fn read_module_not_found() {
         // ACT
         let result = read_module(Path::new("/nonexistent/module.ko"));
 
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_module_empty_file() {
+    fn read_module_empty_file() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("empty.ko");
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_module_empty_dep_db() {
+    fn load_module_empty_dep_db() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
 
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_module_respects_load_order() {
+    fn load_module_respects_load_order() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
 

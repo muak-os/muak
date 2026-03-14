@@ -9,7 +9,7 @@ use hyper::Request;
 use hyper::body::Bytes;
 
 #[tokio::test]
-async fn test_proxy_to_backend_success() {
+async fn proxy_to_backend_success() {
     // ARRANGE
     let backend = MockBackend::success()
         .await
@@ -42,7 +42,7 @@ async fn test_proxy_to_backend_success() {
 }
 
 #[tokio::test]
-async fn test_proxy_to_backend_connection_error() {
+async fn proxy_to_backend_connection_error() {
     // ARRANGE
     let req = Request::builder()
         .method("POST")
@@ -67,7 +67,7 @@ async fn test_proxy_to_backend_connection_error() {
 }
 
 #[tokio::test]
-async fn test_proxy_to_backend_with_body() {
+async fn proxy_to_backend_with_body() {
     // ARRANGE
     let backend = MockBackend::success()
         .await
@@ -98,7 +98,7 @@ async fn test_proxy_to_backend_with_body() {
 }
 
 #[tokio::test]
-async fn test_proxy_receives_response_body() {
+async fn proxy_receives_response_body() {
     // ARRANGE
     let backend = MockBackend::start(|_req| {
         hyper::Response::builder()
@@ -141,7 +141,7 @@ async fn test_proxy_receives_response_body() {
 }
 
 #[tokio::test]
-async fn test_proxy_preserves_uri_path() {
+async fn proxy_preserves_uri_path() {
     // ARRANGE
     let backend = MockBackend::start(|req| {
         hyper::Response::builder()
@@ -183,7 +183,7 @@ async fn test_proxy_preserves_uri_path() {
 }
 
 #[tokio::test]
-async fn test_proxy_preserves_headers() {
+async fn proxy_preserves_headers() {
     // ARRANGE
     let backend = MockBackend::start(|req| {
         let custom_value = req
@@ -228,7 +228,7 @@ async fn test_proxy_preserves_headers() {
 }
 
 #[tokio::test]
-async fn test_proxy_multiple_requests() {
+async fn proxy_multiple_requests() {
     // ARRANGE
     let backend = MockBackend::success()
         .await
@@ -259,7 +259,7 @@ async fn test_proxy_multiple_requests() {
 }
 
 #[tokio::test]
-async fn test_proxy_error_includes_socket_path() {
+async fn proxy_error_includes_socket_path() {
     // ARRANGE
     let socket_path = "/tmp/specific_test_socket_path_12345.sock";
     let pool = BackendPool::from_socket(socket_path);

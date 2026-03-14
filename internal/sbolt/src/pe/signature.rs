@@ -324,7 +324,7 @@ mod tests {
     }
 
     /// Create a test signer and certificate.
-    fn test_signer_and_cert() -> (Rsa2048Signer, Certificate) {
+    fn signer_and_cert() -> (Rsa2048Signer, Certificate) {
         let (pk_signer, pk_cert) = generate_pk_certificate("Test PK").expect("generate PK cert");
         let (kek_signer, kek_cert) =
             generate_kek_certificate("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
@@ -334,10 +334,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sign_produces_valid_win_certificate() {
+    fn sign_produces_valid_win_certificate() {
         // ARRANGE
         let pe = build_signable_pe();
-        let (signer, cert) = test_signer_and_cert();
+        let (signer, cert) = signer_and_cert();
 
         // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
@@ -375,10 +375,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sign_embeds_certificate_table() {
+    fn sign_embeds_certificate_table() {
         // ARRANGE
         let pe = build_signable_pe();
-        let (signer, cert) = test_signer_and_cert();
+        let (signer, cert) = signer_and_cert();
 
         // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
@@ -400,10 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn test_signed_pe_roundtrip_hash() {
+    fn signed_pe_roundtrip_hash() {
         // ARRANGE
         let pe = build_signable_pe();
-        let (signer, cert) = test_signer_and_cert();
+        let (signer, cert) = signer_and_cert();
         let hash_unsigned = compute_hash(&pe).expect("hash unsigned");
 
         // ACT
@@ -418,10 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn test_message_digest_matches_econtent_value_octets() {
+    fn message_digest_matches_econtent_value_octets() {
         // ARRANGE
         let pe = build_signable_pe();
-        let (signer, cert) = test_signer_and_cert();
+        let (signer, cert) = signer_and_cert();
 
         // ACT
         let signed = sign(&pe, &signer, &cert).expect("sign");

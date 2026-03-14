@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_modalias_valid() {
+    fn read_modalias_valid() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_modalias_with_whitespace() {
+    fn read_modalias_with_whitespace() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_modalias_empty() {
+    fn read_modalias_empty() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let modalias_path = dir.path().join("modalias");
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_modalias_no_file() {
+    fn read_modalias_no_file() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
 
@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_modalias_nonexistent_path() {
+    fn read_modalias_nonexistent_path() {
         // ACT
         let result = read_modalias(Path::new("/nonexistent/device/path"));
 
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_empty_sysfs() {
+    fn for_each_modalias_empty_sysfs() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut collected = Vec::new();
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_nonexistent_path() {
+    fn for_each_modalias_nonexistent_path() {
         // ARRANGE
         let mut collected = Vec::new();
 
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_single_bus_single_device() {
+    fn for_each_modalias_single_bus_single_device() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_multiple_buses() {
+    fn for_each_modalias_multiple_buses() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_multiple_devices_per_bus() {
+    fn for_each_modalias_multiple_devices_per_bus() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_device_without_modalias() {
+    fn for_each_modalias_device_without_modalias() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         create_mock_sysfs(
@@ -274,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_bus_without_devices_dir() {
+    fn for_each_modalias_bus_without_devices_dir() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         std::fs::create_dir_all(dir.path().join("pci")).expect("create bus dir");
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_modalias_empty_modalias() {
+    fn for_each_modalias_empty_modalias() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let bus_dir = dir.path().join("pci").join("devices").join("0000:00:00.0");

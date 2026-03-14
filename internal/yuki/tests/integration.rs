@@ -29,7 +29,7 @@ impl TestEnv {
 }
 
 #[test]
-fn test_build_creates_valid_uki() {
+fn build_creates_valid_uki() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -71,7 +71,7 @@ fn test_build_creates_valid_uki() {
 }
 
 #[test]
-fn test_build_with_dtb() {
+fn build_with_dtb() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -103,7 +103,7 @@ fn test_build_with_dtb() {
 }
 
 #[test]
-fn test_build_preserves_original_sections() {
+fn build_preserves_original_sections() {
     // ARRANGE
     let env = TestEnv::new();
     let stub = generate_minimal_stub();
@@ -136,7 +136,7 @@ fn test_build_preserves_original_sections() {
 }
 
 #[test]
-fn test_build_with_large_files() {
+fn build_with_large_files() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -162,7 +162,7 @@ fn test_build_with_large_files() {
 }
 
 #[test]
-fn test_build_handles_empty_cmdline() {
+fn build_handles_empty_cmdline() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -186,7 +186,7 @@ fn test_build_handles_empty_cmdline() {
 }
 
 #[test]
-fn test_build_rejects_missing_stub() {
+fn build_rejects_missing_stub() {
     // ARRANGE
     let env = TestEnv::new();
     let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
@@ -212,7 +212,7 @@ fn test_build_rejects_missing_stub() {
 }
 
 #[test]
-fn test_build_rejects_invalid_pe_stub() {
+fn build_rejects_invalid_pe_stub() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", b"this is not a PE file at all");
@@ -239,7 +239,7 @@ fn test_build_rejects_invalid_pe_stub() {
 }
 
 #[test]
-fn test_build_rejects_missing_kernel() {
+fn build_rejects_missing_kernel() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -264,7 +264,7 @@ fn test_build_rejects_missing_kernel() {
 }
 
 #[test]
-fn test_build_rejects_missing_initrd() {
+fn build_rejects_missing_initrd() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -289,7 +289,7 @@ fn test_build_rejects_missing_initrd() {
 }
 
 #[test]
-fn test_build_rejects_missing_cmdline() {
+fn build_rejects_missing_cmdline() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -314,7 +314,7 @@ fn test_build_rejects_missing_cmdline() {
 }
 
 #[test]
-fn test_build_rejects_missing_dtb_when_specified() {
+fn build_rejects_missing_dtb_when_specified() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -340,7 +340,7 @@ fn test_build_rejects_missing_dtb_when_specified() {
 }
 
 #[test]
-fn test_sections_contain_correct_data() {
+fn sections_contain_correct_data() {
     // ARRANGE
     let env = TestEnv::new();
     let kernel_data = fake_kernel(1024);
@@ -394,7 +394,7 @@ fn test_sections_contain_correct_data() {
 }
 
 #[test]
-fn test_linux_section_is_executable() {
+fn linux_section_is_executable() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -435,7 +435,7 @@ fn test_linux_section_is_executable() {
 }
 
 #[test]
-fn test_data_sections_are_not_executable() {
+fn data_sections_are_not_executable() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -471,7 +471,7 @@ fn test_data_sections_are_not_executable() {
 }
 
 #[test]
-fn test_output_is_efi_application() {
+fn output_is_efi_application() {
     // ARRANGE
     let env = TestEnv::new();
     let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
@@ -502,7 +502,7 @@ fn test_output_is_efi_application() {
 }
 
 #[test]
-fn test_generated_stub_is_valid() {
+fn generated_stub_is_valid() {
     // ARRANGE
     let stub = generate_minimal_stub();
 

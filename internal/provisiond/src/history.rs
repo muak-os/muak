@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_stem_is_sortable() {
+    fn stem_is_sortable() {
         // ARRANGE
         let a = stem(1000, "update-1000");
         let b = stem(2000, "update-2000");
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn test_change_kind_display() {
+    fn change_kind_display() {
         // ACT & ASSERT
         assert_eq!(ChangeKind::Install.to_string(), "install");
         assert_eq!(ChangeKind::Update.to_string(), "update");

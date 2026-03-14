@@ -59,7 +59,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_has_permission() {
+    fn has_permission() {
         // ARRANGE
         let user = AuthenticatedUser::new(vec![Permission::VmRead, Permission::VmCreate]);
 
@@ -72,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn test_admin_has_all_permissions() {
+    fn admin_has_all_permissions() {
         // ARRANGE
         let admin_user = AuthenticatedUser::new(vec![Permission::Admin]);
 
@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn test_regular_user_limited_access() {
+    fn regular_user_limited_access() {
         // ARRANGE
         let regular_user = AuthenticatedUser::new(vec![Permission::VmRead]);
 
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_admin() {
+    fn is_admin() {
         // ARRANGE
         let regular = AuthenticatedUser::new(vec![Permission::VmRead]);
         let admin = AuthenticatedUser::new(vec![Permission::Admin]);
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permission_count() {
+    fn permission_count() {
         // ARRANGE
         let user = AuthenticatedUser::new(vec![
             Permission::VmRead,

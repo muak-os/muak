@@ -167,7 +167,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_host_config_serialization() {
+    fn host_config_serialization() {
         // ARRANGE
         let config = SystemConfig::default();
 
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_success() {
+    fn validation_success() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_failure_port_zero() {
+    fn validation_failure_port_zero() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 0;
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_failure_empty_disk_install() {
+    fn validation_failure_empty_disk_install() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
@@ -213,14 +213,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_from_str_invalid_toml() {
+    fn parse_from_str_invalid_toml() {
         // ACT & ASSERT
         let result = TomlCodec::decode::<SystemConfig>("invalid toml");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_serialize_default() {
+    fn serialize_default() {
         // ACT
         let default_str = TomlCodec::encode(&SystemConfig::default()).unwrap();
         let config: SystemConfig = TomlCodec::decode(&default_str).unwrap();
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_rejects_system_disk_change() {
+    fn validate_for_update_rejects_system_disk_change() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_rejects_data_disk_change() {
+    fn validate_for_update_rejects_data_disk_change() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_allows_secureboot_false_to_true() {
+    fn validate_for_update_allows_secureboot_false_to_true() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_rejects_secureboot_true_to_false() {
+    fn validate_for_update_rejects_secureboot_true_to_false() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_allows_secureboot_unchanged_false() {
+    fn validate_for_update_allows_secureboot_unchanged_false() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_update_allows_secureboot_unchanged_true() {
+    fn validate_for_update_allows_secureboot_unchanged_true() {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_rejects_unknown_sections() {
+    fn config_rejects_unknown_sections() {
         // ARRANGE
         let toml_str = r#"
 [host]
@@ -328,7 +328,7 @@ image = "192.168.100.1:5000/installer:latest"
     }
 
     #[test]
-    fn test_validation_failure_empty_name() {
+    fn validation_failure_empty_name() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.name = String::new();
@@ -339,7 +339,7 @@ image = "192.168.100.1:5000/installer:latest"
     }
 
     #[test]
-    fn test_serialize_round_trip() {
+    fn serialize_round_trip() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 9090;
@@ -363,7 +363,7 @@ image = "192.168.100.1:5000/installer:latest"
     }
 
     #[test]
-    fn test_parse_from_str_valid() {
+    fn parse_from_str_valid() {
         // ARRANGE
         let toml_str = r#"
 [host]
@@ -380,7 +380,7 @@ port = 1234
     }
 
     #[test]
-    fn test_parse_from_str_invalid_format_error() {
+    fn parse_from_str_invalid_format_error() {
         // ACT
         let result = parse_from_str("[[[ invalid");
 
@@ -389,7 +389,7 @@ port = 1234
     }
 
     #[test]
-    fn test_parse_from_str_validation_error() {
+    fn parse_from_str_validation_error() {
         // ARRANGE
         let str = "[host]\nport = 0\n";
 
@@ -401,7 +401,7 @@ port = 1234
     }
 
     #[test]
-    fn test_load_from_path_existing_file() {
+    fn load_from_path_existing_file() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -417,7 +417,7 @@ port = 1234
     }
 
     #[test]
-    fn test_load_from_path_nonexistent_uses_default() {
+    fn load_from_path_nonexistent_uses_default() {
         // ARRANGE
         let path = std::path::Path::new("/nonexistent/config.toml");
 
@@ -429,7 +429,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_no_changes() {
+    fn diff_no_changes() {
         // ARRANGE
         let config = "[host]\nname = \"x\"\nport = 1\n";
 
@@ -441,7 +441,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_changed_scalar() {
+    fn diff_changed_scalar() {
         // ARRANGE
         let a = "[host]\nname = \"alpha\"\nport = 8080\n";
         let b = "[host]\nname = \"beta\"\nport = 8080\n";
@@ -457,7 +457,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_added_key() {
+    fn diff_added_key() {
         // ARRANGE
         let a = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
         let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
@@ -473,7 +473,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_removed_key() {
+    fn diff_removed_key() {
         // ARRANGE
         let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
         let b = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
@@ -489,7 +489,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_whole_section_added() {
+    fn diff_whole_section_added() {
         // ARRANGE
         let a = "[host]\nport = 1\n";
         let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
@@ -505,7 +505,7 @@ port = 1234
     }
 
     #[test]
-    fn test_diff_whole_section_removed() {
+    fn diff_whole_section_removed() {
         // ARRANGE
         let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
         let b = "[host]\nport = 1\n";
@@ -525,7 +525,7 @@ port = 1234
     }
 
     #[test]
-    fn test_default_matches_default_config() {
+    fn default_matches_default_config() {
         let from: SystemConfig = TomlCodec::decode(DEFAULT_CONFIG).unwrap();
         let from_default = SystemConfig::default();
 
@@ -538,7 +538,7 @@ port = 1234
     }
 
     #[test]
-    fn test_host_config_fields() {
+    fn host_config_fields() {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.image = "myimage".to_string();

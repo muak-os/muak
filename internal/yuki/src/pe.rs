@@ -78,7 +78,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pe_metadata_structure() {
+    fn pe_metadata_structure() {
         // ARRANGE
         let metadata = PeMetadata {
             file_header_offset: 64,
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_metadata_invalid_pe() {
+    fn extract_metadata_invalid_pe() {
         // ARRANGE
         let invalid_stub = vec![0u8; 100];
 
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_metadata_too_small() {
+    fn extract_metadata_too_small() {
         // ARRANGE
         let stub = vec![0x4D, 0x5A];
 
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_metadata_with_malformed_header() {
+    fn extract_metadata_with_malformed_header() {
         // ARRANGE
         let mut stub = vec![0u8; 100];
         stub[0] = 0xFF;
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_metadata_missing_dos_header() {
+    fn extract_metadata_missing_dos_header() {
         // ARRANGE
         let stub = vec![];
 
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_pe_image_size_basic() {
+    fn update_pe_image_size_basic() {
         // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_image_size_aligns_to_section_alignment() {
+    fn update_image_size_aligns_to_section_alignment() {
         // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_image_size_out_of_bounds() {
+    fn update_image_size_out_of_bounds() {
         // ARRANGE
         let mut stub = vec![0u8; 100];
         let metadata = PeMetadata {
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_image_size_zero_alignment() {
+    fn update_image_size_zero_alignment() {
         // ARRANGE
         let mut stub = vec![0u8; 1000];
         let metadata = PeMetadata {

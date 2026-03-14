@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_mode_regular_file() {
+    fn get_mode_regular_file() {
         // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mode_directory() {
+    fn get_mode_directory() {
         // ARRANGE
         let temp_dir = tempfile::tempdir().unwrap();
         let metadata = temp_dir.path().metadata().unwrap();
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mtime() {
+    fn get_mtime_returns_nonzero() {
         // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mode_custom_permissions() {
+    fn get_mode_custom_permissions() {
         // ARRANGE
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"test").unwrap();

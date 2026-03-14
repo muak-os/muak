@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_args_maintenance_flag() {
+    fn parse_args_maintenance_flag() {
         // ARRANGE
         let args: Vec<String> = "apid --maintenance"
             .split_whitespace()
@@ -145,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn test_args_struct() {
+    fn args_struct() {
         // ARRANGE
         let args = Args::new("127.0.0.1:8443".to_string(), true);
         let args2 = Args::new("0.0.0.0:443".to_string(), false);
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn test_args_equality() {
+    fn args_equality() {
         // ARRANGE
         let args1 = Args::new("127.0.0.1:8443".to_string(), true);
         let args2 = Args::new("127.0.0.1:8443".to_string(), true);

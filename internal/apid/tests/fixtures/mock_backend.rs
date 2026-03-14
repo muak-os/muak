@@ -128,7 +128,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_mock_backend_creates_socket() {
+    async fn mock_backend_creates_socket() {
         let backend = MockBackend::echo()
             .await
             .expect("Failed to create mock backend");
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_backend_accepts_connections() {
+    async fn mock_backend_accepts_connections() {
         let backend = MockBackend::success()
             .await
             .expect("Failed to create mock backend");

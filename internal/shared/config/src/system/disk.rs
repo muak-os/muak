@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_data_disk_fallback() {
+    fn data_disk_fallback() {
         // ARRANGE
         let mut disk = DiskConfig::default();
         disk.system = "/dev/sda".to_string();
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn test_data_disk_split() {
+    fn data_disk_split() {
         // ARRANGE
         let disk = DiskConfig {
             system: "/dev/sda".to_string(),
@@ -80,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_data_string_falls_back_to_system() {
+    fn empty_data_string_falls_back_to_system() {
         // ARRANGE
         let disk = DiskConfig {
             system: "/dev/sda".to_string(),
@@ -93,12 +93,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_install_rejects_empty_system() {
+    fn validate_for_install_rejects_empty_system() {
         assert!(DiskConfig::default().validate_for_install().is_err());
     }
 
     #[test]
-    fn test_validate_immutable_rejects_system_disk_change() {
+    fn validate_immutable_rejects_system_disk_change() {
         // ARRANGE
         let installed = DiskConfig {
             system: "/dev/sda".to_string(),
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_immutable_rejects_data_disk_change() {
+    fn validate_immutable_rejects_data_disk_change() {
         // ARRANGE
         let installed = DiskConfig {
             system: "/dev/sda".to_string(),

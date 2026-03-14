@@ -231,7 +231,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_metadata_new() {
+    fn metadata_new() {
         // ACT
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_keyslot() {
+    fn add_keyslot() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_multiple_keyslots() {
+    fn add_multiple_keyslots() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_deserialize_roundtrip() {
+    fn serialize_deserialize_roundtrip() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_with_null_padding() {
+    fn deserialize_with_null_padding() {
         // ARRANGE
         let json = r#"{"keyslots":{},"tokens":{},"segments":{"0":{"type":"crypt","offset":"16777216","iv_tweak":"0","size":"dynamic","encryption":"aes-xts-plain64","sector_size":4096}},"digests":{},"config":{"json_size":"12288","keyslots_size":"16744448"}}"#;
         let mut data = json.as_bytes().to_vec();
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_padding() {
+    fn serialize_padding() {
         // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn test_segment_structure() {
+    fn segment_structure() {
         // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn test_keyslot_kdf_parameters() {
+    fn keyslot_kdf_parameters() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn test_keyslot_area_parameters() {
+    fn keyslot_area_parameters() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_af_structure() {
+    fn af_structure() {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_invalid_json() {
+    fn deserialize_invalid_json() {
         // ARRANGE
         let data = b"not valid json".to_vec();
 
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_sector_sizes() {
+    fn different_sector_sizes() {
         // ACT & ASSERT
         for &sector_size in &[512, 1024, 2048, 4096, 8192] {
             let meta = Metadata::new(sector_size);
@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_json_size_limits() {
+    fn serialize_json_size_limits() {
         // ARRANGE
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);

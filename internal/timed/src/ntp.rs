@@ -124,7 +124,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_request() {
+    fn build_request_sets_correct_fields() {
         // ARRANGE
         let packet = build_request();
         assert_eq!(packet.len(), NTP_PACKET_SIZE);
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_valid() {
+    fn parse_response_valid() {
         // ARRANGE
         let mut packet = [0u8; NTP_PACKET_SIZE];
 
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_with_fraction() {
+    fn parse_response_with_fraction() {
         // ARRANGE
         let mut packet = [0u8; NTP_PACKET_SIZE];
 
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_zero_timestamp() {
+    fn parse_response_zero_timestamp() {
         // ARRANGE
         let packet = [0u8; NTP_PACKET_SIZE];
 

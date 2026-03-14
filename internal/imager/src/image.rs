@@ -97,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_docker_hub_image() {
+    fn parse_docker_hub_image() {
         // ARRANGE
         let reference = "alpine:latest";
 
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ghcr_image() {
+    fn parse_ghcr_image() {
         // ARRANGE
         let reference = "ghcr.io/org/image:v1.0";
 
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_private_registry() {
+    fn parse_private_registry() {
         // ARRANGE
         let reference = "192.168.1.100:5000/myimage:tag";
 
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_image_name_extraction() {
+    fn image_name_extraction() {
         // ARRANGE
         let reference = "ghcr.io/org/my-extension:v1";
 
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_image_no_tag() {
+    fn parse_image_no_tag() {
         // ARRANGE
         let reference = "alpine";
 
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_image_with_namespace() {
+    fn parse_image_with_namespace() {
         // ARRANGE
         let reference = "library/alpine:3.14";
 
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_image_empty_string() {
+    fn parse_image_empty_string() {
         // ARRANGE
         let reference = "";
 
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_image_invalid_registry() {
+    fn parse_image_invalid_registry() {
         // ARRANGE
         let reference = "invalid@registry.com/image:tag";
 
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scheme_https_for_docker_io() {
+    fn scheme_https_for_docker_io() {
         // ARRANGE
         let reference = "alpine:latest";
 
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scheme_http_for_private() {
+    fn scheme_http_for_private() {
         // ARRANGE
         let reference = "192.168.1.1:5000/image:tag";
 

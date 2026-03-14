@@ -240,7 +240,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_config() {
+    fn empty_config() {
         // ACT
         let config = ClientConfig::default();
 
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_context() {
+    fn add_context() {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_current() {
+    fn set_current() {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_current_not_found() {
+    fn set_current_not_found() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_context() {
+    fn remove_context() {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_credentials_encoding() {
+    fn credentials_encoding() {
         // ARRANGE
         let ctx = ServerContext::from_pem("localhost:50051", "ca-data", "crt-data", b"key-data");
 
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_credentials_for_endpoint() {
+    fn has_credentials_for_endpoint() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn test_current_context() {
+    fn current_context() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_contexts_sorted() {
+    fn list_contexts_sorted() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -404,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_save_via_muak_config() {
+    fn load_save_via_muak_config() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_context() {
+    fn get_context() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_context_not_found() {
+    fn remove_context_not_found() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_non_current_context() {
+    fn remove_non_current_context() {
         // ARRANGE
         let mut config = ClientConfig::default();
         config.add_context(
@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_credentials_none_when_fields_missing() {
+    fn credentials_none_when_fields_missing() {
         // ARRANGE
         let ctx = ServerContext {
             endpoint: "x:50051".to_string(),
@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_name_collision() {
+    fn resolve_name_collision_deduplicates() {
         // ARRANGE
         let mut map: HashMap<String, ServerContext> = HashMap::new();
 
@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn test_enrollment_lifecycle() {
+    fn enrollment_lifecycle() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cancel_enrollment() {
+    fn cancel_enrollment() {
         // ARRANGE
         let mut config = ClientConfig::default();
 
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_invalid_toml_returns_error() {
+    fn load_invalid_toml_returns_error() {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");

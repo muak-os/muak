@@ -107,7 +107,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_delete_initramfs_preserves_special_dirs() {
+    fn delete_initramfs_preserves_special_dirs() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_initramfs_handles_empty_root() {
+    fn delete_initramfs_handles_empty_root() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_initramfs_handles_only_special_dirs() {
+    fn delete_initramfs_handles_only_special_dirs() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_initramfs_removes_nested_structures() {
+    fn delete_initramfs_removes_nested_structures() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_in_sbin() {
+    fn find_init_in_sbin() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_in_bin() {
+    fn find_init_in_bin() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_in_root() {
+    fn find_init_in_root() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_prefers_sbin_over_bin() {
+    fn find_init_prefers_sbin_over_bin() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_no_init_found() {
+    fn find_init_no_init_found() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_init_empty_root() {
+    fn find_init_empty_root() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 

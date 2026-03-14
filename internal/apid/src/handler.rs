@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_route_request_process_service() {
+    async fn route_request_process_service() {
         // ARRANGE
         let path = "/muak.process.v1.ProcessService/List";
 
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_log_service() {
+    async fn route_request_log_service() {
         // ARRANGE
         let path = "/muak.log.v1.LogService/GetLogs";
 
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_log_service_follow() {
+    async fn route_request_log_service_follow() {
         // ARRANGE
         let path = "/muak.log.v1.LogService/FollowLogs";
 
@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_provision_service() {
+    async fn route_request_provision_service() {
         // ARRANGE
         let path = "/muak.provision.v1.ProvisionService/Install";
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_auth_service() {
+    async fn route_request_auth_service() {
         // ARRANGE
         let path = "/muak.auth.v1.AuthService/SubmitCsr";
 
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_security_service() {
+    async fn route_request_security_service() {
         // ARRANGE
         let path = "/muak.security.v1.SecurityService/GetSecurityState";
 
@@ -175,7 +175,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_unknown_service() {
+    async fn route_request_unknown_service() {
         // ARRANGE
         let path = "/unknown.Service/Method";
 
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_empty_path() {
+    async fn route_request_empty_path() {
         // ARRANGE
         let path = "";
 
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_root_path() {
+    async fn route_request_root_path() {
         // ARRANGE
         let path = "/";
 
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_partial_match_not_enough() {
+    async fn route_request_partial_match_not_enough() {
         // ARRANGE
         let socket_path = "/muak.process";
 
@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_request_vm_service_without_socket() {
+    async fn route_request_vm_service_without_socket() {
         // ARRANGE
         let path = "/muak.vm.v1.VmService/CreateVm";
 
@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_response_status_is_200() {
+    fn grpc_error_response_status_is_200() {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_content_type() {
+    fn grpc_error_content_type() {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_status_header() {
+    fn grpc_error_status_header() {
         // ARRANGE
         let status_code = 7;
         let message = "permission denied";
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_message_header() {
+    fn grpc_error_message_header() {
         // ARRANGE
         let status_code = 12;
         let message = "method not found";
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_unauthenticated() {
+    fn grpc_error_unauthenticated() {
         // ARRANGE
         let status_code = 16;
         let message = "client certificate required";
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_unavailable() {
+    fn grpc_error_unavailable() {
         // ARRANGE
         let status_code = 14;
         let message = "Backend unavailable: connection refused";
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grpc_error_empty_message() {
+    fn grpc_error_empty_message() {
         // ARRANGE
         let status_code = 0;
         let message = "";
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn test_service_prefixes_end_with_slash() {
+    fn service_prefixes_end_with_slash() {
         // ARRANGE & ACT & ASSERT
         assert!(constants::VM_SERVICE_PREFIX.ends_with('/'));
         assert!(constants::PROCESS_SERVICE_PREFIX.ends_with('/'));
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn test_service_prefixes_start_with_slash() {
+    fn service_prefixes_start_with_slash() {
         // ARRANGE & ACT & ASSERT
         assert!(constants::VM_SERVICE_PREFIX.starts_with('/'));
         assert!(constants::PROCESS_SERVICE_PREFIX.starts_with('/'));

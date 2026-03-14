@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_exact() {
+    fn glob_exact() {
         // ARRANGE
         let test_cases = vec![
             ("foo", "foo", true),
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_star() {
+    fn glob_star() {
         // ARRANGE
         let test_cases = vec![
             ("*", "anything", true),
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_question() {
+    fn glob_question() {
         // ARRANGE
         let test_cases = vec![
             ("fo?", "foo", true),
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_empty_strings() {
+    fn glob_empty_strings() {
         // ARRANGE
         let test_cases = vec![
             ("", "", true),
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_multiple_stars() {
+    fn glob_multiple_stars() {
         // ARRANGE
         let test_cases = vec![
             ("*foo*bar*", "XXXfooYYYbarZZZ", true),
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_star_and_question_combined() {
+    fn glob_star_and_question_combined() {
         // ARRANGE
         let test_cases = vec![
             ("a?c*", "abcdef", true),
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_consecutive_questions() {
+    fn glob_consecutive_questions() {
         // ARRANGE
         let test_cases = vec![
             ("???", "abc", true),
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_trailing_star() {
+    fn glob_trailing_star() {
         // ARRANGE
         let test_cases = vec![
             ("foo*", "foo", true),
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_leading_star() {
+    fn glob_leading_star() {
         // ARRANGE
         let test_cases = vec![
             ("*foo", "foo", true),
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_backtracking() {
+    fn glob_backtracking() {
         // ARRANGE
         let test_cases = vec![
             ("a*a", "aa", true),
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pci_modalias() {
+    fn pci_modalias() {
         // ARRANGE
         let pattern = "pci:v00008086d00001521sv*sd*bc*sc*i*";
         let test_cases = vec![
@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_intel_i226v_modalias() {
+    fn intel_i226v_modalias() {
         // ARRANGE
         let pattern = "pci:v00008086d0000125Csv*sd*bc*sc*i*";
         let modalias = "pci:v00008086d0000125Csv00001043sd000087D2bc02sc00i00";
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_usb_modalias() {
+    fn usb_modalias() {
         // ARRANGE
         let pattern = "usb:v*p*d*dc*dsc*dp*ic03isc01ip01*";
         let modalias = "usb:v046DpC52Bd2111dc00dsc00dp00ic03isc01ip01in00";
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_acpi_modalias() {
+    fn acpi_modalias() {
         // ARRANGE
         let pattern = "acpi:ACPI0003:";
         let test_cases = vec![("acpi:ACPI0003:", true), ("acpi:ACPI0004:", false)];
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_alias_line_valid() {
+    fn parse_alias_line_valid() {
         // ACT & ASSERT
         let result = parse_alias_line("alias pci:v00008086d* igb");
         assert_eq!(
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_alias_line_with_extra_spaces() {
+    fn parse_alias_line_with_extra_spaces() {
         // ACT & ASSERT
         let result = parse_alias_line("  alias   pci:pattern   module_name  ");
         assert_eq!(
@@ -357,34 +357,34 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_alias_line_empty() {
+    fn parse_alias_line_empty() {
         // ACT & ASSERT
         assert_eq!(parse_alias_line(""), None);
         assert_eq!(parse_alias_line("   "), None);
     }
 
     #[test]
-    fn test_parse_alias_line_comment() {
+    fn parse_alias_line_comment() {
         // ACT & ASSERT
         assert_eq!(parse_alias_line("# this is a comment"), None);
         assert_eq!(parse_alias_line("  # indented comment"), None);
     }
 
     #[test]
-    fn test_parse_alias_line_no_alias_prefix() {
+    fn parse_alias_line_no_alias_prefix() {
         // ACT & ASSERT
         assert_eq!(parse_alias_line("not an alias line"), None);
         assert_eq!(parse_alias_line("alias_not_right pattern module"), None);
     }
 
     #[test]
-    fn test_parse_alias_line_missing_module() {
+    fn parse_alias_line_missing_module() {
         // ACT & ASSERT
         assert_eq!(parse_alias_line("alias pattern_only"), None);
     }
 
     #[test]
-    fn test_parse_alias_line_complex_pattern() {
+    fn parse_alias_line_complex_pattern() {
         // ACT & ASSERT
         let result = parse_alias_line("alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc");
         assert_eq!(
@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_case_insensitive() {
+    fn alias_db_case_insensitive() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc").expect("write failed");
@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_empty_file() {
+    fn alias_db_empty_file() {
         // ARRANGE
         let file = NamedTempFile::new().expect("Failed to create temp file");
 
@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_with_comments_and_blanks() {
+    fn alias_db_with_comments_and_blanks() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "# Comment line").expect("write failed");
@@ -446,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_multiple_entries() {
+    fn alias_db_multiple_entries() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:v00008086d00001521* igb").expect("write failed");
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_first_match_wins() {
+    fn alias_db_first_match_wins() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias pci:* first_module").expect("write failed");
@@ -482,14 +482,14 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_db_load_nonexistent_file() {
+    fn alias_db_load_nonexistent_file() {
         // ACT & ASSERT
         let result = AliasDb::load(Path::new("/nonexistent/path/modules.alias"));
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_alias_db_real_world_patterns() {
+    fn alias_db_real_world_patterns() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "alias usb:v*p*d*dc*dsc*dp*ic03isc01ip01* usbhid").expect("write failed");

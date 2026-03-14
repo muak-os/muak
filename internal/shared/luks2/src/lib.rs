@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_candidate_correct_key() {
+    fn verify_candidate_correct_key() {
         // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_candidate_wrong_key() {
+    fn verify_candidate_wrong_key() {
         // ARRANGE
         let correct_key = vec![0xABu8; 64];
         let wrong_key = vec![0xCDu8; 64];
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_candidate_no_matching_digest() {
+    fn verify_candidate_no_matching_digest() {
         // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let meta = create_test_metadata();
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_candidate_wrong_keyslot() {
+    fn verify_candidate_wrong_keyslot() {
         // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_candidate_multiple_digests_one_matches() {
+    fn verify_candidate_multiple_digests_one_matches() {
         // ARRANGE
         let volume_key = vec![0xABu8; 64];
         let mut meta = create_test_metadata();
@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_from_io() {
+    fn error_from_io() {
         // ARRANGE
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
 
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_from_json() {
+    fn error_from_json() {
         // ARRANGE
         let result: std::result::Result<serde_json::Value, _> = serde_json::from_str("invalid");
         let json_err = result.unwrap_err();
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_device_size_regular_file() {
+    fn device_size_regular_file() {
         // ARRANGE
         let mut f = tempfile::NamedTempFile::new().unwrap();
         let data = vec![0u8; 4096];
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn test_device_size_nonexistent_returns_error() {
+    fn device_size_nonexistent_returns_error() {
         // ACT & ASSERT
         let result = device_size("/nonexistent/dev/not_real");
         assert!(result.is_err());

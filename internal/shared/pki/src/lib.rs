@@ -25,7 +25,7 @@ mod tests {
     use crate::util::pkcs8_to_pem;
 
     #[test]
-    fn test_generate_ca_and_server_cert() {
+    fn generate_ca_and_server_cert() {
         // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_cert_pem = ca_cert
@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_and_sign_csr() {
+    fn generate_and_sign_csr() {
         // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_ca_from_pem() {
+    fn load_ca_from_pem() {
         // ARRANGE
         let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
         let ca_cert_pem = ca_cert

@@ -100,7 +100,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_tag() {
+    fn extract_tag_parses_correctly() {
         // ACT & ASSERT
         assert_eq!(extract_tag("ghcr.io/foo/bar:v1.2.3"), "v1.2.3");
         assert_eq!(extract_tag("ghcr.io/foo/bar:latest"), "latest");
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_versions() {
+    fn parse_versions() {
         // ACT & ASSERT
         assert_eq!(
             parse_image_version("img:latest").unwrap(),
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_downgrade_detection() {
+    fn downgrade_detection() {
         // ACT & ASSERT
         assert!(check_no_downgrade("img:v0.1.0", "img:v0.2.0").is_err());
         assert!(check_no_downgrade("img:v1.0.0", "img:v2.0.0").is_err());

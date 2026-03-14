@@ -4,7 +4,7 @@ use config::*;
 use tempfile::TempDir;
 
 #[test]
-fn test_load_from_path_with_file() {
+fn load_from_path_with_file() {
     // ARRANGE
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
@@ -36,7 +36,7 @@ auto_restart = false
 }
 
 #[test]
-fn test_load_from_path_fallback_to_default() {
+fn load_from_path_fallback_to_default() {
     // ARRANGE
     let default_str = serialize_default();
 
@@ -48,7 +48,7 @@ fn test_load_from_path_fallback_to_default() {
 }
 
 #[test]
-fn test_load_from_path_reads_tempfile() {
+fn load_from_path_reads_tempfile() {
     // ARRANGE
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("config.toml");
@@ -64,7 +64,7 @@ fn test_load_from_path_reads_tempfile() {
 }
 
 #[test]
-fn test_serialize_and_parse_round_trip() {
+fn serialize_and_parse_round_trip() {
     // ARRANGE
     let mut original = SystemConfig::default();
     original.host.port = 4321;
@@ -80,7 +80,7 @@ fn test_serialize_and_parse_round_trip() {
 }
 
 #[test]
-fn test_serialize_default_is_valid() {
+fn serialize_default_is_valid() {
     // ACT
     let s = serialize_default();
 
@@ -91,7 +91,7 @@ fn test_serialize_default_is_valid() {
 }
 
 #[test]
-fn test_auth_serialize_and_parse_round_trip() {
+fn auth_serialize_and_parse_round_trip() {
     // ARRANGE
     let config = AuthConfig {
         users: vec![AuthUser {
@@ -112,7 +112,7 @@ fn test_auth_serialize_and_parse_round_trip() {
 }
 
 #[test]
-fn test_auth_load_from_path_nonexistent_returns_default() {
+fn auth_load_from_path_nonexistent_returns_default() {
     // ACT
     let config = auth::load_from_path(std::path::Path::new("/no/such/file.toml")).unwrap();
 
@@ -121,7 +121,7 @@ fn test_auth_load_from_path_nonexistent_returns_default() {
 }
 
 #[test]
-fn test_auth_load_from_path_valid_file() {
+fn auth_load_from_path_valid_file() {
     // ARRANGE
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("auth.toml");
@@ -140,7 +140,7 @@ fn test_auth_load_from_path_valid_file() {
 }
 
 #[test]
-fn test_try_config_returns_none_before_init() {
+fn try_config_returns_none_before_init() {
     // ACT
     let result = try_config();
 

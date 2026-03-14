@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_to_blob_path_with_sha256_prefix() {
+    fn digest_to_blob_path_with_sha256_prefix() {
         // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "sha256:abcd1234";
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_to_blob_path_without_prefix() {
+    fn digest_to_blob_path_without_prefix() {
         // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "abcd1234";
@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_to_blob_path_empty_digest() {
+    fn digest_to_blob_path_empty_digest() {
         // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "";
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_to_blob_path_long_digest() {
+    fn digest_to_blob_path_long_digest() {
         // ARRANGE
         let oci_dir = Path::new("/tmp/oci");
         let digest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_tar_layer_uncompressed() {
+    fn extract_tar_layer_uncompressed() {
         // ARRANGE
         let data = b"hello from tar";
         let tar_bytes = build_tar("hello.txt", data);
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_tar_layer_gzipped() {
+    fn extract_tar_layer_gzipped() {
         // ARRANGE
         let data = b"hello from gzipped tar";
         let gz_bytes = build_tar_gz("hello.txt", data);
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_tar_layer_invalid_returns_error() {
+    fn extract_tar_layer_invalid_returns_error() {
         // ARRANGE
         let bad = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03];
         let dest = tempfile::tempdir().unwrap();

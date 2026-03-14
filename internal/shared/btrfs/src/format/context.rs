@@ -323,7 +323,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mkfs_produces_valid_filesystem() {
+    fn mkfs_produces_valid_filesystem() {
         // ARRANGE
         let path = "/tmp/btrfs_test_ours.img";
         let size: u64 = 5 * 1024 * 1024 * 1024; // 5 GiB

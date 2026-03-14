@@ -107,7 +107,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_uevent_add_with_modalias() {
+    fn parse_uevent_add_with_modalias() {
         // ARRANGE
         let data = b"add@/devices/pci0000:00/0000:00:1f.6\0ACTION=add\0DEVPATH=/devices/pci0000:00/0000:00:1f.6\0SUBSYSTEM=pci\0MODALIAS=pci:v00008086d00001234\0";
 
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_uevent_remove() {
+    fn parse_uevent_remove() {
         // ARRANGE
         let data = b"remove@/devices/usb/1-1\0ACTION=remove\0SUBSYSTEM=usb\0";
 
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_uevent_no_modalias() {
+    fn parse_uevent_no_modalias() {
         // ARRANGE
         let data = b"add@/devices/virtual/net/lo\0ACTION=add\0SUBSYSTEM=net\0";
 

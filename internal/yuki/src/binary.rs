@@ -26,7 +26,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_align_to_zero_alignment() {
+    fn align_to_zero_alignment() {
         // ARRANGE
         let test_cases = vec![(100, 0, 100), (0, 0, 0), (u32::MAX, 0, u32::MAX)];
 
@@ -37,7 +37,7 @@ mod tests {
     }
 
     #[test]
-    fn test_align_to_already_aligned() {
+    fn align_to_already_aligned() {
         // ARRANGE
         let test_cases = vec![(0, 4096, 0), (4096, 4096, 4096), (8192, 4096, 8192)];
 
@@ -48,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn test_align_to_needs_alignment() {
+    fn align_to_needs_alignment() {
         // ARRANGE
         let test_cases = vec![(1, 4, 4), (100, 4, 100), (101, 4, 104), (4095, 4096, 4096)];
 
@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn test_align_to_various_alignments() {
+    fn align_to_various_alignments() {
         // ARRANGE
         let test_cases = vec![
             (10, 8, 16),
@@ -76,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn test_align_to_power_of_two() {
+    fn align_to_power_of_two() {
         // ARRANGE
         let alignments = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_u32_basic() {
+    fn read_u32_basic() {
         // ARRANGE
         let buf = [0x78, 0x56, 0x34, 0x12, 0xFF, 0xFF];
 
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_u32_different_offsets() {
+    fn read_u32_different_offsets() {
         // ARRANGE
         let buf = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
         let test_cases = vec![(0, 0x33221100), (1, 0x44332211), (4, 0x77665544)];
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_u32_all_zeros() {
+    fn read_u32_all_zeros() {
         // ARRANGE
         let buf = [0x00, 0x00, 0x00, 0x00];
 
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_u32_all_ones() {
+    fn read_u32_all_ones() {
         // ARRANGE
         let buf = [0xFF, 0xFF, 0xFF, 0xFF];
 
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_u32_little_endian() {
+    fn read_u32_little_endian() {
         // ARRANGE
         let buf = [0x01, 0x02, 0x03, 0x04];
 
@@ -155,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_u32_basic() {
+    fn write_u32_basic() {
         // ARRANGE
         let mut buf = [0u8; 4];
 
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_u32_different_offsets() {
+    fn write_u32_different_offsets() {
         // ARRANGE
         let mut buf = [0u8; 8];
 
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_u32_overwrites_correctly() {
+    fn write_u32_overwrites_correctly() {
         // ARRANGE
         let mut buf = [0xFF; 8];
 
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_u32_zero_value() {
+    fn write_u32_zero_value() {
         // ARRANGE
         let mut buf = [0xFF; 4];
 
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_u32_max_value() {
+    fn write_u32_max_value() {
         // ARRANGE
         let mut buf = [0x00; 4];
 
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_write_u32_roundtrip() {
+    fn read_write_u32_roundtrip() {
         // ARRANGE
         let mut buf = [0u8; 4];
         let test_values = [0x00000000, 0x12345678, 0xDEADBEEF, 0xFFFFFFFF, 0x00000001];
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn test_align_to_boundary_conditions() {
+    fn align_to_boundary_conditions() {
         // ARRANGE
         let test_cases = vec![
             // Test boundary at alignment size

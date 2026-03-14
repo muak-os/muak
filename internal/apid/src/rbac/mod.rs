@@ -46,7 +46,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_unauthenticated_methods_allowed() {
+    fn unauthenticated_methods_allowed() {
         // ASSERT
         assert!(check_access("/muak.auth.v1.AuthService/SubmitCsr", None).is_ok());
         assert!(check_access("/muak.auth.v1.AuthService/GetCsrStatus", None).is_ok());
@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn test_maintenance_methods_require_auth_outside_maintenance() {
+    fn maintenance_methods_require_auth_outside_maintenance() {
         // ASSERT
         assert!(matches!(
             check_access("/muak.provision.v1.ProvisionService/Install", None),
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    fn test_maintenance_methods_are_maintenance_or_permission() {
+    fn maintenance_methods_are_maintenance_or_permission() {
         // ASSERT
         for path in MAINTENANCE_METHODS {
             assert!(
@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_method_denied() {
+    fn unknown_method_denied() {
         // ARRANGE
         let path = "/muak.vm.v1.VmService/UnknownMethod";
         let fingerprint = "fp";
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_service_denied() {
+    fn unknown_service_denied() {
         // ARRANGE
         let path = "/unknown.Service/Method";
         let fingerprint = "fp";
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn test_authenticated_without_cert_denied() {
+    fn authenticated_without_cert_denied() {
         // ARRANGE
         let path = "/muak.vm.v1.VmService/CreateVm";
 
@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn test_known_methods_not_empty() {
+    fn known_methods_not_empty() {
         // ARRANG
         let count = KNOWN_METHODS.len();
 
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unauthenticated_methods_list() {
+    fn unauthenticated_methods_list() {
         // ASSERT
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/SubmitCsr"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/GetCsrStatus"));
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn test_maintenance_methods_list() {
+    fn maintenance_methods_list() {
         // ASSERT
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_overlap_between_unauthenticated_and_maintenance() {
+    fn no_overlap_between_unauthenticated_and_maintenance() {
         // ASSERT
         for method in UNAUTHENTICATED_METHODS {
             assert!(

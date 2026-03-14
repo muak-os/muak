@@ -118,7 +118,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_fingerprint_returns_64_char_hex() {
+    fn extract_fingerprint_returns_64_char_hex() {
         // ARRANGE
         let test_data = b"test certificate data";
 
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_is_lowercase_hex() {
+    fn extract_fingerprint_is_lowercase_hex() {
         // ARRANGE
         let test_data = b"test certificate data";
 
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_deterministic() {
+    fn extract_fingerprint_deterministic() {
         // ARRANGE
         let test_data = b"same input data";
 
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_different_inputs() {
+    fn extract_fingerprint_different_inputs() {
         // ARRANGE
         let fp1 = extract_fingerprint(b"first certificate");
         let fp2 = extract_fingerprint(b"second certificate");
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_empty_input() {
+    fn extract_fingerprint_empty_input() {
         // ACT
         let fingerprint = extract_fingerprint(&[]);
 
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_with_real_cert() {
+    fn extract_fingerprint_with_real_cert() {
         // ARRANGE
         let (_, ca_cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_fingerprint_matches_pki_compute() {
+    fn extract_fingerprint_matches_pki_compute() {
         // ARRANGE
         let (_, cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_ephemeral_tls_config() {
+    fn generate_ephemeral_tls_config_succeeds() {
         // ACT
         let result = generate_ephemeral_tls_config();
 
@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_tls_config_with_valid_paths() {
+    fn load_tls_config_with_valid_paths() {
         // ARRANGE
         let (ca_signer, ca_cert) =
             pki::generate_ca_certificate("Test CA").expect("Failed to generate CA");
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_tls_config_with_missing_ca() {
+    fn load_tls_config_with_missing_ca() {
         // ARRANGE
         let ca_path = "/nonexistent/ca.crt";
         let server_cert_path = "/nonexistent/server.crt";

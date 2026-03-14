@@ -188,7 +188,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_permission_display() {
+    fn permission_display() {
         // ASSERT
         assert_eq!(Permission::Admin.to_string(), "admin");
         assert_eq!(Permission::VmRead.to_string(), "vm:read");
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permission_from_str() {
+    fn permission_from_str() {
         // ASSERT
         assert_eq!("admin".parse::<Permission>().unwrap(), Permission::Admin);
         assert_eq!("vm:read".parse::<Permission>().unwrap(), Permission::VmRead);
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all_in_category() {
+    fn all_in_category() {
         // ARRANGE & ACT
         let vm_perms = Permission::all_in_category("vm");
         let system_perms = Permission::all_in_category("system");
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_pattern_wildcards() {
+    fn expand_pattern_wildcards() {
         // ARRANGE & ACT
         let vm_perms = Permission::expand_pattern("vm:*").unwrap();
         let system_perms = Permission::expand_pattern("system:*").unwrap();
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_pattern_single() {
+    fn expand_pattern_single() {
         // ARRANGE & ACT
         let perms = Permission::expand_pattern("vm:read").unwrap();
         let admin_perms = Permission::expand_pattern("admin").unwrap();
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_pattern_invalid() {
+    fn expand_pattern_invalid() {
         // ARRANGE & ACT
         let result = Permission::expand_pattern("invalid:*");
         let result2 = Permission::expand_pattern("vm:invalid");
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_category() {
+    fn category() {
         // ASSERT
         assert_eq!(Permission::Admin.category(), None);
         assert_eq!(Permission::VmRead.category(), Some("vm"));
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collapse_to_wildcards_complete_category() {
+    fn collapse_to_wildcards_complete_category() {
         // ARRANGE
         let perms = vec![
             Permission::VmRead,
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collapse_to_wildcards_partial_category() {
+    fn collapse_to_wildcards_partial_category() {
         // ARRANGE
         let perms = vec![Permission::VmRead, Permission::VmCreate];
 
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collapse_to_wildcards_mixed() {
+    fn collapse_to_wildcards_mixed() {
         // ARRANGE
         let perms = vec![
             Permission::VmRead,
@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collapse_to_wildcards_admin() {
+    fn collapse_to_wildcards_admin() {
         // ARRANGE
         let perms = vec![Permission::Admin, Permission::VmRead];
 
@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collapse_to_wildcards_empty() {
+    fn collapse_to_wildcards_empty() {
         // ACT
         let collapsed = collapse(&[]);
 
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permission_round_trip() {
+    fn permission_round_trip() {
         // ARRANGE
         let permissions = [
             Permission::Admin,
@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_permission() {
+    fn parse_permission() {
         // ARRANGE
         #[derive(Debug, Serialize, Deserialize, PartialEq)]
         struct Wrapper {

@@ -13,7 +13,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_btrfs_name_hash_default() {
+    fn btrfs_name_hash_default() {
         // ARRANGE
         let name = b"default";
 

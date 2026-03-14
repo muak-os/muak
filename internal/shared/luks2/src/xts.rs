@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encrypt_decrypt_roundtrip() {
+    fn encrypt_decrypt_roundtrip() {
         // ARRANGE
         let key = [0x42u8; 64];
         let tweak = [0x01u8; 16];
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypt_decrypt_multiple_blocks() {
+    fn encrypt_decrypt_multiple_blocks() {
         // ARRANGE
         let key = [0xABu8; 64];
         let tweak = [0x00u8; 16];
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_tweaks_produce_different_ciphertexts() {
+    fn different_tweaks_produce_different_ciphertexts() {
         // ARRANGE
         let key = [0x42u8; 64];
         let tweak1 = [0x01u8; 16];
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_same_tweak_produces_same_ciphertext() {
+    fn same_tweak_produces_same_ciphertext() {
         // ARRANGE
         let key = [0x42u8; 64];
         let tweak = [0x01u8; 16];
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wrong_key_fails_decryption() {
+    fn wrong_key_fails_decryption() {
         // ARRANGE
         let key1 = [0x42u8; 64];
         let key2 = [0x43u8; 64];
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_key_size() {
+    fn invalid_key_size() {
         // ARRANGE
         let key = [0x42u8; 32];
         let tweak = [0x01u8; 16];
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn test_data_too_short() {
+    fn data_too_short() {
         // ARRANGE
         let key = [0x42u8; 64];
         let tweak = [0x01u8; 16];
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_xor_block() {
+    fn xor_block_flips_bits() {
         // ARRANGE
         let mut block = [0xFFu8; 16];
         let tweak = [0x0Fu8; 16];
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_xor_block_zero_tweak_unchanged() {
+    fn xor_block_zero_tweak_unchanged() {
         // ARRANGE
         let mut block = [0xABu8; 16];
         let tweak = [0x00u8; 16];
@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gf128_mul_x_simple() {
+    fn gf128_mul_x_simple() {
         // ARRANGE
         let mut tweak = [0x00u8; 16];
         tweak[15] = 0x02;
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gf128_mul_x_with_carry() {
+    fn gf128_mul_x_with_carry() {
         // ARRANGE
         let mut tweak = [0x00u8; 16];
         tweak[15] = 0x80;
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gf128_mul_x_reduction() {
+    fn gf128_mul_x_reduction() {
         // ARRANGE
         let mut tweak = [0x80u8; 16];
 
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gf128_mul_x_full_reduction() {
+    fn gf128_mul_x_full_reduction() {
         // ARRANGE
         let mut tweak = [0xFFu8; 16];
 
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tweak_affects_encryption() {
+    fn tweak_affects_encryption() {
         // ARRANGE
         let key = [0x42u8; 64];
         let tweak1 = [0x00u8; 16];

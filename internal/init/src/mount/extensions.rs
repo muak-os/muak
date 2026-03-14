@@ -37,7 +37,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_discover_extensions_finds_sqsh_files() {
+    fn discover_extensions_finds_sqsh_files() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_ignores_non_sqsh() {
+    fn discover_extensions_ignores_non_sqsh() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_empty_directory() {
+    fn discover_extensions_empty_directory() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_nonexistent_directory() {
+    fn discover_extensions_nonexistent_directory() {
         // ARRANGE
         let nonexistent = Path::new("/nonexistent/extensions");
 
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_nested_directories() {
+    fn discover_extensions_nested_directories() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_returns_full_paths() {
+    fn discover_extensions_returns_full_paths() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_extensions_case_sensitive() {
+    fn discover_extensions_case_sensitive() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 

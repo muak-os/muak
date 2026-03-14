@@ -148,7 +148,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_header_new() {
+    fn header_new() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_new_long_label_truncated() {
+    fn header_new_long_label_truncated() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "a".repeat(100);
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_parse_roundtrip_primary() {
+    fn serialize_parse_roundtrip_primary() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_parse_roundtrip_secondary() {
+    fn serialize_parse_roundtrip_secondary() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_magic() {
+    fn header_magic() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_version() {
+    fn header_version() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_checksum_validation() {
+    fn header_checksum_validation() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_checksum_corruption() {
+    fn header_checksum_corruption() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_magic() {
+    fn parse_invalid_magic() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unsupported_version() {
+    fn parse_unsupported_version() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_too_short() {
+    fn parse_too_short() {
         // ARRANGE
         let data = vec![0u8; 100];
 
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uuid_str_various_lengths() {
+    fn uuid_str_various_lengths() {
         // ARRANGE & ACT
         let header = Header::new("abc", "test");
         let long_uuid = "a".repeat(40);
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_offset_field() {
+    fn header_offset_field() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_headers_different_checksums() {
+    fn different_headers_different_checksums() {
         // ARRANGE
         let uuid1 = "12345678-1234-1234-1234-123456789abc";
         let uuid2 = "87654321-4321-4321-4321-cba987654321";
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checksum_algorithm_field() {
+    fn checksum_algorithm_field() {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test");

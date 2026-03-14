@@ -114,7 +114,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sealed_blob_roundtrip() {
+    fn sealed_blob_roundtrip() {
         // ARRANGE
         let blob = SealedBlob {
             pub_data: vec![1, 2, 3, 4, 5],
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sealed_blob_empty() {
+    fn sealed_blob_empty() {
         // ARRANGE
         let blob = SealedBlob {
             pub_data: vec![],
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sealed_blob_invalid() {
+    fn sealed_blob_invalid() {
         // ACT & ASSERT
         assert!(SealedBlob::deserialize(&[]).is_err());
         assert!(SealedBlob::deserialize(&[0, 0]).is_err());

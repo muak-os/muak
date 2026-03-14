@@ -86,7 +86,7 @@ mod tests {
         Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
     };
 
-    fn test_signer_and_cert() -> (Rsa2048Signer, Certificate) {
+    fn signer_and_cert() -> (Rsa2048Signer, Certificate) {
         let (pk_signer, pk_cert) = generate_pk_certificate("Test PK").expect("generate PK cert");
         let (kek_signer, kek_cert) =
             generate_kek_certificate("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn sign_efi_variable_structural_correctness() {
         // ARRANGE
-        let (signer, cert) = test_signer_and_cert();
+        let (signer, cert) = signer_and_cert();
         let var_name = "db";
         let vendor = guid!("d719b2cb-3d3a-4596-a3bc-dad00e67656f");
         let attrs = VariableAttributes::NON_VOLATILE

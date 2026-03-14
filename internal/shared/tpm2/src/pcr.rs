@@ -73,7 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_predict_pcr11_empty() {
+    fn predict_pcr11_empty() {
         // ACT
         let result = predict_pcr11(&[]);
 
@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn test_predict_pcr11_deterministic() {
+    fn predict_pcr11_deterministic() {
         // ARRANGE
         let sections = [
             (".cmdline", b"console=ttyS0" as &[u8]),
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn test_predict_pcr11_order_matters() {
+    fn predict_pcr11_order_matters() {
         // ARRANGE
         let s1 = [(".cmdline", b"a" as &[u8]), (".linux", b"b" as &[u8])];
         let s2 = [(".linux", b"b" as &[u8]), (".cmdline", b"a" as &[u8])];
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_digest_deterministic() {
+    fn policy_digest_deterministic() {
         // ARRANGE
         let pcr = [0x42u8; SHA256_DIGEST_SIZE];
 
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_digest_different_pcrs() {
+    fn policy_digest_different_pcrs() {
         // ARRANGE
         let pcr_a = [0x01u8; SHA256_DIGEST_SIZE];
         let pcr_b = [0x02u8; SHA256_DIGEST_SIZE];

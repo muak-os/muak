@@ -225,7 +225,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_level_debug_trait() {
+    fn level_debug_trait() {
         // ARRANGE
         let levels = vec![Level::Error, Level::Warn, Level::Info, Level::Debug];
 
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_fails_on_second_call() {
+    fn init_fails_on_second_call() {
         // ARRANGE
         let already_initialized = DEFAULT_COMPONENT.get().is_some();
 
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_log_with_component() {
+    fn write_log_with_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("my-component"), "test message");
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_log_without_component() {
+    fn write_log_without_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Error, None, "error message");
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_log_all_levels() {
+    fn write_log_all_levels() {
         // ARRANGE
         let levels = [Level::Error, Level::Warn, Level::Info, Level::Debug];
 
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn test_print_function() {
+    fn print_function() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("simple print message");
@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn test_print_with_newlines() {
+    fn print_with_newlines() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("line1\nline2");
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_print_empty_string() {
+    fn print_empty_string() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             print("");
@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_macro_without_component() {
+    fn error_macro_without_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!("Test error message");
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_macro_with_component() {
+    fn error_macro_with_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!(@ "network", "Connection failed");
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_macro_with_format_args() {
+    fn error_macro_with_format_args() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             error!("Error code: {}", 404);
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn test_warn_macro_without_component() {
+    fn warn_macro_without_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!("Test warning message");
@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn test_warn_macro_with_component() {
+    fn warn_macro_with_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!(@ "config", "Missing key");
@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn test_warn_macro_with_format_args() {
+    fn warn_macro_with_format_args() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             warn!("Warning: {} warnings found", 5);
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn test_info_macro_without_component() {
+    fn info_macro_without_component() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             info!("Test info message");
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_info_macro_with_component() {
+    fn info_macro_with_component() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             info!(@ "server", "Server started");
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn test_info_macro_with_format_args() {
+    fn info_macro_with_format_args() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             info!("Port: {}", 8080);
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "debug")]
-    fn test_debug_macro_without_component() {
+    fn debug_macro_without_component() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             debug!("Test debug message");
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "debug")]
-    fn test_debug_macro_with_component() {
+    fn debug_macro_with_component() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             debug!(@ "parser", "Parsing token");
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "debug")]
-    fn test_debug_macro_with_format_args() {
+    fn debug_macro_with_format_args() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             debug!("Debug value: {:?}", vec![1, 2, 3]);
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn test_long_message_no_panic() {
+    fn long_message_no_panic() {
         // ARRANGE
         let prefix_overhead = "<6>[test] \n".len();
         let safe_size = MAX_KMSG_SIZE - prefix_overhead - 1;
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     #[cfg(not(debug_assertions))]
-    fn test_message_truncation_in_release() {
+    fn message_truncation_in_release() {
         // ARRANGE
         let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
 
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     #[cfg(debug_assertions)]
-    fn test_message_truncation_panics_in_debug() {
+    fn message_truncation_panics_in_debug() {
         // ARRANGE
         let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
 
@@ -511,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_message() {
+    fn empty_message() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "");
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_with_special_chars() {
+    fn message_with_special_chars() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "Special: !@#$%^&*()");
@@ -533,7 +533,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_with_unicode() {
+    fn message_with_unicode() {
         // ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("test"), "Unicode: 日本語 🎉");
@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn test_component_with_special_chars() {
+    fn component_with_special_chars() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             write_log(Level::Info, Some("my-component.v1"), "test");
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nested_formatting() {
+    fn nested_formatting() {
         // ARRANGE & ACT
         let result = std::panic::catch_unwind(|| {
             info!("Values: {}, {:?}, {}", 42, "test", true);
@@ -566,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_error_debug() {
+    fn init_error_debug() {
         // ARRANGE
         let err = InitError::AlreadyInitialized;
 

@@ -95,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_archive_single_file() {
+    fn create_archive_single_file() {
         // ARRANGE
         let files = vec![("test.txt".to_string(), b"hello world".to_vec())];
 
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_archive_multiple_files() {
+    fn create_archive_multiple_files() {
         // ARRANGE
         let files = vec![
             ("file1.txt".to_string(), b"content1".to_vec()),
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_archive_empty_files() {
+    fn create_archive_empty_files() {
         // ARRANGE
         let files: Vec<(String, Vec<u8>)> = vec![];
 
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_archive_empty_data() {
+    fn create_archive_empty_data() {
         // ARRANGE
         let files = vec![("empty.txt".to_string(), vec![])];
 
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_archive_large_data() {
+    fn create_archive_large_data() {
         // ARRANGE
         let large_data = vec![0u8; 10000];
         let files = vec![("large.bin".to_string(), large_data)];

@@ -116,7 +116,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_notify_client_new() {
+    fn notify_client_new() {
         // ACT
         let client = NotifyClient::new("test-service").expect("Failed to create client");
 
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_notify_client_new_with_custom_socket() {
+    fn notify_client_new_with_custom_socket() {
         // ACT
         let client = NotifyClient::new_with_socket("test-service", "/tmp/test.sock")
             .expect("Failed to create client");
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ready_no_server() {
+    fn ready_no_server() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_status_no_server() {
+    fn status_no_server() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stopping_no_server() {
+    fn stopping_no_server() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn test_watchdog_no_server() {
+    fn watchdog_no_server() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ready_wire_format() {
+    fn ready_wire_format() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn test_status_wire_format() {
+    fn status_wire_format() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stopping_wire_format() {
+    fn stopping_wire_format() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_watchdog_wire_format() {
+    fn watchdog_wire_format() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_notifications() {
+    fn multiple_notifications() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_socket_permissions_error() {
+    fn socket_permissions_error() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("readonly.sock");
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_health_from_str_roundtrip() {
+    fn health_from_str_roundtrip() {
         // ACT & ASSERT
         for h in [Health::Healthy, Health::Degraded, Health::Unhealthy] {
             assert_eq!(h.as_str().parse::<Health>(), Ok(h));
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_service_name_special_characters() {
+    fn service_name_special_characters() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn test_long_status_message() {
+    fn long_status_message() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
