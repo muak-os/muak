@@ -59,7 +59,24 @@ pub struct Ipv6Config {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkStateKind {
     Up,
+    NoCarrier,
     Down,
+}
+
+impl LinkStateKind {
+    pub fn has_carrier(&self) -> bool {
+        *self == LinkStateKind::Up
+    }
+}
+
+impl std::fmt::Display for LinkStateKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LinkStateKind::Up => write!(f, "up"),
+            LinkStateKind::NoCarrier => write!(f, "no-carrier"),
+            LinkStateKind::Down => write!(f, "down"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

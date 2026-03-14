@@ -12,7 +12,6 @@ tokio-stream = { workspace = true }
 ring = { workspace = true }
 
 # Encoding
-serde = { workspace = true }
 prost = { workspace = true }
 
 # Error handling

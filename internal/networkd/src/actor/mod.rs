@@ -1,6 +1,9 @@
 mod bridge;
 mod commands;
+mod config_apply;
+mod connectivity;
 mod dhcp;
+mod discovery;
 mod events;
 mod init;
 mod operations;

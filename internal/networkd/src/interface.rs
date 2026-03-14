@@ -3,25 +3,19 @@ use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use tokio_stream::StreamExt;
 
+use crate::model::LinkStateKind;
 use crate::netutil::format_mac_address;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LinkState {
-    Up,
-    NoCarrier,
-    Down,
-}
 
 #[derive(Debug, Clone)]
 pub struct Interface {
     pub name: String,
     pub index: u32,
     pub mac_address: [u8; 6],
-    pub link_state: LinkState,
+    pub link_state: LinkStateKind,
 }
 
 impl Interface {
-    pub fn new(name: String, index: u32, mac_address: [u8; 6], link_state: LinkState) -> Self {
+    pub fn new(name: String, index: u32, mac_address: [u8; 6], link_state: LinkStateKind) -> Self {
         Self {
             name,
             index,
@@ -31,17 +25,7 @@ impl Interface {
     }
 
     pub fn has_carrier(&self) -> bool {
-        self.link_state == LinkState::Up
-    }
-}
-
-impl std::fmt::Display for LinkState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LinkState::Up => write!(f, "up"),
-            LinkState::NoCarrier => write!(f, "no-carrier"),
-            LinkState::Down => write!(f, "down"),
-        }
+        self.link_state.has_carrier()
     }
 }
 
@@ -61,9 +45,9 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
         let has_carrier = flags.contains(LinkFlags::LowerUp);
 
         let link_state = match (is_admin_up, has_carrier) {
-            (true, true) => LinkState::Up,
-            (true, false) => LinkState::NoCarrier,
-            (false, _) => LinkState::Down,
+            (true, true) => LinkStateKind::Up,
+            (true, false) => LinkStateKind::NoCarrier,
+            (false, _) => LinkStateKind::Down,
         };
 
         kmsg::info!(
@@ -157,7 +141,7 @@ impl InterfaceSelector {
             score += 2000;
         }
 
-        if interface.link_state != LinkState::Down {
+        if interface.link_state != LinkStateKind::Down {
             score += 1000;
         }
 
@@ -188,11 +172,11 @@ impl InterfaceSelector {
 mod tests {
     use super::*;
 
-    fn make_interface(name: &str, link_state: LinkState) -> Interface {
+    fn make_interface(name: &str, link_state: LinkStateKind) -> Interface {
         make_interface_with_index(name, 0, link_state)
     }
 
-    fn make_interface_with_index(name: &str, index: u32, link_state: LinkState) -> Interface {
+    fn make_interface_with_index(name: &str, index: u32, link_state: LinkStateKind) -> Interface {
         Interface {
             name: name.to_string(),
             index,
@@ -215,8 +199,8 @@ mod tests {
     fn test_select_primary_prefers_carrier() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::NoCarrier),
-            make_interface("eth1", LinkState::Up),
+            make_interface("eth0", LinkStateKind::NoCarrier),
+            make_interface("eth1", LinkStateKind::Up),
         ];
 
         // ACT
@@ -230,8 +214,8 @@ mod tests {
     fn test_select_primary_prefers_no_carrier_over_down() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::Down),
-            make_interface("eth1", LinkState::NoCarrier),
+            make_interface("eth0", LinkStateKind::Down),
+            make_interface("eth1", LinkStateKind::NoCarrier),
         ];
 
         // ACT
@@ -245,8 +229,8 @@ mod tests {
     fn test_select_primary_prefers_better_naming() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::Up),
-            make_interface("eno1", LinkState::Up),
+            make_interface("eth0", LinkStateKind::Up),
+            make_interface("eno1", LinkStateKind::Up),
         ];
 
         // ACT
@@ -260,10 +244,10 @@ mod tests {
     fn test_naming_priority_order() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::Up),
-            make_interface("enp3s0", LinkState::Up),
-            make_interface("ens1", LinkState::Up),
-            make_interface("eno1", LinkState::Up),
+            make_interface("eth0", LinkStateKind::Up),
+            make_interface("enp3s0", LinkStateKind::Up),
+            make_interface("ens1", LinkStateKind::Up),
+            make_interface("eno1", LinkStateKind::Up),
         ];
 
         // ACT
@@ -277,8 +261,8 @@ mod tests {
     fn test_carrier_overrides_naming() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eno1", LinkState::NoCarrier),
-            make_interface("eth0", LinkState::Up),
+            make_interface("eno1", LinkStateKind::NoCarrier),
+            make_interface("eth0", LinkStateKind::Up),
         ];
 
         // ACT
@@ -292,9 +276,9 @@ mod tests {
     fn test_select_backups_excludes_primary() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::Up),
-            make_interface("eth1", LinkState::Up),
-            make_interface("eth2", LinkState::Down),
+            make_interface("eth0", LinkStateKind::Up),
+            make_interface("eth1", LinkStateKind::Up),
+            make_interface("eth2", LinkStateKind::Down),
         ];
 
         // ACT
@@ -309,10 +293,10 @@ mod tests {
     fn test_select_backups_sorted_by_priority() {
         // ARRANGE
         let interfaces = vec![
-            make_interface("eth0", LinkState::Up),
-            make_interface("eth1", LinkState::Down),
-            make_interface("eno1", LinkState::Up),
-            make_interface("enp3s0", LinkState::Up),
+            make_interface("eth0", LinkStateKind::Up),
+            make_interface("eth1", LinkStateKind::Down),
+            make_interface("eno1", LinkStateKind::Up),
+            make_interface("enp3s0", LinkStateKind::Up),
         ];
 
         // ACT
@@ -339,7 +323,7 @@ mod tests {
     #[test]
     fn test_single_interface() {
         // ARRANGE
-        let interfaces = vec![make_interface("eth0", LinkState::Down)];
+        let interfaces = vec![make_interface("eth0", LinkStateKind::Down)];
 
         // ACT
         let primary = InterfaceSelector::select_primary(&interfaces);
@@ -351,19 +335,19 @@ mod tests {
     #[test]
     fn test_has_carrier() {
         // ACT & ASSERT
-        assert!(make_interface("eth0", LinkState::Up).has_carrier());
-        assert!(!make_interface("eth0", LinkState::NoCarrier).has_carrier());
-        assert!(!make_interface("eth0", LinkState::Down).has_carrier());
+        assert!(make_interface("eth0", LinkStateKind::Up).has_carrier());
+        assert!(!make_interface("eth0", LinkStateKind::NoCarrier).has_carrier());
+        assert!(!make_interface("eth0", LinkStateKind::Down).has_carrier());
     }
 
     #[test]
     fn test_tiebreaker_prefers_lower_index() {
         // ARRANGE
         let interfaces = vec![
-            make_interface_with_index("eth0", 8, LinkState::Down),
-            make_interface_with_index("eth1", 9, LinkState::Down),
-            make_interface_with_index("eth2", 10, LinkState::Down),
-            make_interface_with_index("eth3", 11, LinkState::Down),
+            make_interface_with_index("eth0", 8, LinkStateKind::Down),
+            make_interface_with_index("eth1", 9, LinkStateKind::Down),
+            make_interface_with_index("eth2", 10, LinkStateKind::Down),
+            make_interface_with_index("eth3", 11, LinkStateKind::Down),
         ];
 
         // ACT

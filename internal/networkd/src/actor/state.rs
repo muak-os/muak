@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+use anyhow::Result;
 use rtnetlink::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::model::{InterfaceSnapshot, NetworkSnapshot};
+use crate::model::{DhcpLease, InterfaceSnapshot, NetworkSnapshot};
 
 pub struct NetworkActor {
     pub(super) handle: Handle,
@@ -72,5 +74,30 @@ impl NetworkActor {
         for task in tasks {
             task.abort();
         }
+    }
+
+    pub(super) fn get_primary_name(&self) -> Result<String> {
+        self.state
+            .primary
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no primary interface"))
+    }
+
+    pub(super) fn extract_lease_mac_and_gateway(
+        &self,
+        iface_name: &str,
+    ) -> Result<(DhcpLease, [u8; 6], Option<Ipv4Addr>)> {
+        let iface = self
+            .get_interface(iface_name)
+            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
+
+        let lease = iface
+            .lease
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", iface_name))?;
+
+        let gateway = iface.ip.as_ref().and_then(|ip| ip.gateway);
+
+        Ok((lease, iface.mac, gateway))
     }
 }
