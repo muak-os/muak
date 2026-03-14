@@ -1,49 +1,96 @@
 //! Post-kexec validation: decide to commit or roll back the update.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use tokio::sync::Notify;
 
 use super::commit;
 use super::rollback;
 use super::snapshot;
 
+const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(60);
+
+static CLI_CONTACT: Notify = Notify::const_new();
+static VALIDATING: AtomicBool = AtomicBool::new(false);
+
 /// Decides whether to commit or roll back a pending update.
 pub async fn check_pending(update_id: &str, snapshot_path: &Path) -> Result<()> {
+    VALIDATING.store(true, Ordering::Release);
+    let result = validate(update_id, snapshot_path).await;
+    VALIDATING.store(false, Ordering::Release);
+    result
+}
+
+async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let old_image = snapshot::read_image(snapshot_path)?;
     let target_image = config::host().image.clone();
 
-    println!(
-        "Found pending validation for update {} -> {}",
-        old_image, target_image
+    kmsg::info!(
+        "Validating update {}: {} -> {}",
+        update_id,
+        old_image,
+        target_image
     );
 
     if is_old_kernel(update_id) {
-        eprintln!(
-            "Update {} failed - new kernel did not boot successfully",
-            update_id
-        );
+        kmsg::warn!("Update {} failed: new kernel did not boot", update_id);
         rollback::apply(
             update_id,
             snapshot_path,
             "Kernel failed to boot (kexec failure)",
         )?;
+    } else if let Err(e) = wait_for_cli_contact().await {
+        kmsg::warn!("CLI contact check failed for {}: {}", update_id, e);
+        rollback::apply(
+            update_id,
+            snapshot_path,
+            &format!("CLI contact check failed: {}", e),
+        )?;
     } else if let Err(e) = health_checks() {
-        eprintln!("Health checks failed: {}", e);
+        kmsg::warn!("Health checks failed for {}: {}", update_id, e);
         rollback::apply(
             update_id,
             snapshot_path,
             &format!("Health checks failed: {}", e),
         )?;
     } else if let Err(e) = commit::apply().await {
-        eprintln!("Commit failed: {}", e);
+        kmsg::warn!("Commit failed for {}: {}", update_id, e);
         rollback::apply(update_id, snapshot_path, &format!("Commit failed: {}", e))?;
     }
 
     Ok(())
 }
 
-/// Returns true if the current cmdline lacks the update marker (kexec did not boot).
+async fn wait_for_cli_contact() -> Result<()> {
+    kmsg::info!(
+        "Waiting up to {}s for CLI contact",
+        CLI_CONTACT_TIMEOUT.as_secs()
+    );
+
+    if tokio::time::timeout(CLI_CONTACT_TIMEOUT, CLI_CONTACT.notified())
+        .await
+        .is_err()
+    {
+        bail!("no CLI contact within {}s", CLI_CONTACT_TIMEOUT.as_secs());
+    }
+
+    kmsg::info!("CLI contact received, proceeding with validation");
+    Ok(())
+}
+
+/// Wakes the validation task when the CLI contacts provisiond.
+pub fn signal_cli_contact() {
+    CLI_CONTACT.notify_one();
+}
+
+/// Returns true while post-kexec validation is still running.
+pub fn is_validating() -> bool {
+    VALIDATING.load(Ordering::Acquire)
+}
+
 fn is_old_kernel(update_id: &str) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
     !cmdline.contains(&format!("muak.update_id={}", update_id))

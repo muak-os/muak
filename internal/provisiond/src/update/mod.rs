@@ -42,6 +42,10 @@ pub fn status(update_id: &str) -> UpdateStatus {
         return UpdateStatus::RolledBack("Unknown error".to_string());
     }
 
+    if validation::is_validating() {
+        return UpdateStatus::Pending;
+    }
+
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
     if cmdline.contains(&format!("muak.update_id={}", update_id)) {
         return UpdateStatus::Committed;
@@ -52,6 +56,16 @@ pub fn status(update_id: &str) -> UpdateStatus {
     }
 
     UpdateStatus::Unknown
+}
+
+/// Signals that the CLI has contacted provisiond during validation.
+pub fn signal_cli_contact() {
+    validation::signal_cli_contact();
+}
+
+/// Returns true while post-kexec validation is still running.
+pub fn is_validating() -> bool {
+    validation::is_validating()
 }
 
 /// Prepares an update by staging the UKI components.
@@ -108,8 +122,8 @@ pub async fn prepare(
     Ok(update_id)
 }
 
-/// Checks for a pending update snapshot and commits or rolls back.
-pub async fn check_and_handle_pending_validation() -> Result<()> {
+/// Checks for a pending update snapshot and spawns validation in the background.
+pub fn check_and_handle_pending_validation() -> Result<()> {
     let Some((update_id, snapshot_path)) = snapshot::find_pending()? else {
         return Ok(());
     };
@@ -119,7 +133,13 @@ pub async fn check_and_handle_pending_validation() -> Result<()> {
         return Ok(());
     }
 
-    validation::check_pending(&update_id, &snapshot_path).await
+    tokio::spawn(async move {
+        if let Err(e) = validation::check_pending(&update_id, &snapshot_path).await {
+            kmsg::warn!("Pending validation failed: {}", e);
+        }
+    });
+
+    Ok(())
 }
 
 /// Returns true if the current boot has the update marker in the cmdline.

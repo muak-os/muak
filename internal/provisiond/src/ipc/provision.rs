@@ -175,7 +175,12 @@ impl ProvisionService for ProvisionServiceImpl {
 
         let (proto_status, error) = match status {
             update::UpdateStatus::Unknown => (0, String::new()),
-            update::UpdateStatus::Pending => (1, String::new()),
+            update::UpdateStatus::Pending => {
+                if update::is_validating() {
+                    update::signal_cli_contact();
+                }
+                (1, String::new())
+            }
             update::UpdateStatus::Committed => (2, String::new()),
             update::UpdateStatus::RolledBack(reason) => (3, reason),
         };

@@ -12,7 +12,7 @@ use crate::uki::Uki;
 
 /// Applies a staged update by building the UKI, enrolling Secure Boot keys if needed, and deploying.
 pub async fn apply() -> Result<()> {
-    println!("Validation succeeded, committing update.");
+    kmsg::info!("Validation succeeded, committing update");
 
     let efi_device = disk::find_partition_by_partname("EFI")
         .await
