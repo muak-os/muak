@@ -213,8 +213,13 @@ pub fn mount_persistent() -> Result<bool> {
 /// Checks if the system booted in live mode via kernel cmdline.
 fn is_live_boot() -> bool {
     std::fs::read_to_string("/proc/cmdline")
-        .map(|c| c.split_whitespace().any(|t| t == "muak.mode=live"))
+        .map(|c| is_live_boot_cmdline(&c))
         .unwrap_or(false)
+}
+
+/// Returns true if `muak.mode=live` appears as a discrete token in `cmdline`.
+fn is_live_boot_cmdline(cmdline: &str) -> bool {
+    cmdline.split_whitespace().any(|t| t == "muak.mode=live")
 }
 
 /// Attempts to unseal the LUKS key from the TPM2 token in the LUKS2 header.
@@ -248,7 +253,11 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Vec<u8>>> {
 /// Parses the LUKS key from `/proc/cmdline`.
 fn parse_luks_key() -> Option<Vec<u8>> {
     let cmdline = std::fs::read_to_string("/proc/cmdline").ok()?;
+    parse_luks_key_from_cmdline(&cmdline)
+}
 
+/// Extracts and base64-decodes the `luks.key=` token from a cmdline string.
+fn parse_luks_key_from_cmdline(cmdline: &str) -> Option<Vec<u8>> {
     let token = cmdline
         .split_whitespace()
         .find(|t| t.starts_with("luks.key="))?;
@@ -278,4 +287,111 @@ fn create_and_mount(
         .with_context(|| format!("Failed to mount {} to {}", source, target))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_live_boot_cmdline_detects_live_token() {
+        // ARRANGE
+        let cmdline = "quiet muak.mode=live splash";
+
+        // ACT + ASSERT
+        assert!(is_live_boot_cmdline(cmdline));
+    }
+
+    #[test]
+    fn is_live_boot_cmdline_returns_false_when_absent() {
+        // ARRANGE
+        let cmdline = "quiet splash root=/dev/sda";
+
+        // ACT + ASSERT
+        assert!(!is_live_boot_cmdline(cmdline));
+    }
+
+    #[test]
+    fn is_live_boot_cmdline_does_not_match_prefix() {
+        // ARRANGE
+        let cmdline = "muak.mode=livecd";
+
+        // ACT + ASSERT
+        assert!(!is_live_boot_cmdline(cmdline));
+    }
+
+    #[test]
+    fn is_live_boot_cmdline_does_not_match_suffix() {
+        // ARRANGE
+        let cmdline = "nomuak.mode=live";
+
+        // ACT + ASSERT
+        assert!(!is_live_boot_cmdline(cmdline));
+    }
+
+    #[test]
+    fn is_live_boot_cmdline_empty() {
+        // ARRANGE
+        let cmdline = "";
+
+        // ACT + ASSERT
+        assert!(!is_live_boot_cmdline(cmdline));
+    }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_decodes_valid_key() {
+        // ARRANGE
+        let key = b"secret-key-data";
+        let encoded = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key);
+        let cmdline = format!("quiet luks.key={} splash", encoded);
+
+        // ACT
+        let result = parse_luks_key_from_cmdline(&cmdline);
+
+        // ASSERT
+        assert_eq!(result, Some(key.to_vec()));
+    }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_returns_none_when_absent() {
+        // ARRANGE
+        let cmdline = "quiet splash root=/dev/sda";
+
+        // ACT + ASSERT
+        assert!(parse_luks_key_from_cmdline(cmdline).is_none());
+    }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_returns_none_on_invalid_base64() {
+        // ARRANGE
+        let cmdline = "luks.key=!!!not-base64!!!";
+
+        // ACT + ASSERT
+        assert!(parse_luks_key_from_cmdline(cmdline).is_none());
+    }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_handles_empty_value() {
+        // ARRANGE
+        let cmdline = "luks.key=";
+
+        // ACT + ASSERT
+        assert_eq!(parse_luks_key_from_cmdline(cmdline), Some(vec![]));
+    }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_picks_first_matching_token() {
+        // ARRANGE
+        let key1 = b"first";
+        let key2 = b"second";
+        let enc1 = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key1);
+        let enc2 = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key2);
+        let cmdline = format!("luks.key={} luks.key={}", enc1, enc2);
+
+        // ACT
+        let result = parse_luks_key_from_cmdline(&cmdline);
+
+        // ASSERT
+        assert_eq!(result, Some(key1.to_vec()));
+    }
 }
