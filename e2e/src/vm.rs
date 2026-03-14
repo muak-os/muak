@@ -221,6 +221,26 @@ impl TestVm {
         Ok(String::from_utf8_lossy(raw.trim_ascii()).replace('\0', ""))
     }
 
+    /// Waits until the serial log contains `needle`, or the timeout elapses.
+    pub async fn wait_serial_contains(&self, needle: &str, dur: Duration) -> Result<()> {
+        timeout(dur, self.poll_serial_contains(needle))
+            .await
+            .map_err(|_| {
+                let serial = self.read_serial().unwrap_or_default();
+                anyhow::anyhow!(
+                    "serial log did not contain '{needle}' within {}s\
+                         \n\n--- serial log ---\n{serial}",
+                    dur.as_secs(),
+                )
+            })
+    }
+
+    async fn poll_serial_contains(&self, needle: &str) {
+        while !self.read_serial().is_ok_and(|log| log.contains(needle)) {
+            sleep(Duration::from_millis(200)).await;
+        }
+    }
+
     /// Asserts that the serial log contains the given substring.
     pub fn assert_serial_contains(&self, needle: &str) -> Result<()> {
         let log = self.read_serial()?;
