@@ -196,4 +196,48 @@ mod tests {
         assert!(!snap.ipv6);
         assert_eq!(snap.connectivity.status, ConnectivityStatus::Unknown);
     }
+
+    #[test]
+    fn link_state_kind_has_carrier_up() {
+        // ACT / ASSERT
+        assert!(LinkStateKind::Up.has_carrier());
+    }
+
+    #[test]
+    fn link_state_kind_has_carrier_no_carrier() {
+        // ACT / ASSERT
+        assert!(!LinkStateKind::NoCarrier.has_carrier());
+    }
+
+    #[test]
+    fn link_state_kind_has_carrier_down() {
+        // ACT / ASSERT
+        assert!(!LinkStateKind::Down.has_carrier());
+    }
+
+    #[test]
+    fn link_state_kind_display_up() {
+        // ACT / ASSERT
+        assert_eq!(LinkStateKind::Up.to_string(), "up");
+    }
+
+    #[test]
+    fn link_state_kind_display_no_carrier() {
+        // ACT / ASSERT
+        assert_eq!(LinkStateKind::NoCarrier.to_string(), "no-carrier");
+    }
+
+    #[test]
+    fn link_state_kind_display_down() {
+        // ACT / ASSERT
+        assert_eq!(LinkStateKind::Down.to_string(), "down");
+    }
+
+    #[test]
+    fn link_state_kind_equality() {
+        // ACT / ASSERT
+        assert_eq!(LinkStateKind::Up, LinkStateKind::Up);
+        assert_ne!(LinkStateKind::Up, LinkStateKind::Down);
+        assert_ne!(LinkStateKind::NoCarrier, LinkStateKind::Down);
+    }
 }

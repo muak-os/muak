@@ -106,3 +106,26 @@ fn carrier_link_state(has_carrier: Option<&bool>) -> LinkStateKind {
         LinkStateKind::NoCarrier
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carrier_link_state_true_returns_up() {
+        // ACT / ASSERT
+        assert_eq!(carrier_link_state(Some(&true)), LinkStateKind::Up);
+    }
+
+    #[test]
+    fn carrier_link_state_false_returns_no_carrier() {
+        // ACT / ASSERT
+        assert_eq!(carrier_link_state(Some(&false)), LinkStateKind::NoCarrier);
+    }
+
+    #[test]
+    fn carrier_link_state_none_returns_no_carrier() {
+        // ACT / ASSERT
+        assert_eq!(carrier_link_state(None), LinkStateKind::NoCarrier);
+    }
+}

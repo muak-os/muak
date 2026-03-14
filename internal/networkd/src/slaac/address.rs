@@ -33,7 +33,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mac_to_eui64() {
+    fn eui64_flips_universal_local_bit() {
         // ARRANGE
         let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 
@@ -45,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_slaac_address() {
+    fn slaac_address_from_prefix_and_mac() {
         // ARRANGE
         let prefix = "2001:db8:abcd:1234::".parse::<Ipv6Addr>().unwrap();
         let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];

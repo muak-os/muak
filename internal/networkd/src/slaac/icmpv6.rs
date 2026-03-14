@@ -139,8 +139,51 @@ pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<Route
 mod tests {
     use super::*;
 
+    fn make_ra_base(hop_limit: u8, flags: u8, router_lifetime: u16) -> Vec<u8> {
+        let mut data = vec![0u8; 16];
+        data[0] = ICMPV6_ROUTER_ADVERTISEMENT;
+        data[1] = 0;
+        data[4] = hop_limit;
+        data[5] = flags;
+        data[6..8].copy_from_slice(&router_lifetime.to_be_bytes());
+        data
+    }
+
+    fn append_prefix_option(
+        data: &mut Vec<u8>,
+        prefix_len: u8,
+        autonomous: bool,
+        valid: u32,
+        preferred: u32,
+        prefix: Ipv6Addr,
+    ) {
+        let start = data.len();
+        data.resize(start + 32, 0);
+        data[start] = ND_OPT_PREFIX_INFO;
+        data[start + 1] = 4; // 32 bytes / 8
+        data[start + 2] = prefix_len;
+        data[start + 3] = if autonomous { 0x40 } else { 0x00 };
+        data[start + 4..start + 8].copy_from_slice(&valid.to_be_bytes());
+        data[start + 8..start + 12].copy_from_slice(&preferred.to_be_bytes());
+        data[start + 16..start + 32].copy_from_slice(&prefix.octets());
+    }
+
+    fn append_rdnss_option(data: &mut Vec<u8>, lifetime: u32, servers: &[Ipv6Addr]) {
+        let opt_len_units = (1 + servers.len() * 2) as u8;
+        let start = data.len();
+        let byte_len = opt_len_units as usize * 8;
+        data.resize(start + byte_len, 0);
+        data[start] = ND_OPT_RDNSS;
+        data[start + 1] = opt_len_units;
+        data[start + 4..start + 8].copy_from_slice(&lifetime.to_be_bytes());
+        for (i, server) in servers.iter().enumerate() {
+            let off = start + 8 + i * 16;
+            data[off..off + 16].copy_from_slice(&server.octets());
+        }
+    }
+
     #[test]
-    fn test_build_router_solicitation() {
+    fn build_router_solicitation_structure() {
         // ARRANGE
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
@@ -156,15 +199,21 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_router_advertisement_minimal() {
+    fn build_router_solicitation_length() {
         // ARRANGE
-        let mut data = vec![0u8; 16];
-        data[0] = ICMPV6_ROUTER_ADVERTISEMENT;
-        data[4] = 64;
-        data[5] = 0xC0;
-        data[6] = 0x07;
-        data[7] = 0x08;
+        let mac = [0; 6];
 
+        // ACT
+        let pkt = build_router_solicitation(&mac);
+
+        // ASSERT
+        assert_eq!(pkt.len(), 16);
+    }
+
+    #[test]
+    fn parse_ra_minimal() {
+        // ARRANGE
+        let data = make_ra_base(64, 0xC0, 1800);
         let source = "fe80::1".parse().unwrap();
 
         // ACT
@@ -175,5 +224,221 @@ mod tests {
         assert!(ra.managed_flag);
         assert!(ra.other_flag);
         assert_eq!(ra.router_lifetime, 1800);
+        assert_eq!(ra.source, source);
+        assert!(ra.prefixes.is_empty());
+        assert!(ra.dns_servers.is_empty());
+    }
+
+    #[test]
+    fn parse_ra_flags_managed_only() {
+        // ARRANGE
+        let data = make_ra_base(0, 0x80, 0);
+        let source = "fe80::2".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert!(ra.managed_flag);
+        assert!(!ra.other_flag);
+    }
+
+    #[test]
+    fn parse_ra_flags_other_only() {
+        // ARRANGE
+        let data = make_ra_base(0, 0x40, 0);
+        let source = "fe80::2".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert!(!ra.managed_flag);
+        assert!(ra.other_flag);
+    }
+
+    #[test]
+    fn parse_ra_flags_none() {
+        // ARRANGE
+        let data = make_ra_base(0, 0x00, 0);
+        let source = "fe80::2".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert!(!ra.managed_flag);
+        assert!(!ra.other_flag);
+    }
+
+    #[test]
+    fn parse_ra_too_short() {
+        // ARRANGE
+        let data = vec![ICMPV6_ROUTER_ADVERTISEMENT, 0, 0, 0];
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT / ASSERT
+        assert!(parse_router_advertisement(&data, source).is_err());
+    }
+
+    #[test]
+    fn parse_ra_wrong_type() {
+        // ARRANGE
+        let mut data = make_ra_base(0, 0, 0);
+        data[0] = ICMPV6_ROUTER_SOLICITATION;
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT / ASSERT
+        assert!(parse_router_advertisement(&data, source).is_err());
+    }
+
+    #[test]
+    fn parse_ra_with_prefix() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        let prefix: Ipv6Addr = "2001:db8::".parse().unwrap();
+        append_prefix_option(&mut data, 64, true, 7200, 3600, prefix);
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.prefixes.len(), 1);
+        assert_eq!(ra.prefixes[0].prefix, prefix);
+        assert_eq!(ra.prefixes[0].prefix_len, 64);
+        assert!(ra.prefixes[0].autonomous);
+        assert_eq!(ra.prefixes[0].valid_lifetime, 7200);
+        assert_eq!(ra.prefixes[0].preferred_lifetime, 3600);
+    }
+
+    #[test]
+    fn parse_ra_prefix_non_autonomous() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        let prefix: Ipv6Addr = "2001:db8:1::".parse().unwrap();
+        append_prefix_option(&mut data, 48, false, 86400, 43200, prefix);
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.prefixes.len(), 1);
+        assert!(!ra.prefixes[0].autonomous);
+        assert_eq!(ra.prefixes[0].prefix_len, 48);
+    }
+
+    #[test]
+    fn parse_ra_multiple_prefixes() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        append_prefix_option(
+            &mut data,
+            64,
+            true,
+            7200,
+            3600,
+            "2001:db8::".parse().unwrap(),
+        );
+        append_prefix_option(
+            &mut data,
+            48,
+            true,
+            86400,
+            43200,
+            "2001:db8:1::".parse().unwrap(),
+        );
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.prefixes.len(), 2);
+    }
+
+    #[test]
+    fn parse_ra_with_rdnss() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        let dns1: Ipv6Addr = "2620:fe::fe".parse().unwrap();
+        let dns2: Ipv6Addr = "2620:fe::9".parse().unwrap();
+        append_rdnss_option(&mut data, 3600, &[dns1, dns2]);
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.dns_servers.len(), 2);
+        assert_eq!(ra.dns_servers[0], dns1);
+        assert_eq!(ra.dns_servers[1], dns2);
+        assert_eq!(ra.dns_lifetime, 3600);
+    }
+
+    #[test]
+    fn parse_ra_with_prefix_and_rdnss() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0x80, 1800);
+        append_prefix_option(
+            &mut data,
+            64,
+            true,
+            7200,
+            3600,
+            "2001:db8::".parse().unwrap(),
+        );
+        let dns: Ipv6Addr = "2620:fe::fe".parse().unwrap();
+        append_rdnss_option(&mut data, 600, &[dns]);
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.prefixes.len(), 1);
+        assert_eq!(ra.dns_servers.len(), 1);
+        assert!(ra.managed_flag);
+    }
+
+    #[test]
+    fn parse_ra_zero_length_option_terminates() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        data.push(ND_OPT_PREFIX_INFO);
+        data.push(0);
+        data.extend([0u8; 30]);
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert!(ra.prefixes.is_empty());
+    }
+
+    #[test]
+    fn parse_ra_unknown_option_skipped() {
+        // ARRANGE
+        let mut data = make_ra_base(64, 0, 1800);
+        data.push(99);
+        data.push(1);
+        data.extend([0u8; 6]);
+        append_prefix_option(
+            &mut data,
+            64,
+            true,
+            7200,
+            3600,
+            "2001:db8::".parse().unwrap(),
+        );
+        let source = "fe80::1".parse().unwrap();
+
+        // ACT
+        let ra = parse_router_advertisement(&data, source).unwrap();
+
+        // ASSERT
+        assert_eq!(ra.prefixes.len(), 1);
     }
 }

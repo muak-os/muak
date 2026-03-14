@@ -115,14 +115,20 @@ impl ManagedDns {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_managed_address_creation() {
-        // ARRANGE
-        let addr_ip = "2001:db8::1".parse().unwrap();
-        let router = "fe80::1".parse().unwrap();
+    fn make_address(valid_secs: u32, preferred_secs: u32) -> ManagedAddress {
+        ManagedAddress::new(
+            "2001:db8::1".parse().unwrap(),
+            64,
+            "fe80::1".parse().unwrap(),
+            valid_secs,
+            preferred_secs,
+        )
+    }
 
+    #[test]
+    fn managed_address_creation_is_preferred() {
         // ACT
-        let addr = ManagedAddress::new(addr_ip, 64, router, 3600, 1800);
+        let addr = make_address(3600, 1800);
 
         // ASSERT
         assert_eq!(addr.state, AddressState::Preferred);
@@ -131,26 +137,125 @@ mod tests {
     }
 
     #[test]
-    fn test_managed_router_creation() {
-        // ARRANGE
-        let router_ip = "fe80::1".parse().unwrap();
-
+    fn managed_address_stores_fields() {
         // ACT
-        let router = ManagedRouter::new(router_ip, 1800);
+        let addr = make_address(3600, 1800);
 
         // ASSERT
-        assert!(router.is_valid());
+        assert_eq!(addr.address, "2001:db8::1".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(addr.prefix_len, 64);
+        assert_eq!(addr.router, "fe80::1".parse::<Ipv6Addr>().unwrap());
     }
 
     #[test]
-    fn test_managed_dns_creation() {
+    fn refresh_lifetimes_extends_when_over_two_hours() {
         // ARRANGE
-        let dns_ip = "2620:fe::fe".parse().unwrap();
+        let mut addr = make_address(3600, 1800);
+        let before_valid = addr.valid_until;
+        std::thread::sleep(std::time::Duration::from_millis(5));
 
         // ACT
-        let dns = ManagedDns::new(dns_ip, 3600);
+        addr.refresh_lifetimes(86400, 43200);
+
+        // ASSERT
+        assert!(addr.valid_until > before_valid);
+    }
+
+    #[test]
+    fn refresh_lifetimes_extends_when_new_exceeds_remaining() {
+        // ARRANGE
+        let mut addr = make_address(100, 50);
+        let before_valid = addr.valid_until;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // ACT
+        addr.refresh_lifetimes(200, 100);
+
+        // ASSERT
+        assert!(addr.valid_until > before_valid);
+    }
+
+    #[test]
+    fn refresh_lifetimes_preferred_always_updated() {
+        // ARRANGE
+        let mut addr = make_address(3600, 100);
+        let before_preferred = addr.preferred_until;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // ACT
+        addr.refresh_lifetimes(3600, 7200);
+
+        // ASSERT
+        assert!(addr.preferred_until > before_preferred);
+    }
+
+    #[test]
+    fn refresh_lifetimes_restores_preferred_state() {
+        // ARRANGE
+        let mut addr = make_address(3600, 1800);
+        addr.state = AddressState::Deprecated;
+        addr.preferred_until = Instant::now() - std::time::Duration::from_secs(1);
+
+        // ACT
+        addr.refresh_lifetimes(7200, 3600);
+
+        // ASSERT
+        assert_eq!(addr.state, AddressState::Preferred);
+    }
+
+    #[test]
+    fn managed_router_creation() {
+        // ACT
+        let router = ManagedRouter::new("fe80::1".parse().unwrap(), 1800);
+
+        // ASSERT
+        assert!(router.is_valid());
+        assert_eq!(router.address, "fe80::1".parse::<Ipv6Addr>().unwrap());
+    }
+
+    #[test]
+    fn managed_router_refresh() {
+        // ARRANGE
+        let mut router = ManagedRouter::new("fe80::1".parse().unwrap(), 10);
+        let before = router.expires_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // ACT
+        router.refresh_lifetime(3600);
+
+        // ASSERT
+        assert!(router.expires_at > before);
+    }
+
+    #[test]
+    fn managed_dns_creation() {
+        // ACT
+        let dns = ManagedDns::new("2620:fe::fe".parse().unwrap(), 3600);
 
         // ASSERT
         assert!(dns.is_valid());
+        assert_eq!(dns.server, "2620:fe::fe".parse::<Ipv6Addr>().unwrap());
+    }
+
+    #[test]
+    fn managed_dns_refresh() {
+        // ARRANGE
+        let mut dns = ManagedDns::new("2620:fe::fe".parse().unwrap(), 10);
+        let before = dns.expires_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // ACT
+        dns.refresh_lifetime(3600);
+
+        // ASSERT
+        assert!(dns.expires_at > before);
+    }
+
+    #[test]
+    fn address_state_equality() {
+        // ACT / ASSERT
+        assert_eq!(AddressState::Preferred, AddressState::Preferred);
+        assert_eq!(AddressState::Deprecated, AddressState::Deprecated);
+        assert_ne!(AddressState::Preferred, AddressState::Deprecated);
     }
 }

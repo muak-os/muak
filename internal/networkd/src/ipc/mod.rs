@@ -181,3 +181,204 @@ fn snapshot_to_status(snapshot: &crate::model::NetworkSnapshot) -> NetworkStatus
         interfaces,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::model::{
+        ConnectivityResult, InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot,
+        NetworkStateKind,
+    };
+
+    fn empty_snapshot() -> NetworkSnapshot {
+        NetworkSnapshot::empty()
+    }
+
+    fn make_iface(name: &str, ip: Option<IpConfig>) -> Arc<InterfaceSnapshot> {
+        Arc::new(InterfaceSnapshot {
+            name: name.to_string(),
+            index: 1,
+            mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+            link: LinkStateKind::Up,
+            ip,
+            lease: None,
+            ipv6: None,
+        })
+    }
+
+    #[test]
+    fn uninitialized_maps_to_initializing() {
+        // ARRANGE
+        let snap = empty_snapshot();
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Initializing));
+    }
+
+    #[test]
+    fn initializing_maps_to_initializing() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.state = NetworkStateKind::Initializing;
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Initializing));
+    }
+
+    #[test]
+    fn operational_without_connectivity_maps_to_degraded() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.state = NetworkStateKind::Operational;
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Degraded));
+    }
+
+    #[test]
+    fn operational_with_connectivity_maps_to_ready() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.state = NetworkStateKind::Operational;
+        snap.connectivity = ConnectivityResult {
+            status: ConnectivityStatus::Connected,
+            ..ConnectivityResult::default()
+        };
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Ready));
+    }
+
+    #[test]
+    fn ready_with_connectivity_maps_to_ready() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.state = NetworkStateKind::Ready;
+        snap.connectivity = ConnectivityResult {
+            status: ConnectivityStatus::Connected,
+            ..ConnectivityResult::default()
+        };
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Ready));
+    }
+
+    #[test]
+    fn degraded_maps_to_degraded() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.state = NetworkStateKind::Degraded;
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.state, i32::from(State::Degraded));
+    }
+
+    #[test]
+    fn primary_interface_from_snapshot() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.primary = Some("eth0".to_string());
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.primary_interface, "eth0");
+    }
+
+    #[test]
+    fn no_primary_defaults_to_empty() {
+        // ARRANGE
+        let snap = empty_snapshot();
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.primary_interface, "");
+    }
+
+    #[test]
+    fn interface_with_ip_has_address_and_gateway() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        let ip = IpConfig {
+            address: Ipv4Addr::new(10, 0, 0, 5),
+            prefix_len: 24,
+            gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
+            dns: vec![],
+        };
+        snap.interfaces.push(make_iface("eth0", Some(ip)));
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.interfaces.len(), 1);
+        assert_eq!(status.interfaces[0].name, "eth0");
+        assert_eq!(status.interfaces[0].addresses, vec!["10.0.0.5/24"]);
+        assert!(status.interfaces[0].has_gateway);
+    }
+
+    #[test]
+    fn interface_without_ip_has_empty_addresses() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.interfaces.push(make_iface("eth0", None));
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert!(status.interfaces[0].addresses.is_empty());
+        assert!(!status.interfaces[0].has_gateway);
+    }
+
+    #[test]
+    fn interface_mac_formatted() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.interfaces.push(make_iface("eth0", None));
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.interfaces[0].mac, "02:00:00:00:00:01");
+    }
+
+    #[test]
+    fn multiple_interfaces() {
+        // ARRANGE
+        let mut snap = empty_snapshot();
+        snap.interfaces.push(make_iface("eth0", None));
+        snap.interfaces.push(make_iface("eth1", None));
+
+        // ACT
+        let status = snapshot_to_status(&snap);
+
+        // ASSERT
+        assert_eq!(status.interfaces.len(), 2);
+    }
+}

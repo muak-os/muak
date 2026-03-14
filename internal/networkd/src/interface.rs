@@ -186,8 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn test_is_ethernet_interface() {
-        // ACT & ASSERT
+    fn ethernet_interface_name_detection() {
+        // ACT / ASSERT
         assert!(is_ethernet_interface("eth0"));
         assert!(is_ethernet_interface("enp3s0"));
         assert!(!is_ethernet_interface("lo"));
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_primary_prefers_carrier() {
+    fn select_primary_prefers_carrier() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::NoCarrier),
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_primary_prefers_no_carrier_over_down() {
+    fn select_primary_prefers_no_carrier_over_down() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::Down),
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_primary_prefers_better_naming() {
+    fn select_primary_prefers_better_naming() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::Up),
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_naming_priority_order() {
+    fn naming_priority_order() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::Up),
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_carrier_overrides_naming() {
+    fn carrier_overrides_naming() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eno1", LinkStateKind::NoCarrier),
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_backups_excludes_primary() {
+    fn select_backups_excludes_primary() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::Up),
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_backups_sorted_by_priority() {
+    fn select_backups_sorted_by_priority() {
         // ARRANGE
         let interfaces = vec![
             make_interface("eth0", LinkStateKind::Up),
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_interfaces() {
+    fn empty_interfaces() {
         // ARRANGE
         let interfaces: Vec<Interface> = vec![];
 
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_interface() {
+    fn single_interface() {
         // ARRANGE
         let interfaces = vec![make_interface("eth0", LinkStateKind::Down)];
 
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_carrier() {
+    fn has_carrier() {
         // ACT & ASSERT
         assert!(make_interface("eth0", LinkStateKind::Up).has_carrier());
         assert!(!make_interface("eth0", LinkStateKind::NoCarrier).has_carrier());
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tiebreaker_prefers_lower_index() {
+    fn tiebreaker_prefers_lower_index() {
         // ARRANGE
         let interfaces = vec![
             make_interface_with_index("eth0", 8, LinkStateKind::Down),

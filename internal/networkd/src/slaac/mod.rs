@@ -55,8 +55,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fallback_dns_v6_filters_ipv4() {
-        // ARRANGE
+    fn fallback_dns_v6_filter_rejects_ipv4() {
+        // ARRANGE / ACT
         let addrs: Vec<Ipv6Addr> = ["9.9.9.9", "2620:fe::fe", "2620:fe::9"]
             .iter()
             .filter_map(|s| match s.parse::<IpAddr>() {
@@ -71,5 +71,49 @@ mod tests {
             assert!(!addr.is_unspecified());
             assert!(!addr.is_loopback());
         }
+    }
+
+    #[test]
+    fn create_icmpv6_filter_passes_ra() {
+        // ARRANGE / ACT
+        let filter = create_icmpv6_filter();
+        let ra_type = ICMPV6_ROUTER_ADVERTISEMENT as usize;
+        let bit = filter.data[ra_type / 32] & (1 << (ra_type % 32));
+
+        // ASSERT
+        assert_eq!(bit, 0, "RA type bit should be cleared (pass)");
+    }
+
+    #[test]
+    fn create_icmpv6_filter_blocks_other_types() {
+        // ARRANGE / ACT
+        let filter = create_icmpv6_filter();
+
+        // ASSERT
+        for icmp_type in [0u8, 1, 128, 129, 133, 135, 136] {
+            if icmp_type == ICMPV6_ROUTER_ADVERTISEMENT {
+                continue;
+            }
+            let idx = icmp_type as usize;
+            let bit = filter.data[idx / 32] & (1 << (idx % 32));
+            assert_ne!(bit, 0, "type {} should be blocked", icmp_type);
+        }
+    }
+
+    #[test]
+    fn create_icmpv6_filter_initial_all_blocked() {
+        // ARRANGE / ACT
+        let filter = create_icmpv6_filter();
+        let mut pass_count = 0;
+        for word_idx in 0..8 {
+            for bit_idx in 0..32 {
+                if filter.data[word_idx] & (1 << bit_idx) == 0 {
+                    pass_count += 1;
+                }
+            }
+        }
+
+        // ASSERT
+        assert_eq!(pass_count, 1, "only RA type should pass");
     }
 }
