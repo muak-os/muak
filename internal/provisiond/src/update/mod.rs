@@ -2,7 +2,7 @@
 
 mod commit;
 pub mod kexec;
-mod rollback;
+pub(crate) mod rollback;
 pub(super) mod snapshot;
 mod validation;
 

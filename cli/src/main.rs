@@ -12,6 +12,7 @@ use commands::auth::AuthAction;
 use commands::config::ConfigAction;
 use commands::context::ContextAction;
 use commands::process::ProcessAction;
+use commands::rollback::RollbackAction;
 use commands::security::SecurityAction;
 use commands::vm::VmAction;
 
@@ -53,6 +54,10 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    Rollback {
+        #[command(subcommand)]
+        action: RollbackAction,
     },
     Context {
         #[command(subcommand)]

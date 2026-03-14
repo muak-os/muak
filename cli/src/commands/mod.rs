@@ -7,6 +7,7 @@ pub mod install;
 pub mod logs;
 pub mod process;
 pub mod reset;
+pub mod rollback;
 pub mod security;
 pub mod update;
 pub mod vm;
@@ -166,6 +167,7 @@ async fn handle_cmd(
             auth::handle(channel, action).await
         }
         Commands::Config { action } => config::handle(channel, action).await,
+        Commands::Rollback { action } => rollback::handle(channel, action).await,
         Commands::Process { action } => {
             let mut client = ProcessServiceClient::new(channel);
             process::handle(&mut client, action).await

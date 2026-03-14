@@ -11,6 +11,7 @@ use crate::reboot;
 use crate::reset;
 use crate::streaming;
 use crate::update;
+use crate::update::rollback;
 
 /// Creates the ProvisionService gRPC server.
 pub fn service() -> ProvisionServiceServer<ProvisionServiceImpl> {
@@ -297,6 +298,40 @@ impl ProvisionService for ProvisionServiceImpl {
             })),
             Err(e) => Ok(Response::new(GetConfigSnapshotResponse {
                 config: Vec::new(),
+                error: format!("Task panicked: {}", e),
+            })),
+        }
+    }
+
+    async fn get_rollback_history(
+        &self,
+        request: Request<GetRollbackHistoryRequest>,
+    ) -> Result<Response<GetRollbackHistoryResponse>, Status> {
+        let limit = request.into_inner().limit as usize;
+        let effective_limit = if limit == 0 { 100 } else { limit };
+
+        match tokio::task::spawn_blocking(move || rollback::list(effective_limit)).await {
+            Ok(Ok(entries)) => {
+                let proto_entries: Vec<RollbackHistoryEntry> = entries
+                    .into_iter()
+                    .map(|e| RollbackHistoryEntry {
+                        update_id: e.update_id,
+                        failed_image: e.failed_image,
+                        reason: e.reason,
+                        rolled_back_at: e.rolled_back_at,
+                    })
+                    .collect();
+                Ok(Response::new(GetRollbackHistoryResponse {
+                    entries: proto_entries,
+                    error: String::new(),
+                }))
+            }
+            Ok(Err(e)) => Ok(Response::new(GetRollbackHistoryResponse {
+                entries: Vec::new(),
+                error: format!("{:#}", e),
+            })),
+            Err(e) => Ok(Response::new(GetRollbackHistoryResponse {
+                entries: Vec::new(),
                 error: format!("Task panicked: {}", e),
             })),
         }

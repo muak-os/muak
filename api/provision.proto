@@ -27,6 +27,9 @@ service ProvisionService {
     // @rbac: system:read
     rpc GetConfigSnapshot(GetConfigSnapshotRequest) returns (GetConfigSnapshotResponse);
 
+    // @rbac: system:read
+    rpc GetRollbackHistory(GetRollbackHistoryRequest) returns (GetRollbackHistoryResponse);
+
     // @rbac: admin
     rpc FactoryReset(FactoryResetRequest) returns (FactoryResetResponse);
 }
@@ -136,6 +139,22 @@ message GetConfigSnapshotRequest {
 
 message GetConfigSnapshotResponse {
     bytes config = 1;
+    string error = 2;
+}
+
+message RollbackHistoryEntry {
+    string update_id = 1;
+    string failed_image = 2;
+    string reason = 3;
+    int64 rolled_back_at = 4;
+}
+
+message GetRollbackHistoryRequest {
+    uint32 limit = 1;
+}
+
+message GetRollbackHistoryResponse {
+    repeated RollbackHistoryEntry entries = 1;
     string error = 2;
 }
 

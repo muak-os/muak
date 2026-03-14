@@ -71,6 +71,27 @@ fn save(update_id: &str, reason: &str) -> Result<()> {
     Ok(())
 }
 
+/// Returns the most recent rollback records, newest-first, up to `limit`.
+pub fn list(limit: usize) -> Result<Vec<RollbackInfo>> {
+    let dir = Path::new(ROLLBACKS_DIR);
+
+    let mut entries: Vec<RollbackInfo> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
+            .filter_map(|e| {
+                let data = std::fs::read_to_string(e.path()).ok()?;
+                serde_json::from_str(&data).ok()
+            })
+            .collect(),
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    entries.sort_unstable_by(|a, b| b.rolled_back_at.cmp(&a.rolled_back_at));
+    entries.truncate(limit);
+    Ok(entries)
+}
+
 /// Removes the oldest rollback records beyond [`ROLLBACKS_MAX_ENTRIES`].
 fn prune() {
     let dir = Path::new(ROLLBACKS_DIR);
