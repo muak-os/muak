@@ -148,6 +148,7 @@ impl<'de> Deserialize<'de> for Cidr6 {
 #[serde(default, deny_unknown_fields)]
 pub struct Ipv4InterfaceConfig {
     pub dhcp: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub addresses: Vec<Cidr4>,
     pub gateway: Option<Ipv4Addr>,
 }
@@ -157,6 +158,7 @@ pub struct Ipv4InterfaceConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct Ipv6InterfaceConfig {
     pub autoconf: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub addresses: Vec<Cidr6>,
     pub gateway: Option<Ipv6Addr>,
 }
