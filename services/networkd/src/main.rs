@@ -2,7 +2,6 @@
 
 mod actor;
 mod connectivity;
-mod constants;
 mod dhcpv4;
 mod dns;
 mod interface;

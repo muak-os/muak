@@ -4,8 +4,13 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Result, bail};
 use tokio::time::timeout;
 
-use crate::constants::{CONNECTIVITY_OVERALL_TIMEOUT_SECS, CONNECTIVITY_PROBE_TIMEOUT_SECS};
 use crate::model::{ConnectivityResult, ConnectivityStatus};
+
+/// Timeout for each individual probe.
+const PROBE_TIMEOUT_SECS: u64 = 5;
+
+/// Overall timeout for the entire connectivity check process.
+const OVERALL_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone)]
 pub struct ConnectivityConfig {
@@ -28,8 +33,8 @@ impl ConnectivityConfig {
             .unwrap_or_else(|| "muak.dev".to_string());
         Self {
             target: ConnectivityTarget { host },
-            probe_timeout: Duration::from_secs(CONNECTIVITY_PROBE_TIMEOUT_SECS),
-            overall_timeout: Duration::from_secs(CONNECTIVITY_OVERALL_TIMEOUT_SECS),
+            probe_timeout: Duration::from_secs(PROBE_TIMEOUT_SECS),
+            overall_timeout: Duration::from_secs(OVERALL_TIMEOUT_SECS),
         }
     }
 }

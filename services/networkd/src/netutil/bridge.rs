@@ -4,11 +4,19 @@ use anyhow::{Context, Result};
 use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
 
-use crate::constants::{
-    BRIDGE_CREATE_RETRIES, BRIDGE_CREATE_RETRY_DELAY_MS, INTERFACE_ENSLAVE_RETRIES,
-    INTERFACE_ENSLAVE_RETRY_DELAY_MS,
-};
 use crate::netlink::{address, link, retry, route};
+
+/// Number of attempts to check for bridge creation before giving up.
+const CREATE_RETRIES: u8 = 30;
+
+/// Delay between attempts to check for bridge creation.
+const CREATE_RETRY_DELAY_MS: u64 = 100;
+
+/// Number of attempts to enslave an interface to the bridge before giving up.
+const ENSLAVE_RETRIES: u8 = 5;
+
+/// Delay between attempts to enslave an interface to the bridge.
+const ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
 pub async fn ensure_bridge_with_config(
     handle: &Handle,
@@ -76,8 +84,8 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
                 None
             }
         },
-        BRIDGE_CREATE_RETRIES,
-        BRIDGE_CREATE_RETRY_DELAY_MS,
+        CREATE_RETRIES,
+        CREATE_RETRY_DELAY_MS,
         &format!("bridge '{}' creation timeout", bridge_name),
     )
     .await
@@ -94,8 +102,8 @@ async fn enslave_interface_to_bridge(
 
     retry::retry_operation(
         || async { link::set_link_master(handle, phys_index, br_index).await },
-        INTERFACE_ENSLAVE_RETRIES,
-        INTERFACE_ENSLAVE_RETRY_DELAY_MS,
+        ENSLAVE_RETRIES,
+        ENSLAVE_RETRY_DELAY_MS,
         &format!("failed to enslave {} to {}", physical_iface, bridge_name),
     )
     .await?;

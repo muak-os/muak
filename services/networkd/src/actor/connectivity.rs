@@ -5,12 +5,14 @@ use tokio::sync::mpsc;
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
 use crate::connectivity::{self, ConnectivityConfig};
-use crate::constants;
 use crate::model::{ConnectivityResult, ConnectivityStatus};
+
+/// Interval between connectivity checks.
+const CHECK_INTERVAL_SECS: u64 = 60;
 
 impl NetworkActor {
     pub(super) fn start_connectivity_monitoring(&mut self, cmd_tx: mpsc::Sender<NetworkCommand>) {
-        let interval = Duration::from_secs(constants::CONNECTIVITY_CHECK_INTERVAL_SECS);
+        let interval = Duration::from_secs(CHECK_INTERVAL_SECS);
         let task = tokio::spawn(run_connectivity_monitor(cmd_tx, interval));
         self.connectivity_task = Some(task);
     }

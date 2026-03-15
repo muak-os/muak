@@ -3,10 +3,12 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 
 use super::state::NetworkActor;
-use crate::constants;
 use crate::interface::{Interface, InterfaceSelector, discover_ethernet_interfaces};
 use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
 use crate::netlink::link;
+
+/// Timeout for carrier detection when probing interfaces.
+const CARRIER_TIMEOUT_SECS: u64 = 6;
 
 impl NetworkActor {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
@@ -21,7 +23,7 @@ impl NetworkActor {
             bail!("no ethernet interfaces found");
         }
 
-        let timeout = Duration::from_secs(constants::CARRIER_TIMEOUT_SECS);
+        let timeout = Duration::from_secs(CARRIER_TIMEOUT_SECS);
         let carrier_states = self.probe_all_for_carrier(&discovered, timeout).await;
 
         let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
@@ -30,7 +32,7 @@ impl NetworkActor {
             self.publish_state();
             bail!(
                 "no carrier detected on any interface after {}s - check cable connections",
-                constants::CARRIER_TIMEOUT_SECS
+                CARRIER_TIMEOUT_SECS
             );
         }
 
