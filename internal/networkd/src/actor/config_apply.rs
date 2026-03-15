@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
-use crate::netlink::{address, link};
+use crate::netlink::link;
 
 impl NetworkActor {
     pub(super) async fn apply_interface_configs(
@@ -44,18 +44,17 @@ impl NetworkActor {
 
     async fn setup_ethernet_from_config(
         &mut self,
-        iface_name: &str,
+        name: &str,
         ipv4_cfg: Option<&Ipv4InterfaceConfig>,
         ipv6_cfg: Option<&Ipv6InterfaceConfig>,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
-
-        if iface_name == primary {
-            return self
-                .override_primary_static_ipv4(iface_name, ipv4_cfg)
-                .await;
-        }
+        let iface_name = if name == "auto" {
+            primary.as_str()
+        } else {
+            name
+        };
 
         if !self.has_interface(iface_name) {
             bail!("ethernet interface '{}' not found", iface_name);
@@ -82,31 +81,6 @@ impl NetworkActor {
 
         kmsg::info!("Ethernet interface configured: {}", iface_name);
         Ok(())
-    }
-
-    async fn override_primary_static_ipv4(
-        &mut self,
-        iface_name: &str,
-        ipv4_cfg: Option<&Ipv4InterfaceConfig>,
-    ) -> Result<()> {
-        let Some(ipv4) = ipv4_cfg else { return Ok(()) };
-        if ipv4.dhcp || ipv4.addresses.is_empty() {
-            return Ok(());
-        }
-
-        let index = self
-            .get_interface(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?
-            .index;
-
-        self.cancel_renewal_tasks(iface_name);
-        for cidr in &ipv4.addresses {
-            address::remove_ipv4(&self.handle, index, cidr.address)
-                .await
-                .ok();
-        }
-        self.apply_static_ipv4(iface_name, index, &ipv4.addresses, ipv4.gateway)
-            .await
     }
 
     async fn configure_ipv6_for_interface(

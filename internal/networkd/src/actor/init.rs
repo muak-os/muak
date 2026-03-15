@@ -10,13 +10,6 @@ impl NetworkActor {
         kmsg::info!("Initializing network");
 
         self.discover_interfaces().await?;
-        self.acquire_dhcp_on_primary(cmd_tx).await?;
-
-        if config::network().ipv6 {
-            let primary = self.get_primary_name()?;
-            self.try_acquire_slaac(&primary.clone(), cmd_tx).await;
-        }
-
         self.apply_interface_configs(cmd_tx).await?;
 
         self.state.state = NetworkStateKind::Ready;
@@ -26,16 +19,6 @@ impl NetworkActor {
 
         kmsg::info!("Network initialization complete");
 
-        Ok(())
-    }
-
-    async fn acquire_dhcp_on_primary(
-        &mut self,
-        cmd_tx: &mpsc::Sender<NetworkCommand>,
-    ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-        kmsg::info!("Acquiring DHCP on primary interface: {}", primary);
-        self.acquire_dhcp(&primary, cmd_tx).await?;
         Ok(())
     }
 }

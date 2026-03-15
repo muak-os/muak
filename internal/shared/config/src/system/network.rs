@@ -440,22 +440,24 @@ ipv6.gateway = "2001:db8::1"
     }
 
     #[test]
-    fn autoconf_interface_has_empty_addresses_by_default() {
+    fn auto_ethernet_interface_deserialization() {
         // ARRANGE
         let toml_str = r#"
 [[network.interfaces]]
-name = "eth0"
+name = "auto"
 type = "ethernet"
+ipv4.dhcp = true
 ipv6.autoconf = true
 "#;
 
         // ACT
         let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-        let ipv6 = config.network.interfaces[0].ipv6.as_ref().unwrap();
+        let iface = &config.network.interfaces[0];
 
         // ASSERT
-        assert!(ipv6.autoconf);
-        assert!(ipv6.addresses.is_empty());
-        assert!(ipv6.gateway.is_none());
+        assert_eq!(iface.name, "auto");
+        assert_eq!(iface.kind, InterfaceKind::Ethernet);
+        assert!(iface.ipv4.as_ref().unwrap().dhcp);
+        assert!(iface.ipv6.as_ref().unwrap().autoconf);
     }
 }
