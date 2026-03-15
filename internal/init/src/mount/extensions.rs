@@ -1,7 +1,4 @@
 //! Extension discovery for squashfs images.
-//!
-//! Provides functions to discover and list extension squashfs images
-//! from the extensions directory.
 
 use std::path::Path;
 

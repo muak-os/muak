@@ -1,3 +1,5 @@
+//! Switch from the initramfs to the new root filesystem.
+
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
@@ -6,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use rustix::mount::{MountFlags, mount, mount_move};
 use rustix::process::{chdir, chroot};
 
+/// Switches to the new root filesystem and executes the init process.
 pub fn switch(newroot: &str) -> Result<()> {
     move_mounts(newroot).context("move_mounts failed")?;
     bind_modules(newroot).context("bind_modules failed")?;
@@ -16,6 +19,7 @@ pub fn switch(newroot: &str) -> Result<()> {
     exec_init().context("exec_init failed")
 }
 
+/// Move special mounts from initramfs to the new root
 fn move_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
         let target = format!("{}{}", newroot, mnt);
@@ -72,6 +76,7 @@ pub fn delete_initramfs_at(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Executes the init binary from the new root filesystem.
 fn exec_init() -> Result<()> {
     let root = Path::new("/");
     let init_path = find_init_in(root)?;
