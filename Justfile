@@ -119,6 +119,7 @@ installer prod="false":
         )
     fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
+        --build-context services=pkgs \
         "${pkg_args[@]}" \
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \

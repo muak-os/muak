@@ -8,7 +8,7 @@ const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 /// A pending restart entry with a scheduled time.
 struct PendingRestart {
-    name: &'static str,
+    name: String,
     due_at: Instant,
 }
 
@@ -59,7 +59,7 @@ impl RestartQueue {
         );
 
         self.pending.push(PendingRestart {
-            name: state.service.name,
+            name: state.service.name.clone(),
             due_at: Instant::now() + RESTART_DELAY,
         });
     }
@@ -75,7 +75,7 @@ impl RestartQueue {
     }
 
     /// Returns the names of services whose restart delay has elapsed.
-    pub fn take_due(&mut self, deps_ready: impl Fn(&str) -> bool) -> Vec<&'static str> {
+    pub fn take_due(&mut self, deps_ready: impl Fn(&str) -> bool) -> Vec<String> {
         let now = Instant::now();
         let prev = std::mem::take(&mut self.pending);
         let mut ready = Vec::new();
@@ -86,7 +86,7 @@ impl RestartQueue {
                 continue;
             }
 
-            if !deps_ready(restart.name) {
+            if !deps_ready(&restart.name) {
                 self.pending.push(PendingRestart {
                     name: restart.name,
                     due_at: now + Duration::from_secs(1),
@@ -110,8 +110,8 @@ mod tests {
 
     fn make_state(status: ServiceStatus) -> ServiceState {
         let svc = Service {
-            name: "test-svc",
-            command: vec![],
+            name: "test-svc".to_string(),
+            command: String::new(),
             depends_on: vec![],
         };
         let mut state = ServiceState::new(svc);
@@ -265,7 +265,7 @@ mod tests {
         // ARRANGE
         let mut queue = RestartQueue::new();
         queue.pending.push(PendingRestart {
-            name: "test-svc",
+            name: "test-svc".to_string(),
             due_at: Instant::now() - Duration::from_millis(1),
         });
 
@@ -273,7 +273,7 @@ mod tests {
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert_eq!(due, vec!["test-svc"]);
+        assert_eq!(due, vec!["test-svc".to_string()]);
         assert!(queue.pending.is_empty());
     }
 
@@ -282,7 +282,7 @@ mod tests {
         // ARRANGE
         let mut queue = RestartQueue::new();
         queue.pending.push(PendingRestart {
-            name: "test-svc",
+            name: "test-svc".to_string(),
             due_at: Instant::now() - Duration::from_millis(1),
         });
 

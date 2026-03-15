@@ -45,6 +45,7 @@ EOF
 FROM scratch AS networkd-package
 
 COPY --link --from=builder /networkd /networkd
+COPY --link pkgs/networkd/services/networkd.toml /etc/services/networkd.toml
 
 LABEL org.opencontainers.image.title="networkd"
 LABEL org.opencontainers.image.description="Muak network management daemon"

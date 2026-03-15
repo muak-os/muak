@@ -46,6 +46,7 @@ EOF
 FROM scratch AS apid-package
 
 COPY --link --from=builder /apid /apid
+COPY --link pkgs/apid/services/apid.toml /etc/services/apid.toml
 
 LABEL org.opencontainers.image.title="apid"
 LABEL org.opencontainers.image.description="Muak external gRPC API daemon"

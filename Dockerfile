@@ -43,7 +43,7 @@ WORKDIR /rootfs
 
 RUN <<EOF
 set -euo pipefail
-mkdir -p sbin dev proc sys run etc lib/modules
+mkdir -p sbin dev proc sys run etc/services lib/modules
 ln -sf /run/resolv.conf etc/resolv.conf
 EOF
 
@@ -63,6 +63,8 @@ COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
+
+COPY --link --from=services */services/*.toml /rootfs/etc/services/
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 

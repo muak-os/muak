@@ -26,11 +26,8 @@ pub struct Spawner;
 
 impl ProcessSpawner for Spawner {
     fn spawn(&mut self, state: &mut ServiceState) -> Result<SpawnResult> {
-        let (bin, args) = state
-            .service
-            .command
-            .split_first()
-            .context("command must not be empty")?;
+        let argv = state.service.argv();
+        let (bin, args) = argv.split_first().context("command must not be empty")?;
 
         if !Path::new(bin).exists() {
             bail!("Binary not found: {}", bin);
@@ -85,10 +82,10 @@ mod tests {
     use super::*;
     use crate::supervisor::service::{Service, ServiceState};
 
-    fn make_state(command: Vec<&'static str>) -> ServiceState {
+    fn make_state(command: &str) -> ServiceState {
         ServiceState::new(Service {
-            name: "test-svc",
-            command: command.into_iter().map(str::to_string).collect(),
+            name: "test-svc".to_string(),
+            command: command.to_string(),
             depends_on: vec![],
         })
     }
@@ -96,7 +93,7 @@ mod tests {
     #[test]
     fn empty_command_returns_error() {
         // ARRANGE
-        let mut state = make_state(vec![]);
+        let mut state = make_state("");
 
         // ACT
         let result = Spawner.spawn(&mut state);
@@ -109,7 +106,7 @@ mod tests {
     #[test]
     fn nonexistent_binary_returns_error() {
         // ARRANGE
-        let mut state = make_state(vec!["/nonexistent/binary/xyz_abc"]);
+        let mut state = make_state("/nonexistent/binary/xyz_abc");
 
         // ACT
         let result = Spawner.spawn(&mut state);

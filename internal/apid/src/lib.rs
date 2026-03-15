@@ -45,7 +45,12 @@ pub fn parse_args(args: &[String]) -> Args {
         .cloned()
         .unwrap_or(default_listen);
 
-    let maintenance_mode = args.iter().any(|a| a == "--maintenance");
+    let maintenance_mode = args
+        .iter()
+        .position(|a| a == "--maintenance")
+        .and_then(|i| args.get(i + 1))
+        .map(|v| v == "true")
+        .unwrap_or(false);
 
     Args {
         listen_addr,
@@ -132,16 +137,32 @@ async fn handle_tls_connection(
 mod tests {
     use super::*;
 
+    fn parse_maintenance(args: &[&str]) -> bool {
+        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        owned
+            .iter()
+            .position(|a| a == "--maintenance")
+            .and_then(|i| owned.get(i + 1))
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    }
+
     #[test]
     fn parse_args_maintenance_flag() {
-        // ARRANGE
-        let args: Vec<String> = "apid --maintenance"
-            .split_whitespace()
-            .map(String::from)
-            .collect();
+        // ARRANGE + ACT + ASSERT
+        assert!(parse_maintenance(&["--maintenance", "true"]));
+    }
 
-        // ASSERT
-        assert!(args.iter().any(|a| a == "--maintenance"));
+    #[test]
+    fn parse_args_maintenance_false() {
+        // ARRANGE + ACT + ASSERT
+        assert!(!parse_maintenance(&["--maintenance", "false"]));
+    }
+
+    #[test]
+    fn parse_args_maintenance_absent_defaults_false() {
+        // ARRANGE + ACT + ASSERT
+        assert!(!parse_maintenance(&["--listen", "0.0.0.0:443"]));
     }
 
     #[test]

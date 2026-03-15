@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::service::{Service, ServiceState, ServiceStatus};
 
 /// Checks if all dependencies of a service definition are in the `Ready` state.
-pub fn are_satisfied(service: &Service, services: &HashMap<&'static str, ServiceState>) -> bool {
+pub fn are_satisfied(service: &Service, services: &HashMap<String, ServiceState>) -> bool {
     service.depends_on.iter().all(|dep| {
         services
             .get(dep)
@@ -12,13 +12,13 @@ pub fn are_satisfied(service: &Service, services: &HashMap<&'static str, Service
 }
 
 /// Returns the names of all `Pending` services whose dependencies are satisfied.
-pub fn collect_startable(services: &HashMap<&'static str, ServiceState>) -> Vec<&'static str> {
+pub fn collect_startable(services: &HashMap<String, ServiceState>) -> Vec<String> {
     services
         .iter()
         .filter(|(_, state)| {
             state.status == ServiceStatus::Pending && are_satisfied(&state.service, services)
         })
-        .map(|(name, _)| *name)
+        .map(|(name, _)| name.clone())
         .collect()
 }
 
@@ -26,11 +26,11 @@ pub fn collect_startable(services: &HashMap<&'static str, ServiceState>) -> Vec<
 mod tests {
     use super::*;
 
-    fn make_service(name: &'static str, depends_on: Vec<&'static str>) -> Service {
+    fn make_service(name: &str, depends_on: Vec<&str>) -> Service {
         Service {
-            name,
-            command: vec![],
-            depends_on,
+            name: name.to_string(),
+            command: String::new(),
+            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -52,7 +52,7 @@ mod tests {
         let svc = make_service("b", vec!["a"]);
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Ready),
         );
         assert!(are_satisfied(&svc, &map));
@@ -63,7 +63,7 @@ mod tests {
         let svc = make_service("b", vec!["a"]);
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Pending),
         );
         assert!(!are_satisfied(&svc, &map));
@@ -81,11 +81,11 @@ mod tests {
         let svc = make_service("c", vec!["a", "b"]);
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Ready),
         );
         map.insert(
-            "b",
+            "b".to_string(),
             make_state(make_service("b", vec![]), ServiceStatus::Pending),
         );
         assert!(!are_satisfied(&svc, &map));
@@ -101,18 +101,18 @@ mod tests {
     fn pending_with_no_deps_is_startable() {
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Pending),
         );
         let startable = collect_startable(&map);
-        assert_eq!(startable, vec!["a"]);
+        assert_eq!(startable, vec!["a".to_string()]);
     }
 
     #[test]
     fn ready_service_is_not_startable() {
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Ready),
         );
         assert!(collect_startable(&map).is_empty());
@@ -122,29 +122,30 @@ mod tests {
     fn pending_with_unmet_dep_is_not_startable() {
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Pending),
         );
         map.insert(
-            "b",
+            "b".to_string(),
             make_state(make_service("b", vec!["a"]), ServiceStatus::Pending),
         );
-        let startable = collect_startable(&map);
-        assert_eq!(startable, vec!["a"]);
+        let mut startable = collect_startable(&map);
+        startable.sort();
+        assert_eq!(startable, vec!["a".to_string()]);
     }
 
     #[test]
     fn pending_with_met_dep_is_startable() {
         let mut map = HashMap::new();
         map.insert(
-            "a",
+            "a".to_string(),
             make_state(make_service("a", vec![]), ServiceStatus::Ready),
         );
         map.insert(
-            "b",
+            "b".to_string(),
             make_state(make_service("b", vec!["a"]), ServiceStatus::Pending),
         );
         let startable = collect_startable(&map);
-        assert_eq!(startable, vec!["b"]);
+        assert_eq!(startable, vec!["b".to_string()]);
     }
 }

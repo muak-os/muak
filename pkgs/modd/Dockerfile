@@ -44,6 +44,7 @@ EOF
 FROM scratch AS modd-package
 
 COPY --link --from=builder /modd /modd
+COPY --link pkgs/modd/services/modd.toml /etc/services/modd.toml
 
 LABEL org.opencontainers.image.title="modd"
 LABEL org.opencontainers.image.description="Muak module daemon for dynamic kernel module loading"

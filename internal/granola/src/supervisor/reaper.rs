@@ -14,19 +14,19 @@ pub struct ChildExit {
 /// Abstraction over child-process reaping.
 pub trait ChildReaper {
     /// Registers a PID as belonging to a named supervised service.
-    fn track(&mut self, pid: i32, name: &'static str);
+    fn track(&mut self, pid: i32, name: String);
 
     /// Waits for the next batch of child exits (may block).
-    fn wait_for_exits(&mut self) -> impl Future<Output = Vec<(&'static str, ChildExit)>> + Send;
+    fn wait_for_exits(&mut self) -> impl Future<Output = Vec<(String, ChildExit)>> + Send;
 
     /// Non-blocking drain of all already-terminated children.
-    fn reap_all(&mut self) -> Vec<(&'static str, ChildExit)>;
+    fn reap_all(&mut self) -> Vec<(String, ChildExit)>;
 }
 
 /// PID 1 child reaper using SIGCHLD and `waitpid(-1, WNOHANG)`.
 pub struct Reaper {
     sigchld: Signal,
-    known_pids: HashMap<i32, &'static str>,
+    known_pids: HashMap<i32, String>,
 }
 
 impl Reaper {
@@ -40,16 +40,16 @@ impl Reaper {
 }
 
 impl ChildReaper for Reaper {
-    fn track(&mut self, pid: i32, name: &'static str) {
+    fn track(&mut self, pid: i32, name: String) {
         self.known_pids.insert(pid, name);
     }
 
-    async fn wait_for_exits(&mut self) -> Vec<(&'static str, ChildExit)> {
+    async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
         self.sigchld.recv().await;
         self.reap_all()
     }
 
-    fn reap_all(&mut self) -> Vec<(&'static str, ChildExit)> {
+    fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
         let mut service_exits = Vec::new();
         let Some(any_child) = Pid::from_raw(-1) else {
             return service_exits;
@@ -70,7 +70,7 @@ impl ChildReaper for Reaper {
 impl Reaper {
     fn dispatch_exit(
         &mut self,
-        service_exits: &mut Vec<(&'static str, ChildExit)>,
+        service_exits: &mut Vec<(String, ChildExit)>,
         pid: i32,
         exit: ChildExit,
     ) {

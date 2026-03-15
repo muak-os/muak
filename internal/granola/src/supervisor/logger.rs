@@ -184,19 +184,29 @@ pub fn create() -> (LogWriter, LogReader, LogActor) {
 }
 
 /// Captures logs from the given stdout and stderr file descriptors, forwards them to the logger.
-pub fn capture(name: &'static str, stdout_fd: OwnedFd, stderr_fd: OwnedFd, logger: &LogWriter) {
-    spawn_reader(name, stdout_fd, LogStream::Stdout, logger.clone());
-    spawn_reader(name, stderr_fd, LogStream::Stderr, logger.clone());
+pub fn capture(name: &str, stdout_fd: OwnedFd, stderr_fd: OwnedFd, logger: &LogWriter) {
+    spawn_reader(
+        name.to_string(),
+        stdout_fd,
+        LogStream::Stdout,
+        logger.clone(),
+    );
+    spawn_reader(
+        name.to_string(),
+        stderr_fd,
+        LogStream::Stderr,
+        logger.clone(),
+    );
 }
 
-fn spawn_reader(name: &'static str, fd: OwnedFd, stream: LogStream, logger: LogWriter) {
+fn spawn_reader(name: String, fd: OwnedFd, stream: LogStream, logger: LogWriter) {
     tokio::spawn(async move {
         let async_fd = tokio::fs::File::from_std(std::fs::File::from(fd));
         let reader = BufReader::new(async_fd);
         let mut lines = reader.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
-            logger.append(name, stream, line);
+            logger.append(&name, stream, line);
         }
     });
 }

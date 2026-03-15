@@ -1,13 +1,15 @@
 //! PID 1 supervisor for Muak.
 
 mod ipc;
+mod loader;
 mod supervisor;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use supervisor::Supervisor;
 use supervisor::logger::LogReader;
-use supervisor::{Service, Supervisor};
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -21,58 +23,20 @@ async fn main() -> Result<()> {
 
     config::init().context("Failed to initialize system configuration")?;
 
-    let mut apid_command = vec![
-        "/sbin/apid".to_string(),
-        "--listen".to_string(),
-        format!("0.0.0.0:{}", config::host().port),
-    ];
+    let installed = Path::new(config::CONFIG_PATH).exists();
 
-    let is_installed = Path::new(config::CONFIG_PATH).exists();
-
-    if is_installed {
+    if installed {
         kmsg::info!("Running from INSTALLED DISK");
     } else {
         kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
-        apid_command.push("--maintenance".to_string());
     }
 
-    let mut services = vec![
-        Service {
-            name: "modd",
-            command: vec!["/sbin/modd".to_string()],
-            depends_on: vec![],
-        },
-        Service {
-            name: "networkd",
-            command: vec!["/sbin/networkd".to_string()],
-            depends_on: vec![],
-        },
-        Service {
-            name: "provisiond",
-            command: vec!["/sbin/provisiond".to_string()],
-            depends_on: vec![],
-        },
-        Service {
-            name: "timed",
-            command: vec!["/sbin/timed".to_string()],
-            depends_on: vec!["networkd"],
-        },
-        Service {
-            name: "apid",
-            command: apid_command,
-            depends_on: vec!["networkd"],
-        },
-    ];
+    let port_str = config::host().port.to_string();
+    let mut env: HashMap<&str, &str> = HashMap::new();
+    env.insert("PORT", &port_str);
+    env.insert("MAINTENANCE", if installed { "false" } else { "true" });
 
-    if is_installed {
-        services.push(Service {
-            name: "vmd",
-            command: vec!["/sbin/vmd".to_string()],
-            depends_on: vec!["networkd"],
-        });
-    } else {
-        kmsg::info!("VM service disabled in maintenance mode");
-    }
+    let services = loader::load(&env).context("Failed to load service definitions")?;
 
     let (writer, reader, actor) = supervisor::logger::create();
 
@@ -90,7 +54,7 @@ async fn main() -> Result<()> {
 
     supervisor.run().await?;
 
-    unreachable!("If we're here, something went very wrong");
+    unreachable!("If we're here, something went very wrong")
 }
 
 /// Runs the gRPC server for internal service communication.

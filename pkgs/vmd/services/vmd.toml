@@ -1,0 +1,3 @@
+name = "vmd"
+command = "/sbin/vmd"
+depends_on = ["networkd"]

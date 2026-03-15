@@ -1,0 +1,3 @@
+name = "networkd"
+command = "/sbin/networkd"
+depends_on = []

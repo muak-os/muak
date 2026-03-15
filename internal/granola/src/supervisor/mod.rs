@@ -24,7 +24,7 @@ const DEFAULT_SERVICES_DIR: &str = "/run/services";
 
 /// Manages the life cycle of all system services.
 pub struct Supervisor<S, R> {
-    services: HashMap<&'static str, ServiceState>,
+    services: HashMap<String, ServiceState>,
     notify_listener: NotifyListener,
     reaper: R,
     restart_queue: restart::RestartQueue,
@@ -58,9 +58,9 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
         let services = service_defs
             .into_iter()
             .map(|def| {
-                let name = def.name;
+                let name = def.name.clone();
                 let mut state = ServiceState::new(def);
-                match socket::pre_bind(&socket::path(&services_dir_buf, name)) {
+                match socket::pre_bind(&socket::path(&services_dir_buf, &name)) {
                     Ok(fd) => state.listener_fd = Some(fd),
                     Err(e) => kmsg::warn!("Failed to pre-bind socket for {}: {}", name, e),
                 }
@@ -115,29 +115,29 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
         }
     }
 
-    fn process_exits(&mut self, exits: Vec<(&'static str, reaper::ChildExit)>) {
+    fn process_exits(&mut self, exits: Vec<(String, reaper::ChildExit)>) {
         for (name, exit) in exits {
-            self.handle_service_exit(name, exit.pid, exit.exit_code, exit.signal);
+            self.handle_service_exit(&name, exit.pid, exit.exit_code, exit.signal);
         }
     }
 
     fn start_ready_services(&mut self) -> Result<()> {
         for name in dependency::collect_startable(&self.services) {
-            if let Err(e) = self.spawn_service(name) {
+            if let Err(e) = self.spawn_service(&name) {
                 kmsg::error!("Failed to spawn service {}: {}", name, e);
             }
         }
         Ok(())
     }
 
-    fn spawn_service(&mut self, name: &'static str) -> Result<()> {
+    fn spawn_service(&mut self, name: &str) -> Result<()> {
         let state = self
             .services
             .get_mut(name)
             .ok_or_else(|| anyhow!("Service not found: {}", name))?;
 
         let result = self.spawner.spawn(state)?;
-        self.reaper.track(result.pid, name);
+        self.reaper.track(result.pid, name.to_string());
         logger::capture(name, result.stdout, result.stderr, &self.logger);
 
         Ok(())
@@ -154,7 +154,7 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
     fn apply_notification(&mut self, notification: ServiceNotification) {
         match notification {
             ServiceNotification::Ready { service_name } => {
-                if let Some(state) = self.services.get_mut(service_name.as_str()) {
+                if let Some(state) = self.services.get_mut(&service_name) {
                     state.status = ServiceStatus::Ready;
                     state.restart_count = 0;
                 } else {
@@ -165,12 +165,12 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
                 service_name,
                 new_status,
             } => {
-                if let Some(state) = self.services.get_mut(service_name.as_str()) {
+                if let Some(state) = self.services.get_mut(&service_name) {
                     state.status = new_status;
                 }
             }
             ServiceNotification::Stopping { service_name } => {
-                if let Some(state) = self.services.get_mut(service_name.as_str()) {
+                if let Some(state) = self.services.get_mut(&service_name) {
                     state.status = ServiceStatus::Stopping;
                 }
             }
@@ -221,7 +221,7 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
         });
 
         for name in due {
-            if let Err(e) = self.spawn_service(name) {
+            if let Err(e) = self.spawn_service(&name) {
                 kmsg::error!("Failed to restart service {}: {}", name, e);
             }
         }
@@ -266,7 +266,7 @@ mod tests {
 
     struct FakeSpawner {
         next_pid: i32,
-        spawned: Vec<(&'static str, i32)>,
+        spawned: Vec<(String, i32)>,
     }
 
     impl FakeSpawner {
@@ -282,7 +282,7 @@ mod tests {
         fn spawn(&mut self, state: &mut service::ServiceState) -> Result<SpawnResult> {
             let pid = self.next_pid;
             self.next_pid += 1;
-            self.spawned.push((state.service.name, pid));
+            self.spawned.push((state.service.name.clone(), pid));
 
             state.pid = Some(pid);
             state.status = ServiceStatus::Starting;
@@ -300,7 +300,7 @@ mod tests {
 
     /// Shared state between the reaper and the test harness.
     struct FakeReaperInner {
-        pending: VecDeque<(&'static str, ChildExit)>,
+        pending: VecDeque<(String, ChildExit)>,
     }
 
     /// A handle for tests to inject exit events into a `FakeReaper`.
@@ -310,7 +310,7 @@ mod tests {
     }
 
     impl ExitInjector {
-        fn inject(&self, name: &'static str, exit_code: Option<i32>) {
+        fn inject(&self, name: &str, exit_code: Option<i32>) {
             let exit = ChildExit {
                 pid: 0,
                 exit_code,
@@ -320,7 +320,7 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .pending
-                .push_back((name, exit));
+                .push_back((name.to_string(), exit));
             self.notify.notify_one();
         }
     }
@@ -345,9 +345,9 @@ mod tests {
     }
 
     impl ChildReaper for FakeReaper {
-        fn track(&mut self, _pid: i32, _name: &'static str) {}
+        fn track(&mut self, _pid: i32, _name: String) {}
 
-        async fn wait_for_exits(&mut self) -> Vec<(&'static str, ChildExit)> {
+        async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
             loop {
                 let exits = self.reap_all();
                 if !exits.is_empty() {
@@ -357,17 +357,17 @@ mod tests {
             }
         }
 
-        fn reap_all(&mut self) -> Vec<(&'static str, ChildExit)> {
+        fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
             let mut guard = self.inner.lock().expect("lock");
             guard.pending.drain(..).collect()
         }
     }
 
-    fn make_service(name: &'static str, depends_on: Vec<&'static str>) -> Service {
+    fn make_service(name: &str, depends_on: Vec<&str>) -> Service {
         Service {
-            name,
-            command: vec![],
-            depends_on,
+            name: name.to_string(),
+            command: String::new(),
+            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -479,7 +479,7 @@ mod tests {
                 .take_due(|_| true)
                 .into_iter()
                 .for_each(|name| {
-                    if let Err(e) = sup.spawn_service(name) {
+                    if let Err(e) = sup.spawn_service(&name) {
                         panic!("spawn failed: {e}");
                     }
                 });
@@ -658,7 +658,7 @@ mod tests {
 
         // ACT
         for name in due {
-            sup.spawn_service(name).expect("spawn");
+            sup.spawn_service(&name).expect("spawn");
         }
 
         // ASSERT

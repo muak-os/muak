@@ -53,6 +53,7 @@ EOF
 FROM scratch AS provisiond-package
 
 COPY --link --from=builder /provisiond /provisiond
+COPY --link pkgs/provisiond/services/provisiond.toml /etc/services/provisiond.toml
 
 LABEL org.opencontainers.image.title="provisiond"
 LABEL org.opencontainers.image.description="Muak provisioning daemon"

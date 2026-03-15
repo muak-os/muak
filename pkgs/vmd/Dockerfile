@@ -45,6 +45,7 @@ EOF
 FROM scratch AS vmd-package
 
 COPY --link --from=builder /vmd /vmd
+COPY --link pkgs/vmd/services/vmd.toml /etc/services/vmd.toml
 
 LABEL org.opencontainers.image.title="vmd"
 LABEL org.opencontainers.image.description="Muak VM management daemon"

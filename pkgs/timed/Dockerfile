@@ -44,6 +44,7 @@ EOF
 FROM scratch AS timed-package
 
 COPY --link --from=builder /timed /timed
+COPY --link pkgs/timed/services/timed.toml /etc/services/timed.toml
 
 LABEL org.opencontainers.image.title="timed"
 LABEL org.opencontainers.image.description="Muak time synchronization daemon"
