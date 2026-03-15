@@ -2,26 +2,26 @@
 members = [
     "cli",
     "e2e",
-    "internal/apid",
-    "internal/granola",
-    "internal/imager",
-    "internal/init",
-    "internal/provisiond",
-    "internal/modd",
-    "internal/networkd",
-    "internal/sbolt",
-    "internal/timed",
-    "internal/shared/btrfs",
-    "internal/shared/kmod",
-    "internal/shared/kmsg",
-    "internal/shared/luks2",
-    "internal/shared/notify",
-    "internal/shared/pki",
-    "internal/shared/config",
-    "internal/shared/tpm2",
-    "internal/stub",
-    "internal/vmd",
-    "internal/yuki",
+    "core/granola",
+    "core/init",
+    "core/stub",
+    "services/apid",
+    "services/modd",
+    "services/networkd",
+    "services/provisiond",
+    "services/timed",
+    "services/vmd",
+    "tools/imager",
+    "tools/sbolt",
+    "tools/yuki",
+    "libs/btrfs",
+    "libs/config",
+    "libs/kmod",
+    "libs/kmsg",
+    "libs/luks2",
+    "libs/notify",
+    "libs/pki",
+    "libs/tpm2",
 ]
 resolver = "3"
 
@@ -32,17 +32,17 @@ version = "0.1.1-beta"
 [workspace.dependencies]
 # Internal crates
 
-btrfs = { path = "internal/shared/btrfs" }
-imager = { path = "internal/imager", default-features = false }
-kmod = { path = "internal/shared/kmod" }
-kmsg = { path = "internal/shared/kmsg" }
-luks2 = { path = "internal/shared/luks2" }
-notify = { path = "internal/shared/notify" }
-pki = { path = "internal/shared/pki" }
-sbolt = { path = "internal/sbolt", default-features = false }
-config = { path = "internal/shared/config" }
-tpm2 = { path = "internal/shared/tpm2" }
-yuki = { path = "internal/yuki", default-features = false }
+btrfs = { path = "libs/btrfs" }
+imager = { path = "tools/imager", default-features = false }
+kmod = { path = "libs/kmod" }
+kmsg = { path = "libs/kmsg" }
+luks2 = { path = "libs/luks2" }
+notify = { path = "libs/notify" }
+pki = { path = "libs/pki" }
+sbolt = { path = "tools/sbolt", default-features = false }
+config = { path = "libs/config" }
+tpm2 = { path = "libs/tpm2" }
+yuki = { path = "tools/yuki", default-features = false }
 
 # External crates
 

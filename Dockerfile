@@ -64,7 +64,7 @@ COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
 
-COPY --link --from=services */services/*.toml /rootfs/etc/services/
+COPY --link --from=services services/*/*.service /rootfs/etc/services/
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 

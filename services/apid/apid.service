@@ -1,0 +1,3 @@
+name       = "apid"
+command    = "/sbin/apid --listen 0.0.0.0:$PORT --maintenance $MAINTENANCE"
+depends_on = ["networkd"]

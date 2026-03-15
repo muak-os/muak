@@ -1,3 +1,0 @@
-name = "timed"
-command = "/sbin/timed"
-depends_on = ["networkd"]

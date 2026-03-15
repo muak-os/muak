@@ -4,19 +4,17 @@ on:
   push:
     branches: [master]
     paths:
-      - "pkgs/muakctl/**"
       - "cli/**"
-      - "internal/shared/pki/**"
-      - "internal/shared/sysconfig/**"
+      - "libs/pki/**"
+      - "libs/config/**"
       - "api/*.proto"
     tags:
       - "v[0-9]+.*"
   pull_request:
     paths:
-      - "pkgs/muakctl/**"
       - "cli/**"
-      - "internal/shared/pki/**"
-      - "internal/shared/sysconfig/**"
+      - "libs/pki/**"
+      - "libs/config/**"
       - "api/*.proto"
   workflow_dispatch:
 

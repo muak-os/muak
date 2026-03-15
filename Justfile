@@ -64,7 +64,7 @@ kernel:
   {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
       --tag {{ registry }}/kernel:{{ tag }} \
       {{ push_arg }} \
-      --file pkgs/kernel/Dockerfile \
+      --file core/kernel/Dockerfile \
       .
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
@@ -119,7 +119,7 @@ installer prod="false":
         )
     fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
-        --build-context services=pkgs \
+        --build-context services=. \
         "${pkg_args[@]}" \
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
@@ -169,7 +169,7 @@ extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just i
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just extensions")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    { tr -d '\n' < pkgs/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
+    { tr -d '\n' < core/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ release_dir }}/yuki \
         --stub {{ artifacts }}/stub.efi \
         --linux {{ artifacts }}/vmlinuz \
@@ -282,7 +282,7 @@ kspp:
     config="{{ if arch == "aarch64" { "config-arm64" } else { "config-amd64" } }}"
     printf "{{ cyan }}Checking kernel config ($config) against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
-        -v {{ justfile_directory() }}/pkgs/kernel/$config:/config:ro \
+        -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
         alpine:3.23 sh -c '\
         apk add --no-cache git python3 >/dev/null 2>&1 && \
         git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
@@ -312,8 +312,12 @@ _require file hint:
     @test -f {{ file }} || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ file }} not found. Run {{ green }}{{ hint }}{{ reset }} first\n"; exit 1; }
 
 [private]
+[script]
 _require-pkg pkg:
-    @test -f pkgs/{{ pkg }}/Dockerfile || { printf "{{ red }}{{ bold }}Error:{{ reset }} pkgs/{{ pkg }}/Dockerfile not found\n"; exit 1; }
+    for dir in core services tools pkgs; do
+        if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then exit 0; fi
+    done
+    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"; exit 1
 
 [private]
 [script]
@@ -347,17 +351,27 @@ _oci-build pkg:
                 --tag {{ registry }}/muakctl:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
                 {{ push_arg }} \
-                --file pkgs/muakctl/Dockerfile \
+                --file cli/Dockerfile \
                 .
             ;;
         *)
-            test -f pkgs/{{ pkg }}/Dockerfile || { printf "{{ red }}{{ bold }}Error:{{ reset }} pkgs/{{ pkg }}/Dockerfile not found\n"; exit 1; }
+            dockerfile=""
+            for dir in core services tools pkgs; do
+                if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then
+                    dockerfile="$dir/{{ pkg }}/Dockerfile"
+                    break
+                fi
+            done
+            if [ -z "$dockerfile" ]; then
+                printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"
+                exit 1
+            fi
             printf "{{ cyan }}Building OCI:{{ reset }} {{ pkg }} (push={{ push }}, latest={{ latest }})\n"
             {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/{{ pkg }}:latest" || echo "") \
                 {{ push_arg }} \
-                --file pkgs/{{ pkg }}/Dockerfile \
+                --file "$dockerfile" \
                 .
             ;;
     esac
@@ -365,13 +379,23 @@ _oci-build pkg:
 [private]
 [script]
 _local-build pkg:
-    test -f pkgs/{{ pkg }}/Dockerfile || { printf "{{ red }}{{ bold }}Error:{{ reset }} pkgs/{{ pkg }}/Dockerfile not found\n"; exit 1; }
+    dockerfile=""
+    for dir in core services tools pkgs; do
+        if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then
+            dockerfile="$dir/{{ pkg }}/Dockerfile"
+            break
+        fi
+    done
+    if [ -z "$dockerfile" ]; then
+        printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"
+        exit 1
+    fi
     printf "{{ cyan }}Building local:{{ reset }} {{ pkg }} -> {{ artifacts }}/oci/{{ pkg }}\n"
     mkdir -p {{ artifacts }}/oci
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
         --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
         --load \
-        --file pkgs/{{ pkg }}/Dockerfile \
+        --file "$dockerfile" \
         .
     {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} {{ registry }}/pkgs/{{ pkg }}:{{ tag }}
     {{ container_runtime }} rmi {{ registry }}/pkgs/{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true

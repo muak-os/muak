@@ -1,3 +1,0 @@
-name = "modd"
-command = "/sbin/modd"
-depends_on = []

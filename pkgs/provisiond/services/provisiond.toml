@@ -1,3 +1,0 @@
-name = "provisiond"
-command = "/sbin/provisiond"
-depends_on = []

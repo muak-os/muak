@@ -5,14 +5,20 @@ on:
     branches: [master]
     paths:
       - "pkgs/**"
-      - "internal/**"
+      - "core/**"
+      - "services/**"
+      - "tools/**"
+      - "libs/**"
       - "api/**"
     tags:
       - "v[0-9]+.*"
   pull_request:
     paths:
       - "pkgs/**"
-      - "internal/**"
+      - "core/**"
+      - "services/**"
+      - "tools/**"
+      - "libs/**"
       - "api/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -70,38 +76,31 @@ jobs:
         with:
           filters: |
             granola:
-              - 'pkgs/granola/**'
-              - 'internal/granola/**'
+              - 'core/granola/**'
               - 'api/**'
             modd:
-              - 'pkgs/modd/**'
-              - 'internal/modd/**'
-              - 'internal/shared/kmod/**'
-              - 'internal/shared/kmsg/**'
-              - 'internal/shared/notify/**'
+              - 'services/modd/**'
+              - 'libs/kmod/**'
+              - 'libs/kmsg/**'
+              - 'libs/notify/**'
             networkd:
-              - 'pkgs/networkd/**'
-              - 'internal/networkd/**'
-              - 'internal/shared/notify/**'
+              - 'services/networkd/**'
+              - 'libs/notify/**'
               - 'api/internal/network.proto'
             apid:
-              - 'pkgs/apid/**'
-              - 'internal/apid/**'
-              - 'internal/shared/notify/**'
+              - 'services/apid/**'
+              - 'libs/notify/**'
               - 'api/*.proto'
               - 'api/internal/network.proto'
             vmd:
-              - 'pkgs/vmd/**'
-              - 'internal/vmd/**'
-              - 'internal/shared/notify/**'
+              - 'services/vmd/**'
+              - 'libs/notify/**'
               - 'api/internal/vm.proto'
               - 'api/internal/network.proto'
             init:
-              - 'pkgs/init/**'
-              - 'internal/init/**'
+              - 'core/init/**'
             stub:
-              - 'pkgs/stub/**'
-              - 'internal/stub/**'
+              - 'core/stub/**'
             cloud-hypervisor:
               - 'pkgs/cloud-hypervisor/**'
             firecracker:

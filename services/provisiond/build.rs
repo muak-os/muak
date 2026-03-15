@@ -1,0 +1,44 @@
+//! Build script for compiling protobuf definitions.
+
+use std::path::PathBuf;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("could not get CARGO_MANIFEST_DIR");
+    let manifest_path = PathBuf::from(&manifest_dir);
+    let internal_dir = manifest_path
+        .parent()
+        .expect("could not get parent directory");
+
+    let workspace_root = internal_dir.parent().expect("could not get workspace root");
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace_root.join("core/kernel/cmdline.txt").display()
+    );
+
+    let api_dir = if PathBuf::from("../../api").exists() {
+        "../../api"
+    } else if PathBuf::from("../api").exists() {
+        "../api"
+    } else {
+        panic!("Could not find api directory. Expected at ../../api or ../api");
+    };
+
+    println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/auth.proto", api_dir);
+    println!("cargo:rerun-if-changed={}/security.proto", api_dir);
+
+    tonic_prost_build::configure()
+        .build_server(true)
+        .build_client(false)
+        .compile_protos(
+            &[
+                format!("{}/provision.proto", api_dir),
+                format!("{}/auth.proto", api_dir),
+                format!("{}/security.proto", api_dir),
+            ],
+            &[api_dir.to_string()],
+        )?;
+
+    Ok(())
+}
