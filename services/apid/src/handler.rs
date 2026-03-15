@@ -80,6 +80,7 @@ pub async fn route_request(path: &str) -> Option<&'static str> {
     } else if path.starts_with(constants::PROVISION_SERVICE_PREFIX)
         || path.starts_with(constants::AUTH_SERVICE_PREFIX)
         || path.starts_with(constants::SECURITY_SERVICE_PREFIX)
+        || path.starts_with(constants::VERSION_SERVICE_PREFIX)
     {
         Some(constants::PROVISIOND_SOCKET)
     } else {
@@ -166,6 +167,18 @@ mod tests {
     async fn route_request_security_service() {
         // ARRANGE
         let path = "/muak.security.v1.SecurityService/GetSecurityState";
+
+        // ACT
+        let socket = route_request(path).await;
+
+        // ASSERT
+        assert_eq!(socket, Some(constants::PROVISIOND_SOCKET));
+    }
+
+    #[tokio::test]
+    async fn route_request_version_service() {
+        // ARRANGE
+        let path = "/muak.version.v1.VersionService/GetVersion";
 
         // ACT
         let socket = route_request(path).await;
@@ -347,6 +360,7 @@ mod tests {
         assert!(constants::AUTH_SERVICE_PREFIX.ends_with('/'));
         assert!(constants::SECURITY_SERVICE_PREFIX.ends_with('/'));
         assert!(constants::LOG_SERVICE_PREFIX.ends_with('/'));
+        assert!(constants::VERSION_SERVICE_PREFIX.ends_with('/'));
     }
 
     #[test]
@@ -358,5 +372,6 @@ mod tests {
         assert!(constants::AUTH_SERVICE_PREFIX.starts_with('/'));
         assert!(constants::SECURITY_SERVICE_PREFIX.starts_with('/'));
         assert!(constants::LOG_SERVICE_PREFIX.starts_with('/'));
+        assert!(constants::VERSION_SERVICE_PREFIX.starts_with('/'));
     }
 }

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package muak.version.v1;
+
+service VersionService {
+    // @rbac: none
+    rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+    string version = 1;
+}

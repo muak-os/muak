@@ -29,6 +29,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub insecure: bool,
 
+    #[arg(long, global = true)]
+    pub skip_version_check: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -92,6 +95,7 @@ pub enum Commands {
         #[arg(long, short)]
         follow: bool,
     },
+    Version,
 }
 
 #[tokio::main]

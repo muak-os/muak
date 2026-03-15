@@ -17,3 +17,4 @@ pub const PROVISION_SERVICE_PREFIX: &str = "/muak.provision.v1.ProvisionService/
 pub const AUTH_SERVICE_PREFIX: &str = "/muak.auth.v1.AuthService/";
 pub const SECURITY_SERVICE_PREFIX: &str = "/muak.security.v1.SecurityService/";
 pub const LOG_SERVICE_PREFIX: &str = "/muak.log.v1.LogService/";
+pub const VERSION_SERVICE_PREFIX: &str = "/muak.version.v1.VersionService/";

@@ -10,6 +10,7 @@ pub mod reset;
 pub mod rollback;
 pub mod security;
 pub mod update;
+pub mod version;
 pub mod vm;
 
 use ::config::ClientConfig;
@@ -18,7 +19,7 @@ use tonic::transport::Channel;
 
 use crate::client::{
     LogServiceClient, ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient,
-    VmServiceClient, connect, connect_tls_insecure,
+    VersionServiceClient, VmServiceClient, connect, connect_tls_insecure,
 };
 use crate::ui;
 use crate::{Cli, Commands};
@@ -37,12 +38,16 @@ use crate::{Cli, Commands};
 async fn resolve_connection(
     cli: &Cli,
     timeout_secs: u64,
+    skip_preflight: bool,
 ) -> Result<(Channel, String, Option<String>)> {
     if cli.insecure {
         let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
             anyhow::anyhow!("--insecure requires --endpoint to specify the server address.")
         })?;
         let channel = connect_tls_insecure(endpoint, timeout_secs).await?.0;
+        if !skip_preflight {
+            run_version_preflight(channel.clone()).await;
+        }
         return Ok((channel, endpoint.clone(), None));
     }
 
@@ -76,7 +81,20 @@ async fn resolve_connection(
         connect(ctx, timeout_secs).await?
     };
 
+    if !skip_preflight {
+        run_version_preflight(channel.clone()).await;
+    }
     Ok((channel, endpoint, Some(context)))
+}
+
+/// Checks CLI vs server version and prints a warning to stderr on mismatch.
+async fn run_version_preflight(channel: Channel) {
+    let client_ver = env!("CARGO_PKG_VERSION");
+    let mut vc = VersionServiceClient::new(channel);
+    if let Ok(resp) = vc.get_version(crate::client::GetVersionRequest {}).await {
+        let server_ver = resp.into_inner().version;
+        version::print_compat_warning(client_ver, &server_ver);
+    }
 }
 
 /// Routes CLI commands to their handlers.
@@ -90,14 +108,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Logs { follow: true, .. } | Commands::Dmesg { follow: true } => 86400,
         _ => 30,
     };
-
-    let (channel, endpoint, context_name) = resolve_connection(&cli, timeout_secs).await?;
+    let skip_preflight = cli.skip_version_check || matches!(cli.command, Commands::Version);
+    let (channel, endpoint, context_name) =
+        resolve_connection(&cli, timeout_secs, skip_preflight).await?;
 
     handle_cmd(cli, channel, endpoint, context_name).await
 }
 
 /// Handles commands that don't require a server connection.
-/// Returns true if the command was handled offline.
 async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
     match &cli.command {
         Commands::Config { action } => {
@@ -219,6 +237,7 @@ async fn handle_cmd(
             let mut client = ProvisionServiceClient::new(channel);
             reset::handle(&mut client, force, context).await
         }
+        Commands::Version => version::handle(channel).await,
         _ => unreachable!("Command not handled"),
     }
 }

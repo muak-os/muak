@@ -7,11 +7,8 @@
 - Support for containers like LXC and OCI
 
 - Better CLI
-  - Handle different cli vs server versions for gRPC client/server compatibility
-    - Upgradable compatibility matrix
-    - Inform the user when an update is available both for the CLI and the server
   - Create install script for users to easily install the CLI regardless of OS
-  - Create a dashboard command with a TUI interface to display critical system information
+  - Create a dashboard command with a TUI to display critical system information
 
 - Enhance `networkd`:
   - Configurable failover when primary interface fails
@@ -20,6 +17,7 @@
   - Support custom proxy
   - Support for self-signed certificates
   - Support air gap connectivity check
+  - Remove connectivity check
 
 - Copy-on-Write disk creation for templates
   - Btrfs snapshots create instant, space-efficient copies
@@ -31,19 +29,20 @@
 - Deterministic simulation tests?
 
 - Enchance `vmd`:
-  - Allow for ISO images for vms
+  - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
+  - Make it an extension
 
-- Better logging accross the codebase with kmsg, --debug flag in journal to print a lot more
+- Better logging across the codebase with kmsg, --debug flag in journal to print a lot more
 
 - Improve security:
   - Add SElinux & enforce
   - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
-  - Consolidate crypto crates and primitives to `internal/shared/crypto` if possible
-  - Sign extensions and verify them in `imager` for better supply chain security
+  - Sign extensions and verify them in `imager` for better supply chain security & allow for "community extensions" that
+    are still usable with a warning about security risks
 
-- Support Apple M processor chips
+- Support Apple M series processor chips
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)
 - Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management

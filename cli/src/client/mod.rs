@@ -37,6 +37,11 @@ pub mod log_service {
     tonic::include_proto!("muak.log.v1");
 }
 
+#[allow(clippy::excessive_nesting)]
+pub mod version_service {
+    tonic::include_proto!("muak.version.v1");
+}
+
 pub use auth_service::auth_service_client::AuthServiceClient;
 pub use auth_service::get_csr_status_response::Status as CsrStatus;
 pub use auth_service::*;
@@ -47,6 +52,8 @@ pub use provision_service::provision_service_client::ProvisionServiceClient;
 pub use provision_service::*;
 pub use security_service::security_service_client::SecurityServiceClient;
 pub use security_service::*;
+pub use version_service::version_service_client::VersionServiceClient;
+pub use version_service::*;
 pub use vm_service::vm_service_client::VmServiceClient;
 pub use vm_service::*;
 

@@ -143,7 +143,8 @@ mod tests {
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/SubmitCsr"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/GetCsrStatus"));
         assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.auth.v1.AuthService/AckEnrollment"));
-        assert_eq!(UNAUTHENTICATED_METHODS.len(), 3);
+        assert!(UNAUTHENTICATED_METHODS.contains(&"/muak.version.v1.VersionService/GetVersion"));
+        assert_eq!(UNAUTHENTICATED_METHODS.len(), 4);
     }
 
     #[test]

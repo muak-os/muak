@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
         .add_service(ipc::auth::service())
         .add_service(ipc::provision::service())
         .add_service(ipc::security::service())
+        .add_service(ipc::version::service())
         .serve_with_incoming(UnixListenerStream::new(listener))
         .await?;
 
