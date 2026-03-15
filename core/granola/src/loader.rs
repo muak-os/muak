@@ -20,10 +20,20 @@ pub fn scan_services(dir: &Path) -> Result<Vec<Service>> {
         if path.extension().and_then(|e| e.to_str()) != Some("service") {
             continue;
         }
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read service file: {}", path.display()))?;
-        let svc: Service = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse service file: {}", path.display()))?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                kmsg::warn!("Failed to read service file {}: {}", path.display(), e);
+                continue;
+            }
+        };
+        let svc: Service = match toml::from_str(&content) {
+            Ok(s) => s,
+            Err(e) => {
+                kmsg::warn!("Malformed service file {}: {}", path.display(), e);
+                continue;
+            }
+        };
         files.push(svc);
     }
     Ok(files)
@@ -237,5 +247,24 @@ depends_on = []
         // ASSERT
         assert_eq!(svcs.len(), 1);
         assert_eq!(svcs[0].name, "testsvc");
+    }
+
+    #[test]
+    fn scan_services_skips_malformed_file() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let valid = r#"name = "good"
+command = "/bin/good"
+depends_on = []
+"#;
+        std::fs::write(dir.path().join("good.service"), valid).unwrap();
+        std::fs::write(dir.path().join("bad.service"), "not valid ][[[").unwrap();
+
+        // ACT
+        let svcs = scan_services(dir.path()).unwrap();
+
+        // ASSERT
+        assert_eq!(svcs.len(), 1);
+        assert_eq!(svcs[0].name, "good");
     }
 }
