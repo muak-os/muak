@@ -50,8 +50,8 @@ mkdir -p certs
 make mrproper
 EOF
 
-COPY pkgs/kernel/config-${TARGETARCH} .config
-COPY pkgs/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
+COPY core/kernel/config-${TARGETARCH} .config
+COPY core/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
 
 RUN make olddefconfig
 
