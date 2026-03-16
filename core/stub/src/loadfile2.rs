@@ -179,3 +179,156 @@ pub fn install(data: &[u8], guid: &Guid) -> Result<Handle> {
         Ok(handle)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use uefi::Status;
+
+    use super::*;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn invoke(boot_policy: bool, buffer_size: *mut usize, buffer: *mut u8) -> Status {
+        // SAFETY: All raw pointer args are controlled by the test; mutable statics
+        // are serialised by TEST_LOCK (caller must hold the lock).
+        unsafe {
+            load_file2_callback(
+                ptr::null_mut(),
+                ptr::null(),
+                boot_policy,
+                buffer_size,
+                buffer,
+            )
+        }
+    }
+
+    #[test]
+    fn boot_policy_true_returns_unsupported() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        unsafe {
+            FILE_PTR = ptr::null();
+            FILE_LEN = 0;
+        }
+        let mut sz: usize = 0;
+
+        // ACT + ASSERT
+        assert_eq!(
+            invoke(true, &raw mut sz, ptr::null_mut()),
+            Status::UNSUPPORTED
+        );
+    }
+
+    #[test]
+    fn null_file_ptr_returns_not_found() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        unsafe {
+            FILE_PTR = ptr::null();
+            FILE_LEN = 0;
+        }
+        let mut sz: usize = 0;
+
+        // ACT + ASSERT
+        assert_eq!(
+            invoke(false, &raw mut sz, ptr::null_mut()),
+            Status::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn zero_file_len_returns_not_found() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        let data = b"x";
+        unsafe {
+            FILE_PTR = data.as_ptr();
+            FILE_LEN = 0;
+        }
+        let mut sz: usize = 0;
+
+        // ACT + ASSERT
+        assert_eq!(
+            invoke(false, &raw mut sz, ptr::null_mut()),
+            Status::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn null_buffer_size_returns_invalid_parameter() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        let data = b"hello";
+        unsafe {
+            FILE_PTR = data.as_ptr();
+            FILE_LEN = data.len();
+        }
+
+        // ACT + ASSERT
+        assert_eq!(
+            invoke(false, ptr::null_mut(), ptr::null_mut()),
+            Status::INVALID_PARAMETER
+        );
+    }
+
+    #[test]
+    fn null_buffer_returns_buffer_too_small_and_sets_size() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        let data = b"hello";
+        unsafe {
+            FILE_PTR = data.as_ptr();
+            FILE_LEN = data.len();
+        }
+        let mut sz: usize = 0;
+
+        // ACT
+        let status = invoke(false, &raw mut sz, ptr::null_mut());
+
+        // ASSERT
+        assert_eq!(status, Status::BUFFER_TOO_SMALL);
+        assert_eq!(sz, data.len());
+    }
+
+    #[test]
+    fn undersized_buffer_returns_buffer_too_small() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        let data = b"hello";
+        unsafe {
+            FILE_PTR = data.as_ptr();
+            FILE_LEN = data.len();
+        }
+        let mut buf = [0u8; 2];
+        let mut sz: usize = buf.len();
+
+        // ACT
+        let status = invoke(false, &raw mut sz, buf.as_mut_ptr());
+
+        // ASSERT
+        assert_eq!(status, Status::BUFFER_TOO_SMALL);
+        assert_eq!(sz, data.len());
+    }
+
+    #[test]
+    fn sufficient_buffer_copies_data_and_returns_success() {
+        // ARRANGE
+        let _g = TEST_LOCK.lock().expect("lock");
+        let data = b"hello world";
+        unsafe {
+            FILE_PTR = data.as_ptr();
+            FILE_LEN = data.len();
+        }
+        let mut buf = vec![0u8; data.len()];
+        let mut sz: usize = buf.len();
+
+        // ACT
+        let status = invoke(false, &raw mut sz, buf.as_mut_ptr());
+
+        // ASSERT
+        assert_eq!(status, Status::SUCCESS);
+        assert_eq!(&buf, data);
+    }
+}

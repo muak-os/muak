@@ -56,3 +56,79 @@ pub fn install(data: &[u8]) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_dtb_too_small_zero_bytes() {
+        // ARRANGE
+        let data = b"";
+
+        // ACT
+        let err = validate_dtb(data).unwrap_err();
+
+        // ASSERT
+        assert!(err.to_string().contains("DTB too small"), "{err}");
+    }
+
+    #[test]
+    fn validate_dtb_too_small_three_bytes() {
+        // ARRANGE
+        let data = &[0xd0, 0x0d, 0xfe];
+
+        // ACT
+        let err = validate_dtb(data).unwrap_err();
+
+        // ASSERT
+        assert!(err.to_string().contains("DTB too small"), "{err}");
+    }
+
+    #[test]
+    fn validate_dtb_wrong_magic() {
+        // ARRANGE
+        let data = &[0x00, 0x00, 0x00, 0x00];
+
+        // ACT
+        let err = validate_dtb(data).unwrap_err();
+
+        // ASSERT
+        assert!(err.to_string().contains("Invalid DTB magic"), "{err}");
+    }
+
+    #[test]
+    fn validate_dtb_correct_magic_four_bytes() {
+        // ARRANGE
+        let data = &[0xd0, 0x0d, 0xfe, 0xed];
+
+        // ACT + ASSERT
+        validate_dtb(data).expect("valid DTB magic should pass");
+    }
+
+    #[test]
+    fn validate_dtb_correct_magic_larger_blob() {
+        // ARRANGE
+
+        let mut blob = vec![0u8; 64];
+        blob[0] = 0xd0;
+        blob[1] = 0x0d;
+        blob[2] = 0xfe;
+        blob[3] = 0xed;
+
+        // ACT + ASSERT
+        validate_dtb(&blob).expect("valid DTB should pass");
+    }
+
+    #[test]
+    fn validate_dtb_little_endian_magic_rejected() {
+        // ARRANGE
+        let data = &[0xed, 0xfe, 0x0d, 0xd0];
+
+        // ACT
+        let err = validate_dtb(data).unwrap_err();
+
+        // ASSERT
+        assert!(err.to_string().contains("Invalid DTB magic"), "{err}");
+    }
+}

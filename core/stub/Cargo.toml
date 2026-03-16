@@ -3,6 +3,10 @@ name = "stub"
 edition.workspace = true
 version.workspace = true
 
+[lib]
+name = "stub"
+path = "src/lib.rs"
+
 [[bin]]
 name = "stub"
 path = "src/main.rs"

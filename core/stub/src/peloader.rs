@@ -13,6 +13,7 @@ use uefi::boot::{AllocateType, MemoryType, ScopedProtocol};
 use uefi::{Guid, Handle, Status};
 
 use crate::pe::{self, KernelPe};
+use crate::util::strip_trailing_nuls;
 use crate::{info, warn};
 
 const MEMORY_ATTRIBUTE_GUID: Guid = Guid::parse_or_panic("f4560cf6-40ec-4b4a-a192-bf1d57d0b189");
@@ -230,12 +231,8 @@ fn encode_cmdline_ucs2(cmdline: &[u8]) -> Result<(*mut u8, u32)> {
     Ok((ptr, byte_size as u32))
 }
 
-fn strip_trailing_nuls(data: &[u8]) -> &[u8] {
-    let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
-    &data[..end]
-}
-
 /// Maps the kernel into memory and transfers control to it
+#[cfg(feature = "uefi")]
 pub fn start(
     kernel: &KernelPe<'_>,
     cmdline: Option<&[u8]>,

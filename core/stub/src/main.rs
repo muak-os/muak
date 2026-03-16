@@ -10,6 +10,7 @@ mod pe;
 mod peloader;
 mod security;
 mod tpm2;
+mod util;
 
 use std::os::uefi as uefi_std;
 
@@ -20,16 +21,11 @@ use uefi::Handle;
 use uefi::proto::loaded_image::LoadedImage;
 
 use crate::pe::{KernelPe, UkiSections};
+use crate::util::strip_trailing_nuls;
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
 const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
-
-/// Strips trailing NUL bytes from a byte slice
-fn strip_trailing_nuls(data: &[u8]) -> &[u8] {
-    let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
-    &data[..end]
-}
 
 /// Initializes the UEFI crate with system table and image handle
 fn setup_uefi_crate() {
