@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-You need the following tools installed on your host system: `git`, `musl`, `rustup`, `just` and `docker` or `podman`
+You need the following tools installed on your host system: `git`, `musl`, `rustup`, `just`, `cargo-nextest` and `docker` or `podman`
 
 Add the following targets:
 
