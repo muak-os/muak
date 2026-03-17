@@ -247,7 +247,7 @@ test *pkgs:
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [script]
-e2e:
+e2e: (build "--release" "muakctl")
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
     if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
         printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
@@ -260,7 +260,7 @@ e2e:
         cp /tmp/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd /out/OVMF_CODE.secboot.fd'
         printf "{{ green }}OVMF firmware files ready{{ reset }}\n"
     fi
-    MUAK_ARTIFACTS={{ artifacts }} cargo nextest run -E 'package(e2e)' --test-threads 3
+    MUAK_ARTIFACTS={{ artifacts }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
 
 # Run tests with coverage (e.g., just coverage or just coverage yuki)
 [script]

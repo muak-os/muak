@@ -43,10 +43,13 @@ impl Artifacts {
 
         let cli_bin = std::env::var("MUAK_CLI")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| workspace.join("target/debug/muakctl"));
+            .unwrap_or_else(|_| {
+                let arch = std::env::consts::ARCH;
+                workspace.join(format!("target/{arch}-unknown-linux-musl/release/muakctl"))
+            });
         ensure!(
             cli_bin.exists(),
-            "muakctl binary not found at {}.",
+            "muakctl binary not found at {}.\nRun `just build --release muakctl` or set MUAK_CLI to the binary path.",
             cli_bin.display()
         );
 
