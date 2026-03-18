@@ -3,6 +3,7 @@
 use std::fs::File;
 use std::io;
 use std::os::fd::AsFd;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use rustix::fs::{Mode, OFlags, open};
@@ -14,7 +15,7 @@ const DEFAULT_TTY: &str = "/dev/tty0";
 
 /// A raw TTY handle with terminal mode management.
 pub struct Tty {
-    file: File,
+    file: Arc<File>,
     original_termios: Termios,
 }
 
@@ -28,7 +29,7 @@ impl Tty {
         )
         .with_context(|| format!("failed to open {DEFAULT_TTY}"))?;
 
-        let file: File = fd.into();
+        let file: Arc<File> = Arc::new(fd.into());
 
         let original_termios = rustix::termios::tcgetattr(file.as_fd())
             .with_context(|| format!("failed to get terminal attributes for {DEFAULT_TTY}"))?;
@@ -51,6 +52,11 @@ impl Tty {
             .map(|ws| (ws.ws_col, ws.ws_row))
             .unwrap_or((80, 25))
     }
+
+    /// Returns a cloned reference to the underlying file for async I/O.
+    pub fn file_arc(&self) -> Arc<File> {
+        Arc::clone(&self.file)
+    }
 }
 
 impl Drop for Tty {
@@ -65,11 +71,11 @@ impl Drop for Tty {
 
 impl io::Write for Tty {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.file.write(buf)
+        (&*self.file).write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        (&*self.file).flush()
     }
 }
 

@@ -6,7 +6,7 @@ version.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["rt", "macros", "time", "signal"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "signal", "net", "sync"] }
 
 # Terminal
 crossterm = { workspace = true }

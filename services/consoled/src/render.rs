@@ -9,15 +9,25 @@ use crossterm::terminal::{Clear, ClearType};
 
 use crate::state::{SystemState, SystemStatus};
 
-/// Total fixed height of the panel: 1 header + 1 separator + 6 body + 1 separator.
+/// Total fixed height of the top panel: 1 header + 1 separator + 6 body + 1 separator.
 pub const PANEL_ROWS: u16 = 9;
 
-const BODY_ROWS: u16 = PANEL_ROWS - 3;
+/// Fixed height of the bottom footer: 1 separator + 1 info row.
+pub const FOOTER_ROWS: u16 = 2;
+
+const PANEL_BODY_ROWS: u16 = PANEL_ROWS - 3;
 
 #[cfg(test)]
 const DEFAULT_COLS: u16 = 80;
 #[cfg(test)]
 const DEFAULT_ROWS: u16 = 40;
+
+/// Whether the log area is auto-following new entries or pinned at an offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollMode {
+    Live,
+    Scrollback,
+}
 
 /// A single styled segment within a line.
 #[derive(Debug, Clone)]
@@ -97,25 +107,33 @@ fn write_span(w: &mut impl Write, span: &Span) -> io::Result<()> {
     Ok(())
 }
 
-/// Renders the status panel to the writer.
-pub fn draw(w: &mut impl Write, state: &SystemState, cols: u16, rows: u16) -> io::Result<u16> {
-    let mut row = 0u16;
+/// Renders the final presentation of the interface
+pub fn draw(
+    w: &mut impl Write,
+    state: &SystemState,
+    scroll_mode: ScrollMode,
+    cols: u16,
+    rows: u16,
+) -> io::Result<()> {
+    let scroll_top = PANEL_ROWS + 1;
+    let scroll_bot = rows - FOOTER_ROWS;
+    let cursor_park = rows - FOOTER_ROWS - 1;
 
+    queue!(w, Print(format!("\x1b[{scroll_top};{scroll_bot}r")))?;
+
+    let mut row = 0u16;
     row = draw_header(w, state, cols, row)?;
     row = draw_separator(w, cols, row)?;
-    draw_body(w, state, cols, row)?;
-    draw_separator(w, cols, row + BODY_ROWS)?;
+    draw_panel_body(w, state, cols, row)?;
+    draw_separator(w, cols, row + PANEL_BODY_ROWS)?;
+    // kernel logs
+    draw_separator(w, cols, rows - FOOTER_ROWS)?;
+    draw_footer(w, state, scroll_mode, cols, rows)?;
 
-    let scroll_top = PANEL_ROWS + 1;
-    queue!(
-        w,
-        ResetColor,
-        Print(format!("\x1b[{scroll_top};{rows}r")),
-        MoveTo(0, rows - 1),
-    )?;
+    queue!(w, ResetColor, MoveTo(0, cursor_park))?;
 
     w.flush()?;
-    Ok(PANEL_ROWS)
+    Ok(())
 }
 
 fn clear_line(w: &mut impl Write, row: u16) -> io::Result<()> {
@@ -163,6 +181,44 @@ fn draw_separator(w: &mut impl Write, cols: u16, row: u16) -> io::Result<u16> {
         Print(line),
     )?;
     Ok(row + 1)
+}
+
+fn draw_footer(
+    w: &mut impl Write,
+    _state: &SystemState,
+    scroll_mode: ScrollMode,
+    cols: u16,
+    rows: u16,
+) -> io::Result<()> {
+    let info_row = rows - 1;
+
+    let hint = "  \u{2191}/\u{2193} scroll";
+    let (mode_label, esc_hint) = match scroll_mode {
+        ScrollMode::Live => ("[LIVE]", ""),
+        ScrollMode::Scrollback => ("[SCROLLBACK]", "  ESC live"),
+    };
+
+    let right = format!("{esc_hint}  {mode_label}  ");
+    let hint_len = hint.chars().count();
+    let right_len = right.chars().count();
+    let padding = (cols as usize).saturating_sub(hint_len + right_len);
+
+    clear_line(w, info_row)?;
+    queue!(
+        w,
+        MoveTo(0, info_row),
+        ResetColor,
+        Print(hint),
+        Print(" ".repeat(padding)),
+        SetForegroundColor(match scroll_mode {
+            ScrollMode::Live => Color::Green,
+            ScrollMode::Scrollback => Color::Yellow,
+        }),
+        Print(right),
+        ResetColor,
+    )?;
+
+    Ok(())
 }
 
 /// Builds the left column (Status) lines starting at `col`.
@@ -235,7 +291,12 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
     lines
 }
 
-fn draw_body(w: &mut impl Write, state: &SystemState, cols: u16, start_row: u16) -> io::Result<()> {
+fn draw_panel_body(
+    w: &mut impl Write,
+    state: &SystemState,
+    cols: u16,
+    start_row: u16,
+) -> io::Result<()> {
     let mid_col = cols / 2;
 
     let left_lines = build_left(state, 2);
@@ -243,7 +304,7 @@ fn draw_body(w: &mut impl Write, state: &SystemState, cols: u16, start_row: u16)
 
     let empty_line = Line::default();
 
-    for i in 0..BODY_ROWS as usize {
+    for i in 0..PANEL_BODY_ROWS as usize {
         let row = start_row + i as u16;
         clear_line(w, row)?;
         left_lines.get(i).unwrap_or(&empty_line).write_to(w, row)?;
@@ -298,7 +359,13 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(&mut buf, &state, DEFAULT_COLS, DEFAULT_ROWS);
+        let result = draw(
+            &mut buf,
+            &state,
+            ScrollMode::Live,
+            DEFAULT_COLS,
+            DEFAULT_ROWS,
+        );
 
         // ASSERT
         assert!(result.is_ok());
@@ -306,16 +373,23 @@ mod tests {
     }
 
     #[test]
-    fn draw_returns_panel_height() {
+    fn draw_completes_without_error() {
         // ARRANGE
         let state = test_state();
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let rows_used = draw(&mut buf, &state, DEFAULT_COLS, DEFAULT_ROWS).expect("draw failed");
+        let result = draw(
+            &mut buf,
+            &state,
+            ScrollMode::Live,
+            DEFAULT_COLS,
+            DEFAULT_ROWS,
+        );
 
         // ASSERT
-        assert_eq!(rows_used, PANEL_ROWS);
+        assert!(result.is_ok());
+        assert!(!buf.is_empty());
     }
 
     #[test]
@@ -337,10 +411,37 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(&mut buf, &state, DEFAULT_COLS, DEFAULT_ROWS);
+        let result = draw(
+            &mut buf,
+            &state,
+            ScrollMode::Live,
+            DEFAULT_COLS,
+            DEFAULT_ROWS,
+        );
 
         // ASSERT
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn draw_scrollback_mode_shows_indicator() {
+        // ARRANGE
+        let state = test_state();
+        let mut buf: Vec<u8> = Vec::new();
+
+        // ACT
+        let result = draw(
+            &mut buf,
+            &state,
+            ScrollMode::Scrollback,
+            DEFAULT_COLS,
+            DEFAULT_ROWS,
+        );
+
+        // ASSERT
+        assert!(result.is_ok());
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("[SCROLLBACK]"));
     }
 
     #[test]
