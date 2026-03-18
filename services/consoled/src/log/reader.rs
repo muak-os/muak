@@ -73,22 +73,20 @@ fn send_entry(line: &str, tx: &mpsc::UnboundedSender<String>) -> io::Result<()> 
         .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))
 }
 
-/// Formats a kmsg entry as text.
+/// Formats a raw `/dev/kmsg` record as `[secs.frac] message`.
 fn parse_entry(line: &str) -> Option<String> {
     let (prefix, text) = line.split_once(';')?;
     let text = text.trim_end_matches('\n');
 
     let timestamp = prefix.split(',').nth(2).and_then(|t| t.parse::<u64>().ok());
-    let formatted = match timestamp {
+    Some(match timestamp {
         Some(usec) => {
             let secs = usec / 1_000_000;
             let frac = usec % 1_000_000;
             format!("[{secs:5}.{frac:06}] {text}")
         }
         None => text.to_owned(),
-    };
-
-    Some(formatted)
+    })
 }
 
 #[cfg(test)]

@@ -10,7 +10,6 @@
 
 - Better CLI
   - Create install script for users to easily install the CLI regardless of OS
-  - Create a dashboard command with a TUI to display critical system information
   - Add extensions to the CLI itself
 
 - Enhance `networkd`:
