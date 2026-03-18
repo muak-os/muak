@@ -94,7 +94,7 @@ pub fn collect(poll: &mut PollState) -> SystemState {
 
 fn read_hostname() -> String {
     read_trimmed("/proc/sys/kernel/hostname")
-        .filter(|h| !h.is_empty())
+        .filter(|h| !h.is_empty() && h != "(none)")
         .unwrap_or_else(|| "Muak".to_owned())
 }
 
