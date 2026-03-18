@@ -406,6 +406,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "consoled"
+version = "0.1.1-beta"
+dependencies = [
+ "anyhow",
+ "config",
+ "crossterm",
+ "kmsg",
+ "notify",
+ "rustix",
+ "tokio",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

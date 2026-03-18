@@ -1,0 +1,26 @@
+[package]
+name = "consoled"
+description = "Console status display daemon"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Asynchronous
+tokio = { workspace = true, features = ["rt", "macros", "time", "signal"] }
+
+# Terminal
+crossterm = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Internal
+kmsg = { workspace = true }
+notify = { workspace = true }
+config = { workspace = true }
+
+# System/Platform APIs
+rustix = { workspace = true, features = ["termios"] }
+
+[lints]
+workspace = true

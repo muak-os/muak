@@ -13,6 +13,7 @@ ARG PKG_NETWORKD=ghcr.io/muak-os/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/muak-os/pkgs/apid:latest
 ARG PKG_VMD=ghcr.io/muak-os/pkgs/vmd:latest
 ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
+ARG PKG_CONSOLED=ghcr.io/muak-os/pkgs/consoled:latest
 ARG PKG_INIT=ghcr.io/muak-os/pkgs/init:latest
 ARG PKG_STUB=ghcr.io/muak-os/pkgs/stub:latest
 
@@ -26,6 +27,7 @@ FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_TIMED} AS pkg-timed
+FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
@@ -63,6 +65,7 @@ COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
 COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
+COPY --link --from=pkg-consoled /consoled /rootfs/sbin/consoled
 
 COPY --link --from=services services/*/*.service /rootfs/etc/services/
 

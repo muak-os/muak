@@ -6,6 +6,7 @@ members = [
     "core/init",
     "core/stub",
     "services/apid",
+    "services/consoled",
     "services/modd",
     "services/networkd",
     "services/provisiond",

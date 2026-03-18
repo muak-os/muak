@@ -1,0 +1,100 @@
+//! TTY device access for rendering to a Linux virtual console.
+
+use std::fs::File;
+use std::io;
+use std::os::fd::AsFd;
+
+use anyhow::{Context, Result};
+use rustix::fs::{Mode, OFlags, open};
+use rustix::termios::{
+    ControlModes, InputModes, LocalModes, OptionalActions, OutputModes, SpecialCodeIndex, Termios,
+};
+
+const DEFAULT_TTY: &str = "/dev/tty0";
+
+/// A raw TTY handle with terminal mode management.
+pub struct Tty {
+    file: File,
+    original_termios: Termios,
+}
+
+impl Tty {
+    /// Opens the default virtual console in raw mode.
+    pub fn open() -> Result<Self> {
+        let fd = open(
+            DEFAULT_TTY,
+            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY,
+            Mode::empty(),
+        )
+        .with_context(|| format!("failed to open {DEFAULT_TTY}"))?;
+
+        let file: File = fd.into();
+
+        let original_termios = rustix::termios::tcgetattr(file.as_fd())
+            .with_context(|| format!("failed to get terminal attributes for {DEFAULT_TTY}"))?;
+
+        let mut raw = original_termios.clone();
+        make_raw(&mut raw);
+
+        rustix::termios::tcsetattr(file.as_fd(), OptionalActions::Flush, &raw)
+            .with_context(|| format!("failed to set terminal attributes for {DEFAULT_TTY}"))?;
+
+        Ok(Self {
+            file,
+            original_termios,
+        })
+    }
+
+    /// Returns `(cols, rows)` by querying `TIOCGWINSZ` on the TTY fd.
+    pub fn size(&self) -> (u16, u16) {
+        rustix::termios::tcgetwinsize(self.file.as_fd())
+            .map(|ws| (ws.ws_col, ws.ws_row))
+            .unwrap_or((80, 25))
+    }
+}
+
+impl Drop for Tty {
+    fn drop(&mut self) {
+        let _ = rustix::termios::tcsetattr(
+            self.file.as_fd(),
+            OptionalActions::Flush,
+            &self.original_termios,
+        );
+    }
+}
+
+impl io::Write for Tty {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
+/// Equivalent of libc cfmakeraw() using rustix termios types.
+fn make_raw(t: &mut Termios) {
+    t.input_modes &= !(InputModes::IGNBRK
+        | InputModes::BRKINT
+        | InputModes::PARMRK
+        | InputModes::ISTRIP
+        | InputModes::INLCR
+        | InputModes::IGNCR
+        | InputModes::ICRNL
+        | InputModes::IXON);
+
+    t.output_modes &= !OutputModes::OPOST;
+
+    t.local_modes &= !(LocalModes::ECHO
+        | LocalModes::ECHONL
+        | LocalModes::ICANON
+        | LocalModes::ISIG
+        | LocalModes::IEXTEN);
+
+    t.control_modes &= !(ControlModes::CSIZE | ControlModes::PARENB);
+    t.control_modes |= ControlModes::CS8;
+
+    t.special_codes[SpecialCodeIndex::VMIN] = 1;
+    t.special_codes[SpecialCodeIndex::VTIME] = 0;
+}

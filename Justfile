@@ -100,6 +100,7 @@ installer prod="false":
             --build-context pkg-apid={{ release_dir }}
             --build-context pkg-vmd={{ release_dir }}
             --build-context pkg-timed={{ release_dir }}
+            --build-context pkg-consoled={{ release_dir }}
             --build-context pkg-init={{ release_dir }}
             --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
             --build-context pkg-kernel={{ artifacts }}
@@ -114,6 +115,7 @@ installer prod="false":
             --build-arg pkg-apid={{ registry }}/pkgs/apid:{{ tag }}
             --build-arg pkg-vmd={{ registry }}/pkgs/vmd:{{ tag }}
             --build-arg pkg-timed={{ registry }}/pkgs/timed:{{ tag }}
+            --build-arg pkg-consoled={{ registry }}/pkgs/consoled:{{ tag }}
             --build-arg pkg-init={{ registry }}/pkgs/init:{{ tag }}
             --build-arg pkg-stub={{ registry }}/pkgs/stub:{{ tag }}
         )

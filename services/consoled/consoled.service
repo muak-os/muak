@@ -1,0 +1,3 @@
+name       = "consoled"
+command    = "/sbin/consoled"
+depends_on = []
