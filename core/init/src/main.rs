@@ -26,8 +26,6 @@ fn run() -> Result<()> {
 
     kmsg::init("init")?;
 
-    kmsg::print(include_str!("../banner"));
-
     kmsg::info!("Pseudo filesystems mounted");
 
     match modules::load() {
