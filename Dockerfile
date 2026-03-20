@@ -46,8 +46,7 @@ WORKDIR /policy
 COPY --link **/*.cil ./
 
 RUN secilc -c 34 -o policy.34 -f /dev/null \
-  base.cil macros.cil \
-  $(find . -name '*.cil' ! -name 'base.cil' ! -name 'macros.cil' | LC_ALL=c sort)
+  $(find . -name '*.cil' | LC_ALL=c sort)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
