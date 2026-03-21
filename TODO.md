@@ -28,12 +28,11 @@
 - Enchance `vmd`:
   - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
-  - Make it an extension
+  - Make it an extension & rename to workloadd
 
 - Better logging across the codebase with kmsg, --debug flag in journal to print a lot more
 
 - Improve security:
-  - Add SElinux & enforce
   - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
   - Sign extensions and verify them in `imager` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks

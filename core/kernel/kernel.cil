@@ -1,0 +1,58 @@
+; ── kernel_t: early-boot process domain ──────────────────────────────────────
+;
+; /init runs from the initramfs before the SELinux policy is loaded. The
+; process stays in kernel_t through policy load and the initial pseudo-fs
+; setup, then exec-transitions to granola_t. All post-pivot work (squashfs
+; traversal, overlay mounts, rootfs exec) is granola_t's responsibility.
+
+; Early-boot capabilities.
+(allow kernel_t self (systems    (boot_caps)))
+(allow kernel_t self (systems    (syslog)))
+(allow kernel_t kernel_t (system (syslog_read)))
+
+; /proc access.
+(call allow_proc_read (kernel_t))
+
+; /sys read + create (driver attributes, power management, device config).
+(allow kernel_t sysfs_t (dir      (read write search create add_name)))
+(allow kernel_t sysfs_t (file     (read write open getattr)))
+(allow kernel_t sysfs_t (lnk_file (read)))
+
+; /dev full management (device nodes during early boot).
+(allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name getattr)))
+(allow kernel_t devtmpfs_t (blk_file (read write open getattr setattr ioctl create unlink)))
+(allow kernel_t devtmpfs_t (chr_file (read write open getattr ioctl create setattr)))
+
+; tmpfs management (early /run before granola takes over).
+(allow kernel_t tmpfs_t (dir       (read write search create add_name remove_name mounton)))
+(allow kernel_t tmpfs_t (file      (read write create open getattr unlink)))
+(allow kernel_t tmpfs_t (sock_file (create unlink getattr write)))
+
+; SELinux policy load and enforcement control.
+(allow kernel_t selinuxfs_t (dir     (search)))
+(allow kernel_t selinuxfs_t (file    (read write open getattr)))
+(allow kernel_t security_t  (systems (policy)))
+
+; EFI variables (boot entries, secure boot state).
+(allow kernel_t efivarfs_t (dir  (read search)))
+(allow kernel_t efivarfs_t (file (read open getattr)))
+
+; Rootfs traversal (initramfs-stage squashfs/overlay mount setup).
+(allow kernel_t file_t (dir      (read search open getattr ioctl mounton)))
+(allow kernel_t file_t (file     (read open getattr)))
+(allow kernel_t file_t (lnk_file (read)))
+
+; unlabeled_t: overlay root inode mounton + early btrfs volumes.
+(allow kernel_t unlabeled_t (dir         (read write search getattr ioctl mounton)))
+(allow kernel_t unlabeled_t (file        (read open getattr)))
+
+; /run management (PID files, sockets, state before granola takes ownership).
+(allow kernel_t muak_run_t   (files (mutate)))
+(allow kernel_t muak_state_t (files (mutate)))
+(allow kernel_t muak_data_t  (files (mutate)))
+
+; Filesystem mount/unmount for state, data, and generic (cgroup, etc.).
+(allow kernel_t muak_state_t (filesystem (mount unmount)))
+(allow kernel_t muak_data_t  (filesystem (mount unmount)))
+(allow kernel_t fs_t         (filesystem (mount unmount getattr quotamod)))
+(allow kernel_t fs_t         (fifo_file  (read write open getattr)))

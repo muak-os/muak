@@ -1,0 +1,21 @@
+; Muak SELinux policy: modd (kernel module and device manager)
+; Domain: module_t
+
+(type modd_exec_t)
+(call declare_exec (module_t modd_exec_t))
+
+(allow module_t self (capability (sys_admin net_admin sys_module)))
+
+(allow module_t self (netlink_kobject_uevent_socket (create bind read write)))
+
+(allow module_t kernel_t (system (module_load)))
+
+(allow module_t sysfs_t (dir  (read write search create add_name)))
+(allow module_t sysfs_t (file (read write open getattr)))
+
+(allow module_t devtmpfs_t (dir      (read write search create add_name)))
+(allow module_t devtmpfs_t (chr_file (read write open getattr)))
+(allow module_t devtmpfs_t (blk_file (read write open getattr)))
+
+(allow module_t modules_t (dir  (read search)))
+(allow module_t modules_t (file (read open getattr)))

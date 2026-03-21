@@ -1,0 +1,49 @@
+; ── systems classmap ─────────────────────────────────────────────────────────
+;
+; Semantic permission groups for capability and system-class operations.
+;
+; Slots:
+;   boot_caps    - kernel/init capabilities (sys_admin, sys_boot, mknod, ...)
+;   service_caps - supervisor capabilities (setuid, setgid, kill, chown)
+;   syslog       - read/write the kernel log ring buffer
+;   policy       - load or modify SELinux policy
+
+(classmap systems (boot_caps service_caps syslog policy))
+
+; ── boot_caps ─────────────────────────────────────────────────────────────────
+
+(classpermission cap_boot)
+(classpermissionset cap_boot
+    (capability (sys_chroot sys_admin sys_boot sys_module mknod
+                 dac_override sys_tty_config)))
+
+(classmapping systems boot_caps cap_boot)
+
+; ── service_caps ──────────────────────────────────────────────────────────────
+
+(classpermission cap_service)
+(classpermissionset cap_service
+    (capability (setuid setgid kill chown dac_override)))
+
+(classmapping systems service_caps cap_service)
+
+; ── syslog ────────────────────────────────────────────────────────────────────
+
+(classpermission cap2_syslog)
+(classpermissionset cap2_syslog
+    (capability2 (syslog)))
+
+(classpermission system_syslog)
+(classpermissionset system_syslog
+    (system (syslog_read syslog_mod)))
+
+(classmapping systems syslog cap2_syslog)
+(classmapping systems syslog system_syslog)
+
+; ── policy ────────────────────────────────────────────────────────────────────
+
+(classpermission security_policy)
+(classpermissionset security_policy
+    (security (load_policy setenforce setbool)))
+
+(classmapping systems policy security_policy)

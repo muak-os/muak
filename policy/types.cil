@@ -1,0 +1,181 @@
+; ── Process domain types ─────────────────────────────────────────────────────
+
+(type kernel_t)
+(roletype system_r kernel_t)
+
+; Processes that should never exist (MCS backstop for illegal transitions).
+(type forbidden_t)
+(roletype system_r forbidden_t)
+
+; ── Functional service domain types ──────────────────────────────────────────
+
+; General confined services
+(type system_t)
+(roletype system_r system_t)
+
+; API gateway
+(type api_t)
+(roletype system_r api_t)
+
+; Network management
+(type network_t)
+(roletype system_r network_t)
+
+; Clock/time management
+(type clock_t)
+(roletype system_r clock_t)
+
+; Kernel module and device management
+(type module_t)
+(roletype system_r module_t)
+
+; VM hypervisor management
+(type vmd_t)
+(roletype system_r vmd_t)
+
+; ── Attributes ───────────────────────────────────────────────────────────────
+
+; All confined service process domains.
+(typeattribute service_t)
+(typeattributeset service_t (system_t api_t network_t clock_t module_t vmd_t))
+
+; All confined service executable types.
+(typeattribute service_exec_t)
+
+; Every type with an xattr label on the squashfs rootfs. overlayfs calls
+; vfs_getxattr() on lower-layer inodes during path lookup (trusted.overlay.redirect),
+; which triggers a getattr check against the mounter's credentials (kernel_t).
+(typeattribute sqsh_file_type)
+
+; ── Subject attributes ────────────────────────────────────────────────────────
+
+; All process domains in the system.
+(typeattribute all_s)
+(typeattributeset all_s (kernel_t forbidden_t service_t))
+
+; Subjects that may self-transform (all_s minus forbidden_t). Used to allow
+; domain self-transitions without conflicting with the forbidden_t neverallow.
+(typeattribute transformable_s)
+(typeattributeset transformable_s (xor (all_s) (forbidden_t)))
+
+; Union of all subjects and objects. Used in broad rules that apply everywhere.
+(typeattribute global)
+
+; Privileged subjects
+; Also trusted: may perform label-changing and process-transition operations.
+(typeattribute privileged_s)
+(typeattributeset privileged_s (kernel_t))
+
+; Subjects confined by policy.
+(typeattribute confined_s)
+(typeattributeset confined_s (service_t))
+
+; Subjects not treated as privileged: all service domains.
+(typeattribute untrusted_s)
+(typeattributeset untrusted_s (xor (all_s) (privileged_s)))
+
+; Subjects that must only execute dm-verity-protected (immutable) code.
+; Excludes kernel_t (needs mutable exec for NFS etc), granola_t (PID 1),
+; and api_t (runs migrations from sealed anonymous memory).
+(typeattribute verified_s)
+(typeattributeset verified_s (system_t network_t clock_t module_t vmd_t))
+
+; ── Object attributes ─────────────────────────────────────────────────────────
+
+; All object types in the system. 
+(typeattribute all_o)
+(typeattributeset all_o (
+    security_t unlabeled_t fs_t file_t dir_t
+    muak_run_t muak_state_t muak_data_t
+    proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
+    modules_t))
+
+; Constrained objects: files where MCS dominance is enforced.
+(typeattribute constrained_o)
+(typeattributeset constrained_o (muak_data_t))
+
+; Unconstrained objects: not subject to MCS read/write restrictions.
+(typeattribute unconstrained_o)
+
+; ── Shared object types ──────────────────────────────────────────────────────
+
+(type security_t)
+(roletype object_r security_t)
+
+(type unlabeled_t)
+(roletype object_r unlabeled_t)
+
+(type fs_t)
+(roletype object_r fs_t)
+
+(type file_t)
+(roletype object_r file_t)
+
+(type dir_t)
+(roletype object_r dir_t)
+
+; ── Runtime file types ───────────────────────────────────────────────────────
+
+(type muak_run_t)
+(roletype object_r muak_run_t)
+
+(type muak_state_t)
+(roletype object_r muak_state_t)
+
+(type muak_data_t)
+(roletype object_r muak_data_t)
+
+; ── Pseudo-filesystem types ──────────────────────────────────────────────────
+
+(type proc_t)
+(roletype object_r proc_t)
+
+(type sysfs_t)
+(roletype object_r sysfs_t)
+
+(type devtmpfs_t)
+(roletype object_r devtmpfs_t)
+
+(type tmpfs_t)
+(roletype object_r tmpfs_t)
+
+(type selinuxfs_t)
+(roletype object_r selinuxfs_t)
+
+(type efivarfs_t)
+(roletype object_r efivarfs_t)
+
+; ── Other shared file types ──────────────────────────────────────────────────
+
+(type modules_t)
+(roletype object_r modules_t)
+
+; ── Object attributes for neverallow rules ───────────────────────────────────
+
+; Runtime-mutable storage types: created or modified at runtime, never on the
+; dm-verity-backed squashfs rootfs. verified_s domains must not execute these.
+(typeattribute mutable_o)
+(typeattributeset mutable_o (muak_run_t muak_state_t muak_data_t tmpfs_t))
+
+; Ephemeral storage types: mutable at runtime and explicitly not valid as
+; domain-transition entrypoints. Entrypoints must be on the squashfs rootfs.
+(typeattribute ephemeral_o)
+(typeattributeset ephemeral_o (muak_run_t muak_state_t muak_data_t tmpfs_t devtmpfs_t))
+
+; ── Attribute membership (requires all object types to be declared first) ────
+
+; sqsh_file_type: types with xattr labels baked into the squashfs rootfs.
+(typeattributeset sqsh_file_type (modules_t file_t))
+
+; unconstrained_o: every object type that is not muak_data_t.
+; Exec types added via declare_exec are placed in sqsh_file_type and
+; therefore land here automatically.
+(typeattributeset unconstrained_o (
+    security_t unlabeled_t fs_t file_t dir_t
+    muak_run_t muak_state_t
+    proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
+    modules_t))
+
+; global: union of all subjects and all objects. Populated last because it
+; depends on both all_s and all_o being fully expanded.
+(typeattributeset global ((all_s) (all_o)))

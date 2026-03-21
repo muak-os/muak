@@ -1,0 +1,16 @@
+; Muak SELinux policy: timed (NTP time sync daemon)
+; Domain: clock_t
+
+(type timed_exec_t)
+(call declare_exec (clock_t timed_exec_t))
+
+(allow clock_t self (capability (sys_time)))
+
+(allow clock_t self (udp_socket (create bind connect read write getattr setopt getopt)))
+(allow clock_t self (unix_dgram_socket (create connect write sendto)))
+
+(call allow_sysfs_rw      (clock_t))
+(call allow_state_read    (clock_t))
+(call allow_run_socket_rw (clock_t))
+
+(allow clock_t unlabeled_t (udp_socket (node_bind)))

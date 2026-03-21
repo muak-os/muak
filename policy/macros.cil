@@ -1,0 +1,83 @@
+; Read /proc: self dir/file stat for /proc/self entries.
+(macro allow_proc_read ((type domain))
+    (allow domain proc_t (files (load)))
+    (allow domain proc_t (files (describe)))
+    (allow domain domain (dir  (search)))
+    (allow domain domain (file (open read getattr))))
+
+; Read /sys: dir search + file read + symlink follow.
+(macro allow_sysfs_read ((type domain))
+    (allow domain sysfs_t (files (load)))
+    (allow domain sysfs_t (files (describe))))
+
+; Read and write /sys knobs.
+(macro allow_sysfs_rw ((type domain))
+    (allow domain sysfs_t (dir      (read open search getattr)))
+    (allow domain sysfs_t (file     (read write open getattr)))
+    (allow domain sysfs_t (lnk_file (read))))
+
+; Read /dev: dir search + chr_file read/write.
+(macro allow_devtmpfs_read ((type domain))
+    (allow domain devtmpfs_t (dir      (read search)))
+    (allow domain devtmpfs_t (chr_file (read write open getattr))))
+
+; Connect to a muak_run_t socket owned by another service.
+(macro allow_run_socket_rw ((type domain))
+    (allow domain muak_run_t (dir      (read search)))
+    (allow domain muak_run_t (file     (read open getattr)))
+    (allow domain muak_run_t (sock_file (read write getattr))))
+
+; Full ownership of muak_run_t (PID files, sockets, dirs under /run).
+(macro allow_run_rw ((type domain))
+    (allow domain muak_run_t (files (load)))
+    (allow domain muak_run_t (files (describe)))
+    (allow domain muak_run_t (files (mutate)))
+    (allow domain muak_run_t (files (mount))))
+
+; Read-only access to muak_state_t + unlabeled_t fallback.
+(macro allow_state_read ((type domain))
+    (allow domain muak_state_t (files (load)))
+    (allow domain muak_state_t (files (describe)))
+    (allow domain unlabeled_t  (files (load)))
+    (allow domain unlabeled_t  (files (describe))))
+
+; Read/write access to muak_state_t + unlabeled_t fallback.
+(macro allow_state_rw ((type domain))
+    (allow domain muak_state_t (files (load)))
+    (allow domain muak_state_t (files (describe)))
+    (allow domain muak_state_t (files (mutate)))
+    (allow domain unlabeled_t  (files (load)))
+    (allow domain unlabeled_t  (files (describe)))
+    (allow domain unlabeled_t  (files (mutate))))
+
+; Read/write access to muak_data_t.
+(macro allow_data_rw ((type domain))
+    (allow domain muak_data_t (files (load)))
+    (allow domain muak_data_t (files (mutate))))
+
+; Wire an executable type to an existing functional service domain.
+;
+; Domain types (system_t, api_t, network_t, clock_t, module_t, vmd_t) are
+; declared once in types.cil. declare_exec registers a per-binary exec type
+; and connects it to the appropriate domain:
+;
+;   - exec_t is added to service_exec_t, sqsh_file_type, all_o, unconstrained_o
+;   - granola_t -> domain_t typetransition on exec of exec_t
+;   - domain_t may execute and enter via exec_t
+;   - granola_t may execute exec_t and transform into domain_t
+;
+; Usage: (call declare_exec (domain_t exec_t))
+(macro declare_exec ((type domain_t) (type exec_t))
+    (roletype object_r exec_t)
+    (typeattributeset service_exec_t  (exec_t))
+    (typeattributeset sqsh_file_type  (exec_t))
+    (typeattributeset all_o           (exec_t))
+    (typeattributeset unconstrained_o (exec_t))
+    (allow domain_t  exec_t   (files (load)))
+    (allow domain_t  exec_t   (files (execute)))
+    (allow domain_t  exec_t   (files (enter)))
+    (allow granola_t exec_t   (files (execute)))
+    (allow kernel_t  exec_t   (files (execute)))
+    (allow granola_t domain_t (processes (transform)))
+    (allow granola_t domain_t (process   (noatsecure rlimitinh siginh)))
+    (typetransition granola_t exec_t process domain_t))

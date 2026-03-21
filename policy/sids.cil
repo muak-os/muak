@@ -1,0 +1,70 @@
+(sid kernel)
+(sid security)
+(sid unlabeled)
+(sid fs)
+(sid file)
+(sid file_labels)
+(sid init)
+(sid any_socket)
+(sid port)
+(sid netif)
+(sid netmsg)
+(sid node)
+(sid igmp_packet)
+(sid icmp_socket)
+(sid tcp_socket)
+(sid sysctl_modprobe)
+(sid sysctl)
+(sid sysctl_fs)
+(sid sysctl_kernel)
+(sid sysctl_net)
+(sid sysctl_net_unix)
+(sid sysctl_vm)
+(sid sysctl_dev)
+(sid kmod)
+(sid policy)
+(sid scmp_packet)
+(sid devnull)
+
+; Order must match the kernel's initial_sid_to_string.h.
+(sidorder (
+    kernel security unlabeled fs file file_labels init any_socket port
+    netif netmsg node igmp_packet icmp_socket tcp_socket sysctl_modprobe
+    sysctl sysctl_fs sysctl_kernel sysctl_net sysctl_net_unix sysctl_vm
+    sysctl_dev kmod policy scmp_packet devnull))
+
+; kernel_t runs with the full category range so it dominates all MCS pairs.
+(sidcontext kernel    (system_u system_r kernel_t s0-s0))
+
+; SELinux subsystem and devnull share the kernel context.
+(sidcontext security  (system_u system_r kernel_t s0-s0))
+(sidcontext devnull   (system_u system_r kernel_t s0-s0))
+
+; Userspace processes started before the policy loads get granola_t.
+; Requires the userspace_initial_context policycap (already declared).
+(sidcontext init      (system_u system_r granola_t s0-s0))
+
+; All remaining ISIDs label unlabeled objects at the base level.
+(sidcontext unlabeled      (system_u object_r unlabeled_t s0))
+(sidcontext fs             (system_u object_r unlabeled_t s0))
+(sidcontext file           (system_u object_r unlabeled_t s0))
+(sidcontext file_labels    (system_u object_r unlabeled_t s0))
+(sidcontext any_socket     (system_u object_r unlabeled_t s0))
+(sidcontext port           (system_u object_r unlabeled_t s0))
+(sidcontext netif          (system_u object_r unlabeled_t s0))
+(sidcontext netmsg         (system_u object_r unlabeled_t s0))
+(sidcontext node           (system_u object_r unlabeled_t s0))
+(sidcontext igmp_packet    (system_u object_r unlabeled_t s0))
+(sidcontext icmp_socket    (system_u object_r unlabeled_t s0))
+(sidcontext tcp_socket     (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_modprobe (system_u object_r unlabeled_t s0))
+(sidcontext sysctl         (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_fs      (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_kernel  (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_net     (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_net_unix (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_vm      (system_u object_r unlabeled_t s0))
+(sidcontext sysctl_dev     (system_u object_r unlabeled_t s0))
+(sidcontext kmod           (system_u object_r unlabeled_t s0))
+(sidcontext policy         (system_u object_r security_t s0))
+(sidcontext scmp_packet    (system_u object_r unlabeled_t s0))

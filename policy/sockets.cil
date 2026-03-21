@@ -1,0 +1,35 @@
+; ── sockets classmap ─────────────────────────────────────────────────────────
+;
+; Semantic permission groups for socket operations.
+;
+; Slots:
+;   use    - all non-relabel operations on any socket class
+;   relabel - relabelfrom/relabelto on socket classes
+
+(classmap sockets (use relabel))
+
+; ── use: all socket operations except relabeling ─────────────────────────────
+
+(classmapping sockets use (unix_stream_socket (not (relabelfrom relabelto))))
+(classmapping sockets use (unix_dgram_socket  (not (relabelfrom relabelto))))
+(classmapping sockets use (tcp_socket         (not (relabelfrom relabelto))))
+(classmapping sockets use (udp_socket         (not (relabelfrom relabelto))))
+(classmapping sockets use (rawip_socket       (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_socket                  (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_route_socket            (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_kobject_uevent_socket   (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_generic_socket          (not (relabelfrom relabelto))))
+(classmapping sockets use (tun_socket         (not (relabelfrom relabelto))))
+
+; ── relabel: relabeling socket objects ───────────────────────────────────────
+
+(classmapping sockets relabel (unix_stream_socket (relabelfrom relabelto)))
+(classmapping sockets relabel (unix_dgram_socket  (relabelfrom relabelto)))
+(classmapping sockets relabel (tcp_socket         (relabelfrom relabelto)))
+(classmapping sockets relabel (udp_socket         (relabelfrom relabelto)))
+(classmapping sockets relabel (rawip_socket       (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_socket                  (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_route_socket            (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_kobject_uevent_socket   (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_generic_socket          (relabelfrom relabelto)))
+(classmapping sockets relabel (tun_socket         (relabelfrom relabelto)))

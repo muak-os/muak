@@ -1,0 +1,96 @@
+; ── granola_t: PID 1 supervisor domain ───────────────────────────────────────
+
+(type granola_t)
+(type granola_exec_t)
+
+(roletype system_r granola_t)
+(roletype object_r granola_exec_t)
+
+; granola_exec_t lives on the squashfs rootfs.
+(typeattributeset sqsh_file_type (granola_exec_t))
+
+; granola_t runs with the full category range and dominates all MCS pairs.
+(typeattributeset all_s        (granola_t))
+(typeattributeset privileged_s (granola_t))
+; granola_exec_t is an object type; add it to all_o and unconstrained_o.
+(typeattributeset all_o           (granola_exec_t))
+(typeattributeset unconstrained_o (granola_exec_t))
+
+; kernel_t -> granola_t domain transition on exec of granola_exec_t.
+(allow kernel_t granola_t      (processes (transform)))
+(allow kernel_t granola_exec_t (files (execute)))
+(typetransition kernel_t granola_exec_t process granola_t)
+
+; Inherited FDs from kernel_t across the exec boundary.
+(allow granola_t kernel_t (fd (use)))
+
+; SELinux null device (/sys/fs/selinux/null) for stdio redirect on transition.
+(allow granola_t unlabeled_t (chr_file (read write open getattr)))
+
+; /dev/console inherited from kernel_t (predates devtmpfs mount).
+(allow granola_t kernel_t (chr_file (read write open getattr)))
+
+; Supervisor capabilities.
+(allow granola_t self (systems (boot_caps)))
+(allow granola_t self (systems (service_caps)))
+(allow granola_t self (systems (syslog)))
+(allow granola_t kernel_t (system (syslog_read syslog_mod)))
+
+; Own executable (entrypoint verification).
+(allow granola_t granola_exec_t (files (execute)))
+(allow granola_t granola_exec_t (files (enter)))
+
+; selinuxfs access (enforcement state check after policy load).
+(allow granola_t selinuxfs_t (dir  (search)))
+(allow granola_t selinuxfs_t (file (read open getattr)))
+
+; /proc access.
+(call allow_proc_read (granola_t))
+
+; /sys read.
+(allow granola_t sysfs_t (files (load)))
+(allow granola_t sysfs_t (files (describe)))
+
+; /dev read + chr_file rw (kmsg log output).
+; write+add_name+remove_name on devtmpfs_t dir are needed to mknod and unlink
+; /dev/mapper/<name> block device nodes during LUKS state-device setup/teardown.
+; create on blk_file is needed for mknodat(BlockDevice) in the LUKS open path.
+(allow granola_t devtmpfs_t (dir      (read write search add_name remove_name)))
+(allow granola_t devtmpfs_t (blk_file (create read write open getattr ioctl setattr unlink)))
+(allow granola_t devtmpfs_t (chr_file (read write open getattr)))
+(allow granola_t devtmpfs_t (files (load)))
+(allow granola_t devtmpfs_t (files (describe)))
+
+; tmpfs management (create /run structure, service sockets).
+(allow granola_t tmpfs_t (files (load)))
+(allow granola_t tmpfs_t (files (mutate)))
+
+; Label sockets and dirs granola creates on tmpfs as muak_run_t.
+(typetransition granola_t tmpfs_t    sock_file muak_run_t)
+(typetransition granola_t tmpfs_t    dir       muak_run_t)
+(typetransition granola_t muak_run_t sock_file muak_run_t)
+(typetransition granola_t muak_run_t file      muak_run_t)
+
+; Full /run ownership.
+(call allow_run_rw (granola_t))
+
+; Read service state.
+(call allow_state_read (granola_t))
+
+; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
+(allow granola_t fs_t (files (mount)))
+
+; Rootfs traversal (overlay/squashfs post-pivot).
+(allow granola_t file_t        (dir      (read search open getattr)))
+(allow granola_t file_t        (file     (read open getattr execute execute_no_trans map)))
+(allow granola_t file_t        (lnk_file (read)))
+(allow granola_t file_t        (files    (mount)))
+; load + describe on all squashfs xattr-labeled types (modules_t, granola_exec_t,
+; service exec types): overlayfs redirect/metacopy xattr probes, dir reads, file stats.
+(allow granola_t sqsh_file_type (files (load)))
+(allow granola_t sqsh_file_type (files (describe)))
+(allow granola_t unlabeled_t (dir      (read write search open getattr ioctl)))
+; Execute binaries from extension squashfs images. Extension files have no
+; security.selinux xattr (backhand does not support xattr writes), so they
+; are labeled unlabeled_t at mount time under fsuse xattr squashfs.
+(allow granola_t unlabeled_t (file     (read open getattr execute execute_no_trans map)))

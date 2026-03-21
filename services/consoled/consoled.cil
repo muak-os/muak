@@ -1,0 +1,18 @@
+; Muak SELinux policy: consoled (console status display daemon)
+; Domain: system_t
+
+(type consoled_exec_t)
+(call declare_exec (system_t consoled_exec_t))
+
+(allow system_t self (capability (sys_tty_config)))
+(allow system_t self (capability2 (syslog)))
+(allow system_t kernel_t (system (syslog_read)))
+
+(allow system_t devtmpfs_t (dir      (read search)))
+(allow system_t devtmpfs_t (chr_file (read write open getattr ioctl)))
+
+(call allow_state_read (system_t))
+(call allow_sysfs_read (system_t))
+
+(allow system_t efivarfs_t (dir  (read search)))
+(allow system_t efivarfs_t (file (read open getattr)))

@@ -1,0 +1,20 @@
+; Muak SELinux policy: apid (API gateway daemon)
+; Domain: api_t
+
+(type apid_exec_t)
+(call declare_exec (api_t apid_exec_t))
+
+(allow api_t self (capability (net_bind_service)))
+
+(allow api_t self (tcp_socket (create bind listen accept read write shutdown setopt getopt getattr)))
+
+(call allow_run_rw   (api_t))
+(call allow_state_rw (api_t))
+
+(allow api_t unlabeled_t (tcp_socket (name_bind node_bind)))
+
+; Connect to backend service sockets for proxying API requests.
+(allow api_t vmd_t     (unix_stream_socket (connectto)))
+(allow api_t granola_t (unix_stream_socket (connectto)))
+(allow api_t system_t  (unix_stream_socket (connectto)))
+(allow api_t network_t (unix_stream_socket (connectto)))

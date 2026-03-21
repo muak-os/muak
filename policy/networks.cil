@@ -1,0 +1,23 @@
+; ── networks classmap ────────────────────────────────────────────────────────
+;
+; Semantic permission groups for network object operations.
+;
+; Slots:
+;   use    - all non-relabel operations on network objects (node, netif,
+;             association, packet, peer)
+;   relabel - relabeling operations on network flows
+
+(classmap networks (use relabel))
+
+; ── use: all non-relabel network object operations ───────────────────────────
+
+(classmapping networks use (node        (all)))
+(classmapping networks use (netif       (all)))
+(classmapping networks use (association (not (setcontext polmatch))))
+(classmapping networks use (packet      (not (relabelto))))
+(classmapping networks use (peer        (all)))
+
+; ── relabel: relabeling network flows ────────────────────────────────────────
+
+(classmapping networks relabel (association (setcontext polmatch)))
+(classmapping networks relabel (packet      (relabelto)))

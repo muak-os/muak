@@ -1,0 +1,66 @@
+; ── Filesystem labeling ──────────────────────────────────────────────────────
+
+; squashfs and overlayfs: xattr-based; files without xattrs fall back to file_t.
+(fsuse xattr squashfs (system_u object_r file_t     s0))
+(fsuse xattr overlay  (system_u object_r file_t     s0))
+
+; btrfs: xattr-based; new files without a typetransition get fs_t.
+(fsuse xattr btrfs    (system_u object_r fs_t       s0))
+
+; pipefs/sockfs: labeled per-creating-task.
+(fsuse task  pipefs   (system_u object_r fs_t       s0))
+(fsuse task  sockfs   (system_u object_r fs_t       s0))
+
+; tmpfs/devtmpfs: transition-based (type derived from creating process).
+(fsuse trans tmpfs    (system_u object_r tmpfs_t    s0))
+(fsuse trans devtmpfs (system_u object_r devtmpfs_t s0))
+
+; Kernel pseudo-filesystem roots labeled by path prefix.
+(genfscon proc      / (system_u object_r proc_t      s0))
+(genfscon sysfs     / (system_u object_r sysfs_t     s0))
+(genfscon selinuxfs / (system_u object_r selinuxfs_t s0))
+(genfscon efivarfs  / (system_u object_r efivarfs_t  s0))
+(genfscon cgroup    / (system_u object_r fs_t        s0))
+(genfscon cgroup2   / (system_u object_r fs_t        s0))
+
+; ── Filesystem association rules ─────────────────────────────────────────────
+
+; Allow device and file types to be stored on devtmpfs.
+(allow devtmpfs_t devtmpfs_t (filesystem (associate)))
+(allow file_t     devtmpfs_t (filesystem (associate)))
+
+; Allow unlabeled objects on unlabeled filesystems (e.g. vfat/FAT32).
+(allow unlabeled_t unlabeled_t (filesystem (associate)))
+
+; Allow unlabeled objects on fs_t filesystems.
+(allow unlabeled_t fs_t (filesystem (associate)))
+
+; Allow efivarfs_t objects on efivarfs_t (Secure Boot key enrollment).
+(allow efivarfs_t efivarfs_t (filesystem (associate)))
+
+; Allow various types on tmpfs (transition-based labeling).
+(allow tmpfs_t      tmpfs_t (filesystem (associate)))
+(allow file_t       tmpfs_t (filesystem (associate)))
+(allow muak_run_t   tmpfs_t (filesystem (associate)))
+(allow muak_state_t tmpfs_t (filesystem (associate)))
+
+; ── File contexts ────────────────────────────────────────────────────────────
+
+; Default label for all rootfs files (squashfs xattr fallback).
+(filecon "/.*" any (system_u object_r file_t s0))
+
+; PID 1 supervisor.
+(filecon "/sbin/init" file (system_u object_r granola_exec_t s0))
+
+; Service executables.
+(filecon "/sbin/apid"       file (system_u object_r apid_exec_t       s0))
+(filecon "/sbin/consoled"   file (system_u object_r consoled_exec_t   s0))
+(filecon "/sbin/modd"       file (system_u object_r modd_exec_t       s0))
+(filecon "/sbin/networkd"   file (system_u object_r networkd_exec_t   s0))
+(filecon "/sbin/provisiond" file (system_u object_r provisiond_exec_t s0))
+(filecon "/sbin/timed"      file (system_u object_r timed_exec_t      s0))
+(filecon "/sbin/vmd"        file (system_u object_r vmd_exec_t        s0))
+
+; Kernel modules.
+(filecon "/lib/modules"    any  (system_u object_r modules_t s0))
+(filecon "/lib/modules/.*" any  (system_u object_r modules_t s0))

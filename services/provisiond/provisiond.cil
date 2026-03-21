@@ -1,0 +1,41 @@
+; Muak SELinux policy: provisiond (disk provisioner)
+; Domain: system_t
+
+(type provisiond_exec_t)
+(call declare_exec (system_t provisiond_exec_t))
+
+(allow system_t self (capability (sys_admin sys_boot mknod)))
+
+(allow system_t self (netlink_generic_socket (create bind read write)))
+
+(call allow_sysfs_rw  (system_t))
+
+(allow system_t devtmpfs_t (dir      (read write search add_name remove_name)))
+(allow system_t devtmpfs_t (blk_file (read write create open getattr ioctl setattr unlink)))
+(allow system_t devtmpfs_t (chr_file (read write open getattr ioctl)))
+
+(allow system_t efivarfs_t (dir  (read write search getattr add_name)))
+(allow system_t efivarfs_t (file (read write create open getattr setattr ioctl)))
+
+(allow system_t tmpfs_t (dir (write add_name remove_name)))
+(typetransition system_t tmpfs_t dir muak_run_t)
+
+(call allow_run_rw   (system_t))
+(call allow_state_rw (system_t))
+(call allow_data_rw  (system_t))
+
+(allow system_t fs_t        (filesystem (mount unmount getattr)))
+(allow system_t unlabeled_t (filesystem (mount unmount getattr)))
+
+(allow system_t unlabeled_t (dir  (read write search create add_name remove_name getattr)))
+(allow system_t unlabeled_t (file (read write create open getattr setattr unlink rename)))
+
+(allow system_t fs_t (dir  (read write search create add_name remove_name getattr mounton)))
+(allow system_t fs_t (file (read write create open getattr setattr unlink rename)))
+
+(allow system_t self (tcp_socket (create connect read write getattr setopt getopt shutdown)))
+(allow system_t unlabeled_t (tcp_socket (name_connect node_bind)))
+
+(allow system_t unlabeled_t (system (kexec_image_load kexec_initramfs_load)))
+(allow system_t kernel_t    (key    (search)))
+(allow system_t kernel_t    (system (module_request)))

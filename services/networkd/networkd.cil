@@ -1,0 +1,27 @@
+; Muak SELinux policy: networkd (network configuration daemon)
+; Domain: network_t
+
+(type networkd_exec_t)
+(call declare_exec (network_t networkd_exec_t))
+
+(allow network_t self (capability (net_admin sys_admin net_raw net_bind_service)))
+
+(allow network_t self (unix_stream_socket (create bind listen accept read write shutdown)))
+(allow network_t self (unix_dgram_socket  (create connect write)))
+(allow network_t self (netlink_route_socket (create bind read write nlmsg_write nlmsg_read)))
+(allow network_t self (tun_socket (create attach_queue)))
+(allow network_t self (udp_socket (create bind connect read write getattr setopt getopt)))
+(allow network_t self (rawip_socket (create bind read write getattr setopt getopt ioctl)))
+(allow network_t self (tcp_socket (create bind connect read write getattr setopt getopt shutdown)))
+
+(call allow_sysfs_rw      (network_t))
+(call allow_devtmpfs_read (network_t))
+(call allow_run_rw        (network_t))
+(call allow_state_read    (network_t))
+
+(allow network_t tmpfs_t (dir (write add_name remove_name)))
+(typetransition network_t tmpfs_t file muak_run_t)
+
+(allow network_t unlabeled_t (udp_socket  (name_bind node_bind)))
+(allow network_t unlabeled_t (tcp_socket  (name_bind name_connect node_bind)))
+(allow network_t unlabeled_t (rawip_socket (name_bind node_bind)))
