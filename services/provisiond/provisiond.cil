@@ -11,9 +11,6 @@
 ; provisiond must only execute dm-verity-protected code.
 (typeattributeset verified_s (provisiond_t))
 
-; Allow provisiond to fork child processes.
-(allow provisiond_t self (process (fork)))
-
 ; Grant provisiond sys_admin for disk management operations (partitioning,
 ; formatting, mounting filesystems) and sys_boot for system reboot after
 ; provisioning completes.

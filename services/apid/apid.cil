@@ -11,9 +11,6 @@
 ; apid backs the API datastore
 (typeattributeset api_s (apid_t))
 
-; Allow apid to fork child processes (e.g. for request handling).
-(allow apid_t self (process (fork)))
-
 ; Allow apid to bind to privileged ports (< 1024) for the API listener.
 (allow apid_t self (capability (net_bind_service)))
 

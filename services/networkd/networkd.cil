@@ -15,9 +15,6 @@
 (typeattributeset confined_s (networkd_t))
 (typeattributeset verified_s (networkd_t))
 
-; Allow networkd to fork child processes.
-(allow networkd_t self (process (fork)))
-
 ; Grant networkd net_admin (for configuring interfaces, routes, and iptables),
 ; sys_admin (for namespace operations and advanced network setup), and
 ; net_raw (for raw ICMPv6 sockets used in SLAAC).

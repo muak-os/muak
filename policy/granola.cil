@@ -19,7 +19,7 @@
 (typeattributeset unconstrained_o (granola_exec_t))
 
 ; kernel_t -> granola_t domain transition on exec of granola_exec_t.
-(allow kernel_t granola_t      (processes (transition)))
+(allow kernel_t granola_t      (processes (transform)))
 (allow kernel_t granola_exec_t (files (execute)))
 (typetransition kernel_t granola_exec_t process granola_t)
 
@@ -33,8 +33,8 @@
 (allow granola_t kernel_t (chr_file (read write open getattr)))
 
 ; Process self-permissions.
-(allow granola_t self (processes (fork)))
-(allow granola_t self (processes (signal)))
+(allow granola_t self (processes (interact)))
+(allow granola_t self (processes (describe)))
 
 ; Supervisor capabilities.
 (allow granola_t self (systems (service_caps)))

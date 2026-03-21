@@ -15,9 +15,6 @@
 (typeattributeset confined_s (timed_t))
 (typeattributeset verified_s (timed_t))
 
-; Allow timed to fork child processes.
-(allow timed_t self (process (fork)))
-
 ; Grant timed the sys_time capability so it can call settimeofday/adjtimex
 ; to adjust the system clock after NTP synchronization.
 (allow timed_t self (capability (sys_time)))

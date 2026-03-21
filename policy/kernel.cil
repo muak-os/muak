@@ -5,8 +5,8 @@
 ; loading the policy, setting up /run, and exec'ing granola.
 
 ; Process self-permissions.
-(allow kernel_t self (processes (fork)))
-(allow kernel_t self (processes (signal)))
+(allow kernel_t self (processes (interact)))
+(allow kernel_t self (processes (describe)))
 
 ; Early-boot capabilities.
 (allow kernel_t self (systems (boot_caps)))

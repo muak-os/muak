@@ -11,9 +11,6 @@
 ; consoled must only execute dm-verity-protected code.
 (typeattributeset verified_s (consoled_t))
 
-; Allow consoled to fork child processes.
-(allow consoled_t self (process (fork)))
-
 ; Grant consoled sys_tty_config for configuring the virtual console
 ; (/dev/tty0) terminal attributes (raw mode, window size queries).
 (allow consoled_t self (capability (sys_tty_config)))

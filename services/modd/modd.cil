@@ -11,9 +11,6 @@
 ; modd must only execute dm-verity-protected code.
 (typeattributeset verified_s (modd_t))
 
-; Allow modd to fork child processes.
-(allow modd_t self (process (fork)))
-
 ; Grant modd sys_admin (for device management operations like mknod, mount),
 ; net_admin (for configuring network device attributes exposed via sysfs), and
 ; sys_module (for loading kernel modules via init_module syscall).

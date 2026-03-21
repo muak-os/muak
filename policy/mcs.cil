@@ -56,14 +56,14 @@
 ; Restrict cross-domain signaling unless:
 ;   * the source level dominates the target level
 ;   * the source is a privileged subject
-(mlsconstrain (processes (signal))
+(mlsconstrain (processes (interact))
     (or (dom h1 h2)
         (eq t1 privileged_s)))
 
 ; Restrict process label transitions unless:
 ;   * the new label is identical to the old label
 ;   * the source is privileged and the target is not forbidden
-(mlsconstrain (processes (transition))
+(mlsconstrain (processes (transform))
     (or (and (eq t1 privileged_s)
              (neq t2 forbidden_t))
         (and (and (and (and

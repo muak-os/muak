@@ -11,9 +11,6 @@
 ; vmd must only execute dm-verity-protected code.
 (typeattributeset verified_s (vmd_t))
 
-; Allow vmd to fork child processes (for spawning VM instances).
-(allow vmd_t self (process (fork)))
-
 ; Grant vmd sys_admin (for memory/device passthrough, cgroup management) and
 ; net_admin (for setting up VM network bridges and TAP devices).
 (allow vmd_t self (capability (sys_admin net_admin)))
