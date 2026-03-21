@@ -34,7 +34,7 @@
 ;   * the source level dominates the target level
 ;   * the source is a privileged subject
 ;   * the target is an unconstrained object
-(mlsconstrain (files (mutate mounton))
+(mlsconstrain (files (mutate mount))
     (or (dom h1 h2)
         (or (eq t1 privileged_s)
             (eq t2 unconstrained_o))))

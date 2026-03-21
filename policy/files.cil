@@ -1,121 +1,311 @@
 ; ── files classmap ───────────────────────────────────────────────────────────
 ;
-; Semantic permission groups for file-like objects across all file classes
-; (file, dir, lnk_file, chr_file, blk_file, sock_file, fifo_file).
+; Semantic permission groups for file-like objects across all file classes.
 ;
 ; Slots:
-;   load     - read-only access (open, read, stat, dir search)
-;   execute  - map and execute a file
+;   relabel  - change the SELinux label on a file object
+;   mount    - mount, remount, unmount; use a path as a mount point
+;   relax    - execmod (execute a file with modified text segment)
 ;   enter    - use as a domain-transition entrypoint
-;   describe - stat/watch only (no read)
-;   mutate   - write, create, delete, rename
-;   mounton  - use a directory as a mount point
+;   describe - getattr / stat only (no read)
+;   load     - read-only access (open, read, map, watch, ioctl, ...)
+;   execute  - execute a file (without domain transition)
+;   block    - fanotify watch_with_perm (blocking access decisions)
+;   mutate   - everything not covered by the above slots
 
-(classmap files (load execute enter describe mutate mounton))
+(classmap files (relabel mount relax enter describe load execute block mutate))
 
-; ── load: read-only ──────────────────────────────────────────────────────────
+; ── relabel ───────────────────────────────────────────────────────────────────
 
-(classpermission file_load)
-(classpermissionset file_load
-    (file (read open getattr execute_no_trans map)))
+(classpermission relabel_file)
+(classpermissionset relabel_file        (file      (relabelfrom relabelto)))
+(classpermission relabel_dir)
+(classpermissionset relabel_dir         (dir       (relabelfrom relabelto)))
+(classpermission relabel_lnk_file)
+(classpermissionset relabel_lnk_file    (lnk_file  (relabelfrom relabelto)))
+(classpermission relabel_chr_file)
+(classpermissionset relabel_chr_file    (chr_file  (relabelfrom relabelto)))
+(classpermission relabel_blk_file)
+(classpermissionset relabel_blk_file    (blk_file  (relabelfrom relabelto)))
+(classpermission relabel_sock_file)
+(classpermissionset relabel_sock_file   (sock_file (relabelfrom relabelto)))
+(classpermission relabel_fifo_file)
+(classpermissionset relabel_fifo_file   (fifo_file (relabelfrom relabelto)))
+(classpermission relabel_anon_inode)
+(classpermissionset relabel_anon_inode  (anon_inode (relabelfrom relabelto)))
 
-(classpermission dir_load)
-(classpermissionset dir_load
-    (dir (read open getattr search)))
+(classmapping files relabel relabel_file)
+(classmapping files relabel relabel_dir)
+(classmapping files relabel relabel_lnk_file)
+(classmapping files relabel relabel_chr_file)
+(classmapping files relabel relabel_blk_file)
+(classmapping files relabel relabel_sock_file)
+(classmapping files relabel relabel_fifo_file)
+(classmapping files relabel relabel_anon_inode)
 
-(classpermission lnk_file_load)
-(classpermissionset lnk_file_load
-    (lnk_file (read getattr)))
+; ── mount ─────────────────────────────────────────────────────────────────────
 
-(classpermission chr_file_load)
-(classpermissionset chr_file_load
-    (chr_file (read write open getattr ioctl)))
+(classpermission mount_file)
+(classpermissionset mount_file          (file      (mounton quotaon)))
+(classpermission mount_dir)
+(classpermissionset mount_dir           (dir       (mounton quotaon)))
+(classpermission mount_lnk_file)
+(classpermissionset mount_lnk_file      (lnk_file  (mounton quotaon)))
+(classpermission mount_chr_file)
+(classpermissionset mount_chr_file      (chr_file  (mounton quotaon)))
+(classpermission mount_blk_file)
+(classpermissionset mount_blk_file      (blk_file  (mounton quotaon)))
+(classpermission mount_sock_file)
+(classpermissionset mount_sock_file     (sock_file (mounton quotaon)))
+(classpermission mount_fifo_file)
+(classpermissionset mount_fifo_file     (fifo_file (mounton quotaon)))
+(classpermission mount_filesystem)
+(classpermissionset mount_filesystem    (filesystem (mount quotamod remount unmount)))
+(classpermission mount_anon_inode)
+(classpermissionset mount_anon_inode    (anon_inode (mounton quotaon)))
 
-(classpermission blk_file_load)
-(classpermissionset blk_file_load
-    (blk_file (read open getattr ioctl)))
+(classmapping files mount mount_file)
+(classmapping files mount mount_dir)
+(classmapping files mount mount_lnk_file)
+(classmapping files mount mount_chr_file)
+(classmapping files mount mount_blk_file)
+(classmapping files mount mount_sock_file)
+(classmapping files mount mount_fifo_file)
+(classmapping files mount mount_filesystem)
+(classmapping files mount mount_anon_inode)
 
-(classpermission sock_file_load)
-(classpermissionset sock_file_load
-    (sock_file (read write getattr)))
+; ── relax ─────────────────────────────────────────────────────────────────────
 
-(classpermission fifo_file_load)
-(classpermissionset fifo_file_load
-    (fifo_file (read write open getattr)))
+(classpermission relax_file)
+(classpermissionset relax_file          (file      (execmod)))
+(classpermission relax_dir)
+(classpermissionset relax_dir           (dir       (execmod)))
+(classpermission relax_lnk_file)
+(classpermissionset relax_lnk_file      (lnk_file  (execmod)))
+(classpermission relax_chr_file)
+(classpermissionset relax_chr_file      (chr_file  (execmod)))
+(classpermission relax_blk_file)
+(classpermissionset relax_blk_file      (blk_file  (execmod)))
+(classpermission relax_sock_file)
+(classpermissionset relax_sock_file     (sock_file (execmod)))
+(classpermission relax_fifo_file)
+(classpermissionset relax_fifo_file     (fifo_file (execmod)))
+(classpermission relax_anon_inode)
+(classpermissionset relax_anon_inode    (anon_inode (execmod)))
 
-(classmapping files load file_load)
-(classmapping files load dir_load)
-(classmapping files load lnk_file_load)
+(classmapping files relax relax_file)
+(classmapping files relax relax_dir)
+(classmapping files relax relax_lnk_file)
+(classmapping files relax relax_chr_file)
+(classmapping files relax relax_blk_file)
+(classmapping files relax relax_sock_file)
+(classmapping files relax relax_fifo_file)
+(classmapping files relax relax_anon_inode)
 
-; ── execute: map and run ─────────────────────────────────────────────────────
+; ── enter ─────────────────────────────────────────────────────────────────────
 
-(classpermission file_execute)
-(classpermissionset file_execute
-    (file (read open getattr execute map)))
+(classpermission enter_file)
+(classpermissionset enter_file          (file      (entrypoint)))
+(classpermission enter_chr_file)
+(classpermissionset enter_chr_file      (chr_file  (entrypoint)))
+(classpermission enter_blk_file)
+(classpermissionset enter_blk_file      (blk_file  (entrypoint)))
 
-(classmapping files execute file_execute)
+(classmapping files enter enter_file)
+(classmapping files enter enter_chr_file)
+(classmapping files enter enter_blk_file)
 
-; ── enter: domain-transition entrypoint ─────────────────────────────────────
+; ── describe ──────────────────────────────────────────────────────────────────
 
-(classpermission file_enter)
-(classpermissionset file_enter
-    (file (entrypoint)))
+(classpermission describe_file)
+(classpermissionset describe_file       (file      (getattr)))
+(classpermission describe_dir)
+(classpermissionset describe_dir        (dir       (getattr)))
+(classpermission describe_lnk_file)
+(classpermissionset describe_lnk_file   (lnk_file  (getattr)))
+(classpermission describe_chr_file)
+(classpermissionset describe_chr_file   (chr_file  (getattr)))
+(classpermission describe_blk_file)
+(classpermissionset describe_blk_file   (blk_file  (getattr)))
+(classpermission describe_sock_file)
+(classpermissionset describe_sock_file  (sock_file (getattr)))
+(classpermission describe_fifo_file)
+(classpermissionset describe_fifo_file  (fifo_file (getattr)))
+(classpermission describe_filesystem)
+(classpermissionset describe_filesystem (filesystem (getattr quotaget)))
+(classpermission describe_anon_inode)
+(classpermissionset describe_anon_inode (anon_inode (getattr)))
 
-(classpermission chr_file_enter)
-(classpermissionset chr_file_enter
-    (chr_file (entrypoint)))
+(classmapping files describe describe_file)
+(classmapping files describe describe_dir)
+(classmapping files describe describe_lnk_file)
+(classmapping files describe describe_chr_file)
+(classmapping files describe describe_blk_file)
+(classmapping files describe describe_sock_file)
+(classmapping files describe describe_fifo_file)
+(classmapping files describe describe_filesystem)
+(classmapping files describe describe_anon_inode)
 
-(classmapping files enter file_enter)
-(classmapping files enter chr_file_enter)
+; ── load ──────────────────────────────────────────────────────────────────────
 
-; ── describe: getattr/watch only ─────────────────────────────────────────────
+(classpermission load_file)
+(classpermissionset load_file
+    (file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_dir)
+(classpermissionset load_dir
+    (dir (ioctl map open read search watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_lnk_file)
+(classpermissionset load_lnk_file
+    (lnk_file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_chr_file)
+(classpermissionset load_chr_file
+    (chr_file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_blk_file)
+(classpermissionset load_blk_file
+    (blk_file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_sock_file)
+(classpermissionset load_sock_file
+    (sock_file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_fifo_file)
+(classpermissionset load_fifo_file
+    (fifo_file (ioctl map open read watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_filesystem)
+(classpermissionset load_filesystem     (filesystem (watch)))
+(classpermission load_fd)
+(classpermissionset load_fd             (fd (use)))
+(classpermission load_anon_inode)
+(classpermissionset load_anon_inode
+    (anon_inode (execute ioctl map open read
+                 watch watch_mount watch_mountns watch_reads watch_sb)))
+(classpermission load_io_uring)
+(classpermissionset load_io_uring       (io_uring (cmd)))
 
-(classpermission file_describe)
-(classpermissionset file_describe
-    (file (getattr)))
+(classmapping files load load_file)
+(classmapping files load load_dir)
+(classmapping files load load_lnk_file)
+(classmapping files load load_chr_file)
+(classmapping files load load_blk_file)
+(classmapping files load load_sock_file)
+(classmapping files load load_fifo_file)
+(classmapping files load load_filesystem)
+(classmapping files load load_fd)
+(classmapping files load load_anon_inode)
+(classmapping files load load_io_uring)
 
-(classpermission dir_describe)
-(classpermissionset dir_describe
-    (dir (getattr)))
+; ── execute ───────────────────────────────────────────────────────────────────
 
-(classpermission lnk_file_describe)
-(classpermissionset lnk_file_describe
-    (lnk_file (getattr)))
+(classpermission execute_file)
+(classpermissionset execute_file        (file      (execute execute_no_trans)))
+(classpermission execute_dir)
+(classpermissionset execute_dir         (dir       (execute)))
+(classpermission execute_lnk_file)
+(classpermissionset execute_lnk_file    (lnk_file  (execute)))
+(classpermission execute_chr_file)
+(classpermissionset execute_chr_file    (chr_file  (execute)))
+(classpermission execute_blk_file)
+(classpermissionset execute_blk_file    (blk_file  (execute)))
+(classpermission execute_sock_file)
+(classpermissionset execute_sock_file   (sock_file (execute)))
+(classpermission execute_fifo_file)
+(classpermissionset execute_fifo_file   (fifo_file (execute)))
 
-(classmapping files describe file_describe)
-(classmapping files describe dir_describe)
-(classmapping files describe lnk_file_describe)
+(classmapping files execute execute_file)
+(classmapping files execute execute_dir)
+(classmapping files execute execute_lnk_file)
+(classmapping files execute execute_chr_file)
+(classmapping files execute execute_blk_file)
+(classmapping files execute execute_sock_file)
+(classmapping files execute execute_fifo_file)
 
-; ── mutate: write, create, delete ────────────────────────────────────────────
+; ── block ─────────────────────────────────────────────────────────────────────
 
-(classpermission file_mutate)
-(classpermissionset file_mutate
-    (file (write create setattr unlink rename)))
+(classpermission block_file)
+(classpermissionset block_file          (file      (watch_with_perm)))
+(classpermission block_dir)
+(classpermissionset block_dir           (dir       (watch_with_perm)))
+(classpermission block_lnk_file)
+(classpermissionset block_lnk_file      (lnk_file  (watch_with_perm)))
+(classpermission block_chr_file)
+(classpermissionset block_chr_file      (chr_file  (watch_with_perm)))
+(classpermission block_blk_file)
+(classpermissionset block_blk_file      (blk_file  (watch_with_perm)))
+(classpermission block_sock_file)
+(classpermissionset block_sock_file     (sock_file (watch_with_perm)))
+(classpermission block_fifo_file)
+(classpermissionset block_fifo_file     (fifo_file (watch_with_perm)))
+(classpermission block_anon_inode)
+(classpermissionset block_anon_inode    (anon_inode (watch_with_perm)))
 
-(classpermission dir_mutate)
-(classpermissionset dir_mutate
-    (dir (write create open getattr setattr add_name remove_name rmdir)))
+(classmapping files block block_file)
+(classmapping files block block_dir)
+(classmapping files block block_lnk_file)
+(classmapping files block block_chr_file)
+(classmapping files block block_blk_file)
+(classmapping files block block_sock_file)
+(classmapping files block block_fifo_file)
+(classmapping files block block_anon_inode)
 
-(classpermission sock_file_mutate)
-(classpermissionset sock_file_mutate
-    (sock_file (write create unlink getattr)))
+; ── mutate ────────────────────────────────────────────────────────────────────
+;
+; Covers everything not captured by other slots (write, create, setattr,
+; unlink, rename, link, append, lock, audit_access, etc.).
 
-(classpermission blk_file_mutate)
-(classpermissionset blk_file_mutate
-    (blk_file (write create open getattr setattr ioctl unlink)))
+(classpermission mutate_file)
+(classpermissionset mutate_file
+    (file (not (
+        entrypoint execute_no_trans
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_dir)
+(classpermissionset mutate_dir
+    (dir (not (
+        search
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_lnk_file)
+(classpermissionset mutate_lnk_file
+    (lnk_file (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_chr_file)
+(classpermissionset mutate_chr_file
+    (chr_file (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_blk_file)
+(classpermissionset mutate_blk_file
+    (blk_file (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_sock_file)
+(classpermissionset mutate_sock_file
+    (sock_file (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_fifo_file)
+(classpermissionset mutate_fifo_file
+    (fifo_file (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
+(classpermission mutate_anon_inode)
+(classpermissionset mutate_anon_inode
+    (anon_inode (not (
+        execute ioctl getattr map open read execmod
+        relabelfrom relabelto mounton quotaon
+        watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm))))
 
-(classpermission chr_file_mutate)
-(classpermissionset chr_file_mutate
-    (chr_file (write create open getattr setattr ioctl)))
-
-(classmapping files mutate file_mutate)
-(classmapping files mutate dir_mutate)
-(classmapping files mutate sock_file_mutate)
-
-; ── mounton: use as mount point ──────────────────────────────────────────────
-
-(classpermission dir_mounton)
-(classpermissionset dir_mounton
-    (dir (mounton)))
-
-(classmapping files mounton dir_mounton)
+(classmapping files mutate mutate_file)
+(classmapping files mutate mutate_dir)
+(classmapping files mutate mutate_lnk_file)
+(classmapping files mutate mutate_chr_file)
+(classmapping files mutate mutate_blk_file)
+(classmapping files mutate mutate_sock_file)
+(classmapping files mutate mutate_fifo_file)
+(classmapping files mutate mutate_anon_inode)

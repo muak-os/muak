@@ -29,7 +29,7 @@
 (macro allow_run_rw ((type domain))
     (allow domain muak_run_t (files (load)))
     (allow domain muak_run_t (files (mutate)))
-    (allow domain muak_run_t (files (mounton))))
+    (allow domain muak_run_t (files (mount))))
 
 ; Read-only access to muak_state_t + unlabeled_t fallback.
 (macro allow_state_read ((type domain))
