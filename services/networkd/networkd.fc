@@ -1,1 +1,0 @@
-sbin/networkd system_u:object_r:networkd_exec_t:s0

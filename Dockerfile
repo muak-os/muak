@@ -33,22 +33,6 @@ FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create SELinux policy
-# ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/debian:trixie-slim AS selinux-policy-builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  secilc \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /policy
-
-COPY --link **/*.cil ./
-
-RUN secilc -c 34 -o policy.34 -f /dev/null \
-  $(find . -name '*.cil' | LC_ALL=c sort)
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
@@ -85,9 +69,25 @@ COPY --link --from=pkg-consoled /consoled /rootfs/sbin/consoled
 
 COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
 
-COPY --link --from=services services/*/*.service /rootfs/etc/services/
+COPY --link --from=services **/*.service /rootfs/etc/services/
 
 RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Compile SELinux policy
+# ─────────────────────────────────────────────────────────────────────────────
+FROM docker.io/debian:trixie-slim AS selinux
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  secilc \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /policy
+
+COPY --link **/*.cil ./
+
+RUN secilc -c 34 -o policy.34 -f file_contexts \
+  $(find . -name '*.cil' | LC_ALL=c sort)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create squashfs
@@ -102,27 +102,27 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 RUN apk add --no-cache squashfs-tools
 
 COPY --link --from=rootfs-base /rootfs /rootfs
-COPY --link --from=selinux-policy-builder /policy/policy.34 /rootfs/etc/selinux/policy.34
-
-COPY --link core/init/core.fc /fc/core.fc
-COPY --link services/*/*.fc /fc/
+COPY --link --from=selinux /policy/policy.34 /rootfs/etc/selinux/policy.34
+COPY --link --from=selinux /policy/file_contexts /tmp/file_contexts
 
 RUN <<EOF
 set -euo pipefail
-
-cat /fc/*.fc > /tmp/file-contexts.txt
 
 default="system_u:object_r:file_t:s0"
 : > /tmp/selinux-labels.pf
 
 cd /rootfs
 find . -mindepth 1 | sed 's|^\./||' | LC_ALL=C sort | while read -r path; do
-    ctx=$(awk -v p="$path" '
-        $1 == p { print $2; exit }
-        index($1, "*") && p ~ "^" substr($1, 1, length($1)-1) { print $2; exit }
-    ' /tmp/file-contexts.txt)
-    printf '%s x security.selinux=%s\n' "$path" "${ctx:-$default}" >> /tmp/selinux-labels.pf
-done || true
+    ctx=$(awk -v p="/$path" '
+        !index($1, "*") && $1 == p { print $NF ":s0"; found = 1; exit }
+        index($1, "*") && p ~ "^" substr($1, 1, index($1, "*") - 1) {
+            if (length($1) > length(best)) { best = $1; val = $NF }
+        }
+        END { if (!found && best != "") print val ":s0" }
+    ' /tmp/file_contexts)
+    printf '%s x security.selinux=0t%s\000\n' "$path" "${ctx:-$default}" >> /tmp/selinux-labels.pf
+done
+printf '/ x security.selinux=0t%s\000\n' "$default" >> /tmp/selinux-labels.pf
 
 mksquashfs /rootfs /rootfs.sqsh \
   -comp zstd \

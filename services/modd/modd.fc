@@ -1,1 +1,0 @@
-sbin/modd system_u:object_r:modd_exec_t:s0
