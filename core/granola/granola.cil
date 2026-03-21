@@ -37,6 +37,7 @@
 (allow granola_t self (processes (describe)))
 
 ; Supervisor capabilities.
+(allow granola_t self (systems (boot_caps)))
 (allow granola_t self (systems (service_caps)))
 (allow granola_t self (systems (syslog)))
 (allow granola_t kernel_t (system (syslog_read syslog_mod)))
@@ -50,15 +51,26 @@
 (allow granola_t granola_exec_t (files (execute)))
 (allow granola_t granola_exec_t (files (enter)))
 
+; selinuxfs access (enforcement state check after policy load).
+(allow granola_t selinuxfs_t (dir  (search)))
+(allow granola_t selinuxfs_t (file (read open getattr)))
+
 ; /proc access.
 (call allow_proc_read (granola_t))
 
 ; /sys read.
 (allow granola_t sysfs_t (files (load)))
+(allow granola_t sysfs_t (files (describe)))
 
 ; /dev read + chr_file rw (kmsg log output).
-(allow granola_t devtmpfs_t (dir      (read search)))
+; write+add_name+remove_name on devtmpfs_t dir are needed to mknod and unlink
+; /dev/mapper/<name> block device nodes during LUKS state-device setup/teardown.
+; create on blk_file is needed for mknodat(BlockDevice) in the LUKS open path.
+(allow granola_t devtmpfs_t (dir      (read write search add_name remove_name)))
+(allow granola_t devtmpfs_t (blk_file (create read write open getattr ioctl setattr unlink)))
 (allow granola_t devtmpfs_t (chr_file (read write open getattr)))
+(allow granola_t devtmpfs_t (files (load)))
+(allow granola_t devtmpfs_t (files (describe)))
 
 ; tmpfs management (create /run structure, service sockets).
 (allow granola_t tmpfs_t (files (load)))
@@ -76,8 +88,16 @@
 ; Read service state.
 (call allow_state_read (granola_t))
 
-; Rootfs traversal (overlay/squashfs).
-(allow granola_t file_t      (dir      (read search open getattr)))
-(allow granola_t file_t      (file     (read open getattr execute execute_no_trans map)))
-(allow granola_t file_t      (lnk_file (read)))
-(allow granola_t unlabeled_t (dir      (read search open getattr)))
+; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
+(allow granola_t fs_t (files (mount)))
+
+; Rootfs traversal (overlay/squashfs post-pivot).
+(allow granola_t file_t        (dir      (read search open getattr)))
+(allow granola_t file_t        (file     (read open getattr execute execute_no_trans map)))
+(allow granola_t file_t        (lnk_file (read)))
+(allow granola_t file_t        (files    (mount)))
+; load + describe on all squashfs xattr-labeled types (modules_t, granola_exec_t,
+; svc_exec_t members): overlayfs redirect/metacopy xattr probes, dir reads, file stats.
+(allow granola_t sqsh_file_type (files (load)))
+(allow granola_t sqsh_file_type (files (describe)))
+(allow granola_t unlabeled_t (dir      (read write search open getattr ioctl)))

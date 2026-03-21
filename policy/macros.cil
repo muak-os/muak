@@ -1,17 +1,19 @@
-; Read /proc: dir search + file read + self dir/file stat.
+; Read /proc: dir search + file read/getattr/open + self dir/file stat.
 (macro allow_proc_read ((type domain))
     (allow domain proc_t   (files (load)))
+    (allow domain proc_t   (files (describe)))
     (allow domain domain   (dir   (search)))
-    (allow domain domain   (file  (read getattr))))
+    (allow domain domain   (file  (open read getattr))))
 
 ; Read /sys: dir search + file read + symlink follow.
 (macro allow_sysfs_read ((type domain))
-    (allow domain sysfs_t (files (load))))
+    (allow domain sysfs_t (files (load)))
+    (allow domain sysfs_t (files (describe))))
 
 ; Read and write /sys knobs.
 (macro allow_sysfs_rw ((type domain))
-    (allow domain sysfs_t (dir  (read search getattr)))
-    (allow domain sysfs_t (file (read write open getattr)))
+    (allow domain sysfs_t (dir      (read open search getattr)))
+    (allow domain sysfs_t (file     (read write open getattr)))
     (allow domain sysfs_t (lnk_file (read))))
 
 ; Read /dev: dir search + chr_file read/write.
@@ -28,20 +30,24 @@
 ; Full ownership of muak_run_t (PID files, sockets, dirs under /run).
 (macro allow_run_rw ((type domain))
     (allow domain muak_run_t (files (load)))
+    (allow domain muak_run_t (files (describe)))
     (allow domain muak_run_t (files (mutate)))
     (allow domain muak_run_t (files (mount))))
 
 ; Read-only access to muak_state_t + unlabeled_t fallback.
 (macro allow_state_read ((type domain))
     (allow domain muak_state_t (files (load)))
-    (allow domain unlabeled_t  (dir  (read search getattr)))
-    (allow domain unlabeled_t  (file (read open getattr))))
+    (allow domain muak_state_t (files (describe)))
+    (allow domain unlabeled_t  (files (load)))
+    (allow domain unlabeled_t  (files (describe))))
 
 ; Read/write access to muak_state_t + unlabeled_t fallback.
 (macro allow_state_rw ((type domain))
     (allow domain muak_state_t (files (load)))
+    (allow domain muak_state_t (files (describe)))
     (allow domain muak_state_t (files (mutate)))
     (allow domain unlabeled_t  (files (load)))
+    (allow domain unlabeled_t  (files (describe)))
     (allow domain unlabeled_t  (files (mutate))))
 
 ; Read/write access to muak_data_t.
@@ -70,11 +76,13 @@
     ; MCS: service processes are host subjects; exec types are unconstrained objects.
     (typeattributeset all_s           (svc_t))
     (typeattributeset unconstrained_o (svc_exec_t))
-    (allow svc_t     svc_exec_t  (files (execute)))
-    (allow svc_t     svc_exec_t  (files (enter)))
-    (allow granola_t svc_exec_t  (files (execute)))
-    (allow kernel_t  svc_exec_t  (files (execute)))
-    (allow granola_t svc_t       (processes (transform)))
+    (allow svc_t     svc_exec_t  (files       (load)))
+    (allow svc_t     svc_exec_t  (files       (execute)))
+    (allow svc_t     svc_exec_t  (files       (enter)))
+    (allow granola_t svc_exec_t  (files       (execute)))
+    (allow kernel_t  svc_exec_t  (files       (execute)))
+    (allow granola_t svc_t       (processes   (transform)))
+    (allow granola_t svc_t       (process     (noatsecure rlimitinh siginh)))
     (allow svc_t     granola_t   (fd (use)))
     (allow svc_t     kernel_t    (fd (use)))
     (allow svc_t     unlabeled_t (chr_file (read write open getattr)))
@@ -88,5 +96,6 @@
     (allow svc_t     granola_t   (unix_stream_socket (connectto accept read write getattr getopt)))
     (allow svc_t     granola_t   (unix_dgram_socket  (sendto)))
     (allow svc_t     self        (processes (interact)))
+    (allow svc_t     self        (processes (describe)))
     (allow svc_t     self        (sockets   (stream)))
     (typetransition granola_t svc_exec_t process svc_t))

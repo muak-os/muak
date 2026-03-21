@@ -114,11 +114,11 @@ default="system_u:object_r:file_t:s0"
 cd /rootfs
 find . -mindepth 1 | sed 's|^\./||' | LC_ALL=C sort | while read -r path; do
     ctx=$(awk -v p="/$path" '
-        !index($1, "*") && $1 == p { print $NF ":s0"; found = 1; exit }
+        !index($1, "*") && $1 == p { print $NF; found = 1; exit }
         index($1, "*") && p ~ "^" substr($1, 1, index($1, "*") - 1) {
             if (length($1) > length(best)) { best = $1; val = $NF }
         }
-        END { if (!found && best != "") print val ":s0" }
+        END { if (!found && best != "") print val }
     ' /tmp/file_contexts)
     printf '%s x security.selinux=0t%s\000\n' "$path" "${ctx:-$default}" >> /tmp/selinux-labels.pf
 done

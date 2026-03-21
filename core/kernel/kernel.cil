@@ -1,23 +1,24 @@
 ; ── kernel_t: early-boot process domain ──────────────────────────────────────
 ;
 ; /init runs from the initramfs before the SELinux policy is loaded. The
-; process stays in kernel_t through all of pre-switchroot, performing mounts,
-; loading the policy, setting up /run, and exec'ing granola.
+; process stays in kernel_t through policy load and the initial pseudo-fs
+; setup, then exec-transitions to granola_t. All post-pivot work (squashfs
+; traversal, overlay mounts, rootfs exec) is granola_t's responsibility.
 
 ; Process self-permissions.
 (allow kernel_t self (processes (interact)))
 (allow kernel_t self (processes (describe)))
 
 ; Early-boot capabilities.
-(allow kernel_t self (systems (boot_caps)))
-(allow kernel_t self (systems (syslog)))
+(allow kernel_t self (systems    (boot_caps)))
+(allow kernel_t self (systems    (syslog)))
 (allow kernel_t kernel_t (system (syslog_read)))
 
 ; Pipes, stream sockets, datagram sockets, and netlink for IPC/coordination.
 (allow kernel_t self (fifo_file (read write open getattr)))
-(allow kernel_t self (sockets (stream)))
-(allow kernel_t self (sockets (dgram)))
-(allow kernel_t self (sockets (netlink)))
+(allow kernel_t self (sockets   (stream)))
+(allow kernel_t self (sockets   (dgram)))
+(allow kernel_t self (sockets   (netlink)))
 
 ; /proc access.
 (call allow_proc_read (kernel_t))
@@ -28,7 +29,7 @@
 (allow kernel_t sysfs_t (lnk_file (read)))
 
 ; /dev full management (device nodes during early boot).
-(allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name)))
+(allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name getattr)))
 (allow kernel_t devtmpfs_t (blk_file (read write open getattr setattr ioctl create unlink)))
 (allow kernel_t devtmpfs_t (chr_file (read write open getattr ioctl create setattr)))
 
@@ -38,29 +39,25 @@
 (allow kernel_t tmpfs_t (sock_file (create unlink getattr write)))
 
 ; SELinux policy load and enforcement control.
-(allow kernel_t selinuxfs_t (dir  (search)))
-(allow kernel_t selinuxfs_t (file (read write open getattr)))
+(allow kernel_t selinuxfs_t (dir     (search)))
+(allow kernel_t selinuxfs_t (file    (read write open getattr)))
 (allow kernel_t security_t  (systems (policy)))
 
 ; EFI variables (boot entries, secure boot state).
 (allow kernel_t efivarfs_t (dir  (read search)))
 (allow kernel_t efivarfs_t (file (read open getattr)))
 
-; Kernel modules (modprobe during early boot).
-(allow kernel_t modules_t (dir  (read search getattr)))
-(allow kernel_t modules_t (file (read open getattr)))
-
-; Rootfs traversal and execution (squashfs/overlay catch-all type).
+; Rootfs traversal (initramfs-stage squashfs/overlay mount setup).
 (allow kernel_t file_t (dir      (read search open getattr ioctl mounton)))
-(allow kernel_t file_t (file     (read open getattr execute execute_no_trans map)))
+(allow kernel_t file_t (file     (read open getattr)))
 (allow kernel_t file_t (lnk_file (read)))
 
-; getattr on all xattr-labeled squashfs types for overlay mounter checks.
-(allow kernel_t sqsh_file_type (files (describe)))
-
-; Unlabeled dirs/files (overlay root inode, btrfs fresh volumes).
-(allow kernel_t unlabeled_t (dir  (read write search getattr ioctl mounton)))
-(allow kernel_t unlabeled_t (file (read open getattr)))
+; unlabeled_t: overlay root inode mounton + early btrfs volumes + IPv6 MLD.
+(allow kernel_t unlabeled_t (dir         (read write search getattr ioctl mounton)))
+(allow kernel_t unlabeled_t (file        (read open getattr)))
+(allow kernel_t unlabeled_t (association (sendto)))
+(allow kernel_t unlabeled_t (node        (sendto)))
+(allow kernel_t unlabeled_t (netif       (egress)))
 
 ; /run management (PID files, sockets, state before granola takes ownership).
 (allow kernel_t muak_run_t   (files (load)))
@@ -75,8 +72,3 @@
 (allow kernel_t muak_data_t  (filesystem (mount unmount)))
 (allow kernel_t fs_t         (filesystem (mount unmount getattr quotamod)))
 (allow kernel_t fs_t         (fifo_file  (read write open getattr)))
-
-; IPv6 MLD multicast from kworker threads during interface setup.
-(allow kernel_t unlabeled_t (association (sendto)))
-(allow kernel_t unlabeled_t (node        (sendto)))
-(allow kernel_t unlabeled_t (netif       (egress)))
