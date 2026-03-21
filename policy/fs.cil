@@ -4,8 +4,7 @@
 (fsuse xattr squashfs (system_u object_r file_t     s0))
 (fsuse xattr overlay  (system_u object_r file_t     s0))
 
-; ext4 and btrfs: xattr-based; new files without a typetransition get fs_t.
-(fsuse xattr ext4     (system_u object_r fs_t       s0))
+; btrfs: xattr-based; new files without a typetransition get fs_t.
 (fsuse xattr btrfs    (system_u object_r fs_t       s0))
 
 ; pipefs/sockfs: labeled per-creating-task.
@@ -33,7 +32,7 @@
 ; Allow unlabeled objects on unlabeled filesystems (e.g. vfat/FAT32).
 (allow unlabeled_t unlabeled_t (filesystem (associate)))
 
-; Allow unlabeled objects on fs_t filesystems (btrfs/ext4).
+; Allow unlabeled objects on fs_t filesystems.
 (allow unlabeled_t fs_t (filesystem (associate)))
 
 ; Allow efivarfs_t objects on efivarfs_t (Secure Boot key enrollment).
@@ -45,7 +44,7 @@
 (allow muak_run_t   tmpfs_t (filesystem (associate)))
 (allow muak_state_t tmpfs_t (filesystem (associate)))
 
-; ── File contexts (compiled by secilc into file_contexts for setfiles) ───────
+; ── File contexts ────────────────────────────────────────────────────────────
 
 ; Default label for all rootfs files (squashfs xattr fallback).
 (filecon "/.*" any (system_u object_r file_t s0))
