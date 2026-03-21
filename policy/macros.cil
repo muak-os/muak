@@ -1,9 +1,11 @@
-; Read /proc: dir search + file read/getattr/open + self dir/file stat.
+; Read /proc: self dir/file stat for /proc/self entries.
+; load/describe on proc_t are covered globally; this adds the self-process
+; dir search and file open/read that /proc/self requires.
 (macro allow_proc_read ((type domain))
-    (allow domain proc_t   (files (load)))
-    (allow domain proc_t   (files (describe)))
-    (allow domain domain   (dir   (search)))
-    (allow domain domain   (file  (open read getattr))))
+    (allow domain proc_t (files (load)))
+    (allow domain proc_t (files (describe)))
+    (allow domain domain (dir  (search)))
+    (allow domain domain (file (open read getattr))))
 
 ; Read /sys: dir search + file read + symlink follow.
 (macro allow_sysfs_read ((type domain))
@@ -55,22 +57,17 @@
     (allow domain muak_data_t (files (load)))
     (allow domain muak_data_t (files (mutate))))
 
-; Standard Unix socket IPC for supervised daemons.
-(macro allow_daemon_ipc ((type domain))
-    (allow domain self (sockets (stream)))
-    (allow domain self (sockets (dgram))))
-
 ; Declare a confined service domain and wire it into the policy.
 ;
 ; Grants: role bindings, entrypoint perms, granola_t->svc_t typetransition,
 ; sqsh_file_type membership for the exec type (overlay mounter getattr),
 ; and the baseline permissions every service needs at runtime:
 ;   - /proc read, /run socket read/write, rootfs file read
-;   - inherited FDs, SELinux null device, tmpfs/rootfs directory traversal
-;   - IPC with granola (fifo_file, unix_stream_socket, unix_dgram_socket)
-;   - self stream sockets
+;   - write to granola's fifo and /dev chr_file (stdout/stderr redirect)
 ;
-; Process self-interaction and describe are granted globally in rules.cil.
+; Global rules in rules.cil cover: process self-interaction and describe,
+; self-transform, fd use, all file reads (load/describe), all socket use,
+; all network object use.
 ;
 ; Usage: (call declare_service (svc_t svc_exec_t))
 (macro declare_service ((type svc_t) (type svc_exec_t))
@@ -90,22 +87,10 @@
     (allow kernel_t  svc_exec_t  (files       (execute)))
     (allow granola_t svc_t       (processes   (transform)))
     (allow granola_t svc_t       (process     (noatsecure rlimitinh siginh)))
-    (allow svc_t     granola_t   (fd (use)))
-    (allow svc_t     kernel_t    (fd (use)))
-    (allow svc_t     unlabeled_t (chr_file (read write open getattr)))
-    (allow svc_t     unlabeled_t (dir      (search)))
-    (allow svc_t     tmpfs_t     (dir      (search)))
-    (allow svc_t     file_t      (dir      (search)))
-    (allow svc_t     file_t      (lnk_file (read)))
-    (allow svc_t     file_t      (file     (read open getattr)))
-    (allow svc_t     devtmpfs_t  (dir      (search)))
-    (allow svc_t     devtmpfs_t  (chr_file (write open)))
-    (allow svc_t     granola_t   (fifo_file        (write getattr)))
-    (allow svc_t     granola_t   (unix_stream_socket (connectto accept read write getattr getopt)))
-    (allow svc_t     granola_t   (unix_dgram_socket  (sendto)))
-    (allow svc_t     self        (sockets   (stream)))
-    (allow svc_t     muak_run_t  (dir       (read search)))
-    (allow svc_t     muak_run_t  (file      (read open getattr)))
-    (allow svc_t     muak_run_t  (sock_file (read write getattr)))
+    (allow svc_t     devtmpfs_t  (chr_file    (write)))
+    (allow svc_t     granola_t   (fifo_file   (write)))
+    (allow svc_t     muak_run_t  (dir         (read search)))
+    (allow svc_t     muak_run_t  (file        (read open getattr)))
+    (allow svc_t     muak_run_t  (sock_file   (read write getattr)))
     (call allow_proc_read (svc_t))
     (typetransition granola_t svc_exec_t process svc_t))

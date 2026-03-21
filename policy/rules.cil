@@ -5,10 +5,17 @@
 ; explicit in one place.
 
 ; All subjects can describe all objects (getattr on files, dirs, etc.).
-(allow all_s all_o (files (describe)))
+(allow all_s global (files (describe)))
+
+; All subjects can read anything in the system.
+(allow all_s global (files (load)))
 
 ; All subjects can describe all other subjects' processes.
 (allow all_s all_s (processes (describe)))
+
+; All subjects except forbidden_t can use the label they already have.
+; forbidden_t is excluded to satisfy the companion neverallow in neverallow.cil.
+(allow transformable_s self (processes (transform)))
 
 ; All subjects can interact with their own processes.
 (allow all_s self (processes (interact)))
@@ -19,7 +26,13 @@
 ; Privileged subjects can interact with all processes.
 (allow privileged_s all_s (processes (interact)))
 
-; All network-capable services share base network object access.
-(allow networked_s unlabeled_t (node       (sendto recvfrom)))
-(allow networked_s unlabeled_t (association (sendto recvfrom)))
-(allow networked_s unlabeled_t (netif      (ingress egress)))
+; Backstop against kernel execution of mutable objects: any exec by kernel_t
+; from a mutable-labeled file transitions to forbidden_t, which is then blocked
+; by the companion neverallow in neverallow.cil.
+(typetransition kernel_t mutable_o process forbidden_t)
+
+; All subjects can use all socket types without restriction.
+(allow all_s global (sockets (use)))
+
+; All subjects can use all network objects without restriction.
+(allow all_s global (networks (use)))

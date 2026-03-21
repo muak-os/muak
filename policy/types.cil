@@ -28,6 +28,14 @@
 (typeattribute all_s)
 (typeattributeset all_s (kernel_t forbidden_t service_t))
 
+; Subjects that may self-transform (all_s minus forbidden_t). Used to allow
+; domain self-transitions without conflicting with the forbidden_t neverallow.
+(typeattribute transformable_s)
+(typeattributeset transformable_s (xor (all_s) (forbidden_t)))
+
+; Union of all subjects and objects. Used in broad rules that apply everywhere.
+(typeattribute global)
+
 ; Privileged subjects: kernel_t and granola_t (added in granola.cil).
 ; Also trusted: may perform label-changing and process-transition operations.
 ; Service domains are host processes but not privileged in the MCS sense.
@@ -49,11 +57,6 @@
 ; All remaining services (consoled_t, modd_t, networkd_t, provisiond_t,
 ; timed_t, vmd_t) are added to verified_s in their service CIL files.
 (typeattribute verified_s)
-
-; Network-capable services: share base unlabeled network object access
-; (node sendto/recvfrom, association sendto/recvfrom, netif ingress/egress).
-; Individual services add protocol-specific socket bindings in their CIL files.
-(typeattribute networked_s)
 
 ; ── Object attributes ─────────────────────────────────────────────────────────
 
@@ -155,3 +158,7 @@
     muak_run_t muak_state_t
     proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
     modules_t))
+
+; global: union of all subjects and all objects. Populated last because it
+; depends on both all_s and all_o being fully expanded.
+(typeattributeset global ((all_s) (all_o)))

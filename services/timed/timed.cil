@@ -9,10 +9,8 @@
 (call declare_service (timed_t timed_exec_t))
 
 ; timed manages the system clock.
-; Networked: needs base network object access for NTP.
 ; Confined: strictly limited to its own narrow permissions.
 ; Verified: must only execute dm-verity-protected code.
-(typeattributeset networked_s (timed_t))
 (typeattributeset confined_s  (timed_t))
 (typeattributeset verified_s  (timed_t))
 

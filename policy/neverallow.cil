@@ -11,6 +11,9 @@
 (neverallow untrusted_s privileged_s (processes (interact)))
 
 ; No domain may ever transition into or use the forbidden backstop type.
+; The typetransition backstop (kernel_t -> mutable_o -> forbidden_t) is defined
+; here so that the companion neverallow fires at compile time for any allow rule
+; that would permit such a transition.
 (neverallow all_s forbidden_t (processes (transform)))
 (neverallow forbidden_t all_s (files (enter)))
 

@@ -24,9 +24,6 @@
 ; kernel_t in addition to the capability check).
 (allow modd_t kernel_t (system (module_load)))
 
-; Allow standard Unix socket IPC with granola.
-(call allow_daemon_ipc (modd_t))
-
 ; Allow modd to read, write, and create entries in /sys (bind/unbind drivers,
 ; write to device attribute files, create sysfs nodes).
 (allow modd_t sysfs_t    (dir  (read write search create add_name)))

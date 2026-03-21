@@ -22,10 +22,6 @@
 ; checked in addition to capability2:syslog when reading /dev/kmsg).
 (allow consoled_t kernel_t (system (syslog_read)))
 
-; Allow standard Unix socket IPC with granola (stream for commands, dgram for
-; status notifications).
-(call allow_daemon_ipc (consoled_t))
-
 ; Allow consoled to access /dev: read directory and read/write character
 ; devices (/dev/tty0 for display output, /dev/kmsg for kernel log input).
 (allow consoled_t devtmpfs_t (dir      (read search)))

@@ -9,10 +9,8 @@
 (call declare_service (networkd_t networkd_exec_t))
 
 ; networkd manages network interfaces.
-; Networked: needs base network object access.
 ; Confined: strictly limited to network management permissions.
 ; Verified: must only execute dm-verity-protected code.
-(typeattributeset networked_s (networkd_t))
 (typeattributeset confined_s  (networkd_t))
 (typeattributeset verified_s  (networkd_t))
 

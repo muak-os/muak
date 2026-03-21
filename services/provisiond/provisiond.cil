@@ -9,9 +9,7 @@
 (call declare_service (provisiond_t provisiond_exec_t))
 
 ; provisiond must only execute dm-verity-protected code.
-; Networked: needs base network object access for registry pulls and API calls.
 (typeattributeset verified_s  (provisiond_t))
-(typeattributeset networked_s (provisiond_t))
 
 ; Grant provisiond sys_admin for disk management operations (partitioning,
 ; formatting, mounting filesystems) and sys_boot for system reboot after
@@ -21,9 +19,6 @@
 ; Allow provisiond to create and use generic netlink sockets (for communicating
 ; with kernel subsystems during disk provisioning).
 (allow provisiond_t self (netlink_generic_socket (create bind read write)))
-
-; Allow standard Unix socket IPC with granola.
-(call allow_daemon_ipc (provisiond_t))
 
 ; Allow provisiond to read and write /sys entries (disk device attributes,
 ; block device parameters).

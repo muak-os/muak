@@ -36,11 +36,6 @@
 (allow granola_t self (systems (syslog)))
 (allow granola_t kernel_t (system (syslog_read syslog_mod)))
 
-; Pipes and sockets for child process stdout/stderr and service IPC.
-(allow granola_t self (fifo_file (read write open getattr)))
-(allow granola_t self (unix_stream_socket (create bind listen accept read write shutdown)))
-(allow granola_t self (unix_dgram_socket  (create bind read write)))
-
 ; Own executable (entrypoint verification).
 (allow granola_t granola_exec_t (files (execute)))
 (allow granola_t granola_exec_t (files (enter)))

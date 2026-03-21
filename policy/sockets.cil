@@ -3,42 +3,33 @@
 ; Semantic permission groups for socket operations.
 ;
 ; Slots:
-;   stream  - create/bind/listen/accept/connect/read/write on unix_stream_socket
-;   dgram   - create/connect/write on unix_dgram_socket
-;   inet    - create/connect/read/write on tcp_socket/udp_socket
-;   netlink - create/bind/read/write on netlink_generic_socket
+;   use    - all non-relabel operations on any socket class
+;   relabel - relabelfrom/relabelto on socket classes
 
-(classmap sockets (stream dgram inet netlink))
+(classmap sockets (use relabel))
 
-; ── stream: Unix stream socket ───────────────────────────────────────────────
+; ── use: all socket operations except relabeling ─────────────────────────────
 
-(classpermission unix_stream_create)
-(classpermissionset unix_stream_create
-    (unix_stream_socket (create bind listen accept connect connectto
-                         read write getattr getopt setopt shutdown)))
+(classmapping sockets use (unix_stream_socket (not (relabelfrom relabelto))))
+(classmapping sockets use (unix_dgram_socket  (not (relabelfrom relabelto))))
+(classmapping sockets use (tcp_socket         (not (relabelfrom relabelto))))
+(classmapping sockets use (udp_socket         (not (relabelfrom relabelto))))
+(classmapping sockets use (rawip_socket       (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_socket                  (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_route_socket            (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_kobject_uevent_socket   (not (relabelfrom relabelto))))
+(classmapping sockets use (netlink_generic_socket          (not (relabelfrom relabelto))))
+(classmapping sockets use (tun_socket         (not (relabelfrom relabelto))))
 
-(classmapping sockets stream unix_stream_create)
+; ── relabel: relabeling socket objects ───────────────────────────────────────
 
-; ── dgram: Unix datagram socket ──────────────────────────────────────────────
-
-(classpermission unix_dgram_create)
-(classpermissionset unix_dgram_create
-    (unix_dgram_socket (create bind connect read write sendto)))
-
-(classmapping sockets dgram unix_dgram_create)
-
-; ── inet: TCP/UDP socket ─────────────────────────────────────────────────────
-
-(classpermission tcp_use)
-(classpermissionset tcp_use
-    (tcp_socket (create connect read write getattr getopt setopt shutdown)))
-
-(classmapping sockets inet tcp_use)
-
-; ── netlink: generic netlink socket ──────────────────────────────────────────
-
-(classpermission netlink_generic_use)
-(classpermissionset netlink_generic_use
-    (netlink_generic_socket (create bind read write)))
-
-(classmapping sockets netlink netlink_generic_use)
+(classmapping sockets relabel (unix_stream_socket (relabelfrom relabelto)))
+(classmapping sockets relabel (unix_dgram_socket  (relabelfrom relabelto)))
+(classmapping sockets relabel (tcp_socket         (relabelfrom relabelto)))
+(classmapping sockets relabel (udp_socket         (relabelfrom relabelto)))
+(classmapping sockets relabel (rawip_socket       (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_socket                  (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_route_socket            (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_kobject_uevent_socket   (relabelfrom relabelto)))
+(classmapping sockets relabel (netlink_generic_socket          (relabelfrom relabelto)))
+(classmapping sockets relabel (tun_socket         (relabelfrom relabelto)))

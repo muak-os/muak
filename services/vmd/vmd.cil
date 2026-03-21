@@ -19,9 +19,6 @@
 ; connecting VMs to the host network).
 (allow vmd_t self (tun_socket (create)))
 
-; Allow standard Unix socket IPC with granola.
-(call allow_daemon_ipc (vmd_t))
-
 ; Allow vmd to connect to networkd's Unix socket for bridge/TAP management.
 (allow vmd_t networkd_t (unix_stream_socket (connectto)))
 

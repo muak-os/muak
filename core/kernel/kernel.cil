@@ -10,12 +10,6 @@
 (allow kernel_t self (systems    (syslog)))
 (allow kernel_t kernel_t (system (syslog_read)))
 
-; Pipes, stream sockets, datagram sockets, and netlink for IPC/coordination.
-(allow kernel_t self (fifo_file (read write open getattr)))
-(allow kernel_t self (sockets   (stream)))
-(allow kernel_t self (sockets   (dgram)))
-(allow kernel_t self (sockets   (netlink)))
-
 ; /proc access.
 (call allow_proc_read (kernel_t))
 
@@ -48,19 +42,13 @@
 (allow kernel_t file_t (file     (read open getattr)))
 (allow kernel_t file_t (lnk_file (read)))
 
-; unlabeled_t: overlay root inode mounton + early btrfs volumes + IPv6 MLD.
+; unlabeled_t: overlay root inode mounton + early btrfs volumes.
 (allow kernel_t unlabeled_t (dir         (read write search getattr ioctl mounton)))
 (allow kernel_t unlabeled_t (file        (read open getattr)))
-(allow kernel_t unlabeled_t (association (sendto)))
-(allow kernel_t unlabeled_t (node        (sendto)))
-(allow kernel_t unlabeled_t (netif       (egress)))
 
 ; /run management (PID files, sockets, state before granola takes ownership).
-(allow kernel_t muak_run_t   (files (load)))
 (allow kernel_t muak_run_t   (files (mutate)))
-(allow kernel_t muak_state_t (files (load)))
 (allow kernel_t muak_state_t (files (mutate)))
-(allow kernel_t muak_data_t  (files (load)))
 (allow kernel_t muak_data_t  (files (mutate)))
 
 ; Filesystem mount/unmount for state, data, and generic (cgroup, etc.).

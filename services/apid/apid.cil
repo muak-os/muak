@@ -8,19 +8,12 @@
 ; permissions, and the granola_t -> apid_t domain transition on exec.
 (call declare_service (apid_t apid_exec_t))
 
-; apid needs network access for the HTTP/HTTPS API endpoint.
-(typeattributeset networked_s (apid_t))
-
 ; Allow apid to bind to privileged ports (< 1024) for the API listener.
 (allow apid_t self (capability (net_bind_service)))
 
 ; Allow apid to create, bind, listen on, and use TCP sockets (serves the
 ; HTTP/HTTPS API endpoint). setopt/getopt: SO_REUSEADDR etc via tokio.
 (allow apid_t self (tcp_socket (create bind listen accept read write shutdown setopt getopt getattr)))
-
-; Allow standard Unix socket IPC with granola (stream for commands, dgram for
-; notifications).
-(call allow_daemon_ipc (apid_t))
 
 ; Allow apid full read/write access to /run (PID file, API socket).
 (call allow_run_rw     (apid_t))
