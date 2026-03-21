@@ -1,0 +1,44 @@
+; ── sockets classmap ─────────────────────────────────────────────────────────
+;
+; Semantic permission groups for socket operations.
+;
+; Slots:
+;   stream  - create/bind/listen/accept/connect/read/write on unix_stream_socket
+;   dgram   - create/connect/write on unix_dgram_socket
+;   inet    - create/connect/read/write on tcp_socket/udp_socket
+;   netlink - create/bind/read/write on netlink_generic_socket
+
+(classmap sockets (stream dgram inet netlink))
+
+; ── stream: Unix stream socket ───────────────────────────────────────────────
+
+(classpermission unix_stream_create)
+(classpermissionset unix_stream_create
+    (unix_stream_socket (create bind listen accept connect connectto
+                         read write getattr getopt setopt shutdown)))
+
+(classmapping sockets stream unix_stream_create)
+
+; ── dgram: Unix datagram socket ──────────────────────────────────────────────
+
+(classpermission unix_dgram_create)
+(classpermissionset unix_dgram_create
+    (unix_dgram_socket (create bind connect read write sendto)))
+
+(classmapping sockets dgram unix_dgram_create)
+
+; ── inet: TCP/UDP socket ─────────────────────────────────────────────────────
+
+(classpermission tcp_use)
+(classpermissionset tcp_use
+    (tcp_socket (create connect read write getattr getopt setopt shutdown)))
+
+(classmapping sockets inet tcp_use)
+
+; ── netlink: generic netlink socket ──────────────────────────────────────────
+
+(classpermission netlink_generic_use)
+(classpermissionset netlink_generic_use
+    (netlink_generic_socket (create bind read write)))
+
+(classmapping sockets netlink netlink_generic_use)

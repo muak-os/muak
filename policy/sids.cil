@@ -1,0 +1,28 @@
+(sid kernel)
+(sid security)
+(sid unlabeled)
+(sid file)
+(sid port)
+(sid netif)
+(sid netmsg)
+(sid node)
+(sid devnull)
+(sid any_socket)
+
+(sidorder
+    (kernel security unlabeled file port netif netmsg node devnull
+     any_socket))
+
+; kernel_t runs with the full category range so it dominates all MCS pairs.
+(sidcontext kernel     (system_u system_r kernel_t s0-s0))
+
+; Object types use the base level (no categories).
+(sidcontext security   (system_u object_r security_t s0))
+(sidcontext unlabeled  (system_u object_r unlabeled_t s0))
+(sidcontext file       (system_u object_r file_t s0))
+(sidcontext port       (system_u object_r unlabeled_t s0))
+(sidcontext netif      (system_u object_r unlabeled_t s0))
+(sidcontext netmsg     (system_u object_r unlabeled_t s0))
+(sidcontext node       (system_u object_r unlabeled_t s0))
+(sidcontext devnull    (system_u object_r unlabeled_t s0))
+(sidcontext any_socket (system_u object_r unlabeled_t s0))

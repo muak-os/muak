@@ -1,0 +1,121 @@
+; ── files classmap ───────────────────────────────────────────────────────────
+;
+; Semantic permission groups for file-like objects across all file classes
+; (file, dir, lnk_file, chr_file, blk_file, sock_file, fifo_file).
+;
+; Slots:
+;   load     - read-only access (open, read, stat, dir search)
+;   execute  - map and execute a file
+;   enter    - use as a domain-transition entrypoint
+;   describe - stat/watch only (no read)
+;   mutate   - write, create, delete, rename
+;   mounton  - use a directory as a mount point
+
+(classmap files (load execute enter describe mutate mounton))
+
+; ── load: read-only ──────────────────────────────────────────────────────────
+
+(classpermission file_load)
+(classpermissionset file_load
+    (file (read open getattr execute_no_trans map)))
+
+(classpermission dir_load)
+(classpermissionset dir_load
+    (dir (read open getattr search)))
+
+(classpermission lnk_file_load)
+(classpermissionset lnk_file_load
+    (lnk_file (read getattr)))
+
+(classpermission chr_file_load)
+(classpermissionset chr_file_load
+    (chr_file (read write open getattr ioctl)))
+
+(classpermission blk_file_load)
+(classpermissionset blk_file_load
+    (blk_file (read open getattr ioctl)))
+
+(classpermission sock_file_load)
+(classpermissionset sock_file_load
+    (sock_file (read write getattr)))
+
+(classpermission fifo_file_load)
+(classpermissionset fifo_file_load
+    (fifo_file (read write open getattr)))
+
+(classmapping files load file_load)
+(classmapping files load dir_load)
+(classmapping files load lnk_file_load)
+
+; ── execute: map and run ─────────────────────────────────────────────────────
+
+(classpermission file_execute)
+(classpermissionset file_execute
+    (file (read open getattr execute map)))
+
+(classmapping files execute file_execute)
+
+; ── enter: domain-transition entrypoint ─────────────────────────────────────
+
+(classpermission file_enter)
+(classpermissionset file_enter
+    (file (entrypoint)))
+
+(classpermission chr_file_enter)
+(classpermissionset chr_file_enter
+    (chr_file (entrypoint)))
+
+(classmapping files enter file_enter)
+(classmapping files enter chr_file_enter)
+
+; ── describe: getattr/watch only ─────────────────────────────────────────────
+
+(classpermission file_describe)
+(classpermissionset file_describe
+    (file (getattr)))
+
+(classpermission dir_describe)
+(classpermissionset dir_describe
+    (dir (getattr)))
+
+(classpermission lnk_file_describe)
+(classpermissionset lnk_file_describe
+    (lnk_file (getattr)))
+
+(classmapping files describe file_describe)
+(classmapping files describe dir_describe)
+(classmapping files describe lnk_file_describe)
+
+; ── mutate: write, create, delete ────────────────────────────────────────────
+
+(classpermission file_mutate)
+(classpermissionset file_mutate
+    (file (write create setattr unlink rename)))
+
+(classpermission dir_mutate)
+(classpermissionset dir_mutate
+    (dir (write create open getattr setattr add_name remove_name rmdir)))
+
+(classpermission sock_file_mutate)
+(classpermissionset sock_file_mutate
+    (sock_file (write create unlink getattr)))
+
+(classpermission blk_file_mutate)
+(classpermissionset blk_file_mutate
+    (blk_file (write create open getattr setattr ioctl unlink)))
+
+(classpermission chr_file_mutate)
+(classpermissionset chr_file_mutate
+    (chr_file (write create open getattr setattr ioctl)))
+
+(classmapping files mutate file_mutate)
+(classmapping files mutate dir_mutate)
+(classmapping files mutate sock_file_mutate)
+
+; ── mounton: use as mount point ──────────────────────────────────────────────
+
+(classpermission dir_mounton)
+(classpermissionset dir_mounton
+    (dir (mounton)))
+
+(classmapping files mounton dir_mounton)

@@ -1,0 +1,82 @@
+; ── granola_t: PID 1 supervisor domain ───────────────────────────────────────
+
+(type granola_t)
+(type granola_exec_t)
+
+(roletype system_r granola_t)
+(roletype object_r granola_exec_t)
+
+; granola_exec_t lives on the squashfs rootfs.
+(typeattributeset sqsh_file_type (granola_exec_t))
+
+; granola_t runs with the full category range and dominates all MCS pairs.
+(typeattributeset all_s       (granola_t))
+(typeattributeset privileged_s (granola_t))
+(typeattributeset trusted_s    (granola_t))
+
+; granola_exec_t is an object type; add it to unconstrained_o.
+(typeattributeset unconstrained_o (granola_exec_t))
+
+; kernel_t -> granola_t domain transition on exec of granola_exec_t.
+(allow kernel_t granola_t      (processes (transition)))
+(allow kernel_t granola_exec_t (files (execute)))
+(typetransition kernel_t granola_exec_t process granola_t)
+
+; Inherited FDs from kernel_t across the exec boundary.
+(allow granola_t kernel_t (fd (use)))
+
+; SELinux null device (/sys/fs/selinux/null) for stdio redirect on transition.
+(allow granola_t unlabeled_t (chr_file (read write open getattr)))
+
+; /dev/console inherited from kernel_t (predates devtmpfs mount).
+(allow granola_t kernel_t (chr_file (read write open getattr)))
+
+; Process self-permissions.
+(allow granola_t self (processes (fork)))
+(allow granola_t self (processes (signal)))
+
+; Supervisor capabilities.
+(allow granola_t self (systems (service_caps)))
+(allow granola_t self (systems (syslog)))
+(allow granola_t kernel_t (system (syslog_read syslog_mod)))
+
+; Pipes and sockets for child process stdout/stderr and service IPC.
+(allow granola_t self (fifo_file (read write open getattr)))
+(allow granola_t self (unix_stream_socket (create bind listen accept read write shutdown)))
+(allow granola_t self (unix_dgram_socket  (create bind read write)))
+
+; Own executable (entrypoint verification).
+(allow granola_t granola_exec_t (files (execute)))
+(allow granola_t granola_exec_t (files (enter)))
+
+; /proc access.
+(call allow_proc_read (granola_t))
+
+; /sys read.
+(allow granola_t sysfs_t (files (load)))
+
+; /dev read + chr_file rw (kmsg log output).
+(allow granola_t devtmpfs_t (dir      (read search)))
+(allow granola_t devtmpfs_t (chr_file (read write open getattr)))
+
+; tmpfs management (create /run structure, service sockets).
+(allow granola_t tmpfs_t (files (load)))
+(allow granola_t tmpfs_t (files (mutate)))
+
+; Label sockets and dirs granola creates on tmpfs as muak_run_t.
+(typetransition granola_t tmpfs_t    sock_file muak_run_t)
+(typetransition granola_t tmpfs_t    dir       muak_run_t)
+(typetransition granola_t muak_run_t sock_file muak_run_t)
+(typetransition granola_t muak_run_t file      muak_run_t)
+
+; Full /run ownership.
+(call allow_run_rw (granola_t))
+
+; Read service state.
+(call allow_state_read (granola_t))
+
+; Rootfs traversal (overlay/squashfs).
+(allow granola_t file_t      (dir      (read search open getattr)))
+(allow granola_t file_t      (file     (read open getattr execute execute_no_trans map)))
+(allow granola_t file_t      (lnk_file (read)))
+(allow granola_t unlabeled_t (dir      (read search open getattr)))

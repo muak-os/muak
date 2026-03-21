@@ -1,0 +1,12 @@
+(role system_r)
+(role object_r)
+
+(user system_u)
+(userrole system_u system_r)
+(userrole system_u object_r)
+
+; system_u processes and files span the full category range so that
+; privileged subjects pass MCS dominance checks regardless of the
+; MCS pair assigned to any individual container.
+(userlevel system_u s0-s0)
+(userrange system_u s0-s0)

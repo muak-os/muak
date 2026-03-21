@@ -1,0 +1,123 @@
+; ── Process domain types ─────────────────────────────────────────────────────
+
+(type kernel_t)
+(roletype system_r kernel_t)
+
+; Processes that should never exist (MCS backstop for illegal transitions).
+(type forbidden_t)
+(roletype system_r forbidden_t)
+
+; ── Attributes ───────────────────────────────────────────────────────────────
+
+; All confined service process domains (every svc_t added via declare_service).
+(typeattribute service_t)
+
+; All confined service executable types (every svc_exec_t added via declare_service).
+(typeattribute service_exec_t)
+
+; Every type with an xattr label on the squashfs rootfs. overlayfs calls
+; vfs_getxattr() on lower-layer inodes during path lookup (trusted.overlay.redirect),
+; which triggers a getattr check against the mounter's credentials (kernel_t).
+(typeattribute sqsh_file_type)
+
+; ── MCS subject attributes ────────────────────────────────────────────────────
+
+; All process domains in the system.
+; Expanded after granola_t is declared in granola.cil, and after each
+; declare_service call adds a new svc_t.
+(typeattribute all_s)
+(typeattributeset all_s (kernel_t forbidden_t service_t))
+
+; Privileged subjects: run with the full category range (s0-s0:c0.c1023)
+; and therefore dominate every MCS pair.  In muak this is kernel_t and
+; granola_t; service_t members are confined but still host processes
+; running at the base level, so they are not privileged in the MCS sense.
+; granola_t is added to privileged_s in granola.cil after the type is
+; declared.
+(typeattribute privileged_s)
+(typeattributeset privileged_s (kernel_t))
+
+; Trusted subjects: allowed to perform label-changing operations.
+; Identical to privileged_s in muak (no control_t / super_t analog yet).
+(typeattribute trusted_s)
+(typeattributeset trusted_s (privileged_s))
+
+; ── MCS object attributes ─────────────────────────────────────────────────────
+
+; Constrained objects: files where MCS dominance is enforced.
+; muak_data_t is the only type written on behalf of containers (future use).
+(typeattribute constrained_o)
+(typeattributeset constrained_o (muak_data_t))
+
+; Unconstrained objects: not subject to MCS read/write restrictions.
+; This is every object type that is not constrained.
+(typeattribute unconstrained_o)
+
+; ── Shared object types ──────────────────────────────────────────────────────
+
+(type security_t)
+(roletype object_r security_t)
+
+(type unlabeled_t)
+(roletype object_r unlabeled_t)
+
+(type fs_t)
+(roletype object_r fs_t)
+
+(type file_t)
+(roletype object_r file_t)
+
+(type dir_t)
+(roletype object_r dir_t)
+
+; ── Runtime file types ───────────────────────────────────────────────────────
+
+(type muak_run_t)
+(roletype object_r muak_run_t)
+
+(type muak_state_t)
+(roletype object_r muak_state_t)
+
+(type muak_data_t)
+(roletype object_r muak_data_t)
+
+; ── Pseudo-filesystem types ──────────────────────────────────────────────────
+
+(type proc_t)
+(roletype object_r proc_t)
+
+(type sysfs_t)
+(roletype object_r sysfs_t)
+
+(type devtmpfs_t)
+(roletype object_r devtmpfs_t)
+
+(type tmpfs_t)
+(roletype object_r tmpfs_t)
+
+(type selinuxfs_t)
+(roletype object_r selinuxfs_t)
+
+(type efivarfs_t)
+(roletype object_r efivarfs_t)
+
+; ── Other shared file types ──────────────────────────────────────────────────
+
+(type modules_t)
+(roletype object_r modules_t)
+
+; ── Attribute membership (requires all object types to be declared first) ────
+
+; sqsh_file_type: types with xattr labels baked into the squashfs rootfs.
+(typeattributeset sqsh_file_type (modules_t file_t))
+
+; unconstrained_o: every object type that is not muak_data_t.
+; Additional object types declared in service CIL files are added here
+; via their declare_service macro, which sets sqsh_file_type.  The xor
+; pattern ensures that any newly added exec type is automatically
+; unconstrained unless explicitly placed in constrained_o.
+(typeattributeset unconstrained_o (
+    security_t unlabeled_t fs_t file_t dir_t
+    muak_run_t muak_state_t
+    proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
+    modules_t))

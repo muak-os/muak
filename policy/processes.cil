@@ -1,0 +1,34 @@
+; ── processes classmap ───────────────────────────────────────────────────────
+;
+; Semantic permission groups for process-to-process operations.
+;
+; Slots:
+;   fork       - fork and inspect scheduling
+;   transition - execve domain transition
+;   signal     - send/receive signals
+
+(classmap processes (fork transition signal))
+
+; ── fork ─────────────────────────────────────────────────────────────────────
+
+(classpermission process_fork)
+(classpermissionset process_fork
+    (process (fork getsched setsched getpgid setpgid getcap getattr)))
+
+(classmapping processes fork process_fork)
+
+; ── transition ───────────────────────────────────────────────────────────────
+
+(classpermission process_transition)
+(classpermissionset process_transition
+    (process (transition share noatsecure siginh rlimitinh)))
+
+(classmapping processes transition process_transition)
+
+; ── signal ───────────────────────────────────────────────────────────────────
+
+(classpermission process_signal)
+(classpermissionset process_signal
+    (process (signal sigchld signull sigkill sigstop)))
+
+(classmapping processes signal process_signal)

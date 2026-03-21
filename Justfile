@@ -299,16 +299,15 @@ kspp:
 policy-check:
     printf "{{ cyan }}Checking SELinux policy{{ reset }}\n"
     {{ container_runtime }} run --rm \
-        -v {{ justfile_directory() }}/core:/core:ro \
+        -v {{ justfile_directory() }}/policy:/policy:ro \
         -v {{ justfile_directory() }}/services:/services:ro \
         docker.io/debian:trixie-slim sh -c '
     set -euo pipefail
     apt-get update -qq && apt-get install -y -qq --no-install-recommends secilc >/dev/null 2>&1
     cd /tmp
-    find /core /services -name "*.cil" -exec cp {} . \;
+    find /policy /services -name "*.cil" -exec cp {} . \;
     secilc -c 34 -o /dev/null -f /dev/null \
-        base.cil macros.cil \
-        $(ls *.cil | grep -v -e "^base\.cil$" -e "^macros\.cil$" | LC_ALL=c sort)
+        $(find . -name "*.cil" | LC_ALL=c sort)
     echo "Policy OK"'
     printf "{{ green }}SELinux policy is valid{{ reset }}\n"
 

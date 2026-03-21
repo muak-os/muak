@@ -1,0 +1,53 @@
+(handleunknown deny)
+
+; Build an MLS policy so that sensitivity tags appear in file_contexts,
+; making the output compatible with setfiles.
+(mls true)
+
+; Single sensitivity.  We do not implement a true MLS lattice; s0 is the
+; only sensitivity used throughout the policy.
+(sensitivity s0)
+(sensitivityorder (s0))
+
+; Associate all 1024 categories with s0 so the MCS pair mechanism works.
+(sensitivitycategory s0 (range c0 c1023))
+
+; The base level (no categories) used for host processes and files.
+(level s0 (s0))
+(levelrange s0 (s0 s0))
+
+; The full-range level (all categories) used for privileged containers and
+; the privileged subject attribute in MCS constraints.
+(level s0-s0 (s0 (range c0 c1023)))
+(levelrange s0-s0 (s0 s0-s0))
+
+; Inherit the category range from the target directory rather than the
+; creating process.  This ensures new files get the right MCS pair even
+; when the creating process holds a wider or narrower range.
+(defaultrange files target low-high)
+
+; Enable consolidated network peer controls (avoids compatibility shim).
+(policycap "network_peer_controls")
+
+; Enable per-open permission checks on file classes.
+(policycap "open_perms")
+
+; Enable separate socket security classes (e.g. icmp_socket, sctp_socket).
+(policycap "extended_socket_class")
+
+; Enable labeling of the cgroup filesystem via genfscon.
+(policycap "cgroup_seclabel")
+
+; Allow domain transitions with the NNP bit set or on nosuid filesystems.
+(policycap "nnp_nosuid_transition")
+
+; Enable genfscon labeling for symlinks on kernel filesystems.
+(policycap "genfs_seclabel_symlinks")
+
+; FIOCLEX / FIONCLEX are always allowed (equivalent fcntl path is always
+; permitted, so no security value in checking the ioctl path).
+(policycap "ioctl_skip_cloexec")
+
+; Allow the policy to supply the context for userspace processes that are
+; started before the SELinux policy is loaded (uses the init SID).
+(policycap "userspace_initial_context")

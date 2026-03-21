@@ -1,0 +1,11 @@
+; ── Focused neverallow rules ──────────────────────────────────────────────────
+;
+; Enforced at policy compile time by secilc. These catch accidental privilege
+; escalations in service CIL files.
+
+; No service may load or modify the SELinux policy.
+(neverallow service_t security_t (systems (policy)))
+
+; No service may write kernel module files.
+; (Reading modules is permitted — modd loads kernel modules read-only.)
+(neverallow service_t modules_t (files (mutate)))

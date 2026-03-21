@@ -1,0 +1,86 @@
+; MCS (Multi-Category Security) constraints.
+;
+; MLS dominance recap relevant to this policy:
+;
+;   s0:c0,c1 dominates s0:c1        (superset of categories)
+;   s0:c0.c4 dominates s0:c2        (range includes target)
+;   s0:c0,c1 does NOT dominate s0:c1,c2  (only partial overlap)
+;
+; The container runtime assigns two random categories (an MCS pair) to
+; each unprivileged container so that no two containers dominate each
+; other.  Privileged host processes and granola run with the full range
+; s0-s0:c0.c1023 and therefore dominate every MCS pair.
+;
+; The constraints below mirror Bottlerocket's mcs.cil adapted for muak's
+; type model:
+;
+;   privileged_s  — kernel_t and granola_t; dominate all MCS pairs
+;   trusted_s     — same as privileged_s (no control_t analog in muak yet)
+;   all_s         — every process domain (kernel_t, granola_t, service_t)
+;   constrained_o — muak_data_t (files written on behalf of containers)
+;   unconstrained_o — all other object types
+
+; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+
+; Restrict file reads unless one of these conditions is met:
+;   * the source level dominates the target level
+;   * the source is a privileged subject (kernel_t or granola_t)
+;   * the target is a subject type (e.g. /proc/<pid>/<file>)
+;   * the target is an unconstrained object (not muak_data_t)
+(mlsconstrain (files (load))
+    (or (dom h1 h2)
+        (or (eq t1 privileged_s)
+            (or (eq t2 all_s)
+                (eq t2 unconstrained_o)))))
+
+; Restrict file writes and mounton operations unless:
+;   * the source level dominates the target level
+;   * the source is a privileged subject
+;   * the target is an unconstrained object
+(mlsconstrain (files (mutate mounton))
+    (or (dom h1 h2)
+        (or (eq t1 privileged_s)
+            (eq t2 unconstrained_o))))
+
+; Restrict file label transitions unless:
+;   * the new label is identical to the old label (no-op relabel)
+;   * the process performing the transition is trusted
+(mlsvalidatetrans files
+    (or (eq t3 trusted_s)
+        (and (and (and (and
+             (eq u1 u2)
+             (eq r1 r2))
+             (eq t1 t2))
+             (eq h1 h2))
+             (eq l1 l2))))
+
+; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+
+; Restrict cross-domain signaling unless:
+;   * the source level dominates the target level
+;   * the source is a privileged subject
+(mlsconstrain (processes (signal))
+    (or (dom h1 h2)
+        (eq t1 privileged_s)))
+
+; Restrict process label transitions unless:
+;   * the new label is identical to the old label
+;   * the source is trusted and the target is not forbidden
+(mlsconstrain (processes (transition))
+    (or (and (eq t1 trusted_s)
+             (neq t2 forbidden_t))
+        (and (and (and (and
+             (eq u1 u2)
+             (eq r1 r2))
+             (eq t1 t2))
+             (eq h1 h2))
+             (eq l1 l2))))
+
+; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+
+; Restrict capability and system-class operations unless:
+;   * the source level dominates the target level
+;   * the source is a privileged subject
+(mlsconstrain (systems (boot_caps service_caps syslog policy))
+    (or (dom h1 h2)
+        (eq t1 privileged_s)))
