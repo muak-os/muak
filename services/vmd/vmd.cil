@@ -1,66 +1,35 @@
 ; Muak SELinux policy: vmd (VM hypervisor manager)
+; Domain: vmd_t
 
-; Declare the vmd process domain and its executable file type.
-(type vmd_t)
 (type vmd_exec_t)
+(call declare_exec (vmd_t vmd_exec_t))
 
-; Register vmd as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> vmd_t domain transition on exec.
-(call declare_service (vmd_t vmd_exec_t))
-
-; vmd must only execute dm-verity-protected code.
-(typeattributeset verified_s (vmd_t))
-
-; Grant vmd sys_admin (for memory/device passthrough, cgroup management) and
-; net_admin (for setting up VM network bridges and TAP devices).
 (allow vmd_t self (capability (sys_admin net_admin)))
 
-; Allow vmd to create TUN/TAP sockets (for virtual network interfaces
-; connecting VMs to the host network).
 (allow vmd_t self (tun_socket (create)))
 
 ; networkd creates the TAP fd and passes it to cloud-hypervisor over the IPC
-; socket. The kernel requires relabelfrom on the fd's current label (networkd_t)
+; socket. The kernel requires relabelfrom on the fd's current label (network_t)
 ; and relabelto on the destination label (vmd_t) to transfer socket ownership.
-(allow vmd_t networkd_t (tun_socket (relabelfrom)))
-(allow vmd_t self       (tun_socket (relabelto)))
+(allow vmd_t network_t (tun_socket (relabelfrom)))
+(allow vmd_t self      (tun_socket (relabelto)))
 
-; Allow vmd to connect to networkd's Unix socket for bridge/TAP management.
-(allow vmd_t networkd_t (unix_stream_socket (connectto)))
+(allow vmd_t network_t (unix_stream_socket (connectto)))
 
-; Allow vmd to execute hypervisor binaries from extension images. Extensions
-; built by backhand carry no security.selinux xattr, so files are unlabeled_t
-; at mount time; the base rootfs labels are file_t via xattr. Both are covered.
-; execute_no_trans: no domain transition when running the hypervisor.
-(allow vmd_t file_t     (file (execute execute_no_trans map)))
+(allow vmd_t file_t      (file (execute execute_no_trans map)))
 (allow vmd_t unlabeled_t (file (read open getattr execute execute_no_trans map)))
 
-; Allow vmd to read /sys (CPU topology, IOMMU groups, device info for
-; passthrough).
 (call allow_sysfs_read    (vmd_t))
-
-; Allow vmd to read /dev (access device nodes for disk images, passthrough
-; devices, /dev/kvm, /dev/vhost-net). ioctl: KVM ioctls on /dev/kvm.
 (call allow_devtmpfs_read (vmd_t))
 (allow vmd_t devtmpfs_t (chr_file (ioctl)))
 
-; Allow vmd full read/write access to /run (PID file, VM control sockets).
-(call allow_run_rw     (vmd_t))
+(call allow_run_rw   (vmd_t))
 
-; In maintenance mode /run/state does not exist (no btrfs partition). vmd's
-; create_dir_all("/run/state/vmd/vms") must create it on the tmpfs root.
-; Also allow creating dirs/files inside the muak_run_t hierarchy that results.
 (allow vmd_t tmpfs_t (dir (write add_name remove_name)))
 (typetransition vmd_t tmpfs_t dir muak_run_t)
 
-; In normal mode /run/state is a btrfs mount. The btrfs root inode has no
-; security.selinux xattr, so it defaults to fs_t. vmd needs to traverse
-; and create subdirectories on it.
-(allow vmd_t fs_t (dir (read write search create add_name remove_name)))
+(allow vmd_t fs_t (dir  (read write search create add_name remove_name)))
 (allow vmd_t fs_t (file (read write create open getattr unlink rename)))
 
-; Allow vmd to read and write service state (/run/state/vmd/vms directory).
-(call allow_state_rw   (vmd_t))
-
-; Allow vmd to read and write the data partition (VM disk images, snapshots).
-(call allow_data_rw    (vmd_t))
+(call allow_state_rw (vmd_t))
+(call allow_data_rw  (vmd_t))

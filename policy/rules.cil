@@ -36,3 +36,19 @@
 
 ; All subjects can use all network objects without restriction.
 (allow all_s global (networks (use)))
+
+; ── Baseline grants for all service domains ───────────────────────────────────
+
+; Services write stdout/stderr to granola's pipe or directly to /dev.
+(allow service_t devtmpfs_t  (chr_file (write)))
+(allow service_t unlabeled_t (chr_file (write)))
+(allow service_t kernel_t    (chr_file (write)))
+(allow service_t granola_t   (fifo_file (write)))
+
+; Services read /proc (for /proc/self and process introspection).
+(call allow_proc_read (service_t))
+
+; Services can read /run sockets and files (inter-service coordination).
+(allow service_t muak_run_t (dir       (read search)))
+(allow service_t muak_run_t (file      (read open getattr)))
+(allow service_t muak_run_t (sock_file (read write getattr)))

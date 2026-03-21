@@ -1,105 +1,41 @@
 ; Muak SELinux policy: provisiond (disk provisioner)
+; Domain: system_t
 
-; Declare the provisiond process domain and its executable file type.
-(type provisiond_t)
 (type provisiond_exec_t)
+(call declare_exec (system_t provisiond_exec_t))
 
-; Register provisiond as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> provisiond_t domain transition on exec.
-(call declare_service (provisiond_t provisiond_exec_t))
+(allow system_t self (capability (sys_admin sys_boot mknod)))
 
-; provisiond must only execute dm-verity-protected code.
-(typeattributeset verified_s  (provisiond_t))
+(allow system_t self (netlink_generic_socket (create bind read write)))
 
-; Grant provisiond sys_admin for disk management operations (partitioning,
-; formatting, mounting filesystems) and sys_boot for system reboot after
-; provisioning completes.
-(allow provisiond_t self (capability (sys_admin sys_boot mknod)))
+(call allow_sysfs_rw  (system_t))
 
-; Allow provisiond to create and use generic netlink sockets (for communicating
-; with kernel subsystems during disk provisioning).
-(allow provisiond_t self (netlink_generic_socket (create bind read write)))
+(allow system_t devtmpfs_t (dir      (read write search add_name remove_name)))
+(allow system_t devtmpfs_t (blk_file (read write create open getattr ioctl setattr unlink)))
+(allow system_t devtmpfs_t (chr_file (read write open getattr ioctl)))
 
-; Allow provisiond to read and write /sys entries (disk device attributes,
-; block device parameters).
-(call allow_sysfs_rw    (provisiond_t))
+(allow system_t efivarfs_t (dir  (read write search getattr add_name)))
+(allow system_t efivarfs_t (file (read write create open getattr setattr ioctl)))
 
-; Allow provisiond to access block devices in /dev for disk I/O (partitioning,
-; formatting) and character devices for ioctls. Also access the /dev directory.
-; write+add_name on devtmpfs_t dir is needed to create /dev/mapper/<name> nodes.
-; remove_name is needed for dm_crypt_close which unlinks /dev/mapper/<name>.
-; create on blk_file is needed for mknodat(BlockDevice) in ensure_dev_node.
-(allow provisiond_t devtmpfs_t (dir      (read write search add_name remove_name)))
-(allow provisiond_t devtmpfs_t (blk_file (read write create open getattr ioctl setattr unlink)))
-(allow provisiond_t devtmpfs_t (chr_file (read write open getattr ioctl)))
+(allow system_t tmpfs_t (dir (write add_name remove_name)))
+(typetransition system_t tmpfs_t dir muak_run_t)
 
-; Allow provisiond to read and write EFI variables (manage boot entries,
-; set boot order after provisioning). getattr on the dir is needed for
-; sbolt::efi to stat the efivarfs mount point to check availability.
-; create is needed for write_efivar_auth (OpenOptions::create(true)).
-; setattr is needed to clear the immutable flag via FS_IOC_SETFLAGS.
-(allow provisiond_t efivarfs_t (dir  (read write search getattr add_name)))
-(allow provisiond_t efivarfs_t (file (read write create open getattr setattr ioctl)))
+(call allow_run_rw   (system_t))
+(call allow_state_rw (system_t))
+(call allow_data_rw  (system_t))
 
-; Allow provisiond to create work directories on the tmpfs root (/run/install,
-; /run/mnt, etc.). The typetransition labels them muak_run_t so allow_run_rw
-; covers all subsequent access.
-(allow provisiond_t tmpfs_t (dir (write add_name remove_name)))
-(typetransition provisiond_t tmpfs_t dir muak_run_t)
+(allow system_t fs_t        (filesystem (mount unmount getattr)))
+(allow system_t unlabeled_t (filesystem (mount unmount getattr)))
 
-; Allow provisiond full read/write access to /run (PID file, progress sockets).
-(call allow_run_rw    (provisiond_t))
+(allow system_t unlabeled_t (dir  (read write search create add_name remove_name getattr)))
+(allow system_t unlabeled_t (file (read write create open getattr setattr unlink rename)))
 
-; Allow provisiond to read and write service state (record provisioning status,
-; update disk layout config).
-(call allow_state_rw  (provisiond_t))
+(allow system_t fs_t (dir  (read write search create add_name remove_name getattr mounton)))
+(allow system_t fs_t (file (read write create open getattr setattr unlink rename)))
 
-; Allow provisiond to read and write the data partition (write filesystem
-; images, store provisioning artifacts).
-(call allow_data_rw   (provisiond_t))
+(allow system_t self (tcp_socket (create connect read write getattr setopt getopt shutdown)))
+(allow system_t unlabeled_t (tcp_socket (name_connect node_bind)))
 
-; Allow provisiond to mount/unmount filesystems (EFI system partition at
-; /run/mnt/efi, data partition formatting). fs_t covers btrfs/ext4; unlabeled_t
-; covers FAT32 (vfat has no xattr support so the fs gets unlabeled_t).
-(allow provisiond_t fs_t        (filesystem (mount unmount getattr)))
-(allow provisiond_t unlabeled_t (filesystem (mount unmount getattr)))
-
-; Allow provisiond to read and write files on the mounted EFI partition (vfat).
-; vfat has no xattr support so all inodes get unlabeled_t. Needed to create
-; EFI/BOOT/ and copy the UKI image.
-(allow provisiond_t unlabeled_t (dir  (read write search create add_name remove_name getattr)))
-(allow provisiond_t unlabeled_t (file (read write create open getattr setattr unlink rename)))
-
-; Allow provisiond to read and write files on the mounted STATE partition (btrfs).
-; btrfs uses xattr-based labeling so new files created by provisiond get fs_t.
-; Needed to write config, auth, secrets, and history under /run/mnt/state.
-(allow provisiond_t fs_t (dir  (read write search create add_name remove_name getattr mounton)))
-(allow provisiond_t fs_t (file (read write create open getattr setattr unlink rename)))
-
-; Allow provisiond to create and use TCP sockets (pulling installer image over
-; HTTP/HTTPS from the registry, and outbound API calls during provisioning).
-(allow provisiond_t self (tcp_socket (create connect read write getattr setopt getopt shutdown)))
-
-; Allow provisiond to bind TCP sockets to network addresses and send/receive
-; traffic. All network objects are unlabeled_t (no per-port/node labels).
-(allow provisiond_t unlabeled_t (tcp_socket    (name_connect node_bind)))
-
-; Allow provisiond to load a kexec kernel and initramfs (update flow).
-; kexec_image_load/kexec_initramfs_load are system-class permissions checked
-; against the security context of the file fd passed to kexec_file_load(2).
-; The vmlinuz and initramfs written by provisiond on the btrfs STATE partition
-; are unlabeled_t (no xattr set), so the target is unlabeled_t, not kernel_t.
-(allow provisiond_t unlabeled_t (system (kexec_image_load kexec_initramfs_load)))
-
-; Allow provisiond to search the kernel's trusted keyring. This is required by
-; the in-kernel kexec PE signature verification path (CONFIG_KEXEC_SIG_FORCE):
-; the kernel checks SELinux key:search on its own keyring before verifying the
-; bzImage Authenticode signature.
-(allow provisiond_t kernel_t (key (search)))
-
-; Allow provisiond to request the crypto module needed for kexec PE signature
-; verification (crypto-pkcs1(rsa,sha256) is loaded on demand by the kernel's
-; kexec verification path).
-(allow provisiond_t kernel_t (system (module_request)))
-
-
+(allow system_t unlabeled_t (system (kexec_image_load kexec_initramfs_load)))
+(allow system_t kernel_t    (key    (search)))
+(allow system_t kernel_t    (system (module_request)))

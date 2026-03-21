@@ -1,41 +1,18 @@
 ; Muak SELinux policy: consoled (console status display daemon)
+; Domain: system_t
 
-; Declare the consoled process domain and its executable file type.
-(type consoled_t)
 (type consoled_exec_t)
+(call declare_exec (system_t consoled_exec_t))
 
-; Register consoled as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> consoled_t domain transition on exec.
-(call declare_service (consoled_t consoled_exec_t))
+(allow system_t self (capability (sys_tty_config)))
+(allow system_t self (capability2 (syslog)))
+(allow system_t kernel_t (system (syslog_read)))
 
-; consoled must only execute dm-verity-protected code.
-(typeattributeset verified_s (consoled_t))
+(allow system_t devtmpfs_t (dir      (read search)))
+(allow system_t devtmpfs_t (chr_file (read write open getattr ioctl)))
 
-; Grant consoled sys_tty_config for configuring the virtual console
-; (/dev/tty0) terminal attributes (raw mode, window size queries).
-(allow consoled_t self (capability (sys_tty_config)))
+(call allow_state_read (system_t))
+(call allow_sysfs_read (system_t))
 
-; Grant consoled CAP_SYSLOG for reading the kernel ring buffer via /dev/kmsg.
-(allow consoled_t self (capability2 (syslog)))
-
-; Allow consoled to read the kernel syslog ring buffer (system:syslog_read is
-; checked in addition to capability2:syslog when reading /dev/kmsg).
-(allow consoled_t kernel_t (system (syslog_read)))
-
-; Allow consoled to access /dev: read directory and read/write character
-; devices (/dev/tty0 for display output, /dev/kmsg for kernel log input).
-(allow consoled_t devtmpfs_t (dir      (read search)))
-(allow consoled_t devtmpfs_t (chr_file (read write open getattr ioctl)))
-
-; Allow consoled to read service state from /run/state (config.toml for display).
-(call allow_state_read (consoled_t))
-
-; Allow consoled to read /sys entries (network interface types, EFI secure boot
-; status for display on the console).
-(call allow_sysfs_read (consoled_t))
-
-; Allow consoled to read EFI variables (SecureBoot status for display).
-(allow consoled_t efivarfs_t (dir  (read search)))
-(allow consoled_t efivarfs_t (file (read open getattr)))
-
-
+(allow system_t efivarfs_t (dir  (read search)))
+(allow system_t efivarfs_t (file (read open getattr)))

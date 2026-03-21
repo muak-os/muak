@@ -1,6 +1,4 @@
 ; Read /proc: self dir/file stat for /proc/self entries.
-; load/describe on proc_t are covered globally; this adds the self-process
-; dir search and file open/read that /proc/self requires.
 (macro allow_proc_read ((type domain))
     (allow domain proc_t (files (load)))
     (allow domain proc_t (files (describe)))
@@ -57,42 +55,29 @@
     (allow domain muak_data_t (files (load)))
     (allow domain muak_data_t (files (mutate))))
 
-; Declare a confined service domain and wire it into the policy.
+; Wire an executable type to an existing functional service domain.
 ;
-; Grants: role bindings, entrypoint perms, granola_t->svc_t typetransition,
-; sqsh_file_type membership for the exec type (overlay mounter getattr),
-; and the baseline permissions every service needs at runtime:
-;   - /proc read, /run socket read/write, rootfs file read
-;   - write to granola's fifo and /dev chr_file (stdout/stderr redirect)
+; Domain types (system_t, api_t, network_t, clock_t, module_t, vmd_t) are
+; declared once in types.cil. declare_exec registers a per-binary exec type
+; and connects it to the appropriate domain:
 ;
-; Global rules in rules.cil cover: process self-interaction and describe,
-; self-transform, fd use, all file reads (load/describe), all socket use,
-; all network object use.
+;   - exec_t is added to service_exec_t, sqsh_file_type, all_o, unconstrained_o
+;   - granola_t -> domain_t typetransition on exec of exec_t
+;   - domain_t may execute and enter via exec_t
+;   - granola_t may execute exec_t and transform into domain_t
 ;
-; Usage: (call declare_service (svc_t svc_exec_t))
-(macro declare_service ((type svc_t) (type svc_exec_t))
-    (roletype system_r svc_t)
-    (roletype object_r svc_exec_t)
-    (typeattributeset service_t      (svc_t))
-    (typeattributeset service_exec_t (svc_exec_t))
-    (typeattributeset sqsh_file_type (svc_exec_t))
-    ; MCS: service processes are host subjects; exec types are unconstrained objects.
-    (typeattributeset all_s           (svc_t))
-    (typeattributeset all_o           (svc_exec_t))
-    (typeattributeset unconstrained_o (svc_exec_t))
-    (allow svc_t     svc_exec_t  (files       (load)))
-    (allow svc_t     svc_exec_t  (files       (execute)))
-    (allow svc_t     svc_exec_t  (files       (enter)))
-    (allow granola_t svc_exec_t  (files       (execute)))
-    (allow kernel_t  svc_exec_t  (files       (execute)))
-    (allow granola_t svc_t       (processes   (transform)))
-    (allow granola_t svc_t       (process     (noatsecure rlimitinh siginh)))
-    (allow svc_t     devtmpfs_t  (chr_file    (write)))
-    (allow svc_t     unlabeled_t (chr_file    (write)))
-    (allow svc_t     kernel_t    (chr_file    (write)))
-    (allow svc_t     granola_t   (fifo_file   (write)))
-    (allow svc_t     muak_run_t  (dir         (read search)))
-    (allow svc_t     muak_run_t  (file        (read open getattr)))
-    (allow svc_t     muak_run_t  (sock_file   (read write getattr)))
-    (call allow_proc_read (svc_t))
-    (typetransition granola_t svc_exec_t process svc_t))
+; Usage: (call declare_exec (domain_t exec_t))
+(macro declare_exec ((type domain_t) (type exec_t))
+    (roletype object_r exec_t)
+    (typeattributeset service_exec_t  (exec_t))
+    (typeattributeset sqsh_file_type  (exec_t))
+    (typeattributeset all_o           (exec_t))
+    (typeattributeset unconstrained_o (exec_t))
+    (allow domain_t  exec_t   (files (load)))
+    (allow domain_t  exec_t   (files (execute)))
+    (allow domain_t  exec_t   (files (enter)))
+    (allow granola_t exec_t   (files (execute)))
+    (allow kernel_t  exec_t   (files (execute)))
+    (allow granola_t domain_t (processes (transform)))
+    (allow granola_t domain_t (process   (noatsecure rlimitinh siginh)))
+    (typetransition granola_t exec_t process domain_t))

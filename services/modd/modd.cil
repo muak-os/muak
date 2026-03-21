@@ -1,42 +1,21 @@
 ; Muak SELinux policy: modd (kernel module and device manager)
+; Domain: module_t
 
-; Declare the modd process domain and its executable file type.
-(type modd_t)
 (type modd_exec_t)
+(call declare_exec (module_t modd_exec_t))
 
-; Register modd as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> modd_t domain transition on exec.
-(call declare_service (modd_t modd_exec_t))
+(allow module_t self (capability (sys_admin net_admin sys_module)))
 
-; modd must only execute dm-verity-protected code.
-(typeattributeset verified_s (modd_t))
+(allow module_t self (netlink_kobject_uevent_socket (create bind read write)))
 
-; Grant modd sys_admin (for device management operations like mknod, mount),
-; net_admin (for configuring network device attributes exposed via sysfs), and
-; sys_module (for loading kernel modules via init_module syscall).
-(allow modd_t self (capability (sys_admin net_admin sys_module)))
+(allow module_t kernel_t (system (module_load)))
 
-; Allow modd to create and use netlink uevent sockets (for receiving kernel
-; device hotplug notifications).
-(allow modd_t self (netlink_kobject_uevent_socket (create bind read write)))
+(allow module_t sysfs_t (dir  (read write search create add_name)))
+(allow module_t sysfs_t (file (read write open getattr)))
 
-; Allow modd to load kernel modules (SELinux checks system:module_load on
-; kernel_t in addition to the capability check).
-(allow modd_t kernel_t (system (module_load)))
+(allow module_t devtmpfs_t (dir      (read write search create add_name)))
+(allow module_t devtmpfs_t (chr_file (read write open getattr)))
+(allow module_t devtmpfs_t (blk_file (read write open getattr)))
 
-; Allow modd to read, write, and create entries in /sys (bind/unbind drivers,
-; write to device attribute files, create sysfs nodes).
-(allow modd_t sysfs_t    (dir  (read write search create add_name)))
-(allow modd_t sysfs_t    (file (read write open getattr)))
-
-; Allow modd to manage /dev (create device nodes, read/write character and
-; block devices).
-(allow modd_t devtmpfs_t (dir      (read write search create add_name)))
-(allow modd_t devtmpfs_t (chr_file (read write open getattr)))
-(allow modd_t devtmpfs_t (blk_file (read write open getattr)))
-
-; Allow modd to read kernel modules from /lib/modules (for insmod/modprobe).
-(allow modd_t modules_t  (dir  (read search)))
-(allow modd_t modules_t  (file (read open getattr)))
-
-
+(allow module_t modules_t (dir  (read search)))
+(allow module_t modules_t (file (read open getattr)))

@@ -86,7 +86,7 @@
 (allow granola_t file_t        (lnk_file (read)))
 (allow granola_t file_t        (files    (mount)))
 ; load + describe on all squashfs xattr-labeled types (modules_t, granola_exec_t,
-; svc_exec_t members): overlayfs redirect/metacopy xattr probes, dir reads, file stats.
+; service exec types): overlayfs redirect/metacopy xattr probes, dir reads, file stats.
 (allow granola_t sqsh_file_type (files (load)))
 (allow granola_t sqsh_file_type (files (describe)))
 (allow granola_t unlabeled_t (dir      (read write search open getattr ioctl)))

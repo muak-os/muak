@@ -19,10 +19,10 @@
 
 ; ── Code execution integrity ──────────────────────────────────────────────────
 
-; verified_s domains (consoled_t, modd_t, networkd_t, provisiond_t, timed_t,
-; vmd_t) must not execute mutable runtime files. file_t is excluded because
-; vmd_t legitimately executes hypervisor binaries labeled file_t from extension
-; images. mutable_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t.
+; verified_s domains (system_t, network_t, clock_t, module_t, vmd_t) must not
+; execute mutable runtime files. file_t is excluded because vmd_t legitimately
+; executes hypervisor binaries labeled file_t from extension images.
+; mutable_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t.
 (neverallow verified_s mutable_o (files (execute)))
 
 ; verified_s domains must not use execmod (text relocation on mmapped files).
@@ -41,8 +41,8 @@
 ; ── File integrity (immutable rootfs) ────────────────────────────────────────
 
 ; No domain may mutate files carrying a squashfs xattr label. These types live
-; on the rootfs and are physically read-only. sqsh_file_type covers: 
-; file_t, modules_t, granola_exec_t, and every svc_exec_t.
+; on the rootfs and are physically read-only. sqsh_file_type covers:
+; file_t, modules_t, granola_exec_t, and every service exec_t.
 (neverallow all_s sqsh_file_type (files (mutate)))
 
 ; ── Relabeling ────────────────────────────────────────────────────────────────

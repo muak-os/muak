@@ -7,12 +7,39 @@
 (type forbidden_t)
 (roletype system_r forbidden_t)
 
+; ── Functional service domain types ──────────────────────────────────────────
+
+; General confined services
+(type system_t)
+(roletype system_r system_t)
+
+; API gateway
+(type api_t)
+(roletype system_r api_t)
+
+; Network management
+(type network_t)
+(roletype system_r network_t)
+
+; Clock/time management
+(type clock_t)
+(roletype system_r clock_t)
+
+; Kernel module and device management
+(type module_t)
+(roletype system_r module_t)
+
+; VM hypervisor management
+(type vmd_t)
+(roletype system_r vmd_t)
+
 ; ── Attributes ───────────────────────────────────────────────────────────────
 
-; All confined service process domains (every svc_t added via declare_service).
+; All confined service process domains.
 (typeattribute service_t)
+(typeattributeset service_t (system_t api_t network_t clock_t module_t vmd_t))
 
-; All confined service executable types (every svc_exec_t added via declare_service).
+; All confined service executable types.
 (typeattribute service_exec_t)
 
 ; Every type with an xattr label on the squashfs rootfs. overlayfs calls
@@ -23,8 +50,6 @@
 ; ── Subject attributes ────────────────────────────────────────────────────────
 
 ; All process domains in the system.
-; Expanded after granola_t is declared in granola.cil, and after each
-; declare_service call adds a new svc_t.
 (typeattribute all_s)
 (typeattributeset all_s (kernel_t forbidden_t service_t))
 
@@ -36,32 +61,28 @@
 ; Union of all subjects and objects. Used in broad rules that apply everywhere.
 (typeattribute global)
 
-; Privileged subjects: kernel_t and granola_t (added in granola.cil).
+; Privileged subjects
 ; Also trusted: may perform label-changing and process-transition operations.
-; Service domains are host processes but not privileged in the MCS sense.
 (typeattribute privileged_s)
 (typeattributeset privileged_s (kernel_t))
 
-; Subjects confined by policy (strict subset of host processes).
-; networkd_t and timed_t are added to confined_s in their service CIL files.
+; Subjects confined by policy.
 (typeattribute confined_s)
+(typeattributeset confined_s (service_t))
 
-; Subjects not treated as privileged: the confined services.
-; Muak has no containers (no other_s), so this is exactly confined_s.
+; Subjects not treated as privileged: all service domains.
 (typeattribute untrusted_s)
 (typeattributeset untrusted_s (xor (all_s) (privileged_s)))
 
 ; Subjects that must only execute dm-verity-protected (immutable) code.
-; Excludes kernel_t (needs mutable exec for NFS etc), granola_t (PID 1 init),
-; and apid_t (runs migrations from sealed anonymous memory).
-; All remaining services (consoled_t, modd_t, networkd_t, provisiond_t,
-; timed_t, vmd_t) are added to verified_s in their service CIL files.
+; Excludes kernel_t (needs mutable exec for NFS etc), granola_t (PID 1),
+; and api_t (runs migrations from sealed anonymous memory).
 (typeattribute verified_s)
+(typeattributeset verified_s (system_t network_t clock_t module_t vmd_t))
 
 ; ── Object attributes ─────────────────────────────────────────────────────────
 
-; All object types in the system. Service exec types are added by
-; declare_service; granola_exec_t is added in granola.cil.
+; All object types in the system. 
 (typeattribute all_o)
 (typeattributeset all_o (
     security_t unlabeled_t fs_t file_t dir_t
@@ -70,12 +91,10 @@
     modules_t))
 
 ; Constrained objects: files where MCS dominance is enforced.
-; muak_data_t is the only type written on behalf of containers (future use).
 (typeattribute constrained_o)
 (typeattributeset constrained_o (muak_data_t))
 
 ; Unconstrained objects: not subject to MCS read/write restrictions.
-; This is every object type that is not constrained.
 (typeattribute unconstrained_o)
 
 ; ── Shared object types ──────────────────────────────────────────────────────
@@ -149,10 +168,8 @@
 (typeattributeset sqsh_file_type (modules_t file_t))
 
 ; unconstrained_o: every object type that is not muak_data_t.
-; Additional object types declared in service CIL files are added here
-; via their declare_service macro, which sets sqsh_file_type.  The xor
-; pattern ensures that any newly added exec type is automatically
-; unconstrained unless explicitly placed in constrained_o.
+; Exec types added via declare_exec are placed in sqsh_file_type and
+; therefore land here automatically.
 (typeattributeset unconstrained_o (
     security_t unlabeled_t fs_t file_t dir_t
     muak_run_t muak_state_t

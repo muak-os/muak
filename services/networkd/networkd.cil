@@ -1,74 +1,27 @@
 ; Muak SELinux policy: networkd (network configuration daemon)
+; Domain: network_t
 
-; Declare the networkd process domain and its executable file type.
-(type networkd_t)
 (type networkd_exec_t)
+(call declare_exec (network_t networkd_exec_t))
 
-; Register networkd as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> networkd_t domain transition on exec.
-(call declare_service (networkd_t networkd_exec_t))
+(allow network_t self (capability (net_admin sys_admin net_raw net_bind_service)))
 
-; networkd manages network interfaces.
-; Confined: strictly limited to network management permissions.
-; Verified: must only execute dm-verity-protected code.
-(typeattributeset confined_s  (networkd_t))
-(typeattributeset verified_s  (networkd_t))
+(allow network_t self (unix_stream_socket (create bind listen accept read write shutdown)))
+(allow network_t self (unix_dgram_socket  (create connect write)))
+(allow network_t self (netlink_route_socket (create bind read write nlmsg_write nlmsg_read)))
+(allow network_t self (tun_socket (create attach_queue)))
+(allow network_t self (udp_socket (create bind connect read write getattr setopt getopt)))
+(allow network_t self (rawip_socket (create bind read write getattr setopt getopt ioctl)))
+(allow network_t self (tcp_socket (create bind connect read write getattr setopt getopt shutdown)))
 
-; Grant networkd net_admin (for configuring interfaces, routes, and iptables),
-; sys_admin (for namespace operations and advanced network setup), and
-; net_raw (for raw ICMPv6 sockets used in SLAAC).
-(allow networkd_t self (capability (net_admin sys_admin net_raw net_bind_service)))
+(call allow_sysfs_rw      (network_t))
+(call allow_devtmpfs_read (network_t))
+(call allow_run_rw        (network_t))
+(call allow_state_read    (network_t))
 
-; Allow networkd to create and use Unix stream sockets (bidirectional IPC with
-; granola and other services).
-(allow networkd_t self (unix_stream_socket (create bind listen accept read write shutdown)))
+(allow network_t tmpfs_t (dir (write add_name remove_name)))
+(typetransition network_t tmpfs_t file muak_run_t)
 
-; Allow networkd to create and use Unix datagram sockets (fire-and-forget
-; notifications).
-(allow networkd_t self (unix_dgram_socket  (create connect write)))
-
-; Allow networkd to create and use netlink route sockets (for reading and
-; modifying the kernel routing table, interface addresses, and link state).
-(allow networkd_t self (netlink_route_socket (create bind read write nlmsg_write nlmsg_read)))
-
-; Allow networkd to create TUN/TAP devices and attach to their queues
-; (for virtual network interfaces like VPN tunnels).
-(allow networkd_t self (tun_socket (create attach_queue)))
-
-; Allow networkd to read and write /sys entries (enable/disable interfaces,
-; configure driver parameters).
-(call allow_sysfs_rw      (networkd_t))
-
-; Allow networkd to read /dev and issue ioctls on char devices.
-(call allow_devtmpfs_read (networkd_t))
-(allow networkd_t devtmpfs_t (chr_file (ioctl)))
-
-; Allow networkd full read/write access to /run (PID file, state sockets).
-(call allow_run_rw     (networkd_t))
-
-; Allow networkd to read service state from /run/state (network config).
-(call allow_state_read (networkd_t))
-
-; Allow networkd to create and use UDP sockets (DHCP client on port 68).
-(allow networkd_t self (udp_socket (create bind connect read write getattr setopt getopt)))
-
-; Allow networkd to create and use raw sockets (ICMPv6 for SLAAC/NDP).
-(allow networkd_t self (rawip_socket (create bind read write getattr setopt getopt ioctl)))
-
-; Allow networkd to create and use TCP sockets (HTTPS connectivity checks).
-(allow networkd_t self (tcp_socket (create bind connect read write getattr setopt getopt shutdown)))
-
-; Allow networkd to create and rename files on the tmpfs root (/run).
-; /run is tmpfs whose root inode is tmpfs_t. networkd writes /run/resolv.conf
-; (via a tmp-and-rename pattern). The typetransition ensures files created by
-; networkd on tmpfs are born with muak_run_t, so file-level permissions are
-; covered by allow_run_rw. Only the directory modification needs tmpfs_t.
-(allow networkd_t tmpfs_t (dir (write add_name remove_name)))
-(typetransition networkd_t tmpfs_t file muak_run_t)
-
-; Allow networkd to bind sockets to network ports and addresses. Ports and
-; nodes default to unlabeled_t because the policy does not assign per-port
-; labels.
-(allow networkd_t unlabeled_t (udp_socket    (name_bind node_bind)))
-(allow networkd_t unlabeled_t (tcp_socket    (name_bind name_connect node_bind)))
-(allow networkd_t unlabeled_t (rawip_socket  (name_bind node_bind)))
+(allow network_t unlabeled_t (udp_socket  (name_bind node_bind)))
+(allow network_t unlabeled_t (tcp_socket  (name_bind name_connect node_bind)))
+(allow network_t unlabeled_t (rawip_socket (name_bind node_bind)))

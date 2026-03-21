@@ -1,41 +1,16 @@
 ; Muak SELinux policy: timed (NTP time sync daemon)
+; Domain: clock_t
 
-; Declare the timed process domain and its executable file type.
-(type timed_t)
 (type timed_exec_t)
+(call declare_exec (clock_t timed_exec_t))
 
-; Register timed as a confined service: creates role bindings, entrypoint
-; permissions, and the granola_t -> timed_t domain transition on exec.
-(call declare_service (timed_t timed_exec_t))
+(allow clock_t self (capability (sys_time)))
 
-; timed manages the system clock.
-; Confined: strictly limited to its own narrow permissions.
-; Verified: must only execute dm-verity-protected code.
-(typeattributeset confined_s  (timed_t))
-(typeattributeset verified_s  (timed_t))
+(allow clock_t self (udp_socket (create bind connect read write getattr setopt getopt)))
+(allow clock_t self (unix_dgram_socket (create connect write sendto)))
 
-; Grant timed the sys_time capability so it can call settimeofday/adjtimex
-; to adjust the system clock after NTP synchronization.
-(allow timed_t self (capability (sys_time)))
+(call allow_sysfs_rw      (clock_t))
+(call allow_state_read    (clock_t))
+(call allow_run_socket_rw (clock_t))
 
-; Allow timed to create and use UDP sockets (NTP uses UDP port 123).
-; bind: UdpSocket::bind("0.0.0.0:0"); setopt/getopt: SO_REUSEADDR etc.
-(allow timed_t self (udp_socket (create bind connect read write getattr setopt getopt)))
-
-; Allow timed to create and use Unix datagram sockets (notify granola).
-(allow timed_t self (unix_dgram_socket (create connect write sendto)))
-
-; Allow timed to read and write /sys entries (RTC device attributes, clock
-; source configuration).
-(call allow_sysfs_rw      (timed_t))
-
-; Allow timed to read config from /run/state (NTP server list via config::init).
-(call allow_state_read (timed_t))
-
-; Allow timed to read /run files (muak_run_t), including /run/resolv.conf
-; written by networkd, which libc reads for DNS resolution of NTP hostnames.
-(call allow_run_socket_rw (timed_t))
-
-; Allow timed to bind UDP sockets to network addresses and send/receive NTP
-; packets. All network objects are unlabeled_t (no per-port/node labels).
-(allow timed_t unlabeled_t (udp_socket    (node_bind)))
+(allow clock_t unlabeled_t (udp_socket (node_bind)))
