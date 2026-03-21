@@ -8,6 +8,9 @@
 ; permissions, and the granola_t -> provisiond_t domain transition on exec.
 (call declare_service (provisiond_t provisiond_exec_t))
 
+; provisiond must only execute dm-verity-protected code.
+(typeattributeset verified_s (provisiond_t))
+
 ; Allow provisiond to fork child processes.
 (allow provisiond_t self (process (fork)))
 

@@ -8,6 +8,13 @@
 ; permissions, and the granola_t -> networkd_t domain transition on exec.
 (call declare_service (networkd_t networkd_exec_t))
 
+; networkd manages network interfaces
+; Confined: strictly limited to network management permissions.
+; Verified: must only execute dm-verity-protected code.
+(typeattributeset network_s  (networkd_t))
+(typeattributeset confined_s (networkd_t))
+(typeattributeset verified_s (networkd_t))
+
 ; Allow networkd to fork child processes.
 (allow networkd_t self (process (fork)))
 

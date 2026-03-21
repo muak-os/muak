@@ -20,7 +20,7 @@
 ; which triggers a getattr check against the mounter's credentials (kernel_t).
 (typeattribute sqsh_file_type)
 
-; ── MCS subject attributes ────────────────────────────────────────────────────
+; ── Subject attributes ────────────────────────────────────────────────────────
 
 ; All process domains in the system.
 ; Expanded after granola_t is declared in granola.cil, and after each
@@ -28,19 +28,43 @@
 (typeattribute all_s)
 (typeattributeset all_s (kernel_t forbidden_t service_t))
 
-; Privileged subjects: run with the full category range (s0-s0:c0.c1023)
-; and therefore dominate every MCS pair.  In muak this is kernel_t and
-; granola_t; service_t members are confined but still host processes
-; running at the base level, so they are not privileged in the MCS sense.
-; granola_t is added to privileged_s in granola.cil after the type is
-; declared.
+; Privileged subjects: kernel_t and granola_t (added in granola.cil).
+; Also trusted: may perform label-changing and process-transition operations.
+; Service domains are host processes but not privileged in the MCS sense.
 (typeattribute privileged_s)
 (typeattributeset privileged_s (kernel_t))
 
-; Trusted subjects: allowed to perform label-changing operations.
-; Identical to privileged_s in muak (no control_t / super_t analog yet).
-(typeattribute trusted_s)
-(typeattributeset trusted_s (privileged_s))
+; Subjects confined by policy (strict subset of host processes).
+; networkd_t and timed_t are added to confined_s in their service CIL files.
+(typeattribute confined_s)
+
+; Subjects not confined by policy: everything outside confined_s.
+(typeattribute unconfined_s)
+(typeattributeset unconfined_s (xor (all_s) (confined_s)))
+
+; Subjects not treated as privileged: the confined services.
+; Muak has no containers (no other_s), so this is exactly confined_s.
+(typeattribute untrusted_s)
+(typeattributeset untrusted_s (xor (all_s) (privileged_s)))
+
+; Subjects that must only execute dm-verity-protected (immutable) code.
+; Excludes kernel_t (needs mutable exec for NFS etc), granola_t (PID 1 init),
+; and apid_t (runs migrations from sealed anonymous memory).
+; All remaining services (consoled_t, modd_t, networkd_t, provisiond_t,
+; timed_t, vmd_t) are added to verified_s in their service CIL files.
+(typeattribute verified_s)
+
+; Subjects allowed to manage the API datastore (apid_t added in apid.cil).
+(typeattribute api_s)
+
+; Subjects allowed to manage the system clock (timed_t added in timed.cil).
+(typeattribute clock_s)
+
+; Subjects allowed to manage network interfaces (networkd_t added in networkd.cil).
+(typeattribute network_s)
+
+; Subjects allowed to control OS-wide system state (granola_t added in granola.cil).
+(typeattribute control_s)
 
 ; ── MCS object attributes ─────────────────────────────────────────────────────
 

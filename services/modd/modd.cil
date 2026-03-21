@@ -8,6 +8,9 @@
 ; permissions, and the granola_t -> modd_t domain transition on exec.
 (call declare_service (modd_t modd_exec_t))
 
+; modd must only execute dm-verity-protected code.
+(typeattributeset verified_s (modd_t))
+
 ; Allow modd to fork child processes.
 (allow modd_t self (process (fork)))
 

@@ -10,9 +10,10 @@
 (typeattributeset sqsh_file_type (granola_exec_t))
 
 ; granola_t runs with the full category range and dominates all MCS pairs.
-(typeattributeset all_s       (granola_t))
+(typeattributeset all_s        (granola_t))
 (typeattributeset privileged_s (granola_t))
-(typeattributeset trusted_s    (granola_t))
+; granola_t controls OS-wide system state (PID 1 supervisor role).
+(typeattributeset control_s    (granola_t))
 
 ; granola_exec_t is an object type; add it to unconstrained_o.
 (typeattributeset unconstrained_o (granola_exec_t))

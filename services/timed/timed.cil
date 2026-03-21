@@ -8,6 +8,13 @@
 ; permissions, and the granola_t -> timed_t domain transition on exec.
 (call declare_service (timed_t timed_exec_t))
 
+; timed manages the system clock
+; Confined: strictly limited to its own narrow permissions.
+; Verified: must only execute dm-verity-protected code.
+(typeattributeset clock_s    (timed_t))
+(typeattributeset confined_s (timed_t))
+(typeattributeset verified_s (timed_t))
+
 ; Allow timed to fork child processes.
 (allow timed_t self (process (fork)))
 

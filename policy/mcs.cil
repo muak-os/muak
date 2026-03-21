@@ -11,11 +11,8 @@
 ; other.  Privileged host processes and granola run with the full range
 ; s0-s0:c0.c1023 and therefore dominate every MCS pair.
 ;
-; The constraints below mirror Bottlerocket's mcs.cil adapted for muak's
-; type model:
-;
-;   privileged_s  — kernel_t and granola_t; dominate all MCS pairs
-;   trusted_s     — same as privileged_s (no control_t analog in muak yet)
+;   privileged_s  — kernel_t and granola_t; dominate all MCS pairs and
+;                   are trusted to perform label-changing operations
 ;   all_s         — every process domain (kernel_t, granola_t, service_t)
 ;   constrained_o — muak_data_t (files written on behalf of containers)
 ;   unconstrained_o — all other object types
@@ -44,9 +41,9 @@
 
 ; Restrict file label transitions unless:
 ;   * the new label is identical to the old label (no-op relabel)
-;   * the process performing the transition is trusted
+;   * the process performing the transition is privileged
 (mlsvalidatetrans files
-    (or (eq t3 trusted_s)
+    (or (eq t3 privileged_s)
         (and (and (and (and
              (eq u1 u2)
              (eq r1 r2))
@@ -65,9 +62,9 @@
 
 ; Restrict process label transitions unless:
 ;   * the new label is identical to the old label
-;   * the source is trusted and the target is not forbidden
+;   * the source is privileged and the target is not forbidden
 (mlsconstrain (processes (transition))
-    (or (and (eq t1 trusted_s)
+    (or (and (eq t1 privileged_s)
              (neq t2 forbidden_t))
         (and (and (and (and
              (eq u1 u2)

@@ -8,6 +8,9 @@
 ; permissions, and the granola_t -> vmd_t domain transition on exec.
 (call declare_service (vmd_t vmd_exec_t))
 
+; vmd must only execute dm-verity-protected code.
+(typeattributeset verified_s (vmd_t))
+
 ; Allow vmd to fork child processes (for spawning VM instances).
 (allow vmd_t self (process (fork)))
 
