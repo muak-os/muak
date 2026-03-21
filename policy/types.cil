@@ -130,6 +130,18 @@
 (type modules_t)
 (roletype object_r modules_t)
 
+; ── Object attributes for neverallow rules ───────────────────────────────────
+
+; Runtime-mutable storage types: created or modified at runtime, never on the
+; dm-verity-backed squashfs rootfs. verified_s domains must not execute these.
+(typeattribute mutable_o)
+(typeattributeset mutable_o (muak_run_t muak_state_t muak_data_t tmpfs_t))
+
+; Ephemeral storage types: mutable at runtime and explicitly not valid as
+; domain-transition entrypoints. Entrypoints must be on the squashfs rootfs.
+(typeattribute ephemeral_o)
+(typeattributeset ephemeral_o (muak_run_t muak_state_t muak_data_t tmpfs_t devtmpfs_t))
+
 ; ── Attribute membership (requires all object types to be declared first) ────
 
 ; sqsh_file_type: types with xattr labels baked into the squashfs rootfs.

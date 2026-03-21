@@ -1,11 +1,67 @@
-; ── Focused neverallow rules ──────────────────────────────────────────────────
+; ── neverallow rules ──────────────────────────────────────────────────────────
 ;
-; Enforced at policy compile time by secilc. These catch accidental privilege
-; escalations in service CIL files.
+; Compile-time guarantees enforced by secilc. Each rule prevents an entire
+; class of privilege escalation from being accidentally introduced by future
+; allow rules in service CIL files.
 
-; No service may load or modify the SELinux policy.
+; ── Process interaction ───────────────────────────────────────────────────────
+
+; Unprivileged domains cannot interact with (signal, ptrace, etc.) privileged
+; ones. kernel_t and granola_t are privileged_s; all service domains are not.
+(neverallow untrusted_s privileged_s (processes (interact)))
+
+; Confined domains (networkd_t, timed_t) cannot interact with (signal, ptrace,
+; etc.) privileged processes. Self-interaction is permitted by declare_service.
+(neverallow confined_s privileged_s (processes (interact)))
+
+; No domain may ever transition into or use the forbidden backstop type.
+(neverallow all_s forbidden_t (processes (transform)))
+(neverallow forbidden_t all_s (files (enter)))
+
+; ── Code execution integrity ──────────────────────────────────────────────────
+
+; verified_s domains (consoled_t, modd_t, networkd_t, provisiond_t, timed_t,
+; vmd_t) must not execute mutable runtime files. file_t is excluded because
+; vmd_t legitimately executes hypervisor binaries labeled file_t from extension
+; images. mutable_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t.
+(neverallow verified_s mutable_o (files (execute)))
+
+; verified_s domains must not use execmod (text relocation on mmapped files).
+; execmod is the canonical sign of dynamically patched or JIT-compiled code.
+(neverallow verified_s all_s (files (relax)))
+
+; verified_s domains must not relax their own process memory constraints
+; (execheap, execmem, execstack).
+(neverallow verified_s all_s (processes (relax)))
+
+; No domain may use files on ephemeral/mutable storage as domain-transition
+; entrypoints. Entrypoints must reside on the dm-verity-backed squashfs root.
+; ephemeral_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t, devtmpfs_t.
+(neverallow all_s ephemeral_o (files (enter)))
+
+; ── File integrity (immutable rootfs) ────────────────────────────────────────
+
+; No domain may mutate files carrying a squashfs xattr label. These types live
+; on the dm-verity-backed rootfs and are physically read-only. sqsh_file_type
+; covers: file_t, modules_t, granola_exec_t, and every svc_exec_t.
+(neverallow all_s sqsh_file_type (files (mutate)))
+
+; ── Relabeling ────────────────────────────────────────────────────────────────
+
+; Only privileged_s may relabel file objects.
+; Untrusted services cannot change labels — that is a privilege-escalation path.
+(neverallow untrusted_s all_s (files (relabel)))
+
+; ── fanotify blocking ─────────────────────────────────────────────────────────
+
+; Only privileged_s may use fanotify permission events (watch_with_perm) to
+; block process access to files. Untrusted components must not intercept I/O.
+(neverallow untrusted_s all_s (files (block)))
+
+; ── Policy and modules ────────────────────────────────────────────────────────
+
+; No service domain may load or modify the SELinux policy.
 (neverallow service_t security_t (systems (policy)))
 
-; No service may write kernel module files.
-; (Reading modules is permitted — modd loads kernel modules read-only.)
+; No service domain may write kernel module files.
 (neverallow service_t modules_t (files (mutate)))

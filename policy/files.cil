@@ -106,14 +106,8 @@
 
 (classpermission enter_file)
 (classpermissionset enter_file          (file      (entrypoint)))
-(classpermission enter_chr_file)
-(classpermissionset enter_chr_file      (chr_file  (entrypoint)))
-(classpermission enter_blk_file)
-(classpermissionset enter_blk_file      (blk_file  (entrypoint)))
 
 (classmapping files enter enter_file)
-(classmapping files enter enter_chr_file)
-(classmapping files enter enter_blk_file)
 
 ; ── describe ──────────────────────────────────────────────────────────────────
 
