@@ -10,10 +10,6 @@
 ; ones. kernel_t and granola_t are privileged_s; all service domains are not.
 (neverallow untrusted_s privileged_s (processes (interact)))
 
-; Confined domains (networkd_t, timed_t) cannot interact with (signal, ptrace,
-; etc.) privileged processes. Self-interaction is permitted by declare_service.
-(neverallow confined_s privileged_s (processes (interact)))
-
 ; No domain may ever transition into or use the forbidden backstop type.
 (neverallow all_s forbidden_t (processes (transform)))
 (neverallow forbidden_t all_s (files (enter)))
@@ -42,8 +38,8 @@
 ; ── File integrity (immutable rootfs) ────────────────────────────────────────
 
 ; No domain may mutate files carrying a squashfs xattr label. These types live
-; on the dm-verity-backed rootfs and are physically read-only. sqsh_file_type
-; covers: file_t, modules_t, granola_exec_t, and every svc_exec_t.
+; on the rootfs and are physically read-only. sqsh_file_type covers: 
+; file_t, modules_t, granola_exec_t, and every svc_exec_t.
 (neverallow all_s sqsh_file_type (files (mutate)))
 
 ; ── Relabeling ────────────────────────────────────────────────────────────────

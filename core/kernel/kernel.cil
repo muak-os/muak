@@ -5,10 +5,6 @@
 ; setup, then exec-transitions to granola_t. All post-pivot work (squashfs
 ; traversal, overlay mounts, rootfs exec) is granola_t's responsibility.
 
-; Process self-permissions.
-(allow kernel_t self (processes (interact)))
-(allow kernel_t self (processes (describe)))
-
 ; Early-boot capabilities.
 (allow kernel_t self (systems    (boot_caps)))
 (allow kernel_t self (systems    (syslog)))

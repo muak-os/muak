@@ -27,9 +27,6 @@
 ; Allow standard Unix socket IPC with granola.
 (call allow_daemon_ipc (modd_t))
 
-; Allow modd to read /proc (kernel parameters, device info).
-(call allow_proc_read (modd_t))
-
 ; Allow modd to read, write, and create entries in /sys (bind/unbind drivers,
 ; write to device attribute files, create sysfs nodes).
 (allow modd_t sysfs_t    (dir  (read write search create add_name)))
@@ -45,6 +42,4 @@
 (allow modd_t modules_t  (dir  (read search)))
 (allow modd_t modules_t  (file (read open getattr)))
 
-; Allow modd to read/write sockets owned by other services under /run (modd
-; connects to granola's socket but does not create its own).
-(call allow_run_socket_rw (modd_t))
+

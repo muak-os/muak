@@ -17,7 +17,7 @@
 ;   constrained_o — muak_data_t (files written on behalf of containers)
 ;   unconstrained_o — all other object types
 
-; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+; ──────────────────────────────────────────────────────────────
 
 ; Restrict file reads unless one of these conditions is met:
 ;   * the source level dominates the target level
@@ -51,7 +51,7 @@
              (eq h1 h2))
              (eq l1 l2))))
 
-; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+; ──────────────────────────────────────────────────────────────
 
 ; Restrict cross-domain signaling unless:
 ;   * the source level dominates the target level
@@ -73,7 +73,7 @@
              (eq h1 h2))
              (eq l1 l2))))
 
-; =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=   =^..^=
+; ──────────────────────────────────────────────────────────────
 
 ; Restrict capability and system-class operations unless:
 ;   * the source level dominates the target level

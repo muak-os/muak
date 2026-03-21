@@ -38,10 +38,6 @@
 ; networkd_t and timed_t are added to confined_s in their service CIL files.
 (typeattribute confined_s)
 
-; Subjects not confined by policy: everything outside confined_s.
-(typeattribute unconfined_s)
-(typeattributeset unconfined_s (xor (all_s) (confined_s)))
-
 ; Subjects not treated as privileged: the confined services.
 ; Muak has no containers (no other_s), so this is exactly confined_s.
 (typeattribute untrusted_s)
@@ -54,19 +50,21 @@
 ; timed_t, vmd_t) are added to verified_s in their service CIL files.
 (typeattribute verified_s)
 
-; Subjects allowed to manage the API datastore (apid_t added in apid.cil).
-(typeattribute api_s)
+; Network-capable services: share base unlabeled network object access
+; (node sendto/recvfrom, association sendto/recvfrom, netif ingress/egress).
+; Individual services add protocol-specific socket bindings in their CIL files.
+(typeattribute networked_s)
 
-; Subjects allowed to manage the system clock (timed_t added in timed.cil).
-(typeattribute clock_s)
+; ── Object attributes ─────────────────────────────────────────────────────────
 
-; Subjects allowed to manage network interfaces (networkd_t added in networkd.cil).
-(typeattribute network_s)
-
-; Subjects allowed to control OS-wide system state (granola_t added in granola.cil).
-(typeattribute control_s)
-
-; ── MCS object attributes ─────────────────────────────────────────────────────
+; All object types in the system. Service exec types are added by
+; declare_service; granola_exec_t is added in granola.cil.
+(typeattribute all_o)
+(typeattributeset all_o (
+    security_t unlabeled_t fs_t file_t dir_t
+    muak_run_t muak_state_t muak_data_t
+    proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
+    modules_t))
 
 ; Constrained objects: files where MCS dominance is enforced.
 ; muak_data_t is the only type written on behalf of containers (future use).

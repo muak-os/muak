@@ -27,10 +27,9 @@
 
 ; Allow vmd to execute hypervisor binaries from extension images (labeled
 ; file_t). execute_no_trans: no domain transition when running the hypervisor.
-(allow vmd_t file_t (file (read execute execute_no_trans getattr open map)))
-
-; Allow vmd to read /proc (VM process info, memory stats, NUMA topology).
-(call allow_proc_read     (vmd_t))
+; read/open/getattr are already granted by declare_service; only execution
+; permissions and map are vmd-specific.
+(allow vmd_t file_t (file (execute execute_no_trans map)))
 
 ; Allow vmd to read /sys (CPU topology, IOMMU groups, device info for
 ; passthrough).

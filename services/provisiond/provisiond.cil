@@ -9,7 +9,9 @@
 (call declare_service (provisiond_t provisiond_exec_t))
 
 ; provisiond must only execute dm-verity-protected code.
-(typeattributeset verified_s (provisiond_t))
+; Networked: needs base network object access for registry pulls and API calls.
+(typeattributeset verified_s  (provisiond_t))
+(typeattributeset networked_s (provisiond_t))
 
 ; Grant provisiond sys_admin for disk management operations (partitioning,
 ; formatting, mounting filesystems) and sys_boot for system reboot after
@@ -22,9 +24,6 @@
 
 ; Allow standard Unix socket IPC with granola.
 (call allow_daemon_ipc (provisiond_t))
-
-; Allow provisiond to read /proc (kernel parameters, memory/disk info).
-(call allow_proc_read   (provisiond_t))
 
 ; Allow provisiond to read and write /sys entries (disk device attributes,
 ; block device parameters).
@@ -89,9 +88,6 @@
 ; Allow provisiond to bind TCP sockets to network addresses and send/receive
 ; traffic. All network objects are unlabeled_t (no per-port/node labels).
 (allow provisiond_t unlabeled_t (tcp_socket    (name_connect node_bind)))
-(allow provisiond_t unlabeled_t (node          (sendto recvfrom)))
-(allow provisiond_t unlabeled_t (association   (sendto recvfrom)))
-(allow provisiond_t unlabeled_t (netif         (ingress egress)))
 
 ; Allow provisiond to load a kexec kernel and initramfs (update flow).
 ; kexec_image_load/kexec_initramfs_load are system-class permissions checked
@@ -111,5 +107,4 @@
 ; kexec verification path).
 (allow provisiond_t kernel_t (system (module_request)))
 
-; Allow provisiond to read files from the rootfs overlay.
-(allow provisiond_t file_t (file (read open getattr)))
+

@@ -12,10 +12,8 @@
 ; granola_t runs with the full category range and dominates all MCS pairs.
 (typeattributeset all_s        (granola_t))
 (typeattributeset privileged_s (granola_t))
-; granola_t controls OS-wide system state (PID 1 supervisor role).
-(typeattributeset control_s    (granola_t))
-
-; granola_exec_t is an object type; add it to unconstrained_o.
+; granola_exec_t is an object type; add it to all_o and unconstrained_o.
+(typeattributeset all_o           (granola_exec_t))
 (typeattributeset unconstrained_o (granola_exec_t))
 
 ; kernel_t -> granola_t domain transition on exec of granola_exec_t.
@@ -31,10 +29,6 @@
 
 ; /dev/console inherited from kernel_t (predates devtmpfs mount).
 (allow granola_t kernel_t (chr_file (read write open getattr)))
-
-; Process self-permissions.
-(allow granola_t self (processes (interact)))
-(allow granola_t self (processes (describe)))
 
 ; Supervisor capabilities.
 (allow granola_t self (systems (boot_caps)))

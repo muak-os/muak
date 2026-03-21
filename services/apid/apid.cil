@@ -8,8 +8,8 @@
 ; permissions, and the granola_t -> apid_t domain transition on exec.
 (call declare_service (apid_t apid_exec_t))
 
-; apid backs the API datastore
-(typeattributeset api_s (apid_t))
+; apid needs network access for the HTTP/HTTPS API endpoint.
+(typeattributeset networked_s (apid_t))
 
 ; Allow apid to bind to privileged ports (< 1024) for the API listener.
 (allow apid_t self (capability (net_bind_service)))
@@ -22,24 +22,15 @@
 ; notifications).
 (call allow_daemon_ipc (apid_t))
 
-; Allow apid to read /proc (process info, system stats for API responses).
-(call allow_proc_read  (apid_t))
-
 ; Allow apid full read/write access to /run (PID file, API socket).
 (call allow_run_rw     (apid_t))
 
 ; Allow apid to read and write service state (update configuration via API).
 (call allow_state_rw   (apid_t))
 
-; Allow apid to read files from the rootfs overlay (TLS certs, shared libs).
-(allow apid_t file_t (file (read open getattr)))
-
 ; Allow apid to bind TCP sockets to network addresses and serve API traffic.
 ; All network objects are unlabeled_t (no per-port/node labels).
 (allow apid_t unlabeled_t (tcp_socket    (name_bind node_bind)))
-(allow apid_t unlabeled_t (node          (sendto recvfrom)))
-(allow apid_t unlabeled_t (association   (sendto recvfrom)))
-(allow apid_t unlabeled_t (netif         (ingress egress)))
 
 ; Allow apid to connect to backend service sockets for proxying API requests.
 (allow apid_t vmd_t         (unix_stream_socket (connectto)))

@@ -1,0 +1,25 @@
+; ── Global attribute-level allow rules ────────────────────────────────────────
+;
+; Permissions that apply broadly across all domains or all objects. These
+; replace repetitive per-domain grants and make the policy's trust model
+; explicit in one place.
+
+; All subjects can describe all objects (getattr on files, dirs, etc.).
+(allow all_s all_o (files (describe)))
+
+; All subjects can describe all other subjects' processes.
+(allow all_s all_s (processes (describe)))
+
+; All subjects can interact with their own processes.
+(allow all_s self (processes (interact)))
+
+; All subjects can write to files labeled with their own type (/proc/self).
+(allow all_s self (files (mutate)))
+
+; Privileged subjects can interact with all processes.
+(allow privileged_s all_s (processes (interact)))
+
+; All network-capable services share base network object access.
+(allow networked_s unlabeled_t (node       (sendto recvfrom)))
+(allow networked_s unlabeled_t (association (sendto recvfrom)))
+(allow networked_s unlabeled_t (netif      (ingress egress)))

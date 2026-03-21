@@ -8,12 +8,13 @@
 ; permissions, and the granola_t -> networkd_t domain transition on exec.
 (call declare_service (networkd_t networkd_exec_t))
 
-; networkd manages network interfaces
+; networkd manages network interfaces.
+; Networked: needs base network object access.
 ; Confined: strictly limited to network management permissions.
 ; Verified: must only execute dm-verity-protected code.
-(typeattributeset network_s  (networkd_t))
-(typeattributeset confined_s (networkd_t))
-(typeattributeset verified_s (networkd_t))
+(typeattributeset networked_s (networkd_t))
+(typeattributeset confined_s  (networkd_t))
+(typeattributeset verified_s  (networkd_t))
 
 ; Grant networkd net_admin (for configuring interfaces, routes, and iptables),
 ; sys_admin (for namespace operations and advanced network setup), and
@@ -35,9 +36,6 @@
 ; Allow networkd to create TUN/TAP devices and attach to their queues
 ; (for virtual network interfaces like VPN tunnels).
 (allow networkd_t self (tun_socket (create attach_queue)))
-
-; Allow networkd to read /proc (network stats, interface info).
-(call allow_proc_read     (networkd_t))
 
 ; Allow networkd to read and write /sys entries (enable/disable interfaces,
 ; configure driver parameters).
@@ -61,9 +59,6 @@
 ; Allow networkd to create and use TCP sockets (HTTPS connectivity checks).
 (allow networkd_t self (tcp_socket (create bind connect read write getattr setopt getopt shutdown)))
 
-; Allow networkd to read files from the rootfs overlay (shared libraries, etc.).
-(allow networkd_t file_t (file (read open getattr)))
-
 ; Allow networkd to create and rename files on the tmpfs root (/run).
 ; /run is tmpfs whose root inode is tmpfs_t. networkd writes /run/resolv.conf
 ; (via a tmp-and-rename pattern). The typetransition ensures files created by
@@ -78,6 +73,3 @@
 (allow networkd_t unlabeled_t (udp_socket    (name_bind node_bind)))
 (allow networkd_t unlabeled_t (tcp_socket    (name_bind name_connect node_bind)))
 (allow networkd_t unlabeled_t (rawip_socket  (name_bind node_bind)))
-(allow networkd_t unlabeled_t (node          (sendto recvfrom)))
-(allow networkd_t unlabeled_t (association   (sendto recvfrom)))
-(allow networkd_t unlabeled_t (netif         (ingress egress)))

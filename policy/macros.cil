@@ -64,7 +64,13 @@
 ;
 ; Grants: role bindings, entrypoint perms, granola_t->svc_t typetransition,
 ; sqsh_file_type membership for the exec type (overlay mounter getattr),
-; and the baseline permissions every service needs at runtime.
+; and the baseline permissions every service needs at runtime:
+;   - /proc read, /run socket read/write, rootfs file read
+;   - inherited FDs, SELinux null device, tmpfs/rootfs directory traversal
+;   - IPC with granola (fifo_file, unix_stream_socket, unix_dgram_socket)
+;   - self stream sockets
+;
+; Process self-interaction and describe are granted globally in rules.cil.
 ;
 ; Usage: (call declare_service (svc_t svc_exec_t))
 (macro declare_service ((type svc_t) (type svc_exec_t))
@@ -75,6 +81,7 @@
     (typeattributeset sqsh_file_type (svc_exec_t))
     ; MCS: service processes are host subjects; exec types are unconstrained objects.
     (typeattributeset all_s           (svc_t))
+    (typeattributeset all_o           (svc_exec_t))
     (typeattributeset unconstrained_o (svc_exec_t))
     (allow svc_t     svc_exec_t  (files       (load)))
     (allow svc_t     svc_exec_t  (files       (execute)))
@@ -90,12 +97,15 @@
     (allow svc_t     tmpfs_t     (dir      (search)))
     (allow svc_t     file_t      (dir      (search)))
     (allow svc_t     file_t      (lnk_file (read)))
+    (allow svc_t     file_t      (file     (read open getattr)))
     (allow svc_t     devtmpfs_t  (dir      (search)))
     (allow svc_t     devtmpfs_t  (chr_file (write open)))
     (allow svc_t     granola_t   (fifo_file        (write getattr)))
     (allow svc_t     granola_t   (unix_stream_socket (connectto accept read write getattr getopt)))
     (allow svc_t     granola_t   (unix_dgram_socket  (sendto)))
-    (allow svc_t     self        (processes (interact)))
-    (allow svc_t     self        (processes (describe)))
     (allow svc_t     self        (sockets   (stream)))
+    (allow svc_t     muak_run_t  (dir       (read search)))
+    (allow svc_t     muak_run_t  (file      (read open getattr)))
+    (allow svc_t     muak_run_t  (sock_file (read write getattr)))
+    (call allow_proc_read (svc_t))
     (typetransition granola_t svc_exec_t process svc_t))
