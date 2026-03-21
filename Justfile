@@ -294,9 +294,9 @@ kspp:
 # Utilities
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Validate SELinux CIL policy without a full Docker build
+# Validate SELinux CIL policy
 [script]
-policy-check:
+policy:
     printf "{{ cyan }}Checking SELinux policy{{ reset }}\n"
     {{ container_runtime }} run --rm \
         -v {{ justfile_directory() }}/policy:/policy:ro \
