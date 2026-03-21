@@ -48,12 +48,12 @@ yuki = { path = "tools/yuki", default-features = false }
 # External crates
 
 ## Asynchronous
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 tokio-rustls = { version = "0.26", default-features = false }
 
 ## CLI
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 crossterm = { version = "0.29", default-features = false, features = ["bracketed-paste", "events", "windows"] }
 
 ## Compression
@@ -64,13 +64,12 @@ zstd = { version = "0.13", default-features = false }
 ## Cryptography
 ring = { version = "0.17", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
-rustls-pemfile = "2.2"
 rustls-pki-types = "1.14"
 x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
 der = { version = "0.8.0", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8.0-rc.4", features = ["alloc", "pem"] }
 signature = "3.0.0-rc.10"
-rsa = "0.10.0-rc.15"
+rsa = "0.10.0-rc.17"
 cms = "0.3.0-pre.2"
 aes = "0.9.0-rc.4"
 argon2 = { version = "0.6.0-rc.7", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
@@ -94,7 +93,7 @@ fatfs = { version = "0.3", default-features = false, features = ["std"] }
 crc32c = "0.6"
 backhand = { version = "0.25", default-features = false, features = ["zstd"] }
 walkdir = "2.5"
-tempfile = { version = "3.26", default-features = false }
+tempfile = { version = "3.27", default-features = false }
 
 ## gRPC
 tonic = { version = "0.14", default-features = false, features = ["codegen", "transport", "router", "tls-ring"] }
@@ -117,7 +116,7 @@ uefi = "0.36"
 
 ## Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
-uuid = { version = "1.21", default-features = false, features = ["std", "v4", "v7"] }
+uuid = { version = "1.22", default-features = false, features = ["std", "v4", "v7"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
