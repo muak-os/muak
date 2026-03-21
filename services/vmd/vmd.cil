@@ -19,14 +19,21 @@
 ; connecting VMs to the host network).
 (allow vmd_t self (tun_socket (create)))
 
+; networkd creates the TAP fd and passes it to cloud-hypervisor over the IPC
+; socket. The kernel requires relabelfrom on the fd's current label (networkd_t)
+; and relabelto on the destination label (vmd_t) to transfer socket ownership.
+(allow vmd_t networkd_t (tun_socket (relabelfrom)))
+(allow vmd_t self       (tun_socket (relabelto)))
+
 ; Allow vmd to connect to networkd's Unix socket for bridge/TAP management.
 (allow vmd_t networkd_t (unix_stream_socket (connectto)))
 
-; Allow vmd to execute hypervisor binaries from extension images (labeled
-; file_t). execute_no_trans: no domain transition when running the hypervisor.
-; read/open/getattr are already granted by declare_service; only execution
-; permissions and map are vmd-specific.
-(allow vmd_t file_t (file (execute execute_no_trans map)))
+; Allow vmd to execute hypervisor binaries from extension images. Extensions
+; built by backhand carry no security.selinux xattr, so files are unlabeled_t
+; at mount time; the base rootfs labels are file_t via xattr. Both are covered.
+; execute_no_trans: no domain transition when running the hypervisor.
+(allow vmd_t file_t     (file (execute execute_no_trans map)))
+(allow vmd_t unlabeled_t (file (read open getattr execute execute_no_trans map)))
 
 ; Allow vmd to read /sys (CPU topology, IOMMU groups, device info for
 ; passthrough).

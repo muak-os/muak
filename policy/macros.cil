@@ -88,6 +88,8 @@
     (allow granola_t svc_t       (processes   (transform)))
     (allow granola_t svc_t       (process     (noatsecure rlimitinh siginh)))
     (allow svc_t     devtmpfs_t  (chr_file    (write)))
+    (allow svc_t     unlabeled_t (chr_file    (write)))
+    (allow svc_t     kernel_t    (chr_file    (write)))
     (allow svc_t     granola_t   (fifo_file   (write)))
     (allow svc_t     muak_run_t  (dir         (read search)))
     (allow svc_t     muak_run_t  (file        (read open getattr)))

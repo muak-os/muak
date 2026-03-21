@@ -32,6 +32,10 @@
 ; Allow timed to read config from /run/state (NTP server list via config::init).
 (call allow_state_read (timed_t))
 
+; Allow timed to read /run files (muak_run_t), including /run/resolv.conf
+; written by networkd, which libc reads for DNS resolution of NTP hostnames.
+(call allow_run_socket_rw (timed_t))
+
 ; Allow timed to bind UDP sockets to network addresses and send/receive NTP
 ; packets. All network objects are unlabeled_t (no per-port/node labels).
 (allow timed_t unlabeled_t (udp_socket    (node_bind)))

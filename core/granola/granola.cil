@@ -90,3 +90,7 @@
 (allow granola_t sqsh_file_type (files (load)))
 (allow granola_t sqsh_file_type (files (describe)))
 (allow granola_t unlabeled_t (dir      (read write search open getattr ioctl)))
+; Execute binaries from extension squashfs images. Extension files have no
+; security.selinux xattr (backhand does not support xattr writes), so they
+; are labeled unlabeled_t at mount time under fsuse xattr squashfs.
+(allow granola_t unlabeled_t (file     (read open getattr execute execute_no_trans map)))

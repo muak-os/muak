@@ -39,8 +39,9 @@
 ; configure driver parameters).
 (call allow_sysfs_rw      (networkd_t))
 
-; Allow networkd to read /dev (access network-related device nodes).
+; Allow networkd to read /dev and issue ioctls on char devices.
 (call allow_devtmpfs_read (networkd_t))
+(allow networkd_t devtmpfs_t (chr_file (ioctl)))
 
 ; Allow networkd full read/write access to /run (PID file, state sockets).
 (call allow_run_rw     (networkd_t))
