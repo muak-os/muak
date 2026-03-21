@@ -207,7 +207,7 @@ iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
 
 # Build OCI images (e.g., just oci granola kernel installer cli)
 [script]
-oci *pkgs: _require-docker-for-push
+oci *pkgs:
     pkgs="{{ pkgs }}"
     if [ -z "$pkgs" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just oci <pkg1> [pkg2...]\n"
@@ -323,15 +323,6 @@ _require-pkg pkg:
 
 [private]
 [script]
-_require-docker-for-push:
-    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} PUSH=true requires Docker (podman does not support --push)\n"
-        printf "{{ yellow }}Hint:{{ reset }} Set CONTAINER_RUNTIME=docker\n"
-        exit 1
-    fi
-
-[private]
-[script]
 _oci-build pkg:
     latest_tag=""
     if [ "{{ latest }}" = "true" ]; then
@@ -375,6 +366,12 @@ _oci-build pkg:
                 {{ push_arg }} \
                 --file "$dockerfile" \
                 .
+            if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
+                podman push {{ registry }}/pkgs/{{ pkg }}:{{ tag }} --tls-verify=false
+                if [ "{{ latest }}" = "true" ]; then
+                    podman push {{ registry }}/pkgs/{{ pkg }}:latest --tls-verify=false
+                fi
+            fi
             ;;
     esac
 
