@@ -10,9 +10,7 @@ pub mod error;
 use std::path::{Path, PathBuf};
 
 pub use error::{ImagerError, Result};
-use oci::local::extract_local_oci_layout;
 use oci::remote::{pull_to_dir, pull_to_temp};
-use oci::sign::sign_manifest;
 
 /// Maximum number of extensions to process concurrently.
 const MAX_CONCURRENT_EXTENSIONS: usize = 8;
@@ -25,19 +23,7 @@ pub async fn pull_image(reference: &str, output: &Path, pubkey_pem: Option<&str>
 
 /// Sign an OCI image manifest in the registry.
 pub async fn sign_image(reference: &str, privkey_pem: &str) -> Result<()> {
-    sign_manifest(reference, privkey_pem).await
-}
-
-/// Build a compressed CPIO archive containing EROFS images for each extension.
-pub async fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
-    let files = process_extensions(extensions).await?;
-    tokio::task::spawn_blocking(move || {
-        let cpio_data = cpio::create_archive(&files)?;
-        zstd::encode_all(&cpio_data[..], 19)
-            .map_err(|e| ImagerError::CpioError(format!("Compression failed: {}", e)))
-    })
-    .await
-    .map_err(|e| ImagerError::CpioError(e.to_string()))?
+    oci::sign::sign_manifest(reference, privkey_pem).await
 }
 
 /// Build a custom initramfs by merging a base with extensions.
@@ -55,6 +41,18 @@ pub async fn build_initramfs(base: &Path, extensions: &[String], output: &Path) 
 
     let extension_archive = build_extensions_archive(extensions).await?;
     append_to_file(output.to_path_buf(), extension_archive).await
+}
+
+/// Build a compressed CPIO archive containing EROFS images for each extension.
+async fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
+    let files = process_extensions(extensions).await?;
+    tokio::task::spawn_blocking(move || {
+        let cpio_data = cpio::create_archive(&files)?;
+        zstd::encode_all(&cpio_data[..], 19)
+            .map_err(|e| ImagerError::CpioError(format!("Compression failed: {}", e)))
+    })
+    .await
+    .map_err(|e| ImagerError::CpioError(e.to_string()))?
 }
 
 /// Append data to a file using a blocking task.
@@ -118,7 +116,7 @@ async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
             ))?
             .to_string_lossy()
             .to_string();
-        let dir = extract_local_oci_layout(Path::new(&ext)).await?;
+        let dir = oci::local::extract_local_oci_layout(Path::new(&ext)).await?;
         (name, dir)
     } else {
         let name = image::ImageReference::parse(&ext).image_name();
