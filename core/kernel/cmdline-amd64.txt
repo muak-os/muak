@@ -1,1 +1,1 @@
-console=tty0 console=ttyS0 init=/init
+console=tty0 console=ttyS0 init=/init rootfstype=ramfs

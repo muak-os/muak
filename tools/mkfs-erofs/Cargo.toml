@@ -1,0 +1,26 @@
+[package]
+name = "mkfs-erofs"
+description = "Build EROFS filesystem images with SELinux file_contexts support"
+edition.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "mkfs-erofs"
+required-features = ["cli"]
+
+[dependencies]
+# CLI
+clap = { workspace = true, optional = true }
+
+# Error handling
+anyhow = { workspace = true, optional = true }
+
+# Filesystem
+erofs = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
+
+[lints]
+workspace = true

@@ -1,13 +1,13 @@
-//! Extension discovery for squashfs images.
+//! Extension discovery for EROFS images.
 
 use std::path::Path;
 
-/// Discover extension squashfs images in the default extensions directory.
+/// Discover extension EROFS images in the default extensions directory.
 pub fn discover_extensions() -> Vec<String> {
     discover_extensions_in(Path::new("/extensions"))
 }
 
-/// Discovers extension squashfs images in a directory.
+/// Discovers extension EROFS images in a directory.
 pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
     if !extensions_dir.exists() {
         return Vec::new();
@@ -21,8 +21,8 @@ pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
-            let is_sqsh = path.extension().and_then(|s| s.to_str()) == Some("sqsh");
-            is_sqsh.then(|| path.to_str().map(String::from)).flatten()
+            let is_erofs = path.extension().and_then(|s| s.to_str()) == Some("erofs");
+            is_erofs.then(|| path.to_str().map(String::from)).flatten()
         })
         .collect()
 }
@@ -34,13 +34,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_extensions_finds_sqsh_files() {
+    fn discover_extensions_finds_erofs_files() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        std::fs::write(temp.path().join("app.sqsh"), b"").expect("Failed to create app.sqsh");
-        std::fs::write(temp.path().join("lib.sqsh"), b"").expect("Failed to create lib.sqsh");
-        std::fs::write(temp.path().join("tools.sqsh"), b"").expect("Failed to create tools.sqsh");
+        std::fs::write(temp.path().join("app.erofs"), b"").expect("Failed to create app.erofs");
+        std::fs::write(temp.path().join("lib.erofs"), b"").expect("Failed to create lib.erofs");
+        std::fs::write(temp.path().join("tools.erofs"), b"").expect("Failed to create tools.erofs");
         std::fs::write(temp.path().join("readme.txt"), b"").expect("Failed to create readme.txt");
         std::fs::write(temp.path().join("config.json"), b"").expect("Failed to create config.json");
 
@@ -48,36 +48,37 @@ mod tests {
         let extensions = discover_extensions_in(temp.path());
 
         // ASSERT
-        assert_eq!(extensions.len(), 3, "Should find 3 .sqsh files");
+        assert_eq!(extensions.len(), 3, "Should find 3 .erofs files");
         assert!(
-            extensions.iter().any(|e| e.ends_with("app.sqsh")),
-            "Should find app.sqsh"
+            extensions.iter().any(|e| e.ends_with("app.erofs")),
+            "Should find app.erofs"
         );
         assert!(
-            extensions.iter().any(|e| e.ends_with("lib.sqsh")),
-            "Should find lib.sqsh"
+            extensions.iter().any(|e| e.ends_with("lib.erofs")),
+            "Should find lib.erofs"
         );
         assert!(
-            extensions.iter().any(|e| e.ends_with("tools.sqsh")),
-            "Should find tools.sqsh"
+            extensions.iter().any(|e| e.ends_with("tools.erofs")),
+            "Should find tools.erofs"
         );
     }
 
     #[test]
-    fn discover_extensions_ignores_non_sqsh() {
+    fn discover_extensions_ignores_non_erofs() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::write(temp.path().join("file.tar.gz"), b"").unwrap();
         std::fs::write(temp.path().join("file.zip"), b"").unwrap();
         std::fs::write(temp.path().join("file.squashfs"), b"").unwrap();
-        std::fs::write(temp.path().join("filesqsh"), b"").unwrap();
+        std::fs::write(temp.path().join("file.sqsh"), b"").unwrap();
+        std::fs::write(temp.path().join("fileerofs"), b"").unwrap();
 
         // ACT
         let extensions = discover_extensions_in(temp.path());
 
         // ASSERT
-        assert_eq!(extensions.len(), 0, "Should not find any .sqsh files");
+        assert_eq!(extensions.len(), 0, "Should not find any .erofs files");
     }
 
     #[test]
@@ -118,8 +119,8 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         std::fs::create_dir(temp.path().join("subdir")).unwrap();
-        std::fs::write(temp.path().join("root.sqsh"), b"").unwrap();
-        std::fs::write(temp.path().join("subdir/nested.sqsh"), b"").unwrap();
+        std::fs::write(temp.path().join("root.erofs"), b"").unwrap();
+        std::fs::write(temp.path().join("subdir/nested.erofs"), b"").unwrap();
 
         // ACT
         let extensions = discover_extensions_in(temp.path());
@@ -128,11 +129,11 @@ mod tests {
         assert_eq!(
             extensions.len(),
             1,
-            "Should only find .sqsh files in root, not subdirectories"
+            "Should only find .erofs files in root, not subdirectories"
         );
         assert!(
-            extensions[0].ends_with("root.sqsh"),
-            "Should find root.sqsh"
+            extensions[0].ends_with("root.erofs"),
+            "Should find root.erofs"
         );
     }
 
@@ -141,7 +142,7 @@ mod tests {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        std::fs::write(temp.path().join("test.sqsh"), b"").unwrap();
+        std::fs::write(temp.path().join("test.erofs"), b"").unwrap();
 
         // ACT
         let extensions = discover_extensions_in(temp.path());
@@ -153,8 +154,8 @@ mod tests {
             "Should return full path, not just filename"
         );
         assert!(
-            extensions[0].ends_with("test.sqsh"),
-            "Path should end with test.sqsh"
+            extensions[0].ends_with("test.erofs"),
+            "Path should end with test.erofs"
         );
     }
 
@@ -163,9 +164,9 @@ mod tests {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        std::fs::write(temp.path().join("lowercase.sqsh"), b"").unwrap();
-        std::fs::write(temp.path().join("uppercase.SQSH"), b"").unwrap();
-        std::fs::write(temp.path().join("mixed.Sqsh"), b"").unwrap();
+        std::fs::write(temp.path().join("lowercase.erofs"), b"").unwrap();
+        std::fs::write(temp.path().join("uppercase.EROFS"), b"").unwrap();
+        std::fs::write(temp.path().join("mixed.Erofs"), b"").unwrap();
 
         // ACT
         let extensions = discover_extensions_in(temp.path());
@@ -174,8 +175,8 @@ mod tests {
         assert_eq!(
             extensions.len(),
             1,
-            "Should only match lowercase .sqsh extension"
+            "Should only match lowercase .erofs extension"
         );
-        assert!(extensions[0].ends_with("lowercase.sqsh"));
+        assert!(extensions[0].ends_with("lowercase.erofs"));
     }
 }

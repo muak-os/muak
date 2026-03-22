@@ -34,13 +34,13 @@
 (neverallow verified_s all_s (processes (relax)))
 
 ; No domain may use files on ephemeral/mutable storage as domain-transition
-; entrypoints. Entrypoints must reside on the dm-verity-backed squashfs root.
+; entrypoints. Entrypoints must reside on the dm-verity-backed erofs root.
 ; ephemeral_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t, devtmpfs_t.
 (neverallow all_s ephemeral_o (files (enter)))
 
 ; ── File integrity (immutable rootfs) ────────────────────────────────────────
 
-; No domain may mutate files carrying a squashfs xattr label. These types live
+; No domain may mutate files carrying an erofs xattr label. These types live
 ; on the rootfs and are physically read-only. sqsh_file_type covers:
 ; file_t, modules_t, granola_exec_t, and every service exec_t.
 (neverallow all_s sqsh_file_type (files (mutate)))

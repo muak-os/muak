@@ -1,9 +1,9 @@
 //! Imager library for OCI image management and initramfs generation.
 
 mod cpio;
+mod erofs;
 mod image;
 mod oci;
-mod squashfs;
 
 pub mod error;
 
@@ -28,7 +28,7 @@ pub async fn sign_image(reference: &str, privkey_pem: &str) -> Result<()> {
     sign_manifest(reference, privkey_pem).await
 }
 
-/// Build a compressed CPIO archive containing squashfs files for each extension.
+/// Build a compressed CPIO archive containing EROFS images for each extension.
 pub async fn build_extensions_archive(extensions: &[String]) -> Result<Vec<u8>> {
     let files = process_extensions(extensions).await?;
     tokio::task::spawn_blocking(move || {
@@ -79,7 +79,7 @@ async fn append_to_file(path: PathBuf, data: Vec<u8>) -> Result<()> {
     })?
 }
 
-/// Process extensions concurrently and create squashfs archives for each.
+/// Process extensions concurrently and create EROFS images for each.
 async fn process_extensions(extensions: &[String]) -> Result<Vec<(String, Vec<u8>)>> {
     let mut join_set = tokio::task::JoinSet::new();
     let mut iter = extensions.iter().cloned();
@@ -88,7 +88,7 @@ async fn process_extensions(extensions: &[String]) -> Result<Vec<(String, Vec<u8
     spawn_extension_batch(&mut join_set, &mut iter);
 
     while let Some(result) = join_set.join_next().await {
-        files.push(result.map_err(|e| ImagerError::SquashfsError(e.to_string()))??);
+        files.push(result.map_err(|e| ImagerError::ErofsError(e.to_string()))??);
         spawn_extension_batch(&mut join_set, &mut iter);
     }
 
@@ -108,7 +108,7 @@ fn spawn_extension_batch(
     }
 }
 
-/// Process a single extension: pull/extract and create squashfs.
+/// Process a single extension: pull/extract and create EROFS image.
 async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
     let (name, temp_dir) = if is_local_path(&ext) {
         let name = Path::new(&ext)
@@ -126,11 +126,11 @@ async fn process_single_extension(ext: String) -> Result<(String, Vec<u8>)> {
         (name, dir)
     };
 
-    let sqsh_data = tokio::task::spawn_blocking(move || squashfs::create_at(&temp_dir))
+    let erofs_data = tokio::task::spawn_blocking(move || erofs::create_at(&temp_dir))
         .await
-        .map_err(|e| ImagerError::SquashfsError(e.to_string()))??;
+        .map_err(|e| ImagerError::ErofsError(e.to_string()))??;
 
-    Ok((format!("extensions/{}.sqsh", name), sqsh_data))
+    Ok((format!("extensions/{}.erofs", name), erofs_data))
 }
 
 /// Returns true if the extension string refers to a local filesystem path.

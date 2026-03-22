@@ -2,7 +2,6 @@
 
 mod extensions;
 mod partition;
-mod squashfs;
 
 use std::ffi::CString;
 use std::path::Path;
@@ -10,8 +9,10 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use partition::find_partition_by_partname;
 use rustix::fs::{CWD, Mode, mkdirat};
-use rustix::mount::{MountFlags, mount};
-use squashfs::attach_squashfs;
+use rustix::mount::{
+    FsMountFlags, FsOpenFlags, MountAttrFlags, MountFlags, MoveMountFlags, fsconfig_create,
+    fsconfig_set_string, fsmount, fsopen, mount, move_mount,
+};
 
 /// dm-crypt mapping name for the STATE partition.
 const DM_STATE: &str = "muak-state";
@@ -90,7 +91,7 @@ pub fn mount_rootfs() -> Result<()> {
     let base_mount_str = base_mount
         .to_str()
         .context("base mount path contains invalid UTF-8")?;
-    attach_squashfs("/rootfs.sqsh", "/dev/loop0", base_mount_str)?;
+    mount_erofs_file("/rootfs.erofs", base_mount_str).context("Failed to mount base rootfs")?;
     lower_dirs.push(base_mount_str.to_string());
 
     let extensions = extensions::discover_extensions();
@@ -99,7 +100,7 @@ pub fn mount_rootfs() -> Result<()> {
         kmsg::info!("Loading {} extension(s)", extensions.len());
     }
 
-    for (idx, ext_path) in extensions.iter().enumerate() {
+    for ext_path in &extensions {
         let ext_name = Path::new(ext_path)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -109,11 +110,10 @@ pub fn mount_rootfs() -> Result<()> {
         mkdirat(CWD, &ext_mount, Mode::from_bits_truncate(0o755))
             .context("Failed to create extension mount point")?;
 
-        let loop_dev = format!("/dev/loop{}", idx + 1);
         let ext_mount_str = ext_mount
             .to_str()
             .context("extension mount path contains invalid UTF-8")?;
-        attach_squashfs(ext_path, &loop_dev, ext_mount_str)?;
+        mount_erofs_file(ext_path, ext_mount_str).context("Failed to mount extension rootfs")?;
         lower_dirs.push(ext_mount_str.to_string());
     }
 
@@ -272,6 +272,27 @@ fn parse_luks_key_from_cmdline(cmdline: &str) -> Option<Vec<u8>> {
 
     let encoded = token.strip_prefix("luks.key=")?;
     <base64ct::Base64Unpadded as base64ct::Encoding>::decode_vec(encoded).ok()
+}
+
+/// Mount an EROFS image file.
+fn mount_erofs_file(image_path: &str, target: &str) -> Result<()> {
+    let fs_fd = fsopen("erofs", FsOpenFlags::empty()).context("Failed to fsopen erofs")?;
+    fsconfig_set_string(&fs_fd, "source", image_path).context("Failed to fsconfig source")?;
+    fsconfig_create(&fs_fd).context("Failed to fsconfig_create")?;
+    let mnt_fd = fsmount(
+        &fs_fd,
+        FsMountFlags::empty(),
+        MountAttrFlags::MOUNT_ATTR_RDONLY,
+    )
+    .context("Failed to fsmount")?;
+    move_mount(
+        &mnt_fd,
+        "",
+        CWD,
+        target,
+        MoveMountFlags::MOVE_MOUNT_F_EMPTY_PATH,
+    )
+    .with_context(|| format!("Failed to move_mount to {target}"))
 }
 
 /// Create a directory if it does not exist and mount a filesystem.

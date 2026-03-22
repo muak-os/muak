@@ -1,6 +1,7 @@
 # syntax = docker/dockerfile-upstream:1.20.0-labs
 
 ARG ALPINE_VERSION=3.23
+ARG RUST_VERSION=1.93.0
 ARG KERNEL_VERSION=6.19.8
 ARG COMPRESSION_LEVEL=19
 ARG SOURCE_DATE_EPOCH=0
@@ -90,47 +91,59 @@ RUN secilc -c 34 -o policy.34 -f file_contexts \
   $(find . -name '*.cil' | LC_ALL=c sort)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create squashfs
+# Build mkfs-erofs
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS squashfs-builder
+FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS mkfs-erofs-builder
+
+ARG TARGETARCH
+
+ARG TARGET=${TARGETARCH/amd64/x86_64}
+ARG TARGET=${TARGET/arm64/aarch64}
+
+WORKDIR /build
+
+RUN --mount=type=cache,target=/var/cache/apk \
+  --mount=type=cache,target=/etc/apk/cache \
+  apk add --no-cache --no-scripts musl-dev
+
+COPY Cargo.toml Cargo.lock ./
+RUN sed -i '/members = \[/,/\]/c\members = ["tools/mkfs-erofs", "libs/erofs"]' Cargo.toml
+
+COPY tools/mkfs-erofs ./tools/mkfs-erofs
+COPY libs/erofs ./libs/erofs
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/build/target \
+  <<EOF
+set -euo pipefail
+
+RUST_TARGET="${TARGET}-unknown-linux-musl"
+cargo build --release --target ${RUST_TARGET} -p mkfs-erofs
+cp target/${RUST_TARGET}/release/mkfs-erofs /mkfs-erofs
+EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Create rootfs image
+# ─────────────────────────────────────────────────────────────────────────────
+FROM docker.io/alpine:${ALPINE_VERSION} AS erofs-builder
 
 ARG SOURCE_DATE_EPOCH
-ARG COMPRESSION_LEVEL
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
-
-RUN apk add --no-cache squashfs-tools
 
 COPY --link --from=rootfs-base /rootfs /rootfs
 COPY --link --from=selinux /policy/policy.34 /rootfs/etc/selinux/policy.34
 COPY --link --from=selinux /policy/file_contexts /tmp/file_contexts
+COPY --link --from=mkfs-erofs-builder /mkfs-erofs /usr/local/bin/mkfs-erofs
 
 RUN <<EOF
 set -euo pipefail
-
-default="system_u:object_r:file_t:s0"
-: > /tmp/selinux-labels.pf
-
-cd /rootfs
-find . -mindepth 1 | sed 's|^\./||' | LC_ALL=C sort | while read -r path; do
-    ctx=$(awk -v p="/$path" '
-        !index($1, "*") && $1 == p { print $NF; found = 1; exit }
-        index($1, "*") && p ~ "^" substr($1, 1, index($1, "*") - 1) {
-            if (length($1) > length(best)) { best = $1; val = $NF }
-        }
-        END { if (!found && best != "") print val }
-    ' /tmp/file_contexts)
-    printf '%s x security.selinux=0t%s\000\n' "$path" "${ctx:-$default}" >> /tmp/selinux-labels.pf
-done
-printf '/ x security.selinux=0t%s\000\n' "$default" >> /tmp/selinux-labels.pf
-
-mksquashfs /rootfs /rootfs.sqsh \
-  -comp zstd \
-  -Xcompression-level ${COMPRESSION_LEVEL} \
-  -b 1M \
-  -noappend \
-  -no-progress \
-  -pf /tmp/selinux-labels.pf
+mkfs-erofs \
+  --source-dir /rootfs \
+  --file-contexts /tmp/file_contexts \
+  --output /rootfs.erofs \
+  --source-date-epoch ${SOURCE_DATE_EPOCH} \
+  --uuid 00000000-0000-0000-0000-000000000000
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -148,7 +161,7 @@ RUN apk add --no-cache cpio zstd
 WORKDIR /initramfs
 
 COPY --link --chmod=755 --from=pkg-init /init /initramfs/init
-COPY --link --from=squashfs-builder /rootfs.sqsh /initramfs/rootfs.sqsh
+COPY --link --from=erofs-builder /rootfs.erofs /initramfs/rootfs.erofs
 COPY --link --from=pkg-kernel /lib/modules /initramfs/lib/modules
 
 RUN <<EOF

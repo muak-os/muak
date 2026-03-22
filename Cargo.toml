@@ -14,6 +14,7 @@ members = [
     "services/vmd",
     "tools/imager",
     "tools/sbolt",
+    "tools/mkfs-erofs",
     "tools/yuki",
     "libs/btrfs",
     "libs/config",
@@ -23,6 +24,7 @@ members = [
     "libs/notify",
     "libs/pki",
     "libs/tpm2",
+    "libs/erofs",
 ]
 resolver = "3"
 
@@ -33,17 +35,18 @@ version = "0.1.1-beta"
 [workspace.dependencies]
 # Internal crates
 
-btrfs = { path = "libs/btrfs" }
 imager = { path = "tools/imager", default-features = false }
+sbolt = { path = "tools/sbolt", default-features = false }
+yuki = { path = "tools/yuki", default-features = false }
+btrfs = { path = "libs/btrfs" }
+config = { path = "libs/config" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 notify = { path = "libs/notify" }
 pki = { path = "libs/pki" }
-sbolt = { path = "tools/sbolt", default-features = false }
-config = { path = "libs/config" }
 tpm2 = { path = "libs/tpm2" }
-yuki = { path = "tools/yuki", default-features = false }
+erofs = { path = "libs/erofs" }
 
 # External crates
 
@@ -91,7 +94,6 @@ thiserror = "2.0"
 gptman = { version = "3.0", default-features = false }
 fatfs = { version = "0.3", default-features = false, features = ["std"] }
 crc32c = "0.6"
-backhand = { version = "0.25", default-features = false, features = ["zstd"] }
 walkdir = "2.5"
 tempfile = { version = "3.27", default-features = false }
 

@@ -45,6 +45,11 @@ mod cli {
         },
     }
 
+    fn read_key_file(path: &std::path::Path) -> Result<String> {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read key from {}", path.display()))
+    }
+
     pub async fn run() -> Result<()> {
         let args = Cli::parse();
 
@@ -68,13 +73,7 @@ mod cli {
                 output,
                 pub_key,
             } => {
-                let key_contents = pub_key
-                    .map(|p| {
-                        std::fs::read_to_string(&p).with_context(|| {
-                            format!("Failed to read public key from {}", p.display())
-                        })
-                    })
-                    .transpose()?;
+                let key_contents = pub_key.map(|p| read_key_file(&p)).transpose()?;
 
                 imager::pull_image(&image, &output, key_contents.as_deref())
                     .await
@@ -82,9 +81,7 @@ mod cli {
                 println!("Successfully extracted image to {}", output.display());
             }
             Command::Sign { image, key } => {
-                let privkey_pem = std::fs::read_to_string(&key).with_context(|| {
-                    format!("Failed to read private key from {}", key.display())
-                })?;
+                let privkey_pem = read_key_file(&key)?;
 
                 imager::sign_image(&image, &privkey_pem)
                     .await

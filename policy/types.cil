@@ -42,7 +42,7 @@
 ; All confined service executable types.
 (typeattribute service_exec_t)
 
-; Every type with an xattr label on the squashfs rootfs. overlayfs calls
+; Every type with an xattr label on the erofs rootfs. overlayfs calls
 ; vfs_getxattr() on lower-layer inodes during path lookup (trusted.overlay.redirect),
 ; which triggers a getattr check against the mounter's credentials (kernel_t).
 (typeattribute sqsh_file_type)
@@ -153,18 +153,18 @@
 ; ── Object attributes for neverallow rules ───────────────────────────────────
 
 ; Runtime-mutable storage types: created or modified at runtime, never on the
-; dm-verity-backed squashfs rootfs. verified_s domains must not execute these.
+; dm-verity-backed erofs rootfs. verified_s domains must not execute these.
 (typeattribute mutable_o)
 (typeattributeset mutable_o (muak_run_t muak_state_t muak_data_t tmpfs_t))
 
 ; Ephemeral storage types: mutable at runtime and explicitly not valid as
-; domain-transition entrypoints. Entrypoints must be on the squashfs rootfs.
+; domain-transition entrypoints. Entrypoints must be on the erofs rootfs.
 (typeattribute ephemeral_o)
 (typeattributeset ephemeral_o (muak_run_t muak_state_t muak_data_t tmpfs_t devtmpfs_t))
 
 ; ── Attribute membership (requires all object types to be declared first) ────
 
-; sqsh_file_type: types with xattr labels baked into the squashfs rootfs.
+; sqsh_file_type: types with xattr labels baked into the erofs rootfs.
 (typeattributeset sqsh_file_type (modules_t file_t))
 
 ; unconstrained_o: every object type that is not muak_data_t.

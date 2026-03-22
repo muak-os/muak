@@ -29,8 +29,8 @@ pub enum ImagerError {
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),
 
-    #[error("Failed to create squashfs: {0}")]
-    SquashfsError(String),
+    #[error("Failed to create erofs image: {0}")]
+    ErofsError(String),
 
     #[error("Failed to create cpio archive: {0}")]
     CpioError(String),

@@ -8,9 +8,9 @@ const NEWC_MAGIC: &str = "070701";
 /// Trailer entry name marking the end of the archive.
 const TRAILER: &str = "TRAILER!!!";
 
-/// Writes a CPIO newc format header to the output buffer.
-fn write_header(
-    writer: &mut Vec<u8>,
+/// Fields for a CPIO newc format header entry.
+#[derive(Debug, Default)]
+struct CpioHeader {
     ino: u32,
     mode: u32,
     uid: u32,
@@ -24,9 +24,17 @@ fn write_header(
     rdevminor: u32,
     namesize: u32,
     check: u32,
-) -> Result<()> {
-    write!(writer, "{NEWC_MAGIC}{ino:08x}{mode:08x}{uid:08x}{gid:08x}{nlink:08x}{mtime:08x}{filesize:08x}{devmajor:08x}{devminor:08x}{rdevmajor:08x}{rdevminor:08x}{namesize:08x}{check:08x}")
-        .map_err(|e| ImagerError::CpioError(format!("Failed to write header: {e}")))?;
+}
+
+/// Writes a CPIO newc format header to the output buffer.
+fn write_header(writer: &mut Vec<u8>, h: &CpioHeader) -> Result<()> {
+    write!(
+        writer,
+        "{NEWC_MAGIC}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+        h.ino, h.mode, h.uid, h.gid, h.nlink, h.mtime, h.filesize,
+        h.devmajor, h.devminor, h.rdevmajor, h.rdevminor, h.namesize, h.check,
+    )
+    .map_err(|e| ImagerError::CpioError(format!("Failed to write header: {e}")))?;
     Ok(())
 }
 
@@ -37,7 +45,15 @@ fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8
     let filesize = data.len() as u32;
 
     write_header(
-        writer, ino, mode, 0, 0, 1, 0, filesize, 0, 0, 0, 0, namesize, 0,
+        writer,
+        &CpioHeader {
+            ino,
+            mode,
+            nlink: 1,
+            filesize,
+            namesize,
+            ..CpioHeader::default()
+        },
     )?;
 
     writer
@@ -60,7 +76,7 @@ fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8
 fn pad_to_4(writer: &mut Vec<u8>) {
     let len = writer.len();
     let pad = (4 - (len % 4)) % 4;
-    writer.extend(std::iter::repeat(0).take(pad));
+    writer.extend(std::iter::repeat_n(0, pad));
 }
 
 /// Creates a CPIO archive in "newc" format containing the given files.

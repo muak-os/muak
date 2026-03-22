@@ -1,7 +1,7 @@
 ; ── Filesystem labeling ──────────────────────────────────────────────────────
 
-; squashfs and overlayfs: xattr-based; files without xattrs fall back to file_t.
-(fsuse xattr squashfs (system_u object_r file_t     s0))
+; erofs and overlayfs: xattr-based; files without xattrs fall back to file_t.
+(fsuse xattr erofs    (system_u object_r file_t     s0))
 (fsuse xattr overlay  (system_u object_r file_t     s0))
 
 ; btrfs: xattr-based; new files without a typetransition get fs_t.
@@ -46,7 +46,7 @@
 
 ; ── File contexts ────────────────────────────────────────────────────────────
 
-; Default label for all rootfs files (squashfs xattr fallback).
+; Default label for all rootfs files (erofs xattr fallback).
 (filecon "/.*" any (system_u object_r file_t s0))
 
 ; PID 1 supervisor.

@@ -6,7 +6,7 @@
 (roletype system_r granola_t)
 (roletype object_r granola_exec_t)
 
-; granola_exec_t lives on the squashfs rootfs.
+; granola_exec_t lives on the erofs rootfs.
 (typeattributeset sqsh_file_type (granola_exec_t))
 
 ; granola_t runs with the full category range and dominates all MCS pairs.
@@ -80,17 +80,17 @@
 ; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
 (allow granola_t fs_t (files (mount)))
 
-; Rootfs traversal (overlay/squashfs post-pivot).
+; Rootfs traversal (overlay/erofs post-pivot).
 (allow granola_t file_t        (dir      (read search open getattr)))
 (allow granola_t file_t        (file     (read open getattr execute execute_no_trans map)))
 (allow granola_t file_t        (lnk_file (read)))
 (allow granola_t file_t        (files    (mount)))
-; load + describe on all squashfs xattr-labeled types (modules_t, granola_exec_t,
+; load + describe on all erofs xattr-labeled types (modules_t, granola_exec_t,
 ; service exec types): overlayfs redirect/metacopy xattr probes, dir reads, file stats.
 (allow granola_t sqsh_file_type (files (load)))
 (allow granola_t sqsh_file_type (files (describe)))
 (allow granola_t unlabeled_t (dir      (read write search open getattr ioctl)))
-; Execute binaries from extension squashfs images. Extension files have no
+; Execute binaries from extension erofs images. Extension files have no
 ; security.selinux xattr (backhand does not support xattr writes), so they
-; are labeled unlabeled_t at mount time under fsuse xattr squashfs.
+; are labeled unlabeled_t at mount time under fsuse xattr erofs.
 (allow granola_t unlabeled_t (file     (read open getattr execute execute_no_trans map)))
