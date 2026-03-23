@@ -1,24 +1,21 @@
+//! Remote OCI registry pull orchestration.
+
 use std::path::{Path, PathBuf};
 
 use reqwest::Client;
 
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciDescriptor};
+use crate::oci::USER_AGENT;
 use crate::oci::auth::fetch_auth_token;
 use crate::oci::layer;
 use crate::oci::manifest;
 use crate::oci::verify;
-use crate::oci::{self, USER_AGENT};
 
 /// Maximum number of concurrent layer downloads.
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
-pub(crate) async fn pull_to_temp(reference: &str, pubkey_pem: Option<&str>) -> Result<PathBuf> {
-    let temp = oci::create_temp_dir("oci-")?;
-    pull_to_dir(reference, temp.path(), pubkey_pem).await?;
-    Ok(temp.keep())
-}
-
+/// Pulls an OCI image and extracts all layers to `dest`.
 pub(crate) async fn pull_to_dir(
     reference: &str,
     dest: &Path,

@@ -25,6 +25,7 @@ anyhow = { workspace = true }
 # Filesystem
 gptman = { workspace = true }
 fatfs = { workspace = true }
+tempfile = { workspace = true }
 
 # gRPC
 tonic = { workspace = true }
@@ -38,6 +39,7 @@ luks2 = { workspace = true }
 notify = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
+ramune = { workspace = true }
 sbolt = { workspace = true }
 tpm2 = { workspace = true }
 yuki = { workspace = true }

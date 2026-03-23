@@ -1,6 +1,8 @@
+//! CPIO newc-format archive writer.
+
 use std::io::Write;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{RamuneError, Result};
 
 /// CPIO newc format magic number.
 const NEWC_MAGIC: &str = "070701";
@@ -26,6 +28,24 @@ struct CpioHeader {
     check: u32,
 }
 
+/// Creates a CPIO archive in newc format containing the given files under an `extensions/` directory.
+pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let mut cpio_data = Vec::new();
+    let mut ino = 1u32;
+
+    write_entry(&mut cpio_data, ino, "extensions", 0o040755, &[])?;
+    ino += 1;
+
+    for (path, data) in files {
+        write_entry(&mut cpio_data, ino, path, 0o100644, data)?;
+        ino += 1;
+    }
+
+    write_entry(&mut cpio_data, ino, TRAILER, 0, &[])?;
+
+    Ok(cpio_data)
+}
+
 /// Writes a CPIO newc format header to the output buffer.
 fn write_header(writer: &mut Vec<u8>, h: &CpioHeader) -> Result<()> {
     write!(
@@ -34,7 +54,7 @@ fn write_header(writer: &mut Vec<u8>, h: &CpioHeader) -> Result<()> {
         h.ino, h.mode, h.uid, h.gid, h.nlink, h.mtime, h.filesize,
         h.devmajor, h.devminor, h.rdevmajor, h.rdevminor, h.namesize, h.check,
     )
-    .map_err(|e| ImagerError::CpioError(format!("Failed to write header: {e}")))?;
+    .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
     Ok(())
 }
 
@@ -58,52 +78,25 @@ fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8
 
     writer
         .write_all(name_bytes)
-        .map_err(|e| ImagerError::CpioError(format!("Failed to write filename: {e}")))?;
+        .map_err(|e| RamuneError::CpioError(format!("Failed to write filename: {e}")))?;
     writer.push(0);
     pad_to_4(writer);
 
     if !data.is_empty() {
         writer
             .write_all(data)
-            .map_err(|e| ImagerError::CpioError(format!("Failed to write file data: {e}")))?;
+            .map_err(|e| RamuneError::CpioError(format!("Failed to write file data: {e}")))?;
         pad_to_4(writer);
     }
 
     Ok(())
 }
 
-/// Pads the output to a 4-byte boundary with null bytes.
+/// Pads the output buffer to the next 4-byte boundary with null bytes.
 fn pad_to_4(writer: &mut Vec<u8>) {
     let len = writer.len();
     let pad = (4 - (len % 4)) % 4;
     writer.extend(std::iter::repeat_n(0, pad));
-}
-
-/// Creates a CPIO archive in "newc" format containing the given files.
-///
-/// Creates an archive with:
-/// - An "extensions" directory entry
-/// - All files under their specified paths
-/// - A proper TRAILER!!! entry
-///
-/// File mode bits:
-/// - Directories: 0o040755 (S_IFDIR | 0755)
-/// - Regular files: 0o100644 (S_IFREG | 0644)
-pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut cpio_data = Vec::new();
-    let mut ino = 1u32;
-
-    write_entry(&mut cpio_data, ino, "extensions", 0o040755, &[])?;
-    ino += 1;
-
-    for (path, data) in files {
-        write_entry(&mut cpio_data, ino, path, 0o100644, data)?;
-        ino += 1;
-    }
-
-    write_entry(&mut cpio_data, ino, TRAILER, 0, &[])?;
-
-    Ok(cpio_data)
 }
 
 #[cfg(test)]

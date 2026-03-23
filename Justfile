@@ -160,7 +160,7 @@ extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just i
         for ext in {{ extensions }}; do
             ext_args="$ext_args --extension $ext"
         done
-        {{ release_dir }}/imager build \
+        {{ release_dir }}/ramune build \
             --base {{ artifacts }}/base-initramfs.img \
             $ext_args \
             --output {{ artifacts }}/initramfs.img

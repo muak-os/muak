@@ -1185,18 +1185,15 @@ dependencies = [
  "anyhow",
  "base64ct",
  "clap",
- "erofs",
  "flate2",
  "reqwest",
  "ring",
  "serde",
  "serde_json",
  "tar",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "zstd",
 ]
 
 [[package]]
@@ -1870,11 +1867,13 @@ dependencies = [
  "notify",
  "pki",
  "prost",
+ "ramune",
  "ring",
  "rustix",
  "sbolt",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -2001,6 +2000,19 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "ramune"
+version = "0.1.1-beta"
+dependencies = [
+ "anyhow",
+ "clap",
+ "erofs",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "zstd",
+]
 
 [[package]]
 name = "rand"

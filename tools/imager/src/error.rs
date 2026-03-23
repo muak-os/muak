@@ -1,8 +1,8 @@
-//! Error types and configuration for the imager library.
+//! Error types for the imager library.
 
 use thiserror::Error;
 
-/// Error type for imager operations.
+/// Error type for OCI image pulling and signing operations.
 #[derive(Error, Debug)]
 pub enum ImagerError {
     #[error("Failed to read {file}: {source}")]
@@ -28,12 +28,6 @@ pub enum ImagerError {
 
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),
-
-    #[error("Failed to create erofs image: {0}")]
-    ErofsError(String),
-
-    #[error("Failed to create cpio archive: {0}")]
-    CpioError(String),
 
     #[error("Network error: {0}")]
     NetworkError(String),

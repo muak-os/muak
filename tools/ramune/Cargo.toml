@@ -1,39 +1,30 @@
 [package]
-name = "imager"
-description = "Pull and sign OCI images"
+name = "ramune"
+description = "Build initramfs images from pre-extracted extension directories"
 edition.workspace = true
 version.workspace = true
 
 [[bin]]
-name = "imager"
+name = "ramune"
 required-features = ["cli"]
 
 [dependencies]
 # Async
 tokio = { workspace = true, features = ["fs", "io-util"] }
-tokio-stream = { workspace = true }
 
 # CLI
 clap = { workspace = true, optional = true }
 
 # Compression
-flate2 = { workspace = true }
-tar = { workspace = true }
-
-# Cryptography
-base64ct = { workspace = true }
-ring = { workspace = true }
-
-# Encoding
-serde = { workspace = true }
-serde_json = { workspace = true }
+zstd = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
-# HTTP
-reqwest = { workspace = true }
+# Filesystem
+erofs = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 default = ["cli"]

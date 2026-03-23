@@ -2,12 +2,6 @@
 
 use serde::Deserialize;
 
-/// OCI Index structure (top-level manifest list)
-#[derive(Deserialize)]
-pub struct OciIndex {
-    pub manifests: Vec<OciDescriptor>,
-}
-
 /// OCI Manifest structure (platform-specific image manifest)
 #[derive(Deserialize)]
 pub struct OciManifest {
@@ -66,15 +60,6 @@ impl ImageReference {
                 tag,
             }
         }
-    }
-
-    /// Extract the final component of the image name.
-    pub fn image_name(&self) -> String {
-        self.name
-            .split('/')
-            .next_back()
-            .unwrap_or("extension")
-            .to_string()
     }
 
     /// Determine the URL scheme (http or https) for the registry.
@@ -137,18 +122,6 @@ mod tests {
         assert_eq!(img.name, "myimage");
         assert_eq!(img.tag, "tag");
         assert_eq!(img.scheme(), "http");
-    }
-
-    #[test]
-    fn image_name_extraction() {
-        // ARRANGE
-        let reference = "ghcr.io/org/my-extension:v1";
-
-        // ACT
-        let img = ImageReference::parse(reference);
-
-        // ASSERT
-        assert_eq!(img.image_name(), "my-extension");
     }
 
     #[test]

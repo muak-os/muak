@@ -51,28 +51,6 @@ pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<(
     Ok(())
 }
 
-/// Verify that a local file's content matches its expected OCI digest.
-pub(crate) fn verify_local_digest(
-    data: &[u8],
-    expected_digest: &str,
-    path: &std::path::Path,
-) -> Result<()> {
-    let expected_hash = expected_digest
-        .strip_prefix("sha256:")
-        .unwrap_or(expected_digest);
-    let actual_hash = sha256_hex(data);
-
-    if actual_hash != expected_hash {
-        return Err(ImagerError::DigestMismatch {
-            resource: path.display().to_string(),
-            expected: expected_hash.to_string(),
-            actual: actual_hash,
-        });
-    }
-
-    Ok(())
-}
-
 /// Check the `SIG_ANNOTATION` annotation on the manifest against the provided public key.
 pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> Result<()> {
     let Some(pem) = pubkey_pem else {
@@ -211,22 +189,6 @@ mod tests {
     }
 
     #[test]
-    fn verify_blob_digest_mismatch() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-
-        // ACT
-        let result = verify_blob_digest(data, digest);
-
-        // ASSERT
-        assert!(matches!(
-            result.unwrap_err(),
-            ImagerError::DigestMismatch { .. }
-        ));
-    }
-
-    #[test]
     fn verify_blob_digest_unsupported_algorithm() {
         // ARRANGE
         let data = b"hello";
@@ -234,51 +196,6 @@ mod tests {
 
         // ACT
         let result = verify_blob_digest(data, digest);
-
-        // ASSERT
-        assert!(matches!(
-            result.unwrap_err(),
-            ImagerError::DigestMismatch { .. }
-        ));
-    }
-
-    #[test]
-    fn verify_local_digest_ok() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-        let path = std::path::Path::new("/fake");
-
-        // ACT
-        let result = verify_local_digest(data, digest, path);
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn verify_local_digest_ok_no_prefix() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-        let path = std::path::Path::new("/fake");
-
-        // ACT
-        let result = verify_local_digest(data, digest, path);
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn verify_local_digest_mismatch() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-        let path = std::path::Path::new("/fake");
-
-        // ACT
-        let result = verify_local_digest(data, digest, path);
 
         // ASSERT
         assert!(matches!(

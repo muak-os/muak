@@ -1,4 +1,4 @@
-//! CLI tool to manage OCI images and initramfs generation.
+//! CLI tool for OCI image pulling and manifest signing.
 
 #[cfg(feature = "cli")]
 mod cli {
@@ -17,16 +17,6 @@ mod cli {
 
     #[derive(Subcommand)]
     enum Command {
-        Build {
-            #[arg(short, long)]
-            base: PathBuf,
-
-            #[arg(short, long)]
-            extension: Vec<String>,
-
-            #[arg(short, long)]
-            output: PathBuf,
-        },
         Pull {
             #[arg(short, long)]
             image: String,
@@ -54,20 +44,6 @@ mod cli {
         let args = Cli::parse();
 
         match args.command {
-            Command::Build {
-                base,
-                extension,
-                output,
-            } => {
-                imager::build_initramfs(&base, &extension, &output)
-                    .await
-                    .context("Failed to build initramfs")?;
-                println!(
-                    "Successfully created initramfs at {} ({} bytes)",
-                    output.display(),
-                    std::fs::metadata(&output)?.len()
-                );
-            }
             Command::Pull {
                 image,
                 output,
@@ -75,7 +51,7 @@ mod cli {
             } => {
                 let key_contents = pub_key.map(|p| read_key_file(&p)).transpose()?;
 
-                imager::pull_image(&image, &output, key_contents.as_deref())
+                imager::pull(&image, &output, key_contents.as_deref())
                     .await
                     .context("Failed to pull image")?;
                 println!("Successfully extracted image to {}", output.display());
@@ -83,7 +59,7 @@ mod cli {
             Command::Sign { image, key } => {
                 let privkey_pem = read_key_file(&key)?;
 
-                imager::sign_image(&image, &privkey_pem)
+                imager::sign(&image, &privkey_pem)
                     .await
                     .context("Failed to sign image")?;
                 println!("Successfully signed {}", image);

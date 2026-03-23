@@ -2,9 +2,11 @@
 members = [
     "cli",
     "e2e",
+
     "core/granola",
     "core/init",
     "core/stub",
+
     "services/apid",
     "services/consoled",
     "services/modd",
@@ -12,10 +14,13 @@ members = [
     "services/provisiond",
     "services/timed",
     "services/vmd",
+
     "tools/imager",
+    "tools/ramune",
     "tools/sbolt",
     "tools/mkfs-erofs",
     "tools/yuki",
+
     "libs/btrfs",
     "libs/config",
     "libs/kmod",
@@ -36,8 +41,10 @@ version = "0.1.1-beta"
 # Internal crates
 
 imager = { path = "tools/imager", default-features = false }
+ramune = { path = "tools/ramune", default-features = false }
 sbolt = { path = "tools/sbolt", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
+
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 kmod = { path = "libs/kmod" }

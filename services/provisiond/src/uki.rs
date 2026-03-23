@@ -1,6 +1,6 @@
 //! Unified Kernel Image building and management.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
@@ -90,7 +90,7 @@ impl Uki {
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
         }
 
-        let buffer = yuki::build(&self).context("Failed to build UKI")?;
+        let buffer = yuki::build(self).context("Failed to build UKI")?;
 
         let final_buffer = if let Some(hierarchy) = hierarchy {
             let signed = sbolt::pe::sign(&buffer, &hierarchy.db.signer, &hierarchy.db.certificate)
@@ -128,7 +128,7 @@ impl Uki {
 async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    imager::pull_image(image, dest_dir, Some(SIGNATURE_PUB))
+    imager::pull(image, dest_dir, Some(SIGNATURE_PUB))
         .await
         .context("Failed to pull installer image")?;
 
@@ -152,7 +152,7 @@ fn verify_installer_files(base_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Builds the initramfs with extensions.
+/// Pulls each OCI extension to a temporary directory and builds the initramfs.
 async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
     let base_initramfs = base_dir.join("base-initramfs.img");
 
@@ -160,13 +160,16 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
         bail!("Base initramfs not found at {}", base_initramfs.display());
     }
 
-    imager::build_initramfs(&base_initramfs, extensions, output)
+    let ext_dirs = pull_extensions(extensions).await?;
+    let ext_paths: Vec<PathBuf> = ext_dirs.iter().map(|d| d.path().to_path_buf()).collect();
+
+    ramune::build_initramfs(&base_initramfs, &ext_paths, output)
         .await
         .context("Failed to build initramfs")?;
 
     if !output.exists() {
         bail!(
-            "imager build completed but output file not found: {}",
+            "ramune build completed but output file not found: {}",
             output.display()
         );
     }
@@ -176,6 +179,19 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
         extensions.len()
     );
     Ok(())
+}
+
+/// Pulls each OCI extension image to its own temporary directory, returning the handles.
+async fn pull_extensions(extensions: &[String]) -> Result<Vec<tempfile::TempDir>> {
+    let mut dirs = Vec::with_capacity(extensions.len());
+    for ext in extensions {
+        let tmp = tempfile::TempDir::new().context("Failed to create temp dir for extension")?;
+        imager::pull(ext, tmp.path(), None)
+            .await
+            .with_context(|| format!("Failed to pull extension: {ext}"))?;
+        dirs.push(tmp);
+    }
+    Ok(dirs)
 }
 
 /// Writes the kernel cmdline to file.

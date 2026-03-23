@@ -4,8 +4,9 @@ use std::path::Path;
 
 use erofs::MkfsConfig;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{RamuneError, Result};
 
+/// Creates a reproducible EROFS image from the given source directory.
 pub(crate) fn create_at(source_dir: &Path) -> Result<Vec<u8>> {
     let config = MkfsConfig {
         source_date_epoch: 0,
@@ -15,7 +16,7 @@ pub(crate) fn create_at(source_dir: &Path) -> Result<Vec<u8>> {
         force_gid: Some(0),
         compress: true,
     };
-    erofs::mkfs(source_dir, &config).map_err(|e| ImagerError::ErofsError(e.to_string()))
+    erofs::mkfs(source_dir, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))
 }
 
 #[cfg(test)]
