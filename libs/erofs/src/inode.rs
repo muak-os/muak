@@ -2,10 +2,20 @@
 
 use crate::SLOT_SIZE;
 
+/// Compact (32-byte) inode format discriminator bit.
 pub const EROFS_INODE_LAYOUT_COMPACT: u16 = 0;
+/// Flat data layout: all data in separate block(s), no inline tail.
 pub const EROFS_INODE_FLAT_PLAIN: u16 = 0;
+/// Flat inline layout: tail data packed immediately after the inode header.
 pub const EROFS_INODE_FLAT_INLINE: u16 = 2;
+/// Compressed inode with compacted variable-width indexes.
+pub const EROFS_INODE_COMPRESSED_COMPACT: u16 = 3;
+/// Size in bytes of a compact on-disk inode.
 pub const COMPACT_INODE_SIZE: usize = 32;
+/// Size of the `z_erofs_map_header` on-disk structure.
+pub const Z_EROFS_MAP_HEADER_SIZE: usize = 8;
+/// Zstandard compression algorithm identifier.
+pub const Z_EROFS_COMPRESSION_ZSTD: u8 = 3;
 
 /// Encode the `i_format` field for a compact inode.
 pub fn encode_i_format_compact(datalayout: u16) -> u16 {

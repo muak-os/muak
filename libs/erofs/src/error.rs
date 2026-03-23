@@ -32,6 +32,10 @@ pub enum ErofsError {
     /// file_contexts parse error.
     #[error("file_contexts error: {0}")]
     FileContexts(String),
+
+    /// Compression failed.
+    #[error("compression error: {detail}")]
+    Compression { detail: String },
 }
 
 /// Result type alias for erofs operations.

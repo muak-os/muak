@@ -70,39 +70,37 @@ pub fn apply_children(
     }
 }
 
-/// Assign sequential inode numbers via a depth-first traversal that respects readdir order.
+/// Assign sequential inode numbers in BFS order matching NID assignment.
 pub fn assign_inos(
     inodes: &mut [InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
     dir_children: &BTreeMap<String, Vec<String>>,
-    readdir_children: &BTreeMap<String, Vec<String>>,
 ) {
-    let mut ino: u32 = 0;
+    let mut ino: u32 = 1;
 
     if let Some(&root_idx) = path_to_idx.get("/") {
         inodes[root_idx].ino = ino;
         ino += 1;
     }
 
-    let mut dfs_stack = vec!["/".to_string()];
+    let mut bfs_queue = std::collections::VecDeque::new();
+    bfs_queue.push_back("/".to_string());
 
-    while let Some(dir_rel) = dfs_stack.pop() {
-        if let Some(readdir_order) = readdir_children.get(&dir_rel) {
-            ino = assign_children_inos(inodes, path_to_idx, readdir_order, ino);
-        }
-
+    while let Some(dir_rel) = bfs_queue.pop_front() {
         let Some(sorted_children) = dir_children.get(&dir_rel) else {
             continue;
         };
 
-        let mut child_dirs_sorted: Vec<&String> = sorted_children
-            .iter()
-            .filter(|c| is_dir(inodes, path_to_idx, c))
-            .collect();
-        child_dirs_sorted.reverse();
-        for child_dir in child_dirs_sorted {
-            dfs_stack.push(child_dir.clone());
+        for child_rel in sorted_children {
+            ino = set_ino(inodes, path_to_idx, child_rel, ino);
         }
+
+        bfs_queue.extend(
+            sorted_children
+                .iter()
+                .filter(|c| is_dir(inodes, path_to_idx, c))
+                .cloned(),
+        );
     }
 }
 
@@ -111,19 +109,6 @@ fn is_dir(inodes: &[InodeLayout], path_to_idx: &BTreeMap<String, usize>, rel: &s
     path_to_idx
         .get(rel)
         .is_some_and(|&idx| inodes[idx].file_type == EROFS_FT_DIR)
-}
-
-/// Assign inode numbers to each child in readdir order.
-fn assign_children_inos(
-    inodes: &mut [InodeLayout],
-    path_to_idx: &BTreeMap<String, usize>,
-    children: &[String],
-    mut ino: u32,
-) -> u32 {
-    for child_rel in children {
-        ino = set_ino(inodes, path_to_idx, child_rel, ino);
-    }
-    ino
 }
 
 /// Set the inode number of a single inode and return the next number.
@@ -161,6 +146,7 @@ mod tests {
                 uuid: [0; 16],
                 force_uid: None,
                 force_gid: None,
+                compress: false,
             },
         )
         .expect("inodes");
@@ -188,24 +174,18 @@ mod tests {
                 uuid: [0; 16],
                 force_uid: None,
                 force_gid: None,
+                compress: false,
             },
         )
         .expect("inodes");
         let idx = build_indices(&entries, &inodes);
-        let readdir_children =
-            crate::layout::collect::collect_readdir_order(dir.path()).expect("readdir");
 
         // ACT
-        assign_inos(
-            &mut inodes,
-            &idx.path_to_idx,
-            &idx.dir_children,
-            &readdir_children,
-        );
+        assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
 
         // ASSERT
         for inode in &inodes {
-            assert!(inode.ino > 0 || inode.rel_path == "/");
+            assert!(inode.ino >= 1);
         }
     }
 
@@ -247,6 +227,7 @@ mod tests {
             children: vec![],
             symlink_target: vec![],
             rdev: 0,
+            compressed: None,
         }];
         let path_to_idx: BTreeMap<String, usize> = [("/".to_string(), 0)].into_iter().collect();
         let nlink_map: BTreeMap<String, u16> = [("/".to_string(), 2)].into_iter().collect();
@@ -283,6 +264,7 @@ mod tests {
             children: vec![],
             symlink_target: vec![],
             rdev: 0,
+            compressed: None,
         }];
         let path_to_idx: BTreeMap<String, usize> = [("/".to_string(), 0)].into_iter().collect();
         let dir_children: BTreeMap<String, Vec<String>> =
@@ -313,24 +295,18 @@ mod tests {
                 uuid: [0; 16],
                 force_uid: None,
                 force_gid: None,
+                compress: false,
             },
         )
         .expect("inodes");
         let idx = build_indices(&entries, &inodes);
-        let readdir_children =
-            crate::layout::collect::collect_readdir_order(dir.path()).expect("readdir");
 
         // ACT
-        assign_inos(
-            &mut inodes,
-            &idx.path_to_idx,
-            &idx.dir_children,
-            &readdir_children,
-        );
+        assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
 
         // ASSERT
         for inode in &inodes {
-            assert!(inode.ino > 0 || inode.rel_path == "/");
+            assert!(inode.ino >= 1);
         }
     }
 
@@ -349,6 +325,7 @@ mod tests {
                 uuid: [0; 16],
                 force_uid: None,
                 force_gid: None,
+                compress: false,
             },
         )
         .expect("inodes");

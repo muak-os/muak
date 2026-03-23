@@ -13,6 +13,7 @@ pub(crate) fn create_at(source_dir: &Path) -> Result<Vec<u8>> {
         uuid: [0; 16],
         force_uid: Some(0),
         force_gid: Some(0),
+        compress: true,
     };
     erofs::mkfs(source_dir, &config).map_err(|e| ImagerError::ErofsError(e.to_string()))
 }

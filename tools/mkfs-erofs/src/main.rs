@@ -33,6 +33,13 @@ mod cli {
             help = "UUID for the filesystem"
         )]
         uuid: String,
+
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Enable per-block zstd compression"
+        )]
+        compress: bool,
     }
 
     fn parse_uuid(s: &str) -> Result<[u8; 16]> {
@@ -67,6 +74,7 @@ mod cli {
             uuid,
             force_uid: Some(0),
             force_gid: Some(0),
+            compress: args.compress,
         };
 
         let image = erofs::mkfs(&args.source_dir, &config)

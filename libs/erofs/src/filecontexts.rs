@@ -222,7 +222,70 @@ mod tests {
 
     #[test]
     fn root_path_gets_default() {
+        // ARRANGE
         let fc = make_fc("/.*    system_u:object_r:file_t:s0\n");
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/"), Some("system_u:object_r:file_t:s0"));
+    }
+
+    #[test]
+    fn glob_question_mark_pattern_treated_as_prefix() {
+        // ARRANGE
+        let fc = make_fc("/bin/b?sh    system_u:object_r:shell_exec_t:s0\n");
+
+        // ACT & ASSERT
+        assert_eq!(
+            fc.label_for("/bin/bash"),
+            Some("system_u:object_r:shell_exec_t:s0")
+        );
+    }
+
+    #[test]
+    fn glob_bracket_pattern_treated_as_prefix() {
+        // ARRANGE
+        let fc = make_fc("/lib/lib[a-z]*    system_u:object_r:lib_t:s0\n");
+
+        // ACT & ASSERT
+        assert_eq!(
+            fc.label_for("/lib/libfoo.so"),
+            Some("system_u:object_r:lib_t:s0")
+        );
+    }
+
+    #[test]
+    fn parse_line_too_many_fields_returns_error() {
+        // ARRANGE
+        let input = "/path  --  ctx  extra\n";
+
+        // ACT
+        let result = FileContexts::from_reader(input.as_bytes());
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn strip_glob_tail_no_glob_returns_full_string() {
+        // ARRANGE
+        let pattern = "/etc/passwd";
+
+        // ACT
+        let result = strip_glob_tail(pattern);
+
+        // ASSERT
+        assert_eq!(result, "/etc/passwd");
+    }
+
+    #[test]
+    fn strip_glob_tail_at_start_returns_empty() {
+        // ARRANGE
+        let pattern = "*foo";
+
+        // ACT
+        let result = strip_glob_tail(pattern);
+
+        // ASSERT
+        assert_eq!(result, "");
     }
 }

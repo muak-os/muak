@@ -143,7 +143,8 @@ mkfs-erofs \
   --file-contexts /tmp/file_contexts \
   --output /rootfs.erofs \
   --source-date-epoch ${SOURCE_DATE_EPOCH} \
-  --uuid 00000000-0000-0000-0000-000000000000
+  --uuid 00000000-0000-0000-0000-000000000000 \
+  --compress
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────

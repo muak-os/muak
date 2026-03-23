@@ -1,6 +1,5 @@
 //! Filesystem walking and initial inode construction from disk metadata.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -39,36 +38,6 @@ pub fn collect_entries(source_dir: &Path) -> Result<Vec<(PathBuf, String)>> {
         entries.push((abs, rel));
     }
     Ok(entries)
-}
-
-/// Collect readdir-order children for each directory.
-pub fn collect_readdir_order(source_dir: &Path) -> Result<BTreeMap<String, Vec<String>>> {
-    let mut result = BTreeMap::new();
-    let mut dirs_to_visit = vec![source_dir.to_path_buf()];
-
-    while let Some(dir_path) = dirs_to_visit.pop() {
-        let dir_rel = normalize_rel(&dir_path, source_dir);
-        let (children, child_dirs) = read_one_dir(&dir_path, source_dir)?;
-        result.insert(dir_rel, children);
-        dirs_to_visit.extend(child_dirs);
-    }
-    Ok(result)
-}
-
-/// Read a single directory, returning (readdir-order child rels, child dir paths).
-fn read_one_dir(dir_path: &Path, source_dir: &Path) -> Result<(Vec<String>, Vec<PathBuf>)> {
-    let mut children = Vec::new();
-    let mut child_dirs = Vec::new();
-
-    for entry in fs::read_dir(dir_path)? {
-        let entry = entry?;
-        let abs = entry.path();
-        children.push(normalize_rel(&abs, source_dir));
-        if entry.file_type()?.is_dir() {
-            child_dirs.push(abs);
-        }
-    }
-    Ok((children, child_dirs))
 }
 
 /// Build initial `InodeLayout` entries from filesystem metadata.
@@ -147,6 +116,7 @@ pub fn build_initial_inodes(
             } else {
                 meta.rdev() as u32
             },
+            compressed: None,
         });
     }
     Ok(inodes)
@@ -213,5 +183,103 @@ mod tests {
                 .iter()
                 .any(|(abs, rel)| { abs.is_symlink() && *rel == "/link" })
         );
+    }
+
+    #[test]
+    fn build_initial_inodes_force_uid_gid() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("f"), b"x").expect("write");
+        let entries = collect_entries(dir.path()).expect("entries");
+        let config = crate::MkfsConfig {
+            source_date_epoch: 0,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: Some(1234),
+            force_gid: Some(5678),
+            compress: false,
+        };
+
+        // ACT
+        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+
+        // ASSERT
+        let file = inodes.iter().find(|i| i.rel_path == "/f").expect("found");
+        assert_eq!(file.uid, 1234);
+        assert_eq!(file.gid, 5678);
+    }
+
+    #[test]
+    fn build_initial_inodes_uses_source_date_epoch() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("f"), b"x").expect("write");
+        let entries = collect_entries(dir.path()).expect("entries");
+        let config = crate::MkfsConfig {
+            source_date_epoch: 1_700_000_000,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: false,
+        };
+
+        // ACT
+        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+
+        // ASSERT: epoch overrides actual mtime.
+        for inode in &inodes {
+            assert_eq!(inode.mtime, 1_700_000_000);
+            assert_eq!(inode.mtime_nsec, 0);
+        }
+    }
+
+    #[test]
+    fn build_initial_inodes_real_mtime_when_epoch_zero() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("f"), b"x").expect("write");
+        let entries = collect_entries(dir.path()).expect("entries");
+        let config = crate::MkfsConfig {
+            source_date_epoch: 0,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: false,
+        };
+
+        // ACT
+        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+
+        // ASSERT
+        let file = inodes.iter().find(|i| i.rel_path == "/f").expect("found");
+        assert!(file.mtime > 0);
+    }
+
+    #[test]
+    fn build_initial_inodes_symlink_has_target() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::os::unix::fs::symlink("/some/target", dir.path().join("link")).expect("symlink");
+        let entries = collect_entries(dir.path()).expect("entries");
+        let config = crate::MkfsConfig {
+            source_date_epoch: 0,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: false,
+        };
+
+        // ACT
+        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+
+        // ASSERT
+        let link = inodes
+            .iter()
+            .find(|i| i.rel_path == "/link")
+            .expect("found");
+        assert_eq!(link.symlink_target, b"/some/target");
     }
 }

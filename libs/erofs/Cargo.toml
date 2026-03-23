@@ -12,6 +12,9 @@ thiserror = { workspace = true }
 crc32c = { workspace = true }
 walkdir = { workspace = true }
 
+# Compression
+zstd = { workspace = true }
+
 # Utilities
 uuid = { workspace = true }
 

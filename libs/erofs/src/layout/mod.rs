@@ -7,6 +7,7 @@ mod types;
 
 use std::path::Path;
 
+pub(crate) use assign::compact_index_layout;
 pub use assign::total_image_size;
 pub use types::InodeLayout;
 
@@ -22,18 +23,12 @@ pub fn plan(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<InodeLayou
     let entries = collect::collect_entries(source_dir)?;
     let mut inodes = collect::build_initial_inodes(&entries, config)?;
     let idx = indices::build_indices(&entries, &inodes);
-    let readdir_children = collect::collect_readdir_order(source_dir)?;
 
     indices::apply_nlinks(&mut inodes, &idx.nlink_map, &idx.path_to_idx);
     indices::apply_children(&mut inodes, &idx.dir_children, &idx.path_to_idx);
-    indices::assign_inos(
-        &mut inodes,
-        &idx.path_to_idx,
-        &idx.dir_children,
-        &readdir_children,
-    );
-    assign::assign_nids_and_layouts(&mut inodes, &idx.path_to_idx);
-    assign::assign_data_block_addrs(&mut inodes);
+    indices::assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
+    assign::assign_nids_and_layouts(&mut inodes, &idx.path_to_idx, config.compress);
+    assign::assign_data_block_addrs(&mut inodes, config.compress);
 
     Ok(inodes)
 }
@@ -61,7 +56,9 @@ mod tests {
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-    use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::inode::{
+        EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
+    };
 
     const FIRST_NID: u64 = (assign::META_START / SLOT_SIZE) as u64;
 
@@ -72,6 +69,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
+            compress: false,
         }
     }
 
@@ -434,6 +432,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: Some(1000),
             force_gid: None,
+            compress: false,
         };
 
         // ACT
@@ -455,6 +454,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: Some(1000),
+            compress: false,
         };
 
         // ACT
@@ -538,5 +538,187 @@ mod tests {
         // ASSERT
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(root.data_blocks, 0);
+    }
+
+    fn compress_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: true,
+        }
+    }
+
+    #[test]
+    fn compressed_file_gets_compressed_full_layout() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/zeros")
+            .expect("found");
+
+        // ASSERT
+        assert_eq!(file.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
+        assert!(file.compressed.is_some());
+        assert!(file.data_blocks > 0);
+    }
+
+    #[test]
+    fn compressed_root_nid_shifts_for_extslots() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("zeros"), vec![0u8; 4096]).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+
+        // ASSERT
+        let expected_nid = (assign::meta_start(true) / SLOT_SIZE) as u64;
+        assert_eq!(inodes[0].nid, expected_nid);
+        assert!(inodes[0].nid > FIRST_NID, "nid shifts due to ext slots");
+    }
+
+    #[test]
+    fn incompressible_file_falls_back_to_flat() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut state = 0xDEAD_BEEFu32;
+        let random_data: Vec<u8> = (0..8192)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state as u8
+            })
+            .collect();
+        stdfs::write(dir.path().join("random"), &random_data).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/random")
+            .expect("found");
+
+        // ASSERT
+        assert_ne!(
+            file.datalayout, EROFS_INODE_COMPRESSED_COMPACT,
+            "incompressible file should not use compressed layout"
+        );
+        assert!(file.compressed.is_none());
+    }
+
+    #[test]
+    fn compressed_empty_file_stays_flat() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("empty"), b"").expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/empty")
+            .expect("found");
+
+        // ASSERT
+        assert_eq!(file.datalayout, EROFS_INODE_FLAT_PLAIN);
+        assert!(file.compressed.is_none());
+    }
+
+    #[test]
+    fn compressed_small_file_stays_flat_when_no_block_savings() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("small"), vec![0u8; 100]).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/small")
+            .expect("found");
+
+        // ASSERT
+        assert_eq!(file.datalayout, EROFS_INODE_FLAT_INLINE);
+        assert!(file.compressed.is_none());
+    }
+
+    #[test]
+    fn compressed_inode_data_blocks_is_pcluster_count() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/zeros")
+            .expect("found");
+
+        // ASSERT
+        let cf = file.compressed.as_ref().expect("compressed");
+        let pclusters = crate::compress::pcluster_blocks(cf);
+        assert_eq!(file.data_blocks, pclusters);
+    }
+
+    #[test]
+    fn compressed_data_blkaddr_assigned() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|i| i.rel_path == "/zeros")
+            .expect("found");
+
+        // ASSERT
+        assert!(file.data_blocks > 0);
+        assert!(file.data_blkaddr > 0, "data_blkaddr should be assigned");
+    }
+
+    #[test]
+    fn mixed_compressed_and_uncompressed_files() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        stdfs::write(dir.path().join("compressible"), vec![0u8; 8192]).expect("write");
+        let mut state = 0xCAFE_BABEu32;
+        let random_data: Vec<u8> = (0..8192)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state as u8
+            })
+            .collect();
+        stdfs::write(dir.path().join("random"), &random_data).expect("write");
+
+        // ACT
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let comp = inodes
+            .iter()
+            .find(|i| i.rel_path == "/compressible")
+            .expect("found");
+        let rand = inodes
+            .iter()
+            .find(|i| i.rel_path == "/random")
+            .expect("found");
+
+        // ASSERT
+        assert_eq!(comp.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
+        assert!(comp.compressed.is_some());
+        assert_ne!(rand.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
+        assert!(rand.compressed.is_none());
     }
 }

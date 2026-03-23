@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use crate::compress::CompressedFile;
+
 /// Planned layout for a single inode.
 #[derive(Debug, Clone)]
 pub struct InodeLayout {
@@ -26,4 +28,5 @@ pub struct InodeLayout {
     pub children: Vec<String>,
     pub symlink_target: Vec<u8>,
     pub rdev: u32,
+    pub compressed: Option<CompressedFile>,
 }
