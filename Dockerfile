@@ -55,10 +55,6 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM rootfs-structure AS rootfs-base
 
-ARG SOURCE_DATE_EPOCH
-
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
-
 COPY --link --from=pkg-granola /granola /rootfs/sbin/init
 COPY --link --from=pkg-provisiond /provisiond /rootfs/sbin/provisiond
 COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
@@ -67,12 +63,8 @@ COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
 COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
 COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
 COPY --link --from=pkg-consoled /consoled /rootfs/sbin/consoled
-
 COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
-
 COPY --link --from=services **/*.service /rootfs/etc/services/
-
-RUN find /rootfs -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile SELinux policy
@@ -143,7 +135,6 @@ mkfs-erofs \
   --file-contexts /tmp/file_contexts \
   --output /rootfs.erofs \
   --source-date-epoch ${SOURCE_DATE_EPOCH} \
-  --uuid 00000000-0000-0000-0000-000000000000 \
   --compress
 EOF
 
