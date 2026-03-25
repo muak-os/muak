@@ -4,8 +4,8 @@ ARG RUST_VERSION=1.93.0
 ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
-# ============================================================
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+# ─────────────────────────────────────────────────────────────────────────────
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -40,8 +40,8 @@ cargo build --release --target ${RUST_TARGET} -p modd
 cp target/${RUST_TARGET}/release/modd /modd
 EOF
 
-# ============================================================
-FROM scratch AS modd-package
+# ─────────────────────────────────────────────────────────────────────────────
+FROM scratch
 
 COPY --link --from=builder /modd /modd
 COPY --link services/modd/modd.service /etc/services/modd.service

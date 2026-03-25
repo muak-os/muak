@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -42,7 +42,7 @@ cp target/${RUST_TARGET}/release/networkd /networkd
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS networkd-package
+FROM scratch
 
 COPY --link --from=builder /networkd /networkd
 COPY --link services/networkd/networkd.service /etc/services/networkd.service

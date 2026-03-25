@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -43,7 +43,7 @@ cp target/${RUST_TARGET}/release/apid /apid
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS apid-package
+FROM scratch
 
 COPY --link --from=builder /apid /apid
 COPY --link services/apid/apid.service /etc/services/apid.service

@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -38,7 +38,7 @@ cp target/${UEFI_TARGET}/release/stub.efi /stub.efi
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS stub-package
+FROM scratch
 
 COPY --link --from=builder /stub.efi /stub.efi
 

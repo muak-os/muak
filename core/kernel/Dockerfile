@@ -80,7 +80,7 @@ else
 fi
 EOF
 
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
 FROM kernel-build AS modules-install
 
 ARG KERNEL_VERSION
@@ -121,7 +121,7 @@ fi
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS kernel-package
+FROM scratch
 
 COPY --from=kernel-export /vmlinuz /vmlinuz
 COPY --from=modules-install /modules/lib/modules /lib/modules

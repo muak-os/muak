@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -50,7 +50,7 @@ cp target/${RUST_TARGET}/release/provisiond /provisiond
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS provisiond-package
+FROM scratch
 
 COPY --link --from=builder /provisiond /provisiond
 COPY --link services/provisiond/provisiond.service /etc/services/provisiond.service

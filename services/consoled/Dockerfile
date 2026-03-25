@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.23
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -39,7 +39,7 @@ cp target/${RUST_TARGET}/release/consoled /consoled
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM scratch AS consoled-package
+FROM scratch
 
 COPY --link --from=builder /consoled /consoled
 COPY --link services/consoled/consoled.service /etc/services/consoled.service
