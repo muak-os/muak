@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION=3.23
 ARG KERNEL_VERSION=6.19.8
@@ -109,7 +109,7 @@ FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-export
 
 ARG TARGETARCH
 
-COPY --from=kernel-build /src/arch /src/arch
+COPY --link --from=kernel-build /src/arch /src/arch
 
 RUN <<EOF
 set -euo pipefail
@@ -123,8 +123,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --from=kernel-export /vmlinuz /vmlinuz
-COPY --from=modules-install /modules/lib/modules /lib/modules
+COPY --link --from=kernel-export   /vmlinuz             /vmlinuz
+COPY --link --from=modules-install /modules/lib/modules /lib/modules
 
 LABEL org.opencontainers.image.title="muak-kernel"
 LABEL org.opencontainers.image.description="Muak Linux kernel package"

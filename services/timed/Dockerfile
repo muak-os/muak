@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG RUST_VERSION=1.93.0
 ARG ALPINE_VERSION=3.23
@@ -43,8 +43,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=builder /timed /timed
-COPY --link services/timed/timed.service /etc/services/timed.service
+COPY --link --from=builder /timed                           /timed
+COPY --link                services/timed/timed.service     /etc/services/timed.service
 
 LABEL org.opencontainers.image.title="timed"
 LABEL org.opencontainers.image.description="Muak time synchronization daemon"

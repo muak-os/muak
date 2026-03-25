@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG RUST_VERSION=1.93.0
 ARG ALPINE_VERSION=3.23
@@ -41,8 +41,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=builder /consoled /consoled
-COPY --link services/consoled/consoled.service /etc/services/consoled.service
+COPY --link --from=builder /consoled                          /consoled
+COPY --link                services/consoled/consoled.service /etc/services/consoled.service
 
 LABEL org.opencontainers.image.title="consoled"
 LABEL org.opencontainers.image.description="Muak console status display daemon"

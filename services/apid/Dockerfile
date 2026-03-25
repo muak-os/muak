@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG RUST_VERSION=1.93.0
 ARG ALPINE_VERSION=3.23
@@ -45,8 +45,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=builder /apid /apid
-COPY --link services/apid/apid.service /etc/services/apid.service
+COPY --link --from=builder /apid                           /apid
+COPY --link                services/apid/apid.service      /etc/services/apid.service
 
 LABEL org.opencontainers.image.title="apid"
 LABEL org.opencontainers.image.description="Muak external gRPC API daemon"

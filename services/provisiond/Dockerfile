@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG RUST_VERSION=1.93.0
 ARG ALPINE_VERSION=3.23
@@ -52,8 +52,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=builder /provisiond /provisiond
-COPY --link services/provisiond/provisiond.service /etc/services/provisiond.service
+COPY --link --from=builder /provisiond                            /provisiond
+COPY --link                services/provisiond/provisiond.service /etc/services/provisiond.service
 
 LABEL org.opencontainers.image.title="provisiond"
 LABEL org.opencontainers.image.description="Muak provisioning daemon"

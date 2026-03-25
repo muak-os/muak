@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile-upstream:1.20.0-labs
+# syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION=3.23
 ARG RUST_VERSION=1.93.0
@@ -55,16 +55,17 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM rootfs-structure AS rootfs-base
 
-COPY --link --from=pkg-granola /granola /rootfs/sbin/init
-COPY --link --from=pkg-provisiond /provisiond /rootfs/sbin/provisiond
-COPY --link --from=pkg-modd /modd /rootfs/sbin/modd
-COPY --link --from=pkg-networkd /networkd /rootfs/sbin/networkd
-COPY --link --from=pkg-apid /apid /rootfs/sbin/apid
-COPY --link --from=pkg-vmd /vmd /rootfs/sbin/vmd
-COPY --link --from=pkg-timed /timed /rootfs/sbin/timed
-COPY --link --from=pkg-consoled /consoled /rootfs/sbin/consoled
-COPY --link --from=pkg-kernel /lib/modules /rootfs/lib/modules
-COPY --link --from=services **/*.service /rootfs/etc/services/
+COPY --link --from=pkg-granola    /granola     /rootfs/sbin/init
+COPY --link --from=pkg-provisiond /provisiond  /rootfs/sbin/provisiond
+COPY --link --from=pkg-modd       /modd        /rootfs/sbin/modd
+COPY --link --from=pkg-networkd   /networkd    /rootfs/sbin/networkd
+COPY --link --from=pkg-apid       /apid        /rootfs/sbin/apid
+COPY --link --from=pkg-vmd        /vmd         /rootfs/sbin/vmd
+COPY --link --from=pkg-timed      /timed       /rootfs/sbin/timed
+COPY --link --from=pkg-consoled   /consoled    /rootfs/sbin/consoled
+COPY --link --from=pkg-kernel     /lib/modules /rootfs/lib/modules
+
+COPY --link --from=services       **/*.service /rootfs/etc/services/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile SELinux policy
@@ -85,7 +86,7 @@ RUN secilc -c 34 -o policy.34 -f file_contexts \
 # ─────────────────────────────────────────────────────────────────────────────
 # Build mkfs-erofs
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS mkfs-erofs-builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS mkfs-erofs-builder
 
 ARG TARGETARCH
 
@@ -123,10 +124,10 @@ ARG SOURCE_DATE_EPOCH
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
-COPY --link --from=rootfs-base /rootfs /rootfs
-COPY --link --from=selinux /policy/policy.34 /rootfs/etc/selinux/policy.34
-COPY --link --from=selinux /policy/file_contexts /tmp/file_contexts
-COPY --link --from=mkfs-erofs-builder /mkfs-erofs /usr/local/bin/mkfs-erofs
+COPY --link --from=rootfs-base        /rootfs               /rootfs
+COPY --link --from=selinux            /policy/policy.34     /rootfs/etc/selinux/policy.34
+COPY --link --from=selinux            /policy/file_contexts /tmp/file_contexts
+COPY --link --from=mkfs-erofs-builder /mkfs-erofs           /usr/local/bin/mkfs-erofs
 
 RUN <<EOF
 set -euo pipefail
@@ -152,9 +153,9 @@ RUN apk add --no-cache cpio zstd
 
 WORKDIR /initramfs
 
-COPY --link --chmod=755 --from=pkg-init /init /initramfs/init
-COPY --link --from=erofs-builder /rootfs.erofs /initramfs/rootfs.erofs
-COPY --link --from=pkg-kernel /lib/modules /initramfs/lib/modules
+COPY --link --chmod=755 --from=pkg-init /init         /initramfs/init
+COPY --link --from=erofs-builder        /rootfs.erofs /initramfs/rootfs.erofs
+COPY --link --from=pkg-kernel           /lib/modules  /initramfs/lib/modules
 
 RUN <<EOF
 set -euo pipefail
@@ -170,8 +171,8 @@ EOF
 FROM scratch
 
 COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
-COPY --link --from=pkg-kernel /vmlinuz /vmlinuz
-COPY --link --from=pkg-stub /stub.efi /stub.efi
+COPY --link --from=pkg-kernel        /vmlinuz            /vmlinuz
+COPY --link --from=pkg-stub          /stub.efi           /stub.efi
 
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"
