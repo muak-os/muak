@@ -1,4 +1,4 @@
-//! Switch from the initramfs to the new root filesystem.
+//! Switch the running root from the initramfs ramfs to the EROFS-backed root.
 
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -9,17 +9,17 @@ use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
 /// Switches to the new root filesystem and executes the init process.
-pub fn switch(newroot: &str) -> Result<()> {
-    move_mounts(newroot).context("move_mounts failed")?;
+pub fn switch_root(newroot: &str) -> Result<()> {
+    move_pseudo_mounts(newroot).context("moving pseudo mounts failed")?;
     chdir(newroot).context("chdir newroot failed")?;
     chroot(".").context("chroot failed")?;
     chdir("/").context("chdir / failed")?;
-    delete_initramfs().context("delete_initramfs failed")?;
-    exec_init().context("exec_init failed")
+    free_ramfs_at(Path::new("/")).context("free ramfs failed")?;
+    exec_init().context("exec init failed")
 }
 
-/// Move special mounts from initramfs to the new root
-fn move_mounts(newroot: &str) -> Result<()> {
+/// Moves pseudo-filesystem mounts from the initramfs into the new root.
+fn move_pseudo_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
         let target = format!("{}{}", newroot, mnt);
 
@@ -32,12 +32,8 @@ fn move_mounts(newroot: &str) -> Result<()> {
     Ok(())
 }
 
-fn delete_initramfs() -> Result<()> {
-    delete_initramfs_at(Path::new("/"))
-}
-
-/// Deletes all files and directories from initramfs except special mounts.
-pub fn delete_initramfs_at(root: &Path) -> Result<()> {
+/// Frees RAM by deleting all initramfs contents from the old root, preserving moved mounts.
+fn free_ramfs_at(root: &Path) -> Result<()> {
     let entries = std::fs::read_dir(root).context("Failed to read root directory")?;
 
     for entry in entries.flatten() {
@@ -62,13 +58,13 @@ pub fn delete_initramfs_at(root: &Path) -> Result<()> {
 /// Executes the init binary from the new root filesystem.
 fn exec_init() -> Result<()> {
     let root = Path::new("/");
-    let init_path = find_init_in(root)?;
+    let init_path = find_init(root)?;
     let err = Command::new(&init_path).exec();
     bail!("Failed to exec {}: {}", init_path.display(), err);
 }
 
 /// Finds the init binary in the new root filesystem.
-pub fn find_init_in(root: &Path) -> Result<std::path::PathBuf> {
+fn find_init(root: &Path) -> Result<std::path::PathBuf> {
     let init_paths = ["sbin/init", "bin/init", "init"];
 
     let mut checked_paths = Vec::new();
@@ -95,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delete_initramfs_preserves_special_dirs() {
+    fn free_ramfs_preserves_pseudo_mounts() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -109,7 +105,7 @@ mod tests {
         std::fs::write(temp.path().join("banner"), b"Welcome").unwrap();
 
         // ACT
-        delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
+        free_ramfs_at(temp.path()).expect("Failed to free ramfs");
 
         // ASSERT
         assert!(temp.path().join("dev").exists(), "/dev should be preserved");
@@ -138,19 +134,19 @@ mod tests {
     }
 
     #[test]
-    fn delete_initramfs_handles_empty_root() {
+    fn free_ramfs_handles_empty_root() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         // ACT
-        let result = delete_initramfs_at(temp.path());
+        let result = free_ramfs_at(temp.path());
 
         // ASSERT
         assert!(result.is_ok(), "Should handle empty root directory");
     }
 
     #[test]
-    fn delete_initramfs_handles_only_special_dirs() {
+    fn free_ramfs_handles_only_pseudo_mounts() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -158,19 +154,19 @@ mod tests {
         std::fs::create_dir_all(temp.path().join("proc")).unwrap();
 
         // ACT
-        let result = delete_initramfs_at(temp.path());
+        let result = free_ramfs_at(temp.path());
 
         // ASSERT
         assert!(
             result.is_ok(),
-            "Should handle directory with only special dirs"
+            "Should handle directory with only pseudo mount dirs"
         );
         assert!(temp.path().join("dev").exists());
         assert!(temp.path().join("proc").exists());
     }
 
     #[test]
-    fn delete_initramfs_removes_nested_structures() {
+    fn free_ramfs_removes_nested_structures() {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -179,7 +175,7 @@ mod tests {
         std::fs::write(temp.path().join("old/nested/another.txt"), b"content").unwrap();
 
         // ACT
-        delete_initramfs_at(temp.path()).expect("Failed to delete initramfs");
+        free_ramfs_at(temp.path()).expect("Failed to free ramfs");
 
         // ASSERT
         assert!(
@@ -198,7 +194,7 @@ mod tests {
         std::fs::write(sbin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_ok(), "Should find init in /sbin");
@@ -219,7 +215,7 @@ mod tests {
         std::fs::write(bin.join("init"), b"#!/bin/sh\necho init").unwrap();
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_ok(), "Should find init in /bin");
@@ -238,7 +234,7 @@ mod tests {
         std::fs::write(temp.path().join("init"), b"#!/bin/sh\necho init").unwrap();
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_ok(), "Should find init in root");
@@ -262,7 +258,7 @@ mod tests {
         std::fs::write(bin.join("init"), b"#!/bin/sh\necho bin").unwrap();
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_ok());
@@ -282,7 +278,7 @@ mod tests {
         std::fs::create_dir_all(temp.path().join("bin")).unwrap();
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_err(), "Should fail when no init binary found");
@@ -299,7 +295,7 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
         // ACT
-        let result = find_init_in(temp.path());
+        let result = find_init(temp.path());
 
         // ASSERT
         assert!(result.is_err(), "Should fail with empty root");

@@ -59,7 +59,7 @@ fn run() -> Result<()> {
     }
 
     kmsg::info!("Switching to new root");
-    switchroot::switch("/newroot")?;
+    switchroot::switch_root("/newroot")?;
 
     unreachable!("switch_root should never return");
 }
