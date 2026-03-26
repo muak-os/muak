@@ -185,7 +185,8 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
 async fn pull_extensions(extensions: &[String]) -> Result<Vec<tempfile::TempDir>> {
     let mut dirs = Vec::with_capacity(extensions.len());
     for ext in extensions {
-        let tmp = tempfile::TempDir::new().context("Failed to create temp dir for extension")?;
+        let tmp =
+            tempfile::TempDir::new_in("/run").context("Failed to create temp dir for extension")?;
         imager::pull(ext, tmp.path(), None)
             .await
             .with_context(|| format!("Failed to pull extension: {ext}"))?;
