@@ -17,7 +17,6 @@ members = [
 
     "tools/imager",
     "tools/ramune",
-    "tools/sbolt",
     "tools/mkfs-erofs",
     "tools/yuki",
 
@@ -28,6 +27,7 @@ members = [
     "libs/luks2",
     "libs/notify",
     "libs/pki",
+    "libs/sbolt",
     "libs/tpm2",
     "libs/erofs",
 ]
@@ -42,7 +42,6 @@ version = "0.1.1-beta"
 
 imager = { path = "tools/imager", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
-sbolt = { path = "tools/sbolt", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
 btrfs = { path = "libs/btrfs" }
@@ -52,6 +51,7 @@ kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 notify = { path = "libs/notify" }
 pki = { path = "libs/pki" }
+sbolt = { path = "libs/sbolt" }
 tpm2 = { path = "libs/tpm2" }
 erofs = { path = "libs/erofs" }
 

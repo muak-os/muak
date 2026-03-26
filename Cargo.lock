@@ -2273,8 +2273,6 @@ dependencies = [
 name = "sbolt"
 version = "0.1.1-beta"
 dependencies = [
- "anyhow",
- "clap",
  "cms",
  "const-oid",
  "der",
