@@ -105,8 +105,9 @@ pub async fn handle(
     client_config.set_current(&actual_name)?;
     client_config.save()?;
 
-    wait_for_reboot(&ctx, &steps).await?;
+    let reboot_result = wait_for_reboot(&ctx, &steps).await;
     steps.finish().await;
+    reboot_result?;
 
     let msg = format!("Context '{}' added and set as current.", actual_name);
     println!("{}", ui::style::success(&msg));
