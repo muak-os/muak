@@ -162,7 +162,7 @@ set -euo pipefail
 find . -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 find . -print0 | LC_ALL=c sort -z | \
   cpio -o -H newc --null --quiet --reproducible | \
-  zstd -${COMPRESSION_LEVEL} -T0 > /base-initramfs.img
+  zstd -${COMPRESSION_LEVEL} -T0 > /initramfs.img
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,9 +170,9 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=initramfs-builder /base-initramfs.img /base-initramfs.img
-COPY --link --from=pkg-kernel        /vmlinuz            /vmlinuz
-COPY --link --from=pkg-stub          /stub.efi           /stub.efi
+COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
+COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
+COPY --link --from=pkg-stub          /stub.efi      /stub.efi
 
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak Linux boot assets"

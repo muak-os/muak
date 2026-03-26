@@ -12,19 +12,44 @@ pub use error::{RamuneError, Result};
 
 /// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
 pub async fn build_initramfs(base: &Path, extensions: &[PathBuf], output: &Path) -> Result<()> {
-    tokio::fs::copy(base, output)
-        .await
-        .map_err(|e| RamuneError::ReadError {
-            file: base.display().to_string(),
-            source: e,
-        })?;
+    let same_file = is_same_file(base, output).await;
 
     if extensions.is_empty() {
+        if !same_file {
+            tokio::fs::copy(base, output)
+                .await
+                .map_err(|e| RamuneError::ReadError {
+                    file: base.display().to_string(),
+                    source: e,
+                })?;
+        }
         return Ok(());
     }
 
-    let archive = build_extensions_archive(extensions).await?;
-    append_to_file(output, &archive).await
+    if same_file {
+        let archive = build_extensions_archive(extensions).await?;
+        append_to_file(output, &archive).await
+    } else {
+        tokio::fs::copy(base, output)
+            .await
+            .map_err(|e| RamuneError::ReadError {
+                file: base.display().to_string(),
+                source: e,
+            })?;
+        let archive = build_extensions_archive(extensions).await?;
+        append_to_file(output, &archive).await
+    }
+}
+
+/// Checks whether two paths refer to the same file on disk.
+async fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (
+        tokio::fs::canonicalize(a).await,
+        tokio::fs::canonicalize(b).await,
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Builds a zstd-compressed CPIO archive of EROFS images for each extension directory.
@@ -102,6 +127,42 @@ mod tests {
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
+        assert!(content.len() > 4);
+        assert!(content.starts_with(b"base"));
+    }
+
+    #[tokio::test]
+    async fn build_initramfs_same_file_no_extensions() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(file.path(), b"initramfs-content").expect("write");
+
+        // ACT
+        build_initramfs(file.path(), &[], file.path())
+            .await
+            .expect("build_initramfs");
+
+        // ASSERT
+        let content = std::fs::read(file.path()).expect("read");
+        assert_eq!(content, b"initramfs-content");
+    }
+
+    #[tokio::test]
+    async fn build_initramfs_same_file_with_extensions() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(file.path(), b"base").expect("write");
+
+        let ext_dir = tempfile::TempDir::new().expect("ext dir");
+        std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
+
+        // ACT
+        build_initramfs(file.path(), &[ext_dir.path().to_path_buf()], file.path())
+            .await
+            .expect("build_initramfs");
+
+        // ASSERT
+        let content = std::fs::read(file.path()).expect("read");
         assert!(content.len() > 4);
         assert!(content.starts_with(b"base"));
     }

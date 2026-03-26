@@ -140,7 +140,7 @@ async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
 
 /// Verifies required installer files are present.
 fn verify_installer_files(base_dir: &Path) -> Result<()> {
-    let required_files = ["vmlinuz", "stub.efi", "base-initramfs.img"];
+    let required_files = ["vmlinuz", "stub.efi", "initramfs.img"];
 
     for file in &required_files {
         let path = base_dir.join(file);
@@ -154,7 +154,7 @@ fn verify_installer_files(base_dir: &Path) -> Result<()> {
 
 /// Pulls each OCI extension to a temporary directory and builds the initramfs.
 async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
-    let base_initramfs = base_dir.join("base-initramfs.img");
+    let base_initramfs = base_dir.join("initramfs.img");
 
     if !base_initramfs.exists() {
         bail!("Base initramfs not found at {}", base_initramfs.display());

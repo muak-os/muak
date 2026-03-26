@@ -19,7 +19,6 @@ latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
 kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
 signature:= env_var_or_default("SIGNATURE", "signature.key")
-extensions := env_var_or_default("EXTENSIONS", "")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
 # Architecture - override with ARCH=aarch64 for arm build
@@ -54,8 +53,8 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (build → installer → sign → extract → extensions → uki → iso)
-dev: (build "--release" "") installer sign extract extensions uki iso
+# Full local development build (build → installer → sign → extract → uki → iso)
+dev: (build "--release" "") installer sign extract uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
@@ -148,28 +147,9 @@ sign image=(registry + "/installer:" + tag): (build "--release" "imager")
         --image "{{ image }}" \
         --key "{{ signature }}"
 
-# Extend base initramfs with specified extensions (set EXTENSIONS="ext1 ext2")
-[script]
-extensions: _ensure-artifacts (_require artifacts / "base-initramfs.img" "just installer")
-    if [ -z "{{ extensions }}" ]; then
-        printf "{{ yellow }}No extensions specified, using base initramfs{{ reset }}\n"
-        cp {{ artifacts }}/base-initramfs.img {{ artifacts }}/initramfs.img
-    else
-        printf "{{ cyan }}Building initramfs with extensions:{{ reset }} {{ extensions }}\n"
-        ext_args=""
-        for ext in {{ extensions }}; do
-            ext_args="$ext_args --extension $ext"
-        done
-        {{ release_dir }}/ramune build \
-            --base {{ artifacts }}/base-initramfs.img \
-            $ext_args \
-            --output {{ artifacts }}/initramfs.img
-    fi
-    printf "{{ green }}Initramfs ready:{{ reset }} {{ artifacts }}/initramfs.img\n"
-
 # Build UKI (Unified Kernel Image)
 [script]
-uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just extensions")
+uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
     { tr -d '\n' < core/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ release_dir }}/yuki \
@@ -215,18 +195,6 @@ oci *pkgs:
     fi
     for pkg in $pkgs; do
         just _oci-build "$pkg"
-    done
-
-# Build packages as local OCI layout (e.g., just local granola modd)
-[script]
-local *pkgs: _ensure-artifacts
-    pkgs="{{ pkgs }}"
-    if [ -z "$pkgs" ]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just local <pkg1> [pkg2...]\n"
-        exit 1
-    fi
-    for pkg in $pkgs; do
-        just _local-build "$pkg"
     done
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,27 +360,3 @@ _oci-build pkg:
             fi
             ;;
     esac
-
-[private]
-[script]
-_local-build pkg:
-    dockerfile=""
-    for dir in core services tools pkgs; do
-        if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then
-            dockerfile="$dir/{{ pkg }}/Dockerfile"
-            break
-        fi
-    done
-    if [ -z "$dockerfile" ]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"
-        exit 1
-    fi
-    printf "{{ cyan }}Building local:{{ reset }} {{ pkg }} -> {{ artifacts }}/oci/{{ pkg }}\n"
-    mkdir -p {{ artifacts }}/oci
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
-        --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
-        --load \
-        --file "$dockerfile" \
-        .
-    {{ container_runtime }} save --format oci-dir -o {{ artifacts }}/oci/{{ pkg }} {{ registry }}/pkgs/{{ pkg }}:{{ tag }}
-    {{ container_runtime }} rmi {{ registry }}/pkgs/{{ pkg }}:{{ tag }} >/dev/null 2>&1 || true

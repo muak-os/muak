@@ -24,14 +24,6 @@ REGISTRY="192.168.100.1:5000" PUSH="true" just dev
 REGISTRY="192.168.100.1:5000" just e2e
 ```
 
-## Build locally with extensions
-
-```sh
-SIGNING_ARGS="--secret id=kernel_key,src=core/kernel/kernel-signing-key.pem" just kernel
-REGISTRY=localhost just local cloud-hypervisor
-EXTENSIONS="_out/oci/cloud-hypervisor" just dev
-```
-
 ### ARM
 
 ```sh
