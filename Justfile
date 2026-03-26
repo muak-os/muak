@@ -54,7 +54,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → extract → uki → iso)
-dev: (build "--release" "") installer sign extract uki iso
+dev: (build "--release" "") installer sign (extract (registry + "/installer:" + tag)) uki iso
     @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
@@ -130,10 +130,10 @@ installer prod="false":
     fi
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
-# Extract an OCI image filesystem to local artifacts (default to installer image)
+# Extract an OCI image filesystem to local artifacts
 [arg("image", long="image")]
 [script]
-extract image=(registry + "/installer:" + tag): _ensure-artifacts
+extract image: _ensure-artifacts
     printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
     cid=$({{ container_runtime }} create "{{ image }}")
     {{ container_runtime }} export "$cid" | tar -x -C {{ artifacts }}
