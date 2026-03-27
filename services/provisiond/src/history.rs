@@ -176,4 +176,137 @@ mod tests {
         assert_eq!(ChangeKind::Update.to_string(), "update");
         assert_eq!(ChangeKind::Rollback.to_string(), "rollback");
     }
+
+    #[test]
+    fn stem_zero_pads_timestamp_to_twenty_digits() {
+        // ARRANGE
+        let ts = 1i64;
+        let id = "abc";
+
+        // ACT
+        let s = stem(ts, id);
+
+        // ASSERT
+        assert_eq!(&s[..20], "00000000000000000001");
+        assert!(s.ends_with("-abc"));
+    }
+
+    #[test]
+    fn change_kind_roundtrips_through_serde() {
+        // ARRANGE
+        let kinds = [
+            ChangeKind::Install,
+            ChangeKind::Update,
+            ChangeKind::Rollback,
+        ];
+
+        for kind in &kinds {
+            // ACT
+            let json = serde_json::to_string(kind).expect("serialize");
+            let decoded: ChangeKind = serde_json::from_str(&json).expect("deserialize");
+
+            // ASSERT
+            assert_eq!(*kind, decoded);
+        }
+    }
+
+    #[test]
+    fn history_entry_roundtrips_through_serde() {
+        // ARRANGE
+        let entry = HistoryEntry {
+            timestamp: 1_700_000_000,
+            update_id: "update-1700000000".to_string(),
+            author: "alice".to_string(),
+            change_kind: ChangeKind::Update,
+        };
+
+        // ACT
+        let json = serde_json::to_string(&entry).expect("serialize");
+        let decoded: HistoryEntry = serde_json::from_str(&json).expect("deserialize");
+
+        // ASSERT
+        assert_eq!(decoded.timestamp, entry.timestamp);
+        assert_eq!(decoded.update_id, entry.update_id);
+        assert_eq!(decoded.author, entry.author);
+        assert_eq!(decoded.change_kind, entry.change_kind);
+    }
+
+    #[test]
+    fn read_all_stems_returns_only_json_stems() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("aaa.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("bbb.toml"), "x = 1").unwrap();
+        std::fs::write(dir.path().join("ccc.json"), "{}").unwrap();
+
+        // ACT
+        let mut stems = read_all_stems(dir.path()).expect("read_all_stems");
+        stems.sort();
+
+        // ASSERT
+        assert_eq!(stems, vec!["aaa", "ccc"]);
+    }
+
+    #[test]
+    fn read_all_entries_deserializes_valid_json_files() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let entry = HistoryEntry {
+            timestamp: 42,
+            update_id: "update-42".to_string(),
+            author: "bob".to_string(),
+            change_kind: ChangeKind::Install,
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        std::fs::write(dir.path().join("entry.json"), &json).unwrap();
+
+        // ACT
+        let entries = read_all_entries(dir.path()).expect("read_all_entries");
+
+        // ASSERT
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].update_id, "update-42");
+        assert_eq!(entries[0].author, "bob");
+        assert_eq!(entries[0].change_kind, ChangeKind::Install);
+    }
+
+    #[test]
+    fn prune_removes_oldest_entries_beyond_max() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        for i in 0..5u64 {
+            let name = stem(i as i64, &format!("update-{}", i));
+            std::fs::write(dir.path().join(format!("{}.json", name)), "{}").unwrap();
+            std::fs::write(dir.path().join(format!("{}.toml", name)), "").unwrap();
+        }
+
+        // ACT
+        prune(dir.path(), 3).expect("prune");
+
+        // ASSERT
+        let mut remaining = read_all_stems(dir.path()).expect("read_all_stems");
+        remaining.sort();
+        assert_eq!(remaining.len(), 3);
+        for stem_str in &remaining {
+            let ts_part: u64 = stem_str[..20].trim_start_matches('0').parse().unwrap_or(0);
+            assert!(ts_part >= 2, "expected only ts>=2, got {}", ts_part);
+        }
+    }
+
+    #[test]
+    fn prune_does_nothing_when_below_max() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        for i in 0..3u64 {
+            let name = stem(i as i64, &format!("update-{}", i));
+            std::fs::write(dir.path().join(format!("{}.json", name)), "{}").unwrap();
+        }
+
+        // ACT
+        prune(dir.path(), 10).expect("prune");
+
+        // ASSERT
+        let stems = read_all_stems(dir.path()).expect("read_all_stems");
+        assert_eq!(stems.len(), 3);
+    }
 }

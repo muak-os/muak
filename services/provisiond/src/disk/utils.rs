@@ -141,3 +141,56 @@ fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_partition_name_nvme_uses_p_separator() {
+        // ARRANGE
+        let disk = "/dev/nvme0n1";
+
+        // ACT
+        let name = format_partition_name(disk, 1);
+
+        // ASSERT
+        assert_eq!(name, "/dev/nvme0n1p1");
+    }
+
+    #[test]
+    fn format_partition_name_mmcblk_uses_p_separator() {
+        // ARRANGE
+        let disk = "/dev/mmcblk0";
+
+        // ACT
+        let name = format_partition_name(disk, 2);
+
+        // ASSERT
+        assert_eq!(name, "/dev/mmcblk0p2");
+    }
+
+    #[test]
+    fn format_partition_name_sda_uses_no_separator() {
+        // ARRANGE
+        let disk = "/dev/sda";
+
+        // ACT
+        let name = format_partition_name(disk, 3);
+
+        // ASSERT
+        assert_eq!(name, "/dev/sda3");
+    }
+
+    #[test]
+    fn format_partition_name_vda_uses_no_separator() {
+        // ARRANGE
+        let disk = "/dev/vda";
+
+        // ACT
+        let name = format_partition_name(disk, 1);
+
+        // ASSERT
+        assert_eq!(name, "/dev/vda1");
+    }
+}

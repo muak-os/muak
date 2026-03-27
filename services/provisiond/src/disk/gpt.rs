@@ -240,3 +240,82 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
     kmsg::info!("Partitions deleted successfully");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn align_up_already_aligned_returns_same_value() {
+        // ARRANGE
+        let lba = 2048u64;
+        let align = 2048u64;
+
+        // ACT
+        let result = align_up(lba, align);
+
+        // ASSERT
+        assert_eq!(result, 2048);
+    }
+
+    #[test]
+    fn align_up_rounds_unaligned_lba_to_next_multiple() {
+        // ARRANGE
+        let lba = 2049u64;
+        let align = 2048u64;
+
+        // ACT
+        let result = align_up(lba, align);
+
+        // ASSERT
+        assert_eq!(result, 4096);
+    }
+
+    #[test]
+    fn align_up_zero_is_already_aligned() {
+        // ARRANGE
+        let lba = 0u64;
+        let align = 2048u64;
+
+        // ACT
+        let result = align_up(lba, align);
+
+        // ASSERT
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn align_up_one_less_than_align_rounds_up_to_align() {
+        // ARRANGE
+        let lba = 2047u64;
+        let align = 2048u64;
+
+        // ACT
+        let result = align_up(lba, align);
+
+        // ASSERT
+        assert_eq!(result, 2048);
+    }
+
+    #[test]
+    fn align_up_result_is_always_a_multiple_of_align() {
+        // ARRANGE
+        let align = 2048u64;
+
+        for lba in [1u64, 100, 2047, 2048, 2049, 4095, 4096, 100_000] {
+            // ACT
+            let result = align_up(lba, align);
+
+            // ASSERT
+            assert_eq!(
+                result % align,
+                0,
+                "align_up({}, {}) = {} is not aligned",
+                lba,
+                align,
+                result
+            );
+            assert!(result >= lba, "align_up must not reduce lba");
+        }
+    }
+}

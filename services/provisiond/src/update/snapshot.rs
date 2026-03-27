@@ -100,3 +100,88 @@ fn generate_id() -> String {
         .as_secs();
     format!("update-{}", timestamp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_id_has_expected_prefix() {
+        // ACT
+        let id = generate_id();
+
+        // ASSERT
+        assert!(
+            id.starts_with("update-"),
+            "id '{}' must start with 'update-'",
+            id
+        );
+    }
+
+    #[test]
+    fn generate_id_suffix_is_numeric() {
+        // ACT
+        let id = generate_id();
+
+        // ASSERT
+        let suffix = id.strip_prefix("update-").expect("prefix present");
+        suffix
+            .parse::<u64>()
+            .expect("suffix must be a valid u64 timestamp");
+    }
+
+    #[test]
+    fn path_returns_correct_path_for_update_id() {
+        // ARRANGE
+        let update_id = "update-1700000000";
+
+        // ACT
+        let p = path(update_id);
+
+        // ASSERT
+        let expected = format!("{}/{}.{}", UPDATE_DIR, update_id, CONFIG_EXTENSION);
+        assert_eq!(p, std::path::Path::new(&expected));
+    }
+
+    #[test]
+    fn find_locates_file_by_update_id_suffix() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let update_id = "update-9999";
+        let filename = format!("{}.{}", update_id, CONFIG_EXTENSION);
+        std::fs::write(dir.path().join(&filename), "content").unwrap();
+
+        // ACT
+        let found = find(dir.path(), update_id).expect("find should succeed");
+
+        // ASSERT
+        assert_eq!(found, dir.path().join(&filename));
+    }
+
+    #[test]
+    fn find_returns_error_when_no_matching_file() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // ACT
+        let result = find(dir.path(), "update-does-not-exist");
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_ignores_files_with_wrong_extension() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("update-1234.json"), "{}").unwrap();
+
+        // ACT
+        let result = find(dir.path(), "update-1234");
+
+        // ASSERT
+        if CONFIG_EXTENSION != "json" {
+            assert!(result.is_err());
+        }
+    }
+}

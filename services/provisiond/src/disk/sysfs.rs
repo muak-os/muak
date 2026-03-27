@@ -279,3 +279,78 @@ async fn try_read_disk(entry: tokio::fs::DirEntry) -> Option<DiskInfo> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_physical_disk_rejects_loop_devices() {
+        // ARRANGE
+        let names = ["loop0", "loop1", "loop99"];
+
+        for name in &names {
+            // ACT
+            let result = is_physical_disk(name);
+
+            // ASSERT
+            assert!(!result, "{} should not be a physical disk", name);
+        }
+    }
+
+    #[test]
+    fn is_physical_disk_rejects_device_mapper() {
+        // ARRANGE
+        let names = ["dm-0", "dm-1", "dm-99"];
+
+        for name in &names {
+            // ACT
+            let result = is_physical_disk(name);
+
+            // ASSERT
+            assert!(!result, "{} should not be a physical disk", name);
+        }
+    }
+
+    #[test]
+    fn is_physical_disk_rejects_ram_devices() {
+        // ARRANGE
+        let names = ["ram0", "ram1"];
+
+        for name in &names {
+            // ACT
+            let result = is_physical_disk(name);
+
+            // ASSERT
+            assert!(!result, "{} should not be a physical disk", name);
+        }
+    }
+
+    #[test]
+    fn is_physical_disk_rejects_cdrom_devices() {
+        // ARRANGE
+        let names = ["sr0", "sr1"];
+
+        for name in &names {
+            // ACT
+            let result = is_physical_disk(name);
+
+            // ASSERT
+            assert!(!result, "{} should not be a physical disk", name);
+        }
+    }
+
+    #[test]
+    fn is_physical_disk_accepts_real_disk_names() {
+        // ARRANGE
+        let names = ["sda", "sdb", "vda", "nvme0n1", "mmcblk0", "hda"];
+
+        for name in &names {
+            // ACT
+            let result = is_physical_disk(name);
+
+            // ASSERT
+            assert!(result, "{} should be a physical disk", name);
+        }
+    }
+}

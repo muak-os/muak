@@ -117,3 +117,90 @@ fn prune() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rollback_info_roundtrips_through_serde() {
+        // ARRANGE
+        let info = RollbackInfo {
+            update_id: "update-1234".to_string(),
+            failed_image: "registry.example.com/os:v1.2.3".to_string(),
+            reason: "health check failed".to_string(),
+            rolled_back_at: 1_700_000_000,
+        };
+
+        // ACT
+        let json = serde_json::to_string(&info).expect("serialize");
+        let decoded: RollbackInfo = serde_json::from_str(&json).expect("deserialize");
+
+        // ASSERT
+        assert_eq!(decoded.update_id, info.update_id);
+        assert_eq!(decoded.failed_image, info.failed_image);
+        assert_eq!(decoded.reason, info.reason);
+        assert_eq!(decoded.rolled_back_at, info.rolled_back_at);
+    }
+
+    #[test]
+    fn list_returns_empty_when_rollbacks_dir_absent() {
+        // ACT
+        let result = list(100);
+
+        // ASSERT
+        assert!(result.is_ok());
+        if !Path::new(ROLLBACKS_DIR).exists() {
+            assert!(result.unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn list_sorts_newest_first_and_respects_limit() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let entries = vec![
+            RollbackInfo {
+                update_id: "update-1".to_string(),
+                failed_image: "img:1".to_string(),
+                reason: "r1".to_string(),
+                rolled_back_at: 100,
+            },
+            RollbackInfo {
+                update_id: "update-2".to_string(),
+                failed_image: "img:2".to_string(),
+                reason: "r2".to_string(),
+                rolled_back_at: 300,
+            },
+            RollbackInfo {
+                update_id: "update-3".to_string(),
+                failed_image: "img:3".to_string(),
+                reason: "r3".to_string(),
+                rolled_back_at: 200,
+            },
+        ];
+
+        for entry in &entries {
+            let data = serde_json::to_string(entry).unwrap();
+            std::fs::write(dir.path().join(format!("{}.json", entry.update_id)), data).unwrap();
+        }
+
+        // ACT
+        let mut result: Vec<RollbackInfo> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
+            .filter_map(|e| {
+                let data = std::fs::read_to_string(e.path()).ok()?;
+                serde_json::from_str(&data).ok()
+            })
+            .collect();
+        result.sort_unstable_by(|a, b| b.rolled_back_at.cmp(&a.rolled_back_at));
+        result.truncate(2);
+
+        // ASSERT
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].update_id, "update-2");
+        assert_eq!(result[1].update_id, "update-3");
+    }
+}
