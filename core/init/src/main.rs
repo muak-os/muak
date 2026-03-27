@@ -9,13 +9,9 @@ mod mount;
 mod selinux;
 mod switchroot;
 
-use std::fs;
 use std::process;
 
-use anyhow::{Context, Result};
-
-/// SELinux binary policy path inside the mounted rootfs.
-const SELINUX_POLICY: &str = "/newroot/etc/selinux/policy.34";
+use anyhow::Result;
 
 /// Entry point that handles fatal errors.
 fn main() {
@@ -42,9 +38,7 @@ fn run() -> Result<()> {
     mount::mount_rootfs()?;
     kmsg::info!("Rootfs mounted successfully");
 
-    let policy_bytes = fs::read(SELINUX_POLICY)
-        .with_context(|| format!("Failed to read SELinux policy from {}", SELINUX_POLICY))?;
-    selinux::load_policy(&policy_bytes).context("Failed to load SELinux policy")?;
+    selinux::load()?;
     let mode = if selinux::is_enforcing().unwrap_or(false) {
         "enforcing"
     } else {
