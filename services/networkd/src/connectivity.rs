@@ -141,15 +141,15 @@ async fn resolve_dns(host: &str, timeout_dur: Duration) -> Result<Ipv4Addr> {
     .await??
 }
 
-/// Build a rustls [`ClientConfig`] trusting the Mozilla CA root bundle.
+/// Build a rustls [`ClientConfig`] trusting the Mozilla CA root bundle with HTTP/2 ALPN.
 fn tls_config() -> Arc<ClientConfig> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    Arc::new(
-        ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth(),
-    )
+    let mut config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"h2".to_vec()];
+    Arc::new(config)
 }
 
 /// Perform a single HTTPS GET and accept any 2xx or 3xx response as success.

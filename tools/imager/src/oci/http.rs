@@ -36,8 +36,6 @@ pub(crate) fn build_client() -> Result<HttpClient> {
 }
 
 /// Execute an authenticated GET, returning the response on 2xx.
-///
-/// Adds `Authorization: Bearer <token>` and any extra `Accept` headers when provided.
 pub(crate) async fn get(
     client: &HttpClient,
     url: &str,
