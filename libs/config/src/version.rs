@@ -17,10 +17,11 @@ impl Version {
             (Version::Semver(ma, mi, pa, pre_a), Version::Semver(mb, mib, pb, pre_b)) => {
                 let core_a = (ma, mi, pa);
                 let core_b = (mb, mib, pb);
-                if core_a != core_b {
-                    return core_a < core_b;
+                match core_a.cmp(&core_b) {
+                    std::cmp::Ordering::Less => true,
+                    std::cmp::Ordering::Greater => false,
+                    std::cmp::Ordering::Equal => matches!((pre_a, pre_b), (Some(_), None)),
                 }
-                matches!((pre_a, pre_b), (Some(_), None))
             }
         }
     }
