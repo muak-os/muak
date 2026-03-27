@@ -35,7 +35,7 @@
 - Improve security:
   - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
-  - Sign extensions and verify them in `imager` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
+  - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
 
 - Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
   - WireGuard tunnel?

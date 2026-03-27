@@ -34,22 +34,9 @@ FROM ${PKG_KERNEL} AS pkg-kernel
 FROM ${TOOLS} AS tools
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create base rootfs structure
+# Assemble rootfs
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
-
-WORKDIR /rootfs
-
-RUN <<EOF
-set -euo pipefail
-mkdir -p sbin dev proc sys run etc/services etc/selinux lib/modules
-ln -sf /run/resolv.conf etc/resolv.conf
-EOF
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Assemble complete rootfs
-# ─────────────────────────────────────────────────────────────────────────────
-FROM rootfs-structure AS rootfs-base
+FROM scratch AS rootfs-base
 
 COPY --link --from=pkg-granola    /granola     /rootfs/sbin/init
 COPY --link --from=pkg-provisiond /provisiond  /rootfs/sbin/provisiond
