@@ -24,6 +24,13 @@ REGISTRY="192.168.100.1:5000" PUSH="true" just dev
 REGISTRY="192.168.100.1:5000" just e2e
 ```
 
+### Local tool image
+
+```sh
+REGISTRY="192.168.100.1:5000" PUSH="true" just oci tools
+TOOLS="192.168.100.1:5000/tools:latest" REGISTRY="192.168.100.1:5000" PUSH="true" just dev
+```
+
 ### ARM
 
 ```sh

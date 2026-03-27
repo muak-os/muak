@@ -14,6 +14,7 @@ set script-interpreter := ["bash", "-euo", "pipefail"]
 # Global settings
 
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
+tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:latest")
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
@@ -90,7 +91,7 @@ build release="" *pkgs:
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
     if [ "{{ prod }}" = "false" ]; then
-        test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} first\n"; exit 1; }
+        test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} and extract\n"; exit 1; }
         pkg_args=(
             --build-context pkg-granola={{ release_dir }}
             --build-context pkg-provisiond={{ release_dir }}
@@ -121,6 +122,7 @@ installer prod="false":
     fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
         --build-context services=. \
+        --build-arg TOOLS={{ tools }} \
         "${pkg_args[@]}" \
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
@@ -145,7 +147,7 @@ extract image: _ensure-artifacts
 sign image=(registry + "/installer:" + tag):
     {{ container_runtime }} run --rm --network=host \
         -v "{{ absolute_path(signature) }}:/key:ro" \
-        ghcr.io/muak-os/tools:latest \
+        {{ tools }} \
         /imager sign \
             --image "{{ image }}" \
             --key /key
@@ -157,7 +159,7 @@ uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_requ
     { tr -d '\n' < core/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ container_runtime }} run --rm \
         -v "{{ artifacts }}:/out" \
-        ghcr.io/muak-os/tools:latest \
+        {{ tools }} \
         /yuki \
             --stub /out/stub.efi \
             --linux /out/vmlinuz \
@@ -278,7 +280,7 @@ policy:
         -name "*.cil" | LC_ALL=c sort | sed 's|{{ justfile_directory() }}|/src|g')
     {{ container_runtime }} run --rm \
         -v {{ justfile_directory() }}:/src:ro \
-        {{ registry }}/tools:latest \
+        {{ tools }} \
         /secilc -o /dev/null -f /dev/null ${cil_files}
     printf "{{ green }}SELinux policy is valid{{ reset }}\n"
 
