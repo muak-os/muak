@@ -1,8 +1,17 @@
-use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, bail};
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper::{Method, Request};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use rustls::{ClientConfig, RootCertStore};
+use tokio::net::TcpStream;
 use tokio::time::timeout;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::rustls::pki_types::ServerName;
 
 use crate::model::{ConnectivityResult, ConnectivityStatus};
 
@@ -11,6 +20,9 @@ const PROBE_TIMEOUT_SECS: u64 = 5;
 
 /// Overall timeout for the entire connectivity check process.
 const OVERALL_TIMEOUT_SECS: u64 = 15;
+
+/// HTTPS port used for connectivity probes.
+const HTTPS_PORT: u16 = 443;
 
 #[derive(Debug, Clone)]
 pub struct ConnectivityConfig {
@@ -26,6 +38,7 @@ impl Default for ConnectivityConfig {
 }
 
 impl ConnectivityConfig {
+    /// Build config from the global network configuration, falling back to `muak.dev`.
     pub fn from_network_config() -> Self {
         let host = config::network()
             .connectivity_probe
@@ -44,6 +57,7 @@ pub struct ConnectivityTarget {
     pub host: String,
 }
 
+/// Run a full connectivity check and return the result.
 pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResult {
     let start = Instant::now();
 
@@ -70,6 +84,7 @@ pub async fn check_connectivity(config: &ConnectivityConfig) -> ConnectivityResu
     }
 }
 
+/// Probe DNS then HTTPS for the target, returning a partial result on first failure.
 async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> ConnectivityResult {
     let mut result = ConnectivityResult {
         status: ConnectivityStatus::Checking,
@@ -77,9 +92,10 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
         ..Default::default()
     };
 
-    match resolve_dns(&target.host, probe_timeout).await {
-        Ok(_) => {
+    let addr = match resolve_dns(&target.host, probe_timeout).await {
+        Ok(addr) => {
             result.dns_ok = true;
+            addr
         }
         Err(e) => {
             kmsg::warn!("DNS failed for {}: {}", target.host, e);
@@ -89,7 +105,7 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
         }
     };
 
-    match https_check(&target.host, probe_timeout).await {
+    match https_check(&target.host, addr, probe_timeout).await {
         Ok(_) => {
             result.https_ok = true;
             result.status = ConnectivityStatus::Connected;
@@ -104,12 +120,15 @@ async fn check_target(target: &ConnectivityTarget, probe_timeout: Duration) -> C
     result
 }
 
+/// Resolve the host to its first IPv4 address via a blocking DNS lookup.
 async fn resolve_dns(host: &str, timeout_dur: Duration) -> Result<Ipv4Addr> {
     let host = host.to_string();
     timeout(
         timeout_dur,
         tokio::task::spawn_blocking(move || {
-            let addrs: Vec<_> = format!("{}:443", host).to_socket_addrs()?.collect();
+            let addrs: Vec<_> = format!("{}:{}", host, HTTPS_PORT)
+                .to_socket_addrs()?
+                .collect();
             addrs
                 .iter()
                 .find_map(|a| match a.ip() {
@@ -122,18 +141,44 @@ async fn resolve_dns(host: &str, timeout_dur: Duration) -> Result<Ipv4Addr> {
     .await??
 }
 
-async fn https_check(host: &str, timeout_dur: Duration) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .timeout(timeout_dur)
-        .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
-        .build()?;
+/// Build a rustls [`ClientConfig`] trusting the Mozilla CA root bundle.
+fn tls_config() -> Arc<ClientConfig> {
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    )
+}
 
-    let url = format!("https://{}/", host);
-    let response = client.get(&url).send().await?;
+/// Perform a single HTTPS GET and accept any 2xx or 3xx response as success.
+async fn https_check(host: &str, addr: Ipv4Addr, timeout_dur: Duration) -> Result<()> {
+    let connector = TlsConnector::from(tls_config());
+    let server_name = ServerName::try_from(host.to_string())?;
+    let sock_addr = SocketAddr::new(IpAddr::V4(addr), HTTPS_PORT);
 
-    if response.status().is_success() || response.status().is_redirection() {
+    let tcp = timeout(timeout_dur, TcpStream::connect(sock_addr)).await??;
+    let tls = timeout(timeout_dur, connector.connect(server_name, tcp)).await??;
+
+    let io = TokioIo::new(tls);
+    let (mut sender, conn) =
+        hyper::client::conn::http2::handshake(TokioExecutor::new(), io).await?;
+    tokio::spawn(conn);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("https://{}/", host))
+        .header("Host", host)
+        .body(Empty::<Bytes>::new())?;
+
+    let resp = timeout(timeout_dur, sender.send_request(req)).await??;
+    let status = resp.status();
+    let _ = resp.collect().await?;
+
+    if status.is_success() || status.is_redirection() {
         Ok(())
     } else {
-        bail!("unexpected status: {}", response.status())
+        bail!("unexpected status: {}", status)
     }
 }

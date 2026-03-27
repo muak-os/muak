@@ -1,17 +1,18 @@
+//! OCI layer download, digest verification, and archive extraction.
+
 use std::path::Path;
 
 use flate2::read::GzDecoder;
-use reqwest::Client;
 use tar::Archive;
 
 use crate::error::{ImagerError, Result};
 use crate::image::ImageReference;
-use crate::oci::http::build_authenticated_request;
+use crate::oci::http::{HttpClient, collect_body, get};
 use crate::oci::verify::verify_blob_digest;
 
-/// Download blob bytes from the registry and verify its digest.
+/// Download a blob from the registry, verify its SHA-256 digest, and return the raw bytes.
 pub(crate) async fn download_blob(
-    client: &Client,
+    client: &HttpClient,
     image_ref: &ImageReference,
     digest: &str,
     token: Option<&str>,
@@ -24,19 +25,13 @@ pub(crate) async fn download_blob(
         digest
     );
 
-    let response = build_authenticated_request(client, &blob_url, token, &[]).await?;
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to read blob response: {}", e)))?
-        .to_vec();
-
+    let resp = get(client, &blob_url, token, &[]).await?;
+    let bytes = collect_body(resp).await?.to_vec();
     verify_blob_digest(&bytes, digest)?;
-
     Ok(bytes)
 }
 
-/// Extract tar archive from bytes to destination.
+/// Extract a gzip-compressed tar archive from `bytes` into `dest`.
 pub(crate) fn extract_archive(bytes: &[u8], dest: &Path) -> Result<()> {
     let decoder = GzDecoder::new(bytes);
     let mut archive = Archive::new(decoder);

@@ -5,24 +5,21 @@
 //! own SHA-256 content digest.
 
 use base64ct::{Base64Url, Encoding};
-use reqwest::Client;
+use hyper::body::Bytes;
 use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair};
 
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciManifest};
-use crate::oci::USER_AGENT;
 use crate::oci::auth::fetch_auth_token;
+use crate::oci::http::{HttpClient, build_client, put};
 use crate::oci::manifest;
 use crate::oci::verify::{SIG_ANNOTATION, sha256_hex};
 
 /// Sign an OCI image manifest in the registry.
 pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to create HTTP client: {}", e)))?;
+    let client = build_client()?;
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
     let key_pair = parse_pem_private_key(privkey_pem)?;
@@ -42,7 +39,7 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
                 &client,
                 &image_ref,
                 token.as_deref(),
-                &signed_bytes,
+                signed_bytes,
                 &content_type,
                 &descriptor.digest,
             )
@@ -55,7 +52,7 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
         &client,
         &image_ref,
         token.as_deref(),
-        &signed_bytes,
+        signed_bytes,
         &content_type,
         &image_ref.tag,
     )
@@ -119,7 +116,7 @@ fn build_signed_manifest(
     manifest_json: &str,
     key_pair: &EcdsaKeyPair,
     rng: &SystemRandom,
-) -> Result<(Vec<u8>, String)> {
+) -> Result<(Bytes, String)> {
     let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
 
     let sig = key_pair
@@ -154,37 +151,20 @@ fn build_signed_manifest(
         ImagerError::OciParseError(format!("Failed to serialise signed manifest: {}", e))
     })?;
 
-    Ok((signed_bytes, content_type))
+    Ok((Bytes::from(signed_bytes), content_type))
 }
 
 /// Push a manifest to the registry via PUT.
 async fn push_manifest(
-    client: &Client,
+    client: &HttpClient,
     image_ref: &ImageReference,
     token: Option<&str>,
-    body: &[u8],
+    body: Bytes,
     content_type: &str,
     reference: &str,
 ) -> Result<()> {
     let url = manifest::build_url(image_ref, reference);
-    let mut request = client
-        .put(&url)
-        .header("Content-Type", content_type)
-        .body(body.to_vec());
-    if let Some(t) = token {
-        request = request.header("Authorization", format!("Bearer {}", t));
-    }
-    let response = request
-        .send()
-        .await
-        .map_err(|e| ImagerError::NetworkError(format!("PUT manifest failed: {}", e)))?;
-    if !response.status().is_success() {
-        return Err(ImagerError::NetworkError(format!(
-            "PUT manifest returned {}: {}",
-            response.status(),
-            url
-        )));
-    }
+    put(client, &url, token, content_type, body).await?;
     Ok(())
 }
 
@@ -270,32 +250,27 @@ mod tests {
             canonical_str.contains("keep"),
             "unrelated annotations must be preserved"
         );
-
         assert_eq!(digest, format!("sha256:{}", sha256_hex(&canonical)));
     }
 
     #[test]
     fn build_signed_manifest_roundtrip() {
         // ARRANGE
-
         let rng = SystemRandom::new();
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
         let key_pair =
             EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
                 .unwrap();
-
         let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
 
         // ACT
         let (signed_bytes, _content_type) =
             build_signed_manifest(manifest_json, &key_pair, &rng).unwrap();
-
         let signed_value: serde_json::Value = serde_json::from_slice(&signed_bytes).unwrap();
         let sig_b64 = signed_value["annotations"][SIG_ANNOTATION]
             .as_str()
             .expect("annotation must be present");
         let sig_bytes = Base64Url::decode_vec(sig_b64).unwrap();
-
         let (digest, _) = manifest_signing_payload(manifest_json).unwrap();
         let pub_key = UnparsedPublicKey::new(
             &ring::signature::ECDSA_P256_SHA256_ASN1,
@@ -314,7 +289,6 @@ mod tests {
         // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
         let (digest1, _) = manifest_signing_payload(manifest_json).unwrap();
-
         let mut value: serde_json::Value = serde_json::from_str(manifest_json).unwrap();
         value
             .as_object_mut()

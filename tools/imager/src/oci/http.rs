@@ -1,31 +1,113 @@
-use reqwest::Client;
+//! Shared HTTPS client and low-level request helpers for OCI registry communication.
+
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::{Method, Request, Response};
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::rt::TokioExecutor;
+use rustls::{ClientConfig, RootCertStore};
 
 use crate::error::{ImagerError, Result};
+use crate::oci::USER_AGENT;
 
-/// Build an authenticated HTTP request with optional token and accept headers.
-pub(crate) async fn build_authenticated_request(
-    client: &Client,
+/// HTTPS connector backed by rustls.
+type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
+
+/// Cloneable HTTPS client backed by a connection pool.
+pub(crate) type HttpClient = Client<HttpsConnector, Full<Bytes>>;
+
+/// Build a reusable HTTPS client using the Mozilla CA root bundle.
+pub(crate) fn build_client() -> Result<HttpClient> {
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let tls_config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let connector = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_only()
+        .enable_http2()
+        .build();
+
+    Ok(Client::builder(TokioExecutor::new()).build(connector))
+}
+
+/// Execute an authenticated GET, returning the response on 2xx.
+///
+/// Adds `Authorization: Bearer <token>` and any extra `Accept` headers when provided.
+pub(crate) async fn get(
+    client: &HttpClient,
     url: &str,
     token: Option<&str>,
     accept_headers: &[&str],
-) -> Result<reqwest::Response> {
-    let mut request = client.get(url);
-    for header in accept_headers {
-        request = request.header("Accept", *header);
+) -> Result<Response<Incoming>> {
+    let mut builder = Request::builder()
+        .method(Method::GET)
+        .uri(url)
+        .header("User-Agent", USER_AGENT);
+
+    for accept in accept_headers {
+        builder = builder.header("Accept", *accept);
     }
     if let Some(t) = token {
-        request = request.header("Authorization", format!("Bearer {}", t));
+        builder = builder.header("Authorization", format!("Bearer {}", t));
     }
-    let response = request
-        .send()
+
+    send(client, builder.body(Full::new(Bytes::new())), url).await
+}
+
+/// Execute an authenticated PUT with a raw body, returning the response on 2xx.
+pub(crate) async fn put(
+    client: &HttpClient,
+    url: &str,
+    token: Option<&str>,
+    content_type: &str,
+    body: Bytes,
+) -> Result<Response<Incoming>> {
+    let mut builder = Request::builder()
+        .method(Method::PUT)
+        .uri(url)
+        .header("User-Agent", USER_AGENT)
+        .header("Content-Type", content_type);
+
+    if let Some(t) = token {
+        builder = builder.header("Authorization", format!("Bearer {}", t));
+    }
+
+    send(client, builder.body(Full::new(body)), url).await
+}
+
+/// Dispatch a pre-built request and validate the response status.
+async fn send(
+    client: &HttpClient,
+    req: std::result::Result<Request<Full<Bytes>>, hyper::http::Error>,
+    url: &str,
+) -> Result<Response<Incoming>> {
+    let req =
+        req.map_err(|e| ImagerError::NetworkError(format!("Failed to build request: {}", e)))?;
+    let resp = client
+        .request(req)
         .await
         .map_err(|e| ImagerError::NetworkError(format!("HTTP request failed: {}", e)))?;
-    if !response.status().is_success() {
-        return Err(ImagerError::DownloadError(format!(
-            "HTTP request failed with status: {} for URL: {}",
-            response.status(),
+    if resp.status().is_success() {
+        Ok(resp)
+    } else {
+        Err(ImagerError::DownloadError(format!(
+            "HTTP {} for URL: {}",
+            resp.status(),
             url
-        )));
+        )))
     }
-    Ok(response)
+}
+
+/// Fully collect an HTTP response body into [`Bytes`].
+pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
+    resp.into_body()
+        .collect()
+        .await
+        .map(|c| c.to_bytes())
+        .map_err(|e| ImagerError::NetworkError(format!("Failed to read response body: {}", e)))
 }

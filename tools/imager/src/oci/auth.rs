@@ -1,14 +1,17 @@
-use reqwest::Client;
+//! OCI registry authentication token fetching.
+
 use serde::Deserialize;
 
 use crate::error::{ImagerError, Result};
+use crate::oci::http::{HttpClient, collect_body, get};
 
+/// JSON response returned by OCI token endpoints.
 #[derive(Deserialize)]
 pub(crate) struct TokenResponse {
     pub token: String,
 }
 
-/// Get the token URL for a registry, if supported.
+/// Return the token endpoint URL for known public registries, or `None` for private ones.
 pub(crate) fn get_token_url(registry: &str, name: &str) -> Option<String> {
     if registry == "ghcr.io" {
         Some(format!(
@@ -25,8 +28,9 @@ pub(crate) fn get_token_url(registry: &str, name: &str) -> Option<String> {
     }
 }
 
+/// Fetch a Bearer token for the given registry and image name.
 pub(crate) async fn fetch_auth_token(
-    client: &Client,
+    client: &HttpClient,
     registry: &str,
     name: &str,
 ) -> Result<Option<String>> {
@@ -35,19 +39,18 @@ pub(crate) async fn fetch_auth_token(
         None => return Ok(None),
     };
 
-    let response = client
-        .get(&token_url)
-        .send()
-        .await
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to fetch auth token: {}", e)))?;
-    if !response.status().is_success() {
-        eprintln!("Warning: Failed to get auth token: {}", response.status());
-        return Ok(None);
-    }
+    let resp = match get(client, &token_url, None, &[]).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Warning: Failed to get auth token: {}", e);
+            return Ok(None);
+        }
+    };
 
-    let text = response.text().await.map_err(|e| {
-        ImagerError::NetworkError(format!("Failed to read auth token response: {}", e))
+    let body = collect_body(resp).await?;
+    let text = std::str::from_utf8(&body).map_err(|e| {
+        ImagerError::NetworkError(format!("Auth token response is not UTF-8: {}", e))
     })?;
-    let token_resp: TokenResponse = serde_json::from_str(&text)?;
+    let token_resp: TokenResponse = serde_json::from_str(text)?;
     Ok(Some(token_resp.token))
 }

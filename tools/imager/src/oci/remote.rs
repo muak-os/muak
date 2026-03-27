@@ -2,12 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use reqwest::Client;
-
 use crate::error::{ImagerError, Result};
 use crate::image::{ImageReference, OciDescriptor};
-use crate::oci::USER_AGENT;
 use crate::oci::auth::fetch_auth_token;
+use crate::oci::http::{HttpClient, build_client};
 use crate::oci::layer;
 use crate::oci::manifest;
 use crate::oci::verify;
@@ -15,17 +13,14 @@ use crate::oci::verify;
 /// Maximum number of concurrent layer downloads.
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
-/// Pulls an OCI image and extracts all layers to `dest`.
+/// Pull an OCI image and extract all layers to `dest`.
 pub(crate) async fn pull_to_dir(
     reference: &str,
     dest: &Path,
     signature_key: Option<&str>,
 ) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to create HTTP client: {}", e)))?;
+    let client = build_client()?;
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
     let manifest_url = manifest::build_url(&image_ref, &image_ref.tag);
@@ -35,26 +30,24 @@ pub(crate) async fn pull_to_dir(
     let layers = if !manifest.manifests.is_empty() {
         verify::check_signature(&manifest_json, signature_key).await?;
 
-        let selected_manifest = manifest::select_platform(&manifest.manifests)?;
-        let platform_url = manifest::build_url(&image_ref, &selected_manifest.digest);
+        let selected = manifest::select_platform(&manifest.manifests)?;
+        let platform_url = manifest::build_url(&image_ref, &selected.digest);
         let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
 
         verify::check_signature(&platform_json, signature_key).await?;
 
-        let platform_manifest = manifest::parse(&platform_json)?;
-        platform_manifest.layers
+        manifest::parse(&platform_json)?.layers
     } else {
         verify::check_signature(&manifest_json, signature_key).await?;
         manifest.layers
     };
 
-    let token_owned = token.as_deref().map(String::from);
-    download_and_extract_layers(&client, &image_ref, &layers, token_owned.as_deref(), dest).await
+    download_and_extract_layers(&client, &image_ref, &layers, token.as_deref(), dest).await
 }
 
 /// Download and extract all layers concurrently with bounded parallelism.
 async fn download_and_extract_layers(
-    client: &Client,
+    client: &HttpClient,
     image_ref: &ImageReference,
     layers: &[OciDescriptor],
     token: Option<&str>,
@@ -78,7 +71,7 @@ async fn download_and_extract_layers(
 fn spawn_layer_batch<'a>(
     join_set: &mut tokio::task::JoinSet<Result<()>>,
     iter: &mut impl Iterator<Item = &'a OciDescriptor>,
-    client: &Client,
+    client: &HttpClient,
     image_ref: &ImageReference,
     token: &Option<String>,
     dest: &Path,
@@ -87,19 +80,19 @@ fn spawn_layer_batch<'a>(
         let Some(layer_desc) = iter.next() else {
             return;
         };
-        let task = download_and_extract_layer(
+        join_set.spawn(download_and_extract_layer(
             client.clone(),
             image_ref.clone(),
             layer_desc.digest.clone(),
             token.clone(),
             dest.to_path_buf(),
-        );
-        join_set.spawn(task);
+        ));
     }
 }
 
+/// Download, verify, and extract a single layer.
 async fn download_and_extract_layer(
-    client: Client,
+    client: HttpClient,
     image_ref: ImageReference,
     digest: String,
     token: Option<String>,

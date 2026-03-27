@@ -12,6 +12,7 @@ required-features = ["cli"]
 # Async
 tokio = { workspace = true, features = ["fs", "io-util"] }
 tokio-stream = { workspace = true }
+tokio-rustls = { workspace = true }
 
 # CLI
 clap = { workspace = true, optional = true }
@@ -21,19 +22,25 @@ flate2 = { workspace = true }
 tar = { workspace = true }
 
 # Cryptography
-base64ct = { workspace = true }
 ring = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
 
 # Encoding
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64ct = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # HTTP
-reqwest = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+hyper-rustls = { workspace = true }
+http-body-util = { workspace = true }
 
 [features]
 default = ["cli"]
