@@ -2,7 +2,26 @@
 
 ARG RUST_VERSION=1.94
 ARG ALPINE_VERSION=3.23
+ARG SELINUX_VERSION=3.10
 ARG SOURCE_DATE_EPOCH=0
+
+# ─────────────────────────────────────────────────────────────────────────────
+FROM docker.io/alpine:${ALPINE_VERSION} AS secilc
+
+ARG SELINUX_VERSION
+
+RUN --mount=type=cache,target=/var/cache/apk \
+  --mount=type=cache,target=/etc/apk/cache \
+  apk add --no-cache --no-scripts gcc musl-dev make libsepol-dev
+
+RUN <<EOF
+set -euo pipefail
+wget -qO /tmp/secilc.tar.gz \
+  https://github.com/SELinuxProject/selinux/releases/download/${SELINUX_VERSION}/secilc-${SELINUX_VERSION}.tar.gz
+tar -xzf /tmp/secilc.tar.gz -C /tmp
+make -C /tmp/secilc-${SELINUX_VERSION} LDFLAGS="-static" secilc secil2conf secil2tree
+cp /tmp/secilc-${SELINUX_VERSION}/secilc /secilc
+EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
@@ -47,6 +66,7 @@ FROM scratch
 COPY --link --from=builder /imager /imager
 COPY --link --from=builder /ramune /ramune
 COPY --link --from=builder /yuki   /yuki
+COPY --link --from=secilc  /secilc /secilc
 
 LABEL org.opencontainers.image.title="tools"
 LABEL org.opencontainers.image.description="Muak build tools"
