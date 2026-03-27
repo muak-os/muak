@@ -23,8 +23,6 @@ fn move_pseudo_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
         let target = format!("{}{}", newroot, mnt);
 
-        std::fs::create_dir_all(&target).with_context(|| format!("Failed to create {}", target))?;
-
         mount_move(*mnt, target.as_str())
             .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
     }
