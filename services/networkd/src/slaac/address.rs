@@ -13,7 +13,11 @@ pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
     ]
 }
 
-pub fn generate_slaac_address(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -> Ipv6Addr {
+pub fn generate_slaac_address(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -> Option<Ipv6Addr> {
+    if prefix_len > 64 || !prefix_len.is_multiple_of(8) {
+        return None;
+    }
+
     let prefix_bytes = prefix.octets();
     let eui64 = mac_to_eui64(mac);
 
@@ -21,11 +25,9 @@ pub fn generate_slaac_address(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -
     let mut addr = [0u8; 16];
 
     addr[..prefix_bytes_count].copy_from_slice(&prefix_bytes[..prefix_bytes_count]);
+    addr[8..16].copy_from_slice(&eui64);
 
-    let interface_id_start = 8;
-    addr[interface_id_start..16].copy_from_slice(&eui64);
-
-    Ipv6Addr::from(addr)
+    Some(Ipv6Addr::from(addr))
 }
 
 #[cfg(test)]
@@ -56,9 +58,33 @@ mod tests {
         // ASSERT
         assert_eq!(
             addr,
-            "2001:db8:abcd:1234:21a:2bff:fe3c:4d5e"
-                .parse::<Ipv6Addr>()
-                .unwrap()
+            Some(
+                "2001:db8:abcd:1234:21a:2bff:fe3c:4d5e"
+                    .parse::<Ipv6Addr>()
+                    .unwrap()
+            )
         );
+    }
+
+    #[test]
+    fn slaac_address_rejects_prefix_len_above_64() {
+        // ARRANGE
+        let prefix = "2001:db8::".parse::<Ipv6Addr>().unwrap();
+        let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
+
+        // ACT / ASSERT
+        assert!(generate_slaac_address(prefix, 65, &mac).is_none());
+        assert!(generate_slaac_address(prefix, 128, &mac).is_none());
+    }
+
+    #[test]
+    fn slaac_address_rejects_non_byte_aligned_prefix_len() {
+        // ARRANGE
+        let prefix = "2001:db8::".parse::<Ipv6Addr>().unwrap();
+        let mac = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
+
+        // ACT / ASSERT
+        assert!(generate_slaac_address(prefix, 63, &mac).is_none());
+        assert!(generate_slaac_address(prefix, 1, &mac).is_none());
     }
 }

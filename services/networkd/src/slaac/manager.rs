@@ -154,7 +154,8 @@ impl SlaacManager {
             .find(|p| p.autonomous && p.prefix_len <= 64)
             .ok_or_else(|| anyhow::anyhow!("no usable autonomous prefix in RA"))?;
 
-        let address = generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac);
+        let address = generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac)
+            .ok_or_else(|| anyhow::anyhow!("invalid prefix_len {} in RA", prefix.prefix_len))?;
 
         let managed_addr = ManagedAddress::new(
             address,
@@ -356,14 +357,16 @@ impl SlaacManager {
 
         if let Some(addr) = &mut self.address {
             for prefix in &ra.prefixes {
-                if prefix.autonomous && addr.router == ra.source {
-                    let expected_addr =
-                        generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac);
-                    if expected_addr == addr.address {
-                        addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
-                        println!("SLAAC manager: refreshed lifetimes for {}", addr.address);
-                        break;
-                    }
+                if prefix.autonomous
+                    && prefix.prefix_len <= 64
+                    && addr.router == ra.source
+                    && let Some(expected_addr) =
+                        generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac)
+                    && expected_addr == addr.address
+                {
+                    addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
+                    println!("SLAAC manager: refreshed lifetimes for {}", addr.address);
+                    break;
                 }
             }
         }
