@@ -142,23 +142,29 @@ extract image: _ensure-artifacts
 
 # Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
-sign image=(registry + "/installer:" + tag): (build "--release" "imager")
-    {{ release_dir }}/imager sign \
-        --image "{{ image }}" \
-        --key "{{ signature }}"
+sign image=(registry + "/installer:" + tag):
+    {{ container_runtime }} run --rm --network=host \
+        -v "{{ absolute_path(signature) }}:/key:ro" \
+        ghcr.io/muak-os/tools:latest \
+        /imager sign \
+            --image "{{ image }}" \
+            --key /key
 
 # Build UKI (Unified Kernel Image)
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
     { tr -d '\n' < core/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
-    {{ release_dir }}/yuki \
-        --stub {{ artifacts }}/stub.efi \
-        --linux {{ artifacts }}/vmlinuz \
-        --initrd {{ artifacts }}/initramfs.img \
-        --cmdline {{ artifacts }}/cmdline.txt \
-        ${DTB:+--dtb "$DTB"} \
-        --output {{ artifacts }}/muak-{{ arch }}.efi
+    {{ container_runtime }} run --rm \
+        -v "{{ artifacts }}:/out" \
+        ghcr.io/muak-os/tools:latest \
+        /yuki \
+            --stub /out/stub.efi \
+            --linux /out/vmlinuz \
+            --initrd /out/initramfs.img \
+            --cmdline /out/cmdline.txt \
+            ${DTB:+--dtb "$DTB"} \
+            --output /out/muak-{{ arch }}.efi
     printf "{{ green }}UKI built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.efi\n"
 
 # Build bootable ISO
