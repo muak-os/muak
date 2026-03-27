@@ -333,6 +333,15 @@ _oci-build pkg:
                 --file cli/Dockerfile \
                 .
             ;;
+        tools)
+            printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
+            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+                --tag {{ registry }}/tools:{{ tag }} \
+                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
+                {{ push_arg }} \
+                --file tools/Dockerfile \
+                .
+            ;;
         *)
             dockerfile=""
             for dir in core services tools pkgs; do

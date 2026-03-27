@@ -1,6 +1,6 @@
 [package]
 name = "ramune"
-description = "Build initramfs images from pre-extracted extension directories"
+description = "Create and extend initramfs images"
 edition.workspace = true
 version.workspace = true
 

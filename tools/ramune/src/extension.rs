@@ -47,7 +47,7 @@ async fn process_one(ext: PathBuf) -> Result<(String, Vec<u8>)> {
         .to_string_lossy()
         .into_owned();
 
-    let erofs_data = tokio::task::spawn_blocking(move || erofs::create_at(&ext))
+    let erofs_data = tokio::task::spawn_blocking(move || erofs::create(&ext, None))
         .await
         .map_err(|e| RamuneError::ErofsError(e.to_string()))??;
 

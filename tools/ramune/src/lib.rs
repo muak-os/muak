@@ -1,6 +1,7 @@
-//! Ramune: initramfs builder from pre-extracted extension directories.
+//! Ramune: initramfs builder for creating base images and appending extensions.
 
 mod cpio;
+mod create;
 mod erofs;
 mod extension;
 
@@ -8,10 +9,20 @@ pub mod error;
 
 use std::path::{Path, PathBuf};
 
+pub use create::CreateConfig;
 pub use error::{RamuneError, Result};
 
+/// Creates a base initramfs image from an init binary, rootfs directory, and kernel modules.
+pub fn create_initramfs(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
+    let data = create::create_initramfs(config)?;
+    std::fs::write(output, &data).map_err(|e| RamuneError::WriteError {
+        file: output.display().to_string(),
+        source: e,
+    })
+}
+
 /// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
-pub async fn build_initramfs(base: &Path, extensions: &[PathBuf], output: &Path) -> Result<()> {
+pub async fn extend_initramfs(base: &Path, extensions: &[PathBuf], output: &Path) -> Result<()> {
     let same_file = is_same_file(base, output).await;
 
     if extensions.is_empty() {
@@ -26,19 +37,17 @@ pub async fn build_initramfs(base: &Path, extensions: &[PathBuf], output: &Path)
         return Ok(());
     }
 
-    if same_file {
-        let archive = build_extensions_archive(extensions).await?;
-        append_to_file(output, &archive).await
-    } else {
+    if !same_file {
         tokio::fs::copy(base, output)
             .await
             .map_err(|e| RamuneError::ReadError {
                 file: base.display().to_string(),
                 source: e,
             })?;
-        let archive = build_extensions_archive(extensions).await?;
-        append_to_file(output, &archive).await
     }
+
+    let archive = build_extensions_archive(extensions).await?;
+    append_to_file(output, &archive).await
 }
 
 /// Checks whether two paths refer to the same file on disk.
@@ -94,16 +103,16 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn build_initramfs_no_extensions() {
+    async fn extend_initramfs_no_extensions() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         // ACT
-        build_initramfs(base.path(), &[], output.path())
+        extend_initramfs(base.path(), &[], output.path())
             .await
-            .expect("build_initramfs");
+            .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
@@ -111,7 +120,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_initramfs_with_extensions() {
+    async fn extend_initramfs_with_extensions() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base").expect("write base");
@@ -121,9 +130,9 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        build_initramfs(base.path(), &[ext_dir.path().to_path_buf()], output.path())
+        extend_initramfs(base.path(), &[ext_dir.path().to_path_buf()], output.path())
             .await
-            .expect("build_initramfs");
+            .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
@@ -132,15 +141,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_initramfs_same_file_no_extensions() {
+    async fn extend_initramfs_same_file_no_extensions() {
         // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         std::fs::write(file.path(), b"initramfs-content").expect("write");
 
         // ACT
-        build_initramfs(file.path(), &[], file.path())
+        extend_initramfs(file.path(), &[], file.path())
             .await
-            .expect("build_initramfs");
+            .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(file.path()).expect("read");
@@ -148,7 +157,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_initramfs_same_file_with_extensions() {
+    async fn extend_initramfs_same_file_with_extensions() {
         // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         std::fs::write(file.path(), b"base").expect("write");
@@ -157,9 +166,9 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        build_initramfs(file.path(), &[ext_dir.path().to_path_buf()], file.path())
+        extend_initramfs(file.path(), &[ext_dir.path().to_path_buf()], file.path())
             .await
-            .expect("build_initramfs");
+            .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(file.path()).expect("read");
@@ -168,12 +177,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_initramfs_missing_base() {
+    async fn extend_initramfs_missing_base() {
         // ARRANGE
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         // ACT
-        let result = build_initramfs(Path::new("/nonexistent/base.img"), &[], output.path()).await;
+        let result = extend_initramfs(Path::new("/nonexistent/base.img"), &[], output.path()).await;
 
         // ASSERT
         assert!(matches!(result, Err(RamuneError::ReadError { .. })));

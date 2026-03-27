@@ -1,10 +1,9 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION=3.23
-ARG RUST_VERSION=1.94
 ARG KERNEL_VERSION=6.19.8
-ARG COMPRESSION_LEVEL=19
-ARG SOURCE_DATE_EPOCH=0
+
+ARG TOOLS=ghcr.io/muak-os/tools:latest
 
 ARG PKG_KERNEL=ghcr.io/muak-os/pkgs/kernel:${KERNEL_VERSION}
 ARG PKG_GRANOLA=ghcr.io/muak-os/pkgs/granola:latest
@@ -37,10 +36,6 @@ FROM ${PKG_KERNEL} AS pkg-kernel
 # Create base rootfs structure
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS rootfs-structure
-
-ARG SOURCE_DATE_EPOCH
-
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 
 WORKDIR /rootfs
 
@@ -84,86 +79,22 @@ RUN secilc -c 34 -o policy.34 -f file_contexts \
   $(find . -name '*.cil' | LC_ALL=c sort)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build mkfs-erofs
+# Create initramfs
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS mkfs-erofs-builder
+FROM ${TOOLS} AS initramfs-builder
 
-ARG TARGETARCH
+COPY --link --from=rootfs-base /rootfs               /rootfs
+COPY --link --from=selinux     /policy/policy.34     /rootfs/etc/selinux/policy.34
+COPY --link --from=selinux     /policy/file_contexts /file_contexts
+COPY --link --from=pkg-init    /init                 /init
+COPY --link --from=pkg-kernel  /lib/modules          /lib/modules
 
-ARG TARGET=${TARGETARCH/amd64/x86_64}
-ARG TARGET=${TARGET/arm64/aarch64}
-
-WORKDIR /build
-
-RUN --mount=type=cache,target=/var/cache/apk \
-  --mount=type=cache,target=/etc/apk/cache \
-  apk add --no-cache --no-scripts musl-dev
-
-COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["tools/mkfs-erofs", "libs/erofs"]' Cargo.toml
-
-COPY tools/mkfs-erofs ./tools/mkfs-erofs
-COPY libs/erofs ./libs/erofs
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/build/target \
-  <<EOF
-set -euo pipefail
-
-RUST_TARGET="${TARGET}-unknown-linux-musl"
-cargo build --release --target ${RUST_TARGET} -p mkfs-erofs
-cp target/${RUST_TARGET}/release/mkfs-erofs /mkfs-erofs
-EOF
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Create rootfs image
-# ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS erofs-builder
-
-ARG SOURCE_DATE_EPOCH
-
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
-
-COPY --link --from=rootfs-base        /rootfs               /rootfs
-COPY --link --from=selinux            /policy/policy.34     /rootfs/etc/selinux/policy.34
-COPY --link --from=selinux            /policy/file_contexts /tmp/file_contexts
-COPY --link --from=mkfs-erofs-builder /mkfs-erofs           /usr/local/bin/mkfs-erofs
-
-RUN <<EOF
-set -euo pipefail
-mkfs-erofs \
-  --source-dir /rootfs \
-  --file-contexts /tmp/file_contexts \
-  --output /rootfs.erofs \
-  --source-date-epoch ${SOURCE_DATE_EPOCH} \
-  --compress
-EOF
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Create base initramfs
-# ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS initramfs-builder
-
-ARG SOURCE_DATE_EPOCH
-ARG COMPRESSION_LEVEL
-
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
-
-RUN apk add --no-cache cpio zstd
-
-WORKDIR /initramfs
-
-COPY --link --chmod=755 --from=pkg-init /init         /initramfs/init
-COPY --link --from=erofs-builder        /rootfs.erofs /initramfs/rootfs.erofs
-COPY --link --from=pkg-kernel           /lib/modules  /initramfs/lib/modules
-
-RUN <<EOF
-set -euo pipefail
-find . -print0 | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
-find . -print0 | LC_ALL=c sort -z | \
-  cpio -o -H newc --null --quiet --reproducible | \
-  zstd -${COMPRESSION_LEVEL} -T0 > /initramfs.img
-EOF
+RUN ["/ramune", "create", \
+  "--init", "/init", \
+  "--rootfs-dir", "/rootfs", \
+  "--modules", "/lib/modules", \
+  "--file-contexts", "/file_contexts", \
+  "--output", "/initramfs.img"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Final installer image

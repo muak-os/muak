@@ -163,7 +163,7 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
     let ext_dirs = pull_extensions(extensions).await?;
     let ext_paths: Vec<PathBuf> = ext_dirs.iter().map(|d| d.path().to_path_buf()).collect();
 
-    ramune::build_initramfs(&base_initramfs, &ext_paths, output)
+    ramune::extend_initramfs(&base_initramfs, &ext_paths, output)
         .await
         .context("Failed to build initramfs")?;
 

@@ -10,6 +10,13 @@ const NEWC_MAGIC: &str = "070701";
 /// Trailer entry name marking the end of the archive.
 const TRAILER: &str = "TRAILER!!!";
 
+/// A single entry in a CPIO archive.
+pub(crate) struct CpioEntry {
+    pub path: String,
+    pub mode: u32,
+    pub data: Vec<u8>,
+}
+
 /// Fields for a CPIO newc format header entry.
 #[derive(Debug, Default)]
 struct CpioHeader {
@@ -28,22 +35,40 @@ struct CpioHeader {
     check: u32,
 }
 
-/// Creates a CPIO archive in newc format containing the given files under an `extensions/` directory.
-pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut cpio_data = Vec::new();
+/// Creates a CPIO archive in newc format from a list of entries.
+pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Result<Vec<u8>> {
+    let capacity = entries
+        .iter()
+        .map(|e| 110 + e.path.len() + e.data.len() + 8)
+        .sum();
+    let mut buf = Vec::with_capacity(capacity);
     let mut ino = 1u32;
 
-    write_entry(&mut cpio_data, ino, "extensions", 0o040755, &[])?;
-    ino += 1;
-
-    for (path, data) in files {
-        write_entry(&mut cpio_data, ino, path, 0o100644, data)?;
+    for entry in entries {
+        write_entry(&mut buf, ino, &entry.path, entry.mode, &entry.data)?;
         ino += 1;
     }
 
-    write_entry(&mut cpio_data, ino, TRAILER, 0, &[])?;
+    write_entry(&mut buf, ino, TRAILER, 0, &[])?;
+    Ok(buf)
+}
 
-    Ok(cpio_data)
+/// Creates a CPIO archive containing the given files under an `extensions/` directory.
+pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let mut entries = Vec::with_capacity(files.len() + 1);
+    entries.push(CpioEntry {
+        path: "extensions".to_string(),
+        mode: 0o040755,
+        data: Vec::new(),
+    });
+    for (path, data) in files {
+        entries.push(CpioEntry {
+            path: path.clone(),
+            mode: 0o100644,
+            data: data.clone(),
+        });
+    }
+    create_from_entries(&entries)
 }
 
 /// Writes a CPIO newc format header to the output buffer.
@@ -180,5 +205,51 @@ mod tests {
 
         // ASSERT
         assert!(result.len() > 10000);
+    }
+
+    #[test]
+    fn create_from_entries_with_directories() {
+        // ARRANGE
+        let entries = vec![
+            CpioEntry {
+                path: "lib".to_string(),
+                mode: 0o040755,
+                data: Vec::new(),
+            },
+            CpioEntry {
+                path: "lib/modules".to_string(),
+                mode: 0o040755,
+                data: Vec::new(),
+            },
+            CpioEntry {
+                path: "lib/modules/test.ko".to_string(),
+                mode: 0o100644,
+                data: b"module data".to_vec(),
+            },
+        ];
+
+        // ACT
+        let result = create_from_entries(&entries).unwrap();
+
+        // ASSERT
+        assert!(!result.is_empty());
+        assert!(
+            result
+                .windows("lib/modules/test.ko".len())
+                .any(|w| w == "lib/modules/test.ko".as_bytes())
+        );
+    }
+
+    #[test]
+    fn create_from_entries_empty() {
+        // ARRANGE / ACT
+        let result = create_from_entries(&[]).unwrap();
+
+        // ASSERT
+        assert!(
+            result
+                .windows(TRAILER.len())
+                .any(|w| w == TRAILER.as_bytes())
+        );
     }
 }

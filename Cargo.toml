@@ -17,7 +17,6 @@ members = [
 
     "tools/imager",
     "tools/ramune",
-    "tools/mkfs-erofs",
     "tools/yuki",
 
     "libs/btrfs",

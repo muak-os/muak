@@ -1443,15 +1443,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mkfs-erofs"
-version = "0.1.1-beta"
-dependencies = [
- "anyhow",
- "clap",
- "erofs",
-]
-
-[[package]]
 name = "modd"
 version = "0.1.1-beta"
 dependencies = [
