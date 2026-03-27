@@ -31,6 +31,7 @@ FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_INIT} AS pkg-init
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
+FROM ${TOOLS} AS tools
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create base rootfs structure
@@ -65,17 +66,15 @@ COPY --link --from=services       **/*.service /rootfs/etc/services/
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile SELinux policy
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/debian:trixie-slim AS selinux
+FROM docker.io/alpine:${ALPINE_VERSION} AS selinux
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  secilc \
-  && rm -rf /var/lib/apt/lists/*
+COPY --link --from=tools /secilc /usr/local/bin/secilc
 
 WORKDIR /policy
 
 COPY --link **/*.cil ./
 
-RUN secilc -c 34 -o policy.34 -f file_contexts \
+RUN secilc -f file_contexts \
   $(find . -name '*.cil' | LC_ALL=c sort)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +83,7 @@ RUN secilc -c 34 -o policy.34 -f file_contexts \
 FROM ${TOOLS} AS initramfs-builder
 
 COPY --link --from=rootfs-base /rootfs               /rootfs
-COPY --link --from=selinux     /policy/policy.34     /rootfs/etc/selinux/policy.34
+COPY --link --from=selinux     /policy/policy.*      /rootfs/etc/selinux/
 COPY --link --from=selinux     /policy/file_contexts /file_contexts
 COPY --link --from=pkg-init    /init                 /init
 COPY --link --from=pkg-kernel  /lib/modules          /lib/modules

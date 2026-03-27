@@ -272,18 +272,14 @@ kspp:
 [script]
 policy:
     printf "{{ cyan }}Checking SELinux policy{{ reset }}\n"
+    cil_files=$(find {{ justfile_directory() }}/policy \
+        {{ justfile_directory() }}/services \
+        {{ justfile_directory() }}/core \
+        -name "*.cil" | LC_ALL=c sort | sed 's|{{ justfile_directory() }}|/src|g')
     {{ container_runtime }} run --rm \
-        -v {{ justfile_directory() }}/policy:/policy:ro \
-        -v {{ justfile_directory() }}/services:/services:ro \
-        -v {{ justfile_directory() }}/core:/core:ro \
-        docker.io/debian:trixie-slim sh -c '
-    set -euo pipefail
-    apt-get update -qq && apt-get install -y -qq --no-install-recommends secilc >/dev/null 2>&1
-    cd /tmp
-    find /policy /services /core -name "*.cil" -exec cp {} . \;
-    secilc -c 34 -o /dev/null -f /dev/null \
-        $(find . -name "*.cil" | LC_ALL=c sort)
-    echo "Policy OK"'
+        -v {{ justfile_directory() }}:/src:ro \
+        {{ registry }}/tools:latest \
+        /secilc -o /dev/null -f /dev/null ${cil_files}
     printf "{{ green }}SELinux policy is valid{{ reset }}\n"
 
 # Remove all build artifacts
