@@ -92,5 +92,5 @@ COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
 COPY --link --from=pkg-stub          /stub.efi      /stub.efi
 
 LABEL org.opencontainers.image.title="installer"
-LABEL org.opencontainers.image.description="Muak Linux boot assets"
+LABEL org.opencontainers.image.description="Muak boot assets"
 LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"
