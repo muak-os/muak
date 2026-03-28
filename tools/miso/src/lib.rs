@@ -18,7 +18,7 @@ impl Arch {
     /// Returns the UEFI fallback boot filename for this architecture.
     pub fn boot_filename(self) -> &'static str {
         match self {
-            Arch::X86_64 => "BOOTx64.EFI",
+            Arch::X86_64 => "BOOTX64.EFI",
             Arch::Aarch64 => "BOOTAA64.EFI",
         }
     }
