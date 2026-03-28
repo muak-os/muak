@@ -154,7 +154,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::model::{InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot, NetworkStateKind};
+    use crate::model::{
+        InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot, NetworkStateKind,
+    };
 
     fn empty_snapshot() -> NetworkSnapshot {
         NetworkSnapshot::empty()
