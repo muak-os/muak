@@ -125,7 +125,7 @@ uefi = "0.36"
 
 ## Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
-uuid = { version = "1.22", default-features = false, features = ["std", "v4", "v7"] }
+uuid = { version = "1.23", default-features = false, features = ["v4", "v7"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

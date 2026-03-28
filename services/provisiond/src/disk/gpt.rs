@@ -2,6 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
@@ -106,7 +107,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
 
     gpt[1] = GPTPartitionEntry {
         partition_type_guid: EFI_GUID,
-        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
+        unique_partition_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
         starting_lba: efi_start,
         ending_lba: efi_end,
         attribute_bits: 0,
@@ -118,7 +119,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
 
     gpt[2] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
-        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
+        unique_partition_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
         starting_lba: state_start,
         ending_lba: state_end,
         attribute_bits: 0,
@@ -188,7 +189,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
 
     gpt[data_num] = GPTPartitionEntry {
         partition_type_guid: LINUX_FS_GUID,
-        unique_partition_guid: *uuid::Uuid::now_v7().as_bytes(),
+        unique_partition_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
         starting_lba: data_start,
         ending_lba: data_end,
         attribute_bits: 0,
@@ -210,6 +211,13 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     wait_for_device(&data_part)?;
 
     Ok(data_part)
+}
+
+fn uuid_now() -> uuid::Timestamp {
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time is before Unix epoch");
+    uuid::Timestamp::from_unix(uuid::NoContext, dur.as_secs(), dur.subsec_nanos())
 }
 
 /// Deletes the specified partitions from the GPT and removes their device nodes from the kernel.
