@@ -16,6 +16,7 @@ members = [
     "services/vmd",
 
     "tools/imager",
+    "tools/miso",
     "tools/ramune",
     "tools/yuki",
 

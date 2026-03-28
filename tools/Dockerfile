@@ -41,9 +41,10 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache --no-scripts musl-dev
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["tools/imager", "tools/ramune", "tools/yuki", "libs/erofs"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["tools/imager", "tools/miso", "tools/ramune", "tools/yuki", "libs/erofs"]' Cargo.toml
 
 COPY tools/imager ./tools/imager
+COPY tools/miso   ./tools/miso
 COPY tools/ramune ./tools/ramune
 COPY tools/yuki   ./tools/yuki
 COPY libs/erofs   ./libs/erofs
@@ -54,8 +55,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 set -euo pipefail
 
 RUST_TARGET="${TARGET}-unknown-linux-musl"
-cargo build --release --target ${RUST_TARGET} -p imager -p ramune -p yuki
+cargo build --release --target ${RUST_TARGET} -p imager -p miso -p ramune -p yuki
 cp target/${RUST_TARGET}/release/imager /imager
+cp target/${RUST_TARGET}/release/miso   /miso
 cp target/${RUST_TARGET}/release/ramune /ramune
 cp target/${RUST_TARGET}/release/yuki   /yuki
 EOF
@@ -64,6 +66,7 @@ EOF
 FROM scratch
 
 COPY --link --from=builder /imager /imager
+COPY --link --from=builder /miso   /miso
 COPY --link --from=builder /ramune /ramune
 COPY --link --from=builder /yuki   /yuki
 COPY --link --from=secilc  /secilc /secilc

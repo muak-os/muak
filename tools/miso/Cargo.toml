@@ -1,0 +1,30 @@
+[package]
+name = "miso"
+description = "Bootable image builder"
+edition.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "miso"
+required-features = ["cli"]
+
+[dependencies]
+# CLI
+clap = { workspace = true, optional = true }
+
+# Error handling
+anyhow = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+# Filesystem
+fatfs = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

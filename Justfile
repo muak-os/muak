@@ -170,28 +170,16 @@ uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_requ
     printf "{{ green }}UKI built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.efi\n"
 
 # Build bootable ISO
-[script]
 iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
-    printf "{{ cyan }}Building ISO for {{ arch }}{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out \
-        -e BOOT_FILE={{ if arch == "aarch64" { "BOOTAA64.EFI" } else { "BOOTX64.EFI" } }} -e ARCH={{ arch }} alpine:3.23 sh -c '
-        set -euo pipefail
-        apk add --no-cache mtools dosfstools xorriso >/dev/null 2>&1
-        rm -rf /out/iso && mkdir -p /out/iso/EFI/BOOT
-        cp /out/muak-${ARCH}.efi /out/iso/EFI/BOOT/${BOOT_FILE}
-        EFI_SIZE=$(stat -c%s /out/muak-${ARCH}.efi)
-        FAT_SIZE=$(( (EFI_SIZE / 1024 / 1024) + 10 ))
-        dd if=/dev/zero of=/out/iso/efiboot.img bs=1M count=${FAT_SIZE} 2>/dev/null
-        mkfs.vfat /out/iso/efiboot.img >/dev/null
-        mmd -i /out/iso/efiboot.img ::/EFI ::/EFI/BOOT
-        mcopy -i /out/iso/efiboot.img /out/muak-${ARCH}.efi ::/EFI/BOOT/${BOOT_FILE}
-        xorriso -as mkisofs -o /out/muak-${ARCH}.iso \
-            -e efiboot.img -no-emul-boot \
-            -append_partition 2 0xEF /out/iso/efiboot.img \
-            -appended_part_as_gpt \
-            -V MUAK /out/iso
-        rm -rf /out/iso'
-    printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
+    @printf "{{ cyan }}Building ISO for {{ arch }}{{ reset }}\n"
+    {{ container_runtime }} run --rm -v {{ artifacts }}:/out \
+        {{ tools }} \
+        /miso iso \
+            --uki /out/muak-{{ arch }}.efi \
+            --output /out/muak-{{ arch }}.iso \
+            --label MUAK \
+            --arch {{ arch }}
+    @printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build OCI images (e.g., just oci granola kernel installer cli)
 [script]
