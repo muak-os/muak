@@ -1,4 +1,4 @@
-//! Shared HTTPS client and low-level request helpers for OCI registry communication.
+//! Shared HTTP/HTTPS client and low-level request helpers for OCI registry communication.
 
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
@@ -11,13 +11,13 @@ use rustls::{ClientConfig, RootCertStore};
 use crate::error::{ImagerError, Result};
 use crate::oci::USER_AGENT;
 
-/// HTTPS connector backed by rustls.
+/// HTTPS connector backed by rustls that also supports plain HTTP.
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 
-/// Cloneable HTTPS client backed by a connection pool.
+/// Cloneable HTTP/HTTPS client for all registries.
 pub(crate) type HttpClient = Client<HttpsConnector, Full<Bytes>>;
 
-/// Build a reusable HTTPS client using the Mozilla CA root bundle.
+/// Build a reusable client supporting both HTTPS and plain HTTP.
 pub(crate) fn build_client() -> Result<HttpClient> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -28,7 +28,8 @@ pub(crate) fn build_client() -> Result<HttpClient> {
 
     let connector = hyper_rustls::HttpsConnectorBuilder::new()
         .with_tls_config(tls_config)
-        .https_only()
+        .https_or_http()
+        .enable_http1()
         .enable_http2()
         .build();
 
