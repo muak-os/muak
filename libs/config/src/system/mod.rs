@@ -60,6 +60,11 @@ impl SystemConfig {
                 "host.port must be greater than 0".to_string(),
             ));
         }
+        if self.host.ntp.is_empty() {
+            return Err(ConfigError::ValidationError(
+                "host.ntp must be specified".to_string(),
+            ));
+        }
         self.network.validate_dns()?;
         Ok(())
     }
@@ -328,6 +333,17 @@ image = "192.168.100.1:5000/installer:latest"
     }
 
     #[test]
+    fn validation_failure_empty_ntp() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.port = 8080;
+        config.host.ntp = String::new();
+
+        // ACT & ASSERT
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn validation_failure_empty_name() {
         // ARRANGE
         let mut config = SystemConfig::default();
@@ -369,6 +385,7 @@ image = "192.168.100.1:5000/installer:latest"
 [host]
 name = "myhost"
 port = 1234
+ntp = "pool.ntp.org"
 "#;
 
         // ACT
@@ -405,7 +422,7 @@ port = 1234
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let content = "[host]\nname = \"loaded\"\nport = 7777\n";
+        let content = "[host]\nname = \"loaded\"\nport = 7777\nntp = \"pool.ntp.org\"\n";
         std::fs::write(&path, content).unwrap();
 
         // ACT

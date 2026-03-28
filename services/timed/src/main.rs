@@ -7,7 +7,7 @@ mod ntp;
 
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use notify::{Health, NotifyClient};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -22,6 +22,9 @@ async fn main() -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
     let server = &config::host().ntp;
+    if server.is_empty() {
+        bail!("host.ntp is not configured");
+    }
     println!("NTP server: {server}");
 
     let notifier = NotifyClient::new("timed")?;
