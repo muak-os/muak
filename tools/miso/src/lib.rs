@@ -39,7 +39,7 @@ mod tests {
     #[test]
     fn arch_x86_64_boot_filename() {
         // ARRANGE / ACT / ASSERT
-        assert_eq!(Arch::X86_64.boot_filename(), "BOOTx64.EFI");
+        assert_eq!(Arch::X86_64.boot_filename(), "BOOTX64.EFI");
     }
 
     #[test]
