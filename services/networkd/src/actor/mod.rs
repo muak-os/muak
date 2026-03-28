@@ -1,7 +1,6 @@
 mod bridge;
 mod commands;
 mod config_apply;
-mod connectivity;
 mod dhcp;
 mod discovery;
 mod events;
@@ -16,7 +15,7 @@ pub use commands::NetworkCommand;
 use state::NetworkActor;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
+use crate::model::{InterfaceSnapshot, NetworkSnapshot};
 use crate::monitor::{self, NetworkEvent};
 
 #[derive(Clone)]
@@ -88,15 +87,6 @@ impl NetworkActorHandle {
 
     pub fn subscribe(&self) -> watch::Receiver<NetworkSnapshot> {
         self.watch_rx.clone()
-    }
-
-    pub async fn check_connectivity(&self) -> ConnectivityResult {
-        let (reply, rx) = oneshot::channel();
-        let _ = self
-            .tx
-            .send(NetworkCommand::CheckConnectivity { reply })
-            .await;
-        rx.await.unwrap_or_default()
     }
 }
 

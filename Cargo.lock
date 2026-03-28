@@ -1372,10 +1372,6 @@ version = "0.1.1-beta"
 dependencies = [
  "anyhow",
  "config",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
  "kmsg",
  "libc",
  "notify",
@@ -1383,15 +1379,11 @@ dependencies = [
  "ring",
  "rtnetlink",
  "rustix",
- "rustls",
- "rustls-pki-types",
  "tokio",
- "tokio-rustls",
  "tokio-stream",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
- "webpki-roots",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ use tokio_stream::wrappers::WatchStream;
 use tonic::{Request, Response, Status};
 
 use crate::actor::NetworkActorHandle;
-use crate::model::{ConnectivityStatus, NetworkStateKind};
+use crate::model::NetworkStateKind;
 use crate::netutil::{format_mac_address, generate_mac_address};
 use crate::proto::network_service_server::NetworkService;
 use crate::proto::*;
@@ -95,34 +95,6 @@ impl NetworkService for NetworkServiceImpl {
         Ok(Response::new(SetupBridgeResponse {}))
     }
 
-    async fn check_connectivity(
-        &self,
-        _request: Request<CheckConnectivityRequest>,
-    ) -> Result<Response<ConnectivityResult>, Status> {
-        let result = self.handle.check_connectivity().await;
-
-        let snapshot = self.handle.snapshot().await;
-        let (primary_ip, gateway) = snapshot
-            .interfaces
-            .iter()
-            .find(|i| Some(&i.name) == snapshot.primary.as_ref())
-            .and_then(|i| i.ip.as_ref())
-            .map(|ip| {
-                (
-                    ip.address.to_string(),
-                    ip.gateway.map(|g| g.to_string()).unwrap_or_default(),
-                )
-            })
-            .unwrap_or_default();
-
-        Ok(Response::new(ConnectivityResult {
-            dns_works: result.dns_ok,
-            internet_reachable: result.https_ok,
-            primary_ip,
-            gateway,
-        }))
-    }
-
     type SubscribeStatusStream =
         Pin<Box<dyn tokio_stream::Stream<Item = Result<NetworkStatus, Status>> + Send>>;
 
@@ -142,13 +114,7 @@ impl NetworkService for NetworkServiceImpl {
 fn snapshot_to_status(snapshot: &crate::model::NetworkSnapshot) -> NetworkStatus {
     let state = match snapshot.state {
         NetworkStateKind::Uninitialized | NetworkStateKind::Initializing => State::Initializing,
-        NetworkStateKind::Operational | NetworkStateKind::Ready => {
-            if snapshot.connectivity.status == ConnectivityStatus::Connected {
-                State::Ready
-            } else {
-                State::Degraded
-            }
-        }
+        NetworkStateKind::Operational | NetworkStateKind::Ready => State::Ready,
         NetworkStateKind::Degraded => State::Degraded,
     };
 
@@ -188,10 +154,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::model::{
-        ConnectivityResult, InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot,
-        NetworkStateKind,
-    };
+    use crate::model::{InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot, NetworkStateKind};
 
     fn empty_snapshot() -> NetworkSnapshot {
         NetworkSnapshot::empty()
@@ -235,27 +198,10 @@ mod tests {
     }
 
     #[test]
-    fn operational_without_connectivity_maps_to_degraded() {
+    fn operational_maps_to_ready() {
         // ARRANGE
         let mut snap = empty_snapshot();
         snap.state = NetworkStateKind::Operational;
-
-        // ACT
-        let status = snapshot_to_status(&snap);
-
-        // ASSERT
-        assert_eq!(status.state, i32::from(State::Degraded));
-    }
-
-    #[test]
-    fn operational_with_connectivity_maps_to_ready() {
-        // ARRANGE
-        let mut snap = empty_snapshot();
-        snap.state = NetworkStateKind::Operational;
-        snap.connectivity = ConnectivityResult {
-            status: ConnectivityStatus::Connected,
-            ..ConnectivityResult::default()
-        };
 
         // ACT
         let status = snapshot_to_status(&snap);
@@ -265,14 +211,10 @@ mod tests {
     }
 
     #[test]
-    fn ready_with_connectivity_maps_to_ready() {
+    fn ready_maps_to_ready() {
         // ARRANGE
         let mut snap = empty_snapshot();
         snap.state = NetworkStateKind::Ready;
-        snap.connectivity = ConnectivityResult {
-            status: ConnectivityStatus::Connected,
-            ..ConnectivityResult::default()
-        };
 
         // ACT
         let status = snapshot_to_status(&snap);

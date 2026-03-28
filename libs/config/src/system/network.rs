@@ -10,7 +10,6 @@ use crate::error::{ConfigError, Result};
 #[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub ipv6: bool,
-    pub connectivity_probe: Option<String>,
     pub dns: Vec<String>,
     pub interfaces: Vec<InterfaceConfig>,
 }

@@ -7,13 +7,9 @@ version.workspace = true
 # Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util"] }
 tokio-stream = { workspace = true }
-tokio-rustls = { workspace = true }
 
 # Cryptography
 ring = { workspace = true }
-rustls = { workspace = true }
-rustls-pki-types = { workspace = true }
-webpki-roots = { workspace = true }
 
 # Encoding
 prost = { workspace = true }
@@ -24,12 +20,6 @@ anyhow = { workspace = true }
 # gRPC
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
-
-# HTTP
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-hyper-rustls = { workspace = true }
-http-body-util = { workspace = true }
 
 # Internal
 kmsg = { workspace = true }

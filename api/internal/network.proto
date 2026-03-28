@@ -11,8 +11,6 @@ service NetworkService {
 
   rpc SetupBridge(SetupBridgeRequest) returns (SetupBridgeResponse);
 
-  rpc CheckConnectivity(CheckConnectivityRequest) returns (ConnectivityResult);
-
   rpc SubscribeStatus(SubscribeStatusRequest) returns (stream NetworkStatus);
 }
 
@@ -31,7 +29,6 @@ enum State {
   INITIALIZING = 0;
   DEGRADED = 1;
   READY = 2;
-  FAILED = 3;
 }
 
 message InterfaceInfo {
@@ -60,14 +57,5 @@ message DeleteTapResponse {}
 
 message SetupBridgeRequest {}
 message SetupBridgeResponse {}
-
-message CheckConnectivityRequest {}
-
-message ConnectivityResult {
-  bool dns_works = 1;
-  bool internet_reachable = 2;
-  string primary_ip = 3;
-  string gateway = 4;
-}
 
 message SubscribeStatusRequest {}

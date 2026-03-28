@@ -15,7 +15,6 @@ pub struct NetworkActor {
     pub(super) iface_map: HashMap<String, InterfaceSnapshot>,
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
     pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
-    pub(super) connectivity_task: Option<JoinHandle<()>>,
 }
 
 impl NetworkActor {
@@ -26,7 +25,6 @@ impl NetworkActor {
             iface_map: HashMap::new(),
             watch_tx,
             renewal_tasks: HashMap::new(),
-            connectivity_task: None,
         }
     }
 

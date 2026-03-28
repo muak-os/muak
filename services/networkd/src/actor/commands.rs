@@ -2,7 +2,7 @@ use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
 use super::state::NetworkActor;
-use crate::model::{ConnectivityResult, InterfaceSnapshot, NetworkSnapshot};
+use crate::model::{InterfaceSnapshot, NetworkSnapshot};
 use crate::slaac::SlaacEvent;
 
 #[derive(Debug)]
@@ -26,19 +26,13 @@ pub enum NetworkCommand {
         iface: String,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
-    // Internal command triggered by timer
     RenewLease {
         iface: String,
     },
     Snapshot {
         reply: oneshot::Sender<NetworkSnapshot>,
     },
-    CheckConnectivity {
-        reply: oneshot::Sender<ConnectivityResult>,
-    },
     Slaac(SlaacEvent),
-    // Internal periodic connectivity check trigger
-    PeriodicConnectivityCheck,
 }
 
 impl NetworkActor {
@@ -73,13 +67,6 @@ impl NetworkActor {
             }
             NetworkCommand::Snapshot { reply } => {
                 let _ = reply.send(self.state.clone());
-            }
-            NetworkCommand::CheckConnectivity { reply } => {
-                let result = self.check_connectivity().await;
-                let _ = reply.send(result);
-            }
-            NetworkCommand::PeriodicConnectivityCheck => {
-                let _ = self.check_connectivity().await;
             }
             NetworkCommand::Slaac(event) => {
                 self.handle_slaac_event(event).await;

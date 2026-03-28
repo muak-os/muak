@@ -15,8 +15,6 @@ impl NetworkActor {
         self.state.state = NetworkStateKind::Ready;
         self.publish_state();
 
-        self.start_connectivity_monitoring(cmd_tx.clone());
-
         kmsg::info!("Network initialization complete");
 
         Ok(())

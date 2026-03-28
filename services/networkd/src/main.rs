@@ -1,7 +1,6 @@
-//! Network daemon for Muak to manage network interfaces, DHCP, DNS, and connectivity
+//! Network daemon for Muak to manage network interfaces, DHCP & DNS
 
 mod actor;
-mod connectivity;
 mod dhcpv4;
 mod dns;
 mod interface;
