@@ -14,6 +14,7 @@ name = "muak"
 image = "test_image"
 extensions = ["ext1", "ext2"]
 port = 8080
+ntp = "pool.ntp.org"
 
 [disk]
 system = "test_disk"
