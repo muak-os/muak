@@ -154,6 +154,7 @@ fn read_symlink_target(abs: &Path, meta: &fs::Metadata) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::test_config;
 
     #[test]
     fn normalize_rel_path_not_under_prefix() {
@@ -192,12 +193,9 @@ mod tests {
         std::fs::write(dir.path().join("f"), b"x").expect("write");
         let entries = collect_entries(dir.path()).expect("entries");
         let config = crate::MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
             force_uid: Some(1234),
             force_gid: Some(5678),
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -215,17 +213,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
         let entries = collect_entries(dir.path()).expect("entries");
-        let config = crate::MkfsConfig {
-            source_date_epoch: 1_700_000_000,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        };
 
         // ACT
-        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+        let inodes = build_initial_inodes(&entries, &test_config(1_700_000_000)).expect("inodes");
 
         // ASSERT: epoch overrides actual mtime.
         for inode in &inodes {
@@ -240,17 +230,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
         let entries = collect_entries(dir.path()).expect("entries");
-        let config = crate::MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        };
 
         // ACT
-        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+        let inodes = build_initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ASSERT
         let file = inodes.iter().find(|i| i.rel_path == "/f").expect("found");
@@ -263,17 +245,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/some/target", dir.path().join("link")).expect("symlink");
         let entries = collect_entries(dir.path()).expect("entries");
-        let config = crate::MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        };
 
         // ACT
-        let inodes = build_initial_inodes(&entries, &config).expect("inodes");
+        let inodes = build_initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ASSERT
         let link = inodes

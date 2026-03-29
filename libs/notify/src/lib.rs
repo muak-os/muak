@@ -115,6 +115,22 @@ mod tests {
 
     use super::*;
 
+    fn test_client_with_server(service: &str) -> (NotifyClient, UnixDatagram, TempDir) {
+        let dir = TempDir::new().expect("Failed to create temp dir");
+        let socket_path = dir.path().join("notify.sock");
+        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
+        let client =
+            NotifyClient::new_with_socket(service, socket_path.to_str().expect("valid path"))
+                .expect("Failed to create client");
+        (client, server, dir)
+    }
+
+    fn recv_str(socket: &UnixDatagram) -> String {
+        let mut buf = vec![0u8; 4096];
+        let (len, _) = socket.recv_from(&mut buf).expect("Failed to receive");
+        String::from_utf8(buf[..len].to_vec()).expect("Invalid UTF-8")
+    }
+
     #[test]
     fn notify_client_new() {
         // ACT
@@ -184,39 +200,26 @@ mod tests {
         assert!(client.watchdog().is_ok());
     }
 
-    fn recv_str(socket: &UnixDatagram) -> String {
-        let mut buf = vec![0u8; 4096];
-        let (len, _) = socket.recv_from(&mut buf).expect("Failed to receive");
-        String::from_utf8(buf[..len].to_vec()).expect("Invalid UTF-8")
-    }
-
     #[test]
     fn ready_wire_format() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
-
+        let (client, server, _dir) = test_client_with_server("test-service");
         let pid = std::process::id();
 
         // ACT
         client.ready().expect("Failed to send ready");
 
         // ASSERT
-        let msg = recv_str(&server);
-        assert_eq!(msg, format!("SERVICE_NAME=test-service\nREADY={pid}"));
+        assert_eq!(
+            recv_str(&server),
+            format!("SERVICE_NAME=test-service\nREADY={pid}")
+        );
     }
 
     #[test]
     fn status_wire_format() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
+        let (client, server, _dir) = test_client_with_server("test-service");
 
         // ACT & ASSERT
         client
@@ -247,11 +250,7 @@ mod tests {
     #[test]
     fn stopping_wire_format() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
+        let (client, server, _dir) = test_client_with_server("test-service");
 
         // ACT
         client.stopping("Received SIGTERM").expect("Failed to send");
@@ -266,11 +265,7 @@ mod tests {
     #[test]
     fn watchdog_wire_format() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
+        let (client, server, _dir) = test_client_with_server("test-service");
 
         // ACT
         client.watchdog().expect("Failed to send");
@@ -282,11 +277,7 @@ mod tests {
     #[test]
     fn multiple_notifications() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
+        let (client, server, _dir) = test_client_with_server("test-service");
 
         // ACT
         client.ready().expect("Failed to send ready");
@@ -344,14 +335,14 @@ mod tests {
     #[test]
     fn service_name_special_characters() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
+        let (_, server, dir) = test_client_with_server("placeholder");
         let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
 
         // ACT & ASSERT
         for name in ["service-dashes", "service.dots", "service_underscores"] {
-            let client = NotifyClient::new_with_socket(name, socket_path.to_str().unwrap())
-                .expect("Failed to create client");
+            let client =
+                NotifyClient::new_with_socket(name, socket_path.to_str().expect("valid path"))
+                    .expect("Failed to create client");
             client.watchdog().expect("Failed to send");
             let msg = recv_str(&server);
             assert!(msg.starts_with(&format!("SERVICE_NAME={name}\n")));
@@ -361,11 +352,7 @@ mod tests {
     #[test]
     fn long_status_message() {
         // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let socket_path = dir.path().join("notify.sock");
-        let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client = NotifyClient::new_with_socket("test", socket_path.to_str().unwrap())
-            .expect("Failed to create client");
+        let (client, server, _dir) = test_client_with_server("test");
 
         // ACT
         let long_msg = "x".repeat(1000);

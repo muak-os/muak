@@ -130,6 +130,7 @@ mod tests {
     use super::*;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::testutil::test_config;
 
     #[test]
     fn build_indices_mixed_types() {
@@ -138,18 +139,8 @@ mod tests {
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
         let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let inodes = crate::layout::collect::build_initial_inodes(
-            &entries,
-            &crate::MkfsConfig {
-                source_date_epoch: 0,
-                file_contexts: None,
-                uuid: [0; 16],
-                force_uid: None,
-                force_gid: None,
-                compress: false,
-            },
-        )
-        .expect("inodes");
+        let inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
+            .expect("inodes");
 
         // ACT
         let idx = build_indices(&entries, &inodes);
@@ -166,18 +157,8 @@ mod tests {
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
         let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let mut inodes = crate::layout::collect::build_initial_inodes(
-            &entries,
-            &crate::MkfsConfig {
-                source_date_epoch: 0,
-                file_contexts: None,
-                uuid: [0; 16],
-                force_uid: None,
-                force_gid: None,
-                compress: false,
-            },
-        )
-        .expect("inodes");
+        let mut inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
+            .expect("inodes");
         let idx = build_indices(&entries, &inodes);
 
         // ACT
@@ -287,18 +268,8 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("a/b/c")).expect("mkdir");
         std::fs::write(dir.path().join("a/b/c/file"), b"x").expect("write");
         let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let mut inodes = crate::layout::collect::build_initial_inodes(
-            &entries,
-            &crate::MkfsConfig {
-                source_date_epoch: 0,
-                file_contexts: None,
-                uuid: [0; 16],
-                force_uid: None,
-                force_gid: None,
-                compress: false,
-            },
-        )
-        .expect("inodes");
+        let mut inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
+            .expect("inodes");
         let idx = build_indices(&entries, &inodes);
 
         // ACT
@@ -317,18 +288,8 @@ mod tests {
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/file"), b"x").expect("write");
         let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let inodes = crate::layout::collect::build_initial_inodes(
-            &entries,
-            &crate::MkfsConfig {
-                source_date_epoch: 0,
-                file_contexts: None,
-                uuid: [0; 16],
-                force_uid: None,
-                force_gid: None,
-                compress: false,
-            },
-        )
-        .expect("inodes");
+        let inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
+            .expect("inodes");
 
         // ACT
         let idx = build_indices(&entries, &inodes);

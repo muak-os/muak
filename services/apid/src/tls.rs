@@ -115,7 +115,18 @@ pub fn extract_fingerprint(cert_der: &[u8]) -> String {
 mod tests {
     use std::io::Write;
 
+    use x509_cert::Certificate;
+
     use super::*;
+
+    /// Generates a test CA certificate and returns `(signer, cert, cert_der)`.
+    fn make_test_ca() -> (pki::RingEcdsaSigner, Certificate, Vec<u8>) {
+        let (signer, cert) =
+            pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
+        let cert_der =
+            x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
+        (signer, cert, cert_der)
+    }
 
     #[test]
     fn extract_fingerprint_returns_64_char_hex() {
@@ -193,10 +204,7 @@ mod tests {
     #[test]
     fn extract_fingerprint_with_real_cert() {
         // ARRANGE
-        let (_, ca_cert) =
-            pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
-        let cert_der =
-            x509_cert::der::Encode::to_der(&ca_cert).expect("Failed to encode certificate to DER");
+        let (_, _, cert_der) = make_test_ca();
 
         // ACT
         let fingerprint = extract_fingerprint(&cert_der);
@@ -218,10 +226,7 @@ mod tests {
     #[test]
     fn extract_fingerprint_matches_pki_compute() {
         // ARRANGE
-        let (_, cert) =
-            pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
-        let cert_der =
-            x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
+        let (_, cert, cert_der) = make_test_ca();
 
         // ACT
         let our_fingerprint = extract_fingerprint(&cert_der);
@@ -251,8 +256,7 @@ mod tests {
     #[test]
     fn load_tls_config_with_valid_paths() {
         // ARRANGE
-        let (ca_signer, ca_cert) =
-            pki::generate_ca_certificate("Test CA").expect("Failed to generate CA");
+        let (ca_signer, ca_cert, _) = make_test_ca();
         let (server_signer, server_cert) =
             pki::generate_server_certificate("test-server", &ca_signer, &ca_cert)
                 .expect("Failed to generate server cert");

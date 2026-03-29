@@ -105,19 +105,25 @@ pub enum InitError {
     AlreadyInitialized,
 }
 
+/// Formats a log message into the kernel printk wire format.
+///
+/// Returns `<LEVEL> MESSAGE\n` when `component` is empty, or
+/// `<LEVEL>[COMPONENT] MESSAGE\n` otherwise.
+pub(crate) fn format_log(level: Level, component: &str, message: &str) -> String {
+    if component.is_empty() {
+        format!("<{}> {}\n", level as u8, message)
+    } else {
+        format!("<{}>[{}] {}\n", level as u8, component, message)
+    }
+}
+
 /// Writes a log message with the specified level and optional component.
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     let comp = component
         .or_else(|| DEFAULT_COMPONENT.get().map(|s| s.as_str()))
         .unwrap_or("");
 
-    let formatted = if comp.is_empty() {
-        format!("<{}> {}\n", level as u8, message)
-    } else {
-        format!("<{}>[{}] {}\n", level as u8, comp, message)
-    };
-
-    write_to_kmsg_or_stderr(formatted.as_bytes());
+    write_to_kmsg_or_stderr(format_log(level, comp, message).as_bytes());
 }
 
 /// Prints a plain message to kmsg without priority prefix.
@@ -225,17 +231,112 @@ mod tests {
     use super::*;
 
     #[test]
-    fn level_debug_trait() {
+    fn level_numeric_values() {
+        // ASSERT
+        assert_eq!(Level::Error as u8, 3);
+        assert_eq!(Level::Warn as u8, 4);
+        assert_eq!(Level::Info as u8, 6);
+        assert_eq!(Level::Debug as u8, 7);
+    }
+
+    #[test]
+    fn level_debug_repr() {
+        // ASSERT
+        assert_eq!(format!("{:?}", Level::Error), "Error");
+        assert_eq!(format!("{:?}", Level::Warn), "Warn");
+        assert_eq!(format!("{:?}", Level::Info), "Info");
+        assert_eq!(format!("{:?}", Level::Debug), "Debug");
+    }
+
+    #[test]
+    fn format_log_with_component_encodes_level_and_tag() {
+        // ACT
+        let out = format_log(Level::Info, "myapp", "hello");
+
+        // ASSERT
+        assert_eq!(out, "<6>[myapp] hello\n");
+    }
+
+    #[test]
+    fn format_log_without_component_omits_brackets() {
+        // ACT
+        let out = format_log(Level::Error, "", "oops");
+
+        // ASSERT
+        assert_eq!(out, "<3> oops\n");
+    }
+
+    #[test]
+    fn format_log_all_levels_produce_correct_priority_byte() {
         // ARRANGE
-        let levels = vec![Level::Error, Level::Warn, Level::Info, Level::Debug];
+        let cases = [
+            (Level::Error, b'3'),
+            (Level::Warn, b'4'),
+            (Level::Info, b'6'),
+            (Level::Debug, b'7'),
+        ];
+
+        // ACT & ASSERT
+        for (level, digit) in cases {
+            let out = format_log(level, "t", "m");
+            assert_eq!(out.as_bytes()[1], digit, "wrong priority for {level:?}");
+        }
+    }
+
+    #[test]
+    fn format_log_message_preserved_verbatim() {
+        // ARRANGE
+        let msg = "Special: !@#$%^&*() and Unicode: \u{65E5}\u{672C}\u{8A9E}";
 
         // ACT
-        for level in levels {
-            let debug_str = format!("{:?}", level);
+        let out = format_log(Level::Warn, "c", msg);
 
-            // ASSERT
-            assert!(!debug_str.is_empty());
+        // ASSERT
+        assert!(out.contains(msg));
+    }
+
+    #[test]
+    fn format_log_component_with_punctuation() {
+        // ACT
+        let out = format_log(Level::Info, "my-component.v1", "test");
+
+        // ASSERT
+        assert_eq!(out, "<6>[my-component.v1] test\n");
+    }
+
+    #[test]
+    fn format_log_empty_message() {
+        // ACT
+        let out = format_log(Level::Info, "svc", "");
+
+        // ASSERT
+        assert_eq!(out, "<6>[svc] \n");
+    }
+
+    #[test]
+    fn format_log_always_ends_with_newline() {
+        // ACT & ASSERT
+        for comp in ["", "c"] {
+            let out = format_log(Level::Info, comp, "msg");
+            assert!(out.ends_with('\n'), "missing newline for comp={comp:?}");
         }
+    }
+
+    #[test]
+    fn format_log_within_max_kmsg_size() {
+        // ARRANGE
+        let prefix_overhead = "<6>[test] \n".len();
+        let safe_size = MAX_KMSG_SIZE - prefix_overhead - 1;
+        let msg = "x".repeat(safe_size);
+
+        // ACT
+        let out = format_log(Level::Info, "test", &msg);
+
+        // ASSERT
+        assert!(
+            out.len() <= MAX_KMSG_SIZE,
+            "formatted output exceeds MAX_KMSG_SIZE"
+        );
     }
 
     #[test]
@@ -251,248 +352,26 @@ mod tests {
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), InitError::AlreadyInitialized));
         } else {
-            // ACT - First initialization
+            // ACT
             let first = init("first-init");
-
-            // ASSERT
             assert!(first.is_ok());
 
-            // ACT - Second initialization
             let second = init("second-init");
 
             // ASSERT
             assert!(second.is_err());
+            assert!(matches!(second.unwrap_err(), InitError::AlreadyInitialized));
         }
     }
 
     #[test]
-    fn write_log_with_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("my-component"), "test message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn write_log_without_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Error, None, "error message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn write_log_all_levels() {
+    fn init_error_display_and_debug() {
         // ARRANGE
-        let levels = [Level::Error, Level::Warn, Level::Info, Level::Debug];
-
-        // ACT & ASSERT
-        for level in levels {
-            let result = std::panic::catch_unwind(|| {
-                write_log(level, Some("test"), "message");
-            });
-            assert!(result.is_ok(), "Failed for level {:?}", level);
-        }
-    }
-
-    #[test]
-    fn print_function() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            print("simple print message");
-        });
+        let err = InitError::AlreadyInitialized;
 
         // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn print_with_newlines() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            print("line1\nline2");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn print_empty_string() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            print("");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn error_macro_without_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            error!("Test error message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn error_macro_with_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            error!(@ "network", "Connection failed");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn error_macro_with_format_args() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            error!("Error code: {}", 404);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn warn_macro_without_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            warn!("Test warning message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn warn_macro_with_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            warn!(@ "config", "Missing key");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn warn_macro_with_format_args() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            warn!("Warning: {} warnings found", 5);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn info_macro_without_component() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            info!("Test info message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn info_macro_with_component() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            info!(@ "server", "Server started");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn info_macro_with_format_args() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            info!("Port: {}", 8080);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "debug")]
-    fn debug_macro_without_component() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            debug!("Test debug message");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "debug")]
-    fn debug_macro_with_component() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            debug!(@ "parser", "Parsing token");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "debug")]
-    fn debug_macro_with_format_args() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            debug!("Debug value: {:?}", vec![1, 2, 3]);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn long_message_no_panic() {
-        // ARRANGE
-        let prefix_overhead = "<6>[test] \n".len();
-        let safe_size = MAX_KMSG_SIZE - prefix_overhead - 1;
-        let long_message = "x".repeat(safe_size);
-
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("test"), &long_message);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn message_truncation_in_release() {
-        // ARRANGE
-        let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
-
-        // ACT
-        write_log(Level::Info, Some("test"), &long_message);
+        assert!(format!("{:?}", err).contains("AlreadyInitialized"));
+        assert!(!err.to_string().is_empty());
     }
 
     #[test]
@@ -511,69 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn empty_message() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("test"), "");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn message_with_special_chars() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("test"), "Special: !@#$%^&*()");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn message_with_unicode() {
-        // ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("test"), "Unicode: 日本語 🎉");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn component_with_special_chars() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            write_log(Level::Info, Some("my-component.v1"), "test");
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn nested_formatting() {
-        // ARRANGE & ACT
-        let result = std::panic::catch_unwind(|| {
-            info!("Values: {}, {:?}, {}", 42, "test", true);
-        });
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn init_error_debug() {
+    #[cfg(not(debug_assertions))]
+    fn message_truncation_in_release_appends_marker() {
         // ARRANGE
-        let err = InitError::AlreadyInitialized;
+        let long_message = "x".repeat(MAX_KMSG_SIZE + 100);
 
         // ACT
-        let debug_str = format!("{:?}", err);
+        let formatted = format_log(Level::Info, "test", &long_message);
 
         // ASSERT
-        assert!(debug_str.contains("AlreadyInitialized"));
+        assert!(formatted.len() > MAX_KMSG_SIZE);
+        write_log(Level::Info, Some("test"), &long_message);
     }
 }

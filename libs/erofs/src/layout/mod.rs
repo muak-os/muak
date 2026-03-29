@@ -59,19 +59,9 @@ mod tests {
     use crate::inode::{
         EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     };
+    use crate::testutil::{compress_config, test_config};
 
     const FIRST_NID: u64 = (assign::META_START / SLOT_SIZE) as u64;
-
-    fn test_config(epoch: u64) -> MkfsConfig<'static> {
-        MkfsConfig {
-            source_date_epoch: epoch,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        }
-    }
 
     #[test]
     fn first_nid_is_36() {
@@ -427,12 +417,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         stdfs::write(dir.path().join("f"), b"x").expect("write");
         let cfg = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
             force_uid: Some(1000),
-            force_gid: None,
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -449,12 +435,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         stdfs::write(dir.path().join("f"), b"x").expect("write");
         let cfg = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
             force_gid: Some(1000),
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -538,17 +520,6 @@ mod tests {
         // ASSERT
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(root.data_blocks, 0);
-    }
-
-    fn compress_config(epoch: u64) -> MkfsConfig<'static> {
-        MkfsConfig {
-            source_date_epoch: epoch,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
-        }
     }
 
     #[test]

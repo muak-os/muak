@@ -563,17 +563,7 @@ mod tests {
         EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     };
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
-
-    fn test_config(epoch: u64) -> MkfsConfig<'static> {
-        MkfsConfig {
-            source_date_epoch: epoch,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        }
-    }
+    use crate::testutil::{compress_config, test_config};
 
     #[test]
     fn write_image_empty_file_has_zero_startblk() {
@@ -678,14 +668,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("a"), b"aaa").expect("write");
         std::fs::write(dir.path().join("b"), b"bbb").expect("write");
-        let uuid = [1u8; 16];
         let cfg = MkfsConfig {
-            source_date_epoch: 1000,
-            file_contexts: None,
-            uuid,
-            force_uid: None,
-            force_gid: None,
-            compress: false,
+            uuid: [1u8; 16],
+            ..test_config(1000)
         };
 
         // ACT
@@ -904,12 +889,8 @@ mod tests {
             crate::FileContexts::from_reader("/.*    system_u:object_r:file_t:s0\n".as_bytes())
                 .expect("fc");
         let cfg = MkfsConfig {
-            source_date_epoch: 0,
             file_contexts: Some(&fc),
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -919,17 +900,6 @@ mod tests {
         // ASSERT
         let file = inodes.iter().find(|i| i.rel_path == "/f").expect("found");
         assert!(!file.xattr_payload.is_empty());
-    }
-
-    fn compress_config(epoch: u64) -> MkfsConfig<'static> {
-        MkfsConfig {
-            source_date_epoch: epoch,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
-        }
     }
 
     #[test]

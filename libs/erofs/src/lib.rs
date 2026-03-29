@@ -38,24 +38,47 @@ pub fn mkfs(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+pub(crate) mod testutil {
+    use super::MkfsConfig;
+
+    /// Returns a minimal uncompressed [`MkfsConfig`] for use in unit tests.
+    pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: false,
+        }
+    }
+
+    /// Returns a minimal compressed [`MkfsConfig`] for use in unit tests.
+    pub(crate) fn compress_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compress: true,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use testutil::{compress_config, test_config};
+
     use super::*;
 
     #[test]
     fn mkfs_invalid_source() {
         // ARRANGE
         let nonexistent = Path::new("/this/path/does/not/exist/at/all");
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        };
 
         // ACT
-        let result = mkfs(nonexistent, &config);
+        let result = mkfs(nonexistent, &test_config(0));
 
         // ASSERT
         assert!(result.is_err());
@@ -69,12 +92,8 @@ mod tests {
         let fc = FileContexts::from_reader("/.*    system_u:object_r:file_t:s0\n".as_bytes())
             .expect("fc");
         let config = MkfsConfig {
-            source_date_epoch: 0,
             file_contexts: Some(&fc),
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -91,12 +110,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
         let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
             force_uid: Some(1000),
             force_gid: Some(1000),
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT
@@ -111,17 +127,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
-        };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs should succeed");
+        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs should succeed");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -133,17 +141,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
-        };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs");
+        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs");
 
         // ASSERT
         let sb_off = 1024usize;
@@ -163,12 +163,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("data"), vec![0u8; 16384]).expect("write");
         let config = MkfsConfig {
-            source_date_epoch: 1000,
-            file_contexts: None,
             uuid: [2u8; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
+            ..compress_config(1000)
         };
 
         // ACT
@@ -184,17 +180,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: true,
-        };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs");
+        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -205,17 +193,9 @@ mod tests {
     fn plan_rejects_file_instead_of_directory() {
         // ARRANGE
         let file_path = Path::new("/etc/passwd");
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
-        };
 
         // ACT
-        let result = layout::plan(file_path, &config);
+        let result = layout::plan(file_path, &test_config(0));
 
         // ASSERT
         assert!(result.is_err());
@@ -235,11 +215,8 @@ mod tests {
         std::fs::write(dir.path().join("hello"), b"hello world").expect("write");
         let config = MkfsConfig {
             source_date_epoch: 42,
-            file_contexts: None,
             uuid: [0xAAu8; 16],
-            force_uid: None,
-            force_gid: None,
-            compress: false,
+            ..test_config(0)
         };
 
         // ACT

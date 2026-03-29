@@ -22,20 +22,27 @@ mod tests {
     use x509_cert::Certificate;
 
     use super::*;
+    use crate::signer::RingEcdsaSigner;
     use crate::util::pkcs8_to_pem;
+
+    fn make_test_ca() -> (String, String, RingEcdsaSigner, Certificate) {
+        let (signer, cert) =
+            generate_ca_certificate("Test CA").expect("Failed to generate test CA");
+        let cert_pem = cert
+            .to_pem(LineEnding::LF)
+            .expect("Failed to encode CA cert");
+        let key_pem = pkcs8_to_pem(signer.pkcs8_der()).expect("Failed to encode CA key");
+        (key_pem, cert_pem, signer, cert)
+    }
 
     #[test]
     fn generate_ca_and_server_cert() {
         // ARRANGE
-        let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
-        let ca_cert_pem = ca_cert
-            .to_pem(LineEnding::LF)
-            .expect("Failed to encode CA cert");
-        let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
+        let (ca_key_pem, ca_cert_pem, ca_signer, ca_cert) = make_test_ca();
 
         // ACT
         let (server_key, server_cert) =
-            generate_server_certificate("muak-server", &ca_key, &ca_cert)
+            generate_server_certificate("muak-server", &ca_signer, &ca_cert)
                 .expect("Failed to generate server cert");
         let server_cert_pem = server_cert
             .to_pem(LineEnding::LF)
@@ -57,8 +64,7 @@ mod tests {
     #[test]
     fn generate_and_sign_csr() {
         // ARRANGE
-        let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
-        let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
+        let (ca_key_pem, _, _, ca_cert) = make_test_ca();
 
         let (key_pem, csr_pem) = generate_csr("test-client").expect("Failed to generate CSR");
         let csr_fp = compute_csr_fingerprint(&csr_pem).expect("Failed to compute CSR fingerprint");
@@ -79,15 +85,9 @@ mod tests {
     #[test]
     fn load_ca_from_pem() {
         // ARRANGE
-        let (ca_key, ca_cert) = generate_ca_certificate("Test CA").expect("Failed to generate CA");
-        let ca_cert_pem = ca_cert
-            .to_pem(LineEnding::LF)
-            .expect("Failed to encode CA cert");
-        let ca_key_pem = pkcs8_to_pem(ca_key.pkcs8_der()).expect("Failed to encode CA key");
-
+        let (ca_key_pem, ca_cert_pem, _, _) = make_test_ca();
         let loaded_cert =
             Certificate::from_pem(&ca_cert_pem).expect("Failed to parse CA certificate");
-
         let (_, csr_pem) = generate_csr("test-client").expect("Failed to generate CSR");
 
         // ACT
