@@ -13,6 +13,8 @@ set script-interpreter := ["bash", "-euo", "pipefail"]
 
 # Global settings
 
+alpine_version := "3.23"
+rust_version := `grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:latest")
 push := env_var_or_default("PUSH", "false")
@@ -39,7 +41,7 @@ progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
 tag := env_var_or_default("TAG", "latest")
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch +  " " + provenance_arg
+common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg RUST_VERSION=" + rust_version + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
 # Colors
 
@@ -194,7 +196,7 @@ e2e: (build "--release" "muakctl")
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
     if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
         printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
-        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out alpine:3.23 sh -c '
+        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
         set -euo pipefail
         apk add --no-cache wget libarchive-tools >/dev/null 2>&1
         wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm
@@ -217,7 +219,7 @@ kspp:
     printf "{{ cyan }}Checking kernel config ($config) against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
-        alpine:3.23 sh -c '\
+        docker.io/alpine:{{ alpine_version }} sh -c '\
         apk add --no-cache git python3 >/dev/null 2>&1 && \
         git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
         /tmp/khc/bin/kernel-hardening-checker -c /config'

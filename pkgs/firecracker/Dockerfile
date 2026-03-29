@@ -1,4 +1,6 @@
-FROM alpine:3.23 AS downloader
+ARG ALPINE_VERSION
+
+FROM docker.io/alpine:${ALPINE_VERSION} AS downloader
 
 ARG TARGETARCH
 ARG FIRECRACKER_VERSION=v1.13.0

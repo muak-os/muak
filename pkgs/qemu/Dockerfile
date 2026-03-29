@@ -1,7 +1,9 @@
 # QEMU MUAK Extension
 # Bundle dynamic QEMU with all dependencies for bare-metal deployment
 
-FROM alpine:3.23 AS builder
+ARG ALPINE_VERSION
+
+FROM docker.io/alpine:${ALPINE_VERSION} AS builder
 
 ARG TARGETARCH
 

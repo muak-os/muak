@@ -1,7 +1,7 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
-ARG RUST_VERSION=1.94
-ARG ALPINE_VERSION=3.23
+ARG RUST_VERSION
+ARG ALPINE_VERSION
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────

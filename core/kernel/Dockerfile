@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
-ARG ALPINE_VERSION=3.23
+ARG ALPINE_VERSION
 ARG KERNEL_VERSION=6.19.8
 
 # ─────────────────────────────────────────────────────────────────────────────
