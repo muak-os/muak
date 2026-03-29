@@ -25,16 +25,16 @@ artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../
 # Architecture - override with ARCH=aarch64 for arm build
 
 arch := env_var_or_default("ARCH", "x86_64")
+container_arch := if arch == "aarch64" { "arm64" } else { "amd64" }
 release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
-debug_dir := "target" / (arch + "-unknown-linux-musl") / "debug"
 
 # Container runtime
 
-container_runtime := if `command -v docker >/dev/null 2>&1 && echo docker || echo podman` == "docker" { "docker" } else { "podman" }
+container_runtime := `command -v docker >/dev/null 2>&1 && echo docker || echo podman`
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=never" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
-platform := if arch == "aarch64" { "linux/arm64" } else { "linux/amd64" }
+platform := "linux/" + container_arch
 progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
 tag := env_var_or_default("TAG", "latest")
@@ -46,7 +46,6 @@ common_args := "--platform=" + platform + " --progress=" + progress + " --build-
 bold := '\e[1m'
 cyan := '\e[36m'
 green := '\e[32m'
-yellow := '\e[33m'
 red := '\e[31m'
 reset := '\e[0m'
 
@@ -90,35 +89,24 @@ build release="" *pkgs:
 [script]
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
+    pkgs="granola provisiond modd networkd apid vmd timed consoled init"
     if [ "{{ prod }}" = "false" ]; then
         test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} and extract\n"; exit 1; }
         pkg_args=(
-            --build-context pkg-granola={{ release_dir }}
-            --build-context pkg-provisiond={{ release_dir }}
-            --build-context pkg-modd={{ release_dir }}
-            --build-context pkg-networkd={{ release_dir }}
-            --build-context pkg-apid={{ release_dir }}
-            --build-context pkg-vmd={{ release_dir }}
-            --build-context pkg-timed={{ release_dir }}
-            --build-context pkg-consoled={{ release_dir }}
-            --build-context pkg-init={{ release_dir }}
-            --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
             --build-context pkg-kernel={{ artifacts }}
+            --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
         )
+        for pkg in $pkgs; do
+            pkg_args+=(--build-context "pkg-$pkg={{ release_dir }}")
+        done
     else
         pkg_args=(
             --build-arg pkg-kernel={{ registry }}/kernel:{{ tag }}
-            --build-arg pkg-granola={{ registry }}/pkgs/granola:{{ tag }}
-            --build-arg pkg-provisiond={{ registry }}/pkgs/provisiond:{{ tag }}
-            --build-arg pkg-modd={{ registry }}/pkgs/modd:{{ tag }}
-            --build-arg pkg-networkd={{ registry }}/pkgs/networkd:{{ tag }}
-            --build-arg pkg-apid={{ registry }}/pkgs/apid:{{ tag }}
-            --build-arg pkg-vmd={{ registry }}/pkgs/vmd:{{ tag }}
-            --build-arg pkg-timed={{ registry }}/pkgs/timed:{{ tag }}
-            --build-arg pkg-consoled={{ registry }}/pkgs/consoled:{{ tag }}
-            --build-arg pkg-init={{ registry }}/pkgs/init:{{ tag }}
             --build-arg pkg-stub={{ registry }}/pkgs/stub:{{ tag }}
         )
+        for pkg in $pkgs; do
+            pkg_args+=(--build-arg "pkg-$pkg={{ registry }}/pkgs/$pkg:{{ tag }}")
+        done
     fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
         --build-context services=. \
@@ -127,9 +115,7 @@ installer prod="false":
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
         .
-    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
-        podman push {{ registry }}/installer:{{ tag }} --tls-verify=false
-    fi
+    just _podman-push "{{ registry }}/installer:{{ tag }}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Extract an OCI image filesystem to local artifacts
@@ -156,7 +142,7 @@ sign image=(registry + "/installer:" + tag):
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    { tr -d '\n' < core/kernel/cmdline-{{ if arch == "aarch64" { "arm64" } else { "amd64" } }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
+    { tr -d '\n' < core/kernel/cmdline-{{ container_arch }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ container_runtime }} run --rm \
         -v "{{ artifacts }}:/out" \
         {{ tools }} \
@@ -200,16 +186,7 @@ oci *pkgs:
 # Run tests (e.g., just test or just test yuki imager)
 [script]
 test *pkgs:
-    if [ -n "{{ pkgs }}" ]; then
-        printf "{{ cyan }}Running tests for {{ pkgs }}{{ reset }}\n"
-        pkg_args=""
-        for pkg in {{ pkgs }}; do
-            pkg_args="$pkg_args -p $pkg"
-        done
-        cargo nextest run $pkg_args
-    else
-        cargo nextest run -E 'not package(e2e)'
-    fi
+    just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [script]
@@ -231,21 +208,12 @@ e2e: (build "--release" "muakctl")
 # Run tests with coverage (e.g., just coverage or just coverage yuki)
 [script]
 coverage *pkgs:
-    if [ -n "{{ pkgs }}" ]; then
-        printf "{{ cyan }}Running tests with coverage for {{ pkgs }}{{ reset }}\n"
-        pkg_args=""
-        for pkg in {{ pkgs }}; do
-            pkg_args="$pkg_args -p $pkg"
-        done
-        cargo llvm-cov nextest $pkg_args
-    else
-        cargo llvm-cov nextest -E 'not package(e2e)'
-    fi
+    just _test-run "cargo llvm-cov nextest" "Running tests with coverage for" {{ pkgs }}
 
 # Check kernel config against KSPP security hardening recommendations
 [script]
 kspp:
-    config="{{ if arch == "aarch64" { "config-arm64" } else { "config-amd64" } }}"
+    config="config-{{ container_arch }}"
     printf "{{ cyan }}Checking kernel config ($config) against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
@@ -293,20 +261,28 @@ _require file hint:
 
 [private]
 [script]
-_require-pkg pkg:
-    for dir in core services tools pkgs; do
-        if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then exit 0; fi
-    done
-    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"; exit 1
+_test-run runner label *pkgs:
+    if [ -n "{{ pkgs }}" ]; then
+        printf "{{ cyan }}{{ label }} {{ pkgs }}{{ reset }}\n"
+        pkg_args=""
+        for pkg in {{ pkgs }}; do
+            pkg_args="$pkg_args -p $pkg"
+        done
+        {{ runner }} $pkg_args
+    else
+        {{ runner }} -E 'not package(e2e)'
+    fi
+
+[private]
+[script]
+_podman-push image:
+    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
+        podman push "{{ image }}" --tls-verify=false
+    fi
 
 [private]
 [script]
 _oci-build pkg:
-    latest_tag=""
-    if [ "{{ latest }}" = "true" ]; then
-        latest_tag="--tag {{ registry }}/{{ pkg }}:latest"
-    fi
-
     case "{{ pkg }}" in
         kernel)
             printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
@@ -353,11 +329,9 @@ _oci-build pkg:
                 {{ push_arg }} \
                 --file "$dockerfile" \
                 .
-            if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
-                podman push {{ registry }}/pkgs/{{ pkg }}:{{ tag }} --tls-verify=false
-                if [ "{{ latest }}" = "true" ]; then
-                    podman push {{ registry }}/pkgs/{{ pkg }}:latest --tls-verify=false
-                fi
+            just _podman-push "{{ registry }}/pkgs/{{ pkg }}:{{ tag }}"
+            if [ "{{ latest }}" = "true" ]; then
+                just _podman-push "{{ registry }}/pkgs/{{ pkg }}:latest"
             fi
             ;;
     esac
