@@ -50,7 +50,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.package != ''
         run: |
           if [[ "${{ inputs.package }}" == "all" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+            echo 'packages=["granola","modd","networkd","apid","vmd","consoled","provisiond","timed","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
           else
             echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
           fi
@@ -58,7 +58,7 @@ jobs:
       - name: Build all packages on tag push
         id: tag
         if: startsWith(github.ref, 'refs/tags/')
-        run: echo 'packages=["granola","modd","networkd","apid","vmd","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+        run: echo 'packages=["granola","modd","networkd","apid","vmd","consoled","provisiond","timed","init","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
 
       - name: Check for Cargo changes (rebuild all Rust packages)
         id: cargo
@@ -77,6 +77,9 @@ jobs:
           filters: |
             granola:
               - 'core/granola/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
+              - 'libs/notify/**'
               - 'api/**'
             modd:
               - 'services/modd/**'
@@ -85,20 +88,55 @@ jobs:
               - 'libs/notify/**'
             networkd:
               - 'services/networkd/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
               - 'libs/notify/**'
               - 'api/internal/network.proto'
             apid:
               - 'services/apid/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
               - 'libs/notify/**'
+              - 'libs/pki/**'
               - 'api/*.proto'
               - 'api/internal/network.proto'
             vmd:
               - 'services/vmd/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
               - 'libs/notify/**'
-              - 'api/internal/vm.proto'
+              - 'libs/btrfs/**'
               - 'api/internal/network.proto'
+            consoled:
+              - 'services/consoled/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
+              - 'libs/notify/**'
+            provisiond:
+              - 'services/provisiond/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
+              - 'libs/notify/**'
+              - 'libs/pki/**'
+              - 'libs/btrfs/**'
+              - 'libs/luks2/**'
+              - 'libs/tpm2/**'
+              - 'libs/sbolt/**'
+              - 'tools/imager/**'
+              - 'tools/ramune/**'
+              - 'tools/yuki/**'
+            timed:
+              - 'services/timed/**'
+              - 'libs/kmsg/**'
+              - 'libs/config/**'
+              - 'libs/notify/**'
             init:
               - 'core/init/**'
+              - 'libs/kmsg/**'
+              - 'libs/kmod/**'
+              - 'libs/btrfs/**'
+              - 'libs/luks2/**'
+              - 'libs/tpm2/**'
             stub:
               - 'core/stub/**'
             cloud-hypervisor:
@@ -121,7 +159,7 @@ jobs:
           elif [[ -n "${TAG_PACKAGES}" ]]; then
             echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
           elif [[ "${REBUILD_ALL}" == "true" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","vmd","init","stub"]' >> $GITHUB_OUTPUT
+            echo 'packages=["granola","modd","networkd","apid","vmd","consoled","provisiond","timed","init","stub"]' >> $GITHUB_OUTPUT
           elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
             echo "packages=${FILTER_CHANGES}" >> $GITHUB_OUTPUT
           else
