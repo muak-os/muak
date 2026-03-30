@@ -166,6 +166,9 @@ jobs:
             echo "packages=[]" >> $GITHUB_OUTPUT
           fi
 
+  # NOTE: GitHub Actions does not support 'uses:' (reusable workflow) and 'strategy.matrix'
+  # on the same job. This build job keeps its steps inline because it requires a dynamic
+  # 2D matrix (package x arch) derived from the detect-changes job above.
   build:
     needs: detect-changes
     if: needs.detect-changes.outputs.packages != '[]'
@@ -217,6 +220,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           TAG=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)
-          echo "### ${{ matrix.package }} (${{ matrix.arch }}) Built :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### ${{ matrix.package }} (${{ matrix.arch }}) Built" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ env.REGISTRY }}/pkgs/${{ matrix.package }}:${TAG}\`" >> $GITHUB_STEP_SUMMARY
