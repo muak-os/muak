@@ -29,5 +29,4 @@ jobs:
       push: ${{ github.event_name != 'pull_request' }}
       latest: ${{ startsWith(github.ref, 'refs/tags/') }}
       arch_matrix: '["amd64"]'
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -16,5 +16,4 @@ jobs:
       latest: ${{ startsWith(github.ref, 'refs/tags/') }}
       free_disk_space: true
     secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       KERNEL_SIGNING_KEY: ${{ secrets.KERNEL_SIGNING_KEY }}

@@ -19,5 +19,4 @@ jobs:
       tag: ${{ inputs.tag }}
       sign: true
     secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
