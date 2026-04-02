@@ -65,7 +65,7 @@ pub fn load_key_hierarchy(dir: &Path) -> Result<KeyHierarchy> {
     let db = load_keypair(&dir.join("db.key"), &dir.join("db.crt"), KeyType::Db)?;
 
     let guid_str = std::fs::read_to_string(dir.join("owner.guid"))?;
-    let owner_guid = uefi::Guid::try_parse(&guid_str.trim())
+    let owner_guid = uefi::Guid::try_parse(guid_str.trim())
         .map_err(|_| Error::KeyStorage(format!("invalid GUID format: {}", &guid_str)))?;
 
     Ok(KeyHierarchy {

@@ -185,15 +185,14 @@ impl ServerCertVerifier for TofuServerCertVerifier {
             ring::digest::digest(&ring::digest::SHA256, end_entity.as_ref()).as_ref(),
         );
 
-        if let Some(pinned) = &self.pinned_fingerprint {
-            if fingerprint != *pinned {
+        if let Some(pinned) = &self.pinned_fingerprint
+            && fingerprint != *pinned {
                 return Err(rustls::Error::General(format!(
                     "Server certificate fingerprint mismatch: expected {}, got {}",
                     &pinned[..16],
                     &fingerprint[..16],
                 )));
             }
-        }
 
         *self.state.inner.lock().unwrap() = Some(fingerprint);
         Ok(ServerCertVerified::assertion())

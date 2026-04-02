@@ -52,7 +52,7 @@ impl ProcessSpawner for Spawner {
                     rustix::io::dup2(src, &mut dst)
                         .map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
                     rustix::io::fcntl_setfd(
-                        &BorrowedFd::borrow_raw(3),
+                        BorrowedFd::borrow_raw(3),
                         rustix::io::FdFlags::empty(),
                     )
                     .map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;

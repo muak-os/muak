@@ -25,9 +25,8 @@ pub async fn handle(channel: Channel) -> Result<()> {
     match fetch_server_version(channel).await {
         None => {
             eprintln!(
-                "{} {}",
-                ui::style::warn("Warning:"),
-                "server does not support version reporting (consider updating the server)"
+                "{} server does not support version reporting (consider updating the server)",
+                ui::style::warn("Warning:")
             );
         }
         Some(ref server_ver) => {

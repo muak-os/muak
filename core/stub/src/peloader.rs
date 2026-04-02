@@ -54,7 +54,7 @@ struct MemoryAttributeProtocol {
 
 /// Allocates pages and maps PE sections into the allocated buffer
 fn map_kernel_sections(kernel: &KernelPe<'_>) -> Result<*mut u8> {
-    let page_count = (kernel.size_of_image as usize + 0xFFF) / 0x1000;
+    let page_count = (kernel.size_of_image as usize).div_ceil(0x1000);
     let base_ptr =
         uefi::boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_CODE, page_count)
             .context("failed to allocate pages for kernel image")?

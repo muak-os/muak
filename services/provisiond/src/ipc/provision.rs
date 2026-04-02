@@ -54,7 +54,7 @@ impl ProvisionService for ProvisionServiceImpl {
             move |progress_tx| async move {
                 install::run(
                     &config.disk.system.clone(),
-                    &config.disk.data_disk().to_string(),
+                    config.disk.data_disk(),
                     force,
                     &config,
                     &csr,
