@@ -86,7 +86,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "apid"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "btrfs"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "crc32c",
  "rustix",
@@ -361,7 +361,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "config"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "consoled"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "e2e"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -610,7 +610,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "erofs"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "crc32c",
  "tempfile",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "granola"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -1041,7 +1041,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "imager"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "init"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1133,7 +1133,7 @@ dependencies = [
 
 [[package]]
 name = "kmod"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "rustix",
  "tempfile",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "kmsg"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "rustix",
  "thiserror 2.0.18",
@@ -1208,7 +1208,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "luks2"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "aes",
  "argon2",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "miso"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "modd"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "kmod",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "muakctl"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "networkd"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "notify"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "tempfile",
 ]
@@ -1567,7 +1567,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "pki"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "const-oid",
  "der",
@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "provisiond"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1732,7 +1732,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "ramune"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "sbolt"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "cms",
  "const-oid",
@@ -2108,7 +2108,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "stub"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -2205,7 +2205,7 @@ dependencies = [
 
 [[package]]
 name = "timed"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -2439,7 +2439,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tpm2"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "base64ct",
  "ring",
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "vmd"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "btrfs",
@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "yuki"
-version = "0.1.1-beta"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
