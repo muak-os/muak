@@ -186,13 +186,14 @@ impl ServerCertVerifier for TofuServerCertVerifier {
         );
 
         if let Some(pinned) = &self.pinned_fingerprint
-            && fingerprint != *pinned {
-                return Err(rustls::Error::General(format!(
-                    "Server certificate fingerprint mismatch: expected {}, got {}",
-                    &pinned[..16],
-                    &fingerprint[..16],
-                )));
-            }
+            && fingerprint != *pinned
+        {
+            return Err(rustls::Error::General(format!(
+                "Server certificate fingerprint mismatch: expected {}, got {}",
+                &pinned[..16],
+                &fingerprint[..16],
+            )));
+        }
 
         *self.state.inner.lock().unwrap() = Some(fingerprint);
         Ok(ServerCertVerified::assertion())

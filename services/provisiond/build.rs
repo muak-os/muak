@@ -1,5 +1,3 @@
-//! Build script for compiling protobuf definitions.
-
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,15 +17,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
-        .compile_protos(
-            &[
+        .compile_fds(protox::compile(
+            [
                 format!("{}/provision.proto", api_dir),
                 format!("{}/auth.proto", api_dir),
                 format!("{}/security.proto", api_dir),
                 format!("{}/version.proto", api_dir),
             ],
-            &[api_dir.to_string()],
-        )?;
+            [api_dir],
+        )?)?;
 
     Ok(())
 }

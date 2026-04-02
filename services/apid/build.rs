@@ -144,9 +144,10 @@ fn parse_proto(
         let trimmed = line.trim();
 
         if let Some(rest) = trimmed.strip_prefix("service ")
-            && let Some(name_end) = rest.find(|c: char| c == '{' || c.is_whitespace()) {
-                current_service = Some(&rest[..name_end]);
-            }
+            && let Some(name_end) = rest.find(|c: char| c == '{' || c.is_whitespace())
+        {
+            current_service = Some(&rest[..name_end]);
+        }
 
         brace_depth += trimmed.matches('{').count() as i32;
         brace_depth -= trimmed.matches('}').count() as i32;

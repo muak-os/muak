@@ -109,6 +109,7 @@ tempfile = { version = "3.27", default-features = false }
 tonic = { version = "0.14", default-features = false, features = ["codegen", "transport", "router", "tls-ring"] }
 tonic-prost = "0.14"
 tonic-prost-build = { version = "0.14", default-features = false, features = ["transport"] }
+protox = "0.9"
 
 ## HTTP
 hyper = { version = "1.9", features = ["http2", "server", "client"] }

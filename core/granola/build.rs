@@ -11,16 +11,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("cargo:rerun-if-changed={}/process.proto", api_dir);
     println!("cargo:rerun-if-changed={}/log.proto", api_dir);
+
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
-        .compile_protos(
-            &[
+        .compile_fds(protox::compile(
+            [
                 format!("{}/process.proto", api_dir),
                 format!("{}/log.proto", api_dir),
             ],
-            &[api_dir.to_string()],
-        )?;
+            [api_dir],
+        )?)?;
 
     Ok(())
 }

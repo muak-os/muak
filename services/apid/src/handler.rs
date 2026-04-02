@@ -29,11 +29,10 @@ pub async fn handle_request(
         _ => false,
     };
 
-    if !skip_rbac
-        && let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
-            kmsg::warn!("Access denied for {}: {}", path, e);
-            return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
-        }
+    if !skip_rbac && let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
+        kmsg::warn!("Access denied for {}: {}", path, e);
+        return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
+    }
 
     if !maintenance_mode
         && client_fingerprint.is_none()

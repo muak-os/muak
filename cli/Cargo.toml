@@ -40,6 +40,7 @@ config = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
+protox = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
