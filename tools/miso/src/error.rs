@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-/// Errors produced by miso during FAT image or ISO construction.
+/// Errors produced during image construction.
 #[derive(Error, Debug)]
 pub enum MisoError {
     #[error("I/O error: {0}")]
@@ -13,4 +13,7 @@ pub enum MisoError {
 
     #[error("ISO structure error: {0}")]
     Iso(String),
+
+    #[error("GPT error: {0}")]
+    Gpt(String),
 }

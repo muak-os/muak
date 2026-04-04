@@ -19,7 +19,6 @@ mod cli {
     /// Available subcommands.
     #[derive(Subcommand, Debug)]
     enum Command {
-        /// Build a bootable ISO 9660 image from a UKI EFI binary.
         Iso {
             #[arg(short, long, help = "Path to the UKI .efi file")]
             uki: PathBuf,
@@ -30,18 +29,25 @@ mod cli {
             #[arg(
                 short,
                 long,
-                default_value = "MUAK",
-                help = "ISO volume label (up to 32 chars)"
-            )]
-            label: String,
-
-            #[arg(
-                short,
-                long,
                 default_value = "x86_64",
                 help = "Target architecture: x86_64 or aarch64"
             )]
             arch: String,
+        },
+
+        Img {
+            #[arg(short, long, help = "Path to the UKI .efi file")]
+            uki: PathBuf,
+
+            #[arg(short, long, help = "Path for the output .img file")]
+            output: PathBuf,
+
+            #[arg(
+                short,
+                long = "blob",
+                help = "Extra file as src:dst (e.g. ./start4.elf:START4.ELF)"
+            )]
+            blobs: Vec<String>,
         },
     }
 
@@ -57,24 +63,65 @@ mod cli {
         }
     }
 
+    /// Parses a `src:dst` blob spec into `(src_path, dst_name)`.
+    fn parse_blob(spec: &str) -> Result<(&str, &str)> {
+        let (src, dst) = spec
+            .split_once(':')
+            .with_context(|| format!("Invalid blob spec '{spec}': expected src:dst"))?;
+        anyhow::ensure!(!src.is_empty(), "Blob source path is empty in '{spec}'");
+        anyhow::ensure!(
+            !dst.is_empty(),
+            "Blob destination name is empty in '{spec}'"
+        );
+        Ok((src, dst))
+    }
+
+    /// Reads a `src:dst` blob spec from disk, returning `(dst_name, file_data)`.
+    fn load_blob(src: &str, dst: &str) -> Result<(String, Vec<u8>)> {
+        let data = std::fs::read(src).with_context(|| format!("Failed to read blob '{src}'"))?;
+        Ok((dst.to_owned(), data))
+    }
+
     pub fn run() -> Result<()> {
         let args = Args::parse();
 
         match args.command {
-            Command::Iso {
-                uki,
-                output,
-                label,
-                arch,
-            } => {
+            Command::Iso { uki, output, arch } => {
                 let arch = parse_arch(&arch)?;
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
-                let iso =
-                    miso::build_iso(&uki_bytes, arch, &label).context("Failed to build ISO")?;
+                let iso = miso::build_iso(&uki_bytes, arch).context("Failed to build ISO")?;
                 std::fs::write(&output, &iso)
                     .with_context(|| format!("Failed to write {}", output.display()))?;
                 println!("ISO written to {} ({} bytes)", output.display(), iso.len());
+                Ok(())
+            }
+            Command::Img { uki, output, blobs } => {
+                let uki_bytes = std::fs::read(&uki)
+                    .with_context(|| format!("Failed to read {}", uki.display()))?;
+
+                let blob_specs: Vec<(&str, &str)> =
+                    blobs.iter().map(|s| parse_blob(s)).collect::<Result<_>>()?;
+
+                let blob_data: Vec<(String, Vec<u8>)> = blob_specs
+                    .iter()
+                    .map(|&(src, dst)| load_blob(src, dst))
+                    .collect::<Result<_>>()?;
+
+                let blob_refs: Vec<(&str, &[u8])> = blob_data
+                    .iter()
+                    .map(|(dst, data)| (dst.as_str(), data.as_slice()))
+                    .collect();
+
+                let img = miso::build_img(&uki_bytes, &blob_refs)
+                    .context("Failed to build disk image")?;
+                std::fs::write(&output, &img)
+                    .with_context(|| format!("Failed to write {}", output.display()))?;
+                println!(
+                    "Image written to {} ({} bytes)",
+                    output.display(),
+                    img.len()
+                );
                 Ok(())
             }
         }

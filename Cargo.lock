@@ -1339,6 +1339,7 @@ dependencies = [
  "anyhow",
  "clap",
  "fatfs",
+ "gptman",
  "tempfile",
  "thiserror 2.0.18",
 ]

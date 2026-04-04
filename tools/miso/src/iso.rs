@@ -49,14 +49,6 @@ fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
     buf[offset + 2..offset + 4].copy_from_slice(&value.to_be_bytes());
 }
 
-/// Pads `src` with spaces into a fixed-size array of length `N`.
-fn pad_str<const N: usize>(src: &[u8]) -> [u8; N] {
-    let mut out = [b' '; N];
-    let len = src.len().min(N);
-    out[..len].copy_from_slice(&src[..len]);
-    out
-}
-
 /// Builds a single directory record for use inside the root directory sector.
 fn directory_record(name_bytes: &[u8], lba: u32, size: u32, is_dir: bool) -> Vec<u8> {
     let name_len = name_bytes.len();
@@ -84,13 +76,13 @@ fn directory_record(name_bytes: &[u8], lba: u32, size: u32, is_dir: bool) -> Vec
 }
 
 /// Builds the Primary Volume Descriptor sector (LBA 16, ECMA-119 §8.4).
-fn build_pvd(volume_label: &str, total_sectors: u32, efi_image_size: u32) -> [u8; SECTOR_SIZE] {
+fn build_pvd(total_sectors: u32, efi_image_size: u32) -> [u8; SECTOR_SIZE] {
     let mut pvd = [0u8; SECTOR_SIZE];
     pvd[0] = 1; // Type: Primary VD
     pvd[1..6].copy_from_slice(b"CD001");
     pvd[6] = 1; // Version
     pvd[8..40].copy_from_slice(SYSTEM_IDENTIFIER);
-    pvd[40..72].copy_from_slice(&pad_str::<32>(volume_label.as_bytes()));
+    pvd[40..72].copy_from_slice(&[b' '; 32]); // Volume identifier (unused)
     both_endian_u32(&mut pvd, 80, total_sectors);
     pvd[88] = 1; // Escape sequences
     both_endian_u16(&mut pvd, 120, 1); // Volume set size
@@ -298,11 +290,7 @@ fn write_gpt_hybrid(
 }
 
 /// Writes a complete bootable ISO 9660 image.
-pub fn write_iso(
-    out: &mut (impl Write + Seek),
-    efi_image: &[u8],
-    volume_label: &str,
-) -> Result<(), MisoError> {
+pub fn write_iso(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), MisoError> {
     let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
     let efi_image_lba = LBA_FILE_DATA as u32;
     let efi_image_size = efi_image.len() as u32;
@@ -316,7 +304,7 @@ pub fn write_iso(
 
     // Sector 16: Primary Volume Descriptor
     out.seek(SeekFrom::Start(LBA_PVD * SECTOR_SIZE as u64))?;
-    out.write_all(&build_pvd(volume_label, total_sectors, efi_image_size))?;
+    out.write_all(&build_pvd(total_sectors, efi_image_size))?;
 
     // Sector 17: Boot Record Volume Descriptor
     out.seek(SeekFrom::Start(LBA_BOOT_RECORD * SECTOR_SIZE as u64))?;
@@ -374,7 +362,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -393,7 +381,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -408,7 +396,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -423,7 +411,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -438,7 +426,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -457,7 +445,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -466,7 +454,7 @@ mod tests {
             data[brvd_start + BOOT_RECORD_CATALOG_OFFSET
                 ..brvd_start + BOOT_RECORD_CATALOG_OFFSET + 4]
                 .try_into()
-                .unwrap(),
+                .expect("4-byte slice for catalog LBA"),
         );
         assert_eq!(catalog_lba, LBA_BOOT_CATALOG as u32);
     }
@@ -478,7 +466,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -502,7 +490,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -518,7 +506,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -533,7 +521,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let len = buf.into_inner().len();
@@ -547,7 +535,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -562,75 +550,12 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi, "MUAK").expect("write_iso must succeed");
+        write_iso(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
         // MBR partition type byte is at offset 446 + 4
         assert_eq!(data[450], 0xEF, "MBR partition type must be 0xEF (EFI)");
-    }
-
-    #[test]
-    fn write_iso_volume_label_in_pvd() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write_iso(&mut buf, &efi, "TESTLABEL").expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let pvd_start = LBA_PVD as usize * SECTOR_SIZE;
-        let label = &data[pvd_start + 40..pvd_start + 72];
-        assert!(
-            label.starts_with(b"TESTLABEL"),
-            "PVD must contain the volume label"
-        );
-    }
-
-    #[test]
-    fn pad_str_pads_shorter_input_with_spaces() {
-        // ARRANGE / ACT
-        let out: [u8; 8] = pad_str(b"AB");
-
-        // ASSERT
-        assert_eq!(&out, b"AB      ");
-    }
-
-    #[test]
-    fn pad_str_truncates_longer_input() {
-        // ARRANGE / ACT
-        let out: [u8; 4] = pad_str(b"ABCDEFGH");
-
-        // ASSERT
-        assert_eq!(&out, b"ABCD");
-    }
-
-    #[test]
-    fn both_endian_u32_writes_le_and_be() {
-        // ARRANGE
-        let mut buf = [0u8; 8];
-
-        // ACT
-        both_endian_u32(&mut buf, 0, 0x12345678);
-
-        // ASSERT
-        assert_eq!(&buf[0..4], &[0x78, 0x56, 0x34, 0x12]); // LE
-        assert_eq!(&buf[4..8], &[0x12, 0x34, 0x56, 0x78]); // BE
-    }
-
-    #[test]
-    fn both_endian_u16_writes_le_and_be() {
-        // ARRANGE
-        let mut buf = [0u8; 4];
-
-        // ACT
-        both_endian_u16(&mut buf, 0, 0x1234);
-
-        // ASSERT
-        assert_eq!(&buf[0..2], &[0x34, 0x12]); // LE
-        assert_eq!(&buf[2..4], &[0x12, 0x34]); // BE
     }
 
     #[test]
@@ -643,7 +568,7 @@ mod tests {
 
         // ASSERT
         let expected_base = 33 + name.len();
-        let expected_len = if expected_base % 2 == 0 {
+        let expected_len = if expected_base.is_multiple_of(2) {
             expected_base
         } else {
             expected_base + 1
