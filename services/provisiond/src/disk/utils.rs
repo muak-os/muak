@@ -134,7 +134,8 @@ fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
     let has_partitions = super::has_existing_partitions(disk_path)?;
     if has_partitions && !force {
         bail!(
-            "Disk '{}' has existing partitions. Use --force to overwrite.",
+            "Disk '{}' already has a Muak installation (STATE partition found). \
+             Use --force to overwrite.",
             disk_path
         );
     }

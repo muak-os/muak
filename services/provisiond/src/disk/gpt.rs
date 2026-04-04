@@ -28,7 +28,7 @@ fn is_mbr_disk(disk: &str) -> Result<bool> {
     Ok(part_type != 0x00 && part_type != 0xEE)
 }
 
-/// Checks if a disk has existing partitions in its GPT.
+/// Returns `true` when `disk` already has a Muak STATE partition installed.
 pub fn has_existing_partitions(disk: &str) -> Result<bool> {
     if is_mbr_disk(disk)? {
         bail!(
@@ -40,7 +40,9 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
 
     let mut f = File::open(disk)?;
     match GPT::find_from(&mut f) {
-        Ok(gpt) => Ok(gpt.iter().count() > 0),
+        Ok(gpt) => Ok(gpt
+            .iter()
+            .any(|(_, p)| p.is_used() && p.partition_name.as_str() == "STATE")),
         Err(_) => Ok(false),
     }
 }
@@ -251,7 +253,112 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+
+    use tempfile::NamedTempFile;
+
     use super::*;
+
+    /// Creates a blank disk image of the given size as a named temp file.
+    fn blank_disk(size: u64) -> NamedTempFile {
+        let mut f = NamedTempFile::new().expect("temp file");
+        f.write_all(&vec![0u8; size as usize]).expect("write");
+        f
+    }
+
+    /// Writes a GPT with the given partition names to a temp disk file.
+    fn disk_with_partitions(names: &[&str]) -> NamedTempFile {
+        const DISK_SIZE: u64 = 64 * 1024 * 1024; // 64 MiB
+        let disk = blank_disk(DISK_SIZE);
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open");
+        let mut gpt = GPT::new_from(&mut f, 512, [0xff; 16]).expect("new gpt");
+        for (i, &name) in names.iter().enumerate() {
+            let mut guid = [0u8; 16];
+            guid[0] = i as u8 + 1;
+            gpt[i as u32 + 1] = GPTPartitionEntry {
+                partition_type_guid: super::super::constants::LINUX_FS_GUID,
+                unique_partition_guid: guid,
+                starting_lba: 2048 + i as u64 * 4096,
+                ending_lba: 2048 + i as u64 * 4096 + 4095,
+                attribute_bits: 0,
+                partition_name: name.into(),
+            };
+        }
+        gpt.write_into(&mut f).expect("write gpt");
+        disk
+    }
+
+    #[test]
+    fn has_existing_partitions_returns_false_for_blank_disk() {
+        // ARRANGE
+        let disk = blank_disk(64 * 1024 * 1024);
+
+        // ACT
+        let result =
+            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+
+        // ASSERT
+        assert!(!result);
+    }
+
+    #[test]
+    fn has_existing_partitions_returns_false_for_efi_only_disk() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["EFI"]);
+
+        // ACT
+        let result =
+            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+
+        // ASSERT
+        assert!(!result, "EFI-only disk must not be treated as installed");
+    }
+
+    #[test]
+    fn has_existing_partitions_returns_true_for_state_partition() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["EFI", "STATE"]);
+
+        // ACT
+        let result =
+            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+
+        // ASSERT
+        assert!(
+            result,
+            "disk with STATE partition must be detected as installed"
+        );
+    }
+
+    #[test]
+    fn has_existing_partitions_returns_true_for_state_only_disk() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["STATE"]);
+
+        // ACT
+        let result =
+            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+
+        // ASSERT
+        assert!(result);
+    }
+
+    #[test]
+    fn has_existing_partitions_returns_false_for_unrelated_partitions() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["BOOT", "ROOT", "SWAP"]);
+
+        // ACT
+        let result =
+            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+
+        // ASSERT
+        assert!(!result, "non-Muak partitions must not block installation");
+    }
 
     #[test]
     fn align_up_already_aligned_returns_same_value() {
