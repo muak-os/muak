@@ -42,7 +42,7 @@ progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
 tag := env_var_or_default("TAG", "latest")
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg RUST_VERSION=" + rust_version + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
+common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
 # Colors
 
@@ -297,7 +297,7 @@ _oci-build pkg:
             ;;
         cli)
             printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/muakctl:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
                 {{ push_arg }} \
@@ -306,7 +306,7 @@ _oci-build pkg:
             ;;
         tools)
             printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/tools:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
                 {{ push_arg }} \
@@ -326,7 +326,7 @@ _oci-build pkg:
                 exit 1
             fi
             printf "{{ cyan }}Building OCI:{{ reset }} {{ pkg }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/{{ pkg }}:latest" || echo "") \
                 {{ push_arg }} \
