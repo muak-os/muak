@@ -24,10 +24,11 @@ kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
 signature:= env_var_or_default("SIGNATURE", "signature.key")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
-# Architecture - override with ARCH=aarch64 for arm build
+# Architecture
 
-arch := env_var_or_default("ARCH", "x86_64")
-container_arch := if arch == "aarch64" { "arm64" } else { "amd64" }
+_arch_raw := env_var_or_default("ARCH", "x86_64")
+arch := if _arch_raw == "amd64" { "x86_64" } else if _arch_raw == "arm64" { "aarch64" } else { _arch_raw }
+oci_arch := if arch == "aarch64" { "arm64" } else if arch == "x86_64" { "amd64" } else { arch }
 release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 
 # Container runtime
@@ -36,7 +37,7 @@ container_runtime := `command -v docker >/dev/null 2>&1 && echo docker || echo p
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=never" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
-platform := "linux/" + container_arch
+platform := "linux/" + oci_arch
 progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
 tag := env_var_or_default("TAG", "latest")
@@ -144,7 +145,7 @@ sign image=(registry + "/installer:" + tag):
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    { tr -d '\n' < core/kernel/cmdline-{{ container_arch }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
+    { tr -d '\n' < core/kernel/cmdline-{{ oci_arch }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ container_runtime }} run --rm \
         -v "{{ artifacts }}:/out" \
         {{ tools }} \
@@ -215,7 +216,7 @@ coverage *pkgs:
 # Check kernel config against KSPP security hardening recommendations
 [script]
 kspp:
-    config="config-{{ container_arch }}"
+    config="config-{{ oci_arch }}"
     printf "{{ cyan }}Checking kernel config ($config) against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
