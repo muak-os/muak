@@ -22,6 +22,9 @@ use crate::uki::Uki;
 /// Working directory for installation operations.
 const INSTALL_DIR: &str = "/run/install";
 
+/// Subdirectory for extracted board firmware files.
+const FIRMWARE_DIR: &str = "/run/install/firmware";
+
 /// Installs Muak to the specified disks with the given configuration.
 pub async fn run(
     system_disk: &str,
@@ -43,6 +46,8 @@ pub async fn run(
     )
     .await?;
 
+    let firmware_dir = resolve_firmware(&config.host, &progress).await?;
+
     let partitions = partition_disks(system_disk, data_disk, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
@@ -61,7 +66,13 @@ pub async fn run(
         open_luks_volumes(&partitions.state_part, &partitions.data_part, &luks_key).await?;
     format_btrfs_volumes(&dm_state, &dm_data, &progress).await?;
 
-    deploy_uki(&partitions.efi_part, &uki.staged_path, &progress).await?;
+    deploy_uki(
+        &partitions.efi_part,
+        &uki.staged_path,
+        firmware_dir.as_deref(),
+        &progress,
+    )
+    .await?;
     initialize_state(
         &dm_state,
         config,
@@ -308,13 +319,30 @@ async fn format_btrfs_volumes(
     Ok(())
 }
 
+/// Resolves the board firmware from host config, reporting progress.
+async fn resolve_firmware(
+    host: &config::HostConfig,
+    progress: &mpsc::Sender<InstallProgress>,
+) -> Result<Option<PathBuf>> {
+    if host.firmware.is_none() {
+        return Ok(None);
+    }
+    send_progress(progress, "Pulling board firmware").await;
+    let dir = efi::resolve_firmware(host, Path::new(FIRMWARE_DIR)).await?;
+    if let Some(ref d) = dir {
+        println!("Board firmware extracted: {}", d.display());
+    }
+    Ok(dir)
+}
+
 async fn deploy_uki(
     efi_part: &str,
     staged_path: &Path,
+    firmware_dir: Option<&Path>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Deploying UKI to EFI partition").await;
-    efi::deploy(efi_part, staged_path)?;
+    efi::deploy(efi_part, staged_path, firmware_dir)?;
     Ok(())
 }
 

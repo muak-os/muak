@@ -9,4 +9,6 @@ pub struct HostConfig {
     pub secureboot: bool,
     pub port: u16,
     pub ntp: String,
+    pub firmware: Option<String>,
+    pub firmware_variant: Option<String>,
 }
