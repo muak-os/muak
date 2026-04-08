@@ -74,7 +74,6 @@ zstd = { version = "0.13", default-features = false }
 ## Cryptography
 ring = { version = "0.17", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
-rustls-pki-types = "1.14"
 x509-cert = { version = "0.3.0-rc.4", features = ["builder"] }
 der = { version = "0.8", features = ["alloc", "oid", "pem", "std"] }
 spki = { version = "0.8", features = ["alloc", "pem"] }

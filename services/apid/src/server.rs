@@ -6,7 +6,7 @@ use std::sync::Arc;
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use rustls_pki_types::CertificateDer;
+use rustls::pki_types::CertificateDer;
 use tokio_rustls::server::TlsStream;
 
 use crate::handler;

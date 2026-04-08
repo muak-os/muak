@@ -12,7 +12,6 @@ tokio-rustls = { workspace = true }
 x509-cert = { workspace = true }
 ring = { workspace = true }
 rustls = { workspace = true }
-rustls-pki-types = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
