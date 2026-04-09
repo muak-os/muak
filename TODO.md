@@ -8,6 +8,8 @@
 
 - Add ARM e2e tests
 
+- Pin extension version to muak's version to avoid breaking changes and allow for better compatibility management
+
 - Better CLI
   - Create install script for users to easily install the CLI regardless of OS
   - Add extensions to the CLI itself
@@ -16,10 +18,9 @@
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
-  - Support custom proxy
+  - Support custom http proxy
   - Support for self-signed certificates
-  - Support air gap connectivity check
-  - Remove connectivity check
+  - Test IPv6 with e2e tests
 
 - Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
@@ -31,19 +32,22 @@
   - Make it an extension & rename to workloadd
   - Remove the internal gRPC calls to networkd and make networkd a lib too.
 
+- Profile performance of `ramune` and optimize it
+
 - Better logging across the codebase with kmsg, --debug flag in journal to print a lot more
 
 - Improve security:
-  - Clean as much crate dependencies as possible to reduce attack surface and maintenance cost
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
   - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
+  - Remove http support in `imager` for image pull
 
 - Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
 - Support Apple M series processor chips
+- Support RISC-V architecture
+
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)
-- Make the VM themselves declarative
-- Add custom hypervisor using the rust-vmm crates for better performance and control
+- Make the VM themselves declarative?
