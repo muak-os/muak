@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
+use walkdir::WalkDir;
+
 use crate::cpio::{self, CpioEntry};
 use crate::erofs;
 use crate::error::{RamuneError, Result};
@@ -132,7 +134,7 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
 /// Recursively collects files from a directory into sorted CPIO entries with `lib/modules` prefix.
 fn collect_modules(modules_dir: &Path, entries: &mut Vec<CpioEntry>) -> Result<()> {
     let mut tree: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    walk_dir(modules_dir, modules_dir, &mut tree)?;
+    walk_dir(modules_dir, &mut tree)?;
 
     let mut dirs_emitted = std::collections::BTreeSet::new();
     dirs_emitted.insert("lib".to_string());
@@ -182,16 +184,11 @@ fn emit_parent_dirs(
 }
 
 /// Recursively walks a directory, collecting relative paths and file contents.
-fn walk_dir(base: &Path, dir: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
-    let read_dir = std::fs::read_dir(dir).map_err(|e| RamuneError::ReadError {
-        file: dir.display().to_string(),
-        source: e,
-    })?;
-
-    for entry in read_dir {
+fn walk_dir(base: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
+    for entry in WalkDir::new(base).min_depth(1) {
         let entry = entry.map_err(|e| RamuneError::ReadError {
-            file: dir.display().to_string(),
-            source: e,
+            file: base.display().to_string(),
+            source: std::io::Error::other(e),
         })?;
         let path = entry.path();
         let rel = path
@@ -203,10 +200,8 @@ fn walk_dir(base: &Path, dir: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Re
             .to_string_lossy()
             .into_owned();
 
-        if path.is_dir() {
-            walk_dir(base, &path, tree)?;
-        } else {
-            let data = std::fs::read(&path).map_err(|e| RamuneError::ReadError {
+        if entry.file_type().is_file() {
+            let data = std::fs::read(path).map_err(|e| RamuneError::ReadError {
                 file: path.display().to_string(),
                 source: e,
             })?;
