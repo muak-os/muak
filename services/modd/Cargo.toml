@@ -11,9 +11,8 @@ zstd = { workspace = true }
 anyhow = { workspace = true }
 
 # Internal
+granola = { workspace = true }
 kmod = { workspace = true }
-kmsg = { workspace = true }
-notify = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "system"] }

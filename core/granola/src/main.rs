@@ -2,6 +2,7 @@
 
 mod ipc;
 mod loader;
+mod runtime;
 mod supervisor;
 
 use std::collections::HashMap;

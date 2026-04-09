@@ -33,10 +33,10 @@ tonic-prost = { workspace = true }
 
 # Internal
 btrfs = { workspace = true }
+granola = { workspace = true }
 imager = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
-notify = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
 ramune = { workspace = true }

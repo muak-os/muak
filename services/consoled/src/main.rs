@@ -1,4 +1,4 @@
-//!  Console status display daemon.
+//! Console status display daemon.
 
 mod app;
 mod input;
@@ -9,18 +9,15 @@ mod tty;
 
 use std::time::Duration;
 
-use anyhow::{Context, Result};
-use notify::{Health, NotifyClient};
+use anyhow::Context;
+use granola::Health;
 use tokio::signal::unix::{SignalKind, signal};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
+#[granola::service("consoled")]
 #[tokio::main]
-async fn main() -> Result<()> {
-    kmsg::init("consoled")?;
-    kmsg::info!("Starting console display daemon");
-
-    let notifier = NotifyClient::new("consoled")?;
+async fn main(notifier: NotifyClient) -> Result<()> {
     notifier.status("Initializing", Health::Healthy)?;
 
     let tty = tty::Tty::open().context("Failed to open TTY")?;
@@ -39,14 +36,8 @@ async fn main() -> Result<()> {
 
     loop {
         tokio::select! {
-            _ = sigterm.recv() => {
-                kmsg::info!("SIGTERM received, shutting down");
-                break;
-            }
-            _ = sigint.recv() => {
-                kmsg::info!("SIGINT received, shutting down");
-                break;
-            }
+            _ = sigterm.recv() => break,
+            _ = sigint.recv() => break,
             _ = interval.tick() => {
                 app.handle_tick();
             }
@@ -60,7 +51,6 @@ async fn main() -> Result<()> {
     }
 
     app.shutdown()?;
-    notifier.stopping("Graceful shutdown")?;
 
     Ok(())
 }

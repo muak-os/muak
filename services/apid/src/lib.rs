@@ -9,7 +9,6 @@ pub mod tls;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use tokio::net::TcpListener;
@@ -71,34 +70,36 @@ pub fn setup_tls(maintenance_mode: bool) -> Result<TlsAcceptor> {
 pub async fn run(
     listener: &TcpListener,
     tls_acceptor: &TlsAcceptor,
-    shutdown: &Arc<AtomicBool>,
+    shutdown: impl std::future::Future<Output = ()>,
     maintenance_mode: bool,
 ) {
     let pool = Arc::new(BackendPool::new());
 
-    while !shutdown.load(Ordering::SeqCst) {
-        let accept_future = listener.accept();
-        let timeout_result =
-            tokio::time::timeout(std::time::Duration::from_millis(100), accept_future).await;
+    tokio::pin!(shutdown);
 
-        let (stream, peer_addr) = match timeout_result {
-            Ok(Ok(conn)) => conn,
-            Ok(Err(e)) => {
-                eprintln!("Accept error: {}", e);
-                continue;
+    loop {
+        tokio::select! {
+            _ = &mut shutdown => break,
+            result = listener.accept() => {
+                let (stream, peer_addr) = match result {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        eprintln!("Accept error: {}", e);
+                        continue;
+                    }
+                };
+
+                let acceptor = tls_acceptor.clone();
+                let pool = pool.clone();
+                tokio::spawn(handle_tls_connection(
+                    pool,
+                    acceptor,
+                    stream,
+                    peer_addr,
+                    maintenance_mode,
+                ));
             }
-            Err(_) => continue,
-        };
-
-        let acceptor = tls_acceptor.clone();
-        let pool = pool.clone();
-        tokio::spawn(handle_tls_connection(
-            pool,
-            acceptor,
-            stream,
-            peer_addr,
-            maintenance_mode,
-        ));
+        }
     }
 }
 

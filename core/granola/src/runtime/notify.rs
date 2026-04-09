@@ -1,7 +1,4 @@
-//! Notify - A small library for sending notifications to the supervisor.
-//!
-//! This library provides a client for services to communicate to the
-//! supervisor PID 1 via UNIX domain sockets using a plaintext protocol.
+//! Notify client for sending notifications to the supervisor.
 
 use std::io;
 use std::os::unix::net::UnixDatagram;

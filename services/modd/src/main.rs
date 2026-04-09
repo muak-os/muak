@@ -6,27 +6,14 @@
 mod uevent;
 
 use std::path::Path;
-use std::process;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
+use granola::Health;
 use kmod::{AliasDb, DepDb, ModuleLoader, load_module};
-use notify::{Health, NotifyClient};
 use uevent::{UeventAction, UeventListener};
 
-/// Entry point that handles fatal errors.
-fn main() {
-    if let Err(e) = run() {
-        kmsg::error!("Fatal error: {:#}", e);
-        process::exit(1);
-    }
-}
-
-/// Run the module daemon main loop.
-fn run() -> Result<()> {
-    kmsg::init("modd")?;
-    kmsg::info!("Starting module daemon");
-
-    let notifier = NotifyClient::new("modd")?;
+#[granola::service("modd")]
+fn main(notifier: NotifyClient) -> Result<()> {
     notifier.status("Initializing", Health::Healthy)?;
 
     let uname = rustix::system::uname();

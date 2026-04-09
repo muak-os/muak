@@ -5,7 +5,7 @@ version.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["signal", "fs", "io-util", "sync"] }
+tokio = { workspace = true, features = ["signal", "fs", "io-util", "net", "sync"] }
 tokio-stream = { workspace = true }
 
 # Encoding
@@ -24,8 +24,8 @@ tonic-prost = { workspace = true }
 rustix = { workspace = true, features = ["net", "process"] }
 
 # Internal
+granola-macros = { workspace = true }
 kmsg = { workspace = true }
-notify = { workspace = true }
 config = { workspace = true }
 
 [build-dependencies]

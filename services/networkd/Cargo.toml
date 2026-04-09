@@ -22,8 +22,8 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
+granola = { workspace = true }
 kmsg = { workspace = true }
-notify = { workspace = true }
 config = { workspace = true }
 
 # Networking

@@ -7,16 +7,12 @@ mod hypervisor;
 mod ipc;
 mod persistence;
 
-use std::os::unix::io::FromRawFd;
-use std::os::unix::net::UnixListener as StdUnixListener;
-
 use actor::start_vm_actor;
 use anyhow::Result;
 use clients::NetworkClient;
+use granola::Health;
 use ipc::VmServiceImpl;
-use notify::{Health, NotifyClient};
 use rustix::process::{Pid, WaitOptions, waitpid};
-use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -34,15 +30,12 @@ pub mod proto {
 const STATE_DIR: &str = "/run/state/vmd";
 
 /// Entry point for the VM daemon
+#[granola::service("vmd")]
 #[tokio::main]
-async fn main() -> Result<()> {
-    kmsg::info!(@ "vmd", "Starting vmd");
-
+async fn main(notifier: NotifyClient) -> Result<()> {
     config::init()?;
-
     set_child_subreaper()?;
 
-    let notifier = NotifyClient::new("vmd")?;
     notifier.status("Initializing VM daemon", Health::Healthy)?;
 
     let kvm_available = std::fs::OpenOptions::new()
@@ -62,32 +55,17 @@ async fn main() -> Result<()> {
 
     let vm_handle = start_vm_actor(network_client, kvm_available).await;
 
-    // SAFETY: granola pre-binds the socket and passes it as FD 3 before exec.
-    let std_listener = unsafe { StdUnixListener::from_raw_fd(3) };
-    std_listener.set_nonblocking(true)?;
-    let listener = UnixListener::from_std(std_listener)?;
-    let stream = UnixListenerStream::new(listener);
+    let stream = UnixListenerStream::new(granola::socket()?);
 
     notifier.ready()?;
 
     let service = VmServiceImpl::new(vm_handle);
 
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigchld = signal(SignalKind::child())?;
 
     let server = Server::builder()
         .add_service(proto::vm::vm_service_server::VmServiceServer::new(service))
-        .serve_with_incoming_shutdown(stream, async {
-            tokio::select! {
-                _ = sigterm.recv() => {
-                    println!("Received SIGTERM, shutting down");
-                }
-                _ = sigint.recv() => {
-                    println!("Received SIGINT, shutting down");
-                }
-            }
-        });
+        .serve_with_incoming_shutdown(stream, granola::shutdown_signal());
 
     let sigchld_handle = tokio::spawn(async move {
         loop {
@@ -101,7 +79,7 @@ async fn main() -> Result<()> {
     tokio::select! {
         result = server => {
             if let Err(e) = result {
-                kmsg::error!(@ "vmd", "Server error: {}", e);
+                kmsg::error!("Server error: {}", e);
                 return Err(e.into());
             }
         }
@@ -109,15 +87,13 @@ async fn main() -> Result<()> {
 
     sigchld_handle.abort();
     scrub_handle.abort();
-    notifier.stopping("Graceful shutdown")?;
-    println!("Shutdown complete");
 
     Ok(())
 }
 
-/// Sets this process as a child sub reaper to reap orphaned VM processes
+/// Sets this process as a child sub reaper to reap orphaned VM processes.
 fn set_child_subreaper() -> Result<()> {
-    // SAFETY: prctl with known constants and no pointers, syscall is safe
+    // SAFETY: prctl with known constants and no pointers, syscall is safe.
     let result = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
     if result != 0 {
         anyhow::bail!(
@@ -129,7 +105,7 @@ fn set_child_subreaper() -> Result<()> {
     Ok(())
 }
 
-/// Reaps zombie child processes
+/// Reaps zombie child processes.
 fn reap_children() {
     loop {
         match waitpid(

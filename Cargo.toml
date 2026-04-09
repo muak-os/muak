@@ -25,11 +25,11 @@ members = [
     "libs/kmod",
     "libs/kmsg",
     "libs/luks2",
-    "libs/notify",
     "libs/pki",
     "libs/sbolt",
     "libs/tpm2",
     "libs/erofs",
+    "libs/granola-macros",
 ]
 resolver = "3"
 
@@ -44,12 +44,14 @@ imager = { path = "tools/imager", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
+granola = { path = "core/granola" }
+
 btrfs = { path = "libs/btrfs" }
+granola-macros = { path = "libs/granola-macros" }
 config = { path = "libs/config" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
-notify = { path = "libs/notify" }
 pki = { path = "libs/pki" }
 sbolt = { path = "libs/sbolt" }
 tpm2 = { path = "libs/tpm2" }
@@ -127,6 +129,11 @@ uefi = "0.36"
 ## Utilities
 object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
 uuid = { version = "1.23", default-features = false, features = ["v4", "v7"] }
+
+## Procedural macros
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

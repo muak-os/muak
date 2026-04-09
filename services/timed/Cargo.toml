@@ -6,8 +6,7 @@ version.workspace = true
 
 [dependencies]
 # Internal crates
-kmsg = { workspace = true }
-notify = { workspace = true }
+granola = { workspace = true }
 config = { workspace = true }
 
 # Async runtime

@@ -2,9 +2,9 @@ use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use notify::Health;
 
 use super::service::ServiceStatus;
+use crate::runtime::Health;
 
 /// Processed notification ready for the supervisor to act on.
 pub enum ServiceNotification {

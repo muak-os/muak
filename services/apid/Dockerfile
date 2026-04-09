@@ -22,13 +22,13 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache --no-scripts musl-dev
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["services/apid", "libs/kmsg", "libs/notify", "libs/config", "libs/pki"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["services/apid", "core/granola", "libs/kmsg", "libs/config", "libs/pki"]' Cargo.toml
 
 COPY api ./api
 COPY libs/config/default.toml ./libs/config/default.toml
 COPY services/apid ./services/apid
+COPY core/granola ./core/granola
 COPY libs/kmsg ./libs/kmsg
-COPY libs/notify ./libs/notify
 COPY libs/config ./libs/config
 COPY libs/pki ./libs/pki
 

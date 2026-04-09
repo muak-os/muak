@@ -22,13 +22,13 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache --no-scripts musl-dev
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["core/granola", "libs/kmsg", "libs/notify", "libs/config"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["core/granola", "libs/kmsg", "libs/granola-macros", "libs/config"]' Cargo.toml
 
 COPY api ./api
 COPY libs/config/default.toml ./libs/config/default.toml
 COPY core/granola ./core/granola
 COPY libs/kmsg ./libs/kmsg
-COPY libs/notify ./libs/notify
+COPY libs/granola-macros ./libs/granola-macros
 COPY libs/config ./libs/config
 
 COPY pkgs/kernel/cmdline-amd64.txt ./pkgs/kernel/cmdline-amd64.txt

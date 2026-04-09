@@ -23,8 +23,8 @@ hyper-util = { workspace = true }
 http-body-util = { workspace = true }
 
 # Internal
+granola = { workspace = true }
 kmsg = { workspace = true }
-notify = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
 

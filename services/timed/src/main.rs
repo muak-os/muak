@@ -7,18 +7,16 @@ mod ntp;
 
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
-use notify::{Health, NotifyClient};
+use anyhow::{Context, bail};
+use granola::Health;
 use tokio::signal::unix::{SignalKind, signal};
 
 /// Poll interval between NTP synchronizations.
 const POLL_INTERVAL: Duration = Duration::from_secs(64);
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
-    kmsg::init("timed")?;
-    kmsg::info!("Starting time synchronization daemon");
-
+#[granola::service("timed")]
+#[tokio::main]
+async fn main(notifier: NotifyClient) -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
     let server = &config::host().ntp;
@@ -27,7 +25,6 @@ async fn main() -> Result<()> {
     }
     println!("NTP server: {server}");
 
-    let notifier = NotifyClient::new("timed")?;
     notifier.status("Initializing", Health::Healthy)?;
 
     match ntp::sync(server).await {
@@ -45,19 +42,12 @@ async fn main() -> Result<()> {
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut interval = tokio::time::interval(POLL_INTERVAL);
-
     interval.tick().await;
 
     loop {
         tokio::select! {
-            _ = sigterm.recv() => {
-                println!("SIGTERM received, shutting down");
-                break;
-            }
-            _ = sigint.recv() => {
-                println!("SIGINT received, shutting down");
-                break;
-            }
+            _ = sigterm.recv() => break,
+            _ = sigint.recv() => break,
             _ = interval.tick() => {
                 match ntp::sync(server).await {
                     Ok(offset) => {
@@ -71,8 +61,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    notifier.stopping("Graceful shutdown")?;
 
     Ok(())
 }

@@ -29,6 +29,7 @@
   - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
   - Make it an extension & rename to workloadd
+  - Remove the internal gRPC calls to networkd and make networkd a lib too.
 
 - Better logging across the codebase with kmsg, --debug flag in journal to print a lot more
 
