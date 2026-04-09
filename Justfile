@@ -166,7 +166,6 @@ iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
         /miso iso \
             --uki /out/muak-{{ arch }}.efi \
             --output /out/muak-{{ arch }}.iso \
-            --label MUAK \
             --arch {{ arch }}
     @printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
