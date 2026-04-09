@@ -1,13 +1,20 @@
 //! PE signature embedding and PKCS#7 SignedData creation
 
+use std::mem::{offset_of, size_of};
+
 use const_oid::ObjectIdentifier;
 use der::{Encode, asn1::OctetString};
+use object::LittleEndian as LE;
+use object::pe::{
+    IMAGE_DIRECTORY_ENTRY_SECURITY, IMAGE_NT_OPTIONAL_HDR64_MAGIC, ImageDataDirectory,
+    ImageFileHeader, ImageOptionalHeader64,
+};
+use object::read::pe::PeFile64;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::Certificate;
 
 use super::authenticode::compute_hash;
 use crate::keys::Rsa2048Signer;
-use crate::pe::PE32_PLUS_MAGIC;
 use crate::pkcs7::build_authenticode_signed_data;
 use crate::{Error, Result};
 
@@ -161,17 +168,19 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
 
 /// Embed the signature into the PE file
 fn embed_signature(pe_data: &[u8], win_cert: &[u8]) -> Result<Vec<u8>> {
-    let pe_offset = read_u32_le(pe_data, 0x3c)? as usize;
-    let coff_offset = pe_offset + 4;
-    let opt_offset = coff_offset + 20;
+    let pe = PeFile64::parse(pe_data)
+        .map_err(|_| Error::PeOperation("invalid or unsupported PE file".into()))?;
 
-    let magic = read_u16_le(pe_data, opt_offset)?;
-    if magic != PE32_PLUS_MAGIC {
+    if pe.nt_headers().optional_header.magic.get(LE) != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
         return Err(Error::PeOperation("only PE32+ is supported".into()));
     }
 
-    let dd_offset = opt_offset + 112;
-    let cert_table_dd_offset = dd_offset + (4 * 8); // DD[4]
+    let pe_offset = pe.dos_header().nt_headers_offset() as usize;
+    let opt_offset = pe_offset + 4 + size_of::<ImageFileHeader>();
+    let cert_table_dd_offset = opt_offset
+        + size_of::<ImageOptionalHeader64>()
+        + IMAGE_DIRECTORY_ENTRY_SECURITY * size_of::<ImageDataDirectory>();
+    let checksum_offset = opt_offset + offset_of!(ImageOptionalHeader64, check_sum);
 
     let aligned_size = (pe_data.len() + 7) & !7;
 
@@ -192,7 +201,6 @@ fn embed_signature(pe_data: &[u8], win_cert: &[u8]) -> Result<Vec<u8>> {
         sig_aligned_size as u32,
     )?;
 
-    let checksum_offset = opt_offset + 64;
     let new_checksum = calculate_pe_checksum(&result, checksum_offset);
     write_u32_le(&mut result, checksum_offset, new_checksum)?;
 
@@ -205,7 +213,6 @@ fn calculate_pe_checksum(data: &[u8], checksum_offset: usize) -> u32 {
 
     let mut i = 0;
     while i < data.len() {
-        // Skip checksum field
         if i == checksum_offset {
             i += 4;
             continue;
@@ -218,45 +225,20 @@ fn calculate_pe_checksum(data: &[u8], checksum_offset: usize) -> u32 {
         };
 
         sum += word;
-        // Fold carries
         sum = (sum & 0xffff) + (sum >> 16);
 
         i += 2;
     }
 
-    // Fold final carry
     sum = (sum & 0xffff) + (sum >> 16);
 
-    // Add file size
     (sum as u32) + (data.len() as u32)
 }
 
-fn read_u16_le(data: &[u8], offset: usize) -> Result<u16> {
-    if offset + 2 > data.len() {
-        return Err(Error::PeOperation("read beyond buffer".into()));
-    }
-    Ok(u16::from_le_bytes([data[offset], data[offset + 1]]))
-}
-
-fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
-    if offset + 4 > data.len() {
-        return Err(Error::PeOperation("read beyond buffer".into()));
-    }
-    Ok(u32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
-}
-
 fn write_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<()> {
-    if offset + 4 > data.len() {
-        return Err(Error::PeOperation("write beyond buffer".into()));
-    }
-    let bytes = value.to_le_bytes();
-    data[offset..offset + 4].copy_from_slice(&bytes);
-    Ok(())
+    data.get_mut(offset..offset + 4)
+        .ok_or_else(|| Error::PeOperation("write beyond buffer".into()))
+        .map(|b| b.copy_from_slice(&value.to_le_bytes()))
 }
 
 #[cfg(test)]
@@ -272,12 +254,24 @@ mod tests {
         Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
     };
 
-    /// Write a little-endian u16 into a buffer.
+    fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
+        data.get(offset..offset + 4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+            .ok_or_else(|| crate::Error::PeOperation("read beyond buffer".into()))
+    }
+
+    fn read_u16_le(data: &[u8], offset: usize) -> Result<u16> {
+        data.get(offset..offset + 2)
+            .and_then(|b| b.try_into().ok())
+            .map(u16::from_le_bytes)
+            .ok_or_else(|| crate::Error::PeOperation("read beyond buffer".into()))
+    }
+
     fn put_u16(buf: &mut Vec<u8>, offset: usize, val: u16) {
         buf[offset..offset + 2].copy_from_slice(&val.to_le_bytes());
     }
 
-    /// Write a little-endian u32 into a buffer.
     fn put_u32(buf: &mut Vec<u8>, offset: usize, val: u32) {
         buf[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
     }
@@ -323,7 +317,6 @@ mod tests {
         pe
     }
 
-    /// Create a test signer and certificate.
     fn signer_and_cert() -> (Rsa2048Signer, Certificate) {
         let (pk_signer, pk_cert) = generate_pk_certificate("Test PK").expect("generate PK cert");
         let (kek_signer, kek_cert) =

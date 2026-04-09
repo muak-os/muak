@@ -22,25 +22,7 @@ impl SignatureDatabase {
 
     /// Parse a signature database from raw bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
-        let mut lists = Vec::new();
-        let mut offset = 0;
-
-        while offset + SIGNATURE_LIST_HEADER_SIZE <= data.len() {
-            let list_size = u32::from_le_bytes([
-                data[offset + 16],
-                data[offset + 17],
-                data[offset + 18],
-                data[offset + 19],
-            ]) as usize;
-
-            if list_size < SIGNATURE_LIST_HEADER_SIZE || offset + list_size > data.len() {
-                return Err(Error::EfiVar("invalid signature list size".into()));
-            }
-
-            lists.push(data[offset..offset + list_size].to_vec());
-            offset += list_size;
-        }
-
+        let lists = parse_signature_lists(data)?;
         Ok(Self { lists })
     }
 
@@ -63,6 +45,24 @@ impl SignatureDatabase {
     pub fn is_empty(&self) -> bool {
         self.lists.is_empty()
     }
+}
+
+fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut lists = Vec::new();
+    let mut offset = 0;
+    while offset + SIGNATURE_LIST_HEADER_SIZE <= data.len() {
+        let list_size = u32::from_le_bytes(
+            data[offset + 16..offset + 20]
+                .try_into()
+                .map_err(|_| Error::EfiVar("read signature list size".into()))?,
+        ) as usize;
+        if list_size < SIGNATURE_LIST_HEADER_SIZE || offset + list_size > data.len() {
+            return Err(Error::EfiVar("invalid signature list size".into()));
+        }
+        lists.push(data[offset..offset + list_size].to_vec());
+        offset += list_size;
+    }
+    Ok(lists)
 }
 
 /// Build an EFI_SIGNATURE_LIST containing a single X.509 certificate
