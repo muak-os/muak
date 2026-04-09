@@ -145,5 +145,11 @@ strip = true
 codegen-units = 1
 panic = "abort"
 
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = false
+lto = false
+
 [profile.dev]
 panic = "abort"
