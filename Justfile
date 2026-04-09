@@ -26,8 +26,8 @@ artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../
 
 # Architecture
 
-_arch_raw := env_var_or_default("ARCH", "x86_64")
-arch := if _arch_raw == "amd64" { "x86_64" } else if _arch_raw == "arm64" { "aarch64" } else { _arch_raw }
+_arch_env := env_var_or_default("ARCH", "x86_64")
+arch := if _arch_env == "amd64" { "x86_64" } else if _arch_env == "arm64" { "aarch64" } else { _arch_env }
 oci_arch := if arch == "aarch64" { "arm64" } else if arch == "x86_64" { "amd64" } else { arch }
 release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 
