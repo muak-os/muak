@@ -94,6 +94,8 @@ pub enum Commands {
         tail: Option<u32>,
         #[arg(long, short)]
         follow: bool,
+        #[arg(long, short, value_parser = commands::logs::parse_level)]
+        level: Option<i32>,
     },
     Version,
 }

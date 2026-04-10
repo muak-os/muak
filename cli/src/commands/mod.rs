@@ -229,9 +229,10 @@ async fn handle_cmd(
             service,
             tail,
             follow,
+            level,
         } => {
             let mut client = LogServiceClient::new(channel);
-            logs::handle(&mut client, service, tail, follow).await
+            logs::handle(&mut client, service, tail, follow, level).await
         }
         Commands::Reset { force } => {
             let mut client = ProvisionServiceClient::new(channel);

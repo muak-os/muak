@@ -28,9 +28,17 @@ message LogEntry {
   string service = 2;
   Stream stream = 3;
   string message = 4;
+  Level level = 5;
 }
 
 enum Stream {
   STDOUT = 0;
   STDERR = 1;
+}
+
+enum Level {
+  ERROR = 0;
+  WARN = 1;
+  INFO = 2;
+  DEBUG = 3;
 }

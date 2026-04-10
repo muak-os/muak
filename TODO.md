@@ -2,8 +2,6 @@
 
 - Fix CI caching
 
-- Support for Raspbnerry Pi like devices using .img installation
-
 - Support for containers like LXC and OCI
 
 - Add ARM e2e tests
@@ -32,10 +30,6 @@
   - Make it an extension & rename to workloadd
   - Remove the internal gRPC calls to networkd and make networkd a lib too.
 
-- Profile performance of `ramune` and optimize it
-
-- Better logging across the codebase with kmsg, --debug flag in journal to print a lot more
-
 - Improve security:
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
   - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
@@ -45,8 +39,9 @@
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
-- Support Apple M series processor chips
+- Support for Raspbnerry Pi like devices using .img installation
 - Support RISC-V architecture
+- Support Apple M series processor chips
 
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)

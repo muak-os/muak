@@ -11,6 +11,42 @@ const MAX_ENTRIES_PER_SERVICE: usize = 2000;
 /// Size of the broadcast channel for live followers.
 const BROADCAST_CAPACITY: usize = 256;
 
+/// Severity level for a log entry, using syslog priority values as discriminants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LogLevel {
+    Error = 3,
+    Warn = 4,
+    Info = 6,
+    Debug = 7,
+}
+
+impl TryFrom<u8> for LogLevel {
+    type Error = ();
+
+    fn try_from(n: u8) -> Result<Self, ()> {
+        match n {
+            0..=3 => Ok(Self::Error),
+            4 => Ok(Self::Warn),
+            5 | 6 => Ok(Self::Info),
+            7 => Ok(Self::Debug),
+            _ => Err(()),
+        }
+    }
+}
+
+impl PartialOrd for LogLevel {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for LogLevel {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (*self as u8).cmp(&(*other as u8))
+    }
+}
+
 /// Which output stream a log line came from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LogStream {
@@ -24,6 +60,7 @@ pub struct LogEntry {
     pub timestamp_nanos: u64,
     pub service: String,
     pub stream: LogStream,
+    pub level: LogLevel,
     pub message: String,
 }
 
@@ -49,11 +86,12 @@ pub struct LogWriter {
 
 impl LogWriter {
     /// Sends a log entry to the actor.
-    pub fn append(&self, service: &str, stream: LogStream, message: String) {
+    pub fn append(&self, service: &str, stream: LogStream, level: LogLevel, message: String) {
         let entry = LogEntry {
             timestamp_nanos: self.epoch.elapsed().as_nanos() as u64,
             service: service.to_string(),
             stream,
+            level,
             message,
         };
         let _ = self.tx.send(LogCommand::Append(entry));
@@ -199,14 +237,34 @@ pub fn capture(name: &str, stdout_fd: OwnedFd, stderr_fd: OwnedFd, logger: &LogW
     );
 }
 
+/// Extracts a kernel-style syslog priority prefix from a log line.
+fn parse_level_prefix(line: &str, default: LogLevel) -> (LogLevel, &str) {
+    let Some(rest) = line.strip_prefix('<') else {
+        return (default, line);
+    };
+    let Some(close) = rest.find('>') else {
+        return (default, line);
+    };
+    let Ok(number) = rest[..close].parse::<u8>() else {
+        return (default, line);
+    };
+    let level = LogLevel::try_from(number).unwrap_or(default);
+    (level, &rest[close + 1..])
+}
+
 fn spawn_reader(name: String, fd: OwnedFd, stream: LogStream, logger: LogWriter) {
+    let default_level = match stream {
+        LogStream::Stdout => LogLevel::Info,
+        LogStream::Stderr => LogLevel::Error,
+    };
     tokio::spawn(async move {
         let async_fd = tokio::fs::File::from_std(std::fs::File::from(fd));
         let reader = BufReader::new(async_fd);
         let mut lines = reader.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
-            logger.append(&name, stream, line);
+            let (level, message) = parse_level_prefix(&line, default_level);
+            logger.append(&name, stream, level, message.to_string());
         }
     });
 }
@@ -236,7 +294,7 @@ pub fn kmsg(logger: &LogWriter) {
             } else {
                 line
             };
-            logger.append("kernel", LogStream::Stdout, message);
+            logger.append("kernel", LogStream::Stdout, LogLevel::Info, message);
         }
     });
 }
@@ -250,6 +308,7 @@ mod tests {
             timestamp_nanos: ts,
             service: service.to_string(),
             stream,
+            level: LogLevel::Info,
             message: message.to_string(),
         }
     }
@@ -261,8 +320,18 @@ mod tests {
         tokio::spawn(actor.run());
 
         // ACT
-        writer.append("svc", LogStream::Stdout, "hello".to_string());
-        writer.append("svc", LogStream::Stdout, "world".to_string());
+        writer.append(
+            "svc",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "hello".to_string(),
+        );
+        writer.append(
+            "svc",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "world".to_string(),
+        );
 
         // ASSERT
         let entries = reader.query(Some("svc".to_string()), 0).await;
@@ -277,7 +346,7 @@ mod tests {
         let (writer, reader, actor) = create();
         tokio::spawn(actor.run());
         for i in 0..5u32 {
-            writer.append("svc", LogStream::Stdout, format!("msg{i}"));
+            writer.append("svc", LogStream::Stdout, LogLevel::Info, format!("msg{i}"));
         }
 
         // ACT
@@ -309,8 +378,18 @@ mod tests {
         let (writer, reader, actor) = create();
         let handle = tokio::spawn(actor.run());
 
-        writer.append("svc-b", LogStream::Stdout, "from-b".to_string());
-        writer.append("svc-a", LogStream::Stdout, "from-a".to_string());
+        writer.append(
+            "svc-b",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "from-b".to_string(),
+        );
+        writer.append(
+            "svc-a",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "from-a".to_string(),
+        );
 
         tokio::task::yield_now().await;
 
@@ -330,10 +409,10 @@ mod tests {
         tokio::spawn(actor.run());
 
         for i in 0..4u32 {
-            writer.append("svc-a", LogStream::Stdout, format!("a{i}"));
+            writer.append("svc-a", LogStream::Stdout, LogLevel::Info, format!("a{i}"));
         }
         for i in 0..4u32 {
-            writer.append("svc-b", LogStream::Stdout, format!("b{i}"));
+            writer.append("svc-b", LogStream::Stdout, LogLevel::Info, format!("b{i}"));
         }
         tokio::task::yield_now().await;
 
@@ -349,7 +428,7 @@ mod tests {
         // ARRANGE
         let (writer, reader, actor) = create();
         tokio::spawn(actor.run());
-        writer.append("svc", LogStream::Stdout, "msg".to_string());
+        writer.append("svc", LogStream::Stdout, LogLevel::Info, "msg".to_string());
         tokio::task::yield_now().await;
 
         // ACT
@@ -366,7 +445,7 @@ mod tests {
         tokio::spawn(actor.run());
 
         for i in 0..=MAX_ENTRIES_PER_SERVICE {
-            writer.append("svc", LogStream::Stdout, format!("msg{i}"));
+            writer.append("svc", LogStream::Stdout, LogLevel::Info, format!("msg{i}"));
         }
         tokio::task::yield_now().await;
 
@@ -407,7 +486,12 @@ mod tests {
 
         // ACT
         let mut rx = reader.subscribe().await.expect("subscribe failed");
-        writer.append("svc", LogStream::Stderr, "live-msg".to_string());
+        writer.append(
+            "svc",
+            LogStream::Stderr,
+            LogLevel::Error,
+            "live-msg".to_string(),
+        );
 
         // ASSERT
         let entry = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
@@ -425,8 +509,8 @@ mod tests {
         tokio::spawn(actor.run());
 
         // ACT
-        writer.append("svc", LogStream::Stdout, "out".to_string());
-        writer.append("svc", LogStream::Stderr, "err".to_string());
+        writer.append("svc", LogStream::Stdout, LogLevel::Info, "out".to_string());
+        writer.append("svc", LogStream::Stderr, LogLevel::Error, "err".to_string());
 
         let entries = reader.query(Some("svc".to_string()), 0).await;
 
@@ -447,7 +531,7 @@ mod tests {
         actor.handle_append(make_entry("svc", LogStream::Stdout, "a", 1));
         actor.handle_append(make_entry("svc", LogStream::Stdout, "b", 2));
 
-        // ACT - tail larger than total entries; saturating_sub handles gracefully
+        // ACT
         let result = actor.query(&None, 100);
 
         // ASSERT
@@ -470,5 +554,152 @@ mod tests {
 
         // ASSERT
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn parse_level_prefix_extracts_debug() {
+        // ARRANGE
+        let line = "<7>some debug info";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Debug);
+        assert_eq!(message, "some debug info");
+    }
+
+    #[test]
+    fn parse_level_prefix_extracts_warn() {
+        // ARRANGE
+        let line = "<4>something concerning";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Warn);
+        assert_eq!(message, "something concerning");
+    }
+
+    #[test]
+    fn parse_level_prefix_extracts_error() {
+        // ARRANGE
+        let line = "<3>bad thing happened";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Error);
+        assert_eq!(message, "bad thing happened");
+    }
+
+    #[test]
+    fn parse_level_prefix_high_severity_maps_to_error() {
+        // ARRANGE
+        for n in 0u8..=2 {
+            let line = format!("<{n}>critical message");
+
+            // ACT
+            let (level, message) = parse_level_prefix(&line, LogLevel::Info);
+
+            // ASSERT
+            assert_eq!(level, LogLevel::Error, "level <{n}> should map to Error");
+            assert_eq!(message, "critical message");
+        }
+    }
+
+    #[test]
+    fn parse_level_prefix_notice_maps_to_info() {
+        // ARRANGE
+        let line = "<5>normal but significant";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Error);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Info);
+        assert_eq!(message, "normal but significant");
+    }
+
+    #[test]
+    fn parse_level_prefix_returns_default_for_unprefixed() {
+        // ARRANGE
+        let line = "just a normal message";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Info);
+        assert_eq!(message, "just a normal message");
+    }
+
+    #[test]
+    fn parse_level_prefix_stderr_default_is_error() {
+        // ARRANGE
+        let line = "some stderr output";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Error);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Error);
+        assert_eq!(message, "some stderr output");
+    }
+
+    #[test]
+    fn parse_level_prefix_invalid_number_uses_default() {
+        // ARRANGE
+        let line = "<99>some message";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Info);
+        assert_eq!(message, "some message");
+    }
+
+    #[test]
+    fn parse_level_prefix_malformed_no_close_uses_default() {
+        // ARRANGE
+        let line = "<7 missing close bracket";
+
+        // ACT
+        let (level, message) = parse_level_prefix(line, LogLevel::Info);
+
+        // ASSERT
+        assert_eq!(level, LogLevel::Info);
+        assert_eq!(message, "<7 missing close bracket");
+    }
+
+    #[tokio::test]
+    async fn append_preserves_log_level() {
+        // ARRANGE
+        let (writer, reader, actor) = create();
+        tokio::spawn(actor.run());
+
+        // ACT
+        writer.append("svc", LogStream::Stdout, LogLevel::Debug, "dbg".to_string());
+        writer.append("svc", LogStream::Stdout, LogLevel::Warn, "wrn".to_string());
+        writer.append("svc", LogStream::Stderr, LogLevel::Error, "err".to_string());
+
+        let entries = reader.query(Some("svc".to_string()), 0).await;
+
+        // ASSERT
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].level, LogLevel::Debug);
+        assert_eq!(entries[1].level, LogLevel::Warn);
+        assert_eq!(entries[2].level, LogLevel::Error);
+    }
+
+    #[test]
+    fn log_level_ordering() {
+        // ARRANGE & ACT & ASSERT
+        assert!(LogLevel::Error < LogLevel::Warn);
+        assert!(LogLevel::Warn < LogLevel::Info);
+        assert!(LogLevel::Info < LogLevel::Debug);
     }
 }

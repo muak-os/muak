@@ -3,9 +3,9 @@ use tonic::{Request, Response, Status};
 
 use super::proto::log::log_service_server::{LogService, LogServiceServer};
 use super::proto::log::{
-    FollowLogsRequest, GetLogsRequest, GetLogsResponse, LogEntry as ProtoLogEntry, Stream,
+    FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry as ProtoLogEntry, Stream,
 };
-use crate::supervisor::logger::{LogReader, LogStream};
+use crate::supervisor::logger::{LogLevel, LogReader, LogStream};
 
 pub fn service(reader: LogReader) -> LogServiceServer<LogServiceImpl> {
     LogServiceServer::new(LogServiceImpl { reader })
@@ -95,6 +95,12 @@ fn to_proto_entry(entry: crate::supervisor::logger::LogEntry) -> ProtoLogEntry {
             LogStream::Stdout => Stream::Stdout.into(),
             LogStream::Stderr => Stream::Stderr.into(),
         },
+        level: match entry.level {
+            LogLevel::Error => Level::Error.into(),
+            LogLevel::Warn => Level::Warn.into(),
+            LogLevel::Info => Level::Info.into(),
+            LogLevel::Debug => Level::Debug.into(),
+        },
         message: entry.message,
     }
 }
@@ -105,13 +111,14 @@ mod tests {
     use tonic::Request;
 
     use super::*;
-    use crate::supervisor::logger::{self, LogEntry, LogStream};
+    use crate::supervisor::logger::{self, LogEntry, LogLevel, LogStream};
 
     fn make_entry(service: &str, stream: LogStream, message: &str, ts: u64) -> LogEntry {
         LogEntry {
             timestamp_nanos: ts,
             service: service.to_string(),
             stream,
+            level: LogLevel::Info,
             message: message.to_string(),
         }
     }
@@ -129,6 +136,7 @@ mod tests {
         assert_eq!(proto.service, "svc");
         assert_eq!(proto.message, "hello");
         assert_eq!(proto.stream, Stream::Stdout as i32);
+        assert_eq!(proto.level, Level::Info as i32);
     }
 
     #[test]
@@ -143,13 +151,49 @@ mod tests {
         assert_eq!(proto.stream, Stream::Stderr as i32);
     }
 
+    #[test]
+    fn to_proto_entry_maps_all_levels() {
+        // ARRANGE
+        let levels = [
+            (LogLevel::Error, Level::Error),
+            (LogLevel::Warn, Level::Warn),
+            (LogLevel::Info, Level::Info),
+            (LogLevel::Debug, Level::Debug),
+        ];
+
+        for (internal, expected_proto) in levels {
+            // ACT
+            let entry = LogEntry {
+                timestamp_nanos: 0,
+                service: "svc".to_string(),
+                stream: LogStream::Stdout,
+                level: internal,
+                message: String::new(),
+            };
+            let proto = to_proto_entry(entry);
+
+            // ASSERT
+            assert_eq!(proto.level, expected_proto as i32);
+        }
+    }
+
     #[tokio::test]
     async fn get_logs_all_services_no_filter() {
         // ARRANGE
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
-        writer.append("svc-a", LogStream::Stdout, "msg-a".to_string());
-        writer.append("svc-b", LogStream::Stdout, "msg-b".to_string());
+        writer.append(
+            "svc-a",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "msg-a".to_string(),
+        );
+        writer.append(
+            "svc-b",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "msg-b".to_string(),
+        );
         tokio::task::yield_now().await;
 
         let svc = LogServiceImpl { reader };
@@ -171,8 +215,18 @@ mod tests {
         // ARRANGE
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
-        writer.append("svc-a", LogStream::Stdout, "from-a".to_string());
-        writer.append("svc-b", LogStream::Stdout, "from-b".to_string());
+        writer.append(
+            "svc-a",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "from-a".to_string(),
+        );
+        writer.append(
+            "svc-b",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "from-b".to_string(),
+        );
         tokio::task::yield_now().await;
 
         let svc = LogServiceImpl { reader };
@@ -197,7 +251,7 @@ mod tests {
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
         for i in 0..5u32 {
-            writer.append("svc", LogStream::Stdout, format!("msg{i}"));
+            writer.append("svc", LogStream::Stdout, LogLevel::Info, format!("msg{i}"));
         }
         tokio::task::yield_now().await;
 
@@ -232,7 +286,12 @@ mod tests {
         let response = svc.follow_logs(request).await.expect("follow_logs failed");
         let mut stream = response.into_inner();
 
-        writer.append("svc", LogStream::Stdout, "live-entry".to_string());
+        writer.append(
+            "svc",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "live-entry".to_string(),
+        );
 
         // ASSERT
         let item = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
@@ -258,8 +317,18 @@ mod tests {
         let response = svc.follow_logs(request).await.expect("follow_logs failed");
         let mut stream = response.into_inner();
 
-        writer.append("other", LogStream::Stdout, "ignored".to_string());
-        writer.append("wanted", LogStream::Stdout, "expected".to_string());
+        writer.append(
+            "other",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "ignored".to_string(),
+        );
+        writer.append(
+            "wanted",
+            LogStream::Stdout,
+            LogLevel::Info,
+            "expected".to_string(),
+        );
 
         // ASSERT
         let item = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
