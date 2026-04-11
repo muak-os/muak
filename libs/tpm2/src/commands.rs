@@ -1,7 +1,10 @@
 //! TPM2 command marshalling and execution.
 
+use ring::rand::{SecureRandom, SystemRandom};
+use zeroize::Zeroizing;
+
 use crate::device::Device;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::types::*;
 
 /// Password authorization block for an empty password.
@@ -166,10 +169,14 @@ pub fn load(
 
 /// Starts a policy session.
 pub fn start_auth_session(dev: &mut Device) -> Result<u32> {
+    let rng = SystemRandom::new();
+    let mut nonce = [0u8; 16];
+    rng.fill(&mut nonce).map_err(|_| Error::RngFailed)?;
+
     let mut cmd = CommandBuffer::new(TPM2_ST_NO_SESSIONS, TPM2_CC_START_AUTH_SESSION);
     cmd.write_u32(TPM2_RH_NULL);
     cmd.write_u32(TPM2_RH_NULL);
-    cmd.write_sized(&[0u8; 16]);
+    cmd.write_sized(&nonce);
     cmd.write_sized(&[]);
     cmd.write_u8(TPM2_SE_POLICY);
     cmd.write_u16(TPM2_ALG_NULL);
@@ -205,7 +212,11 @@ pub fn policy_pcr(dev: &mut Device, session_handle: u32, pcr_digest: &[u8]) -> R
 }
 
 /// Unseals data from a loaded object using a policy session.
-pub fn unseal(dev: &mut Device, object_handle: u32, session_handle: u32) -> Result<Vec<u8>> {
+pub fn unseal(
+    dev: &mut Device,
+    object_handle: u32,
+    session_handle: u32,
+) -> Result<Zeroizing<Vec<u8>>> {
     let mut auth = Vec::with_capacity(13);
     auth.extend_from_slice(&session_handle.to_be_bytes());
     auth.extend_from_slice(&0u16.to_be_bytes());
@@ -226,7 +237,7 @@ pub fn unseal(dev: &mut Device, object_handle: u32, session_handle: u32) -> Resu
     let _param_size = r.read_u32()?;
     let data = r.read_sized()?;
 
-    Ok(data.to_vec())
+    Ok(Zeroizing::new(data.to_vec()))
 }
 
 /// Flushes a transient object or session handle.

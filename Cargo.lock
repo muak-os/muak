@@ -1103,6 +1103,7 @@ dependencies = [
  "rustix",
  "tempfile",
  "tpm2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1655,6 +1656,7 @@ dependencies = [
  "spki",
  "thiserror 2.0.18",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
@@ -1806,6 +1808,7 @@ dependencies = [
  "uuid",
  "x509-cert",
  "yuki",
+ "zeroize",
 ]
 
 [[package]]
@@ -2048,6 +2051,7 @@ dependencies = [
  "thiserror 2.0.18",
  "uefi",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
@@ -2563,6 +2567,7 @@ dependencies = [
  "base64ct",
  "ring",
  "thiserror 2.0.18",
+ "zeroize",
 ]
 
 [[package]]

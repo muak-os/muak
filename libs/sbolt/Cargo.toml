@@ -13,6 +13,7 @@ der = { workspace = true }
 spki = { workspace = true }
 signature = { workspace = true }
 cms = { workspace = true }
+zeroize = { workspace = true }
 
 # Encoding
 const-oid = { workspace = true }

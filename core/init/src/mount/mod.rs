@@ -13,6 +13,7 @@ use rustix::mount::{
     FsMountFlags, FsOpenFlags, MountAttrFlags, MountFlags, MoveMountFlags, fsconfig_create,
     fsconfig_set_string, fsmount, fsopen, mount, move_mount,
 };
+use zeroize::Zeroizing;
 
 /// dm-crypt mapping name for the STATE partition.
 const DM_STATE: &str = "muak-state";
@@ -164,7 +165,7 @@ pub fn mount_persistent() -> Result<bool> {
 
     let state_mount_dev = if let Some(ref key) = luks_key {
         luks2::open(&state_dev, DM_STATE, key)
-            .map_err(|e| anyhow::anyhow!("Failed to open LUKS STATE: {}", e))?;
+            .with_context(|| format!("Failed to open LUKS STATE: {state_dev}"))?;
         format!("/dev/mapper/{}", DM_STATE)
     } else {
         state_dev.clone()
@@ -190,7 +191,7 @@ pub fn mount_persistent() -> Result<bool> {
     if let Some(data_dev) = find_partition_by_partname("DATA") {
         let data_mount_dev = if let Some(ref key) = luks_key {
             luks2::open(&data_dev, DM_DATA, key)
-                .map_err(|e| anyhow::anyhow!("Failed to open LUKS DATA: {}", e))?;
+                .with_context(|| format!("Failed to open LUKS DATA: {data_dev}"))?;
             format!("/dev/mapper/{}", DM_DATA)
         } else {
             data_dev.clone()
@@ -231,7 +232,7 @@ fn is_live_boot_cmdline(cmdline: &str) -> bool {
 }
 
 /// Attempts to unseal the LUKS key from the TPM2 token in the LUKS2 header.
-fn try_tpm2_unseal(device: &str) -> Result<Option<Vec<u8>>> {
+fn try_tpm2_unseal(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
     if !tpm2::is_available() {
         return Ok(None);
     }
@@ -259,19 +260,21 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Vec<u8>>> {
 }
 
 /// Parses the LUKS key from `/proc/cmdline`.
-fn parse_luks_key() -> Option<Vec<u8>> {
+fn parse_luks_key() -> Option<Zeroizing<Vec<u8>>> {
     let cmdline = std::fs::read_to_string("/proc/cmdline").ok()?;
     parse_luks_key_from_cmdline(&cmdline)
 }
 
 /// Extracts and base64-decodes the `luks.key=` token from a cmdline string.
-fn parse_luks_key_from_cmdline(cmdline: &str) -> Option<Vec<u8>> {
+fn parse_luks_key_from_cmdline(cmdline: &str) -> Option<Zeroizing<Vec<u8>>> {
     let token = cmdline
         .split_whitespace()
         .find(|t| t.starts_with("luks.key="))?;
 
     let encoded = token.strip_prefix("luks.key=")?;
-    <base64ct::Base64Unpadded as base64ct::Encoding>::decode_vec(encoded).ok()
+    <base64ct::Base64Unpadded as base64ct::Encoding>::decode_vec(encoded)
+        .ok()
+        .map(Zeroizing::new)
 }
 
 /// Mount an EROFS image file.
@@ -380,7 +383,7 @@ mod tests {
         let result = parse_luks_key_from_cmdline(&cmdline);
 
         // ASSERT
-        assert_eq!(result, Some(key.to_vec()));
+        assert_eq!(result.as_ref().map(|z| z.as_slice()), Some(key.as_ref()));
     }
 
     #[test]
@@ -407,7 +410,12 @@ mod tests {
         let cmdline = "luks.key=";
 
         // ACT + ASSERT
-        assert_eq!(parse_luks_key_from_cmdline(cmdline), Some(vec![]));
+        assert_eq!(
+            parse_luks_key_from_cmdline(cmdline)
+                .as_ref()
+                .map(|z| z.as_slice()),
+            Some([].as_ref())
+        );
     }
 
     #[test]
@@ -423,6 +431,6 @@ mod tests {
         let result = parse_luks_key_from_cmdline(&cmdline);
 
         // ASSERT
-        assert_eq!(result, Some(key1.to_vec()));
+        assert_eq!(result.as_ref().map(|z| z.as_slice()), Some(key1.as_ref()));
     }
 }

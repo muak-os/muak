@@ -1,5 +1,7 @@
 //! High-level TPM2 seal/unseal operations.
 
+use zeroize::Zeroizing;
+
 use crate::commands;
 use crate::device::Device;
 use crate::errors::{Error, Result};
@@ -90,7 +92,7 @@ pub fn seal(
 }
 
 /// Unseals data using current PCR#11 values.
-pub fn unseal(blob: &SealedBlob) -> Result<Vec<u8>> {
+pub fn unseal(blob: &SealedBlob) -> Result<Zeroizing<Vec<u8>>> {
     let mut dev = Device::open()?;
     ensure_srk(&mut dev)?;
 
@@ -98,7 +100,7 @@ pub fn unseal(blob: &SealedBlob) -> Result<Vec<u8>> {
 
     let session = commands::start_auth_session(&mut dev)?;
 
-    let result = (|| -> Result<Vec<u8>> {
+    let result = (|| -> Result<Zeroizing<Vec<u8>>> {
         commands::policy_pcr(&mut dev, session, &[])?;
         commands::unseal(&mut dev, obj_handle, session)
     })();

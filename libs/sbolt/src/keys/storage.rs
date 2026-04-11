@@ -1,5 +1,7 @@
 //! Key storage operations (PEM file read/write)
 
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use der::{Decode, Encode, pem::LineEnding};
@@ -18,7 +20,7 @@ pub fn save_key_hierarchy(hierarchy: &KeyHierarchy, dir: &Path) -> Result<()> {
     save_keypair(&hierarchy.db, dir)?;
 
     let guid_path = dir.join("owner.guid");
-    std::fs::write(&guid_path, format!("{}", hierarchy.owner_guid))?;
+    write_private_file(&guid_path, format!("{}", hierarchy.owner_guid).as_bytes())?;
 
     Ok(())
 }
@@ -29,7 +31,7 @@ fn save_keypair(keypair: &KeyPair, dir: &Path) -> Result<()> {
 
     let key_pem = pkcs8_to_pem(&keypair.signer.to_pkcs8_der()?)?;
     let key_path = dir.join(format!("{prefix}.key"));
-    std::fs::write(&key_path, key_pem)?;
+    write_private_file(&key_path, key_pem.as_bytes())?;
 
     let cert_pem = cert_to_pem(&keypair.certificate)?;
     let cert_path = dir.join(format!("{prefix}.crt"));
@@ -74,6 +76,18 @@ pub fn load_key_hierarchy(dir: &Path) -> Result<KeyHierarchy> {
         db,
         owner_guid,
     })
+}
+
+/// Write a file with owner-read-write only permissions (0o600).
+fn write_private_file(path: &Path, content: &[u8]) -> Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(content)?;
+    Ok(())
 }
 
 /// Convert PKCS#8 DER to PEM format.

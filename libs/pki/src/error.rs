@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("random generation failed")]
     Random,
+
+    #[error("CSR signature verification failed")]
+    CsrVerification,
 }
 
 /// Result type for PKI operations.

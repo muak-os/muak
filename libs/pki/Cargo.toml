@@ -11,6 +11,7 @@ spki = { workspace = true }
 const-oid = { workspace = true }
 ring = { workspace = true }
 signature = { workspace = true }
+zeroize = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

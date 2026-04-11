@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use der::{DecodePem, Encode, EncodePem, pem::LineEnding};
+use ring::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
 use x509_cert::{
     Certificate,
     builder::{Builder, CertificateBuilder},
@@ -19,8 +20,6 @@ use crate::signer::{EcdsaSignature, RingEcdsaSigner};
 use crate::util::{generate_serial, load_signer_from_pem};
 
 /// Generates a CSR (Certificate Signing Request) for client authentication.
-///
-/// Returns (private_key_pem, csr_pem).
 pub fn generate_csr(cn: &str) -> Result<(String, String)> {
     let signer = RingEcdsaSigner::generate()?;
     let subject = Name::from_str(&format!("CN={},O=Muak", cn))
@@ -36,14 +35,15 @@ pub fn generate_csr(cn: &str) -> Result<(String, String)> {
 }
 
 /// Signs a CSR with the CA and returns a client certificate.
-///
-/// Returns the signed certificate and its fingerprint.
 pub fn sign_csr(
     csr_pem: &str,
     ca_key_pem: &str,
     ca_cert: &Certificate,
 ) -> Result<(Certificate, String)> {
     let csr = CertReq::from_pem(csr_pem)?;
+
+    verify_csr_signature(&csr)?;
+
     let ca_signer = load_signer_from_pem(ca_key_pem)?;
 
     let subject = csr.info.subject.clone();
@@ -66,9 +66,26 @@ pub fn sign_csr(
     Ok((cert, fingerprint))
 }
 
+/// Verifies the self-signature on a CSR.
+fn verify_csr_signature(csr: &CertReq) -> Result<()> {
+    let info_der = csr.info.to_der()?;
+
+    let pub_key_der = csr
+        .info
+        .public_key
+        .subject_public_key
+        .as_bytes()
+        .ok_or(Error::CsrVerification)?;
+
+    let sig_bytes = csr.signature.as_bytes().ok_or(Error::CsrVerification)?;
+
+    let public_key = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, pub_key_der);
+    public_key
+        .verify(&info_der, sig_bytes)
+        .map_err(|_| Error::CsrVerification)
+}
+
 /// Computes SHA256 fingerprint of a CSR's public key (lowercase hex).
-///
-/// This is used as the identifier for pending CSRs.
 pub fn compute_csr_fingerprint(csr_pem: &str) -> Result<String> {
     let csr = CertReq::from_pem(csr_pem)?;
     let spki_der = csr.info.public_key.to_der()?;

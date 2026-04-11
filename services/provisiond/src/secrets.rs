@@ -1,6 +1,7 @@
 //! LUKS key protection: TPM2 sealing, token management, and fallback embedding.
 
 use anyhow::{Context, Result};
+use zeroize::Zeroizing;
 
 use crate::uki::Uki;
 
@@ -22,7 +23,7 @@ pub fn seal_luks_key(key: &[u8], uki: &mut Uki) -> Result<SealResult> {
 }
 
 /// Unseals the LUKS key from a TPM2 token stored in the LUKS2 header.
-pub fn unseal_luks_key(state_device: Option<&str>) -> Option<Vec<u8>> {
+pub fn unseal_luks_key(state_device: Option<&str>) -> Option<Zeroizing<Vec<u8>>> {
     let token = luks2::read_tpm2_token(state_device?).ok()?;
     let blob_bytes = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob).ok()?;
     let blob = tpm2::SealedBlob::deserialize(&blob_bytes).ok()?;

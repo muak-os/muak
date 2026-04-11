@@ -26,6 +26,9 @@ pub enum Error {
 
     #[error("invalid sealed blob format")]
     InvalidBlob,
+
+    #[error("random number generation failed")]
+    RngFailed,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

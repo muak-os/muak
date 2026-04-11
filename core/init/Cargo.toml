@@ -4,6 +4,9 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+# Cryptography
+zeroize = { workspace = true }
+
 # Encoding
 base64ct = { workspace = true }
 

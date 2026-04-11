@@ -28,7 +28,6 @@
   - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
   - Make it an extension & rename to workloadd
-  - Remove the internal gRPC calls to networkd and make networkd a lib too.
 
 - Improve security:
   - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)

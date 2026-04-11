@@ -43,6 +43,7 @@ ramune = { workspace = true }
 sbolt = { workspace = true }
 tpm2 = { workspace = true }
 yuki = { workspace = true }
+zeroize = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net"] }

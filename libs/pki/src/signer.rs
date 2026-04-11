@@ -10,6 +10,7 @@ use ring::{
     signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as RingKeyPair},
 };
 use spki::AlgorithmIdentifierOwned;
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 use crate::oid::{EC_PUBLIC_KEY_OID, ECDSA_WITH_SHA256_OID, SECP256R1_OID};
@@ -17,7 +18,7 @@ use crate::oid::{EC_PUBLIC_KEY_OID, ECDSA_WITH_SHA256_OID, SECP256R1_OID};
 /// Wrapper around ring's EcdsaKeyPair that implements RustCrypto traits.
 pub struct RingEcdsaSigner {
     key_pair: EcdsaKeyPair,
-    pkcs8_der: Vec<u8>,
+    pkcs8_der: Zeroizing<Vec<u8>>,
     rng: SystemRandom,
 }
 
@@ -27,7 +28,7 @@ impl RingEcdsaSigner {
         let rng = SystemRandom::new();
         let pkcs8_doc = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
             .map_err(|_| Error::KeyGeneration)?;
-        let pkcs8_der = pkcs8_doc.as_ref().to_vec();
+        let pkcs8_der = Zeroizing::new(pkcs8_doc.as_ref().to_vec());
         let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &pkcs8_der, &rng)
             .map_err(|_| Error::InvalidKeyEncoding)?;
         Ok(Self {
@@ -44,7 +45,7 @@ impl RingEcdsaSigner {
             .map_err(|_| Error::InvalidKeyEncoding)?;
         Ok(Self {
             key_pair,
-            pkcs8_der: pkcs8_der.to_vec(),
+            pkcs8_der: Zeroizing::new(pkcs8_der.to_vec()),
             rng,
         })
     }
