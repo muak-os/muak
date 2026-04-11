@@ -105,17 +105,21 @@ impl NetworkActor {
     }
 
     fn handle_primary_recovery(&mut self, name: &str) {
-        if self.state.state == NetworkStateKind::Degraded {
-            kmsg::info!("Primary interface {} recovered", name);
-            self.state.state = NetworkStateKind::Operational;
+        kmsg::info!("Primary interface {} recovered", name);
+        if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
+            kmsg::warn!("Unexpected state during primary recovery: {}", e);
+        } else {
             self.publish_state();
         }
     }
 
     fn handle_primary_failure(&mut self, name: &str) {
         kmsg::warn!("Primary interface {} failed", name);
-        self.state.state = NetworkStateKind::Degraded;
-        self.publish_state();
+        if let Err(e) = self.state.transition(NetworkStateKind::Degraded) {
+            kmsg::warn!("Unexpected state during primary failure: {}", e);
+        } else {
+            self.publish_state();
+        }
 
         if !self.state.backups.is_empty() {
             // TODO: Here is where we could trigger a failover to a backup interface.
@@ -131,9 +135,16 @@ impl NetworkActor {
             self.state.primary = Some(new_primary.clone());
             self.state.backups.retain(|n| n != &new_primary);
         } else {
-            kmsg::warn!("No backup interfaces available");
-            self.state.primary = None;
-            self.state.state = NetworkStateKind::Degraded;
+            self.clear_primary_and_degrade();
+        }
+    }
+
+    /// Clears the primary interface and transitions the network state to degraded.
+    fn clear_primary_and_degrade(&mut self) {
+        kmsg::warn!("No backup interfaces available");
+        self.state.primary = None;
+        if let Err(e) = self.state.transition(NetworkStateKind::Degraded) {
+            kmsg::warn!("Unexpected state during primary removal: {}", e);
         }
     }
 

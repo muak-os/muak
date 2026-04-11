@@ -14,12 +14,12 @@ const CARRIER_TIMEOUT_SECS: u64 = 6;
 impl NetworkActor {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
         kmsg::info!("Discovering ethernet interfaces");
-        self.state.state = NetworkStateKind::Initializing;
+        self.state.transition(NetworkStateKind::Initializing)?;
         self.publish_state();
 
         let mut discovered = netlib::interface::discover_ethernet(&self.handle).await?;
         if discovered.is_empty() {
-            self.state.state = NetworkStateKind::Degraded;
+            self.state.transition(NetworkStateKind::Degraded)?;
             self.publish_state();
             bail!("no ethernet interfaces found");
         }
@@ -29,7 +29,7 @@ impl NetworkActor {
 
         let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
         if !any_carrier {
-            self.state.state = NetworkStateKind::Degraded;
+            self.state.transition(NetworkStateKind::Degraded)?;
             self.publish_state();
             bail!(
                 "no carrier detected on any interface after {}s - check cable connections",
@@ -44,7 +44,7 @@ impl NetworkActor {
         self.populate_interface_map(&discovered);
         self.select_primary_interface(&discovered)?;
 
-        self.state.state = NetworkStateKind::Operational;
+        self.state.transition(NetworkStateKind::Operational)?;
         self.sync_and_publish();
         kmsg::info!(
             "Discovered {} interfaces, primary={:?}",

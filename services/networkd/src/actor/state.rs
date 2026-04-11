@@ -16,11 +16,41 @@ use crate::dns;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkStateKind {
+    /// No interfaces have been discovered yet.
     Uninitialized,
+    /// Interface discovery is in progress.
     Initializing,
+    /// At least one interface is up and configured.
     Operational,
+    /// All interfaces are configured and the system is fully ready.
     Ready,
+    /// The primary interface has lost carrier or been removed.
     Degraded,
+}
+
+impl NetworkStateKind {
+    /// Returns the set of states that this state may legally transition into.
+    fn valid_next_states(&self) -> &[NetworkStateKind] {
+        match self {
+            Self::Uninitialized => &[Self::Initializing],
+            Self::Initializing => &[Self::Operational, Self::Degraded],
+            Self::Operational => &[Self::Ready, Self::Degraded],
+            Self::Ready => &[Self::Degraded],
+            Self::Degraded => &[Self::Initializing, Self::Operational],
+        }
+    }
+}
+
+impl std::fmt::Display for NetworkStateKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Uninitialized => write!(f, "Uninitialized"),
+            Self::Initializing => write!(f, "Initializing"),
+            Self::Operational => write!(f, "Operational"),
+            Self::Ready => write!(f, "Ready"),
+            Self::Degraded => write!(f, "Degraded"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +98,16 @@ impl NetworkSnapshot {
             interfaces: Vec::new(),
             ipv6: false,
         }
+    }
+
+    /// Advances the network state to `to`, returning an error if the transition is invalid.
+    pub fn transition(&mut self, to: NetworkStateKind) -> Result<()> {
+        if !self.state.valid_next_states().contains(&to) {
+            anyhow::bail!("invalid state transition: {} -> {}", self.state, to);
+        }
+        kmsg::info!("Network state: {} -> {}", self.state, to);
+        self.state = to;
+        Ok(())
     }
 }
 
@@ -245,5 +285,109 @@ mod tests {
         // ASSERT
         assert!(dns.v4.is_empty());
         assert!(dns.v6.is_empty());
+    }
+
+    #[test]
+    fn network_state_kind_display() {
+        // ACT / ASSERT
+        assert_eq!(NetworkStateKind::Uninitialized.to_string(), "Uninitialized");
+        assert_eq!(NetworkStateKind::Initializing.to_string(), "Initializing");
+        assert_eq!(NetworkStateKind::Operational.to_string(), "Operational");
+        assert_eq!(NetworkStateKind::Ready.to_string(), "Ready");
+        assert_eq!(NetworkStateKind::Degraded.to_string(), "Degraded");
+    }
+
+    #[test]
+    fn valid_transitions_succeed() {
+        // ARRANGE
+        let pairs = [
+            (
+                NetworkStateKind::Uninitialized,
+                NetworkStateKind::Initializing,
+            ),
+            (
+                NetworkStateKind::Initializing,
+                NetworkStateKind::Operational,
+            ),
+            (NetworkStateKind::Initializing, NetworkStateKind::Degraded),
+            (NetworkStateKind::Operational, NetworkStateKind::Ready),
+            (NetworkStateKind::Operational, NetworkStateKind::Degraded),
+            (NetworkStateKind::Ready, NetworkStateKind::Degraded),
+            (NetworkStateKind::Degraded, NetworkStateKind::Initializing),
+            (NetworkStateKind::Degraded, NetworkStateKind::Operational),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = NetworkSnapshot::empty();
+            snap.state = from.clone();
+
+            // ACT
+            let result = snap.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_ok(), "{from} -> {to} should be valid");
+            assert_eq!(snap.state, to);
+        }
+    }
+
+    #[test]
+    fn invalid_transitions_return_error() {
+        // ARRANGE
+        let pairs = [
+            (
+                NetworkStateKind::Uninitialized,
+                NetworkStateKind::Operational,
+            ),
+            (NetworkStateKind::Uninitialized, NetworkStateKind::Ready),
+            (NetworkStateKind::Uninitialized, NetworkStateKind::Degraded),
+            (NetworkStateKind::Initializing, NetworkStateKind::Ready),
+            (
+                NetworkStateKind::Initializing,
+                NetworkStateKind::Uninitialized,
+            ),
+            (
+                NetworkStateKind::Operational,
+                NetworkStateKind::Uninitialized,
+            ),
+            (
+                NetworkStateKind::Operational,
+                NetworkStateKind::Initializing,
+            ),
+            (NetworkStateKind::Ready, NetworkStateKind::Operational),
+            (NetworkStateKind::Ready, NetworkStateKind::Uninitialized),
+            (NetworkStateKind::Ready, NetworkStateKind::Initializing),
+            (NetworkStateKind::Degraded, NetworkStateKind::Ready),
+            (NetworkStateKind::Degraded, NetworkStateKind::Uninitialized),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = NetworkSnapshot::empty();
+            snap.state = from.clone();
+
+            // ACT
+            let result = snap.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_err(), "{from} -> {to} should be invalid");
+            assert_eq!(
+                snap.state, from,
+                "state must not change on invalid transition"
+            );
+        }
+    }
+
+    #[test]
+    fn transition_does_not_mutate_state_on_error() {
+        // ARRANGE
+        let mut snap = NetworkSnapshot::empty();
+        snap.state = NetworkStateKind::Ready;
+
+        // ACT
+        let _ = snap.transition(NetworkStateKind::Initializing);
+
+        // ASSERT
+        assert_eq!(snap.state, NetworkStateKind::Ready);
     }
 }

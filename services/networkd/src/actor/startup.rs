@@ -13,7 +13,7 @@ impl NetworkActor {
         self.discover_interfaces().await?;
         self.apply_interface_configs(cmd_tx).await?;
 
-        self.state.state = NetworkStateKind::Ready;
+        self.state.transition(NetworkStateKind::Ready)?;
         self.publish_state();
 
         kmsg::info!("Network initialization complete");
