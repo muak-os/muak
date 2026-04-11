@@ -50,7 +50,13 @@ pub async fn exists(handle: &Handle, name: &str) -> Result<bool> {
 
     match links.try_next().await {
         Ok(Some(_)) => Ok(true),
-        Ok(None) | Err(_) => Ok(false),
+        Ok(None) => Ok(false),
+        Err(rtnetlink::Error::NetlinkError(ref msg))
+            if msg.code.is_some_and(|c| matches!(c.get(), -19 | -2)) =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(Error::Query(e)),
     }
 }
 
@@ -138,7 +144,7 @@ pub async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool
     Ok(states)
 }
 
-/// Brings up all listed interfaces and polls until at least one has carrier or timeout.
+/// Brings up all listed interfaces and waits for carrier via RTM_NEWLINK events.
 pub async fn probe_interfaces_for_carrier(
     handle: &Handle,
     interfaces: &[(u32, String)],
@@ -154,37 +160,79 @@ pub async fn probe_interfaces_for_carrier(
         names
     );
 
+    let (conn, sub_handle, mut messages) = match rtnetlink::new_connection() {
+        Ok(t) => t,
+        Err(e) => {
+            println!("Failed to open netlink subscription: {}", e);
+            return indices.iter().map(|idx| (*idx, false)).collect();
+        }
+    };
+    tokio::spawn(conn);
+
     for &index in &indices {
         let _ = bring_up(handle, index).await;
     }
 
-    let poll_interval = Duration::from_millis(100);
-    let start = std::time::Instant::now();
+    let mut states: HashMap<u32, bool> = indices.iter().map(|&idx| (idx, false)).collect();
+
+    if let Ok(initial) = get_all_carrier_states(&sub_handle).await {
+        seed_carrier_states(&mut states, &indices, &initial);
+    }
+
+    if states.values().any(|&c| c) {
+        log_carrier_detections(interfaces, &states, Duration::ZERO);
+        return states;
+    }
+
+    let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
-        let states = match get_all_carrier_states(handle).await {
-            Ok(s) => s,
-            Err(_) => {
-                tokio::time::sleep(poll_interval).await;
-                continue;
-            }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        let next = tokio::time::timeout(remaining, messages.next());
+        let Ok(Some((message, _))) = next.await else {
+            break;
         };
 
-        let any_carrier = indices.iter().any(|idx| states.get(idx) == Some(&true));
-        if any_carrier {
-            log_carrier_detections(interfaces, &states, start.elapsed());
-            return indices
-                .iter()
-                .map(|idx| (*idx, states.get(idx) == Some(&true)))
-                .collect();
+        let rtnetlink::packet_core::NetlinkPayload::InnerMessage(
+            rtnetlink::packet_route::RouteNetlinkMessage::NewLink(link_msg),
+        ) = message.payload
+        else {
+            continue;
+        };
+
+        let idx = link_msg.header.index;
+        if !states.contains_key(&idx) || !link_msg.header.flags.contains(LinkFlags::LowerUp) {
+            continue;
         }
 
-        if start.elapsed() >= timeout {
-            println!("No carrier detected on any interface after {:?}", timeout);
-            return indices.iter().map(|idx| (*idx, false)).collect();
+        states.insert(idx, true);
+        log_carrier_detections(interfaces, &states, timeout - remaining);
+        if states.values().all(|&c| c) {
+            return states;
         }
+    }
 
-        tokio::time::sleep(poll_interval).await;
+    if !states.values().any(|&c| c) {
+        println!("No carrier detected on any interface after {:?}", timeout);
+    }
+
+    states
+}
+
+/// Copies initial carrier flags from a full system dump into the tracked states map.
+fn seed_carrier_states(
+    states: &mut HashMap<u32, bool>,
+    indices: &[u32],
+    initial: &HashMap<u32, bool>,
+) {
+    for &idx in indices {
+        if initial.get(&idx) == Some(&true) {
+            states.insert(idx, true);
+        }
     }
 }
 
