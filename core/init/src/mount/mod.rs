@@ -128,7 +128,7 @@ pub fn mount_rootfs() -> Result<()> {
         .context("Failed to bind mount rootfs")?;
     } else {
         let options = format!("lowerdir={}", lower_dirs.join(":"));
-        let options_cstr = CString::new(options.as_str()).expect("CString conversion failed");
+        let options_cstr = CString::new(options.as_str()).context("CString conversion failed")?;
 
         mount(
             "overlay",
@@ -310,7 +310,9 @@ fn create_and_mount(
             .with_context(|| format!("Failed to create mount target: {}", target))?;
     }
 
-    let data_cstring = data.map(|s| CString::new(s).expect("CString conversion failed"));
+    let data_cstring = data
+        .map(|s| CString::new(s).context("CString conversion failed"))
+        .transpose()?;
 
     mount(source, target, fstype, flags, data_cstring.as_deref())
         .with_context(|| format!("Failed to mount {} to {}", source, target))?;

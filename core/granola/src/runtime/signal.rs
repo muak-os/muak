@@ -4,8 +4,12 @@ use tokio::signal::unix::{SignalKind, signal};
 
 /// Returns a future that resolves when SIGTERM or SIGINT is received.
 pub async fn shutdown_signal() {
-    let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM handler");
-    let mut sigint = signal(SignalKind::interrupt()).expect("failed to register SIGINT handler");
+    let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
+        return;
+    };
+    let Ok(mut sigint) = signal(SignalKind::interrupt()) else {
+        return;
+    };
 
     tokio::select! {
         _ = sigterm.recv() => {

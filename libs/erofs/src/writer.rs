@@ -220,7 +220,12 @@ fn write_compressed_file_data(
     slot_offset: usize,
 ) -> Result<()> {
     let bs = BLOCK_SIZE as usize;
-    let cf = inode.compressed.as_ref().expect("compressed data present");
+    let cf = inode
+        .compressed
+        .as_ref()
+        .ok_or(crate::error::ErofsError::Internal(
+            "compressed data present",
+        ))?;
     let xattr_size = inode.xattr_payload.len();
     let inode_header_end = slot_offset + COMPACT_INODE_SIZE + xattr_size;
 

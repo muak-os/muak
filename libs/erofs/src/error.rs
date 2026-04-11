@@ -36,6 +36,10 @@ pub enum ErofsError {
     /// Compression failed.
     #[error("compression error: {detail}")]
     Compression { detail: String },
+
+    /// Internal invariant violated.
+    #[error("internal error: {0}")]
+    Internal(&'static str),
 }
 
 /// Result type alias for erofs operations.

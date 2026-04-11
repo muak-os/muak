@@ -22,7 +22,7 @@ pub struct Header {
 
 impl Header {
     /// Creates a new header for formatting a fresh LUKS2 volume.
-    pub fn new(uuid_str: &str, label: &str) -> Self {
+    pub fn new(uuid_str: &str, label: &str) -> Result<Self> {
         let mut label_buf = [0u8; 48];
         let label_bytes = label.as_bytes();
         let len = label_bytes.len().min(47);
@@ -35,9 +35,9 @@ impl Header {
 
         let mut salt = [0u8; 64];
         ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut salt)
-            .expect("failed to generate random salt");
+            .map_err(|_| Error::Rng)?;
 
-        Self {
+        Ok(Self {
             header_size: DEFAULT_HEADER_SIZE,
             sequence_id: 1,
             label: label_buf,
@@ -45,7 +45,7 @@ impl Header {
             uuid: uuid_buf,
             subsystem: [0u8; 48],
             checksum: [0u8; 64],
-        }
+        })
     }
 
     /// Serializes the header to a 4096-byte buffer and computes its checksum.
@@ -148,13 +148,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn header_new() {
+    fn header_new() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
 
         // ACT
-        let header = Header::new(uuid, label);
+        let header = Header::new(uuid, label)?;
 
         // ASSERT
         assert_eq!(header.header_size, DEFAULT_HEADER_SIZE);
@@ -168,31 +168,33 @@ mod tests {
         assert_eq!(header.uuid_str(), uuid);
 
         assert!(!header.salt.iter().all(|&b| b == 0));
+        Ok(())
     }
 
     #[test]
-    fn header_new_long_label_truncated() {
+    fn header_new_long_label_truncated() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "a".repeat(100);
 
         // ACT
-        let header = Header::new(&uuid, &label);
+        let header = Header::new(&uuid, &label)?;
 
         // ASSERT
         let label_str = std::str::from_utf8(&header.label)
             .unwrap()
             .trim_end_matches('\0');
         assert_eq!(label_str.len(), 47);
+        Ok(())
     }
 
     #[test]
-    fn serialize_parse_roundtrip_primary() {
+    fn serialize_parse_roundtrip_primary() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
 
-        let mut header = Header::new(uuid, label);
+        let mut header = Header::new(uuid, label)?;
 
         // ACT
         let serialized = header.serialize(true);
@@ -209,15 +211,16 @@ mod tests {
         assert_eq!(parsed.uuid_str(), header.uuid_str());
         assert_eq!(parsed.label, header.label);
         assert_eq!(parsed.salt, header.salt);
+        Ok(())
     }
 
     #[test]
-    fn serialize_parse_roundtrip_secondary() {
+    fn serialize_parse_roundtrip_secondary() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let label = "test-label";
 
-        let mut header = Header::new(uuid, label);
+        let mut header = Header::new(uuid, label)?;
 
         // ACT
         let serialized = header.serialize(false);
@@ -226,26 +229,28 @@ mod tests {
         let parsed = Header::parse(&serialized).unwrap();
 
         assert_eq!(parsed.header_size, header.header_size);
+        Ok(())
     }
 
     #[test]
-    fn header_magic() {
+    fn header_magic() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
 
         // ACT
         let serialized = header.serialize(true);
 
         // ASSERT
         assert_eq!(&serialized[0..6], &LUKS_MAGIC);
+        Ok(())
     }
 
     #[test]
-    fn header_version() {
+    fn header_version() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
 
         // ACT
         let serialized = header.serialize(true);
@@ -253,13 +258,14 @@ mod tests {
         // ASSERT
         let version = u16::from_be_bytes([serialized[6], serialized[7]]);
         assert_eq!(version, LUKS2_VERSION);
+        Ok(())
     }
 
     #[test]
-    fn header_checksum_validation() {
+    fn header_checksum_validation() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
         let mut serialized = header.serialize(true);
 
         // ACT & ASSERT
@@ -272,13 +278,14 @@ mod tests {
         // ACT & ASSERT
         let result = Header::parse(&serialized);
         assert!(matches!(result, Err(Error::ChecksumMismatch)));
+        Ok(())
     }
 
     #[test]
-    fn header_checksum_corruption() {
+    fn header_checksum_corruption() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
         let mut serialized = header.serialize(true);
 
         let checksum_start = CHECKSUM_OFFSET;
@@ -289,13 +296,14 @@ mod tests {
 
         // ASSERT
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
-    fn parse_invalid_magic() {
+    fn parse_invalid_magic() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
         let mut serialized = header.serialize(true);
 
         serialized[0] = 0x00;
@@ -306,13 +314,14 @@ mod tests {
 
         // ASSERT
         assert!(matches!(result, Err(Error::InvalidMagic)));
+        Ok(())
     }
 
     #[test]
-    fn parse_unsupported_version() {
+    fn parse_unsupported_version() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
         let mut serialized = header.serialize(true);
 
         serialized[6..8].copy_from_slice(&1u16.to_be_bytes());
@@ -322,6 +331,7 @@ mod tests {
 
         // ASSERT
         assert!(matches!(result, Err(Error::UnsupportedVersion(1))));
+        Ok(())
     }
 
     #[test]
@@ -337,25 +347,26 @@ mod tests {
     }
 
     #[test]
-    fn uuid_str_various_lengths() {
+    fn uuid_str_various_lengths() -> Result<()> {
         // ARRANGE & ACT
-        let header = Header::new("abc", "test");
+        let header = Header::new("abc", "test")?;
         let long_uuid = "a".repeat(40);
-        let long_header = Header::new(&long_uuid, "test");
+        let long_header = Header::new(&long_uuid, "test")?;
         let very_long_uuid = "a".repeat(50);
-        let very_long_header = Header::new(&very_long_uuid, "test");
+        let very_long_header = Header::new(&very_long_uuid, "test")?;
 
         // ASSERT
         assert_eq!(header.uuid_str(), "abc");
         assert_eq!(long_header.uuid_str(), long_uuid);
         assert_eq!(very_long_header.uuid_str().len(), 40);
+        Ok(())
     }
 
     #[test]
-    fn header_offset_field() {
+    fn header_offset_field() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
 
         // ACT
         let serialized_primary = header.serialize(true);
@@ -388,16 +399,17 @@ mod tests {
             serialized_secondary[263],
         ]);
         assert_eq!(offset_secondary, DEFAULT_HEADER_SIZE);
+        Ok(())
     }
 
     #[test]
-    fn different_headers_different_checksums() {
+    fn different_headers_different_checksums() -> Result<()> {
         // ARRANGE
         let uuid1 = "12345678-1234-1234-1234-123456789abc";
         let uuid2 = "87654321-4321-4321-4321-cba987654321";
 
-        let mut header1 = Header::new(uuid1, "test1");
-        let mut header2 = Header::new(uuid2, "test2");
+        let mut header1 = Header::new(uuid1, "test1")?;
+        let mut header2 = Header::new(uuid2, "test2")?;
 
         // ACT
         let serialized1 = header1.serialize(true);
@@ -408,13 +420,14 @@ mod tests {
         let checksum2 = &serialized2[CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN];
 
         assert_ne!(checksum1, checksum2);
+        Ok(())
     }
 
     #[test]
-    fn checksum_algorithm_field() {
+    fn checksum_algorithm_field() -> Result<()> {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
-        let mut header = Header::new(uuid, "test");
+        let mut header = Header::new(uuid, "test")?;
 
         // ACT
         let serialized = header.serialize(true);
@@ -425,5 +438,6 @@ mod tests {
             .unwrap()
             .trim_end_matches('\0');
         assert_eq!(alg_str, CHECKSUM_ALG);
+        Ok(())
     }
 }

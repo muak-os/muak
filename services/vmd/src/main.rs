@@ -12,7 +12,7 @@ use anyhow::Result;
 use clients::NetworkClient;
 use granola::Health;
 use ipc::VmServiceImpl;
-use rustix::process::{Pid, WaitOptions, waitpid};
+use rustix::process::{WaitOptions, wait};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -108,10 +108,7 @@ fn set_child_subreaper() -> Result<()> {
 /// Reaps zombie child processes.
 fn reap_children() {
     loop {
-        match waitpid(
-            Some(Pid::from_raw(-1).expect("Failed to get pid")),
-            WaitOptions::NOHANG,
-        ) {
+        match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) if status.exited() => {
                 let exit_status = status.exit_status().unwrap_or(0);
                 println!(

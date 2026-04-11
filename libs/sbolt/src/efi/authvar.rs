@@ -22,7 +22,7 @@ pub fn sign_efi_variable(
     signer: &Rsa2048Signer,
     certificate: &Certificate,
 ) -> Result<Vec<u8>> {
-    let timestamp = now();
+    let timestamp = now()?;
 
     let descriptor = build_descriptor(var_name, vendor_guid, attributes, &timestamp, content);
 

@@ -53,17 +53,19 @@ fn build_request() -> [u8; NTP_PACKET_SIZE] {
 
 /// Parse the transmit timestamp from an NTP response packet into a UNIX `Timespec`.
 fn parse_response(packet: &[u8; NTP_PACKET_SIZE]) -> Result<Timespec> {
-    let secs = u32::from_be_bytes(
-        packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
-            .try_into()
-            .expect("slice is 4 bytes"),
-    );
+    let secs = u32::from_be_bytes([
+        packet[field::TX_TIMESTAMP_SECS],
+        packet[field::TX_TIMESTAMP_SECS + 1],
+        packet[field::TX_TIMESTAMP_SECS + 2],
+        packet[field::TX_TIMESTAMP_SECS + 3],
+    ]);
 
-    let frac = u32::from_be_bytes(
-        packet[field::TX_TIMESTAMP_FRAC..field::TX_TIMESTAMP_FRAC + 4]
-            .try_into()
-            .expect("slice is 4 bytes"),
-    );
+    let frac = u32::from_be_bytes([
+        packet[field::TX_TIMESTAMP_FRAC],
+        packet[field::TX_TIMESTAMP_FRAC + 1],
+        packet[field::TX_TIMESTAMP_FRAC + 2],
+        packet[field::TX_TIMESTAMP_FRAC + 3],
+    ]);
 
     if secs == 0 {
         bail!("Server returned zero timestamp (kiss-o'-death or unsynchronized)");

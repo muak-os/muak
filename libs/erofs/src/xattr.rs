@@ -112,11 +112,13 @@ fn xxh32_round(acc: u32, input: u32) -> u32 {
 }
 
 fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        buf[offset..offset + 4]
-            .try_into()
-            .expect("read_u32_le: slice must be 4 bytes"),
-    )
+    let arr: [u8; 4] = [
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ];
+    u32::from_le_bytes(arr)
 }
 
 /// Round up to the next multiple of 4.

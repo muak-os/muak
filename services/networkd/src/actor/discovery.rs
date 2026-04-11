@@ -42,7 +42,7 @@ impl NetworkActor {
         }
 
         self.populate_interface_map(&discovered);
-        self.select_primary_interface(&discovered);
+        self.select_primary_interface(&discovered)?;
 
         self.state.state = NetworkStateKind::Operational;
         self.sync_and_publish();
@@ -83,9 +83,10 @@ impl NetworkActor {
         }
     }
 
-    fn select_primary_interface(&mut self, discovered: &[Interface]) {
-        let primary = InterfaceSelector::select_primary(discovered)
-            .expect("BUG: select_primary_interface called with empty list");
+    fn select_primary_interface(&mut self, discovered: &[Interface]) -> Result<()> {
+        let primary = InterfaceSelector::select_primary(discovered).ok_or_else(|| {
+            anyhow::anyhow!("BUG: select_primary_interface called with empty list")
+        })?;
 
         self.state.primary = Some(primary.name.clone());
 
@@ -99,6 +100,7 @@ impl NetworkActor {
             if primary.has_carrier() { "yes" } else { "no" },
             self.state.backups
         );
+        Ok(())
     }
 }
 

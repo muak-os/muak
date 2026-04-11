@@ -4,8 +4,10 @@ use std::time::SystemTime;
 
 use uefi::runtime::{Daylight, Time, TimeParams};
 
+use crate::{Error, Result};
+
 /// Create an EFI_TIME structure for the current time
-pub fn now() -> Time {
+pub fn now() -> Result<Time> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
@@ -32,7 +34,7 @@ pub fn now() -> Time {
         time_zone: Some(0),
         daylight: Daylight::empty(),
     })
-    .expect("valid time parameters")
+    .map_err(|e| Error::EfiVar(format!("invalid time parameters: {e}")))
 }
 
 /// Convert days since Unix epoch to year, month, day
@@ -153,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn to_bytes_known_time() {
+    fn to_bytes_known_time() -> Result<()> {
         // ARRANGE
         let time = Time::new(TimeParams {
             year: 2024,
@@ -166,7 +168,7 @@ mod tests {
             time_zone: Some(60),
             daylight: Daylight::IN_DAYLIGHT,
         })
-        .expect("valid time");
+        .map_err(|e| Error::EfiVar(format!("{e:?}")))?;
 
         // ACT
         let bytes = to_bytes(&time);
@@ -182,19 +184,17 @@ mod tests {
         assert_eq!(bytes[6], 45);
         assert_eq!(bytes[7], 0);
         assert_eq!(
-            u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes")),
+            u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
             123456789
         );
-        assert_eq!(
-            i16::from_le_bytes(bytes[12..14].try_into().expect("2 bytes")),
-            60
-        );
+        assert_eq!(i16::from_le_bytes([bytes[12], bytes[13]]), 60);
         assert_eq!(bytes[14], Daylight::IN_DAYLIGHT.bits());
         assert_eq!(bytes[15], 0);
+        Ok(())
     }
 
     #[test]
-    fn to_bytes_zero_timezone() {
+    fn to_bytes_zero_timezone() -> Result<()> {
         // ARRANGE
         let time = Time::new(TimeParams {
             year: 1970,
@@ -207,7 +207,7 @@ mod tests {
             time_zone: Some(0),
             daylight: Daylight::empty(),
         })
-        .expect("valid time");
+        .map_err(|e| Error::EfiVar(format!("{e:?}")))?;
 
         // ACT
         let bytes = to_bytes(&time);
@@ -221,5 +221,6 @@ mod tests {
         assert_eq!(&bytes[12..14], &[0, 0]);
         assert_eq!(bytes[14], 0);
         assert_eq!(bytes[15], 0);
+        Ok(())
     }
 }

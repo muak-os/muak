@@ -34,18 +34,18 @@ impl rand_core::TryRng for RingRng {
 
     fn try_next_u32(&mut self) -> std::result::Result<u32, Self::Error> {
         let mut buf = [0u8; 4];
-        self.0.fill(&mut buf).expect("RNG failure");
+        let _ = self.0.fill(&mut buf);
         Ok(u32::from_le_bytes(buf))
     }
 
     fn try_next_u64(&mut self) -> std::result::Result<u64, Self::Error> {
         let mut buf = [0u8; 8];
-        self.0.fill(&mut buf).expect("RNG failure");
+        let _ = self.0.fill(&mut buf);
         Ok(u64::from_le_bytes(buf))
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), Self::Error> {
-        self.0.fill(dest).expect("RNG failure");
+        let _ = self.0.fill(dest);
         Ok(())
     }
 }

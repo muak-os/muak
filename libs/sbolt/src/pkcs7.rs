@@ -42,7 +42,7 @@ pub fn build_authenticode_signed_data(
     let digest_bytes: [u8; 32] = digest
         .as_ref()
         .try_into()
-        .expect("SHA-256 digest is always 32 bytes");
+        .map_err(|_| Error::Signing("SHA-256 digest is not 32 bytes".to_string()))?;
 
     let signed_attrs = build_signed_attributes(content_type, &digest_bytes)?;
 
@@ -85,7 +85,7 @@ pub fn build_detached_signed_data(
     let digest_bytes: [u8; 32] = digest
         .as_ref()
         .try_into()
-        .expect("SHA-256 digest is always 32 bytes");
+        .map_err(|_| Error::Signing("SHA-256 digest is not 32 bytes".to_string()))?;
 
     let signed_attrs = build_signed_attributes(ID_DATA, &digest_bytes)?;
 

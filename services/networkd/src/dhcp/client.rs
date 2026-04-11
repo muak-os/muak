@@ -217,7 +217,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig
 
     let xid: u32 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX epoch")
+        .map_err(|e| anyhow::anyhow!("system time before UNIX epoch: {e}"))?
         .as_nanos() as u32;
 
     // DHCPDISCOVER

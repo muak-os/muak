@@ -42,7 +42,7 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
 
     let uuid = uuid::Uuid::new_v4().to_string();
 
-    let mut hdr = Header::new(&uuid, label);
+    let mut hdr = Header::new(&uuid, label)?;
 
     let mut meta = Metadata::new(sector_size);
     meta.add_keyslot("0", &kdf_salt);

@@ -54,9 +54,9 @@ enum RbacRequirement {
     MaintenanceOrPermission(String),
 }
 
-fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
+    let out_dir = env::var("OUT_DIR")?;
 
     let proto_dir = Path::new(&manifest_dir).join("../../api");
     let proto_files = [
@@ -104,9 +104,9 @@ fn main() {
 
     let generated = generate_rust_code(&all_methods);
     let out_path = Path::new(&out_dir).join("rbac_rules.rs");
-    let mut file = fs::File::create(&out_path).expect("Failed to create rbac_rules.rs");
-    file.write_all(generated.as_bytes())
-        .expect("Failed to write rbac_rules.rs");
+    let mut file = fs::File::create(&out_path)?;
+    file.write_all(generated.as_bytes())?;
+    Ok(())
 }
 
 /// Parses a proto file and extracts RPC methods with their RBAC annotations.

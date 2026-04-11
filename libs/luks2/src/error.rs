@@ -49,6 +49,9 @@ pub enum Error {
 
     #[error("TPM2 token not found")]
     NoTpm2Token,
+
+    #[error("RNG failure")]
+    Rng,
 }
 
 /// Result type for LUKS2 operations.

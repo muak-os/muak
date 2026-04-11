@@ -458,7 +458,7 @@ impl SlaacManager {
 }
 
 fn create_all_routers_sockaddr(ifindex: u32) -> SocketAddrV6 {
-    let all_routers: Ipv6Addr = "ff02::2".parse().expect("valid IPv6 address");
+    let all_routers = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
     let std_sockaddr = std::net::SocketAddrV6::new(all_routers, 0, 0, ifindex);
     SocketAddrV6::new(
         *std_sockaddr.ip(),

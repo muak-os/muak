@@ -29,7 +29,9 @@ impl NetworkActor {
             configure_dns(&dns)?;
         }
 
-        let primary_addr = addresses.first().expect("addresses is non-empty");
+        let primary_addr = addresses
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("static IPv4 addresses list is empty"))?;
         let ip = IpConfig {
             address: primary_addr.address,
             prefix_len: primary_addr.prefix,
@@ -76,7 +78,9 @@ impl NetworkActor {
             configure_dns_v6(&dns)?;
         }
 
-        let primary_addr = addresses.first().expect("addresses is non-empty");
+        let primary_addr = addresses
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("static IPv6 addresses list is empty"))?;
         let ipv6 = Ipv6Config {
             address: primary_addr.address,
             prefix_len: primary_addr.prefix,
