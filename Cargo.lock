@@ -1466,6 +1466,7 @@ dependencies = [
  "kmsg",
  "libc",
  "netlib",
+ "ring",
  "rtnetlink",
  "rustix",
  "tokio",

@@ -77,6 +77,7 @@ impl NetworkActor {
                 link: iface.link_state.clone(),
                 ip: None,
                 lease: None,
+                dhcp_state: None,
                 ipv6: None,
             };
             self.insert_interface(snapshot);

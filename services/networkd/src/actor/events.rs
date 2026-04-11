@@ -70,6 +70,7 @@ impl NetworkActor {
             link: LinkStateKind::Up,
             ip: None,
             lease: None,
+            dhcp_state: None,
             ipv6: None,
         };
         self.insert_interface(snapshot);

@@ -5,7 +5,6 @@ use netlib::address::{IpConfig, Ipv6Config};
 use netlib::{address, route};
 
 use super::state::NetworkActor;
-use crate::dns::{configure_dns, configure_dns_v6};
 
 impl NetworkActor {
     pub(super) async fn apply_static_ipv4(
@@ -26,7 +25,7 @@ impl NetworkActor {
 
         let dns = config::network().ipv4_dns();
         if !dns.is_empty() {
-            configure_dns(&dns)?;
+            self.update_dns_v4(dns.clone())?;
         }
 
         let primary_addr = addresses
@@ -75,7 +74,7 @@ impl NetworkActor {
 
         let dns = config::network().ipv6_dns();
         if !dns.is_empty() {
-            configure_dns_v6(&dns)?;
+            self.update_dns_v6(dns.clone())?;
         }
 
         let primary_addr = addresses

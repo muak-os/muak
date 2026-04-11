@@ -6,6 +6,14 @@ use tokio::sync::{mpsc, oneshot};
 use super::state::{InterfaceSnapshot, NetworkActor};
 use crate::slaac::SlaacEvent;
 
+/// Distinguishes which DHCP timer phase triggered a lease action.
+#[derive(Debug)]
+pub enum LeaseAction {
+    Renew,
+    Rebind,
+    Expired,
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum NetworkCommand {
@@ -16,8 +24,9 @@ pub enum NetworkCommand {
         iface: String,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
-    RenewLease {
+    DhcpLeaseAction {
         iface: String,
+        action: LeaseAction,
     },
     Slaac(SlaacEvent),
 }
@@ -37,8 +46,8 @@ impl NetworkActor {
                 let result = self.acquire_dhcp(&iface, cmd_tx).await;
                 let _ = reply.send(result);
             }
-            NetworkCommand::RenewLease { iface } => {
-                let _ = self.renew_lease(&iface).await;
+            NetworkCommand::DhcpLeaseAction { iface, action } => {
+                self.handle_lease_action(&iface, action, cmd_tx).await;
             }
             NetworkCommand::Slaac(event) => {
                 self.handle_slaac_event(event).await;

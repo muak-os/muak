@@ -1,7 +1,7 @@
 //! State types for the network actor and its view of the system network topology.
 
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,7 +11,8 @@ use rtnetlink::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::dhcp::DhcpLease;
+use crate::dhcp::{DhcpLease, DhcpState};
+use crate::dns;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkStateKind {
@@ -30,7 +31,22 @@ pub struct InterfaceSnapshot {
     pub link: LinkStateKind,
     pub ip: Option<IpConfig>,
     pub lease: Option<DhcpLease>,
+    pub dhcp_state: Option<DhcpState>,
     pub ipv6: Option<Ipv6Config>,
+}
+
+/// Tracks all known DNS nameservers across v4 and v6.
+#[derive(Debug, Clone, Default)]
+pub struct DnsState {
+    pub v4: Vec<Ipv4Addr>,
+    pub v6: Vec<Ipv6Addr>,
+}
+
+impl DnsState {
+    /// Flushes the current state to resolv.conf via atomic write.
+    pub fn flush(&self) -> Result<()> {
+        dns::write_resolv_conf(&self.v4, &self.v6)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +77,7 @@ pub struct NetworkActor {
     pub(super) iface_map: HashMap<String, InterfaceSnapshot>,
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
     pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
+    pub(super) dns: DnsState,
 }
 
 impl NetworkActor {
@@ -71,6 +88,7 @@ impl NetworkActor {
             iface_map: HashMap::new(),
             watch_tx,
             renewal_tasks: HashMap::new(),
+            dns: DnsState::default(),
         }
     }
 
@@ -144,6 +162,18 @@ impl NetworkActor {
 
         Ok((lease, iface.mac, gateway))
     }
+
+    /// Updates IPv4 DNS servers and flushes resolv.conf.
+    pub(super) fn update_dns_v4(&mut self, servers: Vec<Ipv4Addr>) -> Result<()> {
+        self.dns.v4 = servers;
+        self.dns.flush()
+    }
+
+    /// Updates IPv6 DNS servers and flushes resolv.conf.
+    pub(super) fn update_dns_v6(&mut self, servers: Vec<Ipv6Addr>) -> Result<()> {
+        self.dns.v6 = servers;
+        self.dns.flush()
+    }
 }
 
 #[cfg(test)]
@@ -152,17 +182,25 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn dhcp_lease_expiry_is_obtained_plus_lease_time() {
-        // ARRANGE
-        let obtained = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
-        let lease = DhcpLease {
-            obtained_at: obtained,
+    fn make_lease() -> DhcpLease {
+        DhcpLease {
+            obtained_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1000),
             lease_time: Duration::from_secs(3600),
             renewal_time: Duration::from_secs(1800),
             rebind_time: Duration::from_secs(3150),
-        };
-        let expected = obtained + Duration::from_secs(3600);
+            server_ip: Ipv4Addr::new(192, 168, 1, 1),
+            assigned_ip: Ipv4Addr::new(192, 168, 1, 100),
+            prefix_len: 24,
+            gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
+            dns_servers: vec![Ipv4Addr::new(8, 8, 8, 8)],
+        }
+    }
+
+    #[test]
+    fn dhcp_lease_expiry_is_obtained_plus_lease_time() {
+        // ARRANGE
+        let lease = make_lease();
+        let expected = lease.obtained_at + lease.lease_time;
 
         // ACT
         let result = lease.expiry();
@@ -174,12 +212,9 @@ mod tests {
     #[test]
     fn dhcp_lease_expiry_at_epoch() {
         // ARRANGE
-        let lease = DhcpLease {
-            obtained_at: SystemTime::UNIX_EPOCH,
-            lease_time: Duration::from_secs(86400),
-            renewal_time: Duration::from_secs(43200),
-            rebind_time: Duration::from_secs(75600),
-        };
+        let mut lease = make_lease();
+        lease.obtained_at = SystemTime::UNIX_EPOCH;
+        lease.lease_time = Duration::from_secs(86400);
         let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(86400);
 
         // ACT
@@ -200,5 +235,15 @@ mod tests {
         assert!(snap.backups.is_empty());
         assert!(snap.interfaces.is_empty());
         assert!(!snap.ipv6);
+    }
+
+    #[test]
+    fn dns_state_default_is_empty() {
+        // ACT
+        let dns = DnsState::default();
+
+        // ASSERT
+        assert!(dns.v4.is_empty());
+        assert!(dns.v6.is_empty());
     }
 }

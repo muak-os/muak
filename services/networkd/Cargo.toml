@@ -20,6 +20,9 @@ netlib = { workspace = true }
 # Networking
 rtnetlink = { workspace = true }
 
+# Cryptography
+ring = { workspace = true }
+
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "event", "time"] }
 libc = { workspace = true }

@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::{InterfaceSnapshot, NetworkActor};
+use crate::dhcp::DhcpState;
 
 impl NetworkActor {
     /// Resolves the physical port name for a bridge from its config.
@@ -25,7 +26,7 @@ impl NetworkActor {
         }
     }
 
-    /// Creates or updates the bridge, transfers the IP from the physical port,
+    /// Creates or updates the bridge, transfers the IP from the physical port.
     pub(super) async fn configure_bridge(
         &mut self,
         bridge_name: &str,
@@ -50,6 +51,7 @@ impl NetworkActor {
             link: LinkStateKind::Up,
             ip,
             lease: Some(lease.clone()),
+            dhcp_state: Some(DhcpState::Bound),
             ipv6: None,
         };
         self.insert_interface(br_snapshot);
@@ -57,6 +59,7 @@ impl NetworkActor {
         if let Some(port_iface) = self.get_interface_mut(port_name) {
             port_iface.ip = None;
             port_iface.lease = None;
+            port_iface.dhcp_state = None;
         }
         self.sync_and_publish();
 
@@ -65,7 +68,7 @@ impl NetworkActor {
             port_name,
             bridge_name
         );
-        self.schedule_lease_renewal(cmd_tx.clone(), bridge_name.to_string(), lease);
+        self.schedule_lease_renewal(cmd_tx.clone(), bridge_name.to_string(), &lease);
 
         Ok(())
     }

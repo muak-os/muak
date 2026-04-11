@@ -6,7 +6,6 @@ use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
-use crate::dns::configure_dns_v6;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl NetworkActor {
@@ -145,7 +144,7 @@ impl NetworkActor {
     fn on_slaac_dns_updated(&mut self, servers: Vec<std::net::Ipv6Addr>) {
         kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
 
-        if let Err(e) = configure_dns_v6(&servers) {
+        if let Err(e) = self.update_dns_v6(servers.clone()) {
             kmsg::warn!("Failed to update IPv6 DNS: {}", e);
         }
 
@@ -176,7 +175,7 @@ impl NetworkActor {
 
         if !ipv6.dns.is_empty() {
             kmsg::info!("Configuring {} IPv6 DNS server(s)", ipv6.dns.len());
-            configure_dns_v6(&ipv6.dns)?;
+            self.update_dns_v6(ipv6.dns.clone())?;
         }
 
         Ok(())
