@@ -1395,6 +1395,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
+name = "netlib"
+version = "1.0.0-beta"
+dependencies = [
+ "libc",
+ "ring",
+ "rtnetlink",
+ "rustix",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "netlink-packet-core"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1451,9 +1464,9 @@ dependencies = [
  "granola",
  "kmsg",
  "libc",
+ "netlib",
  "prost",
  "protox",
- "ring",
  "rtnetlink",
  "rustix",
  "tokio",

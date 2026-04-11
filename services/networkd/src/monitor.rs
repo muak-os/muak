@@ -1,3 +1,5 @@
+//! Netlink-based monitor that watches for network interface state changes.
+
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -6,9 +8,6 @@ use rtnetlink::packet_core::NetlinkPayload;
 use rtnetlink::packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-
-use crate::netlink::link;
-use crate::netutil::format_mac_address;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -66,18 +65,26 @@ pub async fn start_monitor(
         }
 
         while let Some((message, _)) = messages.next().await {
-            let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
-                continue;
-            };
-            let result = handle_message(route_msg, &tx, &config, &mut link_states).await;
-            if let Err(e) = result {
-                eprintln!("Error handling netlink message: {}", e);
-            }
+            process_netlink_message(message, &tx, &config, &mut link_states).await;
         }
     });
 
     println!("Network event monitor started");
     Ok(rx)
+}
+
+async fn process_netlink_message(
+    message: rtnetlink::packet_core::NetlinkMessage<RouteNetlinkMessage>,
+    tx: &mpsc::Sender<NetworkEvent>,
+    config: &MonitorConfig,
+    link_states: &mut HashMap<u32, (String, bool)>,
+) {
+    let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
+        return;
+    };
+    if let Err(e) = handle_message(route_msg, tx, config, link_states).await {
+        eprintln!("Error handling netlink message: {}", e);
+    }
 }
 
 async fn initial_scan(
@@ -87,7 +94,7 @@ async fn initial_scan(
     let mut links = handle.link().get().execute();
     while let Some(link_msg) = links.try_next().await? {
         if let Some((name, index, _)) = extract_link_info(&link_msg)
-            && crate::interface::is_ethernet_interface(&name)
+            && netlib::interface::is_ethernet(&name)
         {
             let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
             let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
@@ -130,8 +137,8 @@ async fn handle_message(
 
 fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
     let index = msg.header.index;
-    let name = link::extract_name_from_link(msg)?;
-    let mac = link::extract_mac_from_link(msg);
+    let name = netlib::link::extract_name(msg)?;
+    let mac = netlib::link::extract_mac(msg);
 
     Some((name, index, mac))
 }
@@ -144,7 +151,7 @@ async fn handle_new_link(
     let Some((name, index, mac)) = extract_link_info(&msg) else {
         return Ok(());
     };
-    if !crate::interface::is_ethernet_interface(&name) {
+    if !netlib::interface::is_ethernet(&name) {
         return Ok(());
     }
 
@@ -178,7 +185,7 @@ async fn handle_new_link(
                     "New link added: {} (index {}, MAC {})",
                     name,
                     index,
-                    format_mac_address(&mac_addr)
+                    netlib::mac::format(&mac_addr)
                 );
                 let _ = tx
                     .send(NetworkEvent::LinkAdded {
@@ -200,7 +207,7 @@ async fn handle_del_link(
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
     if let Some((name, index, _)) = extract_link_info(&msg) {
-        if !crate::interface::is_ethernet_interface(&name) {
+        if !netlib::interface::is_ethernet(&name) {
             return Ok(());
         }
 

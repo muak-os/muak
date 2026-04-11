@@ -1,10 +1,12 @@
+//! Bridges the SLAAC manager with the network actor for IPv6 autoconfiguration.
+
+use netlib::address::Ipv6Config;
+use netlib::{address, route};
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
 use crate::dns::configure_dns_v6;
-use crate::model::Ipv6Config;
-use crate::netlink::{address, route};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl NetworkActor {

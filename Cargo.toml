@@ -30,6 +30,7 @@ members = [
     "libs/tpm2",
     "libs/erofs",
     "libs/granola-macros",
+    "libs/netlib",
 ]
 resolver = "3"
 
@@ -56,6 +57,7 @@ pki = { path = "libs/pki" }
 sbolt = { path = "libs/sbolt" }
 tpm2 = { path = "libs/tpm2" }
 erofs = { path = "libs/erofs" }
+netlib = { path = "libs/netlib" }
 
 # External crates
 

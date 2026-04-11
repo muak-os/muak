@@ -1,8 +1,9 @@
+//! Commands accepted by the network actor and their dispatch logic.
+
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use super::state::NetworkActor;
-use crate::model::{InterfaceSnapshot, NetworkSnapshot};
+use super::state::{InterfaceSnapshot, NetworkActor, NetworkSnapshot};
 use crate::slaac::SlaacEvent;
 
 #[derive(Debug)]

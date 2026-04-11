@@ -1,9 +1,10 @@
-use config::InterfaceKind;
+//! TAP interface operations.
 
-use super::state::NetworkActor;
-use crate::model::InterfaceSnapshot;
-use crate::model::LinkStateKind;
-use crate::netutil::tap;
+use config::InterfaceKind;
+use netlib::link::LinkStateKind;
+use netlib::tap;
+
+use super::state::{InterfaceSnapshot, NetworkActor};
 
 impl NetworkActor {
     /// Returns the name of the first configured bridge interface, if any.
@@ -24,7 +25,7 @@ impl NetworkActor {
             .ok_or_else(|| anyhow::anyhow!("no bridge interface configured"))?
             .to_string();
 
-        let index = tap::setup_tap_on_bridge(&self.handle, name, &bridge_name).await?;
+        let index = tap::setup_on_bridge(&self.handle, name, &bridge_name).await?;
 
         let snapshot = InterfaceSnapshot {
             name: name.to_string(),
@@ -47,7 +48,7 @@ impl NetworkActor {
     pub(super) async fn delete_tap(&mut self, name: &str) -> anyhow::Result<()> {
         kmsg::info!("Deleting TAP interface: {}", name);
 
-        tap::remove_tap_device(&self.handle, name).await?;
+        tap::remove(&self.handle, name).await?;
         self.remove_interface(name);
         self.sync_and_publish();
 

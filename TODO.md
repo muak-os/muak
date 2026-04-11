@@ -39,7 +39,7 @@
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
-- Support for Raspbnerry Pi like devices using .img installation
+- Support for Raspberry Pi like devices using .img installation
 - Support RISC-V architecture
 - Support Apple M series processor chips
 

@@ -1,8 +1,16 @@
+//! Manages the IPv6 SLAAC state machine for a single network interface.
+
 use std::net::Ipv6Addr;
 use std::os::fd::OwnedFd;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use netlib::slaac::address::generate;
+use netlib::slaac::icmpv6::{
+    ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
+    parse_router_advertisement,
+};
+use netlib::socket;
 use rustix::net::ipproto::ICMPV6;
 use rustix::net::netdevice::name_to_index;
 use rustix::net::{
@@ -13,14 +21,8 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use super::address::generate_slaac_address;
-use super::icmpv6::{
-    ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
-    parse_router_advertisement,
-};
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
 use super::{create_icmpv6_filter, fallback_dns_v6, set_icmpv6_filter};
-use crate::socket;
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 const MAX_RTR_SOLICITATIONS: u32 = 3;
@@ -63,6 +65,7 @@ pub struct SlaacManager {
     event_tx: mpsc::Sender<SlaacEvent>,
 }
 
+#[allow(clippy::excessive_nesting)]
 impl SlaacManager {
     pub fn new(
         interface: String,
@@ -76,7 +79,7 @@ impl SlaacManager {
             Some(ICMPV6),
         )?;
 
-        socket::socket_bind_device(&socket_fd, &interface)?;
+        socket::bind_device(&socket_fd, &interface)?;
 
         let ifindex = name_to_index(&socket_fd, &interface)?;
 
@@ -154,7 +157,7 @@ impl SlaacManager {
             .find(|p| p.autonomous && p.prefix_len <= 64)
             .ok_or_else(|| anyhow::anyhow!("no usable autonomous prefix in RA"))?;
 
-        let address = generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac)
+        let address = generate(prefix.prefix, prefix.prefix_len, &self.mac)
             .ok_or_else(|| anyhow::anyhow!("invalid prefix_len {} in RA", prefix.prefix_len))?;
 
         let managed_addr = ManagedAddress::new(
@@ -361,7 +364,7 @@ impl SlaacManager {
                     && prefix.prefix_len <= 64
                     && addr.router == ra.source
                     && let Some(expected_addr) =
-                        generate_slaac_address(prefix.prefix, prefix.prefix_len, &self.mac)
+                        generate(prefix.prefix, prefix.prefix_len, &self.mac)
                     && expected_addr == addr.address
                 {
                     addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);

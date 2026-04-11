@@ -1,11 +1,12 @@
+//! Ethernet interface discovery and carrier-aware selection at startup.
+
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use netlib::interface::{Interface, InterfaceSelector};
+use netlib::link::LinkStateKind;
 
-use super::state::NetworkActor;
-use crate::interface::{Interface, InterfaceSelector, discover_ethernet_interfaces};
-use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
-use crate::netlink::link;
+use super::state::{InterfaceSnapshot, NetworkActor, NetworkStateKind};
 
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
@@ -16,7 +17,7 @@ impl NetworkActor {
         self.state.state = NetworkStateKind::Initializing;
         self.publish_state();
 
-        let mut discovered = discover_ethernet_interfaces(&self.handle).await?;
+        let mut discovered = netlib::interface::discover_ethernet(&self.handle).await?;
         if discovered.is_empty() {
             self.state.state = NetworkStateKind::Degraded;
             self.publish_state();
@@ -64,7 +65,7 @@ impl NetworkActor {
             .map(|i| (i.index, i.name.clone()))
             .collect();
 
-        link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await
+        netlib::link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await
     }
 
     fn populate_interface_map(&mut self, discovered: &[Interface]) {

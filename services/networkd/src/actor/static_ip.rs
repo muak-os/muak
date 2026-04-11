@@ -1,9 +1,11 @@
+//! Static IP configuration for network interfaces.
+
 use anyhow::Result;
+use netlib::address::{IpConfig, Ipv6Config};
+use netlib::{address, route};
 
 use super::state::NetworkActor;
 use crate::dns::{configure_dns, configure_dns_v6};
-use crate::model::{IpConfig, Ipv6Config};
-use crate::netlink::{address, route};
 
 impl NetworkActor {
     pub(super) async fn apply_static_ipv4(

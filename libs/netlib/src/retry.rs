@@ -1,7 +1,20 @@
+//! Async helpers for retrying fallible operations and polling conditions with backoff.
+
 use std::future::Future;
 
-use anyhow::{Result, bail};
+use thiserror::Error;
 
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("{0}")]
+    Timeout(String),
+    #[error("{0}: {1}")]
+    TimeoutWithCause(String, String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Polls an async check function until it returns `Some`, or fails after `max_retries`.
 pub async fn wait_for_condition<F, Fut, T>(
     check_fn: F,
     max_retries: u8,
@@ -19,10 +32,11 @@ where
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
     }
 
-    bail!("{}", timeout_msg)
+    Err(Error::Timeout(timeout_msg.to_string()))
 }
 
-pub async fn retry_operation<F, Fut, T, E>(
+/// Retries a fallible async operation up to `max_retries` times with a delay between attempts.
+pub async fn run<F, Fut, T, E>(
     operation: F,
     max_retries: u8,
     delay_ms: u64,
@@ -30,7 +44,7 @@ pub async fn retry_operation<F, Fut, T, E>(
 ) -> Result<T>
 where
     F: Fn() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
+    Fut: Future<Output = std::result::Result<T, E>>,
     E: std::fmt::Display,
 {
     let mut last_error = None;
@@ -46,8 +60,11 @@ where
     }
 
     if let Some(err) = last_error {
-        bail!("{}: {}", timeout_msg, err)
+        Err(Error::TimeoutWithCause(
+            timeout_msg.to_string(),
+            err.to_string(),
+        ))
     } else {
-        bail!("{}", timeout_msg)
+        Err(Error::Timeout(timeout_msg.to_string()))
     }
 }

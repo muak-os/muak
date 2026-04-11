@@ -1,19 +1,21 @@
+//! Deterministic MAC address generation
+
 use ring::digest;
 
-pub fn generate_mac_address(vm_id: &str) -> [u8; 6] {
-    let result = digest::digest(&digest::SHA256, vm_id.as_bytes());
+/// Generates a deterministic locally-administered unicast MAC from an identifier.
+pub fn generate(id: &str) -> [u8; 6] {
+    let result = digest::digest(&digest::SHA256, id.as_bytes());
 
     let mut mac = [0u8; 6];
     mac.copy_from_slice(&result.as_ref()[0..6]);
 
-    // Set the locally administered bit and clear the multicast bit
-    // Bit 1 = locally administered, Bit 0 = unicast/multicast
     mac[0] = (mac[0] & 0xfe) | 0x02;
 
     mac
 }
 
-pub fn format_mac_address(mac: &[u8; 6]) -> String {
+/// Formats a 6-byte MAC address as colon-separated lowercase hex.
+pub fn format(mac: &[u8; 6]) -> String {
     format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
@@ -27,7 +29,7 @@ mod tests {
     #[test]
     fn generate_mac_sets_locally_administered_bit() {
         // ARRANGE / ACT
-        let mac = generate_mac_address("test-vm-id");
+        let mac = generate("test-id");
 
         // ASSERT
         assert_eq!(mac[0] & 0x02, 0x02);
@@ -36,7 +38,7 @@ mod tests {
     #[test]
     fn generate_mac_clears_multicast_bit() {
         // ARRANGE / ACT
-        let mac = generate_mac_address("test-vm-id");
+        let mac = generate("test-id");
 
         // ASSERT
         assert_eq!(mac[0] & 0x01, 0x00);
@@ -45,8 +47,8 @@ mod tests {
     #[test]
     fn generate_mac_is_deterministic() {
         // ACT
-        let a = generate_mac_address("same-id");
-        let b = generate_mac_address("same-id");
+        let a = generate("same-id");
+        let b = generate("same-id");
 
         // ASSERT
         assert_eq!(a, b);
@@ -55,8 +57,8 @@ mod tests {
     #[test]
     fn generate_mac_differs_for_different_ids() {
         // ACT
-        let a = generate_mac_address("vm-alpha");
-        let b = generate_mac_address("vm-beta");
+        let a = generate("alpha");
+        let b = generate("beta");
 
         // ASSERT
         assert_ne!(a, b);
@@ -65,7 +67,7 @@ mod tests {
     #[test]
     fn generate_mac_empty_id_is_valid() {
         // ACT
-        let mac = generate_mac_address("");
+        let mac = generate("");
 
         // ASSERT
         assert_eq!(mac[0] & 0x02, 0x02);
@@ -78,7 +80,7 @@ mod tests {
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
         // ACT / ASSERT
-        assert_eq!(format_mac_address(&mac), "aa:bb:cc:dd:ee:ff");
+        assert_eq!(format(&mac), "aa:bb:cc:dd:ee:ff");
     }
 
     #[test]
@@ -87,7 +89,7 @@ mod tests {
         let mac = [0x02, 0x00, 0x0a, 0x00, 0x00, 0x01];
 
         // ACT / ASSERT
-        assert_eq!(format_mac_address(&mac), "02:00:0a:00:00:01");
+        assert_eq!(format(&mac), "02:00:0a:00:00:01");
     }
 
     #[test]
@@ -96,7 +98,7 @@ mod tests {
         let mac = [0x00; 6];
 
         // ACT / ASSERT
-        assert_eq!(format_mac_address(&mac), "00:00:00:00:00:00");
+        assert_eq!(format(&mac), "00:00:00:00:00:00");
     }
 
     #[test]
@@ -105,14 +107,14 @@ mod tests {
         let mac = [0xff; 6];
 
         // ACT / ASSERT
-        assert_eq!(format_mac_address(&mac), "ff:ff:ff:ff:ff:ff");
+        assert_eq!(format(&mac), "ff:ff:ff:ff:ff:ff");
     }
 
     #[test]
     fn generate_then_format_roundtrip() {
         // ACT
-        let mac = generate_mac_address("roundtrip-test");
-        let formatted = format_mac_address(&mac);
+        let mac = generate("roundtrip-test");
+        let formatted = format(&mac);
 
         // ASSERT
         assert_eq!(formatted.len(), 17);

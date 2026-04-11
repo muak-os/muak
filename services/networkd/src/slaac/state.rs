@@ -1,3 +1,5 @@
+//! Lifetime-tracked state types for SLAAC-acquired addresses, routers, and DNS servers.
+
 use std::net::Ipv6Addr;
 
 use tokio::time::Instant;
@@ -11,6 +13,7 @@ pub enum AddressState {
 #[derive(Debug, Clone)]
 pub struct ManagedAddress {
     pub address: Ipv6Addr,
+    #[allow(dead_code)]
     pub prefix_len: u8,
     pub state: AddressState,
     pub valid_until: Instant,
@@ -56,10 +59,12 @@ impl ManagedAddress {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         Instant::now() < self.valid_until
     }
 
+    #[allow(dead_code)]
     pub fn is_preferred(&self) -> bool {
         self.state == AddressState::Preferred && Instant::now() < self.preferred_until
     }
@@ -83,6 +88,7 @@ impl ManagedRouter {
         self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64);
     }
 
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         Instant::now() < self.expires_at
     }
@@ -106,6 +112,7 @@ impl ManagedDns {
         self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64);
     }
 
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         Instant::now() < self.expires_at
     }

@@ -1,0 +1,26 @@
+[package]
+name = "netlib"
+description = "A library of networking primitives and utilities"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Asynchronous
+tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio-stream = { workspace = true }
+
+# Cryptography
+ring = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Networking
+rtnetlink = { workspace = true }
+
+# System/platform APIs
+libc = { workspace = true }
+rustix = { workspace = true }
+
+[lints]
+workspace = true

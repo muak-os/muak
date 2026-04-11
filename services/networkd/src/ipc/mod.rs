@@ -1,12 +1,12 @@
+//! gRPC service implementation for the network daemon's external API.
+
 use std::pin::Pin;
 
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 use tonic::{Request, Response, Status};
 
-use crate::actor::NetworkActorHandle;
-use crate::model::NetworkStateKind;
-use crate::netutil::{format_mac_address, generate_mac_address};
+use crate::actor::{NetworkActorHandle, NetworkSnapshot, NetworkStateKind};
 use crate::proto::network_service_server::NetworkService;
 use crate::proto::*;
 
@@ -60,11 +60,11 @@ impl NetworkService for NetworkServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to create TAP device: {}", e)))?;
 
-        let mac = generate_mac_address(&req.vm_id);
+        let mac = netlib::mac::generate(&req.vm_id);
 
         Ok(Response::new(CreateTapResponse {
             interface_name: iface.name,
-            mac_address: format_mac_address(&mac),
+            mac_address: netlib::mac::format(&mac),
             interface_index: iface.index,
         }))
     }
@@ -111,7 +111,7 @@ impl NetworkService for NetworkServiceImpl {
     }
 }
 
-fn snapshot_to_status(snapshot: &crate::model::NetworkSnapshot) -> NetworkStatus {
+fn snapshot_to_status(snapshot: &NetworkSnapshot) -> NetworkStatus {
     let state = match snapshot.state {
         NetworkStateKind::Uninitialized | NetworkStateKind::Initializing => State::Initializing,
         NetworkStateKind::Operational | NetworkStateKind::Ready => State::Ready,
@@ -130,7 +130,7 @@ fn snapshot_to_status(snapshot: &crate::model::NetworkSnapshot) -> NetworkStatus
 
             InterfaceInfo {
                 name: iface.name.clone(),
-                mac: format_mac_address(&iface.mac),
+                mac: netlib::mac::format(&iface.mac),
                 addresses,
                 has_gateway: iface
                     .ip
@@ -153,10 +153,11 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::sync::Arc;
 
+    use netlib::address::IpConfig;
+    use netlib::link::LinkStateKind;
+
     use super::*;
-    use crate::model::{
-        InterfaceSnapshot, IpConfig, LinkStateKind, NetworkSnapshot, NetworkStateKind,
-    };
+    use crate::actor::InterfaceSnapshot;
 
     fn empty_snapshot() -> NetworkSnapshot {
         NetworkSnapshot::empty()

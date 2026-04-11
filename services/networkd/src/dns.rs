@@ -1,3 +1,5 @@
+//! DNS resolver configuration
+
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr};
 

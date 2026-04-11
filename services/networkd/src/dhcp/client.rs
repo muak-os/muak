@@ -1,12 +1,14 @@
+//! DHCPv4 client implementation for acquiring and renewing IPv4 leases.
+
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
+use netlib::address::IpConfig;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use crate::model::{DhcpLease, IpConfig};
-use crate::socket;
+use super::DhcpLease;
 
 mod option {
     pub const SUBNET_MASK: u8 = 1;
@@ -139,11 +141,10 @@ pub(crate) fn parse_options(options_bytes: &[u8]) -> ParsedOptions {
                 parsed.router = Some(Ipv4Addr::new(data[0], data[1], data[2], data[3]));
             }
             option::DNS_SERVER if len >= 4 && len.is_multiple_of(4) => {
-                for chunk in data.chunks_exact(4) {
-                    parsed
-                        .dns_servers
-                        .push(Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]));
-                }
+                parsed.dns_servers.extend(
+                    data.chunks_exact(4)
+                        .map(|c| Ipv4Addr::new(c[0], c[1], c[2], c[3])),
+                );
             }
             option::LEASE_TIME if len == 4 => {
                 parsed.lease_time = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
@@ -206,12 +207,13 @@ pub(crate) fn validate_response(
     }
 }
 
+/// Runs a full DHCPv4 client exchange on the given interface.
 pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<(IpConfig, DhcpLease)> {
     println!("DHCP: starting on {}", interface);
 
     let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
     socket.set_broadcast(true)?;
-    socket::socket_bind_device(&socket, interface)?;
+    netlib::socket::bind_device(&socket, interface)?;
 
     let xid: u32 = SystemTime::now()
         .duration_since(UNIX_EPOCH)

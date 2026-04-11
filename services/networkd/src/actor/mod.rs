@@ -1,21 +1,23 @@
+//! Asynchronous actor that owns and drives all network state.
+
 mod bridge;
 mod commands;
-mod config_apply;
 mod dhcp;
 mod discovery;
 mod events;
-mod init;
-mod operations;
-mod slaac_coord;
+mod provision;
+mod slaac;
+mod startup;
 mod state;
 mod static_ip;
+mod tap;
 
 use anyhow::Result;
 pub use commands::NetworkCommand;
 use state::NetworkActor;
+pub use state::{InterfaceSnapshot, NetworkSnapshot, NetworkStateKind};
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::model::{InterfaceSnapshot, NetworkSnapshot};
 use crate::monitor::{self, NetworkEvent};
 
 #[derive(Clone)]
@@ -33,28 +35,35 @@ impl NetworkActorHandle {
     }
 
     pub async fn initialize_with_retry(&self) -> Result<()> {
-        let mut attempt = 0u32;
         let base_delay = std::time::Duration::from_secs(1);
         let max_delay = std::time::Duration::from_secs(10);
 
-        loop {
-            attempt += 1;
-
-            let Err(e) = self.initialize().await else {
-                println!("Network initialized successfully on attempt {}", attempt);
-                return Ok(());
-            };
-            eprintln!("Network initialization failed (attempt {}): {}", attempt, e);
-
-            let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
-            let delay = base_delay
-                .checked_mul(multiplier)
-                .unwrap_or(max_delay)
-                .min(max_delay);
-
-            println!("Retrying in {:?}...", delay);
-            tokio::time::sleep(delay).await;
+        for attempt in 1u32.. {
+            match self.try_initialize(attempt, base_delay, max_delay).await {
+                Some(ok) => return ok,
+                None => continue,
+            }
         }
+
+        unreachable!()
+    }
+
+    async fn try_initialize(
+        &self,
+        attempt: u32,
+        base_delay: std::time::Duration,
+        max_delay: std::time::Duration,
+    ) -> Option<Result<()>> {
+        if self.initialize().await.is_ok() {
+            println!("Network initialized successfully on attempt {}", attempt);
+            return Some(Ok(()));
+        }
+        eprintln!("Network initialization failed (attempt {})", attempt);
+
+        let delay = retry_delay(base_delay, max_delay, attempt);
+        println!("Retrying in {:?}...", delay);
+        tokio::time::sleep(delay).await;
+        None
     }
 
     pub async fn setup_bridge(&self) -> Result<()> {
@@ -80,7 +89,7 @@ impl NetworkActorHandle {
     }
 
     pub async fn snapshot(&self) -> NetworkSnapshot {
-        let (reply, rx) = tokio::sync::oneshot::channel();
+        let (reply, rx) = tokio::sync::oneshot::channel::<NetworkSnapshot>();
         let _ = self.tx.send(NetworkCommand::Snapshot { reply }).await;
         rx.await.unwrap_or_else(|_| self.watch_rx.borrow().clone())
     }
@@ -88,6 +97,15 @@ impl NetworkActorHandle {
     pub fn subscribe(&self) -> watch::Receiver<NetworkSnapshot> {
         self.watch_rx.clone()
     }
+}
+
+fn retry_delay(
+    base: std::time::Duration,
+    max: std::time::Duration,
+    attempt: u32,
+) -> std::time::Duration {
+    let multiplier = 1u32 << attempt.saturating_sub(1).min(5);
+    base.checked_mul(multiplier).unwrap_or(max).min(max)
 }
 
 pub async fn start_network_actor() -> Result<NetworkActorHandle> {

@@ -1,9 +1,10 @@
+//! Network actor startup sequence.
+
 use anyhow::Result;
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
-use super::state::NetworkActor;
-use crate::model::NetworkStateKind;
+use super::state::{NetworkActor, NetworkStateKind};
 
 impl NetworkActor {
     pub(super) async fn initialize(&mut self, cmd_tx: &mpsc::Sender<NetworkCommand>) -> Result<()> {

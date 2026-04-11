@@ -1,7 +1,9 @@
-use super::state::NetworkActor;
-use crate::model::{InterfaceSnapshot, LinkStateKind, NetworkStateKind};
+//! Network event handling and interface failover for the network actor.
+
+use netlib::link::LinkStateKind;
+
+use super::state::{InterfaceSnapshot, NetworkActor, NetworkStateKind};
 use crate::monitor::NetworkEvent;
-use crate::netutil::format_mac_address;
 
 impl NetworkActor {
     pub(super) async fn handle_event(&mut self, event: NetworkEvent) {
@@ -54,7 +56,7 @@ impl NetworkActor {
             "Event: Link added {} (index {}, MAC {})",
             name,
             index,
-            format_mac_address(&mac)
+            netlib::mac::format(&mac)
         );
 
         if self.has_interface(&name) {

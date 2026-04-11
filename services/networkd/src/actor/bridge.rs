@@ -1,11 +1,12 @@
+//! Bridge provisioning logic for the network actor.
+
 use anyhow::Result;
+use netlib::bridge;
+use netlib::link::LinkStateKind;
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
-use super::state::NetworkActor;
-use crate::model::{InterfaceSnapshot, LinkStateKind};
-use crate::netlink::link;
-use crate::netutil::bridge;
+use super::state::{InterfaceSnapshot, NetworkActor};
 
 impl NetworkActor {
     /// Resolves the physical port name for a bridge from its config.
@@ -35,13 +36,12 @@ impl NetworkActor {
         let (lease, mac, gateway) = self.extract_lease_mac_and_gateway(port_name)?;
 
         kmsg::info!("Setting up bridge {} with port {}", bridge_name, port_name);
-        bridge::ensure_bridge_with_config(&self.handle, bridge_name, port_name, gateway, stp)
-            .await?;
+        bridge::ensure_with_config(&self.handle, bridge_name, port_name, gateway, stp).await?;
         kmsg::info!("Bridge setup complete: {} <- {}", bridge_name, port_name);
 
         self.cancel_renewal_tasks(port_name);
 
-        let index = link::get_link_index(&self.handle, bridge_name).await?;
+        let index = netlib::link::get_index(&self.handle, bridge_name).await?;
         let ip = self.get_interface(port_name).and_then(|i| i.ip.clone());
         let br_snapshot = InterfaceSnapshot {
             name: bridge_name.to_string(),

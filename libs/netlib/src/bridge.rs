@@ -1,10 +1,12 @@
+//! Linux bridge management for virtual network switching.
+
 use std::net::Ipv4Addr;
 
-use anyhow::{Context, Result};
 use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
+use thiserror::Error;
 
-use crate::netlink::{address, link, retry, route};
+use crate::{address, link, retry, route};
 
 /// Number of attempts to check for bridge creation before giving up.
 const CREATE_RETRIES: u8 = 30;
@@ -18,14 +20,31 @@ const ENSLAVE_RETRIES: u8 = 5;
 /// Delay between attempts to enslave an interface to the bridge.
 const ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
-pub async fn ensure_bridge_with_config(
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("failed to create bridge: {0}")]
+    Create(#[source] rtnetlink::Error),
+    #[error(transparent)]
+    Link(#[from] link::Error),
+    #[error(transparent)]
+    Address(#[from] address::Error),
+    #[error(transparent)]
+    Route(#[from] route::Error),
+    #[error(transparent)]
+    Retry(#[from] retry::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Creates or reconfigures a bridge, enslaves the physical interface, and transfers its IP.
+pub async fn ensure_with_config(
     handle: &Handle,
     bridge_name: &str,
     physical_iface: &str,
     gateway: Option<Ipv4Addr>,
     stp: bool,
 ) -> Result<()> {
-    let phys_index = link::get_link_index(handle, physical_iface).await?;
+    let phys_index = link::get_index(handle, physical_iface).await?;
     let br_index = create_or_reconfigure_bridge(handle, bridge_name, stp).await?;
 
     enslave_interface_to_bridge(handle, phys_index, br_index, physical_iface, bridge_name).await?;
@@ -34,13 +53,14 @@ pub async fn ensure_bridge_with_config(
     Ok(())
 }
 
-pub async fn attach_to_bridge(handle: &Handle, iface_name: &str, bridge_name: &str) -> Result<()> {
+/// Attaches a named interface to a named bridge.
+pub async fn attach(handle: &Handle, iface_name: &str, bridge_name: &str) -> Result<()> {
     println!("Attaching {} to bridge {}", iface_name, bridge_name);
 
-    let iface_index = link::get_link_index(handle, iface_name).await?;
-    let bridge_index = link::get_link_index(handle, bridge_name).await?;
+    let iface_index = link::get_index(handle, iface_name).await?;
+    let bridge_index = link::get_index(handle, bridge_name).await?;
 
-    link::set_link_master(handle, iface_index, bridge_index).await?;
+    link::set_master(handle, iface_index, bridge_index).await?;
 
     println!("{} attached to bridge {}", iface_name, bridge_name);
     Ok(())
@@ -51,9 +71,9 @@ async fn create_or_reconfigure_bridge(
     bridge_name: &str,
     stp: bool,
 ) -> Result<u32> {
-    if link::link_exists(handle, bridge_name).await? {
-        let index = link::get_link_index(handle, bridge_name).await?;
-        link::bring_link_up(handle, index).await?;
+    if link::exists(handle, bridge_name).await? {
+        let index = link::get_index(handle, bridge_name).await?;
+        link::bring_up(handle, index).await?;
         return Ok(index);
     }
 
@@ -72,13 +92,13 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
         .add(LinkBridge::new(bridge_name).stp_state(stp_state).build())
         .execute()
         .await
-        .context("failed to create bridge")?;
+        .map_err(Error::Create)?;
 
     retry::wait_for_condition(
         || async {
-            if link::link_exists(handle, bridge_name).await.ok()? {
-                let index = link::get_link_index(handle, bridge_name).await.ok()?;
-                link::bring_link_up(handle, index).await.ok()?;
+            if link::exists(handle, bridge_name).await.ok()? {
+                let index = link::get_index(handle, bridge_name).await.ok()?;
+                link::bring_up(handle, index).await.ok()?;
                 Some(index)
             } else {
                 None
@@ -89,6 +109,7 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
         &format!("bridge '{}' creation timeout", bridge_name),
     )
     .await
+    .map_err(Error::Retry)
 }
 
 async fn enslave_interface_to_bridge(
@@ -98,17 +119,18 @@ async fn enslave_interface_to_bridge(
     physical_iface: &str,
     bridge_name: &str,
 ) -> Result<()> {
-    link::bring_link_down(handle, phys_index).await.ok();
+    link::bring_down(handle, phys_index).await.ok();
 
-    retry::retry_operation(
-        || async { link::set_link_master(handle, phys_index, br_index).await },
+    retry::run(
+        || async { link::set_master(handle, phys_index, br_index).await },
         ENSLAVE_RETRIES,
         ENSLAVE_RETRY_DELAY_MS,
         &format!("failed to enslave {} to {}", physical_iface, bridge_name),
     )
-    .await?;
+    .await
+    .map_err(Error::Retry)?;
 
-    link::bring_link_up(handle, phys_index).await.ok();
+    link::bring_up(handle, phys_index).await.ok();
 
     println!("Enslaved {} to bridge {}", physical_iface, bridge_name);
 
@@ -131,7 +153,6 @@ async fn transfer_ip_to_bridge(
         address::remove_ipv4(handle, phys_index, ip).await?;
         address::add_ipv4(handle, br_index, ip, prefix).await?;
 
-        // Restore gateway after IP is on bridge
         if let Some(gw) = gateway {
             route::add_default_route(handle, gw).await?;
             println!("Restored default route via {}", gw);

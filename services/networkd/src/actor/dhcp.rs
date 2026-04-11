@@ -1,12 +1,14 @@
+//! DHCP lease lifecycle management for the network actor.
+
 use anyhow::Result;
+use netlib::address::IpConfig;
+use netlib::{address, link, route};
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
-use super::state::NetworkActor;
-use crate::dhcpv4::run_dhcp_client;
+use super::state::{InterfaceSnapshot, NetworkActor};
+use crate::dhcp::{DhcpLease, client::run_dhcp_client};
 use crate::dns::configure_dns;
-use crate::model::{DhcpLease, InterfaceSnapshot, IpConfig};
-use crate::netlink::{address, link, route};
 
 impl NetworkActor {
     pub(super) async fn acquire_dhcp(
@@ -14,7 +16,7 @@ impl NetworkActor {
         iface: &str,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<InterfaceSnapshot> {
-        let index = link::ensure_link_up(&self.handle, iface).await?;
+        let index = link::ensure_up(&self.handle, iface).await?;
         let mac = self.get_interface_mac(iface)?;
         let (ip, lease) = run_dhcp_client(iface, &mac).await?;
 
@@ -34,26 +36,23 @@ impl NetworkActor {
 
         let mac = self.get_interface_mac(iface)?;
 
-        match run_dhcp_client(iface, &mac).await {
-            Ok((ip, lease)) => {
-                let index = self
-                    .get_interface(iface)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("interface disappeared during DHCP renewal: {}", iface)
-                    })?
-                    .index;
-
-                self.apply_ip_configuration(index, &ip).await?;
-                self.update_interface_with_lease(iface, ip, lease)?;
-
-                kmsg::info!("DHCP lease renewed for {}", iface);
-                Ok(())
-            }
+        let (ip, lease) = match run_dhcp_client(iface, &mac).await {
+            Ok(result) => result,
             Err(e) => {
                 kmsg::warn!("DHCP renewal failed for {}: {}", iface, e);
-                Err(anyhow::anyhow!("DHCP renewal failed for {}: {}", iface, e))
+                return Err(anyhow::anyhow!("DHCP renewal failed for {}: {}", iface, e));
             }
-        }
+        };
+
+        let index = self.get_interface(iface).map(|i| i.index).ok_or_else(|| {
+            anyhow::anyhow!("interface disappeared during DHCP renewal: {}", iface)
+        })?;
+
+        self.apply_ip_configuration(index, &ip).await?;
+        self.update_interface_with_lease(iface, ip, lease)?;
+
+        kmsg::info!("DHCP lease renewed for {}", iface);
+        Ok(())
     }
 
     pub(super) async fn apply_ip_configuration(&mut self, index: u32, ip: &IpConfig) -> Result<()> {

@@ -1,6 +1,9 @@
+//! ICMPv6 packet construction and parsing for stateless address autoconfiguration (RFC 4861).
+
+use std::array::TryFromSliceError;
 use std::net::Ipv6Addr;
 
-use anyhow::{Result, bail};
+use thiserror::Error;
 
 pub const ICMPV6_ROUTER_SOLICITATION: u8 = 133;
 pub const ICMPV6_ROUTER_ADVERTISEMENT: u8 = 134;
@@ -30,29 +33,43 @@ pub struct RouterAdvertisement {
     pub dns_lifetime: u32,
 }
 
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("RA too short: {0} bytes")]
+    TooShort(usize),
+    #[error("not a Router Advertisement: type={0}")]
+    WrongType(u8),
+    #[error("malformed address field in RA option: {0}")]
+    MalformedAddress(#[from] TryFromSliceError),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Constructs an ICMPv6 Router Solicitation packet with a source link-layer address option.
 pub fn build_router_solicitation(mac: &[u8; 6]) -> Vec<u8> {
     let mut pkt = Vec::with_capacity(16);
 
     pkt.push(ICMPV6_ROUTER_SOLICITATION);
-    pkt.push(0); // code
-    pkt.extend([0, 0]); // checksum placeholder
+    pkt.push(0);
+    pkt.extend([0, 0]);
 
-    pkt.extend([0, 0, 0, 0]); // reserved
+    pkt.extend([0, 0, 0, 0]);
 
     pkt.push(ND_OPT_SOURCE_LL_ADDR);
-    pkt.push(1); // length in units of 8 octets
+    pkt.push(1);
     pkt.extend(mac);
 
     pkt
 }
 
+/// Parses a raw ICMPv6 Router Advertisement into structured prefix, DNS and flag data.
 pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<RouterAdvertisement> {
     if data.len() < 16 {
-        bail!("RA too short: {} bytes", data.len());
+        return Err(Error::TooShort(data.len()));
     }
 
     if data[0] != ICMPV6_ROUTER_ADVERTISEMENT {
-        bail!("not a Router Advertisement: type={}", data[0]);
+        return Err(Error::WrongType(data[0]));
     }
 
     let hop_limit = data[4];
@@ -119,12 +136,7 @@ pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<Route
                     data[pos + 6],
                     data[pos + 7],
                 ]);
-                let addr_count = (opt_len - 8) / 16;
-                for i in 0..addr_count {
-                    let start = pos + 8 + i * 16;
-                    let addr_bytes: [u8; 16] = data[start..start + 16].try_into()?;
-                    ra.dns_servers.push(Ipv6Addr::from(addr_bytes));
-                }
+                parse_rdnss_addresses(data, pos, opt_len, &mut ra.dns_servers)?;
             }
             _ => {}
         }
@@ -133,6 +145,21 @@ pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<Route
     }
 
     Ok(ra)
+}
+
+fn parse_rdnss_addresses(
+    data: &[u8],
+    pos: usize,
+    opt_len: usize,
+    servers: &mut Vec<Ipv6Addr>,
+) -> Result<()> {
+    let addr_count = (opt_len - 8) / 16;
+    for i in 0..addr_count {
+        let start = pos + 8 + i * 16;
+        let addr_bytes: [u8; 16] = data[start..start + 16].try_into()?;
+        servers.push(Ipv6Addr::from(addr_bytes));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -160,7 +187,7 @@ mod tests {
         let start = data.len();
         data.resize(start + 32, 0);
         data[start] = ND_OPT_PREFIX_INFO;
-        data[start + 1] = 4; // 32 bytes / 8
+        data[start + 1] = 4;
         data[start + 2] = prefix_len;
         data[start + 3] = if autonomous { 0x40 } else { 0x00 };
         data[start + 4..start + 8].copy_from_slice(&valid.to_be_bytes());
@@ -214,10 +241,10 @@ mod tests {
     fn parse_ra_minimal() {
         // ARRANGE
         let data = make_ra_base(64, 0xC0, 1800);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.hop_limit, 64);
@@ -233,10 +260,10 @@ mod tests {
     fn parse_ra_flags_managed_only() {
         // ARRANGE
         let data = make_ra_base(0, 0x80, 0);
-        let source = "fe80::2".parse().unwrap();
+        let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(ra.managed_flag);
@@ -247,10 +274,10 @@ mod tests {
     fn parse_ra_flags_other_only() {
         // ARRANGE
         let data = make_ra_base(0, 0x40, 0);
-        let source = "fe80::2".parse().unwrap();
+        let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(!ra.managed_flag);
@@ -261,10 +288,10 @@ mod tests {
     fn parse_ra_flags_none() {
         // ARRANGE
         let data = make_ra_base(0, 0x00, 0);
-        let source = "fe80::2".parse().unwrap();
+        let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(!ra.managed_flag);
@@ -275,7 +302,7 @@ mod tests {
     fn parse_ra_too_short() {
         // ARRANGE
         let data = vec![ICMPV6_ROUTER_ADVERTISEMENT, 0, 0, 0];
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
         assert!(parse_router_advertisement(&data, source).is_err());
@@ -286,7 +313,7 @@ mod tests {
         // ARRANGE
         let mut data = make_ra_base(0, 0, 0);
         data[0] = ICMPV6_ROUTER_SOLICITATION;
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
         assert!(parse_router_advertisement(&data, source).is_err());
@@ -296,12 +323,12 @@ mod tests {
     fn parse_ra_with_prefix() {
         // ARRANGE
         let mut data = make_ra_base(64, 0, 1800);
-        let prefix: Ipv6Addr = "2001:db8::".parse().unwrap();
+        let prefix: Ipv6Addr = "2001:db8::".parse().expect("valid prefix");
         append_prefix_option(&mut data, 64, true, 7200, 3600, prefix);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -316,12 +343,12 @@ mod tests {
     fn parse_ra_prefix_non_autonomous() {
         // ARRANGE
         let mut data = make_ra_base(64, 0, 1800);
-        let prefix: Ipv6Addr = "2001:db8:1::".parse().unwrap();
+        let prefix: Ipv6Addr = "2001:db8:1::".parse().expect("valid prefix");
         append_prefix_option(&mut data, 48, false, 86400, 43200, prefix);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -339,7 +366,7 @@ mod tests {
             true,
             7200,
             3600,
-            "2001:db8::".parse().unwrap(),
+            "2001:db8::".parse().expect("valid prefix"),
         );
         append_prefix_option(
             &mut data,
@@ -347,12 +374,12 @@ mod tests {
             true,
             86400,
             43200,
-            "2001:db8:1::".parse().unwrap(),
+            "2001:db8:1::".parse().expect("valid prefix"),
         );
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 2);
@@ -362,13 +389,13 @@ mod tests {
     fn parse_ra_with_rdnss() {
         // ARRANGE
         let mut data = make_ra_base(64, 0, 1800);
-        let dns1: Ipv6Addr = "2620:fe::fe".parse().unwrap();
-        let dns2: Ipv6Addr = "2620:fe::9".parse().unwrap();
+        let dns1: Ipv6Addr = "2620:fe::fe".parse().expect("valid address");
+        let dns2: Ipv6Addr = "2620:fe::9".parse().expect("valid address");
         append_rdnss_option(&mut data, 3600, &[dns1, dns2]);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.dns_servers.len(), 2);
@@ -387,14 +414,14 @@ mod tests {
             true,
             7200,
             3600,
-            "2001:db8::".parse().unwrap(),
+            "2001:db8::".parse().expect("valid prefix"),
         );
-        let dns: Ipv6Addr = "2620:fe::fe".parse().unwrap();
+        let dns: Ipv6Addr = "2620:fe::fe".parse().expect("valid address");
         append_rdnss_option(&mut data, 600, &[dns]);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -409,10 +436,10 @@ mod tests {
         data.push(ND_OPT_PREFIX_INFO);
         data.push(0);
         data.extend([0u8; 30]);
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(ra.prefixes.is_empty());
@@ -431,12 +458,12 @@ mod tests {
             true,
             7200,
             3600,
-            "2001:db8::".parse().unwrap(),
+            "2001:db8::".parse().expect("valid prefix"),
         );
-        let source = "fe80::1".parse().unwrap();
+        let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).unwrap();
+        let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);

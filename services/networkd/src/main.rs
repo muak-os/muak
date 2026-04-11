@@ -1,16 +1,11 @@
 //! Network daemon for Muak to manage network interfaces, DHCP & DNS
 
 mod actor;
-mod dhcpv4;
+mod dhcp;
 mod dns;
-mod interface;
 mod ipc;
-mod model;
 mod monitor;
-mod netlink;
-mod netutil;
 mod slaac;
-mod socket;
 
 use actor::start_network_actor;
 use granola::Health;

@@ -1,10 +1,20 @@
-use anyhow::Result;
+//! Ethernet interface enumeration and priority-based selection.
+
 use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
+use thiserror::Error;
 use tokio_stream::StreamExt;
 
-use crate::model::LinkStateKind;
-use crate::netutil::format_mac_address;
+use crate::link::LinkStateKind;
+use crate::mac::format;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("failed to enumerate links: {0}")]
+    List(#[source] rtnetlink::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
 pub struct Interface {
@@ -15,6 +25,7 @@ pub struct Interface {
 }
 
 impl Interface {
+    /// Constructs a new interface descriptor.
     pub fn new(name: String, index: u32, mac_address: [u8; 6], link_state: LinkStateKind) -> Self {
         Self {
             name,
@@ -24,19 +35,21 @@ impl Interface {
         }
     }
 
+    /// Returns true when the underlying link has an active carrier signal.
     pub fn has_carrier(&self) -> bool {
         self.link_state.has_carrier()
     }
 }
 
-pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interface>> {
+/// Discovers all physical ethernet interfaces via rtnetlink.
+pub async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
 
-    while let Some(link_msg) = links.try_next().await? {
+    while let Some(link_msg) = links.try_next().await.map_err(Error::List)? {
         let (name, mac_address, is_virtual) = get_link_attributes(&link_msg.attributes);
 
-        if name.is_empty() || !is_ethernet_interface(&name) || is_virtual {
+        if name.is_empty() || !is_ethernet(&name) || is_virtual {
             continue;
         }
 
@@ -50,11 +63,11 @@ pub async fn discover_ethernet_interfaces(handle: &Handle) -> Result<Vec<Interfa
             (false, _) => LinkStateKind::Down,
         };
 
-        kmsg::info!(
+        println!(
             "Discovered interface: {} (index {}, MAC {}, state: {})",
             name,
             link_msg.header.index,
-            format_mac_address(&mac_address),
+            format(&mac_address),
             link_state
         );
 
@@ -89,7 +102,8 @@ fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) 
     (name, mac_address, is_virtual)
 }
 
-pub fn is_ethernet_interface(name: &str) -> bool {
+/// Returns true if the name matches a physical ethernet naming convention.
+pub fn is_ethernet(name: &str) -> bool {
     if name == "lo" || name.starts_with("wlan") || name.starts_with("wlp") {
         return false;
     }
@@ -103,6 +117,7 @@ pub fn is_ethernet_interface(name: &str) -> bool {
 pub struct InterfaceSelector;
 
 impl InterfaceSelector {
+    /// Selects the highest-priority interface as the primary.
     pub fn select_primary(interfaces: &[Interface]) -> Option<&Interface> {
         if interfaces.is_empty() {
             return None;
@@ -113,6 +128,7 @@ impl InterfaceSelector {
             .max_by(|a, b| Self::compare_interfaces(a, b))
     }
 
+    /// Returns all non-primary interfaces sorted by descending priority.
     pub fn select_backups<'a>(
         interfaces: &'a [Interface],
         primary_name: &str,
@@ -151,7 +167,6 @@ impl InterfaceSelector {
     }
 
     fn score_naming(name: &str) -> u32 {
-        // Priority order: eno > ens > enp > end > eth
         if name.starts_with("eno") {
             500
         } else if name.starts_with("ens") {
@@ -188,11 +203,11 @@ mod tests {
     #[test]
     fn ethernet_interface_name_detection() {
         // ACT / ASSERT
-        assert!(is_ethernet_interface("eth0"));
-        assert!(is_ethernet_interface("enp3s0"));
-        assert!(!is_ethernet_interface("lo"));
-        assert!(!is_ethernet_interface("wlan0"));
-        assert!(!is_ethernet_interface("br0"));
+        assert!(is_ethernet("eth0"));
+        assert!(is_ethernet("enp3s0"));
+        assert!(!is_ethernet("lo"));
+        assert!(!is_ethernet("wlan0"));
+        assert!(!is_ethernet("br0"));
     }
 
     #[test]
@@ -207,7 +222,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eth1");
+        assert_eq!(primary.expect("should have primary").name, "eth1");
     }
 
     #[test]
@@ -222,7 +237,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eth1");
+        assert_eq!(primary.expect("should have primary").name, "eth1");
     }
 
     #[test]
@@ -237,7 +252,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eno1");
+        assert_eq!(primary.expect("should have primary").name, "eno1");
     }
 
     #[test]
@@ -254,7 +269,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eno1");
+        assert_eq!(primary.expect("should have primary").name, "eno1");
     }
 
     #[test]
@@ -269,7 +284,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eth0");
+        assert_eq!(primary.expect("should have primary").name, "eth0");
     }
 
     #[test]
@@ -329,7 +344,7 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eth0");
+        assert_eq!(primary.expect("should have primary").name, "eth0");
     }
 
     #[test]
@@ -354,7 +369,8 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        assert_eq!(primary.unwrap().name, "eth0");
-        assert_eq!(primary.unwrap().index, 8);
+        let p = primary.expect("should have primary");
+        assert_eq!(p.name, "eth0");
+        assert_eq!(p.index, 8);
     }
 }

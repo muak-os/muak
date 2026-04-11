@@ -1,10 +1,12 @@
+//! Applies declarative interface configuration from the config file to the network actor.
+
 use anyhow::{Result, bail};
 use config::{InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
+use netlib::link;
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
 use super::state::NetworkActor;
-use crate::netlink::link;
 
 impl NetworkActor {
     pub(super) async fn apply_interface_configs(
@@ -61,7 +63,7 @@ impl NetworkActor {
         }
 
         kmsg::info!("Configuring ethernet interface: {}", iface_name);
-        let index = link::ensure_link_up(&self.handle, iface_name).await?;
+        let index = link::ensure_up(&self.handle, iface_name).await?;
 
         match ipv4_cfg {
             Some(ipv4) if ipv4.dhcp => {
