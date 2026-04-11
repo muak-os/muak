@@ -160,13 +160,14 @@ pub async fn probe_interfaces_for_carrier(
         names
     );
 
-    let (conn, sub_handle, mut messages) = match rtnetlink::new_connection() {
-        Ok(t) => t,
-        Err(e) => {
-            println!("Failed to open netlink subscription: {}", e);
-            return indices.iter().map(|idx| (*idx, false)).collect();
-        }
-    };
+    let (conn, sub_handle, mut messages) =
+        match rtnetlink::new_multicast_connection(&[rtnetlink::MulticastGroup::Link]) {
+            Ok(t) => t,
+            Err(e) => {
+                println!("Failed to open netlink subscription: {}", e);
+                return indices.iter().map(|idx| (*idx, false)).collect();
+            }
+        };
     tokio::spawn(conn);
 
     for &index in &indices {
