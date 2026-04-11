@@ -6,7 +6,6 @@ use anyhow::bail;
 use tokio::sync::mpsc;
 
 use super::VmCommand;
-use crate::clients::{NetworkClient, TapDevice};
 use crate::disk::{self, DiskUsage};
 use crate::hypervisor::{self, DiskConfig, VmStartConfig};
 use crate::persistence::{self, DiskConfigPersisted, VmPersisted};
@@ -16,8 +15,15 @@ use crate::proto::vm::{
 
 const DEFAULT_DISK_SIZE_MB: u64 = 1024;
 
+#[derive(Clone)]
+struct TapDevice {
+    name: String,
+    mac_address: String,
+}
+
 pub struct VmActor {
-    network_client: NetworkClient,
+    netlink_handle: rtnetlink::Handle,
+    bridge_name: String,
     vms: HashMap<String, VmEntry>,
     pending_restarts: Vec<String>,
     kvm_available: bool,
@@ -136,13 +142,40 @@ impl From<DiskUsage> for ProtoDiskUsage {
     }
 }
 
+fn reset_if_running(
+    entry: &mut VmEntry,
+    was_running: bool,
+    vm_id: &str,
+    pending_restarts: &mut Vec<String>,
+) {
+    if !was_running {
+        return;
+    }
+    entry.state = VmState::Stopped;
+    entry.tap_device = None;
+    if config::vm().auto_restart {
+        pending_restarts.push(vm_id.to_string());
+        println!("VM {} was running, will restart", entry.config.name);
+    } else {
+        println!(
+            "VM {} was running, but auto-restart is disabled",
+            entry.config.name
+        );
+    }
+}
+
 impl VmActor {
-    pub fn new(network_client: NetworkClient, kvm_available: bool) -> Self {
+    pub fn new(
+        netlink_handle: rtnetlink::Handle,
+        bridge_name: String,
+        kvm_available: bool,
+    ) -> Self {
         let (vms, pending_restarts) = Self::load_persisted_state();
         Self::cleanup_orphaned_disks(&vms);
 
         Self {
-            network_client,
+            netlink_handle,
+            bridge_name,
             vms,
             pending_restarts,
             kvm_available,
@@ -157,21 +190,7 @@ impl VmActor {
         for (vm_id, persisted_vm) in persisted {
             let was_running = persisted_vm.state == VmState::Running as i32;
             let mut entry = VmEntry::from_persisted(persisted_vm);
-
-            if was_running {
-                entry.state = VmState::Stopped;
-                entry.tap_device = None;
-                if config::vm().auto_restart {
-                    pending_restarts.push(vm_id.clone());
-                    println!("VM {} was running, will restart", entry.config.name);
-                } else {
-                    println!(
-                        "VM {} was running, but auto-restart is disabled",
-                        entry.config.name
-                    );
-                }
-            }
-
+            reset_if_running(&mut entry, was_running, &vm_id, &mut pending_restarts);
             vms.insert(vm_id, entry);
         }
 
@@ -179,85 +198,78 @@ impl VmActor {
     }
 
     fn cleanup_orphaned_disks(vms: &HashMap<String, VmEntry>) {
-        let disk_vms = disk::list_subvolumes(disk::DATA_DIR).unwrap_or_default();
-
-        for vm_id in disk_vms {
-            if !vms.contains_key(&vm_id) {
-                kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
-                if let Err(e) = disk::delete_subvolume(&vm_id, disk::DATA_DIR) {
-                    kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
-                }
-            }
-        }
+        disk::list_subvolumes(disk::DATA_DIR)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|vm_id| !vms.contains_key(vm_id))
+            .for_each(delete_orphaned_disk);
     }
 
     pub async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
         self.process_pending_restarts().await;
 
         while let Some(cmd) = cmd_rx.recv().await {
-            match cmd {
-                VmCommand::Create { config, reply } => {
-                    let result = self.handle_create(config).await;
-                    let _ = reply.send(result);
-                }
-                VmCommand::Start { vm_id, reply } => {
-                    let result = self.handle_start(&vm_id).await;
-                    let _ = reply.send(result);
-                }
-                VmCommand::Stop {
-                    vm_id,
-                    force,
-                    reply,
-                } => {
-                    let result = self.handle_stop(&vm_id, force).await;
-                    let _ = reply.send(result);
-                }
-                VmCommand::Delete { vm_id, reply } => {
-                    let result = self.handle_delete(&vm_id).await;
-                    let _ = reply.send(result);
-                }
-                VmCommand::Get { vm_id, reply } => {
-                    let result = self.handle_get(&vm_id);
-                    let _ = reply.send(result);
-                }
-                VmCommand::List { reply } => {
-                    let result = self.handle_list();
-                    let _ = reply.send(result);
-                }
-                VmCommand::UploadFile {
-                    filename,
-                    data,
-                    vm_id,
-                    reply,
-                } => {
-                    let result = self
-                        .handle_upload_file(&filename, &data, vm_id.as_deref())
-                        .await;
-                    let _ = reply.send(result);
-                }
-                VmCommand::GetSerialLog {
-                    vm_id,
-                    tail_lines,
-                    reply,
-                } => {
-                    let result = self.handle_get_serial_log(&vm_id, tail_lines).await;
-                    let _ = reply.send(result);
-                }
+            self.dispatch(cmd).await;
+        }
+    }
+
+    async fn dispatch(&mut self, cmd: VmCommand) {
+        match cmd {
+            VmCommand::Create { config, reply } => {
+                let _ = reply.send(self.handle_create(config).await);
+            }
+            VmCommand::Start { vm_id, reply } => {
+                let _ = reply.send(self.handle_start(&vm_id).await);
+            }
+            VmCommand::Stop {
+                vm_id,
+                force,
+                reply,
+            } => {
+                let _ = reply.send(self.handle_stop(&vm_id, force).await);
+            }
+            VmCommand::Delete { vm_id, reply } => {
+                let _ = reply.send(self.handle_delete(&vm_id).await);
+            }
+            VmCommand::Get { vm_id, reply } => {
+                let _ = reply.send(self.handle_get(&vm_id));
+            }
+            VmCommand::List { reply } => {
+                let _ = reply.send(self.handle_list());
+            }
+            VmCommand::UploadFile {
+                filename,
+                data,
+                vm_id,
+                reply,
+            } => {
+                let _ = reply.send(
+                    self.handle_upload_file(&filename, &data, vm_id.as_deref())
+                        .await,
+                );
+            }
+            VmCommand::GetSerialLog {
+                vm_id,
+                tail_lines,
+                reply,
+            } => {
+                let _ = reply.send(self.handle_get_serial_log(&vm_id, tail_lines).await);
             }
         }
     }
 
     async fn process_pending_restarts(&mut self) {
-        let restarts = std::mem::take(&mut self.pending_restarts);
-
-        for vm_id in restarts {
-            println!("Auto-restarting VM {}", vm_id);
-            if let Err(e) = self.handle_start(&vm_id).await {
-                eprintln!("Failed to auto-restart VM {}: {}", vm_id, e);
-            }
+        for vm_id in std::mem::take(&mut self.pending_restarts) {
+            self.auto_restart_vm(&vm_id).await;
         }
     }
 
+    async fn auto_restart_vm(&mut self, vm_id: &str) {
+        println!("Auto-restarting VM {}", vm_id);
+        if let Err(e) = self.handle_start(vm_id).await {
+            eprintln!("Failed to auto-restart VM {}: {}", vm_id, e);
+        }
+    }
     async fn handle_create(&mut self, config: VmConfig) -> anyhow::Result<String> {
         let vm_id = uuid::Uuid::new_v4().to_string();
 
@@ -316,7 +328,13 @@ impl VmActor {
         println!("Starting VM {} ({})", entry.config.name, vm_id);
         entry.state = VmState::Starting;
 
-        let tap = self.network_client.create_tap(vm_id, None).await?;
+        let tap_name = format!("tap-{}", &vm_id[..8.min(vm_id.len())]);
+        netlib::tap::setup_on_bridge(&self.netlink_handle, &tap_name, &self.bridge_name).await?;
+        let mac = netlib::mac::generate(vm_id);
+        let tap = TapDevice {
+            name: tap_name,
+            mac_address: netlib::mac::format(&mac),
+        };
         println!(
             "Created TAP device {} with MAC {}",
             tap.name, tap.mac_address
@@ -376,16 +394,10 @@ impl VmActor {
             }
             Err(e) => {
                 eprintln!("Failed to start VM {}: {}", entry.config.name, e);
-
-                if let Some(tap) = entry.tap_device.take()
-                    && let Err(tap_err) = self.network_client.delete_tap(&tap.name).await
-                {
-                    eprintln!("Failed to cleanup TAP device {}: {}", tap.name, tap_err);
-                }
-
+                let tap_name = entry.tap_device.take().map(|t| t.name);
                 entry.state = VmState::Created;
                 persistence::save_vm(vm_id, &entry.to_persisted())?;
-
+                cleanup_tap_on_err(&self.netlink_handle, tap_name).await;
                 Err(e)
             }
         }
@@ -411,10 +423,13 @@ impl VmActor {
             hypervisor.stop(pid, force).await?;
         }
 
-        if let Some(tap) = entry.tap_device.take()
-            && let Err(e) = self.network_client.delete_tap(&tap.name).await
-        {
-            eprintln!("Failed to delete TAP device {}: {}", tap.name, e);
+        if let Some(tap) = entry.tap_device.take() {
+            let tap_name = tap.name;
+            entry.state = VmState::Stopped;
+            entry.pid = None;
+            persistence::save_vm(vm_id, &entry.to_persisted())?;
+            remove_tap(&self.netlink_handle, &tap_name).await;
+            return Ok(());
         }
 
         entry.state = VmState::Stopped;
@@ -522,5 +537,24 @@ fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Resu
         Ok(path)
     } else {
         anyhow::bail!("{} not found: {}", convention_name, path.display())
+    }
+}
+
+async fn remove_tap(handle: &rtnetlink::Handle, tap_name: &str) {
+    if let Err(e) = netlib::tap::remove(handle, tap_name).await {
+        eprintln!("Failed to delete TAP device {}: {}", tap_name, e);
+    }
+}
+
+async fn cleanup_tap_on_err(handle: &rtnetlink::Handle, tap_name: Option<String>) {
+    if let Some(name) = tap_name {
+        remove_tap(handle, &name).await;
+    }
+}
+
+fn delete_orphaned_disk(vm_id: String) {
+    kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
+    if let Err(e) = disk::delete_subvolume(&vm_id, disk::DATA_DIR) {
+        kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
     }
 }

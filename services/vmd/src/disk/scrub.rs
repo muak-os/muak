@@ -42,6 +42,37 @@ fn run() -> ScrubOutcome {
     ScrubOutcome::Finished(results)
 }
 
+fn report_outcome(outcome: ScrubOutcome) {
+    match outcome {
+        ScrubOutcome::Finished(devices) => {
+            let total_errors: u64 = devices.iter().map(|d| d.progress.total_errors()).sum();
+            let total_bytes: u64 = devices
+                .iter()
+                .map(|d| d.progress.data_bytes_scrubbed + d.progress.tree_bytes_scrubbed)
+                .sum();
+            let gib = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+
+            if total_errors == 0 {
+                println!(
+                    "Scrub completed: {} device(s), {:.2} GiB verified, no errors",
+                    devices.len(),
+                    gib,
+                );
+            } else {
+                println!(
+                    "Scrub completed with errors: {} device(s), {} total errors, {:.2} GiB verified",
+                    devices.len(),
+                    total_errors,
+                    gib,
+                );
+            }
+        }
+        ScrubOutcome::Error(msg) => {
+            eprintln!("Scrub failed: {}", msg);
+        }
+    }
+}
+
 /// Periodic scrub timer. Runs a read-only btrfs scrub on the data partition
 pub async fn timer() {
     const SCRUB_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60); // weekly
@@ -58,40 +89,9 @@ pub async fn timer() {
 
         let result = tokio::task::spawn_blocking(run).await;
 
-        let outcome = match result {
-            Ok(outcome) => outcome,
-            Err(e) => {
-                eprintln!("Scrub task panicked: {}", e);
-                continue;
-            }
-        };
-
-        match outcome {
-            ScrubOutcome::Finished(devices) => {
-                let total_errors: u64 = devices.iter().map(|d| d.progress.total_errors()).sum();
-                let total_bytes: u64 = devices
-                    .iter()
-                    .map(|d| d.progress.data_bytes_scrubbed + d.progress.tree_bytes_scrubbed)
-                    .sum();
-
-                if total_errors == 0 {
-                    println!(
-                        "Scrub completed: {} device(s), {:.2} GiB verified, no errors",
-                        devices.len(),
-                        total_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
-                    );
-                } else {
-                    println!(
-                        "Scrub completed with errors: {} device(s), {} total errors, {:.2} GiB verified",
-                        devices.len(),
-                        total_errors,
-                        total_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
-                    );
-                }
-            }
-            ScrubOutcome::Error(msg) => {
-                eprintln!("Scrub failed: {}", msg);
-            }
+        match result {
+            Ok(outcome) => report_outcome(outcome),
+            Err(e) => eprintln!("Scrub task panicked: {}", e),
         }
     }
 }

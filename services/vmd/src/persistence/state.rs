@@ -42,27 +42,26 @@ pub fn load_vms() -> Result<HashMap<String, VmPersisted>> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-
-        if path.extension().is_some_and(|ext| ext == "json")
-            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-        {
-            match fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str::<VmPersisted>(&content) {
-                    Ok(vm) => {
-                        vms.insert(stem.to_string(), vm);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to parse VM state {}: {}", path.display(), e);
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to read VM state {}: {}", path.display(), e);
-                }
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        match load_vm_from_path(&path) {
+            Ok(vm) => {
+                vms.insert(stem.to_string(), vm);
             }
+            Err(e) => eprintln!("Failed to load VM state {}: {}", path.display(), e),
         }
     }
 
     Ok(vms)
+}
+
+fn load_vm_from_path(path: &Path) -> Result<VmPersisted> {
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content)?)
 }
 
 pub fn save_vm(vm_id: &str, vm: &VmPersisted) -> Result<()> {

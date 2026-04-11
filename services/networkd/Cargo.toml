@@ -8,15 +8,8 @@ version.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util"] }
 tokio-stream = { workspace = true }
 
-# Encoding
-prost = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
-
-# gRPC
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
 
 # Internal
 granola = { workspace = true }
@@ -30,10 +23,6 @@ rtnetlink = { workspace = true }
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "event", "time"] }
 libc = { workspace = true }
-
-[build-dependencies]
-tonic-prost-build = { workspace = true }
-protox = { workspace = true }
 
 [lints]
 workspace = true

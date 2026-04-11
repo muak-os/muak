@@ -1,15 +1,14 @@
 //! VM daemon for Muak - Manages virtual machines and their life cycle
 
 mod actor;
-mod clients;
 mod disk;
 mod hypervisor;
 mod ipc;
 mod persistence;
 
 use actor::start_vm_actor;
-use anyhow::Result;
-use clients::NetworkClient;
+use anyhow::{Context, Result};
+use config::InterfaceKind;
 use granola::Health;
 use ipc::VmServiceImpl;
 use rustix::process::{WaitOptions, wait};
@@ -21,9 +20,6 @@ use tonic::transport::Server;
 pub mod proto {
     pub mod vm {
         tonic::include_proto!("muak.vm.v1");
-    }
-    pub mod network {
-        tonic::include_proto!("muak.internal.network");
     }
 }
 
@@ -50,10 +46,17 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
 
-    let network_client = NetworkClient::connect("/run/services/networkd.sock").await?;
-    println!("Connected to networkd");
+    let (connection, netlink_handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(connection);
 
-    let vm_handle = start_vm_actor(network_client, kvm_available).await;
+    let bridge_name = config::network()
+        .interfaces
+        .iter()
+        .find(|i| i.kind == InterfaceKind::Bridge)
+        .map(|i| i.name.clone())
+        .context("no bridge interface found in network config")?;
+
+    let vm_handle = start_vm_actor(netlink_handle, bridge_name, kvm_available).await;
 
     let stream = UnixListenerStream::new(granola::socket()?);
 

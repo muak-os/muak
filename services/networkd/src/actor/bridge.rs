@@ -84,31 +84,4 @@ impl NetworkActor {
         self.configure_bridge(bridge_name, &port_name, bridge_cfg.stp, cmd_tx)
             .await
     }
-
-    /// gRPC `SetupBridge` RPC handler — uses the configured bridge name and auto-resolves the port.
-    pub(super) async fn setup_bridge(
-        &mut self,
-        cmd_tx: &mpsc::Sender<NetworkCommand>,
-    ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-
-        let bridge_name = self
-            .bridge_name()
-            .ok_or_else(|| anyhow::anyhow!("no bridge interface configured"))?
-            .to_string();
-
-        let bridge_cfg = config::network()
-            .interfaces
-            .iter()
-            .find(|i| i.name == bridge_name)
-            .and_then(|i| i.bridge.clone())
-            .unwrap_or_default();
-
-        let port_name = self
-            .resolve_bridge_port(&bridge_cfg.port, &primary)
-            .to_string();
-
-        self.configure_bridge(&bridge_name, &port_name, bridge_cfg.stp, cmd_tx)
-            .await
-    }
 }

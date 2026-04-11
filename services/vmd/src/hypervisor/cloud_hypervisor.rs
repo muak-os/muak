@@ -4,6 +4,10 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
+fn readonly_flag(readonly: bool) -> &'static str {
+    if readonly { ",readonly=on" } else { "" }
+}
+
 pub struct CloudHypervisorHypervisor {
     binary_path: String,
 }
@@ -37,10 +41,8 @@ impl CloudHypervisorHypervisor {
             anyhow::bail!("Serial log directory not found: {}", parent.display());
         }
 
-        for disk in &config.disks {
-            if !disk.path.exists() {
-                anyhow::bail!("Disk not found at {}", disk.path.display());
-            }
+        if let Some(missing) = config.disks.iter().find(|d| !d.path.exists()) {
+            anyhow::bail!("Disk not found at {}", missing.path.display());
         }
 
         if let Some(persistent_disk) = &config.persistent_disk
@@ -70,8 +72,11 @@ impl CloudHypervisorHypervisor {
         ));
 
         for disk in &config.disks {
-            let readonly_flag = if disk.readonly { ",readonly=on" } else { "" };
-            let disk_arg = format!("path={}{}", disk.path.display(), readonly_flag);
+            let disk_arg = format!(
+                "path={}{}",
+                disk.path.display(),
+                readonly_flag(disk.readonly)
+            );
             cmd.arg("--disk").arg(disk_arg);
         }
 

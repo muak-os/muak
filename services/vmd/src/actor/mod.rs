@@ -6,7 +6,6 @@ pub use commands::VmCommand;
 use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::clients::NetworkClient;
 use crate::proto::vm::{VmConfig, VmInfo};
 
 #[derive(Clone)]
@@ -88,11 +87,15 @@ impl VmActorHandle {
     }
 }
 
-pub async fn start_vm_actor(network_client: NetworkClient, kvm_available: bool) -> VmActorHandle {
+pub async fn start_vm_actor(
+    netlink_handle: rtnetlink::Handle,
+    bridge_name: String,
+    kvm_available: bool,
+) -> VmActorHandle {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
     tokio::spawn(async move {
-        let mut actor = VmActor::new(network_client, kvm_available);
+        let mut actor = VmActor::new(netlink_handle, bridge_name, kvm_available);
         actor.run(cmd_rx).await;
     });
 

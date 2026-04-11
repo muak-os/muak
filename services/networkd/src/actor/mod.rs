@@ -10,20 +10,18 @@ mod slaac;
 mod startup;
 mod state;
 mod static_ip;
-mod tap;
 
 use anyhow::Result;
 pub use commands::NetworkCommand;
 use state::NetworkActor;
-pub use state::{InterfaceSnapshot, NetworkSnapshot, NetworkStateKind};
-use tokio::sync::{mpsc, oneshot, watch};
+pub use state::NetworkSnapshot;
+use tokio::sync::{mpsc, watch};
 
 use crate::monitor::{self, NetworkEvent};
 
 #[derive(Clone)]
 pub struct NetworkActorHandle {
     tx: mpsc::Sender<NetworkCommand>,
-    watch_rx: watch::Receiver<NetworkSnapshot>,
 }
 
 impl NetworkActorHandle {
@@ -65,38 +63,6 @@ impl NetworkActorHandle {
         tokio::time::sleep(delay).await;
         None
     }
-
-    pub async fn setup_bridge(&self) -> Result<()> {
-        let (reply, rx) = oneshot::channel();
-        self.tx.send(NetworkCommand::SetupBridge { reply }).await?;
-        rx.await??;
-        Ok(())
-    }
-
-    pub async fn add_tap(&self, name: String) -> Result<InterfaceSnapshot> {
-        let (reply, rx) = oneshot::channel();
-        self.tx.send(NetworkCommand::AddTap { name, reply }).await?;
-        rx.await?
-    }
-
-    pub async fn delete_tap(&self, name: String) -> Result<()> {
-        let (reply, rx) = oneshot::channel();
-        self.tx
-            .send(NetworkCommand::DeleteTap { name, reply })
-            .await?;
-        rx.await??;
-        Ok(())
-    }
-
-    pub async fn snapshot(&self) -> NetworkSnapshot {
-        let (reply, rx) = tokio::sync::oneshot::channel::<NetworkSnapshot>();
-        let _ = self.tx.send(NetworkCommand::Snapshot { reply }).await;
-        rx.await.unwrap_or_else(|_| self.watch_rx.borrow().clone())
-    }
-
-    pub fn subscribe(&self) -> watch::Receiver<NetworkSnapshot> {
-        self.watch_rx.clone()
-    }
 }
 
 fn retry_delay(
@@ -113,16 +79,13 @@ pub async fn start_network_actor() -> Result<NetworkActorHandle> {
     tokio::spawn(connection);
 
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
-    let (watch_tx, watch_rx) = watch::channel(NetworkSnapshot::empty());
+    let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
     let event_rx = start_events_monitor(handle.clone()).await;
 
     handle_network_actions(handle, cmd_rx, event_rx, cmd_tx.clone(), watch_tx);
 
-    Ok(NetworkActorHandle {
-        tx: cmd_tx,
-        watch_rx,
-    })
+    Ok(NetworkActorHandle { tx: cmd_tx })
 }
 
 async fn start_events_monitor(handle: rtnetlink::Handle) -> Option<mpsc::Receiver<NetworkEvent>> {

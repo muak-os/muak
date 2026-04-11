@@ -4,6 +4,10 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
+fn readonly_flag(readonly: bool) -> &'static str {
+    if readonly { ",readonly=on" } else { "" }
+}
+
 /// Returns the QEMU system binary path for the current host architecture.
 fn qemu_binary_path() -> &'static str {
     match std::env::consts::ARCH {
@@ -56,12 +60,11 @@ impl QemuHypervisor {
         ));
 
         for (i, disk) in config.disks.iter().enumerate() {
-            let readonly = if disk.readonly { ",readonly=on" } else { "" };
             cmd.arg("-drive").arg(format!(
                 "file={},format=raw,if=none,id=disk{}{}",
                 disk.path.display(),
                 i,
-                readonly
+                readonly_flag(disk.readonly)
             ));
             cmd.arg("-device")
                 .arg(format!("virtio-blk-pci,drive=disk{}", i));
