@@ -1,5 +1,6 @@
 //! Network event handling and interface failover for the network actor.
 
+use netlib::interface::InterfaceName;
 use netlib::link::LinkStateKind;
 
 use super::state::{InterfaceSnapshot, NetworkActor, NetworkStateKind};
@@ -23,10 +24,10 @@ impl NetworkActor {
         }
     }
 
-    async fn on_link_up(&mut self, name: String, index: u32) {
+    async fn on_link_up(&mut self, name: InterfaceName, index: u32) {
         kmsg::info!("Event: Link up {} (index {})", name, index);
 
-        let Some(iface) = self.get_interface_mut(&name) else {
+        let Some(iface) = self.get_interface_mut(name.as_str()) else {
             return;
         };
         iface.link = LinkStateKind::Up;
@@ -37,10 +38,10 @@ impl NetworkActor {
         }
     }
 
-    async fn on_link_down(&mut self, name: String, index: u32) {
+    async fn on_link_down(&mut self, name: InterfaceName, index: u32) {
         kmsg::info!("Event: Link down {} (index {})", name, index);
 
-        let Some(iface) = self.get_interface_mut(&name) else {
+        let Some(iface) = self.get_interface_mut(name.as_str()) else {
             return;
         };
         iface.link = LinkStateKind::Down;
@@ -51,7 +52,7 @@ impl NetworkActor {
         }
     }
 
-    async fn on_link_added(&mut self, name: String, index: u32, mac: [u8; 6]) {
+    async fn on_link_added(&mut self, name: InterfaceName, index: u32, mac: [u8; 6]) {
         kmsg::info!(
             "Event: Link added {} (index {}, MAC {})",
             name,
@@ -59,7 +60,7 @@ impl NetworkActor {
             netlib::mac::format(&mac)
         );
 
-        if self.has_interface(&name) {
+        if self.has_interface(name.as_str()) {
             return;
         }
 
@@ -84,27 +85,27 @@ impl NetworkActor {
         self.sync_and_publish();
     }
 
-    async fn on_link_deleted(&mut self, name: String, index: u32) {
+    async fn on_link_deleted(&mut self, name: InterfaceName, index: u32) {
         kmsg::info!("Event: Link deleted {} (index {})", name, index);
 
-        if self.remove_interface(&name).is_none() {
+        if self.remove_interface(name.as_str()).is_none() {
             return;
         }
 
         if self.is_primary_interface(&name) {
             self.handle_primary_removed(&name);
         } else {
-            self.remove_from_backups(&name);
+            self.remove_from_backups(name.as_str());
         }
 
         self.sync_and_publish();
     }
 
-    fn is_primary_interface(&self, name: &str) -> bool {
-        self.state.primary.as_ref() == Some(&name.to_string())
+    fn is_primary_interface(&self, name: &InterfaceName) -> bool {
+        self.state.primary.as_ref() == Some(name)
     }
 
-    fn handle_primary_recovery(&mut self, name: &str) {
+    fn handle_primary_recovery(&mut self, name: &InterfaceName) {
         kmsg::info!("Primary interface {} recovered", name);
         if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
             kmsg::warn!("Unexpected state during primary recovery: {}", e);
@@ -113,7 +114,7 @@ impl NetworkActor {
         }
     }
 
-    fn handle_primary_failure(&mut self, name: &str) {
+    fn handle_primary_failure(&mut self, name: &InterfaceName) {
         kmsg::warn!("Primary interface {} failed", name);
         if let Err(e) = self.state.transition(NetworkStateKind::Degraded) {
             kmsg::warn!("Unexpected state during primary failure: {}", e);
@@ -127,7 +128,7 @@ impl NetworkActor {
         }
     }
 
-    fn handle_primary_removed(&mut self, name: &str) {
+    fn handle_primary_removed(&mut self, name: &InterfaceName) {
         kmsg::info!("Primary interface {} removed", name);
 
         if let Some(new_primary) = self.state.backups.first().cloned() {
@@ -148,12 +149,12 @@ impl NetworkActor {
         }
     }
 
-    fn assign_as_primary(&mut self, name: String) {
+    fn assign_as_primary(&mut self, name: InterfaceName) {
         kmsg::info!("Assigning {} as primary interface", name);
         self.state.primary = Some(name);
     }
 
-    fn add_to_backups(&mut self, name: String) {
+    fn add_to_backups(&mut self, name: InterfaceName) {
         kmsg::info!("Adding {} to backup interfaces", name);
         self.state.backups.push(name);
     }

@@ -1,7 +1,8 @@
-//! DHCP lease lifecycle management for the network actor.
+//! DHCP lease life cycle management for the network actor.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use netlib::address::IpConfig;
+use netlib::interface::InterfaceName;
 use netlib::{address, link, route};
 use tokio::sync::mpsc;
 
@@ -25,7 +26,9 @@ impl NetworkActor {
         self.apply_lease(index, iface, &lease).await?;
         self.store_lease(iface, &lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
-        self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), &lease);
+        let iface_name =
+            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        self.schedule_lease_renewal(cmd_tx.clone(), iface_name, &lease);
 
         kmsg::info!("DHCP acquired on {}: {}", iface, lease.assigned_ip);
 
@@ -128,7 +131,9 @@ impl NetworkActor {
         self.apply_lease(index, iface, &lease).await?;
         self.store_lease(iface, &lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
-        self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), &lease);
+        let iface_name =
+            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        self.schedule_lease_renewal(cmd_tx.clone(), iface_name, &lease);
 
         kmsg::info!("DHCP re-acquired on {}: {}", iface, lease.assigned_ip);
         Ok(())
@@ -149,7 +154,9 @@ impl NetworkActor {
         self.store_lease(iface, lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
         self.cancel_renewal_tasks(iface);
-        self.schedule_lease_renewal(cmd_tx.clone(), iface.to_string(), lease);
+        let iface_name =
+            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        self.schedule_lease_renewal(cmd_tx.clone(), iface_name, lease);
 
         kmsg::info!("DHCP lease renewed for {}", iface);
         Ok(())
@@ -231,29 +238,30 @@ impl NetworkActor {
     pub(super) fn schedule_lease_renewal(
         &mut self,
         cmd_tx: mpsc::Sender<NetworkCommand>,
-        iface: String,
+        iface: InterfaceName,
         lease: &DhcpLease,
     ) {
-        self.cancel_renewal_tasks(&iface);
+        self.cancel_renewal_tasks(iface.as_str());
 
         let renew_deadline = lease.obtained_at + lease.renewal_time;
         let rebind_deadline = lease.obtained_at + lease.rebind_time;
         let expiry_deadline = lease.expiry();
 
+        let iface_str = iface.to_string();
         let renew_task = Self::spawn_lease_task(
             cmd_tx.clone(),
-            iface.clone(),
+            iface_str.clone(),
             renew_deadline,
             LeaseAction::Renew,
         );
         let rebind_task = Self::spawn_lease_task(
             cmd_tx.clone(),
-            iface.clone(),
+            iface_str.clone(),
             rebind_deadline,
             LeaseAction::Rebind,
         );
         let expiry_task =
-            Self::spawn_lease_task(cmd_tx, iface.clone(), expiry_deadline, LeaseAction::Expired);
+            Self::spawn_lease_task(cmd_tx, iface_str, expiry_deadline, LeaseAction::Expired);
 
         self.track_renewal_task(iface.clone(), renew_task);
         self.track_renewal_task(iface.clone(), rebind_task);

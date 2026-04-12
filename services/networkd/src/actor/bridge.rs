@@ -1,7 +1,8 @@
 //! Bridge provisioning logic for the network actor.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use netlib::bridge;
+use netlib::interface::InterfaceName;
 use netlib::link::LinkStateKind;
 use tokio::sync::mpsc;
 
@@ -11,7 +12,7 @@ use crate::dhcp::DhcpState;
 
 impl NetworkActor {
     /// Resolves the physical port name for a bridge from its config.
-    fn resolve_bridge_port<'a>(&self, ports: &'a [String], primary: &'a str) -> &'a str {
+    fn resolve_bridge_port<'a>(&self, ports: &'a [String], primary: &'a InterfaceName) -> &'a str {
         if ports.len() > 1 {
             kmsg::warn!(
                 "bridge.port has {} entries; only the first is used (multi-port bridges not yet supported)",
@@ -20,9 +21,9 @@ impl NetworkActor {
         }
 
         match ports.first() {
-            Some(p) if p == "auto" => primary,
+            Some(p) if p == "auto" => primary.as_str(),
             Some(p) => p.as_str(),
-            None => primary,
+            None => primary.as_str(),
         }
     }
 
@@ -44,8 +45,10 @@ impl NetworkActor {
 
         let index = netlib::link::get_index(&self.handle, bridge_name).await?;
         let ip = self.get_interface(port_name).and_then(|i| i.ip.clone());
+        let br_iface_name = InterfaceName::new(bridge_name)
+            .with_context(|| format!("invalid bridge name: {bridge_name}"))?;
         let br_snapshot = InterfaceSnapshot {
-            name: bridge_name.to_string(),
+            name: br_iface_name.clone(),
             index,
             mac,
             link: LinkStateKind::Up,
@@ -68,7 +71,7 @@ impl NetworkActor {
             port_name,
             bridge_name
         );
-        self.schedule_lease_renewal(cmd_tx.clone(), bridge_name.to_string(), &lease);
+        self.schedule_lease_renewal(cmd_tx.clone(), br_iface_name, &lease);
 
         Ok(())
     }

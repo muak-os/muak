@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
+use netlib::interface::InterfaceName;
 use netlib::link::LinkStateKind;
 use rtnetlink::Handle;
 use tokio::sync::watch;
@@ -55,7 +56,7 @@ impl std::fmt::Display for NetworkStateKind {
 
 #[derive(Debug, Clone)]
 pub struct InterfaceSnapshot {
-    pub name: String,
+    pub name: InterfaceName,
     pub index: u32,
     pub mac: [u8; 6],
     pub link: LinkStateKind,
@@ -82,8 +83,8 @@ impl DnsState {
 #[derive(Debug, Clone)]
 pub struct NetworkSnapshot {
     pub state: NetworkStateKind,
-    pub primary: Option<String>,
-    pub backups: Vec<String>,
+    pub primary: Option<InterfaceName>,
+    pub backups: Vec<InterfaceName>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
     pub ipv6: bool,
 }
@@ -114,9 +115,9 @@ impl NetworkSnapshot {
 pub struct NetworkActor {
     pub(super) handle: Handle,
     pub(super) state: NetworkSnapshot,
-    pub(super) iface_map: HashMap<String, InterfaceSnapshot>,
+    pub(super) iface_map: HashMap<InterfaceName, InterfaceSnapshot>,
     pub(super) watch_tx: watch::Sender<NetworkSnapshot>,
-    pub(super) renewal_tasks: HashMap<String, Vec<JoinHandle<()>>>,
+    pub(super) renewal_tasks: HashMap<InterfaceName, Vec<JoinHandle<()>>>,
     pub(super) dns: DnsState,
 }
 
@@ -165,7 +166,7 @@ impl NetworkActor {
         self.iface_map.contains_key(name)
     }
 
-    pub(super) fn track_renewal_task(&mut self, iface: String, task: JoinHandle<()>) {
+    pub(super) fn track_renewal_task(&mut self, iface: InterfaceName, task: JoinHandle<()>) {
         self.renewal_tasks.entry(iface).or_default().push(task);
     }
 
@@ -178,7 +179,7 @@ impl NetworkActor {
         }
     }
 
-    pub(super) fn get_primary_name(&self) -> Result<String> {
+    pub(super) fn get_primary_name(&self) -> Result<InterfaceName> {
         self.state
             .primary
             .clone()

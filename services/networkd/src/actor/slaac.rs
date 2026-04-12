@@ -93,7 +93,7 @@ impl NetworkActor {
             Ok(p) => p,
             Err(_) => return,
         };
-        let index = match self.get_interface(&primary) {
+        let index = match self.get_interface(primary.as_str()) {
             Some(i) => i.index,
             None => return,
         };
@@ -109,7 +109,7 @@ impl NetworkActor {
             kmsg::warn!("Failed to apply IPv6 configuration: {}", e);
             return;
         }
-        if let Err(e) = self.update_interface_with_ipv6(&primary, ipv6) {
+        if let Err(e) = self.update_interface_with_ipv6(primary.as_str(), ipv6) {
             kmsg::warn!("Failed to update interface with IPv6: {}", e);
             return;
         }
@@ -125,7 +125,7 @@ impl NetworkActor {
             Ok(p) => p,
             Err(_) => return,
         };
-        let index = match self.get_interface(&primary) {
+        let index = match self.get_interface(primary.as_str()) {
             Some(i) => i.index,
             None => return,
         };
@@ -133,7 +133,7 @@ impl NetworkActor {
         if let Err(e) = address::remove_ipv6(&self.handle, index, address).await {
             kmsg::warn!("Failed to remove expired IPv6 address: {}", e);
         }
-        if let Some(iface) = self.get_interface_mut(&primary) {
+        if let Some(iface) = self.get_interface_mut(primary.as_str()) {
             iface.ipv6 = None;
         }
 
@@ -152,7 +152,7 @@ impl NetworkActor {
             Ok(p) => p,
             Err(_) => return,
         };
-        if let Some(iface) = self.get_interface_mut(&primary)
+        if let Some(iface) = self.get_interface_mut(primary.as_str())
             && let Some(ipv6) = &mut iface.ipv6
         {
             ipv6.dns = servers;

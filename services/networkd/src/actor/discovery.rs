@@ -62,7 +62,7 @@ impl NetworkActor {
     ) -> std::collections::HashMap<u32, bool> {
         let pairs: Vec<(u32, String)> = interfaces
             .iter()
-            .map(|i| (i.index, i.name.clone()))
+            .map(|i| (i.index, i.name.to_string()))
             .collect();
 
         netlib::link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await

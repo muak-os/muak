@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use netlib::interface::{InterfaceName, is_ethernet};
 use rtnetlink::Handle;
 use rtnetlink::packet_core::NetlinkPayload;
 use rtnetlink::packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
@@ -13,20 +14,20 @@ use tokio_stream::StreamExt;
 #[allow(clippy::enum_variant_names)]
 pub enum NetworkEvent {
     LinkUp {
-        name: String,
+        name: InterfaceName,
         index: u32,
     },
     LinkDown {
-        name: String,
+        name: InterfaceName,
         index: u32,
     },
     LinkAdded {
-        name: String,
+        name: InterfaceName,
         index: u32,
         mac: [u8; 6],
     },
     LinkDeleted {
-        name: String,
+        name: InterfaceName,
         index: u32,
     },
 }
@@ -94,7 +95,7 @@ async fn initial_scan(
     let mut links = handle.link().get().execute();
     while let Some(link_msg) = links.try_next().await? {
         if let Some((name, index, _)) = extract_link_info(&link_msg)
-            && netlib::interface::is_ethernet(&name)
+            && is_ethernet(&name)
         {
             let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
             let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
@@ -128,9 +129,7 @@ async fn handle_message(
                 handle_del_link(link_msg, tx, link_states).await?;
             }
         }
-        _ => {
-            // Ignore other message types (routes, neighbors, etc.)
-        }
+        _ => {}
     }
     Ok(())
 }
@@ -148,10 +147,10 @@ async fn handle_new_link(
     tx: &mpsc::Sender<NetworkEvent>,
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
-    let Some((name, index, mac)) = extract_link_info(&msg) else {
+    let Some((raw_name, index, mac)) = extract_link_info(&msg) else {
         return Ok(());
     };
-    if !netlib::interface::is_ethernet(&name) {
+    if !is_ethernet(&raw_name) {
         return Ok(());
     }
 
@@ -159,46 +158,54 @@ async fn handle_new_link(
 
     match link_states.get(&index) {
         Some((_existing_name, had_carrier)) if has_carrier != *had_carrier => {
+            let Some(name) = InterfaceName::new(&raw_name).ok() else {
+                return Ok(());
+            };
             if has_carrier {
                 println!("Carrier detected: {} (index {})", name, index);
-                let _ = tx
-                    .send(NetworkEvent::LinkUp {
-                        name: name.to_string(),
-                        index,
-                    })
-                    .await;
+                let _ = tx.send(NetworkEvent::LinkUp { name, index }).await;
             } else {
                 println!("Carrier lost: {} (index {})", name, index);
-                let _ = tx
-                    .send(NetworkEvent::LinkDown {
-                        name: name.to_string(),
-                        index,
-                    })
-                    .await;
+                let _ = tx.send(NetworkEvent::LinkDown { name, index }).await;
             }
-            link_states.insert(index, (name, has_carrier));
+            link_states.insert(index, (raw_name, has_carrier));
         }
         Some(_) => {}
         None => {
-            if let Some(mac_addr) = mac {
-                println!(
-                    "New link added: {} (index {}, MAC {})",
-                    name,
-                    index,
-                    netlib::mac::format(&mac_addr)
-                );
-                let _ = tx
-                    .send(NetworkEvent::LinkAdded {
-                        name: name.to_string(),
-                        index,
-                        mac: mac_addr,
-                    })
-                    .await;
-            }
-            link_states.insert(index, (name, has_carrier));
+            emit_link_added(raw_name.clone(), index, mac, has_carrier, tx, link_states).await;
         }
     }
     Ok(())
+}
+
+async fn emit_link_added(
+    raw_name: String,
+    index: u32,
+    mac: Option<[u8; 6]>,
+    has_carrier: bool,
+    tx: &mpsc::Sender<NetworkEvent>,
+    link_states: &mut HashMap<u32, (String, bool)>,
+) {
+    if let Some(mac_addr) = mac {
+        let Some(name) = InterfaceName::new(&raw_name).ok() else {
+            link_states.insert(index, (raw_name, has_carrier));
+            return;
+        };
+        println!(
+            "New link added: {} (index {}, MAC {})",
+            name,
+            index,
+            netlib::mac::format(&mac_addr)
+        );
+        let _ = tx
+            .send(NetworkEvent::LinkAdded {
+                name,
+                index,
+                mac: mac_addr,
+            })
+            .await;
+    }
+    link_states.insert(index, (raw_name, has_carrier));
 }
 
 async fn handle_del_link(
@@ -206,11 +213,13 @@ async fn handle_del_link(
     tx: &mpsc::Sender<NetworkEvent>,
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
-    if let Some((name, index, _)) = extract_link_info(&msg) {
-        if !netlib::interface::is_ethernet(&name) {
+    if let Some((raw_name, index, _)) = extract_link_info(&msg) {
+        if !is_ethernet(&raw_name) {
             return Ok(());
         }
-
+        let Some(name) = InterfaceName::new(&raw_name).ok() else {
+            return Ok(());
+        };
         println!("Link deleted: {} (index {})", name, index);
         let _ = tx.send(NetworkEvent::LinkDeleted { name, index }).await;
         link_states.remove(&index);
