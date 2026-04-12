@@ -9,11 +9,61 @@ use netlib::{address, route};
 use super::InterfaceActor;
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
 use crate::dhcp::codec::DhcpNak;
-use crate::dhcp::{DhcpLease, DhcpState};
+use crate::dhcp::{DhcpLease, DhcpManager, DhcpState};
 use crate::interface::state::InterfaceState;
 use crate::state_machine::StateMachine;
 
 impl InterfaceActor {
+    /// Initialises a `DhcpManager` and marks the interface as configuring.
+    pub(super) fn start_dhcp(&mut self) {
+        self.set_state(InterfaceState::Configuring);
+        self.dhcp = Some(DhcpManager::new(
+            self.snapshot.name.to_string(),
+            self.snapshot.mac,
+        ));
+    }
+
+    /// Applies a freshly acquired DHCP lease and clears the in-progress manager.
+    pub(super) async fn on_dhcp_acquired(&mut self, lease: DhcpLease) {
+        self.dhcp = None;
+        let index = self.snapshot.index;
+        if let Err(e) = self.commit_lease(index, lease).await {
+            kmsg::warn!(
+                "Failed to apply DHCP lease on {}: {}",
+                self.snapshot.name,
+                e
+            );
+            self.set_state(InterfaceState::Failed);
+            return;
+        }
+        self.set_state(InterfaceState::Configured);
+        kmsg::info!(
+            "DHCP acquired on {}: {}",
+            self.snapshot.name,
+            self.snapshot
+                .lease
+                .as_ref()
+                .map(|l| l.assigned_ip.to_string())
+                .unwrap_or_default()
+        );
+    }
+
+    /// Re-applies an existing lease after a link-up event without a new DORA exchange.
+    pub(super) async fn recover_with_lease(&mut self, lease: DhcpLease) {
+        let index = self.snapshot.index;
+        if let Err(e) = self.apply_lease(index, &lease).await {
+            kmsg::warn!(
+                "Failed to re-apply lease on link-up for {}: {}",
+                self.snapshot.name,
+                e
+            );
+            self.set_state(InterfaceState::Failed);
+            return;
+        }
+        self.arm_lease_timers(&lease);
+        self.set_state(InterfaceState::Configured);
+    }
+
     pub(super) async fn renew_lease(&mut self) {
         let iface = self.snapshot.name.to_string();
         kmsg::info!("DHCP RENEW for {}", iface);
@@ -70,24 +120,35 @@ impl InterfaceActor {
         })?;
 
         let index = self.snapshot.index;
-        self.apply_lease(index, &lease).await?;
-        self.store_lease(&lease);
-        self.set_dhcp_state(DhcpState::Bound);
+        self.commit_lease(index, lease).await?;
         self.set_state(InterfaceState::Configured);
-        self.arm_lease_timers(&lease);
 
-        kmsg::info!("DHCP re-acquired on {}: {}", iface, lease.assigned_ip);
+        kmsg::info!(
+            "DHCP re-acquired on {}: {}",
+            iface,
+            self.snapshot
+                .lease
+                .as_ref()
+                .map(|l| l.assigned_ip.to_string())
+                .unwrap_or_default()
+        );
         Ok(())
     }
 
+    /// Applies a renewed lease without changing the interface state.
     async fn apply_renewed_lease(&mut self, lease: &DhcpLease) -> Result<()> {
         let index = self.snapshot.index;
-        self.apply_lease(index, lease).await?;
-        self.store_lease(lease);
-        self.set_dhcp_state(DhcpState::Bound);
-        self.arm_lease_timers(lease);
-
+        self.commit_lease(index, lease.clone()).await?;
         kmsg::info!("DHCP lease renewed for {}", self.snapshot.name);
+        Ok(())
+    }
+
+    /// Applies kernel-level changes, stores the lease, advances DHCP state, and arms timers.
+    async fn commit_lease(&mut self, index: u32, lease: DhcpLease) -> Result<()> {
+        self.apply_lease(index, &lease).await?;
+        self.store_lease(&lease);
+        self.set_dhcp_state(DhcpState::Bound);
+        self.arm_lease_timers(&lease);
         Ok(())
     }
 
@@ -120,7 +181,7 @@ impl InterfaceActor {
         }
 
         if !dns.is_empty() {
-            self.update_dns_v4(dns)?;
+            self.dns.update_v4(dns)?;
         }
 
         Ok(())

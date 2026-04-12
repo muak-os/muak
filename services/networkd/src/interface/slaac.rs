@@ -6,9 +6,28 @@ use netlib::address::Ipv6Config;
 use netlib::{address, route};
 
 use super::InterfaceActor;
-use crate::slaac::SlaacEvent;
+use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl InterfaceActor {
+    /// Initialises a `SlaacManager`.
+    pub(super) fn start_slaac(&mut self) {
+        let iface = self.snapshot.name.to_string();
+        let mac = self.snapshot.mac;
+        match SlaacManager::new(iface.clone(), mac) {
+            Ok(mgr) => {
+                kmsg::info!("Starting SLAAC on {}", iface);
+                self.slaac = Some(mgr);
+            }
+            Err(e) => {
+                kmsg::info!(
+                    "SLAAC unavailable on {}: {} (continuing with IPv4)",
+                    iface,
+                    e
+                );
+            }
+        }
+    }
+
     pub(super) async fn handle_slaac_event(&mut self, event: SlaacEvent) {
         match event {
             SlaacEvent::Configured {
@@ -79,7 +98,7 @@ impl InterfaceActor {
     fn on_slaac_dns_updated(&mut self, servers: Vec<Ipv6Addr>) {
         kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
 
-        if let Err(e) = self.update_dns_v6(servers.clone()) {
+        if let Err(e) = self.dns.update_v6(servers.clone()) {
             kmsg::warn!("Failed to update IPv6 DNS: {}", e);
         }
 
@@ -104,7 +123,7 @@ impl InterfaceActor {
 
         if !ipv6.dns.is_empty() {
             kmsg::info!("Configuring {} IPv6 DNS server(s)", ipv6.dns.len());
-            self.update_dns_v6(ipv6.dns.clone())?;
+            self.dns.update_v6(ipv6.dns.clone())?;
         }
 
         Ok(())

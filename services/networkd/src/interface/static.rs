@@ -8,7 +8,31 @@ use super::InterfaceActor;
 use crate::interface::state::InterfaceState;
 
 impl InterfaceActor {
-    pub(super) async fn apply_static_ipv4(
+    /// Applies static IPv4 configuration, logging a warning on failure.
+    pub(super) async fn try_apply_static_ipv4(
+        &mut self,
+        index: u32,
+        addresses: &[config::Cidr4],
+        gateway: Option<std::net::Ipv4Addr>,
+    ) {
+        if let Err(e) = self.apply_static_ipv4(index, addresses, gateway).await {
+            kmsg::warn!("Static IPv4 failed on {}: {}", self.snapshot.name, e);
+        }
+    }
+
+    /// Applies static IPv6 configuration, logging a warning on failure.
+    pub(super) async fn try_apply_static_ipv6(
+        &mut self,
+        index: u32,
+        addresses: &[config::Cidr6],
+        gateway: Option<std::net::Ipv6Addr>,
+    ) {
+        if let Err(e) = self.apply_static_ipv6(index, addresses, gateway).await {
+            kmsg::warn!("Static IPv6 failed on {}: {}", self.snapshot.name, e);
+        }
+    }
+
+    async fn apply_static_ipv4(
         &mut self,
         index: u32,
         addresses: &[config::Cidr4],
@@ -28,7 +52,7 @@ impl InterfaceActor {
 
         let dns = config::network().ipv4_dns();
         if !dns.is_empty() {
-            self.update_dns_v4(dns.clone())?;
+            self.dns.update_v4(dns.clone())?;
         }
 
         let primary_addr = addresses
@@ -43,7 +67,6 @@ impl InterfaceActor {
 
         self.snapshot.ip = Some(ip);
         self.set_state(InterfaceState::Configured);
-        self.publish_snapshot();
 
         kmsg::info!(
             "Static IPv4 configured on {}: {}",
@@ -76,7 +99,7 @@ impl InterfaceActor {
 
         let dns = config::network().ipv6_dns();
         if !dns.is_empty() {
-            self.update_dns_v6(dns.clone())?;
+            self.dns.update_v6(dns.clone())?;
         }
 
         let primary_addr = addresses
