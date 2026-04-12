@@ -15,6 +15,50 @@ use tokio::task::JoinHandle;
 use crate::dhcp::{DhcpLease, DhcpState};
 use crate::dns;
 
+/// Lifecycle state of a single network interface.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterfaceState {
+    /// Found by netlink; no configuration has been applied yet.
+    Discovered,
+    /// Configuration is being applied (DHCP in progress or static addresses being set).
+    Configuring,
+    /// IP assigned, routes set, and the interface is fully operational.
+    Configured,
+    /// Carrier lost; the lease or static config may still be valid.
+    Degraded,
+    /// Configuration attempt failed and the interface needs a retry.
+    Failed,
+    /// Interface is being torn down (e.g. removed from a bridge).
+    Deconfiguring,
+}
+
+impl InterfaceState {
+    /// Returns the set of states that this state may legally transition into.
+    fn valid_next_states(&self) -> &[InterfaceState] {
+        match self {
+            Self::Discovered => &[Self::Configuring],
+            Self::Configuring => &[Self::Configured, Self::Failed],
+            Self::Configured => &[Self::Degraded, Self::Deconfiguring],
+            Self::Degraded => &[Self::Configuring, Self::Configured, Self::Deconfiguring],
+            Self::Failed => &[Self::Configuring, Self::Deconfiguring],
+            Self::Deconfiguring => &[Self::Discovered],
+        }
+    }
+}
+
+impl std::fmt::Display for InterfaceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Discovered => write!(f, "Discovered"),
+            Self::Configuring => write!(f, "Configuring"),
+            Self::Configured => write!(f, "Configured"),
+            Self::Degraded => write!(f, "Degraded"),
+            Self::Failed => write!(f, "Failed"),
+            Self::Deconfiguring => write!(f, "Deconfiguring"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkStateKind {
     /// No interfaces have been discovered yet.
@@ -57,6 +101,7 @@ impl std::fmt::Display for NetworkStateKind {
 #[derive(Debug, Clone)]
 pub struct InterfaceSnapshot {
     pub name: InterfaceName,
+    pub state: InterfaceState,
     pub index: u32,
     pub mac: [u8; 6],
     pub link: LinkStateKind,
@@ -64,6 +109,22 @@ pub struct InterfaceSnapshot {
     pub lease: Option<DhcpLease>,
     pub dhcp_state: Option<DhcpState>,
     pub ipv6: Option<Ipv6Config>,
+}
+
+impl InterfaceSnapshot {
+    /// Advances this interface's state to `to`, returning an error if the transition is invalid.
+    pub fn transition(&mut self, to: InterfaceState) -> Result<()> {
+        if !self.state.valid_next_states().contains(&to) {
+            anyhow::bail!(
+                "invalid interface state transition: {} -> {}",
+                self.state,
+                to
+            );
+        }
+        kmsg::info!("Interface {} state: {} -> {}", self.name, self.state, to);
+        self.state = to;
+        Ok(())
+    }
 }
 
 /// Tracks all known DNS nameservers across v4 and v6.
@@ -214,6 +275,15 @@ impl NetworkActor {
     pub(super) fn update_dns_v6(&mut self, servers: Vec<Ipv6Addr>) -> Result<()> {
         self.dns.v6 = servers;
         self.dns.flush()
+    }
+
+    /// Transitions an interface to `state`, logging a warning on invalid transitions.
+    pub(super) fn set_interface_state(&mut self, iface: &str, state: InterfaceState) {
+        if let Some(snap) = self.get_interface_mut(iface)
+            && let Err(e) = snap.transition(state)
+        {
+            kmsg::warn!("{}", e);
+        }
     }
 }
 
@@ -390,5 +460,122 @@ mod tests {
 
         // ASSERT
         assert_eq!(snap.state, NetworkStateKind::Ready);
+    }
+
+    fn make_interface_snapshot(state: InterfaceState) -> InterfaceSnapshot {
+        InterfaceSnapshot {
+            name: InterfaceName::new("eth0").expect("valid name"),
+            state,
+            index: 2,
+            mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
+            link: netlib::link::LinkStateKind::Up,
+            ip: None,
+            lease: None,
+            dhcp_state: None,
+            ipv6: None,
+        }
+    }
+
+    #[test]
+    fn interface_state_display() {
+        // ACT / ASSERT
+        assert_eq!(InterfaceState::Discovered.to_string(), "Discovered");
+        assert_eq!(InterfaceState::Configuring.to_string(), "Configuring");
+        assert_eq!(InterfaceState::Configured.to_string(), "Configured");
+        assert_eq!(InterfaceState::Degraded.to_string(), "Degraded");
+        assert_eq!(InterfaceState::Failed.to_string(), "Failed");
+        assert_eq!(InterfaceState::Deconfiguring.to_string(), "Deconfiguring");
+    }
+
+    #[test]
+    fn valid_interface_transitions_succeed() {
+        // ARRANGE
+        let pairs = [
+            (InterfaceState::Discovered, InterfaceState::Configuring),
+            (InterfaceState::Configuring, InterfaceState::Configured),
+            (InterfaceState::Configuring, InterfaceState::Failed),
+            (InterfaceState::Configured, InterfaceState::Degraded),
+            (InterfaceState::Configured, InterfaceState::Deconfiguring),
+            (InterfaceState::Degraded, InterfaceState::Configuring),
+            (InterfaceState::Degraded, InterfaceState::Configured),
+            (InterfaceState::Degraded, InterfaceState::Deconfiguring),
+            (InterfaceState::Failed, InterfaceState::Configuring),
+            (InterfaceState::Failed, InterfaceState::Deconfiguring),
+            (InterfaceState::Deconfiguring, InterfaceState::Discovered),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = make_interface_snapshot(from.clone());
+
+            // ACT
+            let result = snap.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_ok(), "{from} -> {to} should be valid");
+            assert_eq!(snap.state, to);
+        }
+    }
+
+    #[test]
+    fn invalid_interface_transitions_return_error() {
+        // ARRANGE
+        let pairs = [
+            (InterfaceState::Discovered, InterfaceState::Configured),
+            (InterfaceState::Discovered, InterfaceState::Degraded),
+            (InterfaceState::Discovered, InterfaceState::Failed),
+            (InterfaceState::Discovered, InterfaceState::Deconfiguring),
+            (InterfaceState::Configuring, InterfaceState::Discovered),
+            (InterfaceState::Configuring, InterfaceState::Degraded),
+            (InterfaceState::Configuring, InterfaceState::Deconfiguring),
+            (InterfaceState::Configured, InterfaceState::Discovered),
+            (InterfaceState::Configured, InterfaceState::Configuring),
+            (InterfaceState::Configured, InterfaceState::Failed),
+            (InterfaceState::Degraded, InterfaceState::Discovered),
+            (InterfaceState::Degraded, InterfaceState::Failed),
+            (InterfaceState::Failed, InterfaceState::Discovered),
+            (InterfaceState::Failed, InterfaceState::Configured),
+            (InterfaceState::Failed, InterfaceState::Degraded),
+            (InterfaceState::Deconfiguring, InterfaceState::Configured),
+            (InterfaceState::Deconfiguring, InterfaceState::Configuring),
+            (InterfaceState::Deconfiguring, InterfaceState::Degraded),
+            (InterfaceState::Deconfiguring, InterfaceState::Failed),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = make_interface_snapshot(from.clone());
+
+            // ACT
+            let result = snap.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_err(), "{from} -> {to} should be invalid");
+            assert_eq!(
+                snap.state, from,
+                "state must not change on invalid transition"
+            );
+        }
+    }
+
+    #[test]
+    fn interface_transition_does_not_mutate_state_on_error() {
+        // ARRANGE
+        let mut snap = make_interface_snapshot(InterfaceState::Configured);
+
+        // ACT
+        let _ = snap.transition(InterfaceState::Discovered);
+
+        // ASSERT
+        assert_eq!(snap.state, InterfaceState::Configured);
+    }
+
+    #[test]
+    fn interface_snapshot_starts_discovered_after_construction() {
+        // ACT
+        let snap = make_interface_snapshot(InterfaceState::Discovered);
+
+        // ASSERT
+        assert_eq!(snap.state, InterfaceState::Discovered);
     }
 }

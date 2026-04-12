@@ -4,7 +4,7 @@ use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::{address, route};
 
-use super::state::NetworkActor;
+use super::state::{InterfaceState, NetworkActor};
 
 impl NetworkActor {
     pub(super) async fn apply_static_ipv4(
@@ -14,6 +14,8 @@ impl NetworkActor {
         addresses: &[config::Cidr4],
         gateway: Option<std::net::Ipv4Addr>,
     ) -> Result<()> {
+        self.set_interface_state(iface_name, InterfaceState::Configuring);
+
         for cidr in addresses {
             address::ensure_ipv4(&self.handle, index, cidr.address, cidr.prefix).await?;
         }
@@ -42,6 +44,7 @@ impl NetworkActor {
             .get_interface_mut(iface_name)
             .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
         iface_snap.ip = Some(ip);
+        self.set_interface_state(iface_name, InterfaceState::Configured);
         self.sync_and_publish();
 
         kmsg::info!(

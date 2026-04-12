@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use netlib::interface::{Interface, InterfaceSelector};
 use netlib::link::LinkStateKind;
 
-use super::state::{InterfaceSnapshot, NetworkActor, NetworkStateKind};
+use super::state::{InterfaceSnapshot, InterfaceState, NetworkActor, NetworkStateKind};
 
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
@@ -72,6 +72,7 @@ impl NetworkActor {
         for iface in discovered {
             let snapshot = InterfaceSnapshot {
                 name: iface.name.clone(),
+                state: InterfaceState::Discovered,
                 index: iface.index,
                 mac: iface.mac_address,
                 link: iface.link_state.clone(),

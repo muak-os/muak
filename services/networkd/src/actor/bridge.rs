@@ -7,7 +7,7 @@ use netlib::link::LinkStateKind;
 use tokio::sync::mpsc;
 
 use super::commands::NetworkCommand;
-use super::state::{InterfaceSnapshot, NetworkActor};
+use super::state::{InterfaceSnapshot, InterfaceState, NetworkActor};
 use crate::dhcp::DhcpState;
 
 impl NetworkActor {
@@ -49,6 +49,7 @@ impl NetworkActor {
             .with_context(|| format!("invalid bridge name: {bridge_name}"))?;
         let br_snapshot = InterfaceSnapshot {
             name: br_iface_name.clone(),
+            state: InterfaceState::Configured,
             index,
             mac,
             link: LinkStateKind::Up,
@@ -64,6 +65,7 @@ impl NetworkActor {
             port_iface.lease = None;
             port_iface.dhcp_state = None;
         }
+        self.deconfigure_port(port_name);
         self.sync_and_publish();
 
         kmsg::info!(
@@ -89,5 +91,11 @@ impl NetworkActor {
 
         self.configure_bridge(bridge_name, &port_name, bridge_cfg.stp, cmd_tx)
             .await
+    }
+
+    /// Walks a port interface through `Configured -> Deconfiguring -> Discovered` after IP teardown.
+    fn deconfigure_port(&mut self, port_name: &str) {
+        self.set_interface_state(port_name, InterfaceState::Deconfiguring);
+        self.set_interface_state(port_name, InterfaceState::Discovered);
     }
 }

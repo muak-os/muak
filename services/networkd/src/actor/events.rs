@@ -3,7 +3,7 @@
 use netlib::interface::InterfaceName;
 use netlib::link::LinkStateKind;
 
-use super::state::{InterfaceSnapshot, NetworkActor, NetworkStateKind};
+use super::state::{InterfaceSnapshot, InterfaceState, NetworkActor, NetworkStateKind};
 use crate::monitor::NetworkEvent;
 
 impl NetworkActor {
@@ -31,6 +31,7 @@ impl NetworkActor {
             return;
         };
         iface.link = LinkStateKind::Up;
+        self.transition_degraded_on_link_up(name.as_str());
         self.sync_and_publish();
 
         if self.is_primary_interface(&name) {
@@ -45,6 +46,17 @@ impl NetworkActor {
             return;
         };
         iface.link = LinkStateKind::Down;
+
+        if iface.state == InterfaceState::Configured
+            && let Err(e) = iface.transition(InterfaceState::Degraded)
+        {
+            kmsg::warn!(
+                "Interface {} state transition failed on link-down: {}",
+                name,
+                e
+            );
+        }
+
         self.sync_and_publish();
 
         if self.is_primary_interface(&name) {
@@ -66,6 +78,7 @@ impl NetworkActor {
 
         let snapshot = InterfaceSnapshot {
             name: name.clone(),
+            state: InterfaceState::Discovered,
             index,
             mac,
             link: LinkStateKind::Up,
@@ -105,6 +118,28 @@ impl NetworkActor {
         self.state.primary.as_ref() == Some(name)
     }
 
+    /// Transitions a `Degraded` interface to `Configured` (lease valid) or `Configuring` (no lease).
+    fn transition_degraded_on_link_up(&mut self, iface: &str) {
+        let Some(snap) = self.get_interface_mut(iface) else {
+            return;
+        };
+        if snap.state != InterfaceState::Degraded {
+            return;
+        }
+        let target = if snap.lease.is_some() {
+            InterfaceState::Configured
+        } else {
+            InterfaceState::Configuring
+        };
+        if let Err(e) = snap.transition(target) {
+            kmsg::warn!(
+                "Interface {} state transition failed on link-up: {}",
+                iface,
+                e
+            );
+        }
+    }
+
     fn handle_primary_recovery(&mut self, name: &InterfaceName) {
         kmsg::info!("Primary interface {} recovered", name);
         if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
@@ -122,9 +157,34 @@ impl NetworkActor {
             self.publish_state();
         }
 
-        if !self.state.backups.is_empty() {
-            // TODO: Here is where we could trigger a failover to a backup interface.
-            kmsg::info!("Backup interfaces available: {:?}", self.state.backups);
+        self.try_failover_to_backup(name);
+    }
+
+    /// Promotes the first backup that is in `Configured` state to primary.
+    fn try_failover_to_backup(&mut self, failed: &InterfaceName) {
+        let Some(new_primary) = self
+            .state
+            .backups
+            .iter()
+            .find(|b| {
+                self.iface_map
+                    .get(b.as_str())
+                    .is_some_and(|i| i.state == InterfaceState::Configured)
+            })
+            .cloned()
+        else {
+            kmsg::info!("No configured backup available for failover");
+            return;
+        };
+
+        kmsg::info!("Failing over from {} to {}", failed, new_primary);
+        self.state.backups.retain(|n| n != &new_primary);
+        self.state.backups.push(failed.clone());
+        self.state.primary = Some(new_primary.clone());
+        if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
+            kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
+        } else {
+            self.publish_state();
         }
     }
 

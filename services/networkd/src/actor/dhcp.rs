@@ -7,7 +7,7 @@ use netlib::{address, link, route};
 use tokio::sync::mpsc;
 
 use super::commands::{LeaseAction, NetworkCommand};
-use super::state::{InterfaceSnapshot, NetworkActor};
+use super::state::{InterfaceSnapshot, InterfaceState, NetworkActor};
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
 use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpState};
@@ -19,15 +19,21 @@ impl NetworkActor {
         iface: &str,
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<InterfaceSnapshot> {
+        self.set_interface_state(iface, InterfaceState::Configuring);
+
         let index = link::ensure_up(&self.handle, iface).await?;
         let mac = self.get_interface_mac(iface)?;
-        let lease = run_dhcp_client(iface, &mac).await?;
+        let lease = run_dhcp_client(iface, &mac).await.inspect_err(|_| {
+            self.set_interface_state(iface, InterfaceState::Failed);
+        })?;
 
         self.apply_lease(index, iface, &lease).await?;
         self.store_lease(iface, &lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
-        let iface_name =
-            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        self.set_interface_state(iface, InterfaceState::Configured);
+
+        let iface_name = InterfaceName::new(iface)
+            .with_context(|| format!("invalid interface name: {iface}"))?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface_name, &lease);
 
         kmsg::info!("DHCP acquired on {}: {}", iface, lease.assigned_ip);
@@ -119,10 +125,13 @@ impl NetworkActor {
         cmd_tx: &mpsc::Sender<NetworkCommand>,
     ) -> Result<()> {
         self.set_dhcp_state(iface, DhcpState::Init);
+        self.set_interface_state(iface, InterfaceState::Configuring);
         self.cancel_renewal_tasks(iface);
 
         let mac = self.get_interface_mac(iface)?;
-        let lease = run_dhcp_client(iface, &mac).await?;
+        let lease = run_dhcp_client(iface, &mac).await.inspect_err(|_| {
+            self.set_interface_state(iface, InterfaceState::Failed);
+        })?;
 
         let index = self.get_interface(iface).map(|i| i.index).ok_or_else(|| {
             anyhow::anyhow!("interface disappeared during DHCP re-acquire: {}", iface)
@@ -131,8 +140,10 @@ impl NetworkActor {
         self.apply_lease(index, iface, &lease).await?;
         self.store_lease(iface, &lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
-        let iface_name =
-            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        self.set_interface_state(iface, InterfaceState::Configured);
+
+        let iface_name = InterfaceName::new(iface)
+            .with_context(|| format!("invalid interface name: {iface}"))?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface_name, &lease);
 
         kmsg::info!("DHCP re-acquired on {}: {}", iface, lease.assigned_ip);
@@ -154,8 +165,8 @@ impl NetworkActor {
         self.store_lease(iface, lease)?;
         self.set_dhcp_state(iface, DhcpState::Bound);
         self.cancel_renewal_tasks(iface);
-        let iface_name =
-            InterfaceName::new(iface).with_context(|| format!("invalid interface name: {iface}"))?;
+        let iface_name = InterfaceName::new(iface)
+            .with_context(|| format!("invalid interface name: {iface}"))?;
         self.schedule_lease_renewal(cmd_tx.clone(), iface_name, lease);
 
         kmsg::info!("DHCP lease renewed for {}", iface);
