@@ -75,8 +75,9 @@ impl NetworkSupervisor {
     async fn initialize(&mut self) -> Result<()> {
         kmsg::info!("Initializing network");
 
+        self.reset().await;
         self.discover_interfaces().await?;
-        self.apply_interface_configs().await?;
+        self.provision_interfaces().await;
 
         self.state.transition(NetworkState::Ready)?;
         self.publish_state();
@@ -84,6 +85,13 @@ impl NetworkSupervisor {
         kmsg::info!("Network initialization complete");
 
         Ok(())
+    }
+
+    async fn reset(&mut self) {
+        for (_, handle) in self.interfaces.drain() {
+            let _ = handle.cmd_tx.send(InterfaceCommand::Shutdown).await;
+        }
+        self.state = NetworkSnapshot::empty();
     }
 
     async fn handle_command(&mut self, cmd: SupervisorCommand) {

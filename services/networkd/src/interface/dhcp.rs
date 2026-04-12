@@ -1,6 +1,6 @@
 //! DHCP lease life cycle management for a per-interface actor.
 
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use netlib::address::IpConfig;
@@ -10,13 +10,24 @@ use super::InterfaceActor;
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
 use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpState};
-use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 use crate::state_machine::StateMachine;
 
+const DHCP_RETRY_BASE: Duration = Duration::from_secs(2);
+const DHCP_RETRY_MAX: Duration = Duration::from_secs(60);
+
 impl InterfaceActor {
-    /// Performs the initial DHCPDISCOVER->ACK exchange and applies the lease.
-    pub(super) async fn acquire_dhcp(&mut self) -> Result<InterfaceSnapshot> {
+    /// Retries DHCPDISCOVER->ACK with exponential backoff until a lease is acquired.
+    pub(super) async fn run_dhcp(&mut self) {
+        let mut delay = DHCP_RETRY_BASE;
+        while let Err(e) = self.acquire_dhcp().await {
+            kmsg::warn!("DHCP failed on {}: {};", self.snapshot.name, e);
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(DHCP_RETRY_MAX);
+        }
+    }
+
+    async fn acquire_dhcp(&mut self) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         self.set_state(InterfaceState::Configuring);
 
@@ -34,7 +45,7 @@ impl InterfaceActor {
 
         kmsg::info!("DHCP acquired on {}: {}", iface, lease.assigned_ip);
 
-        Ok(self.snapshot.clone())
+        Ok(())
     }
 
     pub(super) async fn renew_lease(&mut self) {

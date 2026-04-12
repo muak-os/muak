@@ -9,9 +9,7 @@ use crate::interface::snapshot::InterfaceSnapshot;
 
 #[derive(Debug)]
 pub enum InterfaceCommand {
-    ConfigureDhcp {
-        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
-    },
+    ConfigureDhcp,
     ConfigureStaticIpv4 {
         index: u32,
         addresses: Vec<config::Cidr4>,

@@ -96,8 +96,8 @@ impl InterfaceActor {
 
     async fn dispatch(&mut self, cmd: InterfaceCommand) {
         match cmd {
-            InterfaceCommand::ConfigureDhcp { reply } => {
-                let _ = reply.send(self.acquire_dhcp().await);
+            InterfaceCommand::ConfigureDhcp => {
+                self.run_dhcp().await;
             }
             InterfaceCommand::ConfigureStaticIpv4 {
                 index,

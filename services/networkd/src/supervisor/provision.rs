@@ -10,26 +10,30 @@ use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
 
 impl NetworkSupervisor {
-    pub(super) async fn apply_interface_configs(&mut self) -> Result<()> {
+    pub(super) async fn provision_interfaces(&mut self) {
         let interfaces = config::network().interfaces.clone();
         for iface_cfg in &interfaces {
-            self.setup_interface_from_config(iface_cfg).await?;
+            self.try_provision_interface(iface_cfg).await;
         }
-        Ok(())
     }
 
-    async fn setup_interface_from_config(
+    async fn try_provision_interface(&mut self, iface_cfg: &config::InterfaceConfig) {
+        if let Err(e) = self.provision_interface_from_config(iface_cfg).await {
+            kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
+        }
+    }
+
+    async fn provision_interface_from_config(
         &mut self,
         iface_cfg: &config::InterfaceConfig,
     ) -> Result<()> {
         match iface_cfg.kind {
             InterfaceKind::Bridge => {
                 let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
-                self.setup_bridge_from_config(&iface_cfg.name, &bridge_cfg)
-                    .await?;
+                self.provision_bridge(&iface_cfg.name, &bridge_cfg).await?;
             }
             InterfaceKind::Ethernet => {
-                self.setup_ethernet_from_config(
+                self.provision_ethernet(
                     &iface_cfg.name,
                     iface_cfg.ipv4.as_ref(),
                     iface_cfg.ipv6.as_ref(),
@@ -37,10 +41,11 @@ impl NetworkSupervisor {
                 .await?;
             }
         }
+
         Ok(())
     }
 
-    async fn setup_ethernet_from_config(
+    async fn provision_ethernet(
         &mut self,
         name: &str,
         ipv4_cfg: Option<&Ipv4InterfaceConfig>,
@@ -63,13 +68,11 @@ impl NetworkSupervisor {
 
         match ipv4_cfg {
             Some(ipv4) if ipv4.dhcp => {
-                let (reply_tx, reply_rx) = oneshot::channel();
                 actor_handle
                     .cmd_tx
-                    .send(InterfaceCommand::ConfigureDhcp { reply: reply_tx })
+                    .send(InterfaceCommand::ConfigureDhcp)
                     .await
                     .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
-                reply_rx.await??;
             }
             Some(ipv4) if !ipv4.addresses.is_empty() => {
                 actor_handle
@@ -86,15 +89,13 @@ impl NetworkSupervisor {
         }
 
         if let Some(ipv6) = ipv6_cfg {
-            self.configure_ipv6_for_interface(&iface_name, index, ipv6)
-                .await?;
+            self.provision_ipv6(&iface_name, index, ipv6).await?;
         }
 
-        kmsg::info!("Ethernet interface configured: {}", iface_name);
         Ok(())
     }
 
-    async fn configure_ipv6_for_interface(
+    async fn provision_ipv6(
         &self,
         iface_name: &InterfaceName,
         index: u32,
@@ -122,10 +123,11 @@ impl NetworkSupervisor {
                 .await
                 .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
         }
+
         Ok(())
     }
 
-    async fn setup_bridge_from_config(
+    async fn provision_bridge(
         &mut self,
         bridge_name: &str,
         bridge_cfg: &config::BridgeConfig,

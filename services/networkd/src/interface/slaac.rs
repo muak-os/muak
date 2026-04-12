@@ -6,7 +6,6 @@ use netlib::address::Ipv6Config;
 use netlib::{address, route};
 
 use super::InterfaceActor;
-
 use crate::slaac::SlaacEvent;
 
 impl InterfaceActor {
