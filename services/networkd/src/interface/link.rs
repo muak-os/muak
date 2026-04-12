@@ -2,6 +2,7 @@
 
 use super::InterfaceActor;
 use crate::interface::state::InterfaceState;
+
 impl InterfaceActor {
     /// Handles a link-up event on this interface.
     pub(super) async fn on_link_up(&mut self) {
@@ -25,7 +26,7 @@ impl InterfaceActor {
     pub(super) fn on_link_down(&mut self) {
         self.snapshot.link = netlib::link::LinkStateKind::Down;
         self.dhcp = None;
-        self.disarm_lease_timers();
+        self.timers.disarm();
         if self.snapshot.state == InterfaceState::Configured
             && let Err(e) = self.snapshot.transition(InterfaceState::Degraded)
         {

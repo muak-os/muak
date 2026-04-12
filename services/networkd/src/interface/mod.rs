@@ -13,6 +13,7 @@ mod r#static;
 use std::pin::Pin;
 
 pub use commands::InterfaceCommand;
+use dhcp::LeaseTimers;
 use dns::DnsState;
 use rtnetlink::Handle;
 use snapshot::InterfaceSnapshot;
@@ -30,9 +31,7 @@ pub struct InterfaceActor {
     snapshot_tx: watch::Sender<InterfaceSnapshot>,
     dns: DnsState,
     dhcp: Option<DhcpManager>,
-    renew_at: Option<Pin<Box<Sleep>>>,
-    rebind_at: Option<Pin<Box<Sleep>>>,
-    expire_at: Option<Pin<Box<Sleep>>>,
+    timers: LeaseTimers,
     slaac: Option<SlaacManager>,
 }
 
@@ -55,9 +54,7 @@ impl InterfaceActor {
             snapshot_tx,
             dns: DnsState::default(),
             dhcp: None,
-            renew_at: None,
-            rebind_at: None,
-            expire_at: None,
+            timers: LeaseTimers::new(),
             slaac: None,
         };
 
@@ -81,13 +78,13 @@ impl InterfaceActor {
                 event = slaac_next_event(&mut self.slaac) => {
                     self.handle_slaac_event(event).await;
                 }
-                _ = poll_opt(&mut self.renew_at) => {
+                _ = poll_opt(&mut self.timers.renew) => {
                     self.renew_lease().await;
                 }
-                _ = poll_opt(&mut self.rebind_at) => {
+                _ = poll_opt(&mut self.timers.rebind) => {
                     self.rebind_lease().await;
                 }
-                _ = poll_opt(&mut self.expire_at) => {
+                _ = poll_opt(&mut self.timers.expire) => {
                     if let Err(e) = self.do_full_dora().await {
                         kmsg::warn!("DHCP re-acquire failed for {}: {}", self.snapshot.name, e);
                     }

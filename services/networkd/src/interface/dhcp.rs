@@ -1,10 +1,12 @@
 //! DHCP lease life cycle management for a per-interface actor.
 
+use std::pin::Pin;
 use std::time::SystemTime;
 
 use anyhow::Result;
 use netlib::address::IpConfig;
 use netlib::{address, route};
+use tokio::time::Sleep;
 
 use super::InterfaceActor;
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
@@ -12,6 +14,40 @@ use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpManager, DhcpState};
 use crate::interface::state::InterfaceState;
 use crate::state_machine::StateMachine;
+
+/// Holds the three timers handles that drive the DHCP renewal state machine.
+pub(super) struct LeaseTimers {
+    pub renew: Option<Pin<Box<Sleep>>>,
+    pub rebind: Option<Pin<Box<Sleep>>>,
+    pub expire: Option<Pin<Box<Sleep>>>,
+}
+
+impl LeaseTimers {
+    /// Returns a new instance with all timers disarmed.
+    pub fn new() -> Self {
+        Self {
+            renew: None,
+            rebind: None,
+            expire: None,
+        }
+    }
+
+    /// Arms all three timers from the deadlines encoded in `lease`.
+    pub fn arm(&mut self, lease: &DhcpLease) {
+        self.disarm();
+        let now = SystemTime::now();
+        self.renew = deadline_to_sleep(now, lease.obtained_at + lease.renewal_time);
+        self.rebind = deadline_to_sleep(now, lease.obtained_at + lease.rebind_time);
+        self.expire = deadline_to_sleep(now, lease.expiry());
+    }
+
+    /// Cancels all active timers.
+    pub fn disarm(&mut self) {
+        self.renew = None;
+        self.rebind = None;
+        self.expire = None;
+    }
+}
 
 impl InterfaceActor {
     /// Initialises a `DhcpManager` and marks the interface as configuring.
@@ -60,7 +96,7 @@ impl InterfaceActor {
             self.set_state(InterfaceState::Failed);
             return;
         }
-        self.arm_lease_timers(&lease);
+        self.timers.arm(&lease);
         self.set_state(InterfaceState::Configured);
     }
 
@@ -112,7 +148,7 @@ impl InterfaceActor {
         kmsg::warn!("DHCP re-acquiring on {}", iface);
         self.set_dhcp_state(DhcpState::Init);
         self.set_state(InterfaceState::Configuring);
-        self.disarm_lease_timers();
+        self.timers.disarm();
 
         let mac = self.snapshot.mac;
         let lease = run_dhcp_client(&iface, &mac).await.inspect_err(|_| {
@@ -148,7 +184,7 @@ impl InterfaceActor {
         self.apply_lease(index, &lease).await?;
         self.store_lease(&lease);
         self.set_dhcp_state(DhcpState::Bound);
-        self.arm_lease_timers(&lease);
+        self.timers.arm(&lease);
         Ok(())
     }
 
@@ -221,29 +257,9 @@ impl InterfaceActor {
             .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", self.snapshot.name))?;
         Ok((self.snapshot.mac, lease.server_ip, lease.assigned_ip))
     }
-
-    /// Arms the renew, rebind, and expiry sleep timers from a newly acquired lease.
-    pub(super) fn arm_lease_timers(&mut self, lease: &DhcpLease) {
-        self.disarm_lease_timers();
-
-        let now = SystemTime::now();
-        self.renew_at = deadline_to_sleep(now, lease.obtained_at + lease.renewal_time);
-        self.rebind_at = deadline_to_sleep(now, lease.obtained_at + lease.rebind_time);
-        self.expire_at = deadline_to_sleep(now, lease.expiry());
-    }
-
-    /// Cancels all active lease timers.
-    pub(super) fn disarm_lease_timers(&mut self) {
-        self.renew_at = None;
-        self.rebind_at = None;
-        self.expire_at = None;
-    }
 }
 
-fn deadline_to_sleep(
-    now: SystemTime,
-    deadline: SystemTime,
-) -> Option<std::pin::Pin<Box<tokio::time::Sleep>>> {
+fn deadline_to_sleep(now: SystemTime, deadline: SystemTime) -> Option<Pin<Box<Sleep>>> {
     let dur = deadline.duration_since(now).ok()?;
     Some(Box::pin(tokio::time::sleep(dur)))
 }
