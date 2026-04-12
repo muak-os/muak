@@ -5,6 +5,7 @@ mod dhcp;
 mod dns;
 mod monitor;
 mod slaac;
+mod state_machine;
 
 use actor::start_network_actor;
 use granola::Health;

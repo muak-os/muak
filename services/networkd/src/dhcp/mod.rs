@@ -1,7 +1,10 @@
 //! DHCPv4 lease types, state machine, and expiry calculation.
 
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime};
+
+use crate::state_machine::StateMachine;
 
 pub mod client;
 pub(crate) mod codec;
@@ -14,6 +17,28 @@ pub enum DhcpState {
     Bound,
     Renewing,
     Rebinding,
+}
+
+impl StateMachine for DhcpState {
+    fn valid_next_states(&self) -> &'static [Self] {
+        match self {
+            Self::Init => &[Self::Bound],
+            Self::Bound => &[Self::Renewing, Self::Init],
+            Self::Renewing => &[Self::Bound, Self::Rebinding, Self::Init],
+            Self::Rebinding => &[Self::Bound, Self::Init],
+        }
+    }
+}
+
+impl fmt::Display for DhcpState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Init => f.write_str("Init"),
+            Self::Bound => f.write_str("Bound"),
+            Self::Renewing => f.write_str("Renewing"),
+            Self::Rebinding => f.write_str("Rebinding"),
+        }
+    }
 }
 
 /// A successfully acquired DHCPv4 lease with timing and server metadata.
@@ -42,6 +67,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use super::*;
+    use crate::state_machine::StateMachine;
 
     fn make_lease(obtained_at: SystemTime, lease_secs: u64) -> DhcpLease {
         DhcpLease {
@@ -85,19 +111,61 @@ mod tests {
     }
 
     #[test]
-    fn dhcp_state_init_is_default_start() {
-        // ARRANGE
-        let state = DhcpState::Init;
-
+    fn dhcp_state_display() {
         // ACT / ASSERT
-        assert_eq!(state, DhcpState::Init);
+        assert_eq!(DhcpState::Init.to_string(), "Init");
+        assert_eq!(DhcpState::Bound.to_string(), "Bound");
+        assert_eq!(DhcpState::Renewing.to_string(), "Renewing");
+        assert_eq!(DhcpState::Rebinding.to_string(), "Rebinding");
     }
 
     #[test]
-    fn dhcp_state_transitions_are_distinguishable() {
-        // ARRANGE / ACT / ASSERT
-        assert_ne!(DhcpState::Init, DhcpState::Bound);
-        assert_ne!(DhcpState::Bound, DhcpState::Renewing);
-        assert_ne!(DhcpState::Renewing, DhcpState::Rebinding);
+    fn valid_dhcp_transitions_succeed() {
+        // ARRANGE
+        let pairs = [
+            (DhcpState::Init, DhcpState::Bound),
+            (DhcpState::Bound, DhcpState::Renewing),
+            (DhcpState::Bound, DhcpState::Init),
+            (DhcpState::Renewing, DhcpState::Bound),
+            (DhcpState::Renewing, DhcpState::Rebinding),
+            (DhcpState::Renewing, DhcpState::Init),
+            (DhcpState::Rebinding, DhcpState::Bound),
+            (DhcpState::Rebinding, DhcpState::Init),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut state = from.clone();
+
+            // ACT
+            let result = state.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_ok(), "{from} -> {to} should be valid");
+            assert_eq!(state, to);
+        }
+    }
+
+    #[test]
+    fn invalid_dhcp_transitions_return_error() {
+        // ARRANGE
+        let pairs = [
+            (DhcpState::Init, DhcpState::Renewing),
+            (DhcpState::Init, DhcpState::Rebinding),
+            (DhcpState::Bound, DhcpState::Rebinding),
+            (DhcpState::Rebinding, DhcpState::Renewing),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut state = from.clone();
+
+            // ACT
+            let result = state.transition(to.clone());
+
+            // ASSERT
+            assert!(result.is_err(), "{from} -> {to} should be invalid");
+            assert_eq!(state, from, "state must not change on invalid transition");
+        }
     }
 }

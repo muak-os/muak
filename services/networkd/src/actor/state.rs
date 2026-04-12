@@ -14,27 +14,21 @@ use tokio::task::JoinHandle;
 
 use crate::dhcp::{DhcpLease, DhcpState};
 use crate::dns;
+use crate::state_machine::StateMachine;
 
 /// Lifecycle state of a single network interface.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InterfaceState {
-    /// Found by netlink; no configuration has been applied yet.
     Discovered,
-    /// Configuration is being applied (DHCP in progress or static addresses being set).
     Configuring,
-    /// IP assigned, routes set, and the interface is fully operational.
     Configured,
-    /// Carrier lost; the lease or static config may still be valid.
     Degraded,
-    /// Configuration attempt failed and the interface needs a retry.
     Failed,
-    /// Interface is being torn down (e.g. removed from a bridge).
     Deconfiguring,
 }
 
-impl InterfaceState {
-    /// Returns the set of states that this state may legally transition into.
-    fn valid_next_states(&self) -> &[InterfaceState] {
+impl StateMachine for InterfaceState {
+    fn valid_next_states(&self) -> &'static [Self] {
         match self {
             Self::Discovered => &[Self::Configuring],
             Self::Configuring => &[Self::Configured, Self::Failed],
@@ -49,33 +43,28 @@ impl InterfaceState {
 impl std::fmt::Display for InterfaceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Discovered => write!(f, "Discovered"),
-            Self::Configuring => write!(f, "Configuring"),
-            Self::Configured => write!(f, "Configured"),
-            Self::Degraded => write!(f, "Degraded"),
-            Self::Failed => write!(f, "Failed"),
-            Self::Deconfiguring => write!(f, "Deconfiguring"),
+            Self::Discovered => f.write_str("Discovered"),
+            Self::Configuring => f.write_str("Configuring"),
+            Self::Configured => f.write_str("Configured"),
+            Self::Degraded => f.write_str("Degraded"),
+            Self::Failed => f.write_str("Failed"),
+            Self::Deconfiguring => f.write_str("Deconfiguring"),
         }
     }
 }
 
+/// Global network readiness derived from aggregated interface states.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkStateKind {
-    /// No interfaces have been discovered yet.
     Uninitialized,
-    /// Interface discovery is in progress.
     Initializing,
-    /// At least one interface is up and configured.
     Operational,
-    /// All interfaces are configured and the system is fully ready.
     Ready,
-    /// The primary interface has lost carrier or been removed.
     Degraded,
 }
 
-impl NetworkStateKind {
-    /// Returns the set of states that this state may legally transition into.
-    fn valid_next_states(&self) -> &[NetworkStateKind] {
+impl StateMachine for NetworkStateKind {
+    fn valid_next_states(&self) -> &'static [Self] {
         match self {
             Self::Uninitialized => &[Self::Initializing],
             Self::Initializing => &[Self::Operational, Self::Degraded],
@@ -89,11 +78,11 @@ impl NetworkStateKind {
 impl std::fmt::Display for NetworkStateKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Uninitialized => write!(f, "Uninitialized"),
-            Self::Initializing => write!(f, "Initializing"),
-            Self::Operational => write!(f, "Operational"),
-            Self::Ready => write!(f, "Ready"),
-            Self::Degraded => write!(f, "Degraded"),
+            Self::Uninitialized => f.write_str("Uninitialized"),
+            Self::Initializing => f.write_str("Initializing"),
+            Self::Operational => f.write_str("Operational"),
+            Self::Ready => f.write_str("Ready"),
+            Self::Degraded => f.write_str("Degraded"),
         }
     }
 }
@@ -112,17 +101,13 @@ pub struct InterfaceSnapshot {
 }
 
 impl InterfaceSnapshot {
-    /// Advances this interface's state to `to`, returning an error if the transition is invalid.
+    /// Advances this interface's lifecycle state, logging and validating the transition.
     pub fn transition(&mut self, to: InterfaceState) -> Result<()> {
-        if !self.state.valid_next_states().contains(&to) {
-            anyhow::bail!(
-                "invalid interface state transition: {} -> {}",
-                self.state,
-                to
-            );
-        }
-        kmsg::info!("Interface {} state: {} -> {}", self.name, self.state, to);
-        self.state = to;
+        let from = self.state.clone();
+        self.state
+            .transition(to)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        kmsg::info!("Interface {} state: {} -> {}", self.name, from, self.state);
         Ok(())
     }
 }
@@ -162,13 +147,13 @@ impl NetworkSnapshot {
         }
     }
 
-    /// Advances the network state to `to`, returning an error if the transition is invalid.
+    /// Advances the network state, logging and validating the transition.
     pub fn transition(&mut self, to: NetworkStateKind) -> Result<()> {
-        if !self.state.valid_next_states().contains(&to) {
-            anyhow::bail!("invalid state transition: {} -> {}", self.state, to);
-        }
-        kmsg::info!("Network state: {} -> {}", self.state, to);
-        self.state = to;
+        let from = self.state.clone();
+        self.state
+            .transition(to)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        kmsg::info!("Network state: {} -> {}", from, self.state);
         Ok(())
     }
 }
