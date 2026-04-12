@@ -1,14 +1,16 @@
 //! Network daemon for Muak to manage network interfaces, DHCP & DNS
 
-mod actor;
 mod dhcp;
 mod dns;
+mod interface;
 mod monitor;
 mod slaac;
+mod snapshot;
 mod state_machine;
+mod supervisor;
 
-use actor::start_network_actor;
 use granola::Health;
+use supervisor::start_network_supervisor;
 
 #[granola::service("networkd")]
 #[tokio::main]
@@ -17,7 +19,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.status("Initializing network subsystem", Health::Healthy)?;
 
-    let network_handle = start_network_actor().await?;
+    let network_handle = start_network_supervisor().await?;
 
     notifier.status("Discovering interfaces and acquiring DHCP", Health::Healthy)?;
     network_handle.initialize_with_retry().await?;

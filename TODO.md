@@ -16,9 +16,13 @@
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
   - Recovery from degraded state (stays degraded)
+  - Test IPv6 with e2e tests
+
+- Enchance `imager`:
   - Support custom http proxy
   - Support for self-signed certificates
-  - Test IPv6 with e2e tests
+  - Remove http support
+  - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
 
 - Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
@@ -29,10 +33,7 @@
   - Rework commands to be pass through to the hypervisor
   - Make it an extension & rename to workloadd
 
-- Improve security:
-  - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
-  - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
-  - Remove http support in `imager` for image pull
+- Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
 
 - Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
   - WireGuard tunnel?

@@ -46,10 +46,7 @@ impl Default for MonitorConfig {
     }
 }
 
-pub async fn start_monitor(
-    _handle: Handle,
-    config: MonitorConfig,
-) -> Result<mpsc::Receiver<NetworkEvent>> {
+pub async fn start(_handle: Handle, config: MonitorConfig) -> Result<mpsc::Receiver<NetworkEvent>> {
     let (tx, rx) = mpsc::channel(32);
 
     let (connection, handle, mut messages) = rtnetlink::new_connection()?;

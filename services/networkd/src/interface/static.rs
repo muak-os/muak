@@ -1,20 +1,21 @@
-//! Static IP configuration for network interfaces.
+//! Static IP configuration for a per-interface actor.
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::{address, route};
 
-use super::state::{InterfaceState, NetworkActor};
+use super::InterfaceActor;
+use crate::snapshot::InterfaceState;
 
-impl NetworkActor {
+impl InterfaceActor {
     pub(super) async fn apply_static_ipv4(
         &mut self,
-        iface_name: &str,
         index: u32,
         addresses: &[config::Cidr4],
         gateway: Option<std::net::Ipv4Addr>,
     ) -> Result<()> {
-        self.set_interface_state(iface_name, InterfaceState::Configuring);
+        let iface_name = self.snapshot.name.to_string();
+        self.set_state(InterfaceState::Configuring);
 
         for cidr in addresses {
             address::ensure_ipv4(&self.handle, index, cidr.address, cidr.prefix).await?;
@@ -40,12 +41,9 @@ impl NetworkActor {
             dns,
         };
 
-        let iface_snap = self
-            .get_interface_mut(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
-        iface_snap.ip = Some(ip);
-        self.set_interface_state(iface_name, InterfaceState::Configured);
-        self.sync_and_publish();
+        self.snapshot.ip = Some(ip);
+        self.set_state(InterfaceState::Configured);
+        self.publish_snapshot();
 
         kmsg::info!(
             "Static IPv4 configured on {}: {}",
@@ -61,11 +59,12 @@ impl NetworkActor {
 
     pub(super) async fn apply_static_ipv6(
         &mut self,
-        iface_name: &str,
         index: u32,
         addresses: &[config::Cidr6],
         gateway: Option<std::net::Ipv6Addr>,
     ) -> Result<()> {
+        let iface_name = self.snapshot.name.to_string();
+
         for cidr in addresses {
             address::ensure_ipv6(&self.handle, index, cidr.address, cidr.prefix).await?;
         }
@@ -90,12 +89,8 @@ impl NetworkActor {
             dns,
         };
 
-        let iface_snap = self
-            .get_interface_mut(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface_name))?;
-        iface_snap.ipv6 = Some(ipv6);
-        self.state.ipv6 = true;
-        self.sync_and_publish();
+        self.snapshot.ipv6 = Some(ipv6);
+        self.publish_snapshot();
 
         kmsg::info!(
             "Static IPv6 configured on {}: {}",

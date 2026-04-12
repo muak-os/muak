@@ -6,12 +6,13 @@ use anyhow::{Result, bail};
 use netlib::interface::{Interface, InterfaceSelector};
 use netlib::link::LinkStateKind;
 
-use super::state::{InterfaceSnapshot, InterfaceState, NetworkActor, NetworkStateKind};
+use super::NetworkSupervisor;
+use crate::snapshot::{InterfaceSnapshot, InterfaceState, NetworkStateKind};
 
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
 
-impl NetworkActor {
+impl NetworkSupervisor {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
         kmsg::info!("Discovering ethernet interfaces");
         self.state.transition(NetworkStateKind::Initializing)?;
@@ -41,7 +42,7 @@ impl NetworkActor {
             iface.link_state = carrier_link_state(carrier_states.get(&iface.index));
         }
 
-        self.populate_interface_map(&discovered);
+        self.spawn_interface_actors(&discovered);
         self.select_primary_interface(&discovered)?;
 
         self.state.transition(NetworkStateKind::Operational)?;
@@ -68,7 +69,7 @@ impl NetworkActor {
         netlib::link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await
     }
 
-    fn populate_interface_map(&mut self, discovered: &[Interface]) {
+    fn spawn_interface_actors(&mut self, discovered: &[Interface]) {
         for iface in discovered {
             let snapshot = InterfaceSnapshot {
                 name: iface.name.clone(),
@@ -81,14 +82,13 @@ impl NetworkActor {
                 dhcp_state: None,
                 ipv6: None,
             };
-            self.insert_interface(snapshot);
+            self.spawn_interface_actor(snapshot);
         }
     }
 
     fn select_primary_interface(&mut self, discovered: &[Interface]) -> Result<()> {
-        let primary = InterfaceSelector::select_primary(discovered).ok_or_else(|| {
-            anyhow::anyhow!("BUG: select_primary_interface called with empty list")
-        })?;
+        let primary = InterfaceSelector::select_primary(discovered)
+            .ok_or_else(|| anyhow::anyhow!("select_primary_interface called with empty list"))?;
 
         self.state.primary = Some(primary.name.clone());
 

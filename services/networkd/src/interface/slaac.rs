@@ -1,36 +1,27 @@
-//! Bridges the SLAAC manager with the network actor for IPv6 autoconfiguration.
+//! Bridges the SLAAC manager with a per-interface actor for IPv6 autoconfiguration.
 
 use netlib::address::Ipv6Config;
 use netlib::{address, route};
 use tokio::sync::mpsc;
 
-use super::commands::NetworkCommand;
-use super::state::NetworkActor;
+use super::InterfaceActor;
+use super::commands::InterfaceCommand;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
-impl NetworkActor {
-    /// Starts a SLAAC manager on the given interface, forwarding events to the actor command loop.
-    pub(super) async fn try_acquire_slaac(
-        &mut self,
-        iface_name: &str,
-        cmd_tx: &mpsc::Sender<NetworkCommand>,
-    ) {
-        let mac = match self.get_interface_mac(iface_name) {
-            Ok(m) => m,
-            Err(_) => {
-                kmsg::warn!("Cannot start SLAAC on {}: MAC not found", iface_name);
-                return;
-            }
-        };
+impl InterfaceActor {
+    /// Starts a SLAAC manager on this interface, forwarding events to the actor command loop.
+    pub(super) async fn try_acquire_slaac(&mut self) {
+        let iface_name = self.snapshot.name.to_string();
+        let mac = self.snapshot.mac;
 
         kmsg::info!("Starting SLAAC on {}", iface_name);
 
         let (slaac_tx, slaac_rx) = mpsc::channel::<SlaacEvent>(16);
 
-        match SlaacManager::new(iface_name.to_string(), mac, slaac_tx) {
+        match SlaacManager::new(iface_name.clone(), mac, slaac_tx) {
             Ok(manager) => {
                 tokio::spawn(manager.run());
-                Self::forward_slaac_events(slaac_rx, cmd_tx.clone());
+                forward_slaac_events(slaac_rx, self.self_tx.clone());
                 kmsg::info!("SLAAC manager started on {}", iface_name);
             }
             Err(e) => {
@@ -41,13 +32,6 @@ impl NetworkActor {
                 );
             }
         }
-    }
-
-    fn forward_slaac_events(
-        slaac_rx: mpsc::Receiver<SlaacEvent>,
-        cmd_tx: mpsc::Sender<NetworkCommand>,
-    ) {
-        tokio::spawn(relay_slaac_events(slaac_rx, cmd_tx));
     }
 
     pub(super) async fn handle_slaac_event(&mut self, event: SlaacEvent) {
@@ -75,7 +59,7 @@ impl NetworkActor {
             }
             SlaacEvent::Failed { reason } => {
                 kmsg::warn!("SLAAC failed: {} (continuing with IPv4)", reason);
-                self.state.ipv6 = false;
+                self.has_ipv6 = false;
             }
         }
     }
@@ -89,15 +73,7 @@ impl NetworkActor {
     ) {
         kmsg::info!("SLAAC configured: {} via {}", address, gateway);
 
-        let primary = match self.get_primary_name() {
-            Ok(p) => p,
-            Err(_) => return,
-        };
-        let index = match self.get_interface(primary.as_str()) {
-            Some(i) => i.index,
-            None => return,
-        };
-
+        let index = self.snapshot.index;
         let ipv6 = Ipv6Config {
             address,
             prefix_len,
@@ -109,36 +85,22 @@ impl NetworkActor {
             kmsg::warn!("Failed to apply IPv6 configuration: {}", e);
             return;
         }
-        if let Err(e) = self.update_interface_with_ipv6(primary.as_str(), ipv6) {
-            kmsg::warn!("Failed to update interface with IPv6: {}", e);
-            return;
-        }
 
-        self.state.ipv6 = true;
-        self.sync_and_publish();
+        self.snapshot.ipv6 = Some(ipv6);
+        self.has_ipv6 = true;
+        self.publish_snapshot();
     }
 
     async fn on_slaac_address_expired(&mut self, address: std::net::Ipv6Addr) {
         kmsg::info!("IPv6 address expired: {}", address);
 
-        let primary = match self.get_primary_name() {
-            Ok(p) => p,
-            Err(_) => return,
-        };
-        let index = match self.get_interface(primary.as_str()) {
-            Some(i) => i.index,
-            None => return,
-        };
-
+        let index = self.snapshot.index;
         if let Err(e) = address::remove_ipv6(&self.handle, index, address).await {
             kmsg::warn!("Failed to remove expired IPv6 address: {}", e);
         }
-        if let Some(iface) = self.get_interface_mut(primary.as_str()) {
-            iface.ipv6 = None;
-        }
-
-        self.state.ipv6 = false;
-        self.sync_and_publish();
+        self.snapshot.ipv6 = None;
+        self.has_ipv6 = false;
+        self.publish_snapshot();
     }
 
     fn on_slaac_dns_updated(&mut self, servers: Vec<std::net::Ipv6Addr>) {
@@ -148,17 +110,11 @@ impl NetworkActor {
             kmsg::warn!("Failed to update IPv6 DNS: {}", e);
         }
 
-        let primary = match self.get_primary_name() {
-            Ok(p) => p,
-            Err(_) => return,
-        };
-        if let Some(iface) = self.get_interface_mut(primary.as_str())
-            && let Some(ipv6) = &mut iface.ipv6
-        {
+        if let Some(ipv6) = &mut self.snapshot.ipv6 {
             ipv6.dns = servers;
         }
 
-        self.sync_and_publish();
+        self.publish_snapshot();
     }
 
     pub(super) async fn apply_ipv6_configuration(
@@ -181,21 +137,6 @@ impl NetworkActor {
         Ok(())
     }
 
-    pub(super) fn update_interface_with_ipv6(
-        &mut self,
-        iface: &str,
-        ipv6: Ipv6Config,
-    ) -> anyhow::Result<()> {
-        let iface_snap = self
-            .get_interface_mut(iface)
-            .ok_or_else(|| anyhow::anyhow!("interface not found: {}", iface))?;
-
-        iface_snap.ipv6 = Some(ipv6);
-        self.sync_and_publish();
-
-        Ok(())
-    }
-
     async fn on_slaac_router_expired(&mut self, router: std::net::Ipv6Addr) {
         kmsg::info!("IPv6 router expired: {}", router);
         if let Err(e) = route::remove_default_route_v6(&self.handle, router).await {
@@ -204,13 +145,18 @@ impl NetworkActor {
     }
 }
 
-async fn relay_slaac_events(
+fn forward_slaac_events(rx: mpsc::Receiver<SlaacEvent>, cmd_tx: mpsc::Sender<InterfaceCommand>) {
+    tokio::spawn(pipe_slaac_to_commands(rx, cmd_tx));
+}
+
+async fn pipe_slaac_to_commands(
     mut rx: mpsc::Receiver<SlaacEvent>,
-    cmd_tx: mpsc::Sender<NetworkCommand>,
+    cmd_tx: mpsc::Sender<InterfaceCommand>,
 ) {
     while let Some(event) = rx.recv().await {
-        if cmd_tx.send(NetworkCommand::Slaac(event)).await.is_err() {
-            break;
+        let cmd = InterfaceCommand::Slaac(event);
+        if cmd_tx.send(cmd).await.is_err() {
+            return;
         }
     }
 }
