@@ -12,7 +12,7 @@ use crate::slaac::SlaacEvent;
 impl InterfaceActor {
     pub(super) async fn handle_slaac_event(&mut self, event: SlaacEvent) {
         match event {
-            crate::slaac::SlaacEvent::Configured {
+            SlaacEvent::Configured {
                 address,
                 prefix_len,
                 gateway,
@@ -35,7 +35,6 @@ impl InterfaceActor {
             }
             SlaacEvent::Failed { reason } => {
                 kmsg::warn!("SLAAC failed: {} (continuing with IPv4)", reason);
-                self.has_ipv6 = false;
                 self.slaac = None;
             }
         }
@@ -64,7 +63,6 @@ impl InterfaceActor {
         }
 
         self.snapshot.ipv6 = Some(ipv6);
-        self.has_ipv6 = true;
         self.publish_snapshot();
     }
 
@@ -76,7 +74,6 @@ impl InterfaceActor {
             kmsg::warn!("Failed to remove expired IPv6 address: {}", e);
         }
         self.snapshot.ipv6 = None;
-        self.has_ipv6 = false;
         self.publish_snapshot();
     }
 
