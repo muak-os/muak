@@ -184,7 +184,7 @@ impl SlaacManager {
             prefix.preferred_lifetime,
         );
 
-        let managed_router = ManagedRouter::new(ra.source, ra.router_lifetime);
+        let managed_router = ManagedRouter::new(ra.source, ra.router_lifetime as u64);
 
         let dns_servers: Vec<ManagedDns> = if ra.dns_servers.is_empty() {
             kmsg::info!(
@@ -193,16 +193,16 @@ impl SlaacManager {
             );
             fallback_dns_v6()
                 .into_iter()
-                .map(|s| ManagedDns::new(s, u32::MAX))
+                .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect()
         } else {
             ra.dns_servers
                 .iter()
-                .map(|&s| ManagedDns::new(s, ra.dns_lifetime))
+                .map(|&s| ManagedDns::new(s, ra.dns_lifetime as u64))
                 .collect()
         };
 
-        let dns_addrs: Vec<Ipv6Addr> = dns_servers.iter().map(|d| d.server).collect();
+        let dns_addrs: Vec<Ipv6Addr> = dns_servers.iter().map(|d| d.value).collect();
 
         kmsg::info!(
             "SLAAC: acquired {} via {}, {} DNS servers on {}",
@@ -261,17 +261,17 @@ impl SlaacManager {
         {
             kmsg::info!(
                 "SLAAC: router {} expired on {}",
-                router.address,
+                router.value,
                 self.interface
             );
-            let router_addr = router.address;
+            let router_addr = router.value;
             self.router = None;
             return Some(SlaacEvent::RouterExpired {
                 router: router_addr,
             });
         }
 
-        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
         let had_dns = !self.dns_servers.is_empty();
         self.dns_servers.retain(|dns| now < dns.expires_at);
 
@@ -282,11 +282,11 @@ impl SlaacManager {
             );
             self.dns_servers = fallback_dns_v6()
                 .into_iter()
-                .map(|s| ManagedDns::new(s, u32::MAX))
+                .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect();
         }
 
-        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
         if dns_after != dns_before {
             return Some(SlaacEvent::DnsUpdated { servers: dns_after });
         }
@@ -303,7 +303,7 @@ impl SlaacManager {
 
         if ra.router_lifetime == 0 {
             if let Some(router) = &self.router
-                && router.address == ra.source
+                && router.value == ra.source
             {
                 kmsg::info!(
                     "SLAAC: router {} signaled departure (lifetime=0) on {}",
@@ -317,9 +317,9 @@ impl SlaacManager {
         }
 
         if let Some(router) = &mut self.router
-            && router.address == ra.source
+            && router.value == ra.source
         {
-            router.refresh_lifetime(ra.router_lifetime);
+            router.refresh_lifetime(ra.router_lifetime as u64);
         }
 
         if let Some(addr) = &mut self.address {
@@ -344,15 +344,15 @@ impl SlaacManager {
 
         if !ra.dns_servers.is_empty() {
             for ra_dns in &ra.dns_servers {
-                if let Some(managed) = self.dns_servers.iter_mut().find(|d| d.server == *ra_dns) {
-                    managed.refresh_lifetime(ra.dns_lifetime);
+                if let Some(managed) = self.dns_servers.iter_mut().find(|d| d.value == *ra_dns) {
+                    managed.refresh_lifetime(ra.dns_lifetime as u64);
                 } else {
                     self.dns_servers
-                        .push(ManagedDns::new(*ra_dns, ra.dns_lifetime));
+                        .push(ManagedDns::new(*ra_dns, ra.dns_lifetime as u64));
                 }
             }
 
-            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
             return Some(SlaacEvent::DnsUpdated { servers });
         }
 

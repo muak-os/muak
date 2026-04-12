@@ -4,12 +4,48 @@ use std::net::Ipv6Addr;
 
 use tokio::time::Instant;
 
+/// An `AddressState` tracking whether an IPv6 address is preferred or deprecated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressState {
     Preferred,
     Deprecated,
 }
 
+/// A value of type `T` paired with a monotonic expiry deadline.
+#[derive(Debug, Clone)]
+pub struct Expiring<T> {
+    pub value: T,
+    pub expires_at: Instant,
+}
+
+impl<T> Expiring<T> {
+    /// Creates a new `Expiring<T>` that expires `lifetime_secs` seconds from now.
+    pub fn new(value: T, lifetime_secs: u64) -> Self {
+        Self {
+            value,
+            expires_at: Instant::now() + std::time::Duration::from_secs(lifetime_secs),
+        }
+    }
+
+    /// Resets the expiry to `lifetime_secs` seconds from now.
+    pub fn refresh_lifetime(&mut self, lifetime_secs: u64) {
+        self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs);
+    }
+
+    /// Returns `true` if the deadline has not yet passed.
+    #[allow(dead_code)]
+    pub fn is_valid(&self) -> bool {
+        Instant::now() < self.expires_at
+    }
+}
+
+/// A router learned via Router Advertisement, tracked until its lifetime expires.
+pub type ManagedRouter = Expiring<Ipv6Addr>;
+
+/// A DNS server learned via RDNSS, tracked until its lifetime expires.
+pub type ManagedDns = Expiring<Ipv6Addr>;
+
+/// An IPv6 address acquired via SLAAC, with separate preferred and valid lifetimes.
 #[derive(Debug, Clone)]
 pub struct ManagedAddress {
     pub address: Ipv6Addr,
@@ -22,6 +58,7 @@ pub struct ManagedAddress {
 }
 
 impl ManagedAddress {
+    /// Creates a new `ManagedAddress` with RFC 4861 preferred and valid lifetime deadlines.
     pub fn new(
         address: Ipv6Addr,
         prefix_len: u8,
@@ -40,6 +77,7 @@ impl ManagedAddress {
         }
     }
 
+    /// Updates lifetimes per RFC 8981: extends only when new value exceeds two-hour clamp.
     pub fn refresh_lifetimes(&mut self, valid_lifetime_secs: u32, preferred_lifetime_secs: u32) {
         let now = Instant::now();
         let new_valid = now + std::time::Duration::from_secs(valid_lifetime_secs as u64);
@@ -60,61 +98,15 @@ impl ManagedAddress {
     }
 
     #[allow(dead_code)]
+    /// Returns `true` if the valid lifetime has not expired.
     pub fn is_valid(&self) -> bool {
         Instant::now() < self.valid_until
     }
 
     #[allow(dead_code)]
+    /// Returns `true` if the address is still in the preferred state.
     pub fn is_preferred(&self) -> bool {
         self.state == AddressState::Preferred && Instant::now() < self.preferred_until
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ManagedRouter {
-    pub address: Ipv6Addr,
-    pub expires_at: Instant,
-}
-
-impl ManagedRouter {
-    pub fn new(address: Ipv6Addr, lifetime_secs: u16) -> Self {
-        Self {
-            address,
-            expires_at: Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64),
-        }
-    }
-
-    pub fn refresh_lifetime(&mut self, lifetime_secs: u16) {
-        self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64);
-    }
-
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        Instant::now() < self.expires_at
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ManagedDns {
-    pub server: Ipv6Addr,
-    pub expires_at: Instant,
-}
-
-impl ManagedDns {
-    pub fn new(server: Ipv6Addr, lifetime_secs: u32) -> Self {
-        Self {
-            server,
-            expires_at: Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64),
-        }
-    }
-
-    pub fn refresh_lifetime(&mut self, lifetime_secs: u32) {
-        self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs as u64);
-    }
-
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        Instant::now() < self.expires_at
     }
 }
 
@@ -130,6 +122,39 @@ mod tests {
             valid_secs,
             preferred_secs,
         )
+    }
+
+    #[test]
+    fn expiring_new_is_valid() {
+        // ACT
+        let e: Expiring<u32> = Expiring::new(42, 3600);
+
+        // ASSERT
+        assert!(e.is_valid());
+        assert_eq!(e.value, 42);
+    }
+
+    #[test]
+    fn expiring_zero_lifetime_is_expired() {
+        // ACT
+        let e: Expiring<u32> = Expiring::new(0, 0);
+
+        // ASSERT
+        assert!(!e.is_valid());
+    }
+
+    #[test]
+    fn expiring_refresh_extends_deadline() {
+        // ARRANGE
+        let mut e: Expiring<u32> = Expiring::new(1, 10);
+        let before = e.expires_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // ACT
+        e.refresh_lifetime(3600);
+
+        // ASSERT
+        assert!(e.expires_at > before);
     }
 
     #[test]
@@ -217,7 +242,7 @@ mod tests {
 
         // ASSERT
         assert!(router.is_valid());
-        assert_eq!(router.address, "fe80::1".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(router.value, "fe80::1".parse::<Ipv6Addr>().unwrap());
     }
 
     #[test]
@@ -241,7 +266,7 @@ mod tests {
 
         // ASSERT
         assert!(dns.is_valid());
-        assert_eq!(dns.server, "2620:fe::fe".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(dns.value, "2620:fe::fe".parse::<Ipv6Addr>().unwrap());
     }
 
     #[test]
