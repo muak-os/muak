@@ -12,6 +12,7 @@ use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpState};
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
+use crate::state_machine::StateMachine;
 
 impl InterfaceActor {
     /// Performs the initial DHCPDISCOVER->ACK exchange and applies the lease.
@@ -112,7 +113,7 @@ impl InterfaceActor {
         Ok(())
     }
 
-    async fn apply_lease(&mut self, index: u32, lease: &DhcpLease) -> Result<()> {
+    pub(super) async fn apply_lease(&mut self, index: u32, lease: &DhcpLease) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         address::ensure_ipv4(&self.handle, index, lease.assigned_ip, lease.prefix_len).await?;
 
@@ -157,8 +158,18 @@ impl InterfaceActor {
         self.publish_snapshot();
     }
 
-    fn set_dhcp_state(&mut self, state: DhcpState) {
-        self.snapshot.dhcp_state = Some(state);
+    fn set_dhcp_state(&mut self, next: DhcpState) {
+        let Some(current) = self.snapshot.dhcp_state.as_mut() else {
+            self.snapshot.dhcp_state = Some(next);
+            return;
+        };
+        if let Err(e) = current.transition(next) {
+            kmsg::warn!(
+                "DHCP state transition rejected on {}: {}",
+                self.snapshot.name,
+                e
+            );
+        }
     }
 
     fn extract_dhcp_params(&self) -> Result<([u8; 6], std::net::Ipv4Addr, std::net::Ipv4Addr)> {
