@@ -21,6 +21,7 @@ use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
+use crate::dhcp::DhcpLease;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 pub struct InterfaceActor {
@@ -116,7 +117,7 @@ impl InterfaceActor {
                 let _ = reply.send(self.configure_bridge(&bridge_name, stp).await);
             }
             InterfaceCommand::ConfigureSlaac => self.configure_slaac().await,
-            InterfaceCommand::LinkUp => self.on_link_up(),
+            InterfaceCommand::LinkUp => self.on_link_up().await,
             InterfaceCommand::LinkDown => self.on_link_down(),
             InterfaceCommand::Shutdown => {
                 kmsg::info!("InterfaceActor shutting down for {}", self.snapshot.name);
@@ -178,19 +179,16 @@ impl InterfaceActor {
         }
     }
 
-    fn on_link_up(&mut self) {
+    async fn on_link_up(&mut self) {
         self.snapshot.link = netlib::link::LinkStateKind::Up;
         if self.snapshot.state != InterfaceState::Degraded {
             return;
         }
-        let target = if self.snapshot.lease.is_some() {
-            InterfaceState::Configured
-        } else {
-            InterfaceState::Configuring
-        };
-        if let Err(e) = self.snapshot.transition(target) {
+        if let Some(lease) = self.snapshot.lease.clone() {
+            self.recover_with_lease(lease).await;
+        } else if let Err(e) = self.do_full_dora().await {
             kmsg::warn!(
-                "Interface {} state transition failed on link-up: {}",
+                "DHCP re-acquire failed on link-up for {}: {}",
                 self.snapshot.name,
                 e
             );
@@ -198,8 +196,29 @@ impl InterfaceActor {
         self.publish_snapshot();
     }
 
+    async fn recover_with_lease(&mut self, lease: DhcpLease) {
+        if let Err(e) = self.apply_lease(self.snapshot.index, &lease).await {
+            kmsg::warn!(
+                "Failed to re-apply lease on link-up for {}: {}",
+                self.snapshot.name,
+                e
+            );
+            self.set_state(InterfaceState::Failed);
+            return;
+        }
+        self.arm_lease_timers(&lease);
+        if let Err(e) = self.snapshot.transition(InterfaceState::Configured) {
+            kmsg::warn!(
+                "Interface {} state transition failed on link-up: {}",
+                self.snapshot.name,
+                e
+            );
+        }
+    }
+
     fn on_link_down(&mut self) {
         self.snapshot.link = netlib::link::LinkStateKind::Down;
+        self.disarm_lease_timers();
         if self.snapshot.state == InterfaceState::Configured
             && let Err(e) = self.snapshot.transition(InterfaceState::Degraded)
         {
