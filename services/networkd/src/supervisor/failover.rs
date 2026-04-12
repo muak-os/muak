@@ -3,7 +3,8 @@
 use netlib::interface::InterfaceName;
 
 use super::NetworkSupervisor;
-use crate::snapshot::{InterfaceState, NetworkStateKind};
+use crate::interface::state::InterfaceState;
+use crate::supervisor::state::NetworkState;
 
 impl NetworkSupervisor {
     pub(super) fn is_primary_interface(&self, name: &InterfaceName) -> bool {
@@ -18,7 +19,7 @@ impl NetworkSupervisor {
 
     pub(super) fn handle_primary_recovery(&mut self, name: &InterfaceName) {
         kmsg::info!("Primary interface {} recovered", name);
-        if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
+        if let Err(e) = self.state.transition(NetworkState::Operational) {
             kmsg::warn!("Unexpected state during primary recovery: {}", e);
         } else {
             self.publish_state();
@@ -27,7 +28,7 @@ impl NetworkSupervisor {
 
     pub(super) fn handle_primary_failure(&mut self, name: &InterfaceName) {
         kmsg::warn!("Primary interface {} failed", name);
-        if let Err(e) = self.state.transition(NetworkStateKind::Degraded) {
+        if let Err(e) = self.state.transition(NetworkState::Degraded) {
             kmsg::warn!("Unexpected state during primary failure: {}", e);
         } else {
             self.publish_state();
@@ -53,7 +54,7 @@ impl NetworkSupervisor {
         self.state.backups.retain(|n| n != &new_primary);
         self.state.backups.push(failed.clone());
         self.state.primary = Some(new_primary.clone());
-        if let Err(e) = self.state.transition(NetworkStateKind::Operational) {
+        if let Err(e) = self.state.transition(NetworkState::Operational) {
             kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
         } else {
             self.publish_state();
@@ -75,7 +76,7 @@ impl NetworkSupervisor {
     fn clear_primary_and_degrade(&mut self) {
         kmsg::warn!("No backup interfaces available");
         self.state.primary = None;
-        if let Err(e) = self.state.transition(NetworkStateKind::Degraded) {
+        if let Err(e) = self.state.transition(NetworkState::Degraded) {
             kmsg::warn!("Unexpected state during primary removal: {}", e);
         }
     }

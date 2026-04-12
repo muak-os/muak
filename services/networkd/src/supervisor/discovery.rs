@@ -7,7 +7,9 @@ use netlib::interface::{Interface, InterfaceSelector};
 use netlib::link::LinkStateKind;
 
 use super::NetworkSupervisor;
-use crate::snapshot::{InterfaceSnapshot, InterfaceState, NetworkStateKind};
+use crate::interface::snapshot::InterfaceSnapshot;
+use crate::interface::state::InterfaceState;
+use crate::supervisor::state::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
@@ -15,12 +17,12 @@ const CARRIER_TIMEOUT_SECS: u64 = 6;
 impl NetworkSupervisor {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
         kmsg::info!("Discovering ethernet interfaces");
-        self.state.transition(NetworkStateKind::Initializing)?;
+        self.state.transition(NetworkState::Initializing)?;
         self.publish_state();
 
         let mut discovered = netlib::interface::discover_ethernet(&self.handle).await?;
         if discovered.is_empty() {
-            self.state.transition(NetworkStateKind::Degraded)?;
+            self.state.transition(NetworkState::Degraded)?;
             self.publish_state();
             bail!("no ethernet interfaces found");
         }
@@ -30,7 +32,7 @@ impl NetworkSupervisor {
 
         let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
         if !any_carrier {
-            self.state.transition(NetworkStateKind::Degraded)?;
+            self.state.transition(NetworkState::Degraded)?;
             self.publish_state();
             bail!(
                 "no carrier detected on any interface after {}s - check cable connections",
@@ -45,7 +47,7 @@ impl NetworkSupervisor {
         self.spawn_interface_actors(&discovered);
         self.select_primary_interface(&discovered)?;
 
-        self.state.transition(NetworkStateKind::Operational)?;
+        self.state.transition(NetworkState::Operational)?;
         self.sync_and_publish();
         kmsg::info!(
             "Discovered {} interfaces, primary={:?}",

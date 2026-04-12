@@ -5,7 +5,6 @@ mod dns;
 mod interface;
 mod monitor;
 mod slaac;
-mod snapshot;
 mod state_machine;
 mod supervisor;
 

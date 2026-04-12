@@ -3,18 +3,22 @@
 mod bridge;
 mod commands;
 mod dhcp;
+mod dns;
 mod slaac;
+pub mod snapshot;
+pub mod state;
 mod r#static;
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 pub use commands::InterfaceCommand;
+use dns::DnsState;
 use rtnetlink::Handle;
+use snapshot::InterfaceSnapshot;
+use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-
-use crate::snapshot::{DnsState, InterfaceSnapshot, InterfaceState};
 
 pub struct InterfaceActor {
     snapshot: InterfaceSnapshot,

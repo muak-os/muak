@@ -7,7 +7,8 @@ use netlib::link::LinkStateKind;
 
 use super::InterfaceActor;
 use crate::dhcp::DhcpState;
-use crate::snapshot::{InterfaceSnapshot, InterfaceState};
+use crate::interface::snapshot::InterfaceSnapshot;
+use crate::interface::state::InterfaceState;
 
 impl InterfaceActor {
     /// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.

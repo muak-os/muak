@@ -5,7 +5,7 @@ use netlib::address::{IpConfig, Ipv6Config};
 use netlib::{address, route};
 
 use super::InterfaceActor;
-use crate::snapshot::InterfaceState;
+use crate::interface::state::InterfaceState;
 
 impl InterfaceActor {
     pub(super) async fn apply_static_ipv4(

@@ -10,7 +10,8 @@ use super::commands::{InterfaceCommand, LeaseAction};
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
 use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpState};
-use crate::snapshot::{InterfaceSnapshot, InterfaceState};
+use crate::interface::snapshot::InterfaceSnapshot;
+use crate::interface::state::InterfaceState;
 
 impl InterfaceActor {
     /// Performs the initial DHCPDISCOVER->ACK exchange and applies the lease.

@@ -5,8 +5,8 @@ use std::net::Ipv4Addr;
 use anyhow::Result;
 use tokio::sync::oneshot;
 
+use crate::interface::snapshot::InterfaceSnapshot;
 use crate::slaac::SlaacEvent;
-use crate::snapshot::InterfaceSnapshot;
 
 /// Distinguishes which DHCP timer phase triggered a lease action.
 #[derive(Debug)]

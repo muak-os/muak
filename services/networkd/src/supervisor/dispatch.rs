@@ -4,8 +4,9 @@ use netlib::interface::InterfaceName;
 
 use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
+use crate::interface::snapshot::InterfaceSnapshot;
+use crate::interface::state::InterfaceState;
 use crate::monitor::NetworkEvent;
-use crate::snapshot::{InterfaceSnapshot, InterfaceState};
 
 impl NetworkSupervisor {
     /// Dispatches a netlink event to the appropriate handler.

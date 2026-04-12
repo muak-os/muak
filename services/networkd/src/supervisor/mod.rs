@@ -5,6 +5,8 @@ mod discovery;
 mod dispatch;
 mod failover;
 mod provision;
+mod snapshot;
+mod state;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,9 +17,11 @@ use netlib::interface::InterfaceName;
 use rtnetlink::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::{InterfaceActor, InterfaceActorHandle, InterfaceCommand};
 use crate::monitor::{self, NetworkEvent};
-use crate::snapshot::{InterfaceSnapshot, NetworkSnapshot, NetworkStateKind};
+use crate::supervisor::snapshot::NetworkSnapshot;
+use crate::supervisor::state::NetworkState;
 
 pub struct NetworkSupervisor {
     handle: Handle,
@@ -74,7 +78,7 @@ impl NetworkSupervisor {
         self.discover_interfaces().await?;
         self.apply_interface_configs().await?;
 
-        self.state.transition(NetworkStateKind::Ready)?;
+        self.state.transition(NetworkState::Ready)?;
         self.publish_state();
 
         kmsg::info!("Network initialization complete");
