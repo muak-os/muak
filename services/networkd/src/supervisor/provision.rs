@@ -118,7 +118,7 @@ impl NetworkSupervisor {
         } else if ipv6.autoconf && config::network().ipv6 {
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::StartSlaac)
+                .send(InterfaceCommand::ConfigureSlaac)
                 .await
                 .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
         }

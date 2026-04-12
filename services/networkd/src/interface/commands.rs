@@ -6,15 +6,6 @@ use anyhow::Result;
 use tokio::sync::oneshot;
 
 use crate::interface::snapshot::InterfaceSnapshot;
-use crate::slaac::SlaacEvent;
-
-/// Distinguishes which DHCP timer phase triggered a lease action.
-#[derive(Debug)]
-pub enum LeaseAction {
-    Renew,
-    Rebind,
-    Expired,
-}
 
 #[derive(Debug)]
 pub enum InterfaceCommand {
@@ -36,9 +27,7 @@ pub enum InterfaceCommand {
         stp: bool,
         reply: oneshot::Sender<Result<InterfaceSnapshot>>,
     },
-    LeaseAction(LeaseAction),
-    StartSlaac,
-    Slaac(SlaacEvent),
+    ConfigureSlaac,
     LinkUp,
     LinkDown,
     Shutdown,

@@ -15,7 +15,6 @@
 - Enhance `networkd`:
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
-  - Recovery from degraded state (stays degraded)
   - Test IPv6 with e2e tests
 
 - Enchance `imager`:

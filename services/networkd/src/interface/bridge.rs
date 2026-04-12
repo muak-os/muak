@@ -30,7 +30,7 @@ impl InterfaceActor {
         bridge::ensure_with_config(&self.handle, bridge_name, &port_name, gateway, stp).await?;
         kmsg::info!("Bridge setup complete: {} <- {}", bridge_name, port_name);
 
-        self.cancel_renewal_tasks();
+        self.disarm_lease_timers();
 
         let index = netlib::link::get_index(&self.handle, bridge_name).await?;
         let ip = self.snapshot.ip.clone();

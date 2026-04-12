@@ -10,6 +10,7 @@ pub mod state;
 mod r#static;
 
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::pin::Pin;
 
 use anyhow::Result;
 pub use commands::InterfaceCommand;
@@ -18,17 +19,21 @@ use rtnetlink::Handle;
 use snapshot::InterfaceSnapshot;
 use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
+use tokio::time::Sleep;
+
+use crate::slaac::{SlaacEvent, SlaacManager};
 
 pub struct InterfaceActor {
     snapshot: InterfaceSnapshot,
     handle: Handle,
     cmd_rx: mpsc::Receiver<InterfaceCommand>,
-    self_tx: mpsc::Sender<InterfaceCommand>,
     snapshot_tx: watch::Sender<InterfaceSnapshot>,
     dns: DnsState,
-    renewal_tasks: Vec<JoinHandle<()>>,
     has_ipv6: bool,
+    renew_at: Option<Pin<Box<Sleep>>>,
+    rebind_at: Option<Pin<Box<Sleep>>>,
+    expire_at: Option<Pin<Box<Sleep>>>,
+    slaac: Option<SlaacManager>,
 }
 
 /// Handle used by the supervisor to send commands and watch state.
@@ -47,11 +52,13 @@ impl InterfaceActor {
             snapshot,
             handle,
             cmd_rx,
-            self_tx: cmd_tx.clone(),
             snapshot_tx,
             dns: DnsState::default(),
-            renewal_tasks: Vec::new(),
             has_ipv6: false,
+            renew_at: None,
+            rebind_at: None,
+            expire_at: None,
+            slaac: None,
         };
 
         tokio::spawn(actor.run());
@@ -62,11 +69,29 @@ impl InterfaceActor {
     async fn run(mut self) {
         kmsg::info!("InterfaceActor started for {}", self.snapshot.name);
 
-        while let Some(cmd) = self.cmd_rx.recv().await {
-            self.dispatch(cmd).await;
+        loop {
+            tokio::select! {
+                cmd = self.cmd_rx.recv() => {
+                    let Some(cmd) = cmd else { break };
+                    self.dispatch(cmd).await;
+                }
+                _ = poll_opt(&mut self.renew_at) => {
+                    self.renew_lease().await;
+                }
+                _ = poll_opt(&mut self.rebind_at) => {
+                    self.rebind_lease().await;
+                }
+                _ = poll_opt(&mut self.expire_at) => {
+                    if let Err(e) = self.do_full_dora().await {
+                        kmsg::warn!("DHCP re-acquire failed for {}: {}", self.snapshot.name, e);
+                    }
+                }
+                event = slaac_next_event(&mut self.slaac) => {
+                    self.handle_slaac_event(event).await;
+                }
+            }
         }
 
-        self.cancel_renewal_tasks();
         kmsg::info!("InterfaceActor stopped for {}", self.snapshot.name);
     }
 
@@ -92,14 +117,43 @@ impl InterfaceActor {
             } => {
                 let _ = reply.send(self.configure_bridge(&bridge_name, stp).await);
             }
-            InterfaceCommand::LeaseAction(action) => self.handle_lease_action(action).await,
-            InterfaceCommand::StartSlaac => self.try_acquire_slaac().await,
-            InterfaceCommand::Slaac(event) => self.handle_slaac_event(event).await,
+            InterfaceCommand::ConfigureSlaac => self.configure_slaac().await,
             InterfaceCommand::LinkUp => self.on_link_up(),
             InterfaceCommand::LinkDown => self.on_link_down(),
             InterfaceCommand::Shutdown => {
                 kmsg::info!("InterfaceActor shutting down for {}", self.snapshot.name);
                 self.cmd_rx.close();
+            }
+        }
+    }
+
+    async fn configure_slaac(&mut self) {
+        let iface = self.snapshot.name.to_string();
+        let mac = self.snapshot.mac;
+
+        kmsg::info!("Starting SLAAC on {}", iface);
+
+        match SlaacManager::new(iface.clone(), mac) {
+            Ok(mut mgr) => match mgr.solicit().await {
+                Ok(event) => {
+                    self.handle_slaac_event(event).await;
+                    self.slaac = Some(mgr);
+                    kmsg::info!("SLAAC monitoring active on {}", iface);
+                }
+                Err(e) => {
+                    kmsg::warn!(
+                        "SLAAC solicitation failed on {}: {} (continuing with IPv4)",
+                        iface,
+                        e
+                    );
+                }
+            },
+            Err(e) => {
+                kmsg::info!(
+                    "SLAAC unavailable on {}: {} (continuing with IPv4)",
+                    iface,
+                    e
+                );
             }
         }
     }
@@ -180,5 +234,24 @@ impl InterfaceActor {
     fn update_dns_v6(&mut self, servers: Vec<Ipv6Addr>) -> Result<()> {
         self.dns.v6 = servers;
         self.dns.flush()
+    }
+}
+
+/// Polls a `Sleep` future when `Some`, or returns `std::future::pending()` when `None`.
+async fn poll_opt(opt: &mut Option<Pin<Box<Sleep>>>) {
+    match opt {
+        Some(sleep) => {
+            sleep.await;
+            *opt = None;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Polls the `SlaacManager`'s next event when `Some`, or parks forever when `None`.
+async fn slaac_next_event(slaac: &mut Option<SlaacManager>) -> SlaacEvent {
+    match slaac {
+        Some(mgr) => mgr.next_event().await,
+        None => std::future::pending().await,
     }
 }

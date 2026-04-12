@@ -18,7 +18,6 @@ use rustix::net::{
     socket_with,
 };
 use tokio::io::unix::AsyncFd;
-use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
@@ -61,17 +60,11 @@ pub struct SlaacManager {
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
     dns_servers: Vec<ManagedDns>,
-
-    event_tx: mpsc::Sender<SlaacEvent>,
 }
 
 #[allow(clippy::excessive_nesting)]
 impl SlaacManager {
-    pub fn new(
-        interface: String,
-        mac: [u8; 6],
-        event_tx: mpsc::Sender<SlaacEvent>,
-    ) -> Result<Self> {
+    pub fn new(interface: String, mac: [u8; 6]) -> Result<Self> {
         let socket_fd = socket_with(
             AddressFamily::INET6,
             SocketType::RAW,
@@ -96,49 +89,62 @@ impl SlaacManager {
             address: None,
             router: None,
             dns_servers: Vec::new(),
-            event_tx,
         })
     }
 
-    pub async fn run(mut self) {
-        match self.initial_solicitation().await {
-            Ok(()) => {
-                println!("SLAAC manager: initial configuration complete");
-            }
-            Err(e) => {
-                let _ = self
-                    .event_tx
-                    .send(SlaacEvent::Failed {
-                        reason: e.to_string(),
-                    })
-                    .await;
-                return;
-            }
-        }
-
-        self.monitoring_loop().await;
+    /// Performs the initial RS/RA exchange and returns the `Configured` event.
+    pub async fn solicit(&mut self) -> Result<SlaacEvent> {
+        self.initial_solicitation().await
     }
 
-    async fn initial_solicitation(&mut self) -> Result<()> {
+    /// Returns the next monitoring event.
+    pub async fn next_event(&mut self) -> SlaacEvent {
+        loop {
+            let next_deadline = self.next_timer_deadline();
+
+            let event = tokio::select! {
+                _ = tokio::time::sleep_until(next_deadline) => {
+                    self.handle_timer_expiration().await
+                }
+                result = self.try_recv_ra() => {
+                    match result {
+                        Ok(Some(ra)) => self.process_unsolicited_ra(ra).await,
+                        _ => None,
+                    }
+                }
+            };
+
+            if let Some(e) = event {
+                return e;
+            }
+
+            if self.address.is_none() && self.router.is_none() {
+                return SlaacEvent::Failed {
+                    reason: "all IPv6 configuration expired".to_string(),
+                };
+            }
+        }
+    }
+
+    async fn initial_solicitation(&mut self) -> Result<SlaacEvent> {
         let rs_packet = build_router_solicitation(&self.mac);
         let dest = create_all_routers_sockaddr(self.ifindex);
 
         for attempt in 1..=MAX_RTR_SOLICITATIONS {
-            println!(
-                "SLAAC manager: sending RS on {} (attempt {}/{})",
-                self.interface, attempt, MAX_RTR_SOLICITATIONS
+            kmsg::info!(
+                "SLAAC: sending RS on {} (attempt {}/{})",
+                self.interface,
+                attempt,
+                MAX_RTR_SOLICITATIONS
             );
 
             sendto(self.socket.get_ref(), &rs_packet, SendFlags::empty(), &dest)?;
 
             match self.wait_for_ra(RTR_SOLICITATION_INTERVAL).await {
-                Ok(ra) => {
-                    self.process_initial_ra(ra).await?;
-                    return Ok(());
-                }
+                Ok(ra) => return self.process_initial_ra(ra).await,
                 Err(_) => {
                     if attempt < MAX_RTR_SOLICITATIONS {
-                        println!("SLAAC manager: no RA received, retrying...");
+                        kmsg::info!("SLAAC: no RA on {}, retrying...", self.interface);
                     }
                 }
             }
@@ -150,7 +156,7 @@ impl SlaacManager {
         )
     }
 
-    async fn process_initial_ra(&mut self, ra: RouterAdvertisement) -> Result<()> {
+    async fn process_initial_ra(&mut self, ra: RouterAdvertisement) -> Result<SlaacEvent> {
         let prefix = ra
             .prefixes
             .iter()
@@ -171,7 +177,10 @@ impl SlaacManager {
         let managed_router = ManagedRouter::new(ra.source, ra.router_lifetime);
 
         let dns_servers: Vec<ManagedDns> = if ra.dns_servers.is_empty() {
-            println!("SLAAC manager: no RDNSS in RA, using fallback DNS");
+            kmsg::info!(
+                "SLAAC: no RDNSS in RA on {}, using fallback DNS",
+                self.interface
+            );
             fallback_dns_v6()
                 .into_iter()
                 .map(|s| ManagedDns::new(s, u32::MAX))
@@ -185,51 +194,159 @@ impl SlaacManager {
 
         let dns_addrs: Vec<Ipv6Addr> = dns_servers.iter().map(|d| d.server).collect();
 
-        println!(
-            "SLAAC manager: acquired {} via {}, {} DNS servers",
+        kmsg::info!(
+            "SLAAC: acquired {} via {}, {} DNS servers on {}",
             address,
             ra.source,
-            dns_addrs.len()
+            dns_addrs.len(),
+            self.interface
         );
 
         self.address = Some(managed_addr);
         self.router = Some(managed_router);
         self.dns_servers = dns_servers;
 
-        let _ = self
-            .event_tx
-            .send(SlaacEvent::Configured {
-                address,
-                prefix_len: prefix.prefix_len,
-                gateway: ra.source,
-                dns: dns_addrs,
-            })
-            .await;
-
-        Ok(())
+        Ok(SlaacEvent::Configured {
+            address,
+            prefix_len: prefix.prefix_len,
+            gateway: ra.source,
+            dns: dns_addrs,
+        })
     }
 
-    async fn monitoring_loop(&mut self) {
-        loop {
-            let next_deadline = self.next_timer_deadline();
+    /// Checks all timers and emits at most one event.
+    async fn handle_timer_expiration(&mut self) -> Option<SlaacEvent> {
+        let now = Instant::now();
 
-            tokio::select! {
-                _ = tokio::time::sleep_until(next_deadline) => {
-                    self.handle_timer_expiration().await;
-                }
+        if let Some(addr) = &mut self.address
+            && addr.state == AddressState::Preferred
+            && now >= addr.preferred_until
+        {
+            addr.state = AddressState::Deprecated;
+            kmsg::info!(
+                "SLAAC: address {} deprecated on {}",
+                addr.address,
+                self.interface
+            );
+            return Some(SlaacEvent::AddressDeprecated {
+                address: addr.address,
+            });
+        }
 
-                result = self.try_recv_ra() => {
-                    if let Ok(Some(ra)) = result {
-                        self.process_unsolicited_ra(ra).await;
-                    }
-                }
+        if let Some(addr) = &self.address
+            && now >= addr.valid_until
+        {
+            kmsg::info!(
+                "SLAAC: address {} expired on {}",
+                addr.address,
+                self.interface
+            );
+            let address = addr.address;
+            self.address = None;
+            return Some(SlaacEvent::AddressExpired { address });
+        }
+
+        if let Some(router) = &self.router
+            && now >= router.expires_at
+        {
+            kmsg::info!(
+                "SLAAC: router {} expired on {}",
+                router.address,
+                self.interface
+            );
+            let router_addr = router.address;
+            self.router = None;
+            return Some(SlaacEvent::RouterExpired {
+                router: router_addr,
+            });
+        }
+
+        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+        let had_dns = !self.dns_servers.is_empty();
+        self.dns_servers.retain(|dns| now < dns.expires_at);
+
+        if had_dns && self.dns_servers.is_empty() {
+            kmsg::info!(
+                "SLAAC: all RDNSS expired on {}, using fallback",
+                self.interface
+            );
+            self.dns_servers = fallback_dns_v6()
+                .into_iter()
+                .map(|s| ManagedDns::new(s, u32::MAX))
+                .collect();
+        }
+
+        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+        if dns_after != dns_before {
+            return Some(SlaacEvent::DnsUpdated { servers: dns_after });
+        }
+
+        None
+    }
+
+    async fn process_unsolicited_ra(&mut self, ra: RouterAdvertisement) -> Option<SlaacEvent> {
+        kmsg::info!(
+            "SLAAC: unsolicited RA from {} on {}",
+            ra.source,
+            self.interface
+        );
+
+        if ra.router_lifetime == 0 {
+            if let Some(router) = &self.router
+                && router.address == ra.source
+            {
+                kmsg::info!(
+                    "SLAAC: router {} signaled departure (lifetime=0) on {}",
+                    ra.source,
+                    self.interface
+                );
+                self.router = None;
+                return Some(SlaacEvent::RouterExpired { router: ra.source });
             }
+            return None;
+        }
 
-            if self.address.is_none() && self.router.is_none() {
-                println!("SLAAC manager: all IPv6 configuration expired, shutting down");
-                break;
+        if let Some(router) = &mut self.router
+            && router.address == ra.source
+        {
+            router.refresh_lifetime(ra.router_lifetime);
+        }
+
+        if let Some(addr) = &mut self.address {
+            for prefix in &ra.prefixes {
+                if prefix.autonomous
+                    && prefix.prefix_len <= 64
+                    && addr.router == ra.source
+                    && let Some(expected_addr) =
+                        generate(prefix.prefix, prefix.prefix_len, &self.mac)
+                    && expected_addr == addr.address
+                {
+                    addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
+                    kmsg::info!(
+                        "SLAAC: refreshed lifetimes for {} on {}",
+                        addr.address,
+                        self.interface
+                    );
+                    break;
+                }
             }
         }
+
+        if !ra.dns_servers.is_empty() {
+            for ra_dns in &ra.dns_servers {
+                if let Some(managed) = self.dns_servers.iter_mut().find(|d| d.server == *ra_dns) {
+                    managed.refresh_lifetime(ra.dns_lifetime);
+                } else {
+                    self.dns_servers
+                        .push(ManagedDns::new(*ra_dns, ra.dns_lifetime));
+                }
+            }
+
+            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
+            return Some(SlaacEvent::DnsUpdated { servers });
+        }
+
+        None
     }
 
     fn next_timer_deadline(&self) -> Instant {
@@ -257,136 +374,6 @@ impl SlaacManager {
         }
 
         deadline
-    }
-
-    async fn handle_timer_expiration(&mut self) {
-        let now = Instant::now();
-
-        if let Some(addr) = &mut self.address
-            && addr.state == AddressState::Preferred
-            && now >= addr.preferred_until
-        {
-            addr.state = AddressState::Deprecated;
-            println!("SLAAC manager: address {} deprecated", addr.address);
-            let _ = self
-                .event_tx
-                .send(SlaacEvent::AddressDeprecated {
-                    address: addr.address,
-                })
-                .await;
-        }
-
-        if let Some(addr) = &self.address
-            && now >= addr.valid_until
-        {
-            println!("SLAAC manager: address {} expired", addr.address);
-            let _ = self
-                .event_tx
-                .send(SlaacEvent::AddressExpired {
-                    address: addr.address,
-                })
-                .await;
-            self.address = None;
-        }
-
-        if let Some(router) = &self.router
-            && now >= router.expires_at
-        {
-            println!("SLAAC manager: router {} expired", router.address);
-            let _ = self
-                .event_tx
-                .send(SlaacEvent::RouterExpired {
-                    router: router.address,
-                })
-                .await;
-            self.router = None;
-        }
-
-        let had_dns = !self.dns_servers.is_empty();
-        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
-        self.dns_servers.retain(|dns| now < dns.expires_at);
-
-        if had_dns && self.dns_servers.is_empty() {
-            println!("SLAAC manager: all RDNSS expired, using fallback");
-            self.dns_servers = fallback_dns_v6()
-                .into_iter()
-                .map(|s| ManagedDns::new(s, u32::MAX))
-                .collect();
-        }
-
-        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
-        if dns_after != dns_before {
-            let _ = self
-                .event_tx
-                .send(SlaacEvent::DnsUpdated { servers: dns_after })
-                .await;
-        }
-    }
-
-    async fn process_unsolicited_ra(&mut self, ra: RouterAdvertisement) {
-        println!("SLAAC manager: received unsolicited RA from {}", ra.source);
-
-        if ra.router_lifetime == 0 {
-            if let Some(router) = &self.router
-                && router.address == ra.source
-            {
-                println!(
-                    "SLAAC manager: router {} signaled departure (lifetime=0)",
-                    ra.source
-                );
-                let _ = self
-                    .event_tx
-                    .send(SlaacEvent::RouterExpired { router: ra.source })
-                    .await;
-                self.router = None;
-
-                if let Some(addr) = &self.address
-                    && addr.router == ra.source
-                {
-                    println!(
-                        "SLAAC manager: router for {} went away, address will expire",
-                        addr.address
-                    );
-                }
-            }
-            return;
-        }
-
-        if let Some(router) = &mut self.router
-            && router.address == ra.source
-        {
-            router.refresh_lifetime(ra.router_lifetime);
-        }
-
-        if let Some(addr) = &mut self.address {
-            for prefix in &ra.prefixes {
-                if prefix.autonomous
-                    && prefix.prefix_len <= 64
-                    && addr.router == ra.source
-                    && let Some(expected_addr) =
-                        generate(prefix.prefix, prefix.prefix_len, &self.mac)
-                    && expected_addr == addr.address
-                {
-                    addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
-                    println!("SLAAC manager: refreshed lifetimes for {}", addr.address);
-                    break;
-                }
-            }
-        }
-
-        if !ra.dns_servers.is_empty() {
-            for ra_dns in &ra.dns_servers {
-                if let Some(managed) = self.dns_servers.iter_mut().find(|d| d.server == *ra_dns) {
-                    managed.refresh_lifetime(ra.dns_lifetime);
-                } else {
-                    self.dns_servers
-                        .push(ManagedDns::new(*ra_dns, ra.dns_lifetime));
-                }
-            }
-
-            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.server).collect();
-            let _ = self.event_tx.send(SlaacEvent::DnsUpdated { servers }).await;
-        }
     }
 
     async fn wait_for_ra(&self, timeout: Duration) -> Result<RouterAdvertisement> {
