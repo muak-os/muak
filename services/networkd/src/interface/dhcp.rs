@@ -1,10 +1,10 @@
 //! DHCP lease life cycle management for a per-interface actor.
 
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use netlib::address::IpConfig;
-use netlib::{address, link, route};
+use netlib::{address, route};
 
 use super::InterfaceActor;
 use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
@@ -13,41 +13,7 @@ use crate::dhcp::{DhcpLease, DhcpState};
 use crate::interface::state::InterfaceState;
 use crate::state_machine::StateMachine;
 
-const DHCP_RETRY_BASE: Duration = Duration::from_secs(2);
-const DHCP_RETRY_MAX: Duration = Duration::from_secs(60);
-
 impl InterfaceActor {
-    /// Retries DHCPDISCOVER->ACK with exponential backoff until a lease is acquired.
-    pub(super) async fn run_dhcp(&mut self) {
-        let mut delay = DHCP_RETRY_BASE;
-        while let Err(e) = self.acquire_dhcp().await {
-            kmsg::warn!("DHCP failed on {}: {};", self.snapshot.name, e);
-            tokio::time::sleep(delay).await;
-            delay = (delay * 2).min(DHCP_RETRY_MAX);
-        }
-    }
-
-    async fn acquire_dhcp(&mut self) -> Result<()> {
-        let iface = self.snapshot.name.to_string();
-        self.set_state(InterfaceState::Configuring);
-
-        let index = link::ensure_up(&self.handle, &iface).await?;
-        let mac = self.snapshot.mac;
-        let lease = run_dhcp_client(&iface, &mac).await.inspect_err(|_| {
-            self.set_state(InterfaceState::Failed);
-        })?;
-
-        self.apply_lease(index, &lease).await?;
-        self.store_lease(&lease);
-        self.set_dhcp_state(DhcpState::Bound);
-        self.set_state(InterfaceState::Configured);
-        self.arm_lease_timers(&lease);
-
-        kmsg::info!("DHCP acquired on {}: {}", iface, lease.assigned_ip);
-
-        Ok(())
-    }
-
     pub(super) async fn renew_lease(&mut self) {
         let iface = self.snapshot.name.to_string();
         kmsg::info!("DHCP RENEW for {}", iface);
@@ -90,6 +56,7 @@ impl InterfaceActor {
         }
     }
 
+    /// Re-runs a full DORA exchange to recover from a NAK or lease expiry.
     pub(super) async fn do_full_dora(&mut self) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         kmsg::warn!("DHCP re-acquiring on {}", iface);
@@ -124,6 +91,7 @@ impl InterfaceActor {
         Ok(())
     }
 
+    /// Applies the network-level changes from a lease: address, route, and DNS.
     pub(super) async fn apply_lease(&mut self, index: u32, lease: &DhcpLease) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         address::ensure_ipv4(&self.handle, index, lease.assigned_ip, lease.prefix_len).await?;
@@ -158,7 +126,8 @@ impl InterfaceActor {
         Ok(())
     }
 
-    fn store_lease(&mut self, lease: &DhcpLease) {
+    /// Persists the lease into the snapshot and publishes it.
+    pub(super) fn store_lease(&mut self, lease: &DhcpLease) {
         self.snapshot.ip = Some(IpConfig {
             address: lease.assigned_ip,
             prefix_len: lease.prefix_len,
@@ -169,7 +138,7 @@ impl InterfaceActor {
         self.publish_snapshot();
     }
 
-    fn set_dhcp_state(&mut self, next: DhcpState) {
+    pub(super) fn set_dhcp_state(&mut self, next: DhcpState) {
         let Some(current) = self.snapshot.dhcp_state.as_mut() else {
             self.snapshot.dhcp_state = Some(next);
             return;
@@ -192,19 +161,17 @@ impl InterfaceActor {
         Ok((self.snapshot.mac, lease.server_ip, lease.assigned_ip))
     }
 
+    /// Arms the renew, rebind, and expiry sleep timers from a newly acquired lease.
     pub(super) fn arm_lease_timers(&mut self, lease: &DhcpLease) {
         self.disarm_lease_timers();
 
         let now = SystemTime::now();
-        let renew_deadline = lease.obtained_at + lease.renewal_time;
-        let rebind_deadline = lease.obtained_at + lease.rebind_time;
-        let expiry_deadline = lease.expiry();
-
-        self.renew_at = deadline_to_sleep(now, renew_deadline);
-        self.rebind_at = deadline_to_sleep(now, rebind_deadline);
-        self.expire_at = deadline_to_sleep(now, expiry_deadline);
+        self.renew_at = deadline_to_sleep(now, lease.obtained_at + lease.renewal_time);
+        self.rebind_at = deadline_to_sleep(now, lease.obtained_at + lease.rebind_time);
+        self.expire_at = deadline_to_sleep(now, lease.expiry());
     }
 
+    /// Cancels all active lease timers.
     pub(super) fn disarm_lease_timers(&mut self) {
         self.renew_at = None;
         self.rebind_at = None;

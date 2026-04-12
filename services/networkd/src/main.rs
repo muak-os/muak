@@ -20,7 +20,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let network_handle = start_network_supervisor().await?;
 
-    notifier.status("Discovering interfaces and acquiring DHCP", Health::Healthy)?;
+    notifier.status("Setting up network", Health::Healthy)?;
     network_handle.initialize_with_retry().await?;
 
     notifier.ready()?;

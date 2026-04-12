@@ -56,6 +56,7 @@ pub struct SlaacManager {
     mac: [u8; 6],
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
+    solicited: bool,
 
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
@@ -86,19 +87,28 @@ impl SlaacManager {
             mac,
             ifindex,
             socket,
+            solicited: false,
             address: None,
             router: None,
             dns_servers: Vec::new(),
         })
     }
 
-    /// Performs the initial RS/RA exchange and returns the `Configured` event.
-    pub async fn solicit(&mut self) -> Result<SlaacEvent> {
-        self.initial_solicitation().await
+    /// Performs the initial RS/RA solicitation on first call, then returns monitoring events.
+    pub async fn next_event(&mut self) -> SlaacEvent {
+        if !self.solicited {
+            self.solicited = true;
+            return match self.initial_solicitation().await {
+                Ok(event) => event,
+                Err(e) => SlaacEvent::Failed {
+                    reason: e.to_string(),
+                },
+            };
+        }
+        self.next_monitoring_event().await
     }
 
-    /// Returns the next monitoring event.
-    pub async fn next_event(&mut self) -> SlaacEvent {
+    async fn next_monitoring_event(&mut self) -> SlaacEvent {
         loop {
             let next_deadline = self.next_timer_deadline();
 

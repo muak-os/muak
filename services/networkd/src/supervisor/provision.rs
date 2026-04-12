@@ -8,6 +8,7 @@ use tokio::sync::oneshot;
 
 use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
+use crate::interface::state::InterfaceState;
 
 impl NetworkSupervisor {
     pub(super) async fn provision_interfaces(&mut self) {
@@ -141,6 +142,14 @@ impl NetworkSupervisor {
             .get(&port_iface_name)
             .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_name))?;
 
+        let mut state_rx = actor_handle.state_rx.clone();
+        wait_for_configured(&mut state_rx).await?;
+
+        let actor_handle = self
+            .interfaces
+            .get(&port_iface_name)
+            .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_name))?;
+
         let (reply_tx, reply_rx) = oneshot::channel();
         actor_handle
             .cmd_tx
@@ -156,6 +165,20 @@ impl NetworkSupervisor {
         self.spawn_interface_actor(bridge_snapshot);
 
         Ok(())
+    }
+}
+
+/// Waits until the interface actor reports `Configured`.
+async fn wait_for_configured(
+    rx: &mut tokio::sync::watch::Receiver<crate::interface::snapshot::InterfaceSnapshot>,
+) -> Result<()> {
+    loop {
+        if rx.borrow().state == InterfaceState::Configured {
+            return Ok(());
+        }
+        rx.changed()
+            .await
+            .map_err(|_| anyhow::anyhow!("interface actor dropped before reaching Configured"))?;
     }
 }
 

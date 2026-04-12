@@ -21,7 +21,7 @@ use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
-use crate::dhcp::DhcpLease;
+use crate::dhcp::{DhcpLease, DhcpManager, DhcpState};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 pub struct InterfaceActor {
@@ -30,6 +30,7 @@ pub struct InterfaceActor {
     cmd_rx: mpsc::Receiver<InterfaceCommand>,
     snapshot_tx: watch::Sender<InterfaceSnapshot>,
     dns: DnsState,
+    dhcp: Option<DhcpManager>,
     renew_at: Option<Pin<Box<Sleep>>>,
     rebind_at: Option<Pin<Box<Sleep>>>,
     expire_at: Option<Pin<Box<Sleep>>>,
@@ -54,6 +55,7 @@ impl InterfaceActor {
             cmd_rx,
             snapshot_tx,
             dns: DnsState::default(),
+            dhcp: None,
             renew_at: None,
             rebind_at: None,
             expire_at: None,
@@ -74,6 +76,12 @@ impl InterfaceActor {
                     let Some(cmd) = cmd else { break };
                     self.dispatch(cmd).await;
                 }
+                lease = dhcp_acquire(&mut self.dhcp) => {
+                    self.on_dhcp_acquired(lease).await;
+                }
+                event = slaac_next_event(&mut self.slaac) => {
+                    self.handle_slaac_event(event).await;
+                }
                 _ = poll_opt(&mut self.renew_at) => {
                     self.renew_lease().await;
                 }
@@ -85,9 +93,6 @@ impl InterfaceActor {
                         kmsg::warn!("DHCP re-acquire failed for {}: {}", self.snapshot.name, e);
                     }
                 }
-                event = slaac_next_event(&mut self.slaac) => {
-                    self.handle_slaac_event(event).await;
-                }
             }
         }
 
@@ -96,9 +101,7 @@ impl InterfaceActor {
 
     async fn dispatch(&mut self, cmd: InterfaceCommand) {
         match cmd {
-            InterfaceCommand::ConfigureDhcp => {
-                self.run_dhcp().await;
-            }
+            InterfaceCommand::ConfigureDhcp => self.start_dhcp(),
             InterfaceCommand::ConfigureStaticIpv4 {
                 index,
                 addresses,
@@ -116,37 +119,26 @@ impl InterfaceActor {
             } => {
                 let _ = reply.send(self.configure_bridge(&bridge_name, stp).await);
             }
-            InterfaceCommand::ConfigureSlaac => self.configure_slaac().await,
+            InterfaceCommand::ConfigureSlaac => self.start_slaac(),
             InterfaceCommand::LinkUp => self.on_link_up().await,
             InterfaceCommand::LinkDown => self.on_link_down(),
             InterfaceCommand::Shutdown => {
                 kmsg::info!("InterfaceActor shutting down for {}", self.snapshot.name);
+                self.dhcp = None;
                 self.cmd_rx.close();
             }
         }
     }
 
-    async fn configure_slaac(&mut self) {
+    /// Initialises a `SlaacManager`; solicitation runs cooperatively via the `select!` loop.
+    fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
         let mac = self.snapshot.mac;
-
-        kmsg::info!("Starting SLAAC on {}", iface);
-
         match SlaacManager::new(iface.clone(), mac) {
-            Ok(mut mgr) => match mgr.solicit().await {
-                Ok(event) => {
-                    self.handle_slaac_event(event).await;
-                    self.slaac = Some(mgr);
-                    kmsg::info!("SLAAC monitoring active on {}", iface);
-                }
-                Err(e) => {
-                    kmsg::warn!(
-                        "SLAAC solicitation failed on {}: {} (continuing with IPv4)",
-                        iface,
-                        e
-                    );
-                }
-            },
+            Ok(mgr) => {
+                kmsg::info!("Starting SLAAC on {}", iface);
+                self.slaac = Some(mgr);
+            }
             Err(e) => {
                 kmsg::info!(
                     "SLAAC unavailable on {}: {} (continuing with IPv4)",
@@ -207,17 +199,12 @@ impl InterfaceActor {
             return;
         }
         self.arm_lease_timers(&lease);
-        if let Err(e) = self.snapshot.transition(InterfaceState::Configured) {
-            kmsg::warn!(
-                "Interface {} state transition failed on link-up: {}",
-                self.snapshot.name,
-                e
-            );
-        }
+        self.set_state(InterfaceState::Configured);
     }
 
     fn on_link_down(&mut self) {
         self.snapshot.link = netlib::link::LinkStateKind::Down;
+        self.dhcp = None;
         self.disarm_lease_timers();
         if self.snapshot.state == InterfaceState::Configured
             && let Err(e) = self.snapshot.transition(InterfaceState::Degraded)
@@ -231,10 +218,45 @@ impl InterfaceActor {
         self.publish_snapshot();
     }
 
+    /// Initialises a `DhcpManager` and marks the interface as configuring.
+    fn start_dhcp(&mut self) {
+        self.set_state(InterfaceState::Configuring);
+        self.dhcp = Some(DhcpManager::new(
+            self.snapshot.name.to_string(),
+            self.snapshot.mac,
+        ));
+    }
+
+    /// Applies a freshly acquired DHCP lease and clears the in-progress manager.
+    async fn on_dhcp_acquired(&mut self, lease: DhcpLease) {
+        self.dhcp = None;
+        let index = self.snapshot.index;
+        if let Err(e) = self.apply_lease(index, &lease).await {
+            kmsg::warn!(
+                "Failed to apply DHCP lease on {}: {}",
+                self.snapshot.name,
+                e
+            );
+            self.set_state(InterfaceState::Failed);
+            return;
+        }
+        self.store_lease(&lease);
+        self.set_dhcp_state(DhcpState::Bound);
+        self.set_state(InterfaceState::Configured);
+        self.arm_lease_timers(&lease);
+        kmsg::info!(
+            "DHCP acquired on {}: {}",
+            self.snapshot.name,
+            lease.assigned_ip
+        );
+    }
+
     fn set_state(&mut self, state: InterfaceState) {
         if let Err(e) = self.snapshot.transition(state) {
             kmsg::warn!("{}", e);
+            return;
         }
+        self.publish_snapshot();
     }
 
     fn publish_snapshot(&self) {
@@ -269,6 +291,14 @@ async fn poll_opt(opt: &mut Option<Pin<Box<Sleep>>>) {
 async fn slaac_next_event(slaac: &mut Option<SlaacManager>) -> SlaacEvent {
     match slaac {
         Some(mgr) => mgr.next_event().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Drives a `DhcpManager` when `Some`, or parks forever when `None`.
+async fn dhcp_acquire(dhcp: &mut Option<DhcpManager>) -> DhcpLease {
+    match dhcp {
+        Some(mgr) => mgr.acquire().await,
         None => std::future::pending().await,
     }
 }

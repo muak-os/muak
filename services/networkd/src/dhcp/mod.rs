@@ -8,7 +8,10 @@ use crate::state_machine::StateMachine;
 
 pub mod client;
 pub(crate) mod codec;
+pub mod manager;
 pub(crate) mod packet;
+
+pub use manager::DhcpManager;
 
 /// RFC 2131 DHCP client state machine phases.
 #[derive(Debug, Clone, PartialEq)]
