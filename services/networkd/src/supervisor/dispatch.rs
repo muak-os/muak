@@ -27,6 +27,8 @@ impl NetworkSupervisor {
             .await;
         if self.is_primary_interface(&name) {
             self.handle_primary_recovery(&name);
+        } else if self.state.backups.contains(&name) {
+            self.handle_backup_recovery(&name);
         }
     }
 

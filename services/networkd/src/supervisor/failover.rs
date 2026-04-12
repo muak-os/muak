@@ -26,6 +26,29 @@ impl NetworkSupervisor {
         }
     }
 
+    /// Restores a recovered backup as primary if it was previously the primary.
+    pub(super) fn handle_backup_recovery(&mut self, recovered: &InterfaceName) {
+        let Some(current_primary) = self.state.primary.clone() else {
+            return;
+        };
+
+        kmsg::info!(
+            "Recovered interface {} restoring as primary (demoting {})",
+            recovered,
+            current_primary
+        );
+
+        self.state.backups.retain(|n| n != recovered);
+        self.state.backups.push(current_primary);
+        self.state.primary = Some(recovered.clone());
+
+        if let Err(e) = self.state.transition(NetworkState::Operational) {
+            kmsg::warn!("Unexpected state restoring primary {}: {}", recovered, e);
+        } else {
+            self.publish_state();
+        }
+    }
+
     pub(super) fn handle_primary_failure(&mut self, name: &InterfaceName) {
         kmsg::warn!("Primary interface {} failed", name);
         if let Err(e) = self.state.transition(NetworkState::Degraded) {
