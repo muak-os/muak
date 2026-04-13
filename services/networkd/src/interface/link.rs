@@ -1,9 +1,11 @@
 //! Link-state event handlers for a per-interface actor.
 
+use netlib::ops::NetlinkOps;
+
 use super::InterfaceActor;
 use crate::interface::state::InterfaceState;
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Handles a link-up event on this interface.
     pub(super) async fn on_link_up(&mut self) {
         self.snapshot.link = netlib::link::LinkStateKind::Up;

@@ -1,11 +1,13 @@
 //! Linux bridge management for virtual network switching.
 
+use std::future::Future;
 use std::net::Ipv4Addr;
 
 use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
 use thiserror::Error;
 
+use crate::ops::RtnetlinkOps;
 use crate::{address, link, retry, route};
 
 /// Number of attempts to check for bridge creation before giving up.
@@ -35,36 +37,6 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Creates or reconfigures a bridge, enslaves the physical interface, and transfers its IP.
-pub async fn ensure_with_config(
-    handle: &Handle,
-    bridge_name: &str,
-    physical_iface: &str,
-    gateway: Option<Ipv4Addr>,
-    stp: bool,
-) -> Result<()> {
-    let phys_index = link::get_index(handle, physical_iface).await?;
-    let br_index = create_or_reconfigure_bridge(handle, bridge_name, stp).await?;
-
-    enslave_interface_to_bridge(handle, phys_index, br_index, physical_iface, bridge_name).await?;
-    transfer_ip_to_bridge(handle, phys_index, br_index, bridge_name, gateway).await?;
-
-    Ok(())
-}
-
-/// Attaches a named interface to a named bridge.
-pub async fn attach(handle: &Handle, iface_name: &str, bridge_name: &str) -> Result<()> {
-    println!("Attaching {} to bridge {}", iface_name, bridge_name);
-
-    let iface_index = link::get_index(handle, iface_name).await?;
-    let bridge_index = link::get_index(handle, bridge_name).await?;
-
-    link::set_master(handle, iface_index, bridge_index).await?;
-
-    println!("{} attached to bridge {}", iface_name, bridge_name);
-    Ok(())
-}
 
 async fn create_or_reconfigure_bridge(
     handle: &Handle,
@@ -162,4 +134,54 @@ async fn transfer_ip_to_bridge(
     }
 
     Ok(())
+}
+
+/// Trait covering bridge netlink operations.
+pub trait BridgeOps: Clone + Send + Sync + 'static {
+    /// Creates a bridge with the given configuration and attaches a physical interface.
+    fn ensure_bridge(
+        &self,
+        bridge_name: &str,
+        physical_iface: &str,
+        gateway: Option<Ipv4Addr>,
+        stp: bool,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Attaches a named interface to a named bridge.
+    fn attach_to_bridge(
+        &self,
+        iface_name: &str,
+        bridge_name: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
+impl BridgeOps for RtnetlinkOps {
+    async fn ensure_bridge(
+        &self,
+        bridge_name: &str,
+        physical_iface: &str,
+        gateway: Option<Ipv4Addr>,
+        stp: bool,
+    ) -> Result<()> {
+        let phys_index = link::get_index(&self.handle, physical_iface).await?;
+        let br_index = create_or_reconfigure_bridge(&self.handle, bridge_name, stp).await?;
+        enslave_interface_to_bridge(
+            &self.handle,
+            phys_index,
+            br_index,
+            physical_iface,
+            bridge_name,
+        )
+        .await?;
+        transfer_ip_to_bridge(&self.handle, phys_index, br_index, bridge_name, gateway).await
+    }
+
+    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
+        println!("Attaching {} to bridge {}", iface_name, bridge_name);
+        let iface_index = link::get_index(&self.handle, iface_name).await?;
+        let bridge_index = link::get_index(&self.handle, bridge_name).await?;
+        link::set_master(&self.handle, iface_index, bridge_index).await?;
+        println!("{} attached to bridge {}", iface_name, bridge_name);
+        Ok(())
+    }
 }

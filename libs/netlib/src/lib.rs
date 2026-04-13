@@ -5,6 +5,8 @@ pub mod bridge;
 pub mod interface;
 pub mod link;
 pub mod mac;
+pub mod monitor;
+pub mod ops;
 pub mod retry;
 pub mod route;
 pub mod slaac;

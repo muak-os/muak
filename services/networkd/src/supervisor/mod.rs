@@ -5,7 +5,7 @@ mod discovery;
 mod dispatch;
 mod failover;
 mod provision;
-mod snapshot;
+pub mod snapshot;
 mod state;
 
 use std::collections::HashMap;
@@ -14,26 +14,26 @@ use std::sync::Arc;
 use anyhow::Result;
 pub use commands::SupervisorCommand;
 use netlib::interface::InterfaceName;
-use rtnetlink::Handle;
+use netlib::monitor::{self, NetworkEvent};
+use netlib::ops::{NetlinkOps, RtnetlinkOps};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::{InterfaceActor, InterfaceActorHandle, InterfaceCommand};
-use crate::monitor::{self, NetworkEvent};
 use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
-pub struct NetworkSupervisor {
-    handle: Handle,
+pub struct NetworkSupervisor<N: NetlinkOps> {
+    ops: N,
     state: NetworkSnapshot,
     interfaces: HashMap<InterfaceName, InterfaceActorHandle>,
     watch_tx: watch::Sender<NetworkSnapshot>,
 }
 
-impl NetworkSupervisor {
-    fn new(handle: Handle, watch_tx: watch::Sender<NetworkSnapshot>) -> Self {
+impl<N: NetlinkOps> NetworkSupervisor<N> {
+    fn new(ops: N, watch_tx: watch::Sender<NetworkSnapshot>) -> Self {
         Self {
-            handle,
+            ops,
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
             watch_tx,
@@ -62,7 +62,7 @@ impl NetworkSupervisor {
 
     fn spawn_interface_actor(&mut self, snapshot: InterfaceSnapshot) {
         let name = snapshot.name.clone();
-        let actor_handle = InterfaceActor::spawn(snapshot, self.handle.clone());
+        let actor_handle = InterfaceActor::spawn(snapshot, self.ops.clone());
         self.interfaces.insert(name, actor_handle);
     }
 
@@ -161,23 +161,33 @@ fn retry_delay(
     base.checked_mul(multiplier).unwrap_or(max).min(max)
 }
 
-pub async fn start_network_supervisor() -> Result<NetworkActorHandle> {
+/// Starts the network supervisor with rtnetlink backend.
+pub async fn start() -> Result<NetworkActorHandle> {
     let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
+    let ops = RtnetlinkOps::new(handle.clone());
+    let event_rx = start_events_monitor().await;
+
+    start_with(ops, event_rx)
+}
+
+/// Starts the supervisor with an injectable ops backend and event source.
+pub fn start_with<N: NetlinkOps>(
+    ops: N,
+    event_rx: Option<mpsc::Receiver<NetworkEvent>>,
+) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
-    let event_rx = start_events_monitor(handle.clone()).await;
-
-    run_supervisor(handle, cmd_rx, event_rx, watch_tx);
+    run(ops, cmd_rx, event_rx, watch_tx);
 
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
 
-async fn start_events_monitor(handle: Handle) -> Option<mpsc::Receiver<NetworkEvent>> {
+async fn start_events_monitor() -> Option<mpsc::Receiver<NetworkEvent>> {
     let config = monitor::MonitorConfig::default();
-    match monitor::start(handle, config).await {
+    match monitor::start(config).await {
         Ok(rx) => {
             println!("Network event monitoring enabled");
             Some(rx)
@@ -189,14 +199,14 @@ async fn start_events_monitor(handle: Handle) -> Option<mpsc::Receiver<NetworkEv
     }
 }
 
-fn run_supervisor(
-    handle: Handle,
+fn run<N: NetlinkOps>(
+    ops: N,
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     mut event_rx: Option<mpsc::Receiver<NetworkEvent>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
 ) {
     tokio::spawn(async move {
-        let mut supervisor = NetworkSupervisor::new(handle, watch_tx);
+        let mut supervisor = NetworkSupervisor::new(ops, watch_tx);
 
         loop {
             tokio::select! {

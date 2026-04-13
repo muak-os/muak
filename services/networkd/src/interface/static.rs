@@ -2,12 +2,12 @@
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
-use netlib::{address, route};
+use netlib::ops::NetlinkOps;
 
 use super::InterfaceActor;
 use crate::interface::state::InterfaceState;
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Applies static IPv4 configuration, logging a warning on failure.
     pub(super) async fn try_apply_static_ipv4(
         &mut self,
@@ -42,12 +42,14 @@ impl InterfaceActor {
         self.set_state(InterfaceState::Configuring);
 
         for cidr in addresses {
-            address::ensure_ipv4(&self.handle, index, cidr.address, cidr.prefix).await?;
+            self.ops
+                .ensure_ipv4(index, cidr.address, cidr.prefix)
+                .await?;
         }
 
         if let Some(gw) = gateway {
             kmsg::info!("Setting default route via {} on {}", gw, iface_name);
-            route::ensure_default_route(&self.handle, gw).await?;
+            self.ops.ensure_default_route(gw).await?;
         }
 
         let dns = config::network().ipv4_dns();
@@ -89,12 +91,14 @@ impl InterfaceActor {
         let iface_name = self.snapshot.name.to_string();
 
         for cidr in addresses {
-            address::ensure_ipv6(&self.handle, index, cidr.address, cidr.prefix).await?;
+            self.ops
+                .ensure_ipv6(index, cidr.address, cidr.prefix)
+                .await?;
         }
 
         if let Some(gw) = gateway {
             kmsg::info!("Setting IPv6 default route via {} on {}", gw, iface_name);
-            route::ensure_default_route_v6(&self.handle, gw).await?;
+            self.ops.ensure_default_route_v6(gw).await?;
         }
 
         let dns = config::network().ipv6_dns();

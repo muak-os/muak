@@ -2,14 +2,27 @@
 
 use std::collections::HashMap;
 
-use anyhow::Result;
-use netlib::interface::{InterfaceName, is_ethernet};
-use rtnetlink::Handle;
 use rtnetlink::packet_core::NetlinkPayload;
 use rtnetlink::packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
+use crate::interface::{InterfaceName, is_ethernet};
+use crate::link;
+use crate::mac;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("failed to create netlink connection: {0}")]
+    Connection(#[source] std::io::Error),
+    #[error("failed to enumerate links: {0}")]
+    List(#[source] rtnetlink::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// An event emitted by the network monitor when a link changes state.
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
 pub enum NetworkEvent {
@@ -32,6 +45,7 @@ pub enum NetworkEvent {
     },
 }
 
+/// Controls which categories of events the monitor emits.
 pub struct MonitorConfig {
     pub monitor_link_state: bool,
     pub monitor_link_changes: bool,
@@ -46,10 +60,11 @@ impl Default for MonitorConfig {
     }
 }
 
-pub async fn start(_handle: Handle, config: MonitorConfig) -> Result<mpsc::Receiver<NetworkEvent>> {
+/// Starts the network event monitor, returning a receiver of `NetworkEvent`s.
+pub async fn start(config: MonitorConfig) -> Result<mpsc::Receiver<NetworkEvent>> {
     let (tx, rx) = mpsc::channel(32);
-
-    let (connection, handle, mut messages) = rtnetlink::new_connection()?;
+    let (connection, handle, mut messages) =
+        rtnetlink::new_connection().map_err(Error::Connection)?;
 
     tokio::spawn(async move {
         let _ = connection.await;
@@ -59,11 +74,11 @@ pub async fn start(_handle: Handle, config: MonitorConfig) -> Result<mpsc::Recei
 
     tokio::spawn(async move {
         if let Err(e) = initial_scan(&handle, &mut link_states).await {
-            eprintln!("Initial interface scan failed: {}", e);
+            println!("Initial interface scan failed: {e}");
         }
 
         while let Some((message, _)) = messages.next().await {
-            process_netlink_message(message, &tx, &config, &mut link_states).await;
+            process_message(message, &tx, &config, &mut link_states).await;
         }
     });
 
@@ -71,7 +86,31 @@ pub async fn start(_handle: Handle, config: MonitorConfig) -> Result<mpsc::Recei
     Ok(rx)
 }
 
-async fn process_netlink_message(
+async fn initial_scan(
+    handle: &rtnetlink::Handle,
+    link_states: &mut HashMap<u32, (String, bool)>,
+) -> Result<()> {
+    let mut links = handle.link().get().execute();
+    while let Some(link_msg) = links.try_next().await.map_err(Error::List)? {
+        let Some((name, index, _)) = extract_link_info(&link_msg) else {
+            continue;
+        };
+        if !is_ethernet(&name) {
+            continue;
+        }
+        let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
+        let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
+        link_states.insert(index, (name.clone(), has_carrier));
+        println!(
+            "Initial state: {name} (index {index}) = admin:{} carrier:{}",
+            if is_admin_up { "up" } else { "down" },
+            if has_carrier { "yes" } else { "no" }
+        );
+    }
+    Ok(())
+}
+
+async fn process_message(
     message: rtnetlink::packet_core::NetlinkMessage<RouteNetlinkMessage>,
     tx: &mpsc::Sender<NetworkEvent>,
     config: &MonitorConfig,
@@ -81,32 +120,8 @@ async fn process_netlink_message(
         return;
     };
     if let Err(e) = handle_message(route_msg, tx, config, link_states).await {
-        eprintln!("Error handling netlink message: {}", e);
+        println!("Error handling netlink message: {e}");
     }
-}
-
-async fn initial_scan(
-    handle: &Handle,
-    link_states: &mut HashMap<u32, (String, bool)>,
-) -> Result<()> {
-    let mut links = handle.link().get().execute();
-    while let Some(link_msg) = links.try_next().await? {
-        if let Some((name, index, _)) = extract_link_info(&link_msg)
-            && is_ethernet(&name)
-        {
-            let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
-            let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
-            link_states.insert(index, (name.clone(), has_carrier));
-            println!(
-                "Initial state: {} (index {}) = admin:{} carrier:{}",
-                name,
-                index,
-                if is_admin_up { "up" } else { "down" },
-                if has_carrier { "yes" } else { "no" }
-            );
-        }
-    }
-    Ok(())
 }
 
 async fn handle_message(
@@ -133,9 +148,8 @@ async fn handle_message(
 
 fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
     let index = msg.header.index;
-    let name = netlib::link::extract_name(msg)?;
-    let mac = netlib::link::extract_mac(msg);
-
+    let name = link::extract_name(msg)?;
+    let mac = link::extract_mac(msg);
     Some((name, index, mac))
 }
 
@@ -159,18 +173,16 @@ async fn handle_new_link(
                 return Ok(());
             };
             if has_carrier {
-                println!("Carrier detected: {} (index {})", name, index);
+                println!("Carrier detected: {name} (index {index})");
                 let _ = tx.send(NetworkEvent::LinkUp { name, index }).await;
             } else {
-                println!("Carrier lost: {} (index {})", name, index);
+                println!("Carrier lost: {name} (index {index})");
                 let _ = tx.send(NetworkEvent::LinkDown { name, index }).await;
             }
             link_states.insert(index, (raw_name, has_carrier));
         }
         Some(_) => {}
-        None => {
-            emit_link_added(raw_name.clone(), index, mac, has_carrier, tx, link_states).await;
-        }
+        None => emit_link_added(raw_name, index, mac, has_carrier, tx, link_states).await,
     }
     Ok(())
 }
@@ -189,10 +201,8 @@ async fn emit_link_added(
             return;
         };
         println!(
-            "New link added: {} (index {}, MAC {})",
-            name,
-            index,
-            netlib::mac::format(&mac_addr)
+            "New link added: {name} (index {index}, MAC {})",
+            mac::format(&mac_addr)
         );
         let _ = tx
             .send(NetworkEvent::LinkAdded {
@@ -210,16 +220,17 @@ async fn handle_del_link(
     tx: &mpsc::Sender<NetworkEvent>,
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
-    if let Some((raw_name, index, _)) = extract_link_info(&msg) {
-        if !is_ethernet(&raw_name) {
-            return Ok(());
-        }
-        let Some(name) = InterfaceName::new(&raw_name).ok() else {
-            return Ok(());
-        };
-        println!("Link deleted: {} (index {})", name, index);
-        let _ = tx.send(NetworkEvent::LinkDeleted { name, index }).await;
-        link_states.remove(&index);
+    let Some((raw_name, index, _)) = extract_link_info(&msg) else {
+        return Ok(());
+    };
+    if !is_ethernet(&raw_name) {
+        return Ok(());
     }
+    let Some(name) = InterfaceName::new(&raw_name).ok() else {
+        return Ok(());
+    };
+    println!("Link deleted: {name} (index {index})");
+    let _ = tx.send(NetworkEvent::LinkDeleted { name, index }).await;
+    link_states.remove(&index);
     Ok(())
 }

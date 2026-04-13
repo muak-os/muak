@@ -2,6 +2,7 @@
 
 use std::borrow::Borrow;
 use std::fmt;
+use std::future::Future;
 use std::str::FromStr;
 
 use rtnetlink::Handle;
@@ -11,6 +12,7 @@ use tokio_stream::StreamExt;
 
 use crate::link::LinkStateKind;
 use crate::mac::format;
+use crate::ops::RtnetlinkOps;
 
 /// A validated Linux network interface name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -116,8 +118,19 @@ impl Interface {
     }
 }
 
-/// Discovers all physical ethernet interfaces via rtnetlink.
-pub async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
+/// Trait covering interface enumeration netlink operations.
+pub trait InterfaceOps: Clone + Send + Sync + 'static {
+    /// Lists all ethernet interfaces on the system.
+    fn discover_ethernet(&self) -> impl Future<Output = Result<Vec<Interface>>> + Send;
+}
+
+impl InterfaceOps for RtnetlinkOps {
+    async fn discover_ethernet(&self) -> Result<Vec<Interface>> {
+        discover_ethernet(&self.handle).await
+    }
+}
+
+async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
 

@@ -3,14 +3,14 @@
 use anyhow::Result;
 use config::{InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
 use netlib::interface::InterfaceName;
-use netlib::link;
+use netlib::ops::NetlinkOps;
 use tokio::sync::oneshot;
 
 use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
 use crate::interface::state::InterfaceState;
 
-impl NetworkSupervisor {
+impl<N: NetlinkOps> NetworkSupervisor<N> {
     pub(super) async fn provision_interfaces(&mut self) {
         let interfaces = config::network().interfaces.clone();
         for iface_cfg in &interfaces {
@@ -65,7 +65,7 @@ impl NetworkSupervisor {
             .ok_or_else(|| anyhow::anyhow!("ethernet interface '{}' not found", iface_name))?;
 
         kmsg::info!("Configuring ethernet interface: {}", iface_name);
-        let index = link::ensure_up(&self.handle, iface_name.as_str()).await?;
+        let index = self.ops.ensure_link_up(iface_name.as_str()).await?;
 
         match ipv4_cfg {
             Some(ipv4) if ipv4.dhcp => {

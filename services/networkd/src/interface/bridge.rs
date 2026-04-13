@@ -1,16 +1,16 @@
 //! Bridge provisioning logic for a per-interface actor.
 
 use anyhow::{Context, Result};
-use netlib::bridge;
 use netlib::interface::InterfaceName;
 use netlib::link::LinkStateKind;
+use netlib::ops::NetlinkOps;
 
 use super::InterfaceActor;
 use crate::dhcp::DhcpState;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.
     pub(super) async fn configure_bridge(
         &mut self,
@@ -27,12 +27,14 @@ impl InterfaceActor {
         let gateway = self.snapshot.ip.as_ref().and_then(|ip| ip.gateway);
 
         kmsg::info!("Setting up bridge {} with port {}", bridge_name, port_name);
-        bridge::ensure_with_config(&self.handle, bridge_name, &port_name, gateway, stp).await?;
+        self.ops
+            .ensure_bridge(bridge_name, &port_name, gateway, stp)
+            .await?;
         kmsg::info!("Bridge setup complete: {} <- {}", bridge_name, port_name);
 
         self.timers.disarm();
 
-        let index = netlib::link::get_index(&self.handle, bridge_name).await?;
+        let index = self.ops.get_link_index(bridge_name).await?;
         let ip = self.snapshot.ip.clone();
         let br_iface_name = InterfaceName::new(bridge_name)
             .with_context(|| format!("invalid bridge name: {bridge_name}"))?;

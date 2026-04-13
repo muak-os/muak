@@ -5,7 +5,7 @@ use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Opcode, Setter, ioctl};
 use thiserror::Error;
 
-use crate::{bridge, link};
+use crate::link;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IFF_TAP: i16 = 0x0002;
@@ -32,8 +32,6 @@ pub enum Error {
     IoctlSetPersist(#[source] rustix::io::Errno),
     #[error(transparent)]
     Link(#[from] link::Error),
-    #[error(transparent)]
-    Bridge(#[from] bridge::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -77,7 +75,9 @@ pub async fn setup_on_bridge(handle: &Handle, tap_name: &str, bridge_name: &str)
 
     link::bring_up(handle, index).await?;
 
-    bridge::attach(handle, tap_name, bridge_name).await?;
+    let bridge_index = link::get_index(handle, bridge_name).await?;
+    link::set_master(handle, index, bridge_index).await?;
+    println!("{} attached to bridge {}", tap_name, bridge_name);
 
     Ok(index)
 }

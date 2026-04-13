@@ -15,7 +15,7 @@ use std::pin::Pin;
 pub use commands::InterfaceCommand;
 use dhcp::LeaseTimers;
 use dns::DnsState;
-use rtnetlink::Handle;
+use netlib::ops::NetlinkOps;
 use snapshot::InterfaceSnapshot;
 use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
@@ -24,9 +24,9 @@ use tokio::time::Sleep;
 use crate::dhcp::{DhcpLease, DhcpManager};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
-pub struct InterfaceActor {
+pub struct InterfaceActor<N: NetlinkOps> {
     snapshot: InterfaceSnapshot,
-    handle: Handle,
+    ops: N,
     cmd_rx: mpsc::Receiver<InterfaceCommand>,
     snapshot_tx: watch::Sender<InterfaceSnapshot>,
     dns: DnsState,
@@ -41,15 +41,15 @@ pub struct InterfaceActorHandle {
     pub state_rx: watch::Receiver<InterfaceSnapshot>,
 }
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Spawns a new per-interface actor, returning the handle for the supervisor.
-    pub fn spawn(snapshot: InterfaceSnapshot, handle: Handle) -> InterfaceActorHandle {
+    pub fn spawn(snapshot: InterfaceSnapshot, ops: N) -> InterfaceActorHandle {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
         let (snapshot_tx, state_rx) = watch::channel(snapshot.clone());
 
         let actor = Self {
             snapshot,
-            handle,
+            ops,
             cmd_rx,
             snapshot_tx,
             dns: DnsState::default(),

@@ -3,12 +3,12 @@
 use std::net::Ipv6Addr;
 
 use netlib::address::Ipv6Config;
-use netlib::{address, route};
+use netlib::ops::NetlinkOps;
 
 use super::InterfaceActor;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Initialises a `SlaacManager`.
     pub(super) fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
@@ -88,7 +88,7 @@ impl InterfaceActor {
         kmsg::info!("IPv6 address expired: {}", address);
 
         let index = self.snapshot.index;
-        if let Err(e) = address::remove_ipv6(&self.handle, index, address).await {
+        if let Err(e) = self.ops.remove_ipv6(index, address).await {
             kmsg::warn!("Failed to remove expired IPv6 address: {}", e);
         }
         self.snapshot.ipv6 = None;
@@ -114,11 +114,13 @@ impl InterfaceActor {
         index: u32,
         ipv6: &Ipv6Config,
     ) -> anyhow::Result<()> {
-        address::ensure_ipv6(&self.handle, index, ipv6.address, ipv6.prefix_len).await?;
+        self.ops
+            .ensure_ipv6(index, ipv6.address, ipv6.prefix_len)
+            .await?;
 
         if let Some(gateway) = ipv6.gateway {
             kmsg::info!("Setting IPv6 default route via {}", gateway);
-            route::ensure_default_route_v6(&self.handle, gateway).await?;
+            self.ops.ensure_default_route_v6(gateway).await?;
         }
 
         if !ipv6.dns.is_empty() {
@@ -131,7 +133,7 @@ impl InterfaceActor {
 
     async fn on_slaac_router_expired(&mut self, router: Ipv6Addr) {
         kmsg::info!("IPv6 router expired: {}", router);
-        if let Err(e) = route::remove_default_route_v6(&self.handle, router).await {
+        if let Err(e) = self.ops.remove_default_route_v6(router).await {
             kmsg::warn!("Failed to remove IPv6 default route: {}", e);
         }
     }

@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use netlib::interface::{Interface, InterfaceSelector};
 use netlib::link::LinkStateKind;
+use netlib::ops::NetlinkOps;
 
 use super::NetworkSupervisor;
 use crate::interface::snapshot::InterfaceSnapshot;
@@ -14,13 +15,13 @@ use crate::supervisor::state::NetworkState;
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
 
-impl NetworkSupervisor {
+impl<N: NetlinkOps> NetworkSupervisor<N> {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
         kmsg::info!("Discovering ethernet interfaces");
         self.state.transition(NetworkState::Initializing)?;
         self.publish_state();
 
-        let mut discovered = netlib::interface::discover_ethernet(&self.handle).await?;
+        let mut discovered = self.ops.discover_ethernet().await?;
         if discovered.is_empty() {
             self.state.transition(NetworkState::Degraded)?;
             self.publish_state();
@@ -68,7 +69,7 @@ impl NetworkSupervisor {
             .map(|i| (i.index, i.name.to_string()))
             .collect();
 
-        netlib::link::probe_interfaces_for_carrier(&self.handle, &pairs, timeout).await
+        self.ops.probe_interfaces_for_carrier(&pairs, timeout).await
     }
 
     fn spawn_interface_actors(&mut self, discovered: &[Interface]) {

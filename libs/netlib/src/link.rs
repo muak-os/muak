@@ -1,6 +1,7 @@
 //! Network link operations and link state types.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::time::Duration;
 
 use rtnetlink::Handle;
@@ -8,6 +9,8 @@ use rtnetlink::LinkUnspec;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use thiserror::Error;
 use tokio_stream::StreamExt;
+
+use crate::ops::RtnetlinkOps;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -28,7 +31,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Finds a link by name, returning its full message or an error if not found.
-pub async fn find_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
+pub(crate) async fn find_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
 
     links
@@ -39,13 +42,13 @@ pub async fn find_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
 }
 
 /// Returns the kernel interface index for the named link.
-pub async fn get_index(handle: &Handle, name: &str) -> Result<u32> {
+pub(crate) async fn get_index(handle: &Handle, name: &str) -> Result<u32> {
     let link = find_by_name(handle, name).await?;
     Ok(link.header.index)
 }
 
 /// Checks whether a link with the given name exists.
-pub async fn exists(handle: &Handle, name: &str) -> Result<bool> {
+pub(crate) async fn exists(handle: &Handle, name: &str) -> Result<bool> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
 
     match links.try_next().await {
@@ -61,7 +64,7 @@ pub async fn exists(handle: &Handle, name: &str) -> Result<bool> {
 }
 
 /// Sets the IFF_UP flag on the link identified by index.
-pub async fn bring_up(handle: &Handle, index: u32) -> Result<()> {
+pub(crate) async fn bring_up(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
         .set(LinkUnspec::new_with_index(index).up().build())
@@ -71,7 +74,7 @@ pub async fn bring_up(handle: &Handle, index: u32) -> Result<()> {
 }
 
 /// Clears the IFF_UP flag on the link identified by index.
-pub async fn bring_down(handle: &Handle, index: u32) -> Result<()> {
+pub(crate) async fn bring_down(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
         .set(LinkUnspec::new_with_index(index).down().build())
@@ -80,21 +83,8 @@ pub async fn bring_down(handle: &Handle, index: u32) -> Result<()> {
         .map_err(Error::BringDown)
 }
 
-/// Ensures a named link is administratively up, returning its index.
-pub async fn ensure_up(handle: &Handle, name: &str) -> Result<u32> {
-    let link = find_by_name(handle, name).await?;
-    let index = link.header.index;
-
-    if !link.header.flags.contains(LinkFlags::Up) {
-        println!("Bringing up interface {} (index {})", name, index);
-        bring_up(handle, index).await?;
-    }
-
-    Ok(index)
-}
-
 /// Extracts the 6-byte hardware address from a link message, if present.
-pub fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
+pub(crate) fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
     for attr in &link.attributes {
         if let LinkAttribute::Address(addr) = attr
             && addr.len() == 6
@@ -108,7 +98,7 @@ pub fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
 }
 
 /// Sets the master (bridge/bond) for a slave link.
-pub async fn set_master(handle: &Handle, slave_index: u32, master_index: u32) -> Result<()> {
+pub(crate) async fn set_master(handle: &Handle, slave_index: u32, master_index: u32) -> Result<()> {
     handle
         .link()
         .set(
@@ -122,7 +112,7 @@ pub async fn set_master(handle: &Handle, slave_index: u32, master_index: u32) ->
 }
 
 /// Deletes a network link by its index.
-pub async fn delete(handle: &Handle, index: u32) -> Result<()> {
+pub(crate) async fn delete(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
         .del(index)
@@ -131,21 +121,176 @@ pub async fn delete(handle: &Handle, index: u32) -> Result<()> {
         .map_err(Error::Delete)
 }
 
-/// Returns carrier state (LowerUp flag) for every link on the system.
-pub async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool>> {
+async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool>> {
     let mut states = HashMap::new();
     let mut links = handle.link().get().execute();
-
     while let Some(link) = links.try_next().await.map_err(Error::Query)? {
-        let has_carrier = link.header.flags.contains(LinkFlags::LowerUp);
-        states.insert(link.header.index, has_carrier);
+        states.insert(
+            link.header.index,
+            link.header.flags.contains(LinkFlags::LowerUp),
+        );
     }
-
     Ok(states)
 }
 
-/// Brings up all listed interfaces and waits for carrier via RTM_NEWLINK events.
-pub async fn probe_interfaces_for_carrier(
+/// Copies initial carrier flags from a full system dump into the tracked states map.
+fn seed_carrier_states(
+    states: &mut HashMap<u32, bool>,
+    indices: &[u32],
+    initial: &HashMap<u32, bool>,
+) {
+    for &idx in indices {
+        if initial.get(&idx) == Some(&true) {
+            states.insert(idx, true);
+        }
+    }
+}
+
+fn log_carrier_detections(
+    interfaces: &[(u32, String)],
+    states: &HashMap<u32, bool>,
+    elapsed: Duration,
+) {
+    for (idx, name) in interfaces {
+        if states.get(idx) == Some(&true) {
+            println!("Carrier detected on {} after {:?}", name, elapsed);
+        }
+    }
+}
+
+/// Extracts the interface name from a link message, if present.
+pub(crate) fn extract_name(link: &LinkMessage) -> Option<String> {
+    for attr in &link.attributes {
+        if let LinkAttribute::IfName(name) = attr {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
+/// Administrative and carrier state of a network link.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkStateKind {
+    Up,
+    NoCarrier,
+    Down,
+}
+
+impl LinkStateKind {
+    /// Returns true when the link has an active carrier signal.
+    pub fn has_carrier(&self) -> bool {
+        *self == LinkStateKind::Up
+    }
+}
+
+impl std::fmt::Display for LinkStateKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LinkStateKind::Up => write!(f, "up"),
+            LinkStateKind::NoCarrier => write!(f, "no-carrier"),
+            LinkStateKind::Down => write!(f, "down"),
+        }
+    }
+}
+
+/// Trait covering all link-layer netlink operations.
+pub trait LinkOps: Clone + Send + Sync + 'static {
+    /// Returns whether a link with the given name exists.
+    fn link_exists(&self, name: &str) -> impl Future<Output = Result<bool>> + Send;
+
+    /// Returns the kernel interface index for a named link.
+    fn get_link_index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
+
+    /// Brings a named link up, returning its index.
+    fn ensure_link_up(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
+
+    /// Brings a link up by its index.
+    fn bring_link_up(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Brings a link down by its index.
+    fn bring_link_down(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Attaches a slave interface to a master (bridge) interface.
+    fn set_link_master(
+        &self,
+        slave_index: u32,
+        master_index: u32,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Deletes a link by its index.
+    fn delete_link(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Polls interfaces for carrier, returning a map of index to carrier-present.
+    fn probe_interfaces_for_carrier(
+        &self,
+        interfaces: &[(u32, String)],
+        timeout: Duration,
+    ) -> impl Future<Output = HashMap<u32, bool>> + Send;
+}
+
+impl LinkOps for RtnetlinkOps {
+    async fn link_exists(&self, name: &str) -> Result<bool> {
+        link_exists(&self.handle, name).await
+    }
+
+    async fn get_link_index(&self, name: &str) -> Result<u32> {
+        Ok(find_by_name(&self.handle, name).await?.header.index)
+    }
+
+    async fn ensure_link_up(&self, name: &str) -> Result<u32> {
+        ensure_link_up(&self.handle, name).await
+    }
+
+    async fn bring_link_up(&self, index: u32) -> Result<()> {
+        bring_up(&self.handle, index).await
+    }
+
+    async fn bring_link_down(&self, index: u32) -> Result<()> {
+        bring_down(&self.handle, index).await
+    }
+
+    async fn set_link_master(&self, slave_index: u32, master_index: u32) -> Result<()> {
+        set_master(&self.handle, slave_index, master_index).await
+    }
+
+    async fn delete_link(&self, index: u32) -> Result<()> {
+        delete(&self.handle, index).await
+    }
+
+    async fn probe_interfaces_for_carrier(
+        &self,
+        interfaces: &[(u32, String)],
+        timeout: Duration,
+    ) -> HashMap<u32, bool> {
+        probe_interfaces_for_carrier(&self.handle, interfaces, timeout).await
+    }
+}
+
+async fn link_exists(handle: &Handle, name: &str) -> Result<bool> {
+    let mut links = handle.link().get().match_name(name.to_string()).execute();
+    match links.try_next().await {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => Ok(false),
+        Err(rtnetlink::Error::NetlinkError(ref msg))
+            if msg.code.is_some_and(|c| matches!(c.get(), -19 | -2)) =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(Error::Query(e)),
+    }
+}
+
+async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
+    let link = find_by_name(handle, name).await?;
+    let index = link.header.index;
+    if !link.header.flags.contains(LinkFlags::Up) {
+        println!("Bringing up interface {} (index {})", name, index);
+        bring_up(handle, index).await?;
+    }
+    Ok(index)
+}
+
+async fn probe_interfaces_for_carrier(
     handle: &Handle,
     interfaces: &[(u32, String)],
     timeout: Duration,
@@ -222,66 +367,6 @@ pub async fn probe_interfaces_for_carrier(
     }
 
     states
-}
-
-/// Copies initial carrier flags from a full system dump into the tracked states map.
-fn seed_carrier_states(
-    states: &mut HashMap<u32, bool>,
-    indices: &[u32],
-    initial: &HashMap<u32, bool>,
-) {
-    for &idx in indices {
-        if initial.get(&idx) == Some(&true) {
-            states.insert(idx, true);
-        }
-    }
-}
-
-fn log_carrier_detections(
-    interfaces: &[(u32, String)],
-    states: &HashMap<u32, bool>,
-    elapsed: Duration,
-) {
-    for (idx, name) in interfaces {
-        if states.get(idx) == Some(&true) {
-            println!("Carrier detected on {} after {:?}", name, elapsed);
-        }
-    }
-}
-
-/// Extracts the interface name from a link message, if present.
-pub fn extract_name(link: &LinkMessage) -> Option<String> {
-    for attr in &link.attributes {
-        if let LinkAttribute::IfName(name) = attr {
-            return Some(name.clone());
-        }
-    }
-    None
-}
-
-/// Administrative and carrier state of a network link.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LinkStateKind {
-    Up,
-    NoCarrier,
-    Down,
-}
-
-impl LinkStateKind {
-    /// Returns true when the link has an active carrier signal.
-    pub fn has_carrier(&self) -> bool {
-        *self == LinkStateKind::Up
-    }
-}
-
-impl std::fmt::Display for LinkStateKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LinkStateKind::Up => write!(f, "up"),
-            LinkStateKind::NoCarrier => write!(f, "no-carrier"),
-            LinkStateKind::Down => write!(f, "down"),
-        }
-    }
 }
 
 #[cfg(test)]

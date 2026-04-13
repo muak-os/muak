@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use netlib::address::IpConfig;
-use netlib::{address, route};
+use netlib::ops::NetlinkOps;
 use tokio::time::Sleep;
 
 use super::InterfaceActor;
@@ -49,7 +49,7 @@ impl LeaseTimers {
     }
 }
 
-impl InterfaceActor {
+impl<N: NetlinkOps> InterfaceActor<N> {
     /// Initialises a `DhcpManager` and marks the interface as configuring.
     pub(super) fn start_dhcp(&mut self) {
         self.set_state(InterfaceState::Configuring);
@@ -191,11 +191,13 @@ impl InterfaceActor {
     /// Applies the network-level changes from a lease: address, route, and DNS.
     pub(super) async fn apply_lease(&mut self, index: u32, lease: &DhcpLease) -> Result<()> {
         let iface = self.snapshot.name.to_string();
-        address::ensure_ipv4(&self.handle, index, lease.assigned_ip, lease.prefix_len).await?;
+        self.ops
+            .ensure_ipv4(index, lease.assigned_ip, lease.prefix_len)
+            .await?;
 
         if let Some(gw) = lease.gateway {
             kmsg::info!("Setting default route via {}", gw);
-            route::ensure_default_route(&self.handle, gw).await?;
+            self.ops.ensure_default_route(gw).await?;
         } else {
             kmsg::info!(
                 "No gateway in DHCP lease on {}, skipping default route",
