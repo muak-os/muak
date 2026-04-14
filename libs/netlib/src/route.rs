@@ -24,52 +24,6 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Adds an IPv4 default route via the given gateway.
-pub(crate) async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
-    handle
-        .route()
-        .add(
-            RouteMessageBuilder::<Ipv4Addr>::new()
-                .gateway(gateway)
-                .build(),
-        )
-        .execute()
-        .await
-        .map_err(Error::AddDefaultRoute)
-}
-
-fn extract_ipv4_gateway(attrs: &[RouteAttribute]) -> (bool, Option<Ipv4Addr>) {
-    let mut has_nonzero_dest = false;
-    let mut gateway = None;
-    for attr in attrs {
-        if let RouteAttribute::Destination(RouteAddress::Inet(addr)) = attr
-            && !addr.is_unspecified()
-        {
-            has_nonzero_dest = true;
-        }
-        if let RouteAttribute::Gateway(RouteAddress::Inet(gw)) = attr {
-            gateway = Some(*gw);
-        }
-    }
-    (has_nonzero_dest, gateway)
-}
-
-fn extract_ipv6_gateway(attrs: &[RouteAttribute]) -> (bool, Option<Ipv6Addr>) {
-    let mut has_nonzero_dest = false;
-    let mut gateway = None;
-    for attr in attrs {
-        if let RouteAttribute::Destination(RouteAddress::Inet6(addr)) = attr
-            && !addr.is_unspecified()
-        {
-            has_nonzero_dest = true;
-        }
-        if let RouteAttribute::Gateway(RouteAddress::Inet6(gw)) = attr {
-            gateway = Some(*gw);
-        }
-    }
-    (has_nonzero_dest, gateway)
-}
-
 /// Trait covering all route-layer netlink operations.
 pub trait RouteOps: Clone + Send + Sync + 'static {
     /// Adds or confirms the default IPv4 route via a gateway.
@@ -96,6 +50,20 @@ impl RouteOps for RtnetlinkOps {
     async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> Result<()> {
         remove_default_route_v6(&self.handle, gateway).await
     }
+}
+
+/// Adds an IPv4 default route via the given gateway.
+pub(crate) async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
+    handle
+        .route()
+        .add(
+            RouteMessageBuilder::<Ipv4Addr>::new()
+                .gateway(gateway)
+                .build(),
+        )
+        .execute()
+        .await
+        .map_err(Error::AddDefaultRoute)
 }
 
 async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
@@ -156,4 +124,36 @@ async fn remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<(
         }
     }
     Ok(())
+}
+
+fn extract_ipv4_gateway(attrs: &[RouteAttribute]) -> (bool, Option<Ipv4Addr>) {
+    let mut has_nonzero_dest = false;
+    let mut gateway = None;
+    for attr in attrs {
+        if let RouteAttribute::Destination(RouteAddress::Inet(addr)) = attr
+            && !addr.is_unspecified()
+        {
+            has_nonzero_dest = true;
+        }
+        if let RouteAttribute::Gateway(RouteAddress::Inet(gw)) = attr {
+            gateway = Some(*gw);
+        }
+    }
+    (has_nonzero_dest, gateway)
+}
+
+fn extract_ipv6_gateway(attrs: &[RouteAttribute]) -> (bool, Option<Ipv6Addr>) {
+    let mut has_nonzero_dest = false;
+    let mut gateway = None;
+    for attr in attrs {
+        if let RouteAttribute::Destination(RouteAddress::Inet6(addr)) = attr
+            && !addr.is_unspecified()
+        {
+            has_nonzero_dest = true;
+        }
+        if let RouteAttribute::Gateway(RouteAddress::Inet6(gw)) = attr {
+            gateway = Some(*gw);
+        }
+    }
+    (has_nonzero_dest, gateway)
 }

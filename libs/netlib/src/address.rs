@@ -26,92 +26,6 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Finds the first non-link-local IPv4 address and prefix length on a given interface.
-pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
-    let mut addrs = handle.address().get().execute();
-
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
-        if addr.header.index != index {
-            continue;
-        }
-        if let Some(v4) = find_v4_in_attributes(&addr.attributes) {
-            return Ok(Some((v4, addr.header.prefix_len)));
-        }
-    }
-
-    Ok(None)
-}
-
-fn find_v4_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv4Addr> {
-    attributes.iter().find_map(|attr| match attr {
-        AddressAttribute::Address(IpAddr::V4(v4)) => Some(*v4),
-        _ => None,
-    })
-}
-
-/// Returns true if the interface has at least one IPv4 address assigned.
-pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
-    let mut addrs = handle.address().get().execute();
-
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
-        if addr.header.index != index {
-            continue;
-        }
-        let has_v4 = addr
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(_))));
-        if has_v4 {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-/// Adds an IPv4 address with prefix length to the given interface.
-pub(crate) async fn add_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
-    handle
-        .address()
-        .add(index, ip.into(), prefix)
-        .execute()
-        .await
-        .map_err(Error::AddIpv4)
-}
-
-/// Removes a specific IPv4 address from the given interface (no-op if absent).
-pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()> {
-    let mut addrs = handle.address().get().execute();
-
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
-        if addr.header.index != index {
-            continue;
-        }
-        let matches = addr
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(v4)) if *v4 == ip));
-        if matches {
-            handle
-                .address()
-                .del(addr)
-                .execute()
-                .await
-                .map_err(Error::RemoveIpv4)?;
-            return Ok(());
-        }
-    }
-
-    Ok(())
-}
-
-fn find_v6_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv6Addr> {
-    attributes.iter().find_map(|attr| match attr {
-        AddressAttribute::Address(IpAddr::V6(v6)) => Some(*v6),
-        _ => None,
-    })
-}
-
 /// IPv4 address configuration acquired via DHCP or static assignment.
 #[derive(Debug, Clone)]
 pub struct IpConfig {
@@ -199,6 +113,78 @@ impl AddressOps for RtnetlinkOps {
     }
 }
 
+/// Finds the first non-link-local IPv4 address and prefix length on a given interface.
+pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+        if addr.header.index != index {
+            continue;
+        }
+        if let Some(v4) = find_v4_in_attributes(&addr.attributes) {
+            return Ok(Some((v4, addr.header.prefix_len)));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Returns true if the interface has at least one IPv4 address assigned.
+pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+        if addr.header.index != index {
+            continue;
+        }
+        let has_v4 = addr
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(_))));
+        if has_v4 {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+/// Adds an IPv4 address with prefix length to the given interface.
+pub(crate) async fn add_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
+    handle
+        .address()
+        .add(index, ip.into(), prefix)
+        .execute()
+        .await
+        .map_err(Error::AddIpv4)
+}
+
+/// Removes a specific IPv4 address from the given interface (no-op if absent).
+pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()> {
+    let mut addrs = handle.address().get().execute();
+
+    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+        if addr.header.index != index {
+            continue;
+        }
+        let matches = addr
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, AddressAttribute::Address(IpAddr::V4(v4)) if *v4 == ip));
+        if matches {
+            handle
+                .address()
+                .del(addr)
+                .execute()
+                .await
+                .map_err(Error::RemoveIpv4)?;
+            return Ok(());
+        }
+    }
+
+    Ok(())
+}
+
 /// Adds an IPv4 address only if it is not already present with the same prefix.
 async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
     if let Some((existing_ip, existing_prefix)) = find_ipv4(handle, index).await?
@@ -258,4 +244,18 @@ async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn find_v4_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv4Addr> {
+    attributes.iter().find_map(|attr| match attr {
+        AddressAttribute::Address(IpAddr::V4(v4)) => Some(*v4),
+        _ => None,
+    })
+}
+
+fn find_v6_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv6Addr> {
+    attributes.iter().find_map(|attr| match attr {
+        AddressAttribute::Address(IpAddr::V6(v6)) => Some(*v6),
+        _ => None,
+    })
 }
