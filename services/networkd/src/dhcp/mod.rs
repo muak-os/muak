@@ -4,7 +4,7 @@ use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime};
 
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 
 pub mod client;
 pub(crate) mod codec;
@@ -70,7 +70,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use super::*;
-    use crate::state_machine::StateMachine;
+    use crate::statemachine::StateMachine;
 
     fn make_lease(obtained_at: SystemTime, lease_secs: u64) -> DhcpLease {
         DhcpLease {

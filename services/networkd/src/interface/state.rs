@@ -1,6 +1,6 @@
 //! Life cycle state machine for a single network interface.
 
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 
 /// Tracks the provisioning stage of one network interface.
 #[derive(Debug, Clone, PartialEq)]

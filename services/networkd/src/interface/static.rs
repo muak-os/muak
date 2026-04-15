@@ -52,7 +52,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             self.ops.ensure_default_route(gw).await?;
         }
 
-        let dns = config::network().ipv4_dns();
+        let dns = self.config.ipv4_dns();
         if !dns.is_empty() {
             self.dns.update_v4(dns.clone())?;
         }
@@ -101,7 +101,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             self.ops.ensure_default_route_v6(gw).await?;
         }
 
-        let dns = config::network().ipv6_dns();
+        let dns = self.config.ipv6_dns();
         if !dns.is_empty() {
             self.dns.update_v6(dns.clone())?;
         }

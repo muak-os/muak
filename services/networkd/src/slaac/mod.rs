@@ -3,7 +3,6 @@
 mod manager;
 mod state;
 
-use std::net::Ipv6Addr;
 use std::os::fd::{AsFd, AsRawFd};
 
 use anyhow::{Result, bail};
@@ -11,11 +10,6 @@ pub use manager::{SlaacEvent, SlaacManager};
 pub(crate) use netlib::slaac::icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
 pub(crate) const ICMP6_FILTER: libc::c_int = 1;
-
-/// Returns the configured IPv6 fallback DNS servers from the config, filtering for IPv6 addresses.
-pub(crate) fn fallback_dns_v6() -> Vec<Ipv6Addr> {
-    config::network().ipv6_dns()
-}
 
 #[repr(C)]
 pub(crate) struct Icmp6Filter {
@@ -50,28 +44,9 @@ pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
+    use std::os::fd::BorrowedFd;
 
     use super::*;
-
-    #[test]
-    fn fallback_dns_v6_filter_rejects_ipv4() {
-        // ARRANGE / ACT
-        let addrs: Vec<Ipv6Addr> = ["9.9.9.9", "2620:fe::fe", "2620:fe::9"]
-            .iter()
-            .filter_map(|s| match s.parse::<IpAddr>() {
-                Ok(IpAddr::V6(a)) => Some(a),
-                _ => None,
-            })
-            .collect();
-
-        // ASSERT
-        assert_eq!(addrs.len(), 2);
-        for addr in &addrs {
-            assert!(!addr.is_unspecified());
-            assert!(!addr.is_loopback());
-        }
-    }
 
     #[test]
     fn create_icmpv6_filter_passes_ra() {
@@ -115,5 +90,21 @@ mod tests {
 
         // ASSERT
         assert_eq!(pass_count, 1, "only RA type should pass");
+    }
+
+    #[test]
+    fn set_icmpv6_filter_fails_on_invalid_fd() {
+        // ARRANGE
+        let filter = create_icmpv6_filter();
+
+        // ACT
+        // SAFETY: fd 9999 is virtually guaranteed to be invalid (EBADF)
+        let result = unsafe {
+            let bad_fd = BorrowedFd::borrow_raw(9999);
+            set_icmpv6_filter(bad_fd, &filter)
+        };
+
+        // ASSERT
+        assert!(result.is_err(), "should fail with invalid fd");
     }
 }

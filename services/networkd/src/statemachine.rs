@@ -127,4 +127,18 @@ mod tests {
         // ASSERT
         assert_eq!(state, TestState::A);
     }
+
+    #[test]
+    fn invalid_transition_implements_std_error() {
+        // ARRANGE
+        let mut state = TestState::A;
+        let err = state.transition(TestState::C).unwrap_err();
+
+        // ACT
+        let dyn_err: &dyn std::error::Error = &err;
+
+        // ASSERT
+        assert!(dyn_err.source().is_none());
+        assert_eq!(dyn_err.to_string(), "invalid state transition: A -> C");
+    }
 }

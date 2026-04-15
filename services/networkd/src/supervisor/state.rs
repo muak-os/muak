@@ -1,6 +1,6 @@
 //! Global network readiness state machine for the supervisor.
 
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 
 /// Status of the entire network subsystem.
 #[derive(Debug, Clone, PartialEq)]

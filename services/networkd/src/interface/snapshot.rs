@@ -7,7 +7,7 @@ use netlib::link::LinkStateKind;
 
 use crate::dhcp::{DhcpLease, DhcpState};
 use crate::interface::state::InterfaceState;
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 
 /// Point-in-time view of one interface's configuration and link status.
 #[derive(Debug, Clone)]

@@ -290,4 +290,35 @@ mod tests {
         assert_eq!(AddressState::Deprecated, AddressState::Deprecated);
         assert_ne!(AddressState::Preferred, AddressState::Deprecated);
     }
+
+    #[test]
+    fn refresh_lifetimes_clamps_to_two_hours_when_remaining_exceeds() {
+        // ARRANGE
+        let mut addr = make_address(86400, 86400);
+        let before_valid = addr.valid_until;
+
+        // ACT
+        addr.refresh_lifetimes(100, 100);
+
+        // ASSERT
+        assert!(addr.valid_until < before_valid);
+        let two_hours = std::time::Duration::from_secs(2 * 60 * 60);
+        let margin = std::time::Duration::from_secs(5);
+        let now = Instant::now();
+        assert!(addr.valid_until <= now + two_hours + margin);
+        assert!(addr.valid_until >= now + two_hours - margin);
+    }
+
+    #[test]
+    fn refresh_lifetimes_leaves_valid_unchanged_when_within_two_hours() {
+        // ARRANGE
+        let mut addr = make_address(3600, 3600);
+        let before_valid = addr.valid_until;
+
+        // ACT
+        addr.refresh_lifetimes(100, 100);
+
+        // ASSERT
+        assert_eq!(addr.valid_until, before_valid);
+    }
 }

@@ -1,7 +1,9 @@
 //! Applies declarative interface configuration from the config file via interface actors.
 
 use anyhow::Result;
-use config::{InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
+use config::{
+    BridgeConfig, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
+};
 use netlib::interface::InterfaceName;
 use netlib::ops::NetlinkOps;
 use tokio::sync::oneshot;
@@ -12,22 +14,19 @@ use crate::interface::state::InterfaceState;
 
 impl<N: NetlinkOps> NetworkSupervisor<N> {
     pub(super) async fn provision_interfaces(&mut self) {
-        let interfaces = config::network().interfaces.clone();
+        let interfaces = self.config.interfaces.clone();
         for iface_cfg in &interfaces {
             self.try_provision_interface(iface_cfg).await;
         }
     }
 
-    async fn try_provision_interface(&mut self, iface_cfg: &config::InterfaceConfig) {
+    async fn try_provision_interface(&mut self, iface_cfg: &InterfaceConfig) {
         if let Err(e) = self.provision_interface_from_config(iface_cfg).await {
             kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
         }
     }
 
-    async fn provision_interface_from_config(
-        &mut self,
-        iface_cfg: &config::InterfaceConfig,
-    ) -> Result<()> {
+    async fn provision_interface_from_config(&mut self, iface_cfg: &InterfaceConfig) -> Result<()> {
         match iface_cfg.kind {
             InterfaceKind::Bridge => {
                 let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
@@ -117,7 +116,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
                 })
                 .await
                 .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
-        } else if ipv6.autoconf && config::network().ipv6 {
+        } else if ipv6.autoconf && self.config.ipv6 {
             actor_handle
                 .cmd_tx
                 .send(InterfaceCommand::ConfigureSlaac)
@@ -131,7 +130,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     async fn provision_bridge(
         &mut self,
         bridge_name: &str,
-        bridge_cfg: &config::BridgeConfig,
+        bridge_cfg: &BridgeConfig,
     ) -> Result<()> {
         let primary = self.get_primary_name()?;
         let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);

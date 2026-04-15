@@ -25,15 +25,21 @@ use crate::supervisor::state::NetworkState;
 
 pub struct NetworkSupervisor<N: NetlinkOps> {
     ops: N,
+    config: Arc<config::NetworkConfig>,
     state: NetworkSnapshot,
     interfaces: HashMap<InterfaceName, InterfaceActorHandle>,
     watch_tx: watch::Sender<NetworkSnapshot>,
 }
 
 impl<N: NetlinkOps> NetworkSupervisor<N> {
-    fn new(ops: N, watch_tx: watch::Sender<NetworkSnapshot>) -> Self {
+    fn new(
+        ops: N,
+        config: Arc<config::NetworkConfig>,
+        watch_tx: watch::Sender<NetworkSnapshot>,
+    ) -> Self {
         Self {
             ops,
+            config,
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
             watch_tx,
@@ -62,7 +68,8 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
     fn spawn_interface_actor(&mut self, snapshot: InterfaceSnapshot) {
         let name = snapshot.name.clone();
-        let actor_handle = InterfaceActor::spawn(snapshot, self.ops.clone());
+        let actor_handle =
+            InterfaceActor::spawn(snapshot, self.ops.clone(), Arc::clone(&self.config));
         self.interfaces.insert(name, actor_handle);
     }
 
@@ -168,19 +175,21 @@ pub async fn start() -> Result<NetworkActorHandle> {
 
     let ops = RtnetlinkOps::new(handle.clone());
     let event_rx = start_events_monitor().await;
+    let config = Arc::new(config::network().clone());
 
-    start_with(ops, event_rx)
+    start_with(ops, event_rx, config)
 }
 
-/// Starts the supervisor with an injectable ops backend and event source.
+/// Starts the supervisor with an injectable ops backend.
 pub fn start_with<N: NetlinkOps>(
     ops: N,
     event_rx: Option<mpsc::Receiver<NetworkEvent>>,
+    config: Arc<config::NetworkConfig>,
 ) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
-    run(ops, cmd_rx, event_rx, watch_tx);
+    run(ops, cmd_rx, event_rx, watch_tx, config);
 
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
@@ -204,9 +213,10 @@ fn run<N: NetlinkOps>(
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     mut event_rx: Option<mpsc::Receiver<NetworkEvent>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
+    config: Arc<config::NetworkConfig>,
 ) {
     tokio::spawn(async move {
-        let mut supervisor = NetworkSupervisor::new(ops, watch_tx);
+        let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx);
 
         loop {
             tokio::select! {

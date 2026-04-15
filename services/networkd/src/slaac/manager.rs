@@ -2,6 +2,7 @@
 
 use std::net::Ipv6Addr;
 use std::os::fd::OwnedFd;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -21,7 +22,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::time::Instant;
 
 use super::state::{AddressState, ManagedAddress, ManagedDns, ManagedRouter};
-use super::{create_icmpv6_filter, fallback_dns_v6, set_icmpv6_filter};
+use super::{create_icmpv6_filter, set_icmpv6_filter};
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 const MAX_RTR_SOLICITATIONS: u32 = 3;
@@ -57,6 +58,7 @@ pub struct SlaacManager {
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
     solicited: bool,
+    config: Arc<config::NetworkConfig>,
 
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
@@ -65,7 +67,11 @@ pub struct SlaacManager {
 
 #[allow(clippy::excessive_nesting)]
 impl SlaacManager {
-    pub fn new(interface: String, mac: [u8; 6]) -> Result<Self> {
+    pub fn new(
+        interface: String,
+        mac: [u8; 6],
+        config: Arc<config::NetworkConfig>,
+    ) -> Result<Self> {
         let socket_fd = socket_with(
             AddressFamily::INET6,
             SocketType::RAW,
@@ -88,6 +94,7 @@ impl SlaacManager {
             ifindex,
             socket,
             solicited: false,
+            config,
             address: None,
             router: None,
             dns_servers: Vec::new(),
@@ -191,7 +198,8 @@ impl SlaacManager {
                 "SLAAC: no RDNSS in RA on {}, using fallback DNS",
                 self.interface
             );
-            fallback_dns_v6()
+            self.config
+                .ipv6_dns()
                 .into_iter()
                 .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect()
@@ -280,7 +288,9 @@ impl SlaacManager {
                 "SLAAC: all RDNSS expired on {}, using fallback",
                 self.interface
             );
-            self.dns_servers = fallback_dns_v6()
+            self.dns_servers = self
+                .config
+                .ipv6_dns()
                 .into_iter()
                 .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect();

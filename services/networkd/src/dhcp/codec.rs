@@ -163,8 +163,8 @@ pub(crate) fn build_lease_from_ack(
 
 #[cfg(test)]
 mod tests {
-    use super::super::packet::{build_header, field, message_type, option};
     use super::*;
+    use crate::dhcp::packet::build_header;
 
     fn make_minimal_packet(xid_val: u32, yiaddr_val: Ipv4Addr) -> Vec<u8> {
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
@@ -317,6 +317,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_options_truncated_length_field() {
+        // ARRANGE
+        let data = [option::ROUTER];
+
+        // ACT
+        let opts = parse_options(&data);
+
+        // ASSERT
+        assert!(opts.router.is_none());
+    }
+
+    #[test]
+    fn parse_options_unknown_option_code_skipped() {
+        // ARRANGE
+        let data = [
+            99,
+            1,
+            0x00,
+            option::MESSAGE_TYPE,
+            1,
+            message_type::OFFER,
+            option::END,
+        ];
+
+        // ACT
+        let opts = parse_options(&data);
+
+        // ASSERT
+        assert_eq!(opts.message_type, Some(message_type::OFFER));
+    }
+
+    #[test]
     fn parse_options_all_fields() {
         // ARRANGE
         let mut data = Vec::new();
@@ -432,7 +464,7 @@ mod tests {
         // ACT
         let xid = generate_xid().expect("should generate xid");
 
-        // ASSERT (can't check randomness, but ensure it doesn't fail)
+        // ASSERT
         let _ = xid;
     }
 
@@ -442,7 +474,7 @@ mod tests {
         let a = generate_xid().expect("xid a");
         let b = generate_xid().expect("xid b");
 
-        // ASSERT (extremely unlikely to collide for 32-bit random)
+        // ASSERT
         assert_ne!(a, b);
     }
 

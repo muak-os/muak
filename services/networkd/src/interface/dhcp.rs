@@ -13,7 +13,7 @@ use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client
 use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{DhcpLease, DhcpManager, DhcpState};
 use crate::interface::state::InterfaceState;
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 
 /// Holds the three timers handles that drive the DHCP renewal state machine.
 pub(super) struct LeaseTimers {
@@ -206,7 +206,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         let dns = if lease.dns_servers.is_empty() {
-            config::network().ipv4_dns()
+            self.config.ipv4_dns()
         } else {
             lease.dns_servers.clone()
         };

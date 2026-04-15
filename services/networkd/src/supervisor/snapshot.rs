@@ -6,7 +6,7 @@ use anyhow::Result;
 use netlib::interface::InterfaceName;
 
 use crate::interface::snapshot::InterfaceSnapshot;
-use crate::state_machine::StateMachine;
+use crate::statemachine::StateMachine;
 use crate::supervisor::state::NetworkState;
 
 /// Point-in-time view of the entire network subsystem.

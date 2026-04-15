@@ -1,6 +1,7 @@
 //! SLAAC event handling for a per-interface actor.
 
 use std::net::Ipv6Addr;
+use std::sync::Arc;
 
 use netlib::address::Ipv6Config;
 use netlib::ops::NetlinkOps;
@@ -13,7 +14,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
     pub(super) fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
         let mac = self.snapshot.mac;
-        match SlaacManager::new(iface.clone(), mac) {
+        match SlaacManager::new(iface.clone(), mac, Arc::clone(&self.config)) {
             Ok(mgr) => {
                 kmsg::info!("Starting SLAAC on {}", iface);
                 self.slaac = Some(mgr);
