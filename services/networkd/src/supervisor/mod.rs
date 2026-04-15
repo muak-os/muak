@@ -9,6 +9,7 @@ mod snapshot;
 mod state;
 
 use std::collections::HashMap;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -57,11 +58,12 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
     /// Synchronizes the aggregated state from all interfaces and publishes it.
     fn sync_and_publish(&mut self) {
-        self.state.interfaces = self
-            .interfaces
-            .values()
-            .map(|h| Arc::clone(&h.state_rx.borrow()))
-            .collect();
+        self.state.interfaces.clear();
+        self.state.interfaces.extend(
+            self.interfaces
+                .values()
+                .map(|h| Arc::clone(&h.state_rx.borrow())),
+        );
         self.flush_dns();
         self.publish_state();
     }
@@ -74,26 +76,29 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         let Some(handle) = self.interfaces.get(primary) else {
             return;
         };
-        let snap = handle.state_rx.borrow();
+        let (v4, v6) = self.collect_dns(handle);
+        if self.dns.is_unchanged(&v4, &v6) {
+            return;
+        }
+        self.apply_dns(v4, v6);
+    }
 
+    fn collect_dns(&self, handle: &InterfaceActorHandle) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+        let snap = handle.state_rx.borrow();
         let v4 = snap
             .ip
             .as_ref()
             .filter(|c| !c.dns.is_empty())
-            .map(|c| c.dns.clone())
-            .unwrap_or_else(|| self.config.ipv4_dns().collect());
-
+            .map_or_else(|| self.config.ipv4_dns().collect(), |c| c.dns.clone());
         let v6 = snap
             .ipv6
             .as_ref()
             .filter(|c| !c.dns.is_empty())
-            .map(|c| c.dns.clone())
-            .unwrap_or_else(|| self.config.ipv6_dns().collect());
+            .map_or_else(|| self.config.ipv6_dns().collect(), |c| c.dns.clone());
+        (v4, v6)
+    }
 
-        if self.dns.is_unchanged(&v4, &v6) {
-            return;
-        }
-
+    fn apply_dns(&mut self, v4: Vec<Ipv4Addr>, v6: Vec<Ipv6Addr>) {
         if let Err(e) = self.dns.update(v4, v6) {
             kmsg::warn!("Failed to write DNS: {}", e);
         }

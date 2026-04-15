@@ -40,7 +40,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         addresses: &[config::Cidr4],
         gateway: Option<Ipv4Addr>,
     ) -> Result<()> {
-        let iface_name = self.snapshot.name.to_string();
         self.set_state(InterfaceState::Configuring);
 
         for cidr in addresses {
@@ -50,7 +49,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         if let Some(gw) = gateway {
-            kmsg::info!("Setting default route via {} on {}", gw, iface_name);
+            kmsg::info!("Setting default route via {} on {}", gw, self.snapshot.name);
             self.ops.ensure_default_route(gw).await?;
         }
 
@@ -69,7 +68,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         self.set_state(InterfaceState::Configured);
         kmsg::info!(
             "Static IPv4 configured on {}: {}",
-            iface_name,
+            self.snapshot.name,
             addresses
                 .iter()
                 .map(|c| c.to_string())
@@ -85,8 +84,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         addresses: &[config::Cidr6],
         gateway: Option<Ipv6Addr>,
     ) -> Result<()> {
-        let iface_name = self.snapshot.name.to_string();
-
         for cidr in addresses {
             self.ops
                 .ensure_ipv6(index, cidr.address, cidr.prefix)
@@ -94,7 +91,11 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         if let Some(gw) = gateway {
-            kmsg::info!("Setting IPv6 default route via {} on {}", gw, iface_name);
+            kmsg::info!(
+                "Setting IPv6 default route via {} on {}",
+                gw,
+                self.snapshot.name
+            );
             self.ops.ensure_default_route_v6(gw).await?;
         }
 
@@ -114,7 +115,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
         kmsg::info!(
             "Static IPv6 configured on {}: {}",
-            iface_name,
+            self.snapshot.name,
             addresses
                 .iter()
                 .map(|c| c.to_string())

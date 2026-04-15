@@ -40,23 +40,13 @@ impl DhcpManager {
 
     /// Runs DORA with backoff, resolving only once a lease is successfully acquired.
     pub async fn acquire(&mut self) -> DhcpLease {
-        acquire_with_backoff(&self.socket, &self.mac, &mut self.delay).await
-    }
-}
-
-async fn acquire_with_backoff(
-    socket: &UdpSocket,
-    mac: &[u8; 6],
-    delay: &mut Duration,
-) -> DhcpLease {
-    loop {
-        match run_dhcp_client(socket, mac).await {
-            Ok(lease) => return lease,
-            Err(e) => {
-                kmsg::warn!("DHCP failed: {}; retrying in {}s", e, delay.as_secs());
-                tokio::time::sleep(*delay).await;
-                *delay = (*delay * 2).min(RETRY_MAX);
+        loop {
+            match run_dhcp_client(&self.socket, &self.mac).await {
+                Ok(lease) => return lease,
+                Err(e) => kmsg::warn!("DHCP failed: {}; retrying in {}s", e, self.delay.as_secs()),
             }
+            tokio::time::sleep(self.delay).await;
+            self.delay = (self.delay * 2).min(RETRY_MAX);
         }
     }
 }

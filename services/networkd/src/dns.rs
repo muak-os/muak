@@ -15,24 +15,24 @@ pub struct DnsState {
     pub v4: Vec<Ipv4Addr>,
     pub v6: Vec<Ipv6Addr>,
     pub resolv_conf: PathBuf,
+    tmp_path: PathBuf,
 }
 
 impl Default for DnsState {
     fn default() -> Self {
-        Self {
-            v4: Vec::new(),
-            v6: Vec::new(),
-            resolv_conf: PathBuf::from(RESOLV_CONF_PATH),
-        }
+        Self::with_path(PathBuf::from(RESOLV_CONF_PATH))
     }
 }
 
 impl DnsState {
     /// Creates a `DnsState` that writes to `path` instead of the default.
     pub fn with_path(path: PathBuf) -> Self {
+        let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         Self {
+            v4: Vec::new(),
+            v6: Vec::new(),
             resolv_conf: path,
-            ..Self::default()
+            tmp_path,
         }
     }
 
@@ -45,12 +45,17 @@ impl DnsState {
     pub fn update(&mut self, v4: Vec<Ipv4Addr>, v6: Vec<Ipv6Addr>) -> Result<()> {
         self.v4 = v4;
         self.v6 = v6;
-        write_resolv_conf(&self.resolv_conf, &self.v4, &self.v6)
+        write_resolv_conf(&self.resolv_conf, &self.tmp_path, &self.v4, &self.v6)
     }
 }
 
 /// Atomically writes all known nameservers (V4 and V6).
-pub fn write_resolv_conf(path: &Path, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> Result<()> {
+pub fn write_resolv_conf(
+    path: &Path,
+    tmp_path: &Path,
+    v4: &[Ipv4Addr],
+    v6: &[Ipv6Addr],
+) -> Result<()> {
     if v4.is_empty() && v6.is_empty() {
         println!("No DNS servers to configure");
         return Ok(());
@@ -66,9 +71,8 @@ pub fn write_resolv_conf(path: &Path, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> Resul
         println!("DNS: nameserver {}", ns);
     }
 
-    let tmp_path = format!("{}.tmp", path.display());
-    fs::write(&tmp_path, &content)?;
-    fs::rename(&tmp_path, path)?;
+    fs::write(tmp_path, &content)?;
+    fs::rename(tmp_path, path)?;
 
     println!(
         "DNS configuration written to {} ({} v4, {} v6)",
@@ -129,7 +133,9 @@ mod tests {
     #[test]
     fn write_resolv_conf_skips_when_both_empty() {
         // ACT
-        let result = write_resolv_conf(Path::new(RESOLV_CONF_PATH), &[], &[]);
+        let path = Path::new(RESOLV_CONF_PATH);
+        let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
+        let result = write_resolv_conf(path, &tmp_path, &[], &[]);
 
         // ASSERT
         assert!(result.is_ok());
@@ -140,10 +146,11 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("resolv.conf");
+        let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         let v4 = vec![Ipv4Addr::new(8, 8, 8, 8), Ipv4Addr::new(1, 1, 1, 1)];
 
         // ACT
-        write_resolv_conf(&path, &v4, &[]).expect("write failed");
+        write_resolv_conf(&path, &tmp_path, &v4, &[]).expect("write failed");
 
         // ASSERT
         let content = std::fs::read_to_string(&path).expect("read failed");
@@ -156,6 +163,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("resolv.conf");
+        let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         let v6 = vec![
             "2001:4860:4860::8888"
                 .parse::<Ipv6Addr>()
@@ -166,7 +174,7 @@ mod tests {
         ];
 
         // ACT
-        write_resolv_conf(&path, &[], &v6).expect("write failed");
+        write_resolv_conf(&path, &tmp_path, &[], &v6).expect("write failed");
 
         // ASSERT
         let content = std::fs::read_to_string(&path).expect("read failed");
@@ -179,6 +187,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("resolv.conf");
+        let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         let v4 = vec![Ipv4Addr::new(8, 8, 4, 4)];
         let v6 = vec![
             "2001:4860:4860::8844"
@@ -187,7 +196,7 @@ mod tests {
         ];
 
         // ACT
-        write_resolv_conf(&path, &v4, &v6).expect("write failed");
+        write_resolv_conf(&path, &tmp_path, &v4, &v6).expect("write failed");
 
         // ASSERT
         let content = std::fs::read_to_string(&path).expect("read failed");

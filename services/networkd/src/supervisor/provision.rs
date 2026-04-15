@@ -1,5 +1,7 @@
 //! Applies declarative interface configuration from the config file via interface actors.
 
+use std::borrow::Cow;
+
 use anyhow::Result;
 use config::{
     BridgeConfig, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
@@ -136,7 +138,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         let primary = self.get_primary_name()?;
         let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
 
-        let port_iface_name = InterfaceName::new(&port_name)?;
+        let port_iface_name = InterfaceName::new(&*port_name)?;
         let actor_handle = self
             .interfaces
             .get(&port_iface_name)
@@ -182,7 +184,7 @@ async fn wait_for_configured(
     }
 }
 
-fn resolve_bridge_port(ports: &[String], primary: &InterfaceName) -> String {
+fn resolve_bridge_port<'a>(ports: &'a [String], primary: &'a InterfaceName) -> Cow<'a, str> {
     if ports.len() > 1 {
         kmsg::warn!(
             "bridge.port has {} entries; only the first is used \
@@ -192,8 +194,8 @@ fn resolve_bridge_port(ports: &[String], primary: &InterfaceName) -> String {
     }
 
     match ports.first() {
-        Some(p) if p == "auto" => primary.to_string(),
-        Some(p) => p.clone(),
-        None => primary.to_string(),
+        Some(p) if p == "auto" => Cow::Borrowed(primary.as_str()),
+        Some(p) => Cow::Borrowed(p.as_str()),
+        None => Cow::Borrowed(primary.as_str()),
     }
 }

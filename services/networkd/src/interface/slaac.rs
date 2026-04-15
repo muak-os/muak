@@ -14,15 +14,15 @@ impl<N: NetlinkOps> InterfaceActor<N> {
     pub(super) async fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
         let mac = self.snapshot.mac;
-        match SlaacManager::new(iface.clone(), mac, Arc::clone(&self.config)).await {
+        match SlaacManager::new(iface, mac, Arc::clone(&self.config)).await {
             Ok(mgr) => {
-                kmsg::info!("Starting SLAAC on {}", iface);
+                kmsg::info!("Starting SLAAC on {}", self.snapshot.name);
                 self.slaac = Some(mgr);
             }
             Err(e) => {
                 kmsg::info!(
                     "SLAAC unavailable on {}: {} (continuing with IPv4)",
-                    iface,
+                    self.snapshot.name,
                     e
                 );
             }
@@ -101,9 +101,8 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
         if let Some(ipv6) = self.snapshot.ipv6.as_mut() {
             ipv6.dns = servers;
+            self.publish_snapshot();
         }
-
-        self.publish_snapshot();
     }
 
     pub(super) async fn apply_ipv6_configuration(

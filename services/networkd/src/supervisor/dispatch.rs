@@ -100,7 +100,11 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
     pub(super) fn add_to_backups(&mut self, name: InterfaceName) {
         kmsg::info!("Adding {} to backup interfaces", name);
-        self.state.backups.push(name);
+        let pos = self
+            .state
+            .backups
+            .partition_point(|existing| existing < &name);
+        self.state.backups.insert(pos, name);
     }
 
     pub(super) fn remove_from_backups(&mut self, name: &str) {

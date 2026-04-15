@@ -17,20 +17,27 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         bridge_name: &str,
         stp: bool,
     ) -> Result<InterfaceSnapshot> {
-        let port_name = self.snapshot.name.to_string();
         let lease = self
             .snapshot
             .lease
             .clone()
-            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", port_name))?;
+            .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", self.snapshot.name))?;
         let mac = self.snapshot.mac;
         let gateway = self.snapshot.ip.as_ref().and_then(|ip| ip.gateway);
 
-        kmsg::info!("Setting up bridge {} with port {}", bridge_name, port_name);
+        kmsg::info!(
+            "Setting up bridge {} with port {}",
+            bridge_name,
+            self.snapshot.name
+        );
         self.ops
-            .ensure_bridge(bridge_name, &port_name, gateway, stp)
+            .ensure_bridge(bridge_name, self.snapshot.name.as_str(), gateway, stp)
             .await?;
-        kmsg::info!("Bridge setup complete: {} <- {}", bridge_name, port_name);
+        kmsg::info!(
+            "Bridge setup complete: {} <- {}",
+            bridge_name,
+            self.snapshot.name
+        );
 
         self.timers.disarm();
 
