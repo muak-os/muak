@@ -10,6 +10,7 @@ use tokio::sync::oneshot;
 
 use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
+use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 
 impl<N: NetlinkOps> NetworkSupervisor<N> {
@@ -169,7 +170,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
 /// Waits until the interface actor reports `Configured`.
 async fn wait_for_configured(
-    rx: &mut tokio::sync::watch::Receiver<crate::interface::snapshot::InterfaceSnapshot>,
+    rx: &mut tokio::sync::watch::Receiver<std::sync::Arc<InterfaceSnapshot>>,
 ) -> Result<()> {
     loop {
         if rx.borrow().state == InterfaceState::Configured {

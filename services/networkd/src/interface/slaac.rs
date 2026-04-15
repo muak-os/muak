@@ -11,10 +11,10 @@ use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl<N: NetlinkOps> InterfaceActor<N> {
     /// Initialises a `SlaacManager`.
-    pub(super) fn start_slaac(&mut self) {
+    pub(super) async fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
         let mac = self.snapshot.mac;
-        match SlaacManager::new(iface.clone(), mac, Arc::clone(&self.config)) {
+        match SlaacManager::new(iface.clone(), mac, Arc::clone(&self.config)).await {
             Ok(mgr) => {
                 kmsg::info!("Starting SLAAC on {}", iface);
                 self.slaac = Some(mgr);
@@ -99,7 +99,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
     fn on_slaac_dns_updated(&mut self, servers: Vec<Ipv6Addr>) {
         kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
 
-        if let Some(ipv6) = &mut self.snapshot.ipv6 {
+        if let Some(ipv6) = self.snapshot.ipv6.as_mut() {
             ipv6.dns = servers;
         }
 

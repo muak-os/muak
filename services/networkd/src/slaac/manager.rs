@@ -67,24 +67,26 @@ pub struct SlaacManager {
 
 #[allow(clippy::excessive_nesting)]
 impl SlaacManager {
-    pub fn new(
+    pub async fn new(
         interface: String,
         mac: [u8; 6],
         config: Arc<config::NetworkConfig>,
     ) -> Result<Self> {
-        let socket_fd = socket_with(
-            AddressFamily::INET6,
-            SocketType::RAW,
-            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
-            Some(ICMPV6),
-        )?;
-
-        socket::bind_device(&socket_fd, &interface)?;
-
-        let ifindex = name_to_index(&socket_fd, &interface)?;
-
-        let filter = create_icmpv6_filter();
-        set_icmpv6_filter(&socket_fd, &filter)?;
+        let iface_clone = interface.clone();
+        let (socket_fd, ifindex) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let fd = socket_with(
+                AddressFamily::INET6,
+                SocketType::RAW,
+                SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+                Some(ICMPV6),
+            )?;
+            socket::bind_device(&fd, &iface_clone)?;
+            let idx = name_to_index(&fd, &iface_clone)?;
+            let filter = create_icmpv6_filter();
+            set_icmpv6_filter(&fd, &filter)?;
+            Ok((fd, idx))
+        })
+        .await??;
 
         let socket = AsyncFd::new(socket_fd)?;
 
@@ -200,7 +202,6 @@ impl SlaacManager {
             );
             self.config
                 .ipv6_dns()
-                .into_iter()
                 .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect()
         } else {
@@ -279,9 +280,10 @@ impl SlaacManager {
             });
         }
 
-        let dns_before: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
         let had_dns = !self.dns_servers.is_empty();
+        let before_len = self.dns_servers.len();
         self.dns_servers.retain(|dns| now < dns.expires_at);
+        let dns_changed = self.dns_servers.len() != before_len;
 
         if had_dns && self.dns_servers.is_empty() {
             kmsg::info!(
@@ -291,14 +293,13 @@ impl SlaacManager {
             self.dns_servers = self
                 .config
                 .ipv6_dns()
-                .into_iter()
                 .map(|s| ManagedDns::new(s, u64::MAX))
                 .collect();
         }
 
-        let dns_after: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
-        if dns_after != dns_before {
-            return Some(SlaacEvent::DnsUpdated { servers: dns_after });
+        if dns_changed {
+            let servers: Vec<Ipv6Addr> = self.dns_servers.iter().map(|d| d.value).collect();
+            return Some(SlaacEvent::DnsUpdated { servers });
         }
 
         None

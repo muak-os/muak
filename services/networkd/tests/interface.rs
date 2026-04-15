@@ -18,12 +18,23 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use anyhow::Result;
 use netlib::interface::{Interface, InterfaceName};
 use netlib::link::LinkStateKind;
 use netlib::ops::{AddressOps, BridgeOps, InterfaceOps, LinkOps, NetlinkOps, RouteOps};
+use networkd::dhcp::DhcpConnector;
 use networkd::interface::snapshot::InterfaceSnapshot;
 use networkd::interface::state::InterfaceState;
 use networkd::interface::{InterfaceActor, InterfaceCommand};
+
+#[derive(Clone, Default)]
+struct MockDhcpConnector;
+
+impl DhcpConnector for MockDhcpConnector {
+    async fn create(&self, _interface: &str) -> Result<tokio::net::UdpSocket> {
+        Ok(tokio::net::UdpSocket::bind("127.0.0.1:0").await?)
+    }
+}
 
 #[derive(Debug, Default)]
 struct MockInner {
@@ -182,13 +193,13 @@ impl LinkOps for MockNetlinkOps {
 
     async fn probe_interfaces_for_carrier(
         &self,
-        interfaces: &[(u32, String)],
+        interfaces: &[(u32, &str)],
         _timeout: Duration,
     ) -> HashMap<u32, bool> {
         let s = self.lock();
         interfaces
             .iter()
-            .map(|(idx, name)| (*idx, s.links.get(name).is_some_and(|l| l.up)))
+            .map(|(idx, name)| (*idx, s.links.get(*name).is_some_and(|l| l.up)))
             .collect()
     }
 }
@@ -334,9 +345,7 @@ impl InterfaceOps for MockNetlinkOps {
 impl NetlinkOps for MockNetlinkOps {}
 
 fn make_config() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
-    cfg.dns.clear();
-    Arc::new(cfg)
+    Arc::new(config::NetworkConfig::default())
 }
 
 fn make_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSnapshot {

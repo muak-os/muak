@@ -101,6 +101,7 @@ pub(crate) fn build_request_message(
     } else {
         build_header(xid, mac)
     };
+    msg.reserve(3 + 6 + 6 + 1);
     msg.extend(&[option::MESSAGE_TYPE, 1, message_type::REQUEST]);
     msg.extend(&[option::REQUESTED_IP, 4]);
     msg.extend(&assigned_ip.octets());

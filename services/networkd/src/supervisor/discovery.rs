@@ -64,9 +64,9 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         interfaces: &[Interface],
         timeout: Duration,
     ) -> std::collections::HashMap<u32, bool> {
-        let pairs: Vec<(u32, String)> = interfaces
+        let pairs: Vec<(u32, &str)> = interfaces
             .iter()
-            .map(|i| (i.index, i.name.to_string()))
+            .map(|i| (i.index, i.name.as_str()))
             .collect();
 
         self.ops.probe_interfaces_for_carrier(&pairs, timeout).await

@@ -11,7 +11,7 @@ async fn configure_dhcp_transitions_to_configuring() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
     let snapshot = make_snapshot("eth0", idx, [0xAA; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock, make_config());
+    let handle = InterfaceActor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
 
     // ACT
     handle
@@ -70,7 +70,7 @@ async fn configure_dhcp_leaves_dhcp_state_none_before_dora() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth2", [0xCC; 6], true);
     let snapshot = make_snapshot("eth2", idx, [0xCC; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock, make_config());
+    let handle = InterfaceActor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
 
     // ACT
     handle
@@ -95,7 +95,7 @@ async fn shutdown_while_dhcp_configuring_stops_actor() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth3", [0xDD; 6], true);
     let snapshot = make_snapshot("eth3", idx, [0xDD; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock, make_config());
+    let handle = InterfaceActor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
 
     handle
         .cmd_tx

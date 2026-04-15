@@ -60,7 +60,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         self.state.interfaces = self
             .interfaces
             .values()
-            .map(|h| Arc::new(h.state_rx.borrow().clone()))
+            .map(|h| Arc::clone(&h.state_rx.borrow()))
             .collect();
         self.flush_dns();
         self.publish_state();
@@ -81,14 +81,14 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             .as_ref()
             .filter(|c| !c.dns.is_empty())
             .map(|c| c.dns.clone())
-            .unwrap_or_else(|| self.config.ipv4_dns());
+            .unwrap_or_else(|| self.config.ipv4_dns().collect());
 
         let v6 = snap
             .ipv6
             .as_ref()
             .filter(|c| !c.dns.is_empty())
             .map(|c| c.dns.clone())
-            .unwrap_or_else(|| self.config.ipv6_dns());
+            .unwrap_or_else(|| self.config.ipv6_dns().collect());
 
         if self.dns.is_unchanged(&v4, &v6) {
             return;

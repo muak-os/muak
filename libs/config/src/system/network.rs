@@ -4,49 +4,29 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ConfigError, Result};
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub ipv6: bool,
-    pub dns: Vec<String>,
+    pub dns: Vec<IpAddr>,
     pub interfaces: Vec<InterfaceConfig>,
 }
 
 impl NetworkConfig {
-    /// Validates that all entries in `dns` are parseable IP addresses.
-    pub fn validate_dns(&self) -> Result<()> {
-        let invalid = self.dns.iter().find(|e| e.parse::<IpAddr>().is_err());
-        if let Some(entry) = invalid {
-            return Err(ConfigError::ValidationError(format!(
-                "network.dns contains invalid IP address: '{}'",
-                entry
-            )));
-        }
-        Ok(())
+    /// Returns an iterator over the IPv4 DNS addresses.
+    pub fn ipv4_dns(&self) -> impl Iterator<Item = Ipv4Addr> + '_ {
+        self.dns.iter().filter_map(|a| match a {
+            IpAddr::V4(v) => Some(*v),
+            IpAddr::V6(_) => None,
+        })
     }
 
-    /// Returns all IPv4 addresses from the configured DNS list.
-    pub fn ipv4_dns(&self) -> Vec<Ipv4Addr> {
-        self.dns
-            .iter()
-            .filter_map(|s| match s.parse::<IpAddr>() {
-                Ok(IpAddr::V4(a)) => Some(a),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Returns all IPv6 addresses from the configured DNS list.
-    pub fn ipv6_dns(&self) -> Vec<Ipv6Addr> {
-        self.dns
-            .iter()
-            .filter_map(|s| match s.parse::<IpAddr>() {
-                Ok(IpAddr::V6(a)) => Some(a),
-                _ => None,
-            })
-            .collect()
+    /// Returns an iterator over the IPv6 DNS addresses.
+    pub fn ipv6_dns(&self) -> impl Iterator<Item = Ipv6Addr> + '_ {
+        self.dns.iter().filter_map(|a| match a {
+            IpAddr::V6(v) => Some(*v),
+            IpAddr::V4(_) => None,
+        })
     }
 }
 
@@ -271,27 +251,34 @@ mod tests {
     }
 
     #[test]
-    fn validate_dns_valid() {
+    fn network_config_dns_valid_populates_split_lists() {
         // ARRANGE
-        let cfg = NetworkConfig {
-            dns: vec!["9.9.9.9".to_string(), "2620:fe::fe".to_string()],
-            ..Default::default()
-        };
+        let toml_str = r#"
+[network]
+dns = ["9.9.9.9", "2620:fe::fe"]
+"#;
 
-        // ACT & ASSERT
-        assert!(cfg.validate_dns().is_ok());
+        // ACT
+        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let v4: Vec<Ipv4Addr> = config.network.ipv4_dns().collect();
+        let v6: Vec<Ipv6Addr> = config.network.ipv6_dns().collect();
+
+        // ASSERT
+        assert_eq!(v4.len(), 1);
+        assert_eq!(v6.len(), 1);
+        assert_eq!(v4[0], "9.9.9.9".parse::<Ipv4Addr>().unwrap());
     }
 
     #[test]
-    fn validate_dns_invalid() {
+    fn network_config_dns_invalid_rejects_at_deserialization() {
         // ARRANGE
-        let cfg = NetworkConfig {
-            dns: vec!["not-an-ip".to_string()],
-            ..Default::default()
-        };
+        let toml_str = r#"
+[network]
+dns = ["not-an-ip"]
+"#;
 
         // ACT & ASSERT
-        assert!(cfg.validate_dns().is_err());
+        assert!(TomlCodec::decode::<SystemConfig>(toml_str).is_err());
     }
 
     #[test]

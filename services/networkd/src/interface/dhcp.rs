@@ -9,9 +9,8 @@ use netlib::ops::NetlinkOps;
 use tokio::time::Sleep;
 
 use super::InterfaceActor;
-use crate::dhcp::client::{rebind_dhcp_client, renew_dhcp_client, run_dhcp_client};
 use crate::dhcp::codec::DhcpNak;
-use crate::dhcp::{DhcpLease, DhcpManager, DhcpState};
+use crate::dhcp::{self, DhcpConnector, DhcpLease, DhcpManager, DhcpState};
 use crate::interface::state::InterfaceState;
 use crate::statemachine::StateMachine;
 
@@ -50,13 +49,18 @@ impl LeaseTimers {
 }
 
 impl<N: NetlinkOps> InterfaceActor<N> {
-    /// Initialises a `DhcpManager` and marks the interface as configuring.
-    pub(super) fn start_dhcp(&mut self) {
+    /// Initialises a `DhcpManager` (binding the socket) and marks the interface as configuring.
+    pub(super) async fn start_dhcp<C: DhcpConnector>(&mut self, connector: &C) {
         self.set_state(InterfaceState::Configuring);
-        self.dhcp = Some(DhcpManager::new(
-            self.snapshot.name.to_string(),
-            self.snapshot.mac,
-        ));
+        let iface = self.snapshot.name.to_string();
+        let mac = self.snapshot.mac;
+        match DhcpManager::new(&iface, mac, connector).await {
+            Ok(mgr) => self.dhcp = Some(mgr),
+            Err(e) => {
+                kmsg::warn!("Failed to create DHCP socket on {}: {}", iface, e);
+                self.set_state(InterfaceState::Failed);
+            }
+        }
     }
 
     /// Applies a freshly acquired DHCP lease and clears the in-progress manager.
@@ -100,50 +104,64 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         self.set_state(InterfaceState::Configured);
     }
 
-    pub(super) async fn renew_lease(&mut self) {
+    pub(super) async fn renew_lease<C: DhcpConnector>(&mut self, connector: &C) {
         let iface = self.snapshot.name.to_string();
         kmsg::info!("DHCP RENEW for {}", iface);
         self.set_dhcp_state(DhcpState::Renewing);
-        if let Err(e) = self.do_renew(&iface).await {
+        if let Err(e) = self.do_renew(connector).await {
             kmsg::warn!("DHCP RENEW failed for {}: {}", iface, e);
         }
     }
 
-    async fn do_renew(&mut self, iface: &str) -> Result<()> {
+    async fn do_renew<C: DhcpConnector>(&mut self, connector: &C) -> Result<()> {
         let (mac, server_ip, assigned_ip) = self.extract_dhcp_params()?;
-        match renew_dhcp_client(iface, &mac, server_ip, assigned_ip).await {
+        let iface = self.snapshot.name.to_string();
+        let result = if let Some(mgr) = &self.dhcp {
+            dhcp::client::renew_dhcp_client(mgr.socket(), &mac, server_ip, assigned_ip).await
+        } else {
+            let socket = connector.create(&iface).await?;
+            dhcp::client::renew_dhcp_client(&socket, &mac, server_ip, assigned_ip).await
+        };
+        match result {
             Ok(lease) => self.apply_renewed_lease(&lease).await,
             Err(e) if e.downcast_ref::<DhcpNak>().is_some() => {
                 kmsg::warn!("DHCP RENEW NAK for {}, returning to INIT", iface);
-                self.do_full_dora().await
+                self.do_full_dora(connector).await
             }
             Err(e) => Err(e),
         }
     }
 
-    pub(super) async fn rebind_lease(&mut self) {
+    pub(super) async fn rebind_lease<C: DhcpConnector>(&mut self, connector: &C) {
         let iface = self.snapshot.name.to_string();
         kmsg::info!("DHCP REBIND for {}", iface);
         self.set_dhcp_state(DhcpState::Rebinding);
-        if let Err(e) = self.do_rebind(&iface).await {
+        if let Err(e) = self.do_rebind(connector).await {
             kmsg::warn!("DHCP REBIND failed for {}: {}", iface, e);
         }
     }
 
-    async fn do_rebind(&mut self, iface: &str) -> Result<()> {
+    async fn do_rebind<C: DhcpConnector>(&mut self, connector: &C) -> Result<()> {
         let (mac, server_ip, assigned_ip) = self.extract_dhcp_params()?;
-        match rebind_dhcp_client(iface, &mac, server_ip, assigned_ip).await {
+        let iface = self.snapshot.name.to_string();
+        let result = if let Some(mgr) = &self.dhcp {
+            dhcp::client::rebind_dhcp_client(mgr.socket(), &mac, server_ip, assigned_ip).await
+        } else {
+            let socket = connector.create(&iface).await?;
+            dhcp::client::rebind_dhcp_client(&socket, &mac, server_ip, assigned_ip).await
+        };
+        match result {
             Ok(lease) => self.apply_renewed_lease(&lease).await,
             Err(e) if e.downcast_ref::<DhcpNak>().is_some() => {
                 kmsg::warn!("DHCP REBIND NAK for {}, returning to INIT", iface);
-                self.do_full_dora().await
+                self.do_full_dora(connector).await
             }
             Err(e) => Err(e),
         }
     }
 
     /// Re-runs a full DORA exchange to recover from a NAK or lease expiry.
-    pub(super) async fn do_full_dora(&mut self) -> Result<()> {
+    pub(super) async fn do_full_dora<C: DhcpConnector>(&mut self, connector: &C) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         kmsg::warn!("DHCP re-acquiring on {}", iface);
         self.set_dhcp_state(DhcpState::Init);
@@ -151,9 +169,12 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         self.timers.disarm();
 
         let mac = self.snapshot.mac;
-        let lease = run_dhcp_client(&iface, &mac).await.inspect_err(|_| {
-            self.set_state(InterfaceState::Failed);
-        })?;
+        let socket = connector.create(&iface).await?;
+        let lease = dhcp::client::run_dhcp_client(&socket, &mac)
+            .await
+            .inspect_err(|_| {
+                self.set_state(InterfaceState::Failed);
+            })?;
 
         let index = self.snapshot.index;
         self.commit_lease(index, lease).await?;

@@ -1,6 +1,7 @@
 //! DHCPv4 option encoding/decoding, XID generation, and lease construction.
 
 use std::net::Ipv4Addr;
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
@@ -10,6 +11,8 @@ use super::DhcpLease;
 use super::packet::{
     DEFAULT_LEASE_SECS, DEFAULT_PREFIX_LEN, MAGIC_COOKIE, field, message_type, option,
 };
+
+static RNG: LazyLock<SystemRandom> = LazyLock::new(SystemRandom::new);
 
 /// Indicates the DHCP server sent a NAK, requiring a return to INIT state.
 #[derive(Debug)]
@@ -36,9 +39,8 @@ pub(crate) struct ParsedOptions {
 
 /// Generates a cryptographically random 32-bit DHCP transaction ID.
 pub(crate) fn generate_xid() -> Result<u32> {
-    let rng = SystemRandom::new();
     let mut buf = [0u8; 4];
-    rng.fill(&mut buf)
+    RNG.fill(&mut buf)
         .map_err(|_| anyhow::anyhow!("failed to generate random DHCP xid"))?;
     Ok(u32::from_be_bytes(buf))
 }

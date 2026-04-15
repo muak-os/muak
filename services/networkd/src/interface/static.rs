@@ -1,5 +1,7 @@
 //! Static IP configuration for a per-interface actor.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::ops::NetlinkOps;
@@ -13,7 +15,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         &mut self,
         index: u32,
         addresses: &[config::Cidr4],
-        gateway: Option<std::net::Ipv4Addr>,
+        gateway: Option<Ipv4Addr>,
     ) {
         if let Err(e) = self.apply_static_ipv4(index, addresses, gateway).await {
             kmsg::warn!("Static IPv4 failed on {}: {}", self.snapshot.name, e);
@@ -36,7 +38,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         &mut self,
         index: u32,
         addresses: &[config::Cidr4],
-        gateway: Option<std::net::Ipv4Addr>,
+        gateway: Option<Ipv4Addr>,
     ) -> Result<()> {
         let iface_name = self.snapshot.name.to_string();
         self.set_state(InterfaceState::Configuring);
@@ -52,7 +54,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             self.ops.ensure_default_route(gw).await?;
         }
 
-        let dns = self.config.ipv4_dns();
+        let dns: Vec<Ipv4Addr> = self.config.ipv4_dns().collect();
         let primary_addr = addresses
             .first()
             .ok_or_else(|| anyhow::anyhow!("static IPv4 addresses list is empty"))?;
@@ -65,7 +67,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
         self.snapshot.ip = Some(ip);
         self.set_state(InterfaceState::Configured);
-
         kmsg::info!(
             "Static IPv4 configured on {}: {}",
             iface_name,
@@ -82,7 +83,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         &mut self,
         index: u32,
         addresses: &[config::Cidr6],
-        gateway: Option<std::net::Ipv6Addr>,
+        gateway: Option<Ipv6Addr>,
     ) -> Result<()> {
         let iface_name = self.snapshot.name.to_string();
 
@@ -97,7 +98,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             self.ops.ensure_default_route_v6(gw).await?;
         }
 
-        let dns = self.config.ipv6_dns();
+        let dns: Vec<Ipv6Addr> = self.config.ipv6_dns().collect();
         let primary_addr = addresses
             .first()
             .ok_or_else(|| anyhow::anyhow!("static IPv6 addresses list is empty"))?;

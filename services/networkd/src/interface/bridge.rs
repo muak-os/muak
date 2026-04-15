@@ -51,9 +51,10 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             ipv6: None,
         };
 
-        self.snapshot.ip = None;
-        self.snapshot.lease = None;
-        self.snapshot.dhcp_state = None;
+        let snapshot = &mut self.snapshot;
+        snapshot.ip = None;
+        snapshot.lease = None;
+        snapshot.dhcp_state = None;
         self.deconfigure();
         self.publish_snapshot();
 

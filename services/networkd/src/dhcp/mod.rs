@@ -11,6 +11,7 @@ pub(crate) mod codec;
 pub mod manager;
 pub(crate) mod packet;
 
+pub use client::{DhcpConnector, SystemDhcpConnector};
 pub use manager::DhcpManager;
 
 /// RFC 2131 DHCP client state machine phases.

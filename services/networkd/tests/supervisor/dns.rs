@@ -9,52 +9,50 @@ use networkd::supervisor;
 use super::MockNetlinkOps;
 
 fn config_with_ipv4_dns() -> Arc<config::NetworkConfig> {
-    Arc::new(config::NetworkConfig {
-        dns: vec!["8.8.8.8".to_string()],
-        interfaces: vec![config::InterfaceConfig {
-            name: "auto".to_string(),
-            kind: config::InterfaceKind::Ethernet,
-            ipv4: Some(config::Ipv4InterfaceConfig {
-                dhcp: false,
-                addresses: vec![config::Cidr4 {
-                    address: std::net::Ipv4Addr::new(10, 0, 0, 2),
-                    prefix: 24,
-                }],
-                gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
-            }),
-            ipv6: None,
-            bridge: None,
-        }],
-        ..Default::default()
-    })
+    let sys = config::parse_from_str(
+        r#"
+[host]
+name = "test"
+port = 50051
+ntp = "pool.ntp.org"
+
+[network]
+dns = ["8.8.8.8"]
+
+[[network.interfaces]]
+name = "auto"
+type = "ethernet"
+ipv4.dhcp = false
+ipv4.addresses = ["10.0.0.2/24"]
+ipv4.gateway = "10.0.0.1"
+"#,
+    )
+    .expect("valid config");
+    Arc::new(sys.network)
 }
 
 fn config_with_ipv6_dns() -> Arc<config::NetworkConfig> {
-    Arc::new(config::NetworkConfig {
-        dns: vec!["2001:4860:4860::8888".to_string()],
-        interfaces: vec![config::InterfaceConfig {
-            name: "auto".to_string(),
-            kind: config::InterfaceKind::Ethernet,
-            ipv4: Some(config::Ipv4InterfaceConfig {
-                dhcp: false,
-                addresses: vec![config::Cidr4 {
-                    address: std::net::Ipv4Addr::new(10, 0, 0, 2),
-                    prefix: 24,
-                }],
-                gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
-            }),
-            ipv6: Some(config::Ipv6InterfaceConfig {
-                addresses: vec![config::Cidr6 {
-                    address: "fd00::2".parse().expect("valid addr"),
-                    prefix: 64,
-                }],
-                gateway: None,
-                autoconf: false,
-            }),
-            bridge: None,
-        }],
-        ..Default::default()
-    })
+    let sys = config::parse_from_str(
+        r#"
+[host]
+name = "test"
+port = 50051
+ntp = "pool.ntp.org"
+
+[network]
+dns = ["2001:4860:4860::8888"]
+
+[[network.interfaces]]
+name = "auto"
+type = "ethernet"
+ipv4.dhcp = false
+ipv4.addresses = ["10.0.0.2/24"]
+ipv4.gateway = "10.0.0.1"
+ipv6.addresses = ["fd00::2/64"]
+"#,
+    )
+    .expect("valid config");
+    Arc::new(sys.network)
 }
 
 #[tokio::test]

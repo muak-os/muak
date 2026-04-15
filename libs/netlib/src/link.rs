@@ -85,7 +85,7 @@ pub trait LinkOps: Clone + Send + Sync + 'static {
     /// Polls interfaces for carrier, returning a map of index to carrier-present.
     fn probe_interfaces_for_carrier(
         &self,
-        interfaces: &[(u32, String)],
+        interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> impl Future<Output = HashMap<u32, bool>> + Send;
 }
@@ -121,7 +121,7 @@ impl LinkOps for RtnetlinkOps {
 
     async fn probe_interfaces_for_carrier(
         &self,
-        interfaces: &[(u32, String)],
+        interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> HashMap<u32, bool> {
         probe_interfaces_for_carrier(&self.handle, interfaces, timeout).await
@@ -278,7 +278,7 @@ fn seed_carrier_states(
 }
 
 fn log_carrier_detections(
-    interfaces: &[(u32, String)],
+    interfaces: &[(u32, &str)],
     states: &HashMap<u32, bool>,
     elapsed: Duration,
 ) {
@@ -291,11 +291,11 @@ fn log_carrier_detections(
 
 async fn probe_interfaces_for_carrier(
     handle: &Handle,
-    interfaces: &[(u32, String)],
+    interfaces: &[(u32, &str)],
     timeout: Duration,
 ) -> HashMap<u32, bool> {
     let indices: Vec<u32> = interfaces.iter().map(|(idx, _)| *idx).collect();
-    let names: Vec<&str> = interfaces.iter().map(|(_, name)| name.as_str()).collect();
+    let names: Vec<&str> = interfaces.iter().map(|(_, name)| *name).collect();
 
     println!(
         "Probing {} interfaces for carrier (timeout: {:?}): {:?}",

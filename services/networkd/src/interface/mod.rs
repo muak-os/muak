@@ -20,7 +20,7 @@ use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
-use crate::dhcp::{DhcpLease, DhcpManager};
+use crate::dhcp::{DhcpConnector, DhcpLease, DhcpManager, SystemDhcpConnector};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 pub struct InterfaceActor<N: NetlinkOps> {
@@ -28,7 +28,7 @@ pub struct InterfaceActor<N: NetlinkOps> {
     ops: N,
     config: Arc<config::NetworkConfig>,
     cmd_rx: mpsc::Receiver<InterfaceCommand>,
-    snapshot_tx: watch::Sender<InterfaceSnapshot>,
+    snapshot_tx: watch::Sender<Arc<InterfaceSnapshot>>,
     dhcp: Option<DhcpManager>,
     timers: LeaseTimers,
     slaac: Option<SlaacManager>,
@@ -37,18 +37,28 @@ pub struct InterfaceActor<N: NetlinkOps> {
 /// Handle used by the supervisor to send commands and watch state.
 pub struct InterfaceActorHandle {
     pub cmd_tx: mpsc::Sender<InterfaceCommand>,
-    pub state_rx: watch::Receiver<InterfaceSnapshot>,
+    pub state_rx: watch::Receiver<Arc<InterfaceSnapshot>>,
 }
 
 impl<N: NetlinkOps> InterfaceActor<N> {
-    /// Spawns a new per-interface actor, returning the handle for the supervisor.
+    /// Spawns a new per-interface actor.
     pub fn spawn(
         snapshot: InterfaceSnapshot,
         ops: N,
         config: Arc<config::NetworkConfig>,
     ) -> InterfaceActorHandle {
+        Self::spawn_with(snapshot, ops, config, SystemDhcpConnector)
+    }
+
+    /// Spawns a new per-interface actor with a custom DHCP connector.
+    pub fn spawn_with<C: DhcpConnector>(
+        snapshot: InterfaceSnapshot,
+        ops: N,
+        config: Arc<config::NetworkConfig>,
+        connector: C,
+    ) -> InterfaceActorHandle {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
-        let (snapshot_tx, state_rx) = watch::channel(snapshot.clone());
+        let (snapshot_tx, state_rx) = watch::channel(Arc::new(snapshot.clone()));
 
         let actor = Self {
             snapshot,
@@ -61,19 +71,19 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             slaac: None,
         };
 
-        tokio::spawn(actor.run());
+        tokio::spawn(actor.run(connector));
 
         InterfaceActorHandle { cmd_tx, state_rx }
     }
 
-    async fn run(mut self) {
+    async fn run<C: DhcpConnector>(mut self, connector: C) {
         kmsg::info!("InterfaceActor started for {}", self.snapshot.name);
 
         loop {
             tokio::select! {
                 cmd = self.cmd_rx.recv() => {
                     let Some(cmd) = cmd else { break };
-                    self.dispatch(cmd).await;
+                    self.dispatch(cmd, &connector).await;
                 }
                 lease = dhcp_acquire(&mut self.dhcp) => {
                     self.on_dhcp_acquired(lease).await;
@@ -82,13 +92,13 @@ impl<N: NetlinkOps> InterfaceActor<N> {
                     self.handle_slaac_event(event).await;
                 }
                 _ = poll_opt(&mut self.timers.renew) => {
-                    self.renew_lease().await;
+                    self.renew_lease(&connector).await;
                 }
                 _ = poll_opt(&mut self.timers.rebind) => {
-                    self.rebind_lease().await;
+                    self.rebind_lease(&connector).await;
                 }
                 _ = poll_opt(&mut self.timers.expire) => {
-                    if let Err(e) = self.do_full_dora().await {
+                    if let Err(e) = self.do_full_dora(&connector).await {
                         kmsg::warn!("DHCP re-acquire failed for {}: {}", self.snapshot.name, e);
                     }
                 }
@@ -98,9 +108,9 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         kmsg::info!("InterfaceActor stopped for {}", self.snapshot.name);
     }
 
-    async fn dispatch(&mut self, cmd: InterfaceCommand) {
+    async fn dispatch<C: DhcpConnector>(&mut self, cmd: InterfaceCommand, connector: &C) {
         match cmd {
-            InterfaceCommand::ConfigureDhcp => self.start_dhcp(),
+            InterfaceCommand::ConfigureDhcp => self.start_dhcp(connector).await,
             InterfaceCommand::ConfigureStaticIpv4 {
                 index,
                 addresses,
@@ -118,8 +128,8 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             } => {
                 let _ = reply.send(self.configure_bridge(&bridge_name, stp).await);
             }
-            InterfaceCommand::ConfigureSlaac => self.start_slaac(),
-            InterfaceCommand::LinkUp => self.on_link_up().await,
+            InterfaceCommand::ConfigureSlaac => self.start_slaac().await,
+            InterfaceCommand::LinkUp => self.on_link_up(connector).await,
             InterfaceCommand::LinkDown => self.on_link_down(),
             InterfaceCommand::Shutdown => {
                 kmsg::info!("InterfaceActor shutting down for {}", self.snapshot.name);
@@ -138,7 +148,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
     }
 
     fn publish_snapshot(&self) {
-        let _ = self.snapshot_tx.send(self.snapshot.clone());
+        let _ = self.snapshot_tx.send(Arc::new(self.snapshot.clone()));
     }
 }
 

@@ -137,13 +137,13 @@ impl LinkOps for MockNetlinkOps {
 
     async fn probe_interfaces_for_carrier(
         &self,
-        interfaces: &[(u32, String)],
+        interfaces: &[(u32, &str)],
         _timeout: Duration,
     ) -> HashMap<u32, bool> {
         let s = self.state.lock().expect("lock");
         interfaces
             .iter()
-            .map(|(idx, name)| (*idx, s.links.get(name).is_some_and(|l| l.up)))
+            .map(|(idx, name)| (*idx, s.links.get(*name).is_some_and(|l| l.up)))
             .collect()
     }
 }

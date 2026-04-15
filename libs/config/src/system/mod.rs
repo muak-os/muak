@@ -65,7 +65,6 @@ impl SystemConfig {
                 "host.ntp must be specified".to_string(),
             ));
         }
-        self.network.validate_dns()?;
         Ok(())
     }
 
@@ -362,7 +361,7 @@ image = "192.168.100.1:5000/installer:latest"
         config.host.name = "testhost".to_string();
         config.disk.system = "/dev/nvme0n1".to_string();
         config.network.ipv6 = true;
-        config.network.dns = vec!["9.9.9.9".to_string()];
+        config.network.dns = vec!["9.9.9.9".parse().unwrap()];
         config.vm.auto_restart = true;
 
         // ACT
@@ -374,7 +373,10 @@ image = "192.168.100.1:5000/installer:latest"
         assert_eq!(restored.host.name, "testhost");
         assert_eq!(restored.disk.system, "/dev/nvme0n1");
         assert!(restored.network.ipv6);
-        assert_eq!(restored.network.dns, vec!["9.9.9.9"]);
+        assert_eq!(
+            restored.network.dns,
+            vec!["9.9.9.9".parse::<std::net::IpAddr>().unwrap()]
+        );
         assert!(restored.vm.auto_restart);
     }
 

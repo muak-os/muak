@@ -1,5 +1,6 @@
 //! DHCPv4 client implementation for acquiring and renewing IPv4 leases.
 
+use std::future::Future;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
@@ -13,6 +14,29 @@ use super::packet::{
     DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DHCP_TIMEOUT_SECS, append_param_request_list, build_header,
     build_request_message, message_type, option, yiaddr,
 };
+
+/// Abstracts DHCP socket creation.
+pub trait DhcpConnector: Clone + Send + Sync + 'static {
+    fn create(&self, interface: &str) -> impl Future<Output = Result<UdpSocket>> + Send;
+}
+
+/// System connector that binds a broadcast socket on port 68.
+#[derive(Clone, Default)]
+pub struct SystemDhcpConnector;
+
+impl DhcpConnector for SystemDhcpConnector {
+    async fn create(&self, interface: &str) -> Result<UdpSocket> {
+        create_dhcp_socket(interface).await
+    }
+}
+
+/// Creates and configures a broadcast UDP socket bound to the DHCP client port on `interface`.
+pub async fn create_dhcp_socket(interface: &str) -> Result<UdpSocket> {
+    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
+    socket.set_broadcast(true)?;
+    netlib::socket::bind_device(&socket, interface)?;
+    Ok(socket)
+}
 
 /// Receives and validates a DHCP ACK, building a `DhcpLease` from the response.
 async fn receive_ack(socket: &UdpSocket, xid_val: u32, server_ip: Ipv4Addr) -> Result<DhcpLease> {
@@ -30,17 +54,12 @@ async fn receive_ack(socket: &UdpSocket, xid_val: u32, server_ip: Ipv4Addr) -> R
     build_lease_from_ack(ip, server_ip, &ack_opts)
 }
 
-/// Runs a full DHCPDISCOVER->OFFER->REQUEST->ACK exchange on the given interface.
-pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<DhcpLease> {
-    println!("DHCP: starting on {}", interface);
-
-    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
-    socket.set_broadcast(true)?;
-    netlib::socket::bind_device(&socket, interface)?;
-
+/// Runs a full DHCPDISCOVER->OFFER->REQUEST->ACK exchange using an existing socket.
+pub async fn run_dhcp_client(socket: &UdpSocket, mac: &[u8; 6]) -> Result<DhcpLease> {
     let xid = generate_xid()?;
 
     let mut discover = build_header(xid, mac);
+    discover.reserve(3 + 6 + 1);
     discover.extend(&[option::MESSAGE_TYPE, 1, message_type::DISCOVER]);
     append_param_request_list(&mut discover);
     discover.push(option::END);
@@ -65,6 +84,7 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<DhcpLease
         .ok_or_else(|| anyhow::anyhow!("no server identifier in DHCPOFFER"))?;
 
     let mut request = build_header(xid, mac);
+    request.reserve(3 + 6 + 6 + 6 + 1);
     request.extend(&[option::MESSAGE_TYPE, 1, message_type::REQUEST]);
     request.extend(&[option::REQUESTED_IP, 4]);
     request.extend(&offered_ip.octets());
@@ -78,41 +98,34 @@ pub async fn run_dhcp_client(interface: &str, mac: &[u8; 6]) -> Result<DhcpLease
         .send_to(&request, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
 
-    receive_ack(&socket, xid, server_id).await
+    receive_ack(socket, xid, server_id).await
 }
 
 /// Sends a unicast DHCP RENEW (REQUEST to the known server) per RFC 2131.
 pub async fn renew_dhcp_client(
-    interface: &str,
+    socket: &UdpSocket,
     mac: &[u8; 6],
     server_ip: Ipv4Addr,
     assigned_ip: Ipv4Addr,
 ) -> Result<DhcpLease> {
     println!("DHCP: sending RENEW to {} for {}", server_ip, assigned_ip);
 
-    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
-    netlib::socket::bind_device(&socket, interface)?;
-
     let xid = generate_xid()?;
     let msg = build_request_message(xid, mac, assigned_ip, true);
 
     socket.send_to(&msg, (server_ip, DHCP_SERVER_PORT)).await?;
 
-    receive_ack(&socket, xid, server_ip).await
+    receive_ack(socket, xid, server_ip).await
 }
 
 /// Sends a broadcast DHCP REBIND (REQUEST to any server) per RFC 2131.
 pub async fn rebind_dhcp_client(
-    interface: &str,
+    socket: &UdpSocket,
     mac: &[u8; 6],
     server_ip: Ipv4Addr,
     assigned_ip: Ipv4Addr,
 ) -> Result<DhcpLease> {
     println!("DHCP: sending REBIND (broadcast) for {}", assigned_ip);
-
-    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
-    socket.set_broadcast(true)?;
-    netlib::socket::bind_device(&socket, interface)?;
 
     let xid = generate_xid()?;
     let msg = build_request_message(xid, mac, assigned_ip, false);
@@ -121,5 +134,5 @@ pub async fn rebind_dhcp_client(
         .send_to(&msg, ("255.255.255.255", DHCP_SERVER_PORT))
         .await?;
 
-    receive_ack(&socket, xid, server_ip).await
+    receive_ack(socket, xid, server_ip).await
 }
