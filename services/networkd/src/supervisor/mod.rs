@@ -5,14 +5,14 @@ mod discovery;
 mod dispatch;
 mod failover;
 mod provision;
-pub mod snapshot;
+mod snapshot;
 mod state;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-pub use commands::SupervisorCommand;
+use commands::SupervisorCommand;
 use netlib::interface::InterfaceName;
 use netlib::monitor::{self, NetworkEvent};
 use netlib::ops::{NetlinkOps, RtnetlinkOps};
@@ -24,7 +24,7 @@ use crate::interface::{InterfaceActor, InterfaceActorHandle, InterfaceCommand};
 use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
-pub struct NetworkSupervisor<N: NetlinkOps> {
+struct NetworkSupervisor<N: NetlinkOps> {
     ops: N,
     config: Arc<config::NetworkConfig>,
     state: NetworkSnapshot,
