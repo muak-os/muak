@@ -4,6 +4,8 @@
 mod discovery;
 #[path = "supervisor/dispatch.rs"]
 mod dispatch;
+#[path = "supervisor/dns.rs"]
+mod dns;
 #[path = "supervisor/failover.rs"]
 mod failover;
 #[path = "supervisor/lifecycle.rs"]

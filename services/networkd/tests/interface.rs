@@ -6,8 +6,6 @@ mod actor;
 mod bridge;
 #[path = "interface/dhcp.rs"]
 mod dhcp;
-#[path = "interface/dns.rs"]
-mod dns;
 #[path = "interface/link.rs"]
 mod link;
 #[path = "interface/slaac.rs"]

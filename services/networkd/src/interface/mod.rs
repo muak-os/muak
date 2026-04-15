@@ -3,7 +3,6 @@
 mod bridge;
 mod commands;
 mod dhcp;
-pub mod dns;
 mod link;
 mod slaac;
 pub mod snapshot;
@@ -15,7 +14,6 @@ use std::sync::Arc;
 
 pub use commands::InterfaceCommand;
 use dhcp::LeaseTimers;
-pub use dns::DnsState;
 use netlib::ops::NetlinkOps;
 use snapshot::InterfaceSnapshot;
 use state::InterfaceState;
@@ -31,7 +29,6 @@ pub struct InterfaceActor<N: NetlinkOps> {
     config: Arc<config::NetworkConfig>,
     cmd_rx: mpsc::Receiver<InterfaceCommand>,
     snapshot_tx: watch::Sender<InterfaceSnapshot>,
-    dns: DnsState,
     dhcp: Option<DhcpManager>,
     timers: LeaseTimers,
     slaac: Option<SlaacManager>,
@@ -50,16 +47,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         ops: N,
         config: Arc<config::NetworkConfig>,
     ) -> InterfaceActorHandle {
-        Self::spawn_with_dns(snapshot, ops, config, DnsState::default())
-    }
-
-    /// Spawns a per-interface actor with an explicit `DnsState` (for testing).
-    pub fn spawn_with_dns(
-        snapshot: InterfaceSnapshot,
-        ops: N,
-        config: Arc<config::NetworkConfig>,
-        dns: DnsState,
-    ) -> InterfaceActorHandle {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
         let (snapshot_tx, state_rx) = watch::channel(snapshot.clone());
 
@@ -69,7 +56,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             config,
             cmd_rx,
             snapshot_tx,
-            dns,
             dhcp: None,
             timers: LeaseTimers::new(),
             slaac: None,

@@ -188,7 +188,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         Ok(())
     }
 
-    /// Applies the network-level changes from a lease: address, route, and DNS.
+    /// Applies the network-level changes from a lease.
     pub(super) async fn apply_lease(&mut self, index: u32, lease: &DhcpLease) -> Result<()> {
         let iface = self.snapshot.name.to_string();
         self.ops
@@ -203,23 +203,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
                 "No gateway in DHCP lease on {}, skipping default route",
                 iface
             );
-        }
-
-        let dns = if lease.dns_servers.is_empty() {
-            self.config.ipv4_dns()
-        } else {
-            lease.dns_servers.clone()
-        };
-
-        if lease.dns_servers.is_empty() && !dns.is_empty() {
-            kmsg::info!(
-                "No DNS from DHCP, using {} configured fallback server(s)",
-                dns.len()
-            );
-        }
-
-        if !dns.is_empty() {
-            self.dns.update_v4(dns)?;
         }
 
         Ok(())

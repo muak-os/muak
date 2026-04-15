@@ -252,8 +252,13 @@ async fn provision_static_ipv4_initializes() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_static_ipv4()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_static_ipv4(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -271,8 +276,13 @@ async fn provision_static_ipv4_named_interface_not_found_still_initializes() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_static_ipv4()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_static_ipv4(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -292,7 +302,13 @@ async fn provision_dhcp_sends_configure_dhcp_command() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_dhcp()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_dhcp(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -312,7 +328,13 @@ async fn provision_static_ipv6_sends_configure_command() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_ipv6()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_ipv6(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -332,8 +354,13 @@ async fn provision_slaac_autoconf_sends_configure_slaac() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_slaac()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_slaac(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -353,8 +380,13 @@ async fn provision_named_interface_resolves_by_name() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_named()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_named(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -375,8 +407,13 @@ async fn provision_named_interface_not_found_still_initializes() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_named()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_named(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -396,7 +433,13 @@ async fn provision_no_ip_config_still_initializes() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_none()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_none(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -416,8 +459,13 @@ async fn provision_bridge_with_auto_port() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, Some(event_rx), config_bridge()).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_bridge(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -437,8 +485,13 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_bridge_multiport())
-        .expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_bridge_multiport(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -458,8 +511,13 @@ async fn provision_bridge_named_port_resolves_by_name() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_bridge_named_port())
-        .expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_bridge_named_port(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -479,8 +537,13 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_bridge_empty_port())
-        .expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config_bridge_empty_port(),
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     // ACT
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;

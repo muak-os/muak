@@ -53,10 +53,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         let dns = self.config.ipv4_dns();
-        if !dns.is_empty() {
-            self.dns.update_v4(dns.clone())?;
-        }
-
         let primary_addr = addresses
             .first()
             .ok_or_else(|| anyhow::anyhow!("static IPv4 addresses list is empty"))?;
@@ -102,10 +98,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         let dns = self.config.ipv6_dns();
-        if !dns.is_empty() {
-            self.dns.update_v6(dns.clone())?;
-        }
-
         let primary_addr = addresses
             .first()
             .ok_or_else(|| anyhow::anyhow!("static IPv6 addresses list is empty"))?;

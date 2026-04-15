@@ -15,7 +15,13 @@ async fn link_down_event_dispatched_to_interface() {
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -41,7 +47,13 @@ async fn link_up_event_dispatched_to_interface() {
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -67,8 +79,13 @@ async fn link_added_event_spawns_new_actor() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock.clone(), Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock.clone(),
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -100,7 +117,13 @@ async fn link_deleted_event_removes_actor() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -126,7 +149,13 @@ async fn duplicate_link_added_event_is_ignored() {
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -156,7 +185,13 @@ async fn link_deleted_for_unknown_interface_is_safe() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -182,7 +217,13 @@ async fn rapid_link_events_do_not_crash_supervisor() {
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(64);
-    let handle = supervisor::start_with(mock, Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock,
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -219,8 +260,13 @@ async fn link_added_when_no_primary_assigns_as_primary() {
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock.clone(), Some(event_rx), config).expect("start failed");
+    let handle = supervisor::start_with(
+        mock.clone(),
+        Some(event_rx),
+        config,
+        networkd::dns::DnsState::default(),
+    )
+    .expect("start failed");
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());

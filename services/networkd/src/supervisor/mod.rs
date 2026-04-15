@@ -18,6 +18,7 @@ use netlib::monitor::{self, NetworkEvent};
 use netlib::ops::{NetlinkOps, RtnetlinkOps};
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::dns::DnsState;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::{InterfaceActor, InterfaceActorHandle, InterfaceCommand};
 use crate::supervisor::snapshot::NetworkSnapshot;
@@ -29,6 +30,7 @@ pub struct NetworkSupervisor<N: NetlinkOps> {
     state: NetworkSnapshot,
     interfaces: HashMap<InterfaceName, InterfaceActorHandle>,
     watch_tx: watch::Sender<NetworkSnapshot>,
+    dns: DnsState,
 }
 
 impl<N: NetlinkOps> NetworkSupervisor<N> {
@@ -36,6 +38,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         ops: N,
         config: Arc<config::NetworkConfig>,
         watch_tx: watch::Sender<NetworkSnapshot>,
+        dns: DnsState,
     ) -> Self {
         Self {
             ops,
@@ -43,20 +46,57 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
             watch_tx,
+            dns,
         }
     }
 
+    /// Publishes the current aggregated state to subscribers.
     fn publish_state(&self) {
         let _ = self.watch_tx.send(self.state.clone());
     }
 
+    /// Synchronizes the aggregated state from all interfaces and publishes it.
     fn sync_and_publish(&mut self) {
         self.state.interfaces = self
             .interfaces
             .values()
             .map(|h| Arc::new(h.state_rx.borrow().clone()))
             .collect();
+        self.flush_dns();
         self.publish_state();
+    }
+
+    /// Flushes DNS configuration based on the primary interface's state with fallback.
+    fn flush_dns(&mut self) {
+        let Some(primary) = &self.state.primary else {
+            return;
+        };
+        let Some(handle) = self.interfaces.get(primary) else {
+            return;
+        };
+        let snap = handle.state_rx.borrow();
+
+        let v4 = snap
+            .ip
+            .as_ref()
+            .filter(|c| !c.dns.is_empty())
+            .map(|c| c.dns.clone())
+            .unwrap_or_else(|| self.config.ipv4_dns());
+
+        let v6 = snap
+            .ipv6
+            .as_ref()
+            .filter(|c| !c.dns.is_empty())
+            .map(|c| c.dns.clone())
+            .unwrap_or_else(|| self.config.ipv6_dns());
+
+        if self.dns.is_unchanged(&v4, &v6) {
+            return;
+        }
+
+        if let Err(e) = self.dns.update(v4, v6) {
+            kmsg::warn!("Failed to write DNS: {}", e);
+        }
     }
 
     fn get_primary_name(&self) -> Result<InterfaceName> {
@@ -168,7 +208,7 @@ fn retry_delay(
     base.checked_mul(multiplier).unwrap_or(max).min(max)
 }
 
-/// Starts the network supervisor with rtnetlink backend.
+/// Starts the network supervisor with the rtnetlink backend.
 pub async fn start() -> Result<NetworkActorHandle> {
     let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
@@ -177,19 +217,20 @@ pub async fn start() -> Result<NetworkActorHandle> {
     let event_rx = start_events_monitor().await;
     let config = Arc::new(config::network().clone());
 
-    start_with(ops, event_rx, config)
+    start_with(ops, event_rx, config, DnsState::default())
 }
 
-/// Starts the supervisor with an injectable ops backend.
+/// Starts the supervisor with injected dependencies.
 pub fn start_with<N: NetlinkOps>(
     ops: N,
     event_rx: Option<mpsc::Receiver<NetworkEvent>>,
     config: Arc<config::NetworkConfig>,
+    dns: DnsState,
 ) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
-    run(ops, cmd_rx, event_rx, watch_tx, config);
+    run(ops, cmd_rx, event_rx, watch_tx, config, dns);
 
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
@@ -214,11 +255,19 @@ fn run<N: NetlinkOps>(
     mut event_rx: Option<mpsc::Receiver<NetworkEvent>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<config::NetworkConfig>,
+    dns: DnsState,
 ) {
     tokio::spawn(async move {
-        let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx);
+        let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx, dns);
 
         loop {
+            let mut primary_snap_rx = supervisor
+                .state
+                .primary
+                .as_ref()
+                .and_then(|p| supervisor.interfaces.get(p))
+                .map(|h| h.state_rx.clone());
+
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     supervisor.handle_command(cmd).await;
@@ -231,6 +280,15 @@ fn run<N: NetlinkOps>(
                     }
                 } => {
                     supervisor.handle_event(event).await;
+                }
+
+                Ok(()) = async {
+                    match &mut primary_snap_rx {
+                        Some(rx) => rx.changed().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    supervisor.flush_dns();
                 }
 
                 else => {

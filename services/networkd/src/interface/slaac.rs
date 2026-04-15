@@ -99,10 +99,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
     fn on_slaac_dns_updated(&mut self, servers: Vec<Ipv6Addr>) {
         kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
 
-        if let Err(e) = self.dns.update_v6(servers.clone()) {
-            kmsg::warn!("Failed to update IPv6 DNS: {}", e);
-        }
-
         if let Some(ipv6) = &mut self.snapshot.ipv6 {
             ipv6.dns = servers;
         }
@@ -122,11 +118,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         if let Some(gateway) = ipv6.gateway {
             kmsg::info!("Setting IPv6 default route via {}", gateway);
             self.ops.ensure_default_route_v6(gateway).await?;
-        }
-
-        if !ipv6.dns.is_empty() {
-            kmsg::info!("Configuring {} IPv6 DNS server(s)", ipv6.dns.len());
-            self.dns.update_v6(ipv6.dns.clone())?;
         }
 
         Ok(())
