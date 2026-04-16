@@ -1,7 +1,7 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION
-ARG KERNEL_VERSION=6.19.8
+ARG KERNEL_VERSION=7.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-build
