@@ -20,7 +20,7 @@ rtnetlink = { workspace = true }
 
 # System/platform APIs
 libc = { workspace = true }
-rustix = { workspace = true }
+rustix = { workspace = true, features = ["net"] }
 
 [lints]
 workspace = true

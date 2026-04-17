@@ -8,6 +8,7 @@ use crate::statemachine::StateMachine;
 
 pub mod client;
 pub(crate) mod codec;
+pub(crate) mod framing;
 pub mod manager;
 pub(crate) mod packet;
 

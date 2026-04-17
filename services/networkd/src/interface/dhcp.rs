@@ -111,12 +111,10 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
     async fn do_renew<C: DhcpConnector>(&mut self, connector: &C) -> Result<()> {
         let (mac, server_ip, assigned_ip) = self.extract_dhcp_params()?;
-        let result = if let Some(mgr) = &self.dhcp {
-            dhcp::client::renew_dhcp_client(mgr.socket(), &mac, server_ip, assigned_ip).await
-        } else {
-            let socket = connector.create(self.snapshot.name.as_str()).await?;
-            dhcp::client::renew_dhcp_client(&socket, &mac, server_ip, assigned_ip).await
-        };
+        let socket = connector
+            .create_unicast(self.snapshot.name.as_str(), assigned_ip)
+            .await?;
+        let result = dhcp::client::renew(&socket, &mac, server_ip, assigned_ip).await;
         match result {
             Ok(lease) => self.apply_renewed_lease(&lease).await,
             Err(e) if e.downcast_ref::<DhcpNak>().is_some() => {
@@ -140,12 +138,8 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
     async fn do_rebind<C: DhcpConnector>(&mut self, connector: &C) -> Result<()> {
         let (mac, server_ip, assigned_ip) = self.extract_dhcp_params()?;
-        let result = if let Some(mgr) = &self.dhcp {
-            dhcp::client::rebind_dhcp_client(mgr.socket(), &mac, server_ip, assigned_ip).await
-        } else {
-            let socket = connector.create(self.snapshot.name.as_str()).await?;
-            dhcp::client::rebind_dhcp_client(&socket, &mac, server_ip, assigned_ip).await
-        };
+        let socket = connector.create_raw(self.snapshot.name.as_str()).await?;
+        let result = dhcp::client::rebind(&socket, &mac, server_ip, assigned_ip).await;
         match result {
             Ok(lease) => self.apply_renewed_lease(&lease).await,
             Err(e) if e.downcast_ref::<DhcpNak>().is_some() => {
@@ -167,12 +161,10 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         self.timers.disarm();
 
         let mac = self.snapshot.mac;
-        let socket = connector.create(self.snapshot.name.as_str()).await?;
-        let lease = dhcp::client::run_dhcp_client(&socket, &mac)
-            .await
-            .inspect_err(|_| {
-                self.set_state(InterfaceState::Failed);
-            })?;
+        let socket = connector.create_raw(self.snapshot.name.as_str()).await?;
+        let lease = dhcp::client::run(&socket, &mac).await.inspect_err(|_| {
+            self.set_state(InterfaceState::Failed);
+        })?;
 
         let index = self.snapshot.index;
         self.commit_lease(index, lease).await?;

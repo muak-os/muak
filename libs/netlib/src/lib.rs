@@ -7,6 +7,7 @@ pub mod link;
 pub mod mac;
 pub mod monitor;
 pub mod ops;
+pub mod packet;
 pub mod retry;
 pub mod route;
 pub mod slaac;

@@ -5,57 +5,49 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::Result;
+use netlib::packet::{ETH_BROADCAST, PacketSocket};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
 use super::DhcpLease;
-use super::codec::{build_lease_from_ack, generate_xid, validate_response};
+use super::codec::{ParsedOptions, build_lease_from_ack, generate_xid, validate_response};
+use super::framing::{L3L4_HEADER_LEN, unwrap_ipv4_udp, wrap_ipv4_udp};
 use super::packet::{
     DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DHCP_TIMEOUT_SECS, append_param_request_list, build_header,
     build_request_message, message_type, option, yiaddr,
 };
 
-/// Abstracts DHCP socket creation.
+/// Abstracts DHCP socket creation for raw (broadcast) and unicast paths.
 pub trait DhcpConnector: Clone + Send + Sync + 'static {
-    fn create(&self, interface: &str) -> impl Future<Output = Result<UdpSocket>> + Send;
+    /// Creates a raw `AF_PACKET` socket for broadcast DORA / REBIND.
+    fn create_raw(&self, interface: &str) -> impl Future<Output = Result<PacketSocket>> + Send;
+
+    /// Creates a unicast UDP socket for RENEW.
+    fn create_unicast(
+        &self,
+        interface: &str,
+        src_ip: Ipv4Addr,
+    ) -> impl Future<Output = Result<UdpSocket>> + Send;
 }
 
-/// System connector that binds a broadcast socket on port 68.
+/// System connector that opens raw and unicast sockets via the kernel.
 #[derive(Clone, Default)]
 pub struct SystemDhcpConnector;
 
 impl DhcpConnector for SystemDhcpConnector {
-    async fn create(&self, interface: &str) -> Result<UdpSocket> {
-        create_dhcp_socket(interface).await
+    async fn create_raw(&self, interface: &str) -> Result<PacketSocket> {
+        Ok(PacketSocket::open(interface)?)
+    }
+
+    async fn create_unicast(&self, interface: &str, src_ip: Ipv4Addr) -> Result<UdpSocket> {
+        let socket = UdpSocket::bind((src_ip, DHCP_CLIENT_PORT)).await?;
+        netlib::socket::bind_device(&socket, interface)?;
+        Ok(socket)
     }
 }
 
-/// Creates and configures a broadcast UDP socket bound to the DHCP client port on `interface`.
-pub async fn create_dhcp_socket(interface: &str) -> Result<UdpSocket> {
-    let socket = UdpSocket::bind(("0.0.0.0", DHCP_CLIENT_PORT)).await?;
-    socket.set_broadcast(true)?;
-    netlib::socket::bind_device(&socket, interface)?;
-    Ok(socket)
-}
-
-/// Receives and validates a DHCP ACK, building a `DhcpLease` from the response.
-async fn receive_ack(socket: &UdpSocket, xid_val: u32, server_ip: Ipv4Addr) -> Result<DhcpLease> {
-    let mut buf = [0u8; 1500];
-    let (len, _) = timeout(
-        Duration::from_secs(DHCP_TIMEOUT_SECS),
-        socket.recv_from(&mut buf),
-    )
-    .await??;
-
-    let ack_opts = validate_response(&buf, len, xid_val, message_type::ACK)?;
-    let ip = yiaddr(&buf);
-    println!("DHCP: got ACK yiaddr={}", ip);
-
-    build_lease_from_ack(ip, server_ip, &ack_opts)
-}
-
-/// Runs a full DHCPDISCOVER->OFFER->REQUEST->ACK exchange using an existing socket.
-pub async fn run_dhcp_client(socket: &UdpSocket, mac: &[u8; 6]) -> Result<DhcpLease> {
+/// Runs a full DHCPDISCOVER->OFFER->REQUEST->ACK exchange via a raw packet socket.
+pub async fn run(socket: &PacketSocket, mac: &[u8; 6]) -> Result<DhcpLease> {
     let xid = generate_xid()?;
 
     let mut discover = build_header(xid, mac);
@@ -65,18 +57,16 @@ pub async fn run_dhcp_client(socket: &UdpSocket, mac: &[u8; 6]) -> Result<DhcpLe
     discover.push(option::END);
 
     println!("DHCP: sending DISCOVER xid={}", xid);
-    socket
-        .send_to(&discover, ("255.255.255.255", DHCP_SERVER_PORT))
-        .await?;
-
-    let mut buf = [0u8; 1500];
-    let (len, _) = timeout(
-        Duration::from_secs(DHCP_TIMEOUT_SECS),
-        socket.recv_from(&mut buf),
+    send_raw(
+        socket,
+        &discover,
+        Ipv4Addr::UNSPECIFIED,
+        Ipv4Addr::BROADCAST,
     )
-    .await??;
-    let offer_opts = validate_response(&buf, len, xid, message_type::OFFER)?;
-    let offered_ip = yiaddr(&buf);
+    .await?;
+
+    let (offer_buf, offer_opts, _) = recv_raw_validated(socket, xid, message_type::OFFER).await?;
+    let offered_ip = yiaddr(&offer_buf);
     println!("DHCP: got OFFER yiaddr={}", offered_ip);
 
     let server_id = offer_opts
@@ -94,15 +84,16 @@ pub async fn run_dhcp_client(socket: &UdpSocket, mac: &[u8; 6]) -> Result<DhcpLe
     request.push(option::END);
 
     println!("DHCP: sending REQUEST for {}", offered_ip);
-    socket
-        .send_to(&request, ("255.255.255.255", DHCP_SERVER_PORT))
-        .await?;
+    send_raw(socket, &request, Ipv4Addr::UNSPECIFIED, Ipv4Addr::BROADCAST).await?;
 
-    receive_ack(socket, xid, server_id).await
+    let (ack_buf, ack_opts, _) = recv_raw_validated(socket, xid, message_type::ACK).await?;
+    let ip = yiaddr(&ack_buf);
+    println!("DHCP: got ACK yiaddr={}", ip);
+    build_lease_from_ack(ip, server_id, &ack_opts)
 }
 
 /// Sends a unicast DHCP RENEW (REQUEST to the known server) per RFC 2131.
-pub async fn renew_dhcp_client(
+pub async fn renew(
     socket: &UdpSocket,
     mac: &[u8; 6],
     server_ip: Ipv4Addr,
@@ -115,12 +106,12 @@ pub async fn renew_dhcp_client(
 
     socket.send_to(&msg, (server_ip, DHCP_SERVER_PORT)).await?;
 
-    receive_ack(socket, xid, server_ip).await
+    receive_ack_unicast(socket, xid, server_ip).await
 }
 
-/// Sends a broadcast DHCP REBIND (REQUEST to any server) per RFC 2131.
-pub async fn rebind_dhcp_client(
-    socket: &UdpSocket,
+/// Sends a broadcast DHCP REBIND per RFC 2131 via raw socket.
+pub async fn rebind(
+    socket: &PacketSocket,
     mac: &[u8; 6],
     server_ip: Ipv4Addr,
     assigned_ip: Ipv4Addr,
@@ -130,9 +121,71 @@ pub async fn rebind_dhcp_client(
     let xid = generate_xid()?;
     let msg = build_request_message(xid, mac, assigned_ip, false);
 
-    socket
-        .send_to(&msg, ("255.255.255.255", DHCP_SERVER_PORT))
-        .await?;
+    send_raw(socket, &msg, assigned_ip, Ipv4Addr::BROADCAST).await?;
 
-    receive_ack(socket, xid, server_ip).await
+    let (ack_buf, ack_opts, _) = recv_raw_validated(socket, xid, message_type::ACK).await?;
+    let ip = yiaddr(&ack_buf);
+    println!("DHCP: got ACK yiaddr={}", ip);
+    build_lease_from_ack(ip, server_ip, &ack_opts)
+}
+
+/// Sends a DHCP message wrapped in IPv4+UDP via the raw packet socket.
+async fn send_raw(
+    socket: &PacketSocket,
+    payload: &[u8],
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+) -> Result<()> {
+    let frame = wrap_ipv4_udp(payload, src_ip, dst_ip, DHCP_CLIENT_PORT, DHCP_SERVER_PORT);
+    socket.send_to(&frame, ETH_BROADCAST).await?;
+    Ok(())
+}
+
+/// Receives one DHCP message of the expected type with matching xid via the raw socket.
+async fn recv_raw_validated(
+    socket: &PacketSocket,
+    xid_val: u32,
+    expected_type: u8,
+) -> Result<(Vec<u8>, ParsedOptions, usize)> {
+    let mut buf = [0u8; 2048];
+    loop {
+        let n = timeout(
+            Duration::from_secs(DHCP_TIMEOUT_SECS),
+            socket.recv(&mut buf),
+        )
+        .await??;
+        if n < L3L4_HEADER_LEN {
+            continue;
+        }
+        let (payload, _src_port, dst_port) = match unwrap_ipv4_udp(&buf[..n]) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if dst_port != DHCP_CLIENT_PORT {
+            continue;
+        }
+        match validate_response(payload, payload.len(), xid_val, expected_type) {
+            Ok(opts) => return Ok((payload.to_vec(), opts, payload.len())),
+            Err(e) if e.downcast_ref::<super::codec::DhcpNak>().is_some() => return Err(e),
+            Err(_) => continue,
+        }
+    }
+}
+
+/// Receives and validates a DHCP ACK on a unicast UDP socket.
+async fn receive_ack_unicast(
+    socket: &UdpSocket,
+    xid_val: u32,
+    server_ip: Ipv4Addr,
+) -> Result<DhcpLease> {
+    let mut buf = [0u8; 1500];
+    let (len, _) = timeout(
+        Duration::from_secs(DHCP_TIMEOUT_SECS),
+        socket.recv_from(&mut buf),
+    )
+    .await??;
+    let opts = validate_response(&buf, len, xid_val, message_type::ACK)?;
+    let ip = yiaddr(&buf);
+    println!("DHCP: got ACK yiaddr={}", ip);
+    build_lease_from_ack(ip, server_ip, &opts)
 }

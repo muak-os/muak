@@ -131,15 +131,13 @@ async fn handle_message(
     link_states: &mut HashMap<u32, (String, bool)>,
 ) -> Result<()> {
     match msg {
-        RouteNetlinkMessage::NewLink(link_msg) => {
-            if config.monitor_link_changes || config.monitor_link_state {
-                handle_new_link(link_msg, tx, link_states).await?;
-            }
+        RouteNetlinkMessage::NewLink(link_msg)
+            if config.monitor_link_changes || config.monitor_link_state =>
+        {
+            handle_new_link(link_msg, tx, link_states).await?;
         }
-        RouteNetlinkMessage::DelLink(link_msg) => {
-            if config.monitor_link_changes {
-                handle_del_link(link_msg, tx, link_states).await?;
-            }
+        RouteNetlinkMessage::DelLink(link_msg) if config.monitor_link_changes => {
+            handle_del_link(link_msg, tx, link_states).await?;
         }
         _ => {}
     }

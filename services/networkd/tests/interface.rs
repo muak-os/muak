@@ -15,6 +15,7 @@ mod r#static;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ use anyhow::Result;
 use netlib::interface::{Interface, InterfaceName};
 use netlib::link::LinkStateKind;
 use netlib::ops::{AddressOps, BridgeOps, InterfaceOps, LinkOps, NetlinkOps, RouteOps};
+use netlib::packet::PacketSocket;
 use networkd::dhcp::DhcpConnector;
 use networkd::interface::snapshot::InterfaceSnapshot;
 use networkd::interface::state::InterfaceState;
@@ -31,7 +33,21 @@ use networkd::interface::{InterfaceActor, InterfaceCommand};
 struct MockDhcpConnector;
 
 impl DhcpConnector for MockDhcpConnector {
-    async fn create(&self, _interface: &str) -> Result<tokio::net::UdpSocket> {
+    async fn create_raw(&self, _interface: &str) -> Result<PacketSocket> {
+        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let std_udp = udp.into_std()?;
+        std_udp.set_nonblocking(true)?;
+        let raw = std_udp.into_raw_fd();
+        // SAFETY: raw is an owned fd from std::net::UdpSocket
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        Ok(PacketSocket::from_fd(fd, 0)?)
+    }
+
+    async fn create_unicast(
+        &self,
+        _interface: &str,
+        _src_ip: std::net::Ipv4Addr,
+    ) -> Result<tokio::net::UdpSocket> {
         Ok(tokio::net::UdpSocket::bind("127.0.0.1:0").await?)
     }
 }

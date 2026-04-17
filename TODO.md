@@ -18,9 +18,9 @@
   - Test IPv6 with e2e tests
 
 - Enchance `imager`:
-  - Support custom http proxy
+  - Support custom HTTP proxy
   - Support for self-signed certificates
-  - Remove http support
+  - Remove HTTP support
   - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
 
 - Target 80% coverage using unit & integration tests

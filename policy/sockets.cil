@@ -20,6 +20,7 @@
 (classmapping sockets use (netlink_kobject_uevent_socket   (not (relabelfrom relabelto))))
 (classmapping sockets use (netlink_generic_socket          (not (relabelfrom relabelto))))
 (classmapping sockets use (tun_socket         (not (relabelfrom relabelto))))
+(classmapping sockets use (packet_socket      (not (relabelfrom relabelto))))
 
 ; ── relabel: relabeling socket objects ───────────────────────────────────────
 
@@ -33,3 +34,4 @@
 (classmapping sockets relabel (netlink_kobject_uevent_socket   (relabelfrom relabelto)))
 (classmapping sockets relabel (netlink_generic_socket          (relabelfrom relabelto)))
 (classmapping sockets relabel (tun_socket         (relabelfrom relabelto)))
+(classmapping sockets relabel (packet_socket      (relabelfrom relabelto)))

@@ -3,29 +3,29 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use tokio::net::UdpSocket;
+use netlib::packet::PacketSocket;
 
 use super::DhcpLease;
-use super::client::{DhcpConnector, run_dhcp_client};
+use super::client::{self, DhcpConnector};
 
 const RETRY_BASE: Duration = Duration::from_secs(2);
 const RETRY_MAX: Duration = Duration::from_secs(120);
 
 /// Drives the full DORA exchange with exponential-backoff retries until a lease is acquired.
 pub struct DhcpManager {
-    socket: UdpSocket,
+    socket: PacketSocket,
     mac: [u8; 6],
     delay: Duration,
 }
 
 impl DhcpManager {
-    /// Creates a new manager to bind a reusable socket for the given interface.
+    /// Creates a new manager binding a raw packet socket for the given interface.
     pub async fn new<C: DhcpConnector>(
         interface: &str,
         mac: [u8; 6],
         connector: &C,
     ) -> Result<Self> {
-        let socket = connector.create(interface).await?;
+        let socket = connector.create_raw(interface).await?;
         Ok(Self {
             socket,
             mac,
@@ -33,15 +33,15 @@ impl DhcpManager {
         })
     }
 
-    /// Returns a reference to the underlying socket for reuse in renew/rebind operations.
-    pub fn socket(&self) -> &UdpSocket {
+    /// Returns a reference to the underlying raw socket for reuse in rebind operations.
+    pub fn socket(&self) -> &PacketSocket {
         &self.socket
     }
 
     /// Runs DORA with backoff, resolving only once a lease is successfully acquired.
     pub async fn acquire(&mut self) -> DhcpLease {
         loop {
-            match run_dhcp_client(&self.socket, &self.mac).await {
+            match client::run(&self.socket, &self.mac).await {
                 Ok(lease) => return lease,
                 Err(e) => kmsg::warn!("DHCP failed: {}; retrying in {}s", e, self.delay.as_secs()),
             }
