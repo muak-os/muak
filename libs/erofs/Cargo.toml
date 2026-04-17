@@ -10,7 +10,6 @@ thiserror = { workspace = true }
 
 # Filesystem
 crc32c = { workspace = true }
-walkdir = { workspace = true }
 
 # Compression
 zstd = { workspace = true }

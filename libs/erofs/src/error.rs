@@ -27,7 +27,7 @@ pub enum ErofsError {
 
     /// Directory walk failed.
     #[error("directory walk error: {0}")]
-    Walk(#[from] walkdir::Error),
+    Walk(String),
 
     /// file_contexts parse error.
     #[error("file_contexts error: {0}")]

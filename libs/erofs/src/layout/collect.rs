@@ -24,20 +24,39 @@ fn normalize_rel(path: &Path, prefix: &Path) -> String {
     }
 }
 
-/// Walk the source directory and collect (absolute, relative) path pairs.
+/// Walk the source directory recursively and collect sorted absolute and relative paths.
 pub fn collect_entries(source_dir: &Path) -> Result<Vec<(PathBuf, String)>> {
-    let walker = walkdir::WalkDir::new(source_dir)
-        .sort_by_file_name()
-        .follow_links(false);
-
-    let mut entries = Vec::new();
-    for entry in walker {
-        let entry = entry?;
-        let abs = entry.path().to_path_buf();
-        let rel = normalize_rel(&abs, source_dir);
-        entries.push((abs, rel));
-    }
+    let mut entries = vec![(source_dir.to_path_buf(), "/".to_string())];
+    walk_recursive(source_dir, source_dir, &mut entries)?;
+    entries.sort_unstable_by(|a, b| a.1.cmp(&b.1));
     Ok(entries)
+}
+
+/// Recursively descend into `dir`, appending discovered entries to `out`.
+fn walk_recursive(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()> {
+    let read_dir =
+        fs::read_dir(dir).map_err(|e| ErofsError::Walk(format!("{}: {e}", dir.display())))?;
+
+    let mut names: Vec<std::ffi::OsString> = read_dir
+        .map(|entry| {
+            entry
+                .map(|e| e.file_name())
+                .map_err(|e| ErofsError::Walk(format!("{}: {e}", dir.display())))
+        })
+        .collect::<Result<_>>()?;
+    names.sort_unstable();
+
+    for name in names {
+        let abs = dir.join(&name);
+        let rel = normalize_rel(&abs, root);
+        let meta = fs::symlink_metadata(&abs)
+            .map_err(|e| ErofsError::Walk(format!("{}: {e}", abs.display())))?;
+        out.push((abs.clone(), rel));
+        if meta.is_dir() {
+            walk_recursive(root, &abs, out)?;
+        }
+    }
+    Ok(())
 }
 
 /// Build initial `InodeLayout` entries from filesystem metadata.

@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
-use walkdir::WalkDir;
-
 use crate::cpio::{self, CpioEntry};
 use crate::erofs;
 use crate::error::{RamuneError, Result};
@@ -185,12 +183,24 @@ fn emit_parent_dirs(
 
 /// Recursively walks a directory, collecting relative paths and file contents.
 fn walk_dir(base: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
-    for entry in WalkDir::new(base).min_depth(1) {
+    walk_dir_inner(base, base, tree)
+}
+
+fn walk_dir_inner(base: &Path, dir: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
+    let read_dir = std::fs::read_dir(dir).map_err(|e| RamuneError::ReadError {
+        file: dir.display().to_string(),
+        source: e,
+    })?;
+    for entry in read_dir {
         let entry = entry.map_err(|e| RamuneError::ReadError {
-            file: base.display().to_string(),
-            source: std::io::Error::other(e),
+            file: dir.display().to_string(),
+            source: e,
         })?;
         let path = entry.path();
+        let meta = std::fs::symlink_metadata(&path).map_err(|e| RamuneError::ReadError {
+            file: path.display().to_string(),
+            source: e,
+        })?;
         let rel = path
             .strip_prefix(base)
             .map_err(|e| RamuneError::ReadError {
@@ -199,16 +209,16 @@ fn walk_dir(base: &Path, tree: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
             })?
             .to_string_lossy()
             .into_owned();
-
-        if entry.file_type().is_file() {
-            let data = std::fs::read(path).map_err(|e| RamuneError::ReadError {
+        if meta.is_dir() {
+            walk_dir_inner(base, &path, tree)?;
+        } else if meta.is_file() {
+            let data = std::fs::read(&path).map_err(|e| RamuneError::ReadError {
                 file: path.display().to_string(),
                 source: e,
             })?;
             tree.insert(rel, data);
         }
     }
-
     Ok(())
 }
 
