@@ -11,7 +11,7 @@ use rustix::termios::{
     ControlModes, InputModes, LocalModes, OptionalActions, OutputModes, SpecialCodeIndex, Termios,
 };
 
-const DEFAULT_TTY: &str = "/dev/tty0";
+const TTY_PATH: &str = "/dev/tty0";
 
 /// A raw TTY handle with terminal mode management.
 pub struct Tty {
@@ -20,30 +20,36 @@ pub struct Tty {
 }
 
 impl Tty {
-    /// Opens the default virtual console in raw mode.
-    pub fn open() -> Result<Self> {
-        let fd = open(
-            DEFAULT_TTY,
+    /// Opens the virtual console in raw mode if possible.
+    pub fn open() -> Result<Option<Self>> {
+        let fd = match open(
+            TTY_PATH,
             OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY,
             Mode::empty(),
-        )
-        .with_context(|| format!("failed to open {DEFAULT_TTY}"))?;
+        ) {
+            Ok(fd) => fd,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => {
+                return Err(anyhow::Error::from(e))
+                    .with_context(|| format!("failed to open {TTY_PATH}"));
+            }
+        };
 
         let file: Arc<File> = Arc::new(fd.into());
 
         let original_termios = rustix::termios::tcgetattr(file.as_fd())
-            .with_context(|| format!("failed to get terminal attributes for {DEFAULT_TTY}"))?;
+            .with_context(|| format!("failed to get terminal attributes for {TTY_PATH}"))?;
 
         let mut raw = original_termios.clone();
         make_raw(&mut raw);
 
         rustix::termios::tcsetattr(file.as_fd(), OptionalActions::Flush, &raw)
-            .with_context(|| format!("failed to set terminal attributes for {DEFAULT_TTY}"))?;
+            .with_context(|| format!("failed to set terminal attributes for {TTY_PATH}"))?;
 
-        Ok(Self {
+        Ok(Some(Self {
             file,
             original_termios,
-        })
+        }))
     }
 
     /// Returns `(cols, rows)` by querying `TIOCGWINSZ` on the TTY fd.

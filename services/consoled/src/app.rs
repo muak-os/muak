@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use crossterm::cursor;
 use crossterm::queue;
 use crossterm::style::Print;
+use crossterm::terminal::Clear;
+use crossterm::terminal::ClearType;
 use tokio::sync::mpsc;
 
 use crate::input::InputEvent;
@@ -23,7 +25,12 @@ pub struct App {
 
 impl App {
     pub fn new(mut tty: Tty) -> Result<Self> {
-        queue!(tty, cursor::Hide)?;
+        queue!(
+            tty,
+            cursor::Hide,
+            Clear(ClearType::All),
+            cursor::MoveTo(0, 0)
+        )?;
 
         let mut poll_state = PollState::default();
         let (cols, rows) = tty.size();

@@ -20,7 +20,13 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 async fn main(notifier: NotifyClient) -> Result<()> {
     notifier.status("Initializing", Health::Healthy)?;
 
-    let tty = tty::Tty::open().context("Failed to open TTY")?;
+    let tty = match tty::Tty::open().context("Failed to open TTY")? {
+        Some(tty) => tty,
+        None => {
+            kmsg::info!("No VGA console available, exiting.");
+            return Ok(());
+        }
+    };
     let mut app = app::App::new(tty).context("Failed to initialize app")?;
 
     notifier.ready()?;
