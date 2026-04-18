@@ -6,11 +6,14 @@ use fatfs::{FatType, FileSystem, FormatVolumeOptions, FsOptions};
 
 use crate::MisoError;
 
-/// Minimum FAT32 image padding beyond the content, in bytes.
-const FAT_OVERHEAD_MIN_BYTES: usize = 1024 * 1024;
+/// Minimum FAT32 image size in bytes.
+const FAT_MIN_IMAGE_BYTES: usize = 1024 * 1024;
 
-/// FAT32 metadata overhead as a fraction of the content size (5%).
-const FAT_OVERHEAD_FRACTION: usize = 20;
+/// Minimum image growth step while searching for the smallest fitting FAT image.
+const FAT_GROWTH_MIN_BYTES: usize = 128 * 1024;
+
+/// Maximum number of growth attempts before giving up.
+const FAT_GROWTH_ATTEMPTS: usize = 16;
 
 /// Rounds `n` up to the nearest multiple of `align`.
 fn align_up(n: usize, align: usize) -> usize {
@@ -29,8 +32,59 @@ pub fn build_efi_image_with_blobs(
     blobs: &[(&str, &[u8])],
 ) -> Result<Vec<u8>, MisoError> {
     let total_content: usize = uki.len() + blobs.iter().map(|(_, d)| d.len()).sum::<usize>();
-    let overhead = (total_content / FAT_OVERHEAD_FRACTION).max(FAT_OVERHEAD_MIN_BYTES);
-    let image_size = align_up(total_content + overhead, 512);
+    let mut size = minimum_image_size(total_content);
+    let mut failed_size = None;
+    let mut last_error = None;
+
+    for _ in 0..FAT_GROWTH_ATTEMPTS {
+        let image = match try_build_efi_image(size, uki, boot_filename, blobs) {
+            Ok(image) => image,
+            Err(err) => {
+                failed_size = Some(size);
+                last_error = Some(err);
+                size = next_image_size(size);
+                continue;
+            }
+        };
+
+        return match failed_size {
+            Some(failed) => build_smallest_fitting_image(failed, size, uki, boot_filename, blobs),
+            None => Ok(image),
+        };
+    }
+
+    Err(last_error.unwrap_or_else(|| MisoError::Fat("failed to size FAT image".to_owned())))
+}
+
+fn build_smallest_fitting_image(
+    failed_size: usize,
+    success_size: usize,
+    uki: &[u8],
+    boot_filename: &str,
+    blobs: &[(&str, &[u8])],
+) -> Result<Vec<u8>, MisoError> {
+    let mut low = failed_size / 512;
+    let mut high = success_size / 512;
+
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        let candidate = mid * 512;
+        if try_build_efi_image(candidate, uki, boot_filename, blobs).is_ok() {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+
+    try_build_efi_image(high * 512, uki, boot_filename, blobs)
+}
+
+fn try_build_efi_image(
+    image_size: usize,
+    uki: &[u8],
+    boot_filename: &str,
+    blobs: &[(&str, &[u8])],
+) -> Result<Vec<u8>, MisoError> {
     let buf = vec![0u8; image_size];
     let mut cursor = Cursor::new(buf);
 
@@ -66,6 +120,17 @@ pub fn build_efi_image_with_blobs(
     }
 
     Ok(cursor.into_inner())
+}
+
+fn minimum_image_size(total_content: usize) -> usize {
+    align_up(total_content.max(FAT_MIN_IMAGE_BYTES), 512)
+}
+
+fn next_image_size(image_size: usize) -> usize {
+    align_up(
+        image_size + (image_size / 16).max(FAT_GROWTH_MIN_BYTES),
+        512,
+    )
 }
 
 #[cfg(test)]
@@ -142,8 +207,8 @@ mod tests {
 
         // ASSERT
         assert!(
-            image.len() >= uki.len() + FAT_OVERHEAD_MIN_BYTES,
-            "image must be at least UKI size + overhead"
+            image.len() >= minimum_image_size(uki.len()),
+            "image must be at least the minimum FAT image size"
         );
     }
 
@@ -209,9 +274,45 @@ mod tests {
 
         // ASSERT
         assert!(
-            image.len() >= uki.len() + blob.len() + FAT_OVERHEAD_MIN_BYTES,
+            image.len() >= minimum_image_size(uki.len() + blob.len()),
             "image must account for blob sizes"
         );
+    }
+
+    #[test]
+    fn build_efi_image_large_payload_avoids_fixed_five_percent_slack() {
+        // ARRANGE
+        let uki = vec![0xABu8; 64 * 1024 * 1024];
+
+        // ACT
+        let image = build_efi_image(&uki, "BOOTX64.EFI").expect("should succeed");
+
+        // ASSERT
+        let old_heuristic = align_up(uki.len() + (uki.len() / 20).max(FAT_MIN_IMAGE_BYTES), 512);
+        assert!(image.len() < old_heuristic);
+    }
+
+    #[test]
+    fn build_smallest_fitting_image_returns_minimal_success_case() {
+        // ARRANGE
+        let uki = vec![0xABu8; 2 * 1024 * 1024];
+        let boot_filename = "BOOTX64.EFI";
+        let mut failed_size = minimum_image_size(uki.len());
+
+        while try_build_efi_image(failed_size, &uki, boot_filename, &[]).is_ok() {
+            failed_size -= 512;
+        }
+
+        let success_size = failed_size + 512;
+
+        // ACT
+        let image =
+            build_smallest_fitting_image(failed_size, success_size, &uki, boot_filename, &[])
+                .expect("should find minimal successful size");
+
+        // ASSERT
+        assert_eq!(image.len(), success_size);
+        assert!(try_build_efi_image(failed_size, &uki, boot_filename, &[]).is_err());
     }
 
     #[test]
