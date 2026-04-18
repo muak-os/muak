@@ -31,8 +31,8 @@ COPY libs/kmsg ./libs/kmsg
 COPY libs/granola-macros ./libs/granola-macros
 COPY libs/config ./libs/config
 
-COPY pkgs/kernel/cmdline-amd64.txt ./pkgs/kernel/cmdline-amd64.txt
-COPY pkgs/kernel/cmdline-arm64.txt ./pkgs/kernel/cmdline-arm64.txt
+COPY core/kernel/cmdline-amd64.txt ./core/kernel/cmdline-amd64.txt
+COPY core/kernel/cmdline-arm64.txt ./core/kernel/cmdline-arm64.txt
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/build/target \

@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/var/cache/apk \
   apk add --no-cache --no-scripts musl-dev
 
 COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["services/provisiond", "core/granola", "tools/imager", "libs/kmsg", "tools/yuki", "libs/config", "libs/pki", "tools/sbolt", "libs/luks2"]' Cargo.toml
+RUN sed -i '/members = \[/,/\]/c\members = ["services/provisiond", "core/granola", "tools/imager", "libs/kmsg", "tools/yuki", "libs/config", "libs/pki", "libs/sbolt", "libs/luks2"]' Cargo.toml
 
 COPY api ./api
 COPY libs/config/default.toml ./libs/config/default.toml
@@ -33,7 +33,7 @@ COPY tools/yuki ./tools/yuki
 COPY tools/imager ./tools/imager
 COPY libs/config ./libs/config
 COPY libs/pki ./libs/pki
-COPY tools/sbolt ./tools/sbolt
+COPY libs/sbolt ./libs/sbolt
 COPY libs/luks2 ./libs/luks2
 
 COPY core/kernel/cmdline-amd64.txt ./core/kernel/cmdline-amd64.txt
