@@ -120,15 +120,15 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 http-body-util = "0.1"
 
 ## Networking
-rtnetlink = { version = "0.20", default-features = false, features = ["tokio_socket"] }
+rtnetlink = { version = "0.21", default-features = false, features = ["tokio_socket"] }
 
 ## System/platform APIs
 libc = { version = "0.2", default-features = false, features = ["std"] }
 rustix = { version = "1.1", default-features = false, features = ["std", "fs", "mount", "linux_latest"] }
-uefi = "0.36"
+uefi = "0.37"
 
 ## Utilities
-object = { version = "0.38", default-features = false, features = ["read", "write", "pe"] }
+object = { version = "0.39", default-features = false, features = ["read", "write", "pe"] }
 uuid = { version = "1.23", default-features = false, features = ["v4", "v7"] }
 
 ## Procedural macros
