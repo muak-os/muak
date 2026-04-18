@@ -73,12 +73,10 @@ COPY --link --from=rootfs-base /rootfs               /rootfs
 COPY --link --from=selinux     /policy/policy.*      /rootfs/etc/selinux/
 COPY --link --from=selinux     /policy/file_contexts /file_contexts
 COPY --link --from=pkg-init    /init                 /init
-COPY --link --from=pkg-kernel  /lib/modules          /lib/modules
 
 RUN ["/ramune", "create", \
   "--init", "/init", \
   "--rootfs-dir", "/rootfs", \
-  "--modules", "/lib/modules", \
   "--file-contexts", "/file_contexts", \
   "--output", "/initramfs.img"]
 

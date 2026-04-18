@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 pub use create::CreateConfig;
 pub use error::{RamuneError, Result};
 
-/// Creates a base initramfs image from an init binary, rootfs directory, and kernel modules.
+/// Creates a base initramfs image from an init binary and rootfs directory.
 pub fn create_initramfs(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
     let data = create::create_initramfs(config)?;
     std::fs::write(output, &data).map_err(|e| RamuneError::WriteError {

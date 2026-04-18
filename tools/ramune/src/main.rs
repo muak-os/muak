@@ -25,9 +25,6 @@ mod cli {
             rootfs_dir: PathBuf,
 
             #[arg(short, long)]
-            modules: PathBuf,
-
-            #[arg(short, long)]
             file_contexts: Option<PathBuf>,
 
             #[arg(short, long)]
@@ -59,7 +56,6 @@ mod cli {
             Command::Create {
                 init,
                 rootfs_dir,
-                modules,
                 file_contexts,
                 output,
             } => {
@@ -71,7 +67,6 @@ mod cli {
                 let config = ramune::CreateConfig {
                     init: &init,
                     rootfs_dir: &rootfs_dir,
-                    modules: &modules,
                     file_contexts: fc.as_ref(),
                 };
 

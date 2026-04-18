@@ -9,9 +9,13 @@ mod mount;
 mod selinux;
 mod switchroot;
 
+use std::path::Path;
 use std::process;
 
 use anyhow::Result;
+
+/// Mounted rootfs path used before switch_root.
+const NEWROOT: &str = "/newroot";
 
 /// Entry point that handles fatal errors.
 fn main() {
@@ -29,14 +33,14 @@ fn run() -> Result<()> {
 
     kmsg::info!("Pseudo filesystems mounted");
 
-    match modules::load() {
-        Ok(count) => kmsg::info!("Loaded {} kernel modules", count),
-        Err(e) => kmsg::warn!("Module loading failed: {}", e),
-    }
-
     kmsg::info!("Mounting rootfs");
     mount::mount_rootfs()?;
     kmsg::info!("Rootfs mounted successfully");
+
+    match modules::load(Path::new(NEWROOT)) {
+        Ok(count) => kmsg::info!("Loaded {} kernel modules", count),
+        Err(e) => kmsg::warn!("Module loading failed: {}", e),
+    }
 
     selinux::load()?;
     let mode = if selinux::is_enforcing().unwrap_or(false) {
@@ -53,7 +57,7 @@ fn run() -> Result<()> {
     }
 
     kmsg::info!("Switching to new root");
-    switchroot::switch_root("/newroot")?;
+    switchroot::switch_root(NEWROOT)?;
 
     unreachable!("switch_root should never return");
 }
