@@ -11,8 +11,11 @@ use anyhow::{Context, bail};
 use granola::Health;
 use tokio::signal::unix::{SignalKind, signal};
 
-/// Poll interval between NTP synchronizations.
-const POLL_INTERVAL: Duration = Duration::from_secs(64);
+/// Retry interval before the first successful NTP synchronization.
+const INITIAL_RETRY_INTERVAL: Duration = Duration::from_secs(64);
+
+/// Poll interval after the first successful NTP synchronization.
+const STEADY_STATE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 #[granola::service("timed")]
 #[tokio::main]
@@ -27,9 +30,12 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.status("Initializing", Health::Healthy)?;
 
+    let mut synced_once = false;
+
     match ntp::sync(server).await {
         Ok(offset) => {
             println!("Initial time sync succeeded (offset: {offset:?})");
+            synced_once = true;
         }
         Err(e) => {
             eprintln!("Initial time sync failed: {e:#}");
@@ -41,17 +47,25 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
-    let mut interval = tokio::time::interval(POLL_INTERVAL);
-    interval.tick().await;
 
     loop {
+        let delay = if synced_once {
+            STEADY_STATE_INTERVAL
+        } else {
+            INITIAL_RETRY_INTERVAL
+        };
+        let sleep = tokio::time::sleep(delay);
+        tokio::pin!(sleep);
+
         tokio::select! {
             _ = sigterm.recv() => break,
             _ = sigint.recv() => break,
-            _ = interval.tick() => {
+            _ = &mut sleep => {
                 match ntp::sync(server).await {
                     Ok(offset) => {
                         println!("Time sync succeeded (offset: {offset:?})");
+                        synced_once = true;
+                        notifier.status("Synchronized", Health::Healthy)?;
                     }
                     Err(e) => {
                         eprintln!("Time sync failed: {e:#}");
