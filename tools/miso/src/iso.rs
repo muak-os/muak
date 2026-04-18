@@ -7,6 +7,9 @@ use crate::MisoError;
 /// Logical block size for ISO 9660, mandated by ECMA-119.
 pub const SECTOR_SIZE: usize = 2048;
 
+/// Maximum El Torito EFI boot image size expressed in 2048-byte sectors.
+const MAX_EL_TORITO_IMAGE_SECTORS: usize = u16::MAX as usize;
+
 /// Offset of the El Torito boot catalog LBA field in the Boot Record VD (byte offset into sector).
 const BOOT_RECORD_CATALOG_OFFSET: usize = 71;
 
@@ -289,12 +292,25 @@ fn write_gpt_hybrid(
     Ok(())
 }
 
+/// Returns the El Torito boot image sector count, rejecting oversized EFI images.
+fn el_torito_sector_count(efi_image_len: usize) -> Result<u16, MisoError> {
+    let efi_sectors = efi_image_len.div_ceil(SECTOR_SIZE);
+    if efi_sectors > MAX_EL_TORITO_IMAGE_SECTORS {
+        return Err(MisoError::Iso(format!(
+            "EFI boot image too large for El Torito: {efi_sectors} sectors > {}",
+            u16::MAX
+        )));
+    }
+
+    Ok(efi_sectors as u16)
+}
+
 /// Writes a complete bootable ISO 9660 image.
 pub fn write_iso(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), MisoError> {
     let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
     let efi_image_lba = LBA_FILE_DATA as u32;
     let efi_image_size = efi_image.len() as u32;
-    let efi_image_sectors_u16 = efi_sectors as u16;
+    let efi_image_sectors_u16 = el_torito_sector_count(efi_image.len())?;
     let total_sectors = (LBA_FILE_DATA + efi_sectors as u64 + 1) as u32;
 
     // System area: 16 empty sectors (bytes 0–32767)
@@ -597,5 +613,18 @@ mod tests {
 
         // ASSERT
         assert_eq!(d.len(), 17);
+    }
+
+    #[test]
+    fn el_torito_sector_count_rejects_oversized_image() {
+        // ARRANGE
+        let oversized = (MAX_EL_TORITO_IMAGE_SECTORS + 1) * SECTOR_SIZE;
+
+        // ACT
+        let err = el_torito_sector_count(oversized).expect_err("oversized image must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("too large for El Torito"));
     }
 }
