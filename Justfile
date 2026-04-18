@@ -16,16 +16,18 @@ set script-interpreter := ["bash", "-euo", "pipefail"]
 alpine_version := "3.23"
 rust_version := `grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
-tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:latest")
+tag := env_var_or_default("TAG", "latest")
+tools := env_var_or_default("TOOLS", registry + "/tools:" + tag)
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
 kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
-signature:= env_var_or_default("SIGNATURE", "signature.key")
+signature := env_var_or_default("SIGNATURE", "signature.key")
 artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
 # Architecture
 
+[private]
 _arch_env := env_var_or_default("ARCH", "x86_64")
 arch := if _arch_env == "amd64" { "x86_64" } else if _arch_env == "arm64" { "aarch64" } else { _arch_env }
 oci_arch := if arch == "aarch64" { "arm64" } else if arch == "x86_64" { "amd64" } else { arch }
@@ -40,7 +42,6 @@ push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
 platform := "linux/" + oci_arch
 progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := `git log -1 --pretty=%ct`
-tag := env_var_or_default("TAG", "latest")
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
 common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
@@ -62,15 +63,15 @@ dev: (build "--release" "") installer sign (extract (registry + "/installer:" + 
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
 kernel:
-  @printf "{{ cyan }}Building kernel{{ reset }}\n"
-  {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
-      --tag {{ registry }}/kernel:{{ tag }} \
-      {{ push_arg }} \
-      --file core/kernel/Dockerfile \
-      .
+    @printf "{{ cyan }}Building kernel{{ reset }}\n"
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
+        --tag {{ registry }}/kernel:{{ tag }} \
+        {{ push_arg }} \
+        --file core/kernel/Dockerfile \
+        .
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
-[arg("release", long, value="--release")]
+[arg("release", long="release", value="--release")]
 [script]
 build release="" *pkgs:
     printf "{{ cyan }}Building Rust packages{{ reset }}\n"
@@ -311,6 +312,10 @@ _oci-build pkg:
                 {{ push_arg }} \
                 --file tools/Dockerfile \
                 .
+            just _podman-push "{{ registry }}/tools:{{ tag }}"
+            if [ "{{ latest }}" = "true" ]; then
+                just _podman-push "{{ registry }}/tools:latest"
+            fi
             ;;
         *)
             dockerfile=""
