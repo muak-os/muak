@@ -96,6 +96,28 @@ impl MockNetlinkOps {
             .cloned()
             .unwrap_or_default()
     }
+
+    fn ipv6_addrs(&self, index: u32) -> HashSet<(Ipv6Addr, u8)> {
+        self.state
+            .lock()
+            .expect("lock")
+            .ipv6_addrs
+            .get(&index)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn has_link(&self, name: &str) -> bool {
+        self.state.lock().expect("lock").links.contains_key(name)
+    }
+
+    fn has_default_route_v6(&self, gateway: Ipv6Addr) -> bool {
+        self.state
+            .lock()
+            .expect("lock")
+            .default_routes_v6
+            .contains(&gateway)
+    }
 }
 
 impl LinkOps for MockNetlinkOps {
