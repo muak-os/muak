@@ -56,12 +56,15 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             lease: Some(lease),
             dhcp_state: Some(DhcpState::Bound),
             ipv6: None,
+            l3_owner: InterfaceName::new(bridge_name)
+                .with_context(|| format!("invalid bridge name: {bridge_name}"))?,
         };
 
         let snapshot = &mut self.snapshot;
         snapshot.ip = None;
         snapshot.lease = None;
         snapshot.dhcp_state = None;
+        snapshot.l3_owner = bridge_snapshot.name.clone();
         self.deconfigure();
         self.publish_snapshot();
 

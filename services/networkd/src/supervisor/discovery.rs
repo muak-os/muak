@@ -84,6 +84,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
                 lease: None,
                 dhcp_state: None,
                 ipv6: None,
+                l3_owner: iface.name.clone(),
             };
             self.spawn_interface_actor(snapshot);
         }

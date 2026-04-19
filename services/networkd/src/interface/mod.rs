@@ -60,7 +60,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
         let (snapshot_tx, state_rx) = watch::channel(Arc::new(snapshot.clone()));
 
-        let actor = Self {
+        let mut actor = Self {
             snapshot,
             ops,
             config,
@@ -71,9 +71,18 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             slaac: None,
         };
 
+        actor.rehydrate_runtime_state();
+
         tokio::spawn(actor.run(connector));
 
         InterfaceActorHandle { cmd_tx, state_rx }
+    }
+
+    /// Rehydrates runtime-only state from a persisted interface snapshot.
+    fn rehydrate_runtime_state(&mut self) {
+        if let Some(lease) = self.snapshot.lease.as_ref() {
+            self.timers.arm(lease);
+        }
     }
 
     async fn run<C: DhcpConnector>(mut self, connector: C) {

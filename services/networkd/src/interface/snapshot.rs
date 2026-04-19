@@ -21,6 +21,7 @@ pub struct InterfaceSnapshot {
     pub lease: Option<DhcpLease>,
     pub dhcp_state: Option<DhcpState>,
     pub ipv6: Option<Ipv6Config>,
+    pub l3_owner: InterfaceName,
 }
 
 impl InterfaceSnapshot {

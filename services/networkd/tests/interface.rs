@@ -377,6 +377,7 @@ fn make_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSnapshot {
         lease: None,
         dhcp_state: None,
         ipv6: None,
+        l3_owner: InterfaceName::new(name).expect("valid name"),
     }
 }
 

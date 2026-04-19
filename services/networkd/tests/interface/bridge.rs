@@ -40,6 +40,7 @@ fn make_configured_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSn
         lease: Some(make_lease()),
         dhcp_state: Some(DhcpState::Bound),
         ipv6: None,
+        l3_owner: InterfaceName::new(name).expect("valid name"),
     }
 }
 
@@ -75,6 +76,7 @@ async fn bridge_configuration_creates_bridge_and_returns_snapshot() {
     assert_eq!(bridge_snap.link, LinkStateKind::Up);
     assert!(bridge_snap.lease.is_some());
     assert_eq!(bridge_snap.dhcp_state, Some(DhcpState::Bound));
+    assert_eq!(bridge_snap.l3_owner, bridge_snap.name);
     assert_eq!(
         bridge_snap.ip.as_ref().expect("ip").address,
         Ipv4Addr::new(192, 168, 1, 100)
@@ -123,6 +125,11 @@ async fn bridge_port_deconfigured_after_bridge_creation() {
     assert!(
         port_snap.dhcp_state.is_none(),
         "port should have no DHCP state"
+    );
+    assert_eq!(
+        port_snap.l3_owner,
+        InterfaceName::new("br1").expect("valid name"),
+        "port should point to the bridge as its L3 owner"
     );
 }
 
@@ -246,7 +253,9 @@ async fn bridge_with_lease_but_no_ip_passes_none_gateway() {
         lease: Some(make_lease()),
         dhcp_state: Some(DhcpState::Bound),
         ipv6: None,
+        l3_owner: InterfaceName::new("eth5").expect("valid name"),
     };
+
     let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
 
     let (reply_tx, reply_rx) = oneshot::channel();

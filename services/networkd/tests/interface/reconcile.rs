@@ -142,6 +142,7 @@ async fn reconcile_dhcp_with_cached_lease_reapplies_address() {
         lease: Some(lease),
         dhcp_state: Some(networkd::dhcp::DhcpState::Bound),
         ipv6: None,
+        l3_owner: InterfaceName::new("eth1").expect("valid name"),
     };
 
     let reconciler = InterfaceActor::spawn(snapshot, mock.clone(), make_config());

@@ -10,7 +10,6 @@ use netlib::ops::NetlinkOps;
 use super::NetworkSupervisor;
 use crate::interface::ApplyMode;
 use crate::interface::InterfaceCommand;
-use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 use crate::supervisor::state::NetworkState;
 
@@ -169,7 +168,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     /// Returns true when a bridge actor already owns the port actor's lease and address state.
     fn is_bridge_owned(&self, handle: &crate::interface::InterfaceActorHandle) -> bool {
         let snap = handle.state_rx.borrow();
-        self.is_detached_bridge_port(&snap) && self.bridge_owner_exists(&snap)
+        snap.l3_owner != snap.name
     }
 
     /// Returns true when the bridge port is configured enough to instantiate a bridge actor.
@@ -183,33 +182,6 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
         let snap = actor_handle.state_rx.borrow();
         Ok(snap.state == InterfaceState::Configured && snap.lease.is_some())
-    }
-
-    /// Returns true when a port snapshot has been stripped after bridge transfer.
-    fn is_detached_bridge_port(&self, snap: &InterfaceSnapshot) -> bool {
-        snap.state == InterfaceState::Discovered
-            && snap.ip.is_none()
-            && snap.lease.is_none()
-            && snap.dhcp_state.is_none()
-    }
-
-    /// Returns true when another actor appears to own a detached bridge port.
-    fn bridge_owner_exists(&self, snap: &InterfaceSnapshot) -> bool {
-        self.interfaces
-            .values()
-            .any(|other_handle| self.is_bridge_owner_candidate(snap, other_handle))
-    }
-
-    /// Returns true when a peer actor looks like the bridge owner for a detached port.
-    fn is_bridge_owner_candidate(
-        &self,
-        snap: &InterfaceSnapshot,
-        other_handle: &crate::interface::InterfaceActorHandle,
-    ) -> bool {
-        let other = other_handle.state_rx.borrow();
-        other.name != snap.name
-            && other.mac == snap.mac
-            && other.state != InterfaceState::Discovered
     }
 }
 
