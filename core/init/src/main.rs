@@ -8,6 +8,7 @@ mod modules;
 mod mount;
 mod selinux;
 mod switchroot;
+mod sysctl;
 
 use std::path::Path;
 use std::process;
@@ -32,6 +33,14 @@ fn run() -> Result<()> {
     kmsg::init("init")?;
 
     kmsg::info!("Pseudo filesystems mounted");
+
+    let sysctls = sysctl::apply()?;
+    kmsg::info!(
+        "Sysctl hardening applied (updated {}, unchanged {}, skipped {})",
+        sysctls.applied,
+        sysctls.unchanged,
+        sysctls.skipped
+    );
 
     kmsg::info!("Mounting rootfs");
     mount::mount_rootfs()?;
