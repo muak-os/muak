@@ -2,6 +2,8 @@
 
 use std::net::Ipv4Addr;
 
+use networkd::interface::ApplyMode;
+
 use super::*;
 
 #[tokio::test]
@@ -22,6 +24,7 @@ async fn static_ipv4_configures_address_and_gateway() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(gateway),
@@ -60,6 +63,7 @@ async fn static_ipv4_without_gateway_skips_route() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -101,6 +105,7 @@ async fn static_ipv6_configures_address_and_gateway() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv6 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(gateway),

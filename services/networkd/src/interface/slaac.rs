@@ -7,9 +7,18 @@ use netlib::address::Ipv6Config;
 use netlib::ops::NetlinkOps;
 
 use super::InterfaceActor;
+use crate::interface::ApplyMode;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
 impl<N: NetlinkOps> InterfaceActor<N> {
+    /// Applies SLAAC configuration in the selected mode.
+    pub(super) async fn apply_slaac(&mut self, mode: ApplyMode) {
+        match mode {
+            ApplyMode::Provision => self.start_slaac().await,
+            ApplyMode::Reconcile => self.reconcile_slaac().await,
+        }
+    }
+
     /// Initialises a `SlaacManager`.
     pub(super) async fn start_slaac(&mut self) {
         let iface = self.snapshot.name.to_string();
@@ -26,6 +35,30 @@ impl<N: NetlinkOps> InterfaceActor<N> {
                     e
                 );
             }
+        }
+    }
+
+    /// Re-applies the current IPv6 snapshot and restarts SLAAC if needed.
+    pub(super) async fn reconcile_slaac(&mut self) {
+        if let Some(ipv6) = self.snapshot.ipv6.clone() {
+            self.reconcile_cached_ipv6(ipv6).await;
+        }
+
+        if self.slaac.is_none() {
+            self.start_slaac().await;
+        }
+    }
+
+    /// Re-applies a cached SLAAC configuration to restore IPv6 kernel state.
+    async fn reconcile_cached_ipv6(&mut self, ipv6: Ipv6Config) {
+        let index = self.snapshot.index;
+        if let Err(e) = self.apply_ipv6_configuration(index, &ipv6).await {
+            kmsg::warn!("SLAAC reconcile failed on {}: {}", self.snapshot.name, e);
+            return;
+        }
+
+        if !self.ensure_configured_state() {
+            self.publish_snapshot();
         }
     }
 
@@ -82,7 +115,9 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
 
         self.snapshot.ipv6 = Some(ipv6);
-        self.publish_snapshot();
+        if !self.ensure_configured_state() {
+            self.publish_snapshot();
+        }
     }
 
     async fn on_slaac_address_expired(&mut self, address: Ipv6Addr) {

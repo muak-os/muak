@@ -12,8 +12,11 @@ mod failover;
 mod lifecycle;
 #[path = "supervisor/provision.rs"]
 mod provision;
+#[path = "supervisor/reconcile.rs"]
+mod reconcile;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,6 +50,10 @@ fn make_config() -> Arc<config::NetworkConfig> {
 struct MockInner {
     links: HashMap<String, MockLink>,
     next_index: u32,
+    ipv4_addrs: HashMap<u32, HashSet<(Ipv4Addr, u8)>>,
+    ipv6_addrs: HashMap<u32, HashSet<(Ipv6Addr, u8)>>,
+    default_routes_v4: HashSet<Ipv4Addr>,
+    default_routes_v6: HashSet<Ipv6Addr>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +85,16 @@ impl MockNetlinkOps {
         s.links
             .insert(name.to_string(), MockLink { index, mac, up });
         index
+    }
+
+    fn ipv4_addrs(&self, index: u32) -> HashSet<(Ipv4Addr, u8)> {
+        self.state
+            .lock()
+            .expect("lock")
+            .ipv4_addrs
+            .get(&index)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -151,45 +168,106 @@ impl LinkOps for MockNetlinkOps {
 impl AddressOps for MockNetlinkOps {
     async fn ensure_ipv4(
         &self,
-        _: u32,
-        _: std::net::Ipv4Addr,
-        _: u8,
+        index: u32,
+        ip: std::net::Ipv4Addr,
+        prefix: u8,
     ) -> netlib::address::Result<()> {
+        self.state
+            .lock()
+            .expect("lock")
+            .ipv4_addrs
+            .entry(index)
+            .or_default()
+            .insert((ip, prefix));
         Ok(())
     }
-    async fn find_ipv4(&self, _: u32) -> netlib::address::Result<Option<(std::net::Ipv4Addr, u8)>> {
-        Ok(None)
+    async fn find_ipv4(
+        &self,
+        index: u32,
+    ) -> netlib::address::Result<Option<(std::net::Ipv4Addr, u8)>> {
+        Ok(self
+            .state
+            .lock()
+            .expect("lock")
+            .ipv4_addrs
+            .get(&index)
+            .and_then(|s| s.iter().next().copied()))
     }
-    async fn has_ipv4(&self, _: u32) -> netlib::address::Result<bool> {
-        Ok(false)
+    async fn has_ipv4(&self, index: u32) -> netlib::address::Result<bool> {
+        Ok(self
+            .state
+            .lock()
+            .expect("lock")
+            .ipv4_addrs
+            .get(&index)
+            .is_some_and(|s| !s.is_empty()))
     }
-    async fn add_ipv4(&self, _: u32, _: std::net::Ipv4Addr, _: u8) -> netlib::address::Result<()> {
-        Ok(())
+    async fn add_ipv4(
+        &self,
+        index: u32,
+        ip: std::net::Ipv4Addr,
+        prefix: u8,
+    ) -> netlib::address::Result<()> {
+        self.ensure_ipv4(index, ip, prefix).await
     }
-    async fn remove_ipv4(&self, _: u32, _: std::net::Ipv4Addr) -> netlib::address::Result<()> {
+    async fn remove_ipv4(&self, index: u32, ip: std::net::Ipv4Addr) -> netlib::address::Result<()> {
+        if let Some(set) = self.state.lock().expect("lock").ipv4_addrs.get_mut(&index) {
+            set.retain(|(addr, _)| *addr != ip);
+        }
         Ok(())
     }
     async fn ensure_ipv6(
         &self,
-        _: u32,
-        _: std::net::Ipv6Addr,
-        _: u8,
+        index: u32,
+        ip: std::net::Ipv6Addr,
+        prefix: u8,
     ) -> netlib::address::Result<()> {
+        self.state
+            .lock()
+            .expect("lock")
+            .ipv6_addrs
+            .entry(index)
+            .or_default()
+            .insert((ip, prefix));
         Ok(())
     }
-    async fn remove_ipv6(&self, _: u32, _: std::net::Ipv6Addr) -> netlib::address::Result<()> {
+    async fn remove_ipv6(&self, index: u32, ip: std::net::Ipv6Addr) -> netlib::address::Result<()> {
+        if let Some(set) = self.state.lock().expect("lock").ipv6_addrs.get_mut(&index) {
+            set.retain(|(addr, _)| *addr != ip);
+        }
         Ok(())
     }
 }
 
 impl RouteOps for MockNetlinkOps {
-    async fn ensure_default_route(&self, _: std::net::Ipv4Addr) -> netlib::route::Result<()> {
+    async fn ensure_default_route(&self, gateway: std::net::Ipv4Addr) -> netlib::route::Result<()> {
+        self.state
+            .lock()
+            .expect("lock")
+            .default_routes_v4
+            .insert(gateway);
         Ok(())
     }
-    async fn ensure_default_route_v6(&self, _: std::net::Ipv6Addr) -> netlib::route::Result<()> {
+    async fn ensure_default_route_v6(
+        &self,
+        gateway: std::net::Ipv6Addr,
+    ) -> netlib::route::Result<()> {
+        self.state
+            .lock()
+            .expect("lock")
+            .default_routes_v6
+            .insert(gateway);
         Ok(())
     }
-    async fn remove_default_route_v6(&self, _: std::net::Ipv6Addr) -> netlib::route::Result<()> {
+    async fn remove_default_route_v6(
+        &self,
+        gateway: std::net::Ipv6Addr,
+    ) -> netlib::route::Result<()> {
+        self.state
+            .lock()
+            .expect("lock")
+            .default_routes_v6
+            .remove(&gateway);
         Ok(())
     }
 }

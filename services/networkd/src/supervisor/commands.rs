@@ -6,4 +6,5 @@ use tokio::sync::oneshot;
 #[derive(Debug)]
 pub enum SupervisorCommand {
     Initialize { reply: oneshot::Sender<Result<()>> },
+    Reconcile { reply: oneshot::Sender<()> },
 }

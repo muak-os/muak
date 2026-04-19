@@ -3,6 +3,8 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
+use networkd::interface::ApplyMode;
+
 use super::*;
 
 #[tokio::test]
@@ -28,6 +30,7 @@ async fn static_ipv4_multiple_addresses() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: addrs,
             gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
@@ -71,6 +74,7 @@ async fn static_ipv6_without_gateway_skips_route() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv6 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -115,6 +119,7 @@ async fn static_ipv6_multiple_addresses() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv6 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: addrs,
             gateway: Some(gateway),
@@ -156,6 +161,7 @@ async fn static_ipv4_then_shutdown_cleans_up() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(Ipv4Addr::new(172, 16, 0, 1)),
@@ -198,6 +204,7 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![v4_addr],
             gateway: Some(Ipv4Addr::new(10, 10, 0, 1)),
@@ -209,6 +216,7 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv6 {
+            mode: ApplyMode::Reconcile,
             index: idx,
             addresses: vec![v6_addr],
             gateway: Some(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1)),
@@ -251,6 +259,7 @@ async fn static_ipv4_reaches_configured_from_discovered() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -284,6 +293,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -307,6 +317,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![new_addr],
             gateway: Some(Ipv4Addr::new(10, 0, 3, 1)),
@@ -337,6 +348,7 @@ async fn static_ipv4_empty_addresses_stays_configuring() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![],
             gateway: None,
@@ -368,6 +380,7 @@ async fn static_ipv6_empty_addresses_does_not_configure() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv6 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![],
             gateway: None,

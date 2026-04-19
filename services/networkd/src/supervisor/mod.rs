@@ -5,12 +5,14 @@ mod discovery;
 mod dispatch;
 mod failover;
 mod provision;
+mod reconcile;
 mod snapshot;
 mod state;
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use commands::SupervisorCommand;
@@ -18,6 +20,8 @@ use netlib::interface::InterfaceName;
 use netlib::monitor::{self, NetworkEvent};
 use netlib::ops::{NetlinkOps, RtnetlinkOps};
 use tokio::sync::{mpsc, oneshot, watch};
+
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 
 use crate::dns::DnsState;
 use crate::interface::snapshot::InterfaceSnapshot;
@@ -152,6 +156,10 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
                 let result = self.initialize().await;
                 let _ = reply.send(result);
             }
+            SupervisorCommand::Reconcile { reply } => {
+                self.reconcile().await;
+                let _ = reply.send(());
+            }
         }
     }
 }
@@ -168,6 +176,14 @@ impl NetworkActorHandle {
             .send(SupervisorCommand::Initialize { reply })
             .await?;
         rx.await??;
+        Ok(())
+    }
+
+    /// Triggers a single reconciliation pass.
+    pub async fn reconcile(&self) -> Result<()> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(SupervisorCommand::Reconcile { reply }).await?;
+        rx.await?;
         Ok(())
     }
 
@@ -264,6 +280,7 @@ fn run<N: NetlinkOps>(
 ) {
     tokio::spawn(async move {
         let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx, dns);
+        let mut reconcile = tokio::time::interval(RECONCILE_INTERVAL);
 
         loop {
             let mut primary_snap_rx = supervisor
@@ -294,6 +311,10 @@ fn run<N: NetlinkOps>(
                     }
                 } => {
                     supervisor.flush_dns();
+                }
+
+                _ = reconcile.tick() => {
+                    supervisor.reconcile().await;
                 }
 
                 else => {

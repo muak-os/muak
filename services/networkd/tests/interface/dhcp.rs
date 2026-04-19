@@ -3,6 +3,8 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
+use networkd::interface::ApplyMode;
+
 use super::*;
 
 #[tokio::test]
@@ -16,7 +18,9 @@ async fn configure_dhcp_transitions_to_configuring() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureDhcp)
+        .send(InterfaceCommand::ConfigureDhcp {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
 
@@ -42,6 +46,7 @@ async fn link_down_on_dhcp_configured_transitions_to_degraded() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
@@ -75,7 +80,9 @@ async fn configure_dhcp_leaves_dhcp_state_none_before_dora() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureDhcp)
+        .send(InterfaceCommand::ConfigureDhcp {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
 
@@ -99,7 +106,9 @@ async fn shutdown_while_dhcp_configuring_stops_actor() {
 
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureDhcp)
+        .send(InterfaceCommand::ConfigureDhcp {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
     wait_for_state(&handle, InterfaceState::Configuring).await;

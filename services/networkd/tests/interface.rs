@@ -8,6 +8,8 @@ mod bridge;
 mod dhcp;
 #[path = "interface/link.rs"]
 mod link;
+#[path = "interface/reconcile.rs"]
+mod reconcile;
 #[path = "interface/slaac.rs"]
 mod slaac;
 #[path = "interface/static.rs"]

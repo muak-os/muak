@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use netlib::address::IpConfig;
 use networkd::dhcp::{DhcpLease, DhcpState};
+use networkd::interface::ApplyMode;
 use tokio::sync::oneshot;
 
 use super::*;
@@ -140,6 +141,7 @@ async fn bridge_without_lease_returns_error() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,

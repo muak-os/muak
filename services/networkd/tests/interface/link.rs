@@ -3,6 +3,8 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
+use networkd::interface::ApplyMode;
+
 use super::*;
 
 #[tokio::test]
@@ -20,6 +22,7 @@ async fn link_down_on_configured_transitions_to_degraded() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
@@ -109,6 +112,7 @@ async fn link_down_clears_dhcp_state() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -145,6 +149,7 @@ async fn multiple_link_down_events_are_idempotent() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,
@@ -189,6 +194,7 @@ async fn link_up_after_link_down_publishes_snapshot() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: None,

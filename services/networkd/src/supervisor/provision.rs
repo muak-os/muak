@@ -11,6 +11,7 @@ use netlib::ops::NetlinkOps;
 use tokio::sync::oneshot;
 
 use super::NetworkSupervisor;
+use crate::interface::ApplyMode;
 use crate::interface::InterfaceCommand;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
@@ -48,18 +49,23 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         Ok(())
     }
 
+    /// Resolves a configured interface name, expanding the `auto` alias.
+    pub(super) fn resolve_interface_name(&self, name: &str) -> Result<InterfaceName> {
+        let primary = self.get_primary_name()?;
+        if name == "auto" {
+            Ok(primary)
+        } else {
+            InterfaceName::new(name).map_err(Into::into)
+        }
+    }
+
     async fn provision_ethernet(
         &mut self,
         name: &str,
         ipv4_cfg: Option<&Ipv4InterfaceConfig>,
         ipv6_cfg: Option<&Ipv6InterfaceConfig>,
     ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-        let iface_name = if name == "auto" {
-            primary.clone()
-        } else {
-            InterfaceName::new(name)?
-        };
+        let iface_name = self.resolve_interface_name(name)?;
 
         let actor_handle = self
             .interfaces
@@ -73,7 +79,9 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             Some(ipv4) if ipv4.dhcp => {
                 actor_handle
                     .cmd_tx
-                    .send(InterfaceCommand::ConfigureDhcp)
+                    .send(InterfaceCommand::ConfigureDhcp {
+                        mode: ApplyMode::Provision,
+                    })
                     .await
                     .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
             }
@@ -81,6 +89,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
                 actor_handle
                     .cmd_tx
                     .send(InterfaceCommand::ConfigureStaticIpv4 {
+                        mode: ApplyMode::Provision,
                         index,
                         addresses: ipv4.addresses.clone(),
                         gateway: ipv4.gateway,
@@ -113,6 +122,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             actor_handle
                 .cmd_tx
                 .send(InterfaceCommand::ConfigureStaticIpv6 {
+                    mode: ApplyMode::Provision,
                     index,
                     addresses: ipv6.addresses.clone(),
                     gateway: ipv6.gateway,
@@ -122,7 +132,9 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         } else if ipv6.autoconf && self.config.ipv6 {
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::ConfigureSlaac)
+                .send(InterfaceCommand::ConfigureSlaac {
+                    mode: ApplyMode::Provision,
+                })
                 .await
                 .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
         }
@@ -130,7 +142,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         Ok(())
     }
 
-    async fn provision_bridge(
+    pub(super) async fn provision_bridge(
         &mut self,
         bridge_name: &str,
         bridge_cfg: &BridgeConfig,

@@ -11,6 +11,7 @@ use tokio::time::Sleep;
 use super::InterfaceActor;
 use crate::dhcp::codec::DhcpNak;
 use crate::dhcp::{self, DhcpConnector, DhcpLease, DhcpManager, DhcpState};
+use crate::interface::ApplyMode;
 use crate::interface::state::InterfaceState;
 use crate::statemachine::StateMachine;
 
@@ -49,6 +50,14 @@ impl LeaseTimers {
 }
 
 impl<N: NetlinkOps> InterfaceActor<N> {
+    /// Applies DHCP configuration in the selected mode.
+    pub(super) async fn apply_dhcp<C: DhcpConnector>(&mut self, mode: ApplyMode, connector: &C) {
+        match mode {
+            ApplyMode::Provision => self.start_dhcp(connector).await,
+            ApplyMode::Reconcile => self.reconcile_dhcp(connector).await,
+        }
+    }
+
     /// Initialises a `DhcpManager` (binding the socket) and marks the interface as configuring.
     pub(super) async fn start_dhcp<C: DhcpConnector>(&mut self, connector: &C) {
         self.set_state(InterfaceState::Configuring);
@@ -64,6 +73,32 @@ impl<N: NetlinkOps> InterfaceActor<N> {
                 self.set_state(InterfaceState::Failed);
             }
         }
+    }
+
+    /// Re-applies DHCP state or restarts acquisition when no lease is cached.
+    pub(super) async fn reconcile_dhcp<C: DhcpConnector>(&mut self, connector: &C) {
+        if let Some(lease) = self.snapshot.lease.clone() {
+            self.reconcile_cached_lease(lease).await;
+            return;
+        }
+
+        if self.dhcp.is_none() {
+            self.start_dhcp(connector).await;
+        }
+    }
+
+    /// Re-applies a cached lease to restore DHCP-managed kernel state.
+    async fn reconcile_cached_lease(&mut self, lease: DhcpLease) {
+        let index = self.snapshot.index;
+        if let Err(e) = self.apply_lease(index, &lease).await {
+            kmsg::warn!("DHCP reconcile failed on {}: {}", self.snapshot.name, e);
+            return;
+        }
+
+        self.store_lease(&lease);
+        self.set_dhcp_state(DhcpState::Bound);
+        self.timers.arm(&lease);
+        let _ = self.ensure_configured_state();
     }
 
     /// Applies a freshly acquired DHCP lease and clears the in-progress manager.

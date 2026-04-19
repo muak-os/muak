@@ -2,11 +2,13 @@
 
 - Fix CI caching
 
-- Support for containers like LXC and OCI
-
-- Add ARM e2e tests
+- Enhance `e2e` tests
+  - Support ARM architecture
+  - Test true networking with IPv6
 
 - Pin extension version to muak's version to avoid breaking changes and allow for better compatibility management
+
+- Allow forwarding kernel logs to external monitoring system.
 
 - Better CLI
   - Create install script for users to easily install the CLI regardless of OS
@@ -15,7 +17,6 @@
 - Enhance `networkd`:
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
-  - Test IPv6 with e2e tests
 
 - Enchance `imager`:
   - Support custom HTTP proxy
@@ -31,6 +32,7 @@
   - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
   - Make it an extension & rename to workloadd
+  - Support for containers like LXC and OCI
 
 - Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
 
@@ -38,7 +40,7 @@
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
-- Support for Raspberry Pi like devices using .img installation
+- Support for SBCs devices using .img installation
 - Support RISC-V architecture
 - Support Apple M series processor chips
 

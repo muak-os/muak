@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use networkd::interface::ApplyMode;
+
 use super::*;
 
 #[tokio::test]
@@ -15,7 +17,9 @@ async fn configure_slaac_does_not_crash_actor() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureSlaac)
+        .send(InterfaceCommand::ConfigureSlaac {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
 
@@ -42,7 +46,9 @@ async fn slaac_then_static_ipv4_both_work() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureSlaac)
+        .send(InterfaceCommand::ConfigureSlaac {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
 
@@ -55,6 +61,7 @@ async fn slaac_then_static_ipv4_both_work() {
     handle
         .cmd_tx
         .send(InterfaceCommand::ConfigureStaticIpv4 {
+            mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
             gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
@@ -80,7 +87,9 @@ async fn slaac_then_shutdown_stops_cleanly() {
 
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureSlaac)
+        .send(InterfaceCommand::ConfigureSlaac {
+            mode: ApplyMode::Provision,
+        })
         .await
         .expect("send failed");
 

@@ -12,7 +12,7 @@ mod r#static;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub use commands::InterfaceCommand;
+pub use commands::{ApplyMode, InterfaceCommand};
 use dhcp::LeaseTimers;
 use netlib::ops::NetlinkOps;
 use snapshot::InterfaceSnapshot;
@@ -110,17 +110,25 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
     async fn dispatch<C: DhcpConnector>(&mut self, cmd: InterfaceCommand, connector: &C) {
         match cmd {
-            InterfaceCommand::ConfigureDhcp => self.start_dhcp(connector).await,
+            InterfaceCommand::ConfigureDhcp { mode } => self.apply_dhcp(mode, connector).await,
             InterfaceCommand::ConfigureStaticIpv4 {
+                mode,
                 index,
                 addresses,
                 gateway,
-            } => self.try_apply_static_ipv4(index, &addresses, gateway).await,
+            } => {
+                self.apply_static_ipv4(index, &addresses, gateway, mode)
+                    .await
+            }
             InterfaceCommand::ConfigureStaticIpv6 {
+                mode,
                 index,
                 addresses,
                 gateway,
-            } => self.try_apply_static_ipv6(index, &addresses, gateway).await,
+            } => {
+                self.apply_static_ipv6(index, &addresses, gateway, mode)
+                    .await
+            }
             InterfaceCommand::ConfigureBridge {
                 bridge_name,
                 stp,
@@ -128,7 +136,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             } => {
                 let _ = reply.send(self.configure_bridge(&bridge_name, stp).await);
             }
-            InterfaceCommand::ConfigureSlaac => self.start_slaac().await,
+            InterfaceCommand::ConfigureSlaac { mode } => self.apply_slaac(mode).await,
             InterfaceCommand::LinkUp => self.on_link_up(connector).await,
             InterfaceCommand::LinkDown => self.on_link_down(),
             InterfaceCommand::Shutdown => {
@@ -149,6 +157,22 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
     fn publish_snapshot(&self) {
         let _ = self.snapshot_tx.send(Arc::new(self.snapshot.clone()));
+    }
+
+    /// Advances the interface to `Configured` when reconciliation succeeds.
+    fn ensure_configured_state(&mut self) -> bool {
+        match self.snapshot.state {
+            InterfaceState::Configured | InterfaceState::Deconfiguring => false,
+            InterfaceState::Configuring | InterfaceState::Degraded => {
+                self.set_state(InterfaceState::Configured);
+                true
+            }
+            InterfaceState::Discovered | InterfaceState::Failed => {
+                self.set_state(InterfaceState::Configuring);
+                self.set_state(InterfaceState::Configured);
+                true
+            }
+        }
     }
 }
 
