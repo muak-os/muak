@@ -7,9 +7,6 @@ use crate::cpio::{self, CpioEntry};
 use crate::erofs;
 use crate::error::{RamuneError, Result};
 
-/// Zstd compression level for the initramfs archive.
-const COMPRESSION_LEVEL: i32 = 19;
-
 /// CPIO mode for regular executable files.
 const MODE_EXEC: u32 = 0o100755;
 
@@ -24,6 +21,7 @@ pub struct CreateConfig<'a> {
     pub init: &'a Path,
     pub rootfs_dir: &'a Path,
     pub file_contexts: Option<&'a ::erofs::FileContexts>,
+    pub compression_level: i32,
 }
 
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
@@ -118,7 +116,7 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
     ];
 
     let cpio_data = cpio::create_from_entries(&entries)?;
-    zstd::encode_all(&cpio_data[..], COMPRESSION_LEVEL)
+    zstd::encode_all(&cpio_data[..], config.compression_level)
         .map_err(|e| RamuneError::CpioError(format!("Compression failed: {e}")))
 }
 
@@ -136,6 +134,7 @@ mod tests {
             init,
             rootfs_dir: rootfs,
             file_contexts: None,
+            compression_level: 19,
         }
     }
 
@@ -187,6 +186,7 @@ mod tests {
             init: Path::new("/nonexistent/init"),
             rootfs_dir: &rootfs,
             file_contexts: None,
+            compression_level: 19,
         });
 
         // ASSERT
@@ -211,6 +211,7 @@ mod tests {
             init: &init_file,
             rootfs_dir: &rootfs,
             file_contexts: Some(&fc),
+            compression_level: 19,
         })
         .expect("create_initramfs");
 

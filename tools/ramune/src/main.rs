@@ -29,6 +29,9 @@ mod cli {
 
             #[arg(short, long)]
             output: PathBuf,
+
+            #[arg(long, default_value_t = 19)]
+            compression_level: i32,
         },
         Extend {
             #[arg(short, long)]
@@ -58,6 +61,7 @@ mod cli {
                 rootfs_dir,
                 file_contexts,
                 output,
+                compression_level,
             } => {
                 let fc = file_contexts
                     .as_ref()
@@ -68,6 +72,7 @@ mod cli {
                     init: &init,
                     rootfs_dir: &rootfs_dir,
                     file_contexts: fc.as_ref(),
+                    compression_level,
                 };
 
                 ramune::create_initramfs(&config, &output).context("Failed to create initramfs")?;
