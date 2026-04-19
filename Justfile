@@ -217,13 +217,15 @@ coverage *pkgs:
 [script]
 kspp:
     config="config-{{ oci_arch }}"
+    cmdline="cmdline-{{ oci_arch }}.txt"
     printf "{{ cyan }}Checking kernel config ($config) against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
+        -v {{ justfile_directory() }}/core/kernel/$cmdline:/cmdline:ro \
         docker.io/alpine:{{ alpine_version }} sh -c '\
         apk add --no-cache git python3 >/dev/null 2>&1 && \
         git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
-        /tmp/khc/bin/kernel-hardening-checker -c /config'
+        /tmp/khc/bin/kernel-hardening-checker -c /config -l /cmdline'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Utilities

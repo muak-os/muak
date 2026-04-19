@@ -1,1 +1,1 @@
-console=tty0 console=ttyAMA0 console=ttyS0,115200n8 init=/init earlycon rootfstype=ramfs
+console=tty0 console=ttyAMA0 console=ttyS0,115200n8 init=/init earlycon rootfstype=ramfs mitigations=auto nosmt iommu.strict=1 rodata=full page_alloc.shuffle=1 hash_pointers=always init_on_free=1 lockdown=confidentiality efi=disable_early_pci_dma proc_mem.force_override=never kpti=1 ssbd=kernel debugfs=off
