@@ -35,9 +35,9 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 
 # Container runtime
 
-container_runtime := `command -v docker >/dev/null 2>&1 && echo docker || echo podman`
+container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
-pull_arg := if container_runtime == "podman" { "--pull=never" } else { "" }
+pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
 platform := "linux/" + oci_arch
 progress := env_var_or_default("PROGRESS", "auto")
@@ -307,6 +307,10 @@ _oci-build pkg:
                 {{ push_arg }} \
                 --file cli/Dockerfile \
                 .
+            just _podman-push "{{ registry }}/muakctl:{{ tag }}"
+            if [ "{{ latest }}" = "true" ]; then
+                just _podman-push "{{ registry }}/muakctl:latest"
+            fi
             ;;
         tools)
             printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"

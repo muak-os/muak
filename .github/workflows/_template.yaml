@@ -136,6 +136,7 @@ jobs:
       - name: Sign ${{ inputs.image }} (${{ matrix.arch }})
         if: inputs.sign
         run: |
+          CONTAINER_RUNTIME=docker \
           TAG=${{ steps.tag.outputs.tag }} \
           just sign
 
