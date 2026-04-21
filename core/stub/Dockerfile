@@ -27,6 +27,7 @@ RUN sed -i '/members = \[/,/\]/c\members = ["core/stub"]' Cargo.toml
 COPY core/stub ./core/stub
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail

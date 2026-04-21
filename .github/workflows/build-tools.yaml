@@ -4,20 +4,30 @@ on:
   push:
     branches: [master]
     paths:
-      - "tools/imager/**"
-      - "tools/ramune/**"
-      - "tools/yuki/**"
-      - "libs/erofs/**"
-    tags:
-      - "v[0-9]+.*"
-  pull_request:
-    paths:
+      - "tools/miso/**"
       - "tools/imager/**"
       - "tools/ramune/**"
       - "tools/yuki/**"
       - "libs/erofs/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "Justfile"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
+    tags:
+      - "v[0-9]+.*"
+  pull_request:
+    paths:
+      - "tools/miso/**"
+      - "tools/imager/**"
+      - "tools/ramune/**"
+      - "tools/yuki/**"
+      - "libs/erofs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Justfile"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
   workflow_dispatch:
 
 jobs:
@@ -32,4 +42,3 @@ jobs:
       push: ${{ github.event_name != 'pull_request' }}
       latest: ${{ startsWith(github.ref, 'refs/tags/') }}
       arch_matrix: '["amd64"]'
-

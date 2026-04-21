@@ -35,6 +35,7 @@ COPY core/kernel/cmdline-amd64.txt ./core/kernel/cmdline-amd64.txt
 COPY core/kernel/cmdline-arm64.txt ./core/kernel/cmdline-arm64.txt
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail

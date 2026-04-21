@@ -1,7 +1,5 @@
 # TODO
 
-- Fix CI caching
-
 - Enhance `e2e` tests
   - Support ARM architecture
   - Test true networking with IPv6
@@ -17,6 +15,7 @@
 - Enhance `networkd`:
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
+  - Selective drift detection for interfaces
 
 - Enchance `imager`:
   - Support custom HTTP proxy

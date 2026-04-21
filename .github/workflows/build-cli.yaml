@@ -7,7 +7,12 @@ on:
       - "cli/**"
       - "libs/pki/**"
       - "libs/config/**"
-      - "api/*.proto"
+      - "api/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Justfile"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
     tags:
       - "v[0-9]+.*"
   pull_request:
@@ -15,7 +20,12 @@ on:
       - "cli/**"
       - "libs/pki/**"
       - "libs/config/**"
-      - "api/*.proto"
+      - "api/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Justfile"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
   workflow_dispatch:
 
 jobs:
@@ -26,4 +36,3 @@ jobs:
       recipe: oci cli
       push: ${{ github.event_name != 'pull_request' }}
       latest: ${{ startsWith(github.ref, 'refs/tags/') }}
-

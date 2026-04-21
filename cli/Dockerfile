@@ -31,6 +31,7 @@ COPY libs/config ./libs/config
 COPY libs/pki ./libs/pki
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
   <<EOF
 set -euo pipefail
