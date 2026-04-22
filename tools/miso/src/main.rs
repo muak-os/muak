@@ -4,7 +4,7 @@
 mod cli {
     use std::path::PathBuf;
 
-    use anyhow::{Context, Result};
+    use anyhow::{Context, Result, bail, ensure};
     use clap::{Parser, Subcommand};
 
     /// Top-level CLI arguments.
@@ -42,11 +42,7 @@ mod cli {
             #[arg(short, long, help = "Path for the output .img file")]
             output: PathBuf,
 
-            #[arg(
-                short,
-                long = "blob",
-                help = "Extra file as src:dst (e.g. ./start4.elf:START4.ELF)"
-            )]
+            #[arg(short, long = "blob", help = "Extra file as src:dst")]
             blobs: Vec<String>,
         },
     }
@@ -56,7 +52,7 @@ mod cli {
         match arch {
             "x86_64" => Ok(miso::Arch::X86_64),
             "aarch64" => Ok(miso::Arch::Aarch64),
-            other => anyhow::bail!(
+            other => bail!(
                 "Unsupported architecture: '{}'. Use x86_64 or aarch64.",
                 other
             ),
@@ -68,8 +64,8 @@ mod cli {
         let (src, dst) = spec
             .split_once(':')
             .with_context(|| format!("Invalid blob spec '{spec}': expected src:dst"))?;
-        anyhow::ensure!(!src.is_empty(), "Blob source path is empty in '{spec}'");
-        anyhow::ensure!(
+        ensure!(!src.is_empty(), "Blob source path is empty in '{spec}'");
+        ensure!(
             !dst.is_empty(),
             "Blob destination name is empty in '{spec}'"
         );

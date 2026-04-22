@@ -239,7 +239,6 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             .await?;
 
         if let Some(gw) = lease.gateway {
-            kmsg::info!("Setting default route via {}", gw);
             self.ops.ensure_default_route(gw).await?;
         } else {
             kmsg::info!(
