@@ -5,7 +5,7 @@ ARG ALPINE_VERSION
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS deps
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
@@ -14,6 +14,7 @@ ARG TARGET=${TARGETARCH/amd64/x86_64}
 ARG TARGET=${TARGET/arm64/aarch64}
 
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+ENV RUST_TARGET=${TARGET}-unknown-linux-musl
 
 WORKDIR /build
 
@@ -21,8 +22,27 @@ RUN --mount=type=cache,target=/var/cache/apk \
   --mount=type=cache,target=/etc/apk/cache \
   apk add --no-cache --no-scripts musl-dev
 
-COPY Cargo.toml Cargo.lock ./
-RUN sed -i '/members = \[/,/\]/c\members = ["cli", "libs/config", "libs/pki"]' Cargo.toml
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo install --locked cargo-chef
+
+# ─────────────────────────────────────────────────────────────────────────────
+FROM deps AS planner
+
+COPY . .
+
+RUN sed -i '/members = \[/,/\]/c\members = ["cli", "libs/config", "libs/pki"]' Cargo.toml && \
+  cargo chef prepare --recipe-path recipe.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+FROM deps AS builder
+
+COPY --from=planner /build/recipe.json recipe.json
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  --mount=type=cache,target=/build/target \
+  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
 
 COPY api ./api
 COPY libs/config/default.toml ./libs/config/default.toml
@@ -36,8 +56,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   <<EOF
 set -euo pipefail
 
-RUST_TARGET="${TARGET}-unknown-linux-musl"
-cargo build --release --target ${RUST_TARGET} -p muakctl
+cargo build --release --target ${RUST_TARGET} --locked -p muakctl
 cp target/${RUST_TARGET}/release/muakctl /muakctl
 EOF
 
