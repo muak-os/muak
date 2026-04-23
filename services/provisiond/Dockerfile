@@ -31,8 +31,9 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["services/provisiond", "core/granola", "tools/imager", "libs/kmsg", "tools/yuki", "libs/config", "libs/pki", "libs/sbolt", "libs/luks2"]' Cargo.toml && \
-  cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef prepare --bin provisiond --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -42,21 +43,9 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} --package provisiond --recipe-path recipe.json
 
-COPY api ./api
-COPY libs/config/default.toml ./libs/config/default.toml
-COPY services/provisiond ./services/provisiond
-COPY core/granola ./core/granola
-COPY libs/kmsg ./libs/kmsg
-COPY tools/yuki ./tools/yuki
-COPY tools/imager ./tools/imager
-COPY libs/config ./libs/config
-COPY libs/pki ./libs/pki
-COPY libs/sbolt ./libs/sbolt
-COPY libs/luks2 ./libs/luks2
-COPY core/kernel/cmdline-amd64.txt ./core/kernel/cmdline-amd64.txt
-COPY core/kernel/cmdline-arm64.txt ./core/kernel/cmdline-arm64.txt
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \

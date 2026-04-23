@@ -50,7 +50,8 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["tools/imager", "tools/miso", "tools/ramune", "tools/yuki", "libs/erofs"]' Cargo.toml && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
   cargo chef prepare --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,13 +62,11 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} \
+  --package imager --package miso --package ramune --package yuki \
+  --recipe-path recipe.json
 
-COPY tools/imager ./tools/imager
-COPY tools/miso   ./tools/miso
-COPY tools/ramune ./tools/ramune
-COPY tools/yuki   ./tools/yuki
-COPY libs/erofs   ./libs/erofs
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \

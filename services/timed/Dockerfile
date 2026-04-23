@@ -31,8 +31,9 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["services/timed", "core/granola", "libs/config"]' Cargo.toml && \
-  cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef prepare --bin timed --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -42,12 +43,9 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} --package timed --recipe-path recipe.json
 
-COPY libs/config/default.toml ./libs/config/default.toml
-COPY services/timed ./services/timed
-COPY core/granola ./core/granola
-COPY libs/config ./libs/config
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \

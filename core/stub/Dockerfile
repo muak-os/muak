@@ -33,8 +33,9 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["core/stub"]' Cargo.toml && \
-  cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef prepare --bin stub --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -44,9 +45,10 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo +nightly chef cook --release --target ${UEFI_TARGET} --features uefi --recipe-path recipe.json
+  cargo +nightly chef cook --release --target ${UEFI_TARGET} --features uefi \
+  --package stub --recipe-path recipe.json
 
-COPY core/stub ./core/stub
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \

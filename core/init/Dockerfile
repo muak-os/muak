@@ -31,8 +31,9 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["core/init", "libs/kmod", "libs/kmsg", "libs/luks2"]' Cargo.toml && \
-  cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef prepare --bin init --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -42,12 +43,9 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} --package init --recipe-path recipe.json
 
-COPY core/init ./core/init
-COPY libs/kmod ./libs/kmod
-COPY libs/kmsg ./libs/kmsg
-COPY libs/luks2 ./libs/luks2
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \

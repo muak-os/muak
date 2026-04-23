@@ -31,8 +31,9 @@ FROM deps AS planner
 
 COPY . .
 
-RUN sed -i '/members = \[/,/\]/c\members = ["core/granola", "libs/kmsg", "libs/granola-macros", "libs/config"]' Cargo.toml && \
-  cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef prepare --bin granola --recipe-path recipe.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -42,16 +43,9 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} --package granola --recipe-path recipe.json
 
-COPY api ./api
-COPY libs/config/default.toml ./libs/config/default.toml
-COPY core/granola ./core/granola
-COPY libs/kmsg ./libs/kmsg
-COPY libs/granola-macros ./libs/granola-macros
-COPY libs/config ./libs/config
-COPY core/kernel/cmdline-amd64.txt ./core/kernel/cmdline-amd64.txt
-COPY core/kernel/cmdline-arm64.txt ./core/kernel/cmdline-arm64.txt
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
