@@ -1,5 +1,6 @@
 //! DHCP lease life cycle management for a per-interface actor.
 
+use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::time::SystemTime;
 
@@ -276,7 +277,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
         }
     }
 
-    fn extract_dhcp_params(&self) -> Result<([u8; 6], std::net::Ipv4Addr, std::net::Ipv4Addr)> {
+    fn extract_dhcp_params(&self) -> Result<([u8; 6], Ipv4Addr, Ipv4Addr)> {
         let lease = self
             .snapshot
             .lease
