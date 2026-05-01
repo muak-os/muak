@@ -321,7 +321,7 @@ name = "muak"
 port = 50051
 
 [system]
-image = "192.168.100.1:5000/installer:latest"
+image = "10.0.2.2:5000/installer:latest"
 "#;
 
         // ACT

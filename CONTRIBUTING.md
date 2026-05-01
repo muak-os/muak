@@ -15,20 +15,31 @@ rustup component add rust-analyzer --toolchain nightly
 
 ## Quick Start
 
+Local QEMU development uses two addresses for the same registry:
+
+- `localhost:5000` from the host, for `just dev` and other pushes
+- `10.0.2.2:5000` from inside the QEMU guest, for installs and `just e2e`
+
+`REGISTRY` controls where Muak images are pushed. The tools image still defaults to `ghcr.io/muak-os/tools:<tag>` unless you explicitly set `TOOLS`.
+
 ```sh
-podman run -d -p 192.168.100.1:5000:5000 --name registry docker.io/library/registry:3
+podman run -d -p 5000:5000 --name registry docker.io/library/registry:3
+
 # Create a signing key for the kernel and place it in core/kernel/
 KERNEL_SIGNING="--secret id=kernel_key,src=core/kernel/kernel-signing-key.pem" REGISTRY="localhost" just kernel
 just extract --image localhost/kernel:latest
-REGISTRY="192.168.100.1:5000" PUSH="true" just dev
-REGISTRY="192.168.100.1:5000" just e2e
+
+REGISTRY="localhost:5000" PUSH="true" just dev
+just start
+
+REGISTRY="10.0.2.2:5000" just e2e
 ```
 
 ### Local tool image
 
 ```sh
-REGISTRY="192.168.100.1:5000" PUSH="true" just oci tools
-TOOLS="192.168.100.1:5000/tools:latest" REGISTRY="192.168.100.1:5000" PUSH="true" just dev
+REGISTRY="localhost:5000" PUSH="true" just oci tools
+TOOLS="localhost:5000/tools:latest" REGISTRY="localhost:5000" PUSH="true" just dev
 ```
 
 ### ARM
@@ -36,5 +47,5 @@ TOOLS="192.168.100.1:5000/tools:latest" REGISTRY="192.168.100.1:5000" PUSH="true
 ```sh
 rustup target add aarch64-unknown-linux-musl
 rustup target add aarch64-unknown-uefi --toolchain nightly
-ARCH=aarch64 REGISTRY="192.168.100.1:5000" PUSH="true" just dev
+ARCH=aarch64 REGISTRY="localhost:5000" PUSH="true" just dev
 ```

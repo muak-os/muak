@@ -17,7 +17,7 @@ alpine_version := "3.23"
 rust_version := `grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "latest")
-tools := env_var_or_default("TOOLS", registry + "/tools:" + tag)
+tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:" + tag)
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
@@ -193,20 +193,44 @@ test *pkgs:
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [script]
-e2e: (build "--release" "muakctl")
+e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
-    if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
-        printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
-        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
-        set -euo pipefail
-        apk add --no-cache wget libarchive-tools >/dev/null 2>&1
-        wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm
-        bsdtar -xf /tmp/edk2.rpm -C /tmp
-        cp /tmp/usr/share/edk2/ovmf/OVMF_VARS.fd /out/OVMF_VARS.fd
-        cp /tmp/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd /out/OVMF_CODE.secboot.fd'
-        printf "{{ green }}OVMF firmware files ready{{ reset }}\n"
-    fi
     MUAK_ARTIFACTS={{ artifacts }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
+
+# Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
+[script]
+start: (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
+    if [ ! -f "/tmp/nvme-disk.img" ]; then
+        printf "{{ cyan }}Creating persistent NVMe disk{{ reset }}\n"
+        qemu-img create -f raw "/tmp/nvme-disk.img" 5G >/dev/null
+    fi
+
+    if [ ! -f "/tmp/OVMF_VARS.fd" ]; then
+        printf "{{ cyan }}Creating persistent OVMF vars{{ reset }}\n"
+        cp "{{ artifacts }}/OVMF_VARS.fd" "/tmp/OVMF_VARS.fd"
+    fi
+
+    printf "{{ cyan }}Starting QEMU{{ reset }}\n"
+    printf "{{ green }}Guest install image:{{ reset }} 10.0.2.2:5000/installer:latest\n"
+    printf "{{ green }}Guest API:{{ reset }} 127.0.0.1:50051\n"
+    printf "{{ green }}Reset VM state:{{ reset }} rm -f /tmp/nvme-disk.img /tmp/OVMF_VARS.fd\n"
+
+    qemu-system-x86_64 \
+        -enable-kvm \
+        -machine type=q35,accel=kvm \
+        -cpu host \
+        -m 2G \
+        -smp 2 \
+        -drive if=pflash,format=raw,readonly=on,file="{{ artifacts }}/OVMF_CODE.secboot.fd" \
+        -drive if=pflash,format=raw,file="/tmp/OVMF_VARS.fd" \
+        -serial stdio \
+        -display none \
+        -netdev user,id=net0,hostfwd=tcp:127.0.0.1:50051-:50051 \
+        -device virtio-net-pci,netdev=net0 \
+        -drive file="{{ artifacts }}/muak-{{ arch }}.iso",format=raw,media=cdrom,if=none,id=cdrom0,readonly=on \
+        -device ide-cd,drive=cdrom0,bootindex=2 \
+        -drive file="/tmp/nvme-disk.img",format=raw,if=none,id=nvme0 \
+        -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
 # Run tests with coverage (e.g., just coverage or just coverage yuki)
 [script]
@@ -257,6 +281,26 @@ clean:
 # ─────────────────────────────────────────────────────────────────────────────
 # Private Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+[private]
+[script]
+_ensure-fw: _ensure-artifacts
+    if [ "{{ arch }}" != "x86_64" ]; then
+        printf "{{ red }}{{ bold }}Error:{{ reset }} QEMU helpers currently support only x86_64\n"
+        exit 1
+    fi
+
+    if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
+        printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
+        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
+        set -euo pipefail
+        apk add --no-cache wget libarchive-tools >/dev/null 2>&1
+        wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm
+        bsdtar -xf /tmp/edk2.rpm -C /tmp
+        cp /tmp/usr/share/edk2/ovmf/OVMF_VARS.fd /out/OVMF_VARS.fd
+        cp /tmp/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd /out/OVMF_CODE.secboot.fd'
+        printf "{{ green }}OVMF firmware files ready{{ reset }}\n"
+    fi
 
 [private]
 _ensure-artifacts:
