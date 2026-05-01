@@ -303,7 +303,16 @@ mod tests {
             failed_size -= 512;
         }
 
-        let success_size = failed_size + 512;
+        let mut minimal_success_size = failed_size + 512;
+        while try_build_efi_image(minimal_success_size, &uki, boot_filename, &[]).is_err() {
+            minimal_success_size += 512;
+        }
+
+        let success_size = next_image_size(minimal_success_size);
+        assert!(
+            try_build_efi_image(success_size, &uki, boot_filename, &[]).is_ok(),
+            "test setup must provide a successful upper bound"
+        );
 
         // ACT
         let image =
@@ -311,7 +320,7 @@ mod tests {
                 .expect("should find minimal successful size");
 
         // ASSERT
-        assert_eq!(image.len(), success_size);
+        assert_eq!(image.len(), minimal_success_size);
         assert!(try_build_efi_image(failed_size, &uki, boot_filename, &[]).is_err());
     }
 
