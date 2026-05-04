@@ -12,22 +12,22 @@ ARG TARGETARCH
 RUN --mount=type=cache,target=/var/cache/apk \
   --mount=type=cache,target=/etc/apk/cache \
   apk add --no-cache --no-scripts \
-  argp-standalone \
   bc \
   bison \
-  build-base \
   ccache \
-  coreutils \
+  clang \
   diffutils \
   elfutils-dev \
   findutils \
   flex \
   gawk \
-  gmp-dev \
+  grep \
   kmod \
+  lld \
   linux-headers \
-  mpc1-dev \
-  mpfr-dev \
+  llvm \
+  make \
+  musl-dev \
   openssl \
   openssl-dev \
   pahole \
@@ -55,12 +55,12 @@ EOF
 COPY core/kernel/config-${TARGETARCH} .config
 COPY core/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
 
-RUN make olddefconfig
+RUN make LLVM=1 olddefconfig
 
 RUN --mount=type=cache,target=/root/.ccache \
   export PATH="/usr/lib/ccache/bin:$PATH" && \
-  make -j$(nproc) CC="ccache gcc" && \
-  make -j$(nproc) CC="ccache gcc" modules
+  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld && \
+  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld modules
 
 RUN --mount=type=secret,id=kernel_key,target=/run/secrets/kernel-signing-key.pem <<EOF
 set -euo pipefail
@@ -87,9 +87,9 @@ FROM kernel-build AS modules-install
 
 ARG KERNEL_VERSION
 
-RUN make INSTALL_MOD_PATH=/modules INSTALL_MOD_STRIP=1 modules_install
+RUN make LLVM=1 INSTALL_MOD_PATH=/modules INSTALL_MOD_STRIP=1 modules_install
 
-RUN make -s kernelrelease > /kernel-release
+RUN make -s LLVM=1 kernelrelease > /kernel-release
 
 RUN --mount=type=cache,target=/root/.ccache <<EOF
 set -euo pipefail
