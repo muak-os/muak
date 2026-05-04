@@ -87,6 +87,7 @@ FROM scratch
 
 COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
 COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
+COPY --link --from=pkg-kernel        /cmdline       /cmdline
 COPY --link --from=pkg-stub          /stub.efi      /stub.efi
 
 LABEL org.opencontainers.image.title="installer"

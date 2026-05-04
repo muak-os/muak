@@ -112,6 +112,7 @@ FROM docker.io/alpine:${ALPINE_VERSION} AS kernel-export
 ARG TARGETARCH
 
 COPY --link --from=kernel-build /src/arch /src/arch
+COPY core/kernel/cmdline-${TARGETARCH}.txt /src/cmdline
 
 RUN <<EOF
 set -euo pipefail
@@ -120,12 +121,15 @@ if [ "${TARGETARCH}" = "arm64" ]; then
 else
   cp /src/arch/x86/boot/bzImage /vmlinuz
 fi
+
+cp /src/cmdline /cmdline
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
 COPY --link --from=kernel-export   /vmlinuz             /vmlinuz
+COPY --link --from=kernel-export   /cmdline             /cmdline
 COPY --link --from=modules-install /modules/lib/modules /lib/modules
 
 LABEL org.opencontainers.image.title="muak-kernel"
