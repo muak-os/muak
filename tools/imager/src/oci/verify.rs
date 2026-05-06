@@ -155,7 +155,70 @@ pub(crate) fn parse_pem_public_key(pem: &str) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use base64ct::Encoding;
+    use ring::rand::SystemRandom;
+    use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+
     use super::*;
+
+    fn must<T, E: std::fmt::Display>(result: std::result::Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error}"),
+        }
+    }
+
+    fn generate_test_key_pair(rng: &SystemRandom) -> Result<EcdsaKeyPair> {
+        let pkcs8 =
+            EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng).map_err(|_| {
+                ImagerError::SignatureVerificationFailed(
+                    "failed to generate ECDSA test key".to_string(),
+                )
+            })?;
+
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), rng).map_err(
+            |_| {
+                ImagerError::SignatureVerificationFailed(
+                    "failed to parse generated ECDSA test key".to_string(),
+                )
+            },
+        )
+    }
+
+    fn sign_test_digest(
+        key_pair: &EcdsaKeyPair,
+        rng: &SystemRandom,
+        digest: &str,
+    ) -> Result<String> {
+        let sig = key_pair.sign(rng, digest.as_bytes()).map_err(|_| {
+            ImagerError::SignatureVerificationFailed(
+                "failed to sign manifest digest in test".to_string(),
+            )
+        })?;
+
+        Ok(base64ct::Base64Url::encode_string(sig.as_ref()))
+    }
+
+    /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
+    fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
+        // OID for id-ecPublicKey + OID for P-256 (prime256v1)
+        let algorithm: &[u8] = &[
+            0x30, 0x13, // SEQUENCE
+            0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID id-ecPublicKey
+            0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // OID prime256v1
+        ];
+        let bit_string_len = 1 + pub_raw.len(); // leading 0x00 unused-bits byte
+        let content_len = algorithm.len() + 2 + bit_string_len; // 2 = tag+len for BIT STRING
+        let mut der = Vec::new();
+        der.push(0x30); // SEQUENCE
+        der.push(content_len as u8);
+        der.extend_from_slice(algorithm);
+        der.push(0x03); // BIT STRING
+        der.push(bit_string_len as u8);
+        der.push(0x00); // unused bits
+        der.extend_from_slice(pub_raw);
+        der
+    }
 
     #[test]
     fn sha256_hex_empty() {
@@ -198,10 +261,7 @@ mod tests {
         let result = verify_blob_digest(data, digest);
 
         // ASSERT
-        assert!(matches!(
-            result.unwrap_err(),
-            ImagerError::DigestMismatch { .. }
-        ));
+        assert!(matches!(result, Err(ImagerError::DigestMismatch { .. })));
     }
 
     #[test]
@@ -210,11 +270,9 @@ mod tests {
         let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
 
         // ACT
-        let result = parse_pem_public_key(pem);
+        let bytes = must(parse_pem_public_key(pem), "parse PEM public key");
 
         // ASSERT
-        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
-        let bytes = result.unwrap();
         assert_eq!(bytes.len(), 65, "expected 65-byte uncompressed point");
         assert_eq!(bytes[0], 0x04, "expected uncompressed point prefix 0x04");
     }
@@ -243,17 +301,9 @@ mod tests {
     #[tokio::test]
     async fn check_signature_manifest_digest_roundtrip() {
         // ARRANGE
-        use base64ct::{Base64Url, Encoding};
-        use ring::rand::SystemRandom;
-        use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
-
-        use crate::oci::sign::manifest_signing_payload;
 
         let rng = SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
-        let key_pair =
-            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
-                .unwrap();
+        let key_pair = must(generate_test_key_pair(&rng), "generate test key pair");
 
         let manifest_bare = serde_json::json!({
             "schemaVersion": 2,
@@ -265,15 +315,23 @@ mod tests {
             },
             "layers": []
         });
-        let manifest_bare_json = serde_json::to_string(&manifest_bare).unwrap();
+        let manifest_bare_json = must(serde_json::to_string(&manifest_bare), "serialize manifest");
 
-        let (digest, _) = manifest_signing_payload(&manifest_bare_json).unwrap();
-        let sig = key_pair.sign(&rng, digest.as_bytes()).unwrap();
-        let sig_b64 = Base64Url::encode_string(sig.as_ref());
+        let (digest, _) = must(
+            manifest_signing_payload(&manifest_bare_json),
+            "compute manifest signing payload",
+        );
+        let sig_b64 = must(
+            sign_test_digest(&key_pair, &rng, &digest),
+            "sign manifest digest",
+        );
 
         let mut manifest_signed = manifest_bare.clone();
         manifest_signed["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
-        let manifest_signed_json = serde_json::to_string(&manifest_signed).unwrap();
+        let manifest_signed_json = must(
+            serde_json::to_string(&manifest_signed),
+            "serialize signed manifest",
+        );
 
         let pub_raw = key_pair.public_key().as_ref();
         let spki = build_p256_spki(pub_raw);
@@ -283,41 +341,40 @@ mod tests {
         );
 
         // ACT
-        let result = check_signature(&manifest_signed_json, Some(&pub_pem)).await;
-
-        // ASSERT
-        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+        must(
+            check_signature(&manifest_signed_json, Some(&pub_pem)).await,
+            "verify manifest signature",
+        );
     }
 
     #[tokio::test]
     async fn check_signature_tampered_manifest_fails() {
         // ARRANGE
-        use base64ct::{Base64Url, Encoding};
-        use ring::rand::SystemRandom;
-        use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
-
-        use crate::oci::sign::manifest_signing_payload;
-
         let rng = SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
-        let key_pair =
-            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
-                .unwrap();
+        let key_pair = must(generate_test_key_pair(&rng), "generate test key pair");
 
         let manifest_bare = serde_json::json!({
             "schemaVersion": 2,
             "config": {"digest": "sha256:abc", "size": 1},
             "layers": []
         });
-        let manifest_bare_json = serde_json::to_string(&manifest_bare).unwrap();
-        let (digest, _) = manifest_signing_payload(&manifest_bare_json).unwrap();
-        let sig = key_pair.sign(&rng, digest.as_bytes()).unwrap();
-        let sig_b64 = Base64Url::encode_string(sig.as_ref());
+        let manifest_bare_json = must(serde_json::to_string(&manifest_bare), "serialize manifest");
+        let (digest, _) = must(
+            manifest_signing_payload(&manifest_bare_json),
+            "compute manifest signing payload",
+        );
+        let sig_b64 = must(
+            sign_test_digest(&key_pair, &rng, &digest),
+            "sign manifest digest",
+        );
 
         let mut tampered = manifest_bare.clone();
         tampered["layers"] = serde_json::json!([{"digest":"sha256:evil","size":999}]);
         tampered["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
-        let tampered_json = serde_json::to_string(&tampered).unwrap();
+        let tampered_json = must(
+            serde_json::to_string(&tampered),
+            "serialize tampered manifest",
+        );
 
         let pub_raw = key_pair.public_key().as_ref();
         let spki = build_p256_spki(pub_raw);
@@ -336,24 +393,83 @@ mod tests {
         );
     }
 
-    /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
-    fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
-        // OID for id-ecPublicKey + OID for P-256 (prime256v1)
-        let algorithm: &[u8] = &[
-            0x30, 0x13, // SEQUENCE
-            0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID id-ecPublicKey
-            0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // OID prime256v1
-        ];
-        let bit_string_len = 1 + pub_raw.len(); // leading 0x00 unused-bits byte
-        let content_len = algorithm.len() + 2 + bit_string_len; // 2 = tag+len for BIT STRING
-        let mut der = Vec::new();
-        der.push(0x30); // SEQUENCE
-        der.push(content_len as u8);
-        der.extend_from_slice(algorithm);
-        der.push(0x03); // BIT STRING
-        der.push(bit_string_len as u8);
-        der.push(0x00); // unused bits
-        der.extend_from_slice(pub_raw);
-        der
+    #[tokio::test]
+    async fn check_signature_without_pubkey_is_allowed() {
+        // ARRANGE
+        let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
+
+        // ACT
+        let result = check_signature(manifest_json, None).await;
+
+        // ASSERT
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_signature_requires_annotation_when_pubkey_is_provided() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
+        let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
+
+        // ACT
+        let error = match check_signature(manifest_json, Some(pem)).await {
+            Ok(()) => panic!("signature verification unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[tokio::test]
+    async fn check_signature_rejects_invalid_base64_annotation() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
+        let manifest_json =
+            r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"!!!"},"layers":[]}"#;
+
+        // ACT
+        let error = match check_signature(manifest_json, Some(pem)).await {
+            Ok(()) => panic!("signature verification unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_public_key_rejects_short_spki() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n";
+
+        // ACT
+        let error = match parse_pem_public_key(pem) {
+            Ok(_) => panic!("public key unexpectedly parsed"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_public_key_rejects_compressed_point() {
+        // ARRANGE
+        let mut spki = vec![0u8; 26 + 65];
+        spki[26] = 0x02;
+        let pem = format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
+            base64ct::Base64::encode_string(&spki)
+        );
+
+        // ACT
+        let error = match parse_pem_public_key(&pem) {
+            Ok(_) => panic!("public key unexpectedly parsed"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
     }
 }

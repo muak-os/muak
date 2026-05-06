@@ -39,3 +39,22 @@ pub(crate) fn extract_archive(bytes: &[u8], dest: &Path) -> Result<()> {
         .unpack(dest)
         .map_err(|e| ImagerError::LayerExtractionError(format!("Failed to extract tar: {}", e)))
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn extract_archive_rejects_invalid_gzip_data() {
+        // ARRANGE
+        let output = TempDir::new().expect("create temp dir");
+
+        // ACT
+        let result = extract_archive(b"not a gzip archive", output.path());
+
+        // ASSERT
+        assert!(matches!(result, Err(ImagerError::LayerExtractionError(_))));
+    }
+}

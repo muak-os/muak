@@ -58,3 +58,84 @@ pub(crate) fn select_platform(manifests: &[OciDescriptor]) -> Result<&OciDescrip
             ImagerError::InvalidOciFormat("No suitable manifest found in manifest list".to_string())
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::image::{ImageReference, Platform};
+
+    fn descriptor(digest: &str, architecture: Option<&str>, os: Option<&str>) -> OciDescriptor {
+        OciDescriptor {
+            digest: digest.to_string(),
+            platform: Some(Platform {
+                architecture: architecture.map(str::to_string),
+                os: os.map(str::to_string),
+            }),
+        }
+    }
+
+    #[test]
+    fn build_url_uses_registry_scheme_and_reference() {
+        // ARRANGE
+        let image_ref = ImageReference {
+            registry: "127.0.0.1:5000".to_string(),
+            name: "repo/name".to_string(),
+            tag: "test".to_string(),
+        };
+
+        // ACT / ASSERT
+        assert_eq!(
+            build_url(&image_ref, "sha256:abc"),
+            "http://127.0.0.1:5000/v2/repo/name/manifests/sha256:abc"
+        );
+    }
+
+    #[test]
+    fn parse_invalid_manifest_returns_error() {
+        // ARRANGE / ACT
+        let result = parse("not json");
+
+        // ASSERT
+        assert!(matches!(result, Err(ImagerError::OciParseError(_))));
+    }
+
+    #[test]
+    fn select_platform_prefers_host_linux_match() {
+        // ARRANGE
+        let manifests = vec![
+            descriptor("sha256:wrong-os", Some(host_oci_arch()), Some("windows")),
+            descriptor("sha256:match", Some(host_oci_arch()), Some("linux")),
+            descriptor("sha256:wrong-arch", Some("arm64"), Some("linux")),
+        ];
+
+        // ACT
+        let selected = select_platform(&manifests).expect("select matching manifest");
+
+        // ASSERT
+        assert_eq!(selected.digest, "sha256:match");
+    }
+
+    #[test]
+    fn select_platform_falls_back_to_first_manifest() {
+        // ARRANGE
+        let manifests = vec![
+            descriptor("sha256:first", Some("arm64"), Some("windows")),
+            descriptor("sha256:second", Some("386"), Some("linux")),
+        ];
+
+        // ACT
+        let selected = select_platform(&manifests).expect("select fallback manifest");
+
+        // ASSERT
+        assert_eq!(selected.digest, "sha256:first");
+    }
+
+    #[test]
+    fn select_platform_errors_for_empty_manifest_list() {
+        // ARRANGE / ACT
+        let result = select_platform(&[]);
+
+        // ASSERT
+        assert!(matches!(result, Err(ImagerError::InvalidOciFormat(_))));
+    }
+}

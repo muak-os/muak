@@ -110,3 +110,68 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
         .map(|c| c.to_bytes())
         .map_err(|e| ImagerError::NetworkError(format!("Failed to read response body: {}", e)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn must<T, E: std::fmt::Display>(result: std::result::Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_rejects_invalid_url_before_request() {
+        // ARRANGE
+        let client = must(build_client(), "build HTTP client");
+
+        // ACT
+        let error = match get(&client, "http://127.0.0.1:5000/has space", None, &[]).await {
+            Ok(_) => panic!("request unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::NetworkError(_)));
+    }
+
+    #[tokio::test]
+    async fn put_rejects_invalid_url_before_request() {
+        // ARRANGE
+        let client = must(build_client(), "build HTTP client");
+
+        // ACT
+        let error = match put(
+            &client,
+            "http://127.0.0.1:5000/has space",
+            Some("token"),
+            "application/json",
+            Bytes::from_static(b"{}"),
+        )
+        .await
+        {
+            Ok(_) => panic!("request unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::NetworkError(_)));
+    }
+
+    #[tokio::test]
+    async fn get_reports_connection_failures() {
+        // ARRANGE
+        let client = must(build_client(), "build HTTP client");
+
+        // ACT
+        let error = match get(&client, "http://127.0.0.1:9/v2/repo/manifests/test", None, &[]).await {
+            Ok(_) => panic!("request unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::NetworkError(_)));
+    }
+}

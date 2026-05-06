@@ -219,6 +219,21 @@ mod tests {
     use super::*;
     use crate::oci::verify::sha256_hex;
 
+    fn generate_test_key_pair(rng: &SystemRandom) -> EcdsaKeyPair {
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng)
+            .expect("generate ECDSA test key");
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), rng)
+            .expect("parse generated ECDSA test key")
+    }
+
+    fn decode_base64url(input: &str) -> Vec<u8> {
+        Base64Url::decode_vec(input).expect("decode base64url test value")
+    }
+
+    fn decode_utf8(bytes: &[u8]) -> &str {
+        std::str::from_utf8(bytes).expect("decode UTF-8 test value")
+    }
+
     #[test]
     fn base64url_roundtrip() {
         // ARRANGE
@@ -226,7 +241,7 @@ mod tests {
 
         // ACT
         let encoded = Base64Url::encode_string(original);
-        let decoded = Base64Url::decode_vec(&encoded).unwrap();
+        let decoded = decode_base64url(&encoded);
 
         // ASSERT
         assert_eq!(original.as_ref(), decoded.as_slice());
@@ -238,10 +253,11 @@ mod tests {
         let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
 
         // ACT
-        let (digest, canonical) = manifest_signing_payload(manifest_json).unwrap();
+        let (digest, canonical) = manifest_signing_payload(manifest_json)
+            .expect("compute manifest signing payload");
 
         // ASSERT
-        let canonical_str = std::str::from_utf8(&canonical).unwrap();
+        let canonical_str = decode_utf8(&canonical);
         assert!(
             !canonical_str.contains("dev.muak.sig"),
             "canonical bytes must not contain the sig annotation"
@@ -257,21 +273,20 @@ mod tests {
     fn build_signed_manifest_roundtrip() {
         // ARRANGE
         let rng = SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
-        let key_pair =
-            EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
-                .unwrap();
+        let key_pair = generate_test_key_pair(&rng);
         let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
 
         // ACT
-        let (signed_bytes, _content_type) =
-            build_signed_manifest(manifest_json, &key_pair, &rng).unwrap();
-        let signed_value: serde_json::Value = serde_json::from_slice(&signed_bytes).unwrap();
-        let sig_b64 = signed_value["annotations"][SIG_ANNOTATION]
-            .as_str()
-            .expect("annotation must be present");
-        let sig_bytes = Base64Url::decode_vec(sig_b64).unwrap();
-        let (digest, _) = manifest_signing_payload(manifest_json).unwrap();
+        let (signed_bytes, _content_type) = build_signed_manifest(manifest_json, &key_pair, &rng)
+            .expect("build signed manifest");
+        let signed_value: serde_json::Value =
+            serde_json::from_slice(&signed_bytes).expect("parse signed manifest");
+        let Some(sig_b64) = signed_value["annotations"][SIG_ANNOTATION].as_str() else {
+            panic!("signed manifest is missing the signature annotation");
+        };
+        let sig_bytes = decode_base64url(sig_b64);
+        let (digest, _) =
+            manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
         let pub_key = UnparsedPublicKey::new(
             &ring::signature::ECDSA_P256_SHA256_ASN1,
             key_pair.public_key().as_ref(),
@@ -288,28 +303,106 @@ mod tests {
     fn manifest_signing_payload_idempotent() {
         // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
-        let (digest1, _) = manifest_signing_payload(manifest_json).unwrap();
-        let mut value: serde_json::Value = serde_json::from_str(manifest_json).unwrap();
-        value
-            .as_object_mut()
-            .unwrap()
+        let (digest1, _) = manifest_signing_payload(manifest_json)
+            .expect("compute initial manifest signing payload");
+        let mut value: serde_json::Value =
+            serde_json::from_str(manifest_json).expect("parse manifest json");
+        let Some(root) = value.as_object_mut() else {
+            panic!("manifest payload is not a JSON object");
+        };
+        let annotations = root
             .entry("annotations")
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
-            .as_object_mut()
-            .unwrap()
-            .insert(
-                SIG_ANNOTATION.to_string(),
-                serde_json::Value::String("somesig".to_string()),
-            );
-        let signed_json = serde_json::to_string(&value).unwrap();
+            .as_object_mut();
+        let Some(annotations) = annotations else {
+            panic!("manifest annotations is not a JSON object");
+        };
+        annotations.insert(
+            SIG_ANNOTATION.to_string(),
+            serde_json::Value::String("somesig".to_string()),
+        );
+        let signed_json = serde_json::to_string(&value).expect("serialize signed manifest");
 
         // ACT
-        let (digest2, _) = manifest_signing_payload(&signed_json).unwrap();
+        let (digest2, _) = manifest_signing_payload(&signed_json)
+            .expect("compute signed manifest payload");
 
         // ASSERT
         assert_eq!(
             digest1, digest2,
             "stripping the annotation must give the same payload on re-sign"
         );
+    }
+
+    #[test]
+    fn manifest_signing_payload_removes_empty_annotations_map() {
+        // ARRANGE
+        let manifest_json =
+            r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig"},"layers":[]}"#;
+
+        // ACT
+        let (_digest, canonical) = manifest_signing_payload(manifest_json)
+            .expect("compute manifest signing payload");
+        let canonical_str = decode_utf8(&canonical);
+
+        // ASSERT
+        assert_eq!(canonical_str, r#"{"layers":[],"schemaVersion":2}"#);
+    }
+
+    #[test]
+    fn manifest_signing_payload_rejects_invalid_json() {
+        // ARRANGE / ACT
+        let error = match manifest_signing_payload("not json") {
+            Ok(_) => panic!("payload generation unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::OciParseError(_)));
+    }
+
+    #[test]
+    fn build_signed_manifest_rejects_non_object_annotations() {
+        // ARRANGE
+        let rng = SystemRandom::new();
+        let key_pair = generate_test_key_pair(&rng);
+        let manifest_json = r#"{"schemaVersion":2,"annotations":[],"layers":[]}"#;
+
+        // ACT
+        let error = build_signed_manifest(manifest_json, &key_pair, &rng)
+            .expect_err("signing should fail");
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_invalid_base64() {
+        // ARRANGE
+        let pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
+
+        // ACT / ASSERT
+        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_missing_pem_block() {
+        // ARRANGE / ACT
+        let error = parse_pem_private_key("not a pem file")
+            .expect_err("private key parsing should fail");
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_invalid_pkcs8_bytes() {
+        // ARRANGE
+        let pem = "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
+
+        // ACT / ASSERT
+        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
+        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
     }
 }
