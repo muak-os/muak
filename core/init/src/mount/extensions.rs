@@ -17,14 +17,17 @@ pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
         return Vec::new();
     };
 
-    entries
+    let mut result: Vec<String> = entries
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
             let is_erofs = path.extension().and_then(|s| s.to_str()) == Some("erofs");
             is_erofs.then(|| path.to_str().map(String::from)).flatten()
         })
-        .collect()
+        .collect();
+
+    result.sort_unstable();
+    result
 }
 
 #[cfg(test)]
@@ -49,17 +52,17 @@ mod tests {
 
         // ASSERT
         assert_eq!(extensions.len(), 3, "Should find 3 .erofs files");
-        assert!(
-            extensions.iter().any(|e| e.ends_with("app.erofs")),
-            "Should find app.erofs"
-        );
-        assert!(
-            extensions.iter().any(|e| e.ends_with("lib.erofs")),
-            "Should find lib.erofs"
-        );
-        assert!(
-            extensions.iter().any(|e| e.ends_with("tools.erofs")),
-            "Should find tools.erofs"
+        assert!(extensions.iter().any(|e| e.ends_with("app.erofs")));
+        assert!(extensions.iter().any(|e| e.ends_with("lib.erofs")));
+        assert!(extensions.iter().any(|e| e.ends_with("tools.erofs")));
+        let names: Vec<&str> = extensions
+            .iter()
+            .map(|p| p.rsplit('/').next().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["app.erofs", "lib.erofs", "tools.erofs"],
+            "Results must be sorted"
         );
     }
 
