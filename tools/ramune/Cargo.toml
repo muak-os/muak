@@ -9,7 +9,7 @@ name = "ramune"
 required-features = ["cli"]
 
 [dependencies]
-# Async
+# Asynchronous
 tokio = { workspace = true, features = ["fs", "io-util"] }
 
 # CLI
