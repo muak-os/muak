@@ -42,54 +42,69 @@ pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Result<Vec<u8>> {
         .map(|e| 110 + e.path.len() + e.data.len() + 8)
         .sum();
     let mut buf = Vec::with_capacity(capacity);
-    let mut ino = 1u32;
-
-    for entry in entries {
-        write_entry(&mut buf, ino, &entry.path, entry.mode, &entry.data)?;
-        ino += 1;
-    }
-
-    write_entry(&mut buf, ino, TRAILER, 0, &[])?;
+    write_entries(&mut buf, entries)?;
     Ok(buf)
 }
 
-/// Creates a CPIO archive containing the given files under an `extensions/` directory.
-pub(crate) fn create_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut entries = Vec::with_capacity(files.len() + 1);
-    entries.push(CpioEntry {
+/// Writes a CPIO archive containing the given files under an `extensions/` directory into `writer`.
+pub(crate) fn write_archive<W: Write>(writer: &mut W, files: &[(String, Vec<u8>)]) -> Result<()> {
+    let dir_entry = CpioEntry {
         path: "extensions".to_string(),
         mode: 0o040755,
         data: Vec::new(),
-    });
-    for (path, data) in files {
-        entries.push(CpioEntry {
-            path: path.clone(),
-            mode: 0o100644,
-            data: data.clone(),
-        });
+    };
+    write_entry(writer, 1, &dir_entry.path, dir_entry.mode, &dir_entry.data)?;
+    for (ino, (path, data)) in files.iter().enumerate() {
+        write_entry(writer, (ino + 2) as u32, path, 0o100644, data)?;
     }
-    create_from_entries(&entries)
+    write_entry(writer, (files.len() + 2) as u32, TRAILER, 0, &[])
 }
 
-/// Writes a CPIO newc format header to the output buffer.
-fn write_header(writer: &mut Vec<u8>, h: &CpioHeader) -> Result<()> {
-    write!(
-        writer,
+/// Writes all entries plus the TRAILER to `writer`.
+fn write_entries<W: Write>(writer: &mut W, entries: &[CpioEntry]) -> Result<()> {
+    for (i, entry) in entries.iter().enumerate() {
+        write_entry(writer, (i + 1) as u32, &entry.path, entry.mode, &entry.data)?;
+    }
+    write_entry(writer, (entries.len() + 1) as u32, TRAILER, 0, &[])
+}
+
+/// Writes a CPIO newc format header to `writer`, returning bytes written.
+fn write_header<W: Write>(writer: &mut W, h: &CpioHeader) -> Result<usize> {
+    let s = format!(
         "{NEWC_MAGIC}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
-        h.ino, h.mode, h.uid, h.gid, h.nlink, h.mtime, h.filesize,
-        h.devmajor, h.devminor, h.rdevmajor, h.rdevminor, h.namesize, h.check,
-    )
-    .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
-    Ok(())
+        h.ino,
+        h.mode,
+        h.uid,
+        h.gid,
+        h.nlink,
+        h.mtime,
+        h.filesize,
+        h.devmajor,
+        h.devminor,
+        h.rdevmajor,
+        h.rdevminor,
+        h.namesize,
+        h.check,
+    );
+    writer
+        .write_all(s.as_bytes())
+        .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
+    Ok(s.len())
 }
 
 /// Writes a single entry (file or directory) to the CPIO archive.
-fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8]) -> Result<()> {
+fn write_entry<W: Write>(
+    writer: &mut W,
+    ino: u32,
+    name: &str,
+    mode: u32,
+    data: &[u8],
+) -> Result<()> {
     let name_bytes = name.as_bytes();
     let namesize = (name_bytes.len() + 1) as u32;
     let filesize = data.len() as u32;
 
-    write_header(
+    let mut pos = write_header(
         writer,
         &CpioHeader {
             ino,
@@ -104,24 +119,32 @@ fn write_entry(writer: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8
     writer
         .write_all(name_bytes)
         .map_err(|e| RamuneError::CpioError(format!("Failed to write filename: {e}")))?;
-    writer.push(0);
-    pad_to_4(writer);
+    writer
+        .write_all(&[0])
+        .map_err(|e| RamuneError::CpioError(format!("Failed to write null byte: {e}")))?;
+    pos += name_bytes.len() + 1;
+    pos += write_pad4(writer, pos)?;
 
     if !data.is_empty() {
         writer
             .write_all(data)
             .map_err(|e| RamuneError::CpioError(format!("Failed to write file data: {e}")))?;
-        pad_to_4(writer);
+        pos += data.len();
+        write_pad4(writer, pos)?;
     }
 
     Ok(())
 }
 
-/// Pads the output buffer to the next 4-byte boundary with null bytes.
-fn pad_to_4(writer: &mut Vec<u8>) {
-    let len = writer.len();
-    let pad = (4 - (len % 4)) % 4;
-    writer.extend(std::iter::repeat_n(0, pad));
+/// Writes null padding to align `pos` to a 4-byte boundary; returns bytes written.
+fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
+    let pad = (4 - (pos % 4)) % 4;
+    if pad > 0 {
+        writer
+            .write_all(&[0u8; 3][..pad])
+            .map_err(|e| RamuneError::CpioError(format!("Failed to write padding: {e}")))?;
+    }
+    Ok(pad)
 }
 
 #[cfg(test)]
@@ -134,7 +157,9 @@ mod tests {
         let files = vec![("test.txt".to_string(), b"hello world".to_vec())];
 
         // ACT
-        let result = create_archive(&files).unwrap();
+        let mut buf = Vec::new();
+        write_archive(&mut buf, &files).expect("write_archive");
+        let result = buf;
 
         // ASSERT
         assert!(!result.is_empty());
@@ -154,7 +179,9 @@ mod tests {
         ];
 
         // ACT
-        let result = create_archive(&files).unwrap();
+        let mut buf = Vec::new();
+        write_archive(&mut buf, &files).expect("write_archive");
+        let result = buf;
 
         // ASSERT
         assert!(!result.is_empty());
@@ -176,7 +203,9 @@ mod tests {
         let files: Vec<(String, Vec<u8>)> = vec![];
 
         // ACT
-        let result = create_archive(&files).unwrap();
+        let mut buf = Vec::new();
+        write_archive(&mut buf, &files).expect("write_archive");
+        let result = buf;
 
         // ASSERT
         assert!(!result.is_empty());
@@ -188,7 +217,9 @@ mod tests {
         let files = vec![("empty.txt".to_string(), vec![])];
 
         // ACT
-        let result = create_archive(&files).unwrap();
+        let mut buf = Vec::new();
+        write_archive(&mut buf, &files).expect("write_archive");
+        let result = buf;
 
         // ASSERT
         assert!(!result.is_empty());
@@ -201,7 +232,9 @@ mod tests {
         let files = vec![("large.bin".to_string(), large_data)];
 
         // ACT
-        let result = create_archive(&files).unwrap();
+        let mut buf = Vec::new();
+        write_archive(&mut buf, &files).expect("write_archive");
+        let result = buf;
 
         // ASSERT
         assert!(result.len() > 10000);

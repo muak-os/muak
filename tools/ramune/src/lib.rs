@@ -29,18 +29,6 @@ pub async fn extend_initramfs(
 ) -> Result<()> {
     let same_file = is_same_file(base, output).await;
 
-    if extensions.is_empty() {
-        if !same_file {
-            tokio::fs::copy(base, output)
-                .await
-                .map_err(|e| RamuneError::ReadError {
-                    file: base.display().to_string(),
-                    source: e,
-                })?;
-        }
-        return Ok(());
-    }
-
     if !same_file {
         tokio::fs::copy(base, output)
             .await
@@ -48,6 +36,10 @@ pub async fn extend_initramfs(
                 file: base.display().to_string(),
                 source: e,
             })?;
+    }
+
+    if extensions.is_empty() {
+        return Ok(());
     }
 
     let archive = build_extensions_archive(extensions).await?;
@@ -69,8 +61,13 @@ async fn is_same_file(a: &Path, b: &Path) -> bool {
 async fn build_extensions_archive(extensions: &[(String, PathBuf)]) -> Result<Vec<u8>> {
     let files = extension::process_all(extensions).await?;
     tokio::task::spawn_blocking(move || {
-        let cpio_data = cpio::create_archive(&files)?;
-        zstd::encode_all(&cpio_data[..], 19)
+        let buf = Vec::new();
+        let mut encoder = zstd::Encoder::new(buf, 19)
+            .map_err(|e| RamuneError::CpioError(format!("zstd init failed: {e}")))?;
+        cpio::write_archive(&mut encoder, &files)
+            .map_err(|e| RamuneError::CpioError(format!("CPIO write failed: {e}")))?;
+        encoder
+            .finish()
             .map_err(|e| RamuneError::CpioError(format!("Compression failed: {e}")))
     })
     .await
