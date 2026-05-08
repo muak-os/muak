@@ -48,9 +48,14 @@ async fn pull_extracts_single_layer_from_local_registry() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(&registry.reference("repo", "test"), output.path(), None)
-        .await
-        .expect("pull image");
+    imager::pull(
+        &registry.reference("repo", "test"),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    .expect("pull image");
 
     // ASSERT
     assert_eq!(
@@ -65,9 +70,9 @@ async fn pull_extracts_single_layer_from_local_registry() {
 }
 
 #[tokio::test]
-async fn pull_selects_host_platform_manifest_from_index() {
+async fn pull_selects_requested_platform_manifest_from_index() {
     // ARRANGE
-    let layer = layer_archive(&[("etc/platform", b"selected host manifest\n")])
+    let layer = layer_archive(&[("etc/platform", b"selected requested manifest\n")])
         .expect("build layer archive");
     let layer_digest = sha256_digest(&layer);
     let selected_manifest_digest =
@@ -75,8 +80,11 @@ async fn pull_selects_host_platform_manifest_from_index() {
     let fallback_manifest_digest =
         "sha256:3333333333333333333333333333333333333333333333333333333333333333";
 
-    let index = index_with_fallback_json(selected_manifest_digest, fallback_manifest_digest)
-        .expect("build index json");
+    let index = index_for_arches_json(&[
+        (fallback_manifest_digest, "amd64", "linux"),
+        (selected_manifest_digest, "arm64", "linux"),
+    ])
+    .expect("build index json");
     let selected_manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
     let fallback_manifest = manifest_json(
         "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -103,14 +111,96 @@ async fn pull_selects_host_platform_manifest_from_index() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(&registry.reference("repo", "test"), output.path(), None)
-        .await
-        .expect("pull image");
+    imager::pull(
+        &registry.reference("repo", "test"),
+        "arm64",
+        output.path(),
+        None,
+    )
+    .await
+    .expect("pull image");
 
     // ASSERT
     assert_eq!(
         std::fs::read_to_string(output.path().join("etc/platform")).expect("read platform file"),
-        "selected host manifest\n"
+        "selected requested manifest\n"
+    );
+}
+
+#[tokio::test]
+async fn pull_rejects_index_without_requested_platform_match() {
+    // ARRANGE
+    let index = index_for_arches_json(&[(
+        "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "amd64",
+        "windows",
+    )])
+    .expect("build index json");
+    let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        "/v2/repo/manifests/test",
+        HttpResponse::index(index),
+    )]))
+    .expect("start mock registry");
+    let output = TempDir::new().expect("create temp dir");
+
+    // ACT
+    let error = imager::pull(
+        &registry.reference("repo", "test"),
+        "arm64",
+        output.path(),
+        None,
+    )
+    .await
+    .expect_err("pull should fail");
+
+    // ASSERT
+    assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+}
+
+#[tokio::test]
+async fn pull_supports_digest_manifest_reference() {
+    // ARRANGE
+    let layer = layer_archive(&[("etc/digest", b"pulled by digest\n")]).expect("build layer");
+    let layer_digest = sha256_digest(&layer);
+    let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
+    let manifest_digest = sha256_digest(&manifest);
+
+    let registry = MockRegistry::start(std::collections::HashMap::from([
+        get(
+            format!("/v2/repo/manifests/{manifest_digest}"),
+            HttpResponse::json(manifest),
+        ),
+        get(
+            format!("/v2/repo/blobs/{layer_digest}"),
+            HttpResponse::octet_stream(layer),
+        ),
+    ]))
+    .expect("start mock registry");
+    let output = TempDir::new().expect("create temp dir");
+
+    // ACT
+    imager::pull(
+        &registry.digest_reference("repo", &manifest_digest),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    .expect("pull image by digest");
+
+    // ASSERT
+    assert_eq!(
+        std::fs::read_to_string(output.path().join("etc/digest")).expect("read extracted file"),
+        "pulled by digest\n"
+    );
+    let request = required_request(
+        &registry,
+        "GET",
+        &format!("/v2/repo/manifests/{manifest_digest}"),
+    );
+    assert_eq!(
+        request.path,
+        format!("/v2/repo/manifests/{manifest_digest}")
     );
 }
 
@@ -136,7 +226,14 @@ async fn pull_rejects_blob_with_digest_mismatch() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = match imager::pull(&registry.reference("repo", "test"), output.path(), None).await {
+    let error = match imager::pull(
+        &registry.reference("repo", "test"),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    {
         Ok(()) => {
             panic!("pull unexpectedly succeeded");
         }
@@ -242,6 +339,32 @@ async fn sign_uses_default_manifest_content_type_when_media_type_is_missing() {
 }
 
 #[tokio::test]
+async fn sign_signs_single_manifest_in_registry() {
+    // ARRANGE
+    let keys = generate_test_keys().expect("generate test keys");
+    let path = "/v2/repo/manifests/test";
+    let registry = MockRegistry::start(std::collections::HashMap::from([
+        get(
+            path,
+            HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
+        ),
+        put(path, HttpResponse::ok()),
+    ]))
+    .expect("start mock registry");
+
+    // ACT
+    imager::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+        .await
+        .expect("sign image");
+
+    // ASSERT
+    let request = required_request(&registry, "PUT", path);
+    let manifest: Value =
+        serde_json::from_slice(&request.body).expect("parse signed manifest body");
+    assert!(manifest["annotations"]["dev.muak.sig"].as_str().is_some());
+}
+
+#[tokio::test]
 async fn sign_rejects_invalid_private_key_before_network() {
     // ARRANGE / ACT
     let error = match imager::sign("127.0.0.1:9/repo:test", "not a pem file").await {
@@ -253,6 +376,50 @@ async fn sign_rejects_invalid_private_key_before_network() {
 
     // ASSERT
     assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+}
+
+#[tokio::test]
+async fn sign_rejects_invalid_private_key_base64_before_network() {
+    // ARRANGE
+    let private_key_pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
+
+    // ACT
+    let error = match imager::sign("127.0.0.1:9/repo:test", private_key_pem).await {
+        Ok(()) => {
+            panic!("sign unexpectedly succeeded");
+        }
+        Err(error) => error,
+    };
+
+    // ASSERT
+    assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    assert!(
+        error
+            .to_string()
+            .contains("Failed to decode private key from PEM")
+    );
+}
+
+#[tokio::test]
+async fn sign_rejects_invalid_private_key_pkcs8_before_network() {
+    // ARRANGE
+    let private_key_pem = "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
+
+    // ACT
+    let error = match imager::sign("127.0.0.1:9/repo:test", private_key_pem).await {
+        Ok(()) => {
+            panic!("sign unexpectedly succeeded");
+        }
+        Err(error) => error,
+    };
+
+    // ASSERT
+    assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    assert!(
+        error
+            .to_string()
+            .contains("Failed to parse ECDSA P-256 private key")
+    );
 }
 
 #[tokio::test]
@@ -335,6 +502,194 @@ fn cli_pull_extracts_signed_image_with_pub_key() {
         std::fs::read_to_string(output_dir.join("etc/cli")).expect("read extracted file"),
         "pulled from cli\n"
     );
+}
+
+#[test]
+fn cli_pull_reports_missing_pubkey_file() {
+    // ARRANGE
+    let workspace = TempDir::new().expect("create temp dir");
+    let output_dir = workspace.path().join("out");
+    let missing_key = workspace.path().join("missing.pub.pem");
+
+    // ACT
+    let output = Command::new(imager_bin())
+        .arg("pull")
+        .arg("--image")
+        .arg("127.0.0.1:9/repo:test")
+        .arg("--output")
+        .arg(&output_dir)
+        .arg("--pub-key")
+        .arg(&missing_key)
+        .output()
+        .expect("run imager pull");
+
+    // ASSERT
+    assert!(!output.status.success(), "pull unexpectedly succeeded");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Failed to read key from"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn cli_pull_uses_explicit_arch_argument() {
+    // ARRANGE
+    let workspace = TempDir::new().expect("create temp dir");
+    let output_dir = workspace.path().join("out");
+    let selected_layer = layer_archive(&[("etc/arch", b"arm64\n")]).expect("build layer archive");
+    let selected_layer_digest = sha256_digest(&selected_layer);
+    let selected_manifest_digest =
+        "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+    let other_manifest_digest =
+        "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+    let index = index_for_arches_json(&[
+        (other_manifest_digest, "amd64", "linux"),
+        (selected_manifest_digest, "arm64", "linux"),
+    ])
+    .expect("build index json");
+    let selected_manifest =
+        manifest_json(&selected_layer_digest, selected_layer.len()).expect("build manifest json");
+    let other_manifest = minimal_manifest_json().expect("build fallback manifest json");
+    let registry = MockRegistry::start(std::collections::HashMap::from([
+        get("/v2/repo/manifests/test", HttpResponse::index(index)),
+        get(
+            format!("/v2/repo/manifests/{selected_manifest_digest}"),
+            HttpResponse::json(selected_manifest),
+        ),
+        get(
+            format!("/v2/repo/manifests/{other_manifest_digest}"),
+            HttpResponse::json(other_manifest),
+        ),
+        get(
+            format!("/v2/repo/blobs/{selected_layer_digest}"),
+            HttpResponse::octet_stream(selected_layer),
+        ),
+    ]))
+    .expect("start mock registry");
+
+    // ACT
+    let output = Command::new(imager_bin())
+        .arg("pull")
+        .arg("--image")
+        .arg(registry.reference("repo", "test"))
+        .arg("--arch")
+        .arg("arm64")
+        .arg("--output")
+        .arg(&output_dir)
+        .output()
+        .expect("run imager pull");
+
+    // ASSERT
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("etc/arch")).expect("read extracted file"),
+        "arm64\n"
+    );
+}
+
+#[tokio::test]
+async fn pull_applies_multiple_layers_in_order() {
+    // ARRANGE
+    let first_layer = layer_archive(&[("etc/message", b"first\n")]).expect("build first layer");
+    let second_layer = layer_archive(&[("etc/.wh.message", b""), ("etc/message", b"second\n")])
+        .expect("build second layer");
+    let first_digest = sha256_digest(&first_layer);
+    let second_digest = sha256_digest(&second_layer);
+    let manifest = manifest_with_layers_json(&[
+        (
+            &first_digest,
+            first_layer.len(),
+            "application/vnd.oci.image.layer.v1.tar+gzip",
+        ),
+        (
+            &second_digest,
+            second_layer.len(),
+            "application/vnd.oci.image.layer.v1.tar+gzip",
+        ),
+    ])
+    .expect("build manifest json");
+    let registry = MockRegistry::start(std::collections::HashMap::from([
+        get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
+        get(
+            format!("/v2/repo/blobs/{first_digest}"),
+            HttpResponse::octet_stream(first_layer),
+        ),
+        get(
+            format!("/v2/repo/blobs/{second_digest}"),
+            HttpResponse::octet_stream(second_layer),
+        ),
+    ]))
+    .expect("start mock registry");
+    let output = TempDir::new().expect("create temp dir");
+
+    // ACT
+    imager::pull(
+        &registry.reference("repo", "test"),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    .expect("pull image");
+
+    // ASSERT
+    assert_eq!(
+        std::fs::read_to_string(output.path().join("etc/message")).expect("read extracted file"),
+        "second\n"
+    );
+}
+
+#[tokio::test]
+async fn pull_rejects_non_utf8_manifest_response() {
+    // ARRANGE
+    let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        "/v2/repo/manifests/test",
+        HttpResponse::json(vec![0xff, 0xfe, 0xfd]),
+    )]))
+    .expect("start mock registry");
+    let output = TempDir::new().expect("create temp dir");
+
+    // ACT
+    let error = imager::pull(
+        &registry.reference("repo", "test"),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    .expect_err("pull should fail");
+
+    // ASSERT
+    assert!(matches!(error, ImagerError::NetworkError(_)));
+}
+
+#[tokio::test]
+async fn pull_rejects_invalid_manifest_json() {
+    // ARRANGE
+    let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        "/v2/repo/manifests/test",
+        HttpResponse::json(b"not json".to_vec()),
+    )]))
+    .expect("start mock registry");
+    let output = TempDir::new().expect("create temp dir");
+
+    // ACT
+    let error = imager::pull(
+        &registry.reference("repo", "test"),
+        host_oci_arch(),
+        output.path(),
+        None,
+    )
+    .await
+    .expect_err("pull should fail");
+
+    // ASSERT
+    assert!(matches!(error, ImagerError::OciParseError(_)));
 }
 
 #[test]

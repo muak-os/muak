@@ -7,6 +7,14 @@ mod cli {
     use anyhow::{Context, Result};
     use clap::{Parser, Subcommand};
 
+    fn host_oci_arch() -> &'static str {
+        match std::env::consts::ARCH {
+            "aarch64" => "arm64",
+            "x86_64" => "amd64",
+            other => other,
+        }
+    }
+
     #[derive(Parser)]
     #[command(name = env!("CARGO_PKG_NAME"))]
     #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -20,6 +28,9 @@ mod cli {
         Pull {
             #[arg(short, long)]
             image: String,
+
+            #[arg(long)]
+            arch: Option<String>,
 
             #[arg(short, long)]
             output: PathBuf,
@@ -46,12 +57,14 @@ mod cli {
         match args.command {
             Command::Pull {
                 image,
+                arch,
                 output,
                 pub_key,
             } => {
                 let key_contents = pub_key.map(|p| read_key_file(&p)).transpose()?;
+                let arch = arch.unwrap_or_else(|| host_oci_arch().to_string());
 
-                imager::pull(&image, &output, key_contents.as_deref())
+                imager::pull(&image, &arch, &output, key_contents.as_deref())
                     .await
                     .context("Failed to pull image")?;
                 println!("Successfully extracted image to {}", output.display());

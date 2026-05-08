@@ -29,6 +29,9 @@ pub enum ImagerError {
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),
 
+    #[error("Unsupported OCI layer media type: {0}")]
+    UnsupportedLayerMediaType(String),
+
     #[error("Network error: {0}")]
     NetworkError(String),
 

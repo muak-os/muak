@@ -79,7 +79,10 @@ mod tests {
     impl TestServer {
         fn spawn(status: &str, body: &[u8]) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
-            let address = listener.local_addr().expect("get test server address").to_string();
+            let address = listener
+                .local_addr()
+                .expect("get test server address")
+                .to_string();
             let status = status.to_string();
             let body = body.to_vec();
 
@@ -140,7 +143,10 @@ mod tests {
         let body = br#"{"token":"abc123"}"#;
 
         // ACT / ASSERT
-        assert_eq!(parse_token_response(body).expect("parse token response"), "abc123");
+        assert_eq!(
+            parse_token_response(body).expect("parse token response"),
+            "abc123"
+        );
     }
 
     #[test]
@@ -149,7 +155,10 @@ mod tests {
         let body = [0xff, 0xfe, 0xfd];
 
         // ACT / ASSERT
-        assert!(matches!(parse_token_response(&body), Err(ImagerError::NetworkError(_))));
+        assert!(matches!(
+            parse_token_response(&body),
+            Err(ImagerError::NetworkError(_))
+        ));
     }
 
     #[test]

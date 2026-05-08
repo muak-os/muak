@@ -5,15 +5,6 @@ use crate::image::{ImageReference, OciDescriptor, OciManifest};
 use crate::oci::OCI_MANIFEST_ACCEPT_HEADERS;
 use crate::oci::http::{HttpClient, collect_body, get};
 
-/// Return the OCI architecture string for the current host.
-fn host_oci_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        "x86_64" => "amd64",
-        other => other,
-    }
-}
-
 /// Build the manifest URL for a given image reference and tag or digest.
 pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
     format!(
@@ -43,9 +34,11 @@ pub(crate) fn parse(json: &str) -> Result<OciManifest> {
         .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest: {}", e)))
 }
 
-/// Select the best matching platform manifest for the current host architecture.
-pub(crate) fn select_platform(manifests: &[OciDescriptor]) -> Result<&OciDescriptor> {
-    let target_arch = host_oci_arch();
+/// Select the matching platform manifest for the requested target architecture.
+pub(crate) fn select_platform<'a>(
+    manifests: &'a [OciDescriptor],
+    target_arch: &str,
+) -> Result<&'a OciDescriptor> {
     manifests
         .iter()
         .find(|m| {
@@ -53,19 +46,84 @@ pub(crate) fn select_platform(manifests: &[OciDescriptor]) -> Result<&OciDescrip
                 p.architecture.as_deref() == Some(target_arch) && p.os.as_deref() == Some("linux")
             })
         })
-        .or_else(|| manifests.first())
         .ok_or_else(|| {
-            ImagerError::InvalidOciFormat("No suitable manifest found in manifest list".to_string())
+            ImagerError::InvalidOciFormat(format!(
+                "No linux/{target_arch} manifest found in manifest list"
+            ))
         })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
     use super::*;
     use crate::image::{ImageReference, Platform};
+    use crate::oci::http::build_client;
+
+    struct TestServer {
+        address: String,
+        handle: Option<thread::JoinHandle<()>>,
+    }
+
+    impl TestServer {
+        fn spawn(status: &str, body: &[u8]) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+            let address = listener
+                .local_addr()
+                .expect("get test server address")
+                .to_string();
+            let status = status.to_string();
+            let body = body.to_vec();
+
+            let handle = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept test client");
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request).expect("read test request");
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/vnd.oci.image.manifest.v1+json\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write test response headers");
+                stream.write_all(&body).expect("write test response body");
+            });
+
+            Self {
+                address,
+                handle: Some(handle),
+            }
+        }
+
+        fn url(&self) -> String {
+            format!("http://{}/manifest", self.address)
+        }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            if let Some(handle) = self.handle.take() {
+                handle.join().expect("join test server thread");
+            }
+        }
+    }
+
+    /// Return the OCI architecture string for the current host.
+    fn host_oci_arch() -> &'static str {
+        match std::env::consts::ARCH {
+            "aarch64" => "arm64",
+            "x86_64" => "amd64",
+            other => other,
+        }
+    }
 
     fn descriptor(digest: &str, architecture: Option<&str>, os: Option<&str>) -> OciDescriptor {
         OciDescriptor {
+            media_type: None,
             digest: digest.to_string(),
             platform: Some(Platform {
                 architecture: architecture.map(str::to_string),
@@ -80,7 +138,7 @@ mod tests {
         let image_ref = ImageReference {
             registry: "127.0.0.1:5000".to_string(),
             name: "repo/name".to_string(),
-            tag: "test".to_string(),
+            manifest_ref: "test".to_string(),
         };
 
         // ACT / ASSERT
@@ -100,6 +158,122 @@ mod tests {
     }
 
     #[test]
+    fn parse_manifest_with_layers_and_platforms() {
+        // ARRANGE
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                "digest": "sha256:abc"
+            }],
+            "manifests": [{
+                "digest": "sha256:def",
+                "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                }
+            }]
+        }"#;
+
+        // ACT
+        let manifest = parse(manifest_json).expect("parse manifest");
+
+        // ASSERT
+        assert_eq!(manifest.layers.len(), 1);
+        assert_eq!(
+            manifest.layers[0].media_type.as_deref(),
+            Some("application/vnd.oci.image.layer.v1.tar")
+        );
+        assert_eq!(manifest.manifests.len(), 1);
+        assert_eq!(
+            manifest.manifests[0]
+                .platform
+                .as_ref()
+                .and_then(|platform| platform.architecture.as_deref()),
+            Some("amd64")
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_manifest_returns_body_text() {
+        // ARRANGE
+        let server = TestServer::spawn("200 OK", br#"{"schemaVersion":2}"#);
+        let client = build_client().expect("build HTTP client");
+
+        // ACT
+        let manifest = fetch(&client, &server.url(), Some("token"))
+            .await
+            .expect("fetch manifest");
+
+        // ASSERT
+        assert_eq!(manifest, "{\"schemaVersion\":2}");
+    }
+
+    #[tokio::test]
+    async fn fetch_manifest_rejects_non_utf8_body() {
+        // ARRANGE
+        let server = TestServer::spawn("200 OK", &[0xff, 0xfe, 0xfd]);
+        let client = build_client().expect("build HTTP client");
+
+        // ACT
+        let error = fetch(&client, &server.url(), None)
+            .await
+            .expect_err("fetch should fail");
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::NetworkError(_)));
+    }
+
+    #[tokio::test]
+    async fn fetch_manifest_propagates_http_failures() {
+        // ARRANGE
+        let server = TestServer::spawn("404 Not Found", b"missing");
+        let client = build_client().expect("build HTTP client");
+
+        // ACT
+        let error = fetch(&client, &server.url(), None)
+            .await
+            .expect_err("fetch should fail");
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::DownloadError(_)));
+    }
+
+    #[test]
+    fn select_platform_ignores_descriptor_without_platform() {
+        // ARRANGE
+        let manifests = vec![
+            OciDescriptor {
+                media_type: None,
+                digest: "sha256:no-platform".to_string(),
+                platform: None,
+            },
+            descriptor("sha256:match", Some("amd64"), Some("linux")),
+        ];
+
+        // ACT
+        let selected = select_platform(&manifests, "amd64").expect("select matching manifest");
+
+        // ASSERT
+        assert_eq!(selected.digest, "sha256:match");
+    }
+
+    #[test]
+    fn select_platform_rejects_non_linux_match() {
+        // ARRANGE
+        let manifests = vec![descriptor("sha256:wrong-os", Some("amd64"), Some("darwin"))];
+
+        // ACT
+        let error = match select_platform(&manifests, "amd64") {
+            Ok(_) => panic!("selection unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+    }
+
+    #[test]
     fn select_platform_prefers_host_linux_match() {
         // ARRANGE
         let manifests = vec![
@@ -109,14 +283,15 @@ mod tests {
         ];
 
         // ACT
-        let selected = select_platform(&manifests).expect("select matching manifest");
+        let selected =
+            select_platform(&manifests, host_oci_arch()).expect("select matching manifest");
 
         // ASSERT
         assert_eq!(selected.digest, "sha256:match");
     }
 
     #[test]
-    fn select_platform_falls_back_to_first_manifest() {
+    fn select_platform_errors_without_matching_target() {
         // ARRANGE
         let manifests = vec![
             descriptor("sha256:first", Some("arm64"), Some("windows")),
@@ -124,16 +299,16 @@ mod tests {
         ];
 
         // ACT
-        let selected = select_platform(&manifests).expect("select fallback manifest");
+        let result = select_platform(&manifests, "amd64");
 
         // ASSERT
-        assert_eq!(selected.digest, "sha256:first");
+        assert!(matches!(result, Err(ImagerError::InvalidOciFormat(_))));
     }
 
     #[test]
     fn select_platform_errors_for_empty_manifest_list() {
         // ARRANGE / ACT
-        let result = select_platform(&[]);
+        let result = select_platform(&[], "amd64");
 
         // ASSERT
         assert!(matches!(result, Err(ImagerError::InvalidOciFormat(_))));

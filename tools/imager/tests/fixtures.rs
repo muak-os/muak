@@ -12,6 +12,14 @@ use tar::{Builder, Header};
 
 const SIG_ANNOTATION: &str = "dev.muak.sig";
 
+pub fn host_oci_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => other,
+    }
+}
+
 pub struct TestKeys {
     pub private_key_pem: String,
     pub public_key_pem: String,
@@ -40,6 +48,16 @@ pub fn generate_test_keys() -> Result<TestKeys, Box<dyn Error>> {
 }
 
 pub fn manifest_json(layer_digest: &str, layer_size: usize) -> Result<Vec<u8>, serde_json::Error> {
+    manifest_with_layers_json(&[(
+        layer_digest,
+        layer_size,
+        "application/vnd.oci.image.layer.v1.tar+gzip",
+    )])
+}
+
+pub fn manifest_with_layers_json(
+    layers: &[(&str, usize, &str)],
+) -> Result<Vec<u8>, serde_json::Error> {
     serde_json::to_vec(&json!({
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -48,13 +66,13 @@ pub fn manifest_json(layer_digest: &str, layer_size: usize) -> Result<Vec<u8>, s
             "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "size": 1,
         },
-        "layers": [
-            {
-                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                "digest": layer_digest,
-                "size": layer_size,
-            }
-        ],
+        "layers": layers.iter().map(|(digest, size, media_type)| {
+            json!({
+                "mediaType": media_type,
+                "digest": digest,
+                "size": size,
+            })
+        }).collect::<Vec<_>>(),
     }))
 }
 
@@ -98,29 +116,21 @@ pub fn index_json(manifest_digests: &[&str]) -> Result<Vec<u8>, serde_json::Erro
     }))
 }
 
-pub fn index_with_fallback_json(
-    selected_digest: &str,
-    fallback_digest: &str,
+pub fn index_for_arches_json(
+    manifests: &[(&str, &str, &str)],
 ) -> Result<Vec<u8>, serde_json::Error> {
     serde_json::to_vec(&json!({
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.index.v1+json",
-        "manifests": [
-            {
-                "digest": fallback_digest,
+        "manifests": manifests.iter().map(|(digest, arch, os)| {
+            json!({
+                "digest": digest,
                 "platform": {
-                    "architecture": "arm64",
-                    "os": "windows",
+                    "architecture": arch,
+                    "os": os,
                 }
-            },
-            {
-                "digest": selected_digest,
-                "platform": {
-                    "architecture": host_oci_arch(),
-                    "os": "linux",
-                }
-            }
-        ],
+            })
+        }).collect::<Vec<_>>(),
     }))
 }
 
@@ -177,14 +187,6 @@ pub fn sha256_digest(bytes: &[u8]) -> String {
         "sha256:{}",
         hex_encode(digest::digest(&digest::SHA256, bytes).as_ref())
     )
-}
-
-fn host_oci_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        "x86_64" => "amd64",
-        other => other,
-    }
 }
 
 fn manifest_signing_digest(manifest_json: &str) -> Result<String, Box<dyn Error>> {
@@ -262,8 +264,8 @@ fn sort_keys(value: &mut Value) {
 
 fn build_p256_spki(public_key: &[u8]) -> Vec<u8> {
     let algorithm: &[u8] = &[
-        0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
-        0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+        0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86,
+        0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
     ];
     let bit_string_len = 1 + public_key.len();
     let content_len = algorithm.len() + 2 + bit_string_len;

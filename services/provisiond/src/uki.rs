@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+use crate::constants::host_oci_arch;
+
 #[cfg(target_arch = "x86_64")]
 pub const UKI_FILENAME: &str = "BOOTX64.EFI";
 
@@ -128,7 +130,7 @@ impl Uki {
 async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    imager::pull(image, dest_dir, Some(SIGNATURE_PUB))
+    imager::pull(image, host_oci_arch(), dest_dir, Some(SIGNATURE_PUB))
         .await
         .context("Failed to pull installer image")?;
 
@@ -187,7 +189,7 @@ async fn pull_extensions(extensions: &[String]) -> Result<Vec<tempfile::TempDir>
     for ext in extensions {
         let tmp =
             tempfile::TempDir::new_in("/run").context("Failed to create temp dir for extension")?;
-        imager::pull(ext, tmp.path(), None)
+        imager::pull(ext, host_oci_arch(), tmp.path(), None)
             .await
             .with_context(|| format!("Failed to pull extension: {ext}"))?;
         dirs.push(tmp);

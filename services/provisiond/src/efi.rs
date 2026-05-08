@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rustix::fs::sync;
 
+use crate::constants::host_oci_arch;
 use crate::disk;
 use crate::uki;
 
@@ -16,7 +17,7 @@ pub async fn pull_firmware(firmware_ref: &str, variant: &str, dest: &Path) -> Re
     std::fs::create_dir_all(dest)
         .with_context(|| format!("Failed to create firmware dir {}", dest.display()))?;
 
-    imager::pull(firmware_ref, dest, None)
+    imager::pull(firmware_ref, host_oci_arch(), dest, None)
         .await
         .with_context(|| format!("Failed to pull board firmware: {firmware_ref}"))?;
 

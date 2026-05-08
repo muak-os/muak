@@ -25,7 +25,7 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
     let key_pair = parse_pem_private_key(privkey_pem)?;
     let rng = SystemRandom::new();
 
-    let manifest_url = manifest::build_url(&image_ref, &image_ref.tag);
+    let manifest_url = manifest::build_url(&image_ref, &image_ref.manifest_ref);
     let manifest_json = manifest::fetch(&client, &manifest_url, token.as_deref()).await?;
     let parsed: OciManifest = manifest::parse(&manifest_json)?;
 
@@ -54,7 +54,7 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
         token.as_deref(),
         signed_bytes,
         &content_type,
-        &image_ref.tag,
+        &image_ref.manifest_ref,
     )
     .await
 }
@@ -253,8 +253,8 @@ mod tests {
         let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
 
         // ACT
-        let (digest, canonical) = manifest_signing_payload(manifest_json)
-            .expect("compute manifest signing payload");
+        let (digest, canonical) =
+            manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
 
         // ASSERT
         let canonical_str = decode_utf8(&canonical);
@@ -277,8 +277,8 @@ mod tests {
         let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
 
         // ACT
-        let (signed_bytes, _content_type) = build_signed_manifest(manifest_json, &key_pair, &rng)
-            .expect("build signed manifest");
+        let (signed_bytes, _content_type) =
+            build_signed_manifest(manifest_json, &key_pair, &rng).expect("build signed manifest");
         let signed_value: serde_json::Value =
             serde_json::from_slice(&signed_bytes).expect("parse signed manifest");
         let Some(sig_b64) = signed_value["annotations"][SIG_ANNOTATION].as_str() else {
@@ -324,8 +324,8 @@ mod tests {
         let signed_json = serde_json::to_string(&value).expect("serialize signed manifest");
 
         // ACT
-        let (digest2, _) = manifest_signing_payload(&signed_json)
-            .expect("compute signed manifest payload");
+        let (digest2, _) =
+            manifest_signing_payload(&signed_json).expect("compute signed manifest payload");
 
         // ASSERT
         assert_eq!(
@@ -341,8 +341,8 @@ mod tests {
             r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig"},"layers":[]}"#;
 
         // ACT
-        let (_digest, canonical) = manifest_signing_payload(manifest_json)
-            .expect("compute manifest signing payload");
+        let (_digest, canonical) =
+            manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
         let canonical_str = decode_utf8(&canonical);
 
         // ASSERT
@@ -369,8 +369,8 @@ mod tests {
         let manifest_json = r#"{"schemaVersion":2,"annotations":[],"layers":[]}"#;
 
         // ACT
-        let error = build_signed_manifest(manifest_json, &key_pair, &rng)
-            .expect_err("signing should fail");
+        let error =
+            build_signed_manifest(manifest_json, &key_pair, &rng).expect_err("signing should fail");
 
         // ASSERT
         assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
@@ -389,8 +389,8 @@ mod tests {
     #[test]
     fn parse_pem_private_key_rejects_missing_pem_block() {
         // ARRANGE / ACT
-        let error = parse_pem_private_key("not a pem file")
-            .expect_err("private key parsing should fail");
+        let error =
+            parse_pem_private_key("not a pem file").expect_err("private key parsing should fail");
 
         // ASSERT
         assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
@@ -404,5 +404,27 @@ mod tests {
         // ACT / ASSERT
         let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
         assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    }
+
+    #[tokio::test]
+    async fn push_manifest_propagates_put_failures() {
+        // ARRANGE
+        let client = build_client().expect("build HTTP client");
+        let image_ref = ImageReference::parse("127.0.0.1:9/repo:test");
+
+        // ACT
+        let error = push_manifest(
+            &client,
+            &image_ref,
+            None,
+            Bytes::from_static(b"{}"),
+            "application/vnd.oci.image.manifest.v1+json",
+            "test",
+        )
+        .await
+        .expect_err("push manifest should fail");
+
+        // ASSERT
+        assert!(matches!(error, ImagerError::NetworkError(_)));
     }
 }

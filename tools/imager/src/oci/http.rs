@@ -166,7 +166,14 @@ mod tests {
         let client = must(build_client(), "build HTTP client");
 
         // ACT
-        let error = match get(&client, "http://127.0.0.1:9/v2/repo/manifests/test", None, &[]).await {
+        let error = match get(
+            &client,
+            "http://127.0.0.1:9/v2/repo/manifests/test",
+            None,
+            &[],
+        )
+        .await
+        {
             Ok(_) => panic!("request unexpectedly succeeded"),
             Err(error) => error,
         };

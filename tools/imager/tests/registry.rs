@@ -54,6 +54,10 @@ impl MockRegistry {
         format!("{}/{repository}:{tag}", self.address)
     }
 
+    pub fn digest_reference(&self, repository: &str, digest: &str) -> String {
+        format!("{}/{repository}@{digest}", self.address)
+    }
+
     pub fn request(&self, method: &str, path: &str) -> Result<Option<RecordedRequest>, IoError> {
         let method = method.to_ascii_uppercase();
         let requests = self
