@@ -45,7 +45,14 @@ mod cli {
         },
     }
 
-    /// Loads and parses a SELinux file_contexts file.
+    /// Derives a logical name for an extension from its directory path.
+    fn ext_name(p: &Path) -> String {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| p.display().to_string())
+    }
+
+    /// Load and parse SELinux file contexts from a file.
     fn load_file_contexts(path: &Path) -> Result<erofs::FileContexts> {
         let file = std::fs::File::open(path)
             .with_context(|| format!("Failed to open file_contexts: {}", path.display()))?;
@@ -88,7 +95,9 @@ mod cli {
                 extension,
                 output,
             } => {
-                ramune::extend_initramfs(&base, &extension, &output)
+                let ext_pairs: Vec<(String, PathBuf)> =
+                    extension.iter().map(|p| (ext_name(p), p.clone())).collect();
+                ramune::extend_initramfs(&base, &ext_pairs, &output)
                     .await
                     .context("Failed to build initramfs")?;
                 println!(

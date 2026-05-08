@@ -22,7 +22,11 @@ pub fn create_initramfs(config: &CreateConfig<'_>, output: &Path) -> Result<()> 
 }
 
 /// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
-pub async fn extend_initramfs(base: &Path, extensions: &[PathBuf], output: &Path) -> Result<()> {
+pub async fn extend_initramfs(
+    base: &Path,
+    extensions: &[(String, PathBuf)],
+    output: &Path,
+) -> Result<()> {
     let same_file = is_same_file(base, output).await;
 
     if extensions.is_empty() {
@@ -62,7 +66,7 @@ async fn is_same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// Builds a zstd-compressed CPIO archive of EROFS images for each extension directory.
-async fn build_extensions_archive(extensions: &[PathBuf]) -> Result<Vec<u8>> {
+async fn build_extensions_archive(extensions: &[(String, PathBuf)]) -> Result<Vec<u8>> {
     let files = extension::process_all(extensions).await?;
     tokio::task::spawn_blocking(move || {
         let cpio_data = cpio::create_archive(&files)?;
@@ -130,9 +134,13 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        extend_initramfs(base.path(), &[ext_dir.path().to_path_buf()], output.path())
-            .await
-            .expect("extend_initramfs");
+        extend_initramfs(
+            base.path(),
+            &[("test-ext".to_string(), ext_dir.path().to_path_buf())],
+            output.path(),
+        )
+        .await
+        .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
@@ -166,9 +174,13 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        extend_initramfs(file.path(), &[ext_dir.path().to_path_buf()], file.path())
-            .await
-            .expect("extend_initramfs");
+        extend_initramfs(
+            file.path(),
+            &[("test-ext".to_string(), ext_dir.path().to_path_buf())],
+            file.path(),
+        )
+        .await
+        .expect("extend_initramfs");
 
         // ASSERT
         let content = std::fs::read(file.path()).expect("read");

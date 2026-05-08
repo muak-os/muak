@@ -163,9 +163,12 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
     }
 
     let ext_dirs = pull_extensions(extensions).await?;
-    let ext_paths: Vec<PathBuf> = ext_dirs.iter().map(|d| d.path().to_path_buf()).collect();
+    let ext_pairs: Vec<(String, PathBuf)> = ext_dirs
+        .iter()
+        .map(|(name, d)| (name.clone(), d.path().to_path_buf()))
+        .collect();
 
-    ramune::extend_initramfs(&base_initramfs, &ext_paths, output)
+    ramune::extend_initramfs(&base_initramfs, &ext_pairs, output)
         .await
         .context("Failed to build initramfs")?;
 
@@ -183,8 +186,8 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
     Ok(())
 }
 
-/// Pulls each OCI extension image to its own temporary directory, returning the handles.
-async fn pull_extensions(extensions: &[String]) -> Result<Vec<tempfile::TempDir>> {
+/// Pulls each OCI extension image to its own temporary directory.
+async fn pull_extensions(extensions: &[String]) -> Result<Vec<(String, tempfile::TempDir)>> {
     let mut dirs = Vec::with_capacity(extensions.len());
     for ext in extensions {
         let tmp =
@@ -192,9 +195,29 @@ async fn pull_extensions(extensions: &[String]) -> Result<Vec<tempfile::TempDir>
         imager::pull(ext, host_oci_arch(), tmp.path(), None)
             .await
             .with_context(|| format!("Failed to pull extension: {ext}"))?;
-        dirs.push(tmp);
+        dirs.push((oci_ref_to_logical_name(ext), tmp));
     }
     Ok(dirs)
+}
+
+/// Derives a stable logical name from an OCI reference by stripping the registry prefix, tag, and digest.
+fn oci_ref_to_logical_name(oci_ref: &str) -> String {
+    let without_digest = oci_ref.split('@').next().unwrap_or(oci_ref);
+    let without_tag = without_digest.split(':').next().unwrap_or(without_digest);
+    let repo = if without_tag.contains('/') {
+        let first_component = without_tag.split('/').next().unwrap_or("");
+        if first_component.contains('.') || first_component.contains(':') {
+            without_tag
+                .split_once('/')
+                .map(|x| x.1)
+                .unwrap_or(without_tag)
+        } else {
+            without_tag
+        }
+    } else {
+        without_tag
+    };
+    repo.replace('/', "-")
 }
 
 /// Writes the kernel cmdline to file.
