@@ -186,6 +186,24 @@ oci *pkgs:
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Run clippy and rustfmt (e.g., just lint or just lint yuki imager)
+[script]
+lint *pkgs:
+    printf "{{ cyan }}Running lints{{ reset }}\n"
+    cargo +nightly fmt
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            if [ "$pkg" = "stub" ]; then
+                cargo +nightly clippy --target {{ arch }}-unknown-uefi --features uefi -p stub
+            else
+                cargo clippy --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            fi
+        done
+    else
+        cargo clippy --target {{ arch }}-unknown-linux-musl
+        cargo +nightly clippy --target {{ arch }}-unknown-uefi --features uefi -p stub
+    fi
+
 # Run tests (e.g., just test or just test yuki imager)
 [script]
 test *pkgs:
