@@ -93,18 +93,19 @@ pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
         luks: luks_data,
     };
 
-    let section_info = section::build_headers(&metadata, &data)?;
+    let sections = section::build_section_list(&data);
+    let layout = section::build_headers(&metadata, &sections)?;
 
-    stub.resize(section_info.total_file_size, 0);
+    stub.resize(layout.total_file_size, 0);
 
     let new_section_count = metadata.current_section_count + section_count as u16;
     let section_count_offset = metadata.file_header_offset + constants::COFF_NUMBER_OF_SECTIONS;
     stub[section_count_offset..section_count_offset + 2]
         .copy_from_slice(&new_section_count.to_le_bytes());
 
-    section::write_to_image(&mut stub, &metadata, &section_info, &data)?;
+    section::write_to_image(&mut stub, &metadata, &layout, &sections)?;
 
-    pe::update_image_size(&mut stub, &metadata, section_info.max_virtual_end);
+    pe::update_image_size(&mut stub, &metadata, layout.max_virtual_end);
 
     Ok(stub)
 }
