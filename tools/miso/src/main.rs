@@ -6,6 +6,7 @@ mod cli {
 
     use anyhow::{Context, Result, bail, ensure};
     use clap::{Parser, Subcommand};
+    use miso::{Arch, BootFsSpec, FileEntry};
 
     /// Top-level CLI arguments.
     #[derive(Parser, Debug)]
@@ -33,6 +34,9 @@ mod cli {
                 help = "Target architecture: x86_64 or aarch64"
             )]
             arch: String,
+
+            #[arg(short, long = "file", help = "Extra file as src:dst/path")]
+            files: Vec<String>,
         },
 
         Img {
@@ -42,16 +46,24 @@ mod cli {
             #[arg(short, long, help = "Path for the output .img file")]
             output: PathBuf,
 
-            #[arg(short, long = "blob", help = "Extra file as src:dst")]
-            blobs: Vec<String>,
+            #[arg(
+                short,
+                long,
+                default_value = "aarch64",
+                help = "Target architecture: x86_64 or aarch64"
+            )]
+            arch: String,
+
+            #[arg(short, long = "file", help = "Extra file as src:dst/path")]
+            files: Vec<String>,
         },
     }
 
     /// Parses the architecture string into a `miso::Arch` value.
-    fn parse_arch(arch: &str) -> Result<miso::Arch> {
+    pub(super) fn parse_arch(arch: &str) -> Result<Arch> {
         match arch {
-            "x86_64" => Ok(miso::Arch::X86_64),
-            "aarch64" => Ok(miso::Arch::Aarch64),
+            "x86_64" => Ok(Arch::X86_64),
+            "aarch64" => Ok(Arch::Aarch64),
             other => bail!(
                 "Unsupported architecture: '{}'. Use x86_64 or aarch64.",
                 other
@@ -59,58 +71,76 @@ mod cli {
         }
     }
 
-    /// Parses a `src:dst` blob spec into `(src_path, dst_name)`.
-    fn parse_blob(spec: &str) -> Result<(&str, &str)> {
+    /// Parses a `src:dst` file spec into `(src_path, dst_path)`.
+    pub(super) fn parse_file_spec(spec: &str) -> Result<(&str, &str)> {
         let (src, dst) = spec
             .split_once(':')
-            .with_context(|| format!("Invalid blob spec '{spec}': expected src:dst"))?;
-        ensure!(!src.is_empty(), "Blob source path is empty in '{spec}'");
+            .with_context(|| format!("Invalid file spec '{spec}': expected src:dst"))?;
+        ensure!(!src.is_empty(), "File source path is empty in '{spec}'");
         ensure!(
             !dst.is_empty(),
-            "Blob destination name is empty in '{spec}'"
+            "File destination path is empty in '{spec}'"
         );
         Ok((src, dst))
     }
 
-    /// Reads a `src:dst` blob spec from disk, returning `(dst_name, file_data)`.
-    fn load_blob(src: &str, dst: &str) -> Result<(String, Vec<u8>)> {
-        let data = std::fs::read(src).with_context(|| format!("Failed to read blob '{src}'"))?;
-        Ok((dst.to_owned(), data))
+    /// Loads extra file entries from `src:dst` specs.
+    pub(super) fn load_file_entries(specs: &[String]) -> Result<Vec<FileEntry>> {
+        specs
+            .iter()
+            .map(|s| {
+                let (src, dst) = parse_file_spec(s)?;
+                let data =
+                    std::fs::read(src).with_context(|| format!("Failed to read file '{src}'"))?;
+                Ok(FileEntry {
+                    path: dst.to_owned(),
+                    data,
+                })
+            })
+            .collect()
     }
 
     pub fn run() -> Result<()> {
         let args = Args::parse();
 
         match args.command {
-            Command::Iso { uki, output, arch } => {
+            Command::Iso {
+                uki,
+                output,
+                arch,
+                files,
+            } => {
                 let arch = parse_arch(&arch)?;
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
-                let iso = miso::build_iso(&uki_bytes, arch).context("Failed to build ISO")?;
+                let extra_files = load_file_entries(&files)?;
+                let spec = BootFsSpec {
+                    boot_filename: arch.boot_filename().to_owned(),
+                    uki: uki_bytes,
+                    files: extra_files,
+                };
+                let iso = miso::build_iso(&spec).context("Failed to build ISO")?;
                 std::fs::write(&output, &iso)
                     .with_context(|| format!("Failed to write {}", output.display()))?;
                 println!("ISO written to {} ({} bytes)", output.display(), iso.len());
                 Ok(())
             }
-            Command::Img { uki, output, blobs } => {
+            Command::Img {
+                uki,
+                output,
+                arch,
+                files,
+            } => {
+                let arch = parse_arch(&arch)?;
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
-
-                let blob_specs: Vec<(&str, &str)> =
-                    blobs.iter().map(|s| parse_blob(s)).collect::<Result<_>>()?;
-
-                let blob_data: Vec<(String, Vec<u8>)> = blob_specs
-                    .iter()
-                    .map(|&(src, dst)| load_blob(src, dst))
-                    .collect::<Result<_>>()?;
-
-                let blob_refs: Vec<(&str, &[u8])> = blob_data
-                    .iter()
-                    .map(|(dst, data)| (dst.as_str(), data.as_slice()))
-                    .collect();
-
-                let img = miso::build_img(&uki_bytes, &blob_refs)
-                    .context("Failed to build disk image")?;
+                let extra_files = load_file_entries(&files)?;
+                let spec = BootFsSpec {
+                    boot_filename: arch.boot_filename().to_owned(),
+                    uki: uki_bytes,
+                    files: extra_files,
+                };
+                let img = miso::build_img(&spec).context("Failed to build disk image")?;
                 std::fs::write(&output, &img)
                     .with_context(|| format!("Failed to write {}", output.display()))?;
                 println!(
@@ -129,5 +159,87 @@ fn main() {
     if let Err(e) = cli::run() {
         eprintln!("Error: {e:?}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod tests {
+    use super::cli::{load_file_entries, parse_arch, parse_file_spec};
+    use miso::Arch;
+    use std::io::Write as _;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn parse_arch_x86_64() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(parse_arch("x86_64").unwrap(), Arch::X86_64);
+    }
+
+    #[test]
+    fn parse_arch_aarch64() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(parse_arch("aarch64").unwrap(), Arch::Aarch64);
+    }
+
+    #[test]
+    fn parse_arch_unknown_returns_error() {
+        // ARRANGE / ACT / ASSERT
+        assert!(parse_arch("riscv64").is_err());
+    }
+
+    #[test]
+    fn parse_file_spec_valid() {
+        // ARRANGE / ACT
+        let (src, dst) = parse_file_spec("src/file.dat:dst/path.dat").unwrap();
+
+        // ASSERT
+        assert_eq!(src, "src/file.dat");
+        assert_eq!(dst, "dst/path.dat");
+    }
+
+    #[test]
+    fn parse_file_spec_missing_colon_returns_error() {
+        // ARRANGE / ACT / ASSERT
+        assert!(parse_file_spec("nodivider").is_err());
+    }
+
+    #[test]
+    fn parse_file_spec_empty_src_returns_error() {
+        // ARRANGE / ACT / ASSERT
+        assert!(parse_file_spec(":dst").is_err());
+    }
+
+    #[test]
+    fn parse_file_spec_empty_dst_returns_error() {
+        // ARRANGE / ACT / ASSERT
+        assert!(parse_file_spec("src:").is_err());
+    }
+
+    #[test]
+    fn load_file_entries_empty_returns_empty_vec() {
+        // ARRANGE / ACT / ASSERT
+        assert!(load_file_entries(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn load_file_entries_reads_file_correctly() {
+        // ARRANGE
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(b"hello").unwrap();
+        let spec = format!("{}:dest/file.txt", tmp.path().to_str().unwrap());
+
+        // ACT
+        let entries = load_file_entries(&[spec]).unwrap();
+
+        // ASSERT
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "dest/file.txt");
+        assert_eq!(entries[0].data, b"hello");
+    }
+
+    #[test]
+    fn load_file_entries_missing_file_returns_error() {
+        // ARRANGE / ACT / ASSERT
+        assert!(load_file_entries(&["/nonexistent/file.bin:dst".to_owned()]).is_err());
     }
 }

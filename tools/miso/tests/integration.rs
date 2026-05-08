@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use miso::{Arch, SECTOR_SIZE};
+use miso::{Arch, BootFsSpec, FileEntry, SECTOR_SIZE};
 
 fn fake_uki(size: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(size);
@@ -11,13 +11,29 @@ fn fake_uki(size: usize) -> Vec<u8> {
     v
 }
 
+fn iso_spec(uki: Vec<u8>, arch: Arch) -> BootFsSpec {
+    BootFsSpec {
+        boot_filename: arch.boot_filename().to_owned(),
+        uki,
+        files: vec![],
+    }
+}
+
+fn img_spec(uki: Vec<u8>, arch: Arch, files: Vec<FileEntry>) -> BootFsSpec {
+    BootFsSpec {
+        boot_filename: arch.boot_filename().to_owned(),
+        uki,
+        files,
+    }
+}
+
 #[test]
 fn build_iso_cd001_magic_at_sector_16() {
     // ARRANGE
-    let uki = fake_uki(4096);
+    let spec = iso_spec(fake_uki(4096), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     let offset = SECTOR_SIZE * 16 + 1;
@@ -31,10 +47,10 @@ fn build_iso_cd001_magic_at_sector_16() {
 #[test]
 fn build_iso_pvd_type_is_one() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = iso_spec(fake_uki(1024), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(iso[SECTOR_SIZE * 16], 1, "PVD type byte must be 1");
@@ -43,10 +59,10 @@ fn build_iso_pvd_type_is_one() {
 #[test]
 fn build_iso_boot_record_vd_type_is_zero() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = iso_spec(fake_uki(1024), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(
@@ -59,10 +75,10 @@ fn build_iso_boot_record_vd_type_is_zero() {
 #[test]
 fn build_iso_vd_terminator_type_is_255() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = iso_spec(fake_uki(1024), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(
@@ -75,10 +91,10 @@ fn build_iso_vd_terminator_type_is_255() {
 #[test]
 fn build_iso_output_is_sector_aligned() {
     // ARRANGE
-    let uki = fake_uki(3000);
+    let spec = iso_spec(fake_uki(3000), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(
@@ -91,10 +107,10 @@ fn build_iso_output_is_sector_aligned() {
 #[test]
 fn build_iso_mbr_boot_signature_present() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(iso[510], 0x55, "MBR byte 510 must be 0x55");
@@ -104,10 +120,10 @@ fn build_iso_mbr_boot_signature_present() {
 #[test]
 fn build_iso_mbr_partition_type_is_efi() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     assert_eq!(iso[450], 0xEF, "MBR partition type must be 0xEF (EFI)");
@@ -116,10 +132,10 @@ fn build_iso_mbr_partition_type_is_efi() {
 #[test]
 fn build_iso_aarch64_produces_valid_structure() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = iso_spec(fake_uki(1024), Arch::Aarch64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::Aarch64).expect("build_iso must succeed for aarch64");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed for aarch64");
 
     // ASSERT
     let offset = SECTOR_SIZE * 16 + 1;
@@ -129,10 +145,10 @@ fn build_iso_aarch64_produces_valid_structure() {
 #[test]
 fn build_iso_with_large_uki() {
     // ARRANGE
-    let uki = fake_uki(16 * 1024 * 1024);
+    let spec = iso_spec(fake_uki(16 * 1024 * 1024), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed for large UKI");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed for large UKI");
 
     // ASSERT
     let offset = SECTOR_SIZE * 16 + 1;
@@ -146,10 +162,10 @@ fn build_iso_with_large_uki() {
 #[test]
 fn build_iso_boot_catalog_validation_checksum_valid() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     let cat_start = SECTOR_SIZE * 21;
@@ -168,10 +184,10 @@ fn build_iso_boot_catalog_validation_checksum_valid() {
 #[test]
 fn build_iso_boot_catalog_has_55aa_keys() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     let cat_start = SECTOR_SIZE * 21;
@@ -190,10 +206,10 @@ fn build_iso_boot_catalog_has_55aa_keys() {
 #[test]
 fn build_iso_el_torito_platform_id_is_efi() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     let cat_start = SECTOR_SIZE * 21;
@@ -207,10 +223,10 @@ fn build_iso_el_torito_platform_id_is_efi() {
 #[test]
 fn build_iso_default_entry_is_bootable() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = iso_spec(fake_uki(512), Arch::X86_64);
 
     // ACT
-    let iso = miso::build_iso(&uki, Arch::X86_64).expect("build_iso must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed");
 
     // ASSERT
     let cat_start = SECTOR_SIZE * 21;
@@ -222,12 +238,32 @@ fn build_iso_default_entry_is_bootable() {
 }
 
 #[test]
-fn build_img_has_valid_gpt() {
+fn build_iso_with_extra_files_includes_recursive_dirs() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = BootFsSpec {
+        boot_filename: Arch::X86_64.boot_filename().to_owned(),
+        uki: fake_uki(512),
+        files: vec![FileEntry {
+            path: "overlays/rpi/config.txt".to_owned(),
+            data: b"arm_64bit=1".to_vec(),
+        }],
+    };
 
     // ACT
-    let img = miso::build_img(&uki, &[]).expect("build_img must succeed");
+    let iso = miso::build_iso(&spec).expect("build_iso must succeed with extra files");
+
+    // ASSERT
+    let offset = SECTOR_SIZE * 16 + 1;
+    assert_eq!(&iso[offset..offset + 5], b"CD001");
+}
+
+#[test]
+fn build_img_has_valid_gpt() {
+    // ARRANGE
+    let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
+
+    // ACT
+    let img = miso::build_img(&spec).expect("build_img must succeed");
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -241,10 +277,10 @@ fn build_img_has_valid_gpt() {
 #[test]
 fn build_img_has_protective_mbr() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = img_spec(fake_uki(512), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = miso::build_img(&uki, &[]).expect("build_img must succeed");
+    let img = miso::build_img(&spec).expect("build_img must succeed");
 
     // ASSERT
     assert_eq!(img[510], 0x55, "MBR byte 510 must be 0x55");
@@ -258,14 +294,14 @@ fn build_img_has_protective_mbr() {
 #[test]
 fn build_img_esp_has_efi_system_partition_guid() {
     // ARRANGE
-    let uki = fake_uki(1024);
+    let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
     let efi_guid: [u8; 16] = [
         0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
         0x3b,
     ];
 
     // ACT
-    let img = miso::build_img(&uki, &[]).expect("build_img must succeed");
+    let img = miso::build_img(&spec).expect("build_img must succeed");
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -278,14 +314,20 @@ fn build_img_esp_has_efi_system_partition_guid() {
 }
 
 #[test]
-fn build_img_aarch64_with_blobs_contains_fat_data() {
+fn build_img_aarch64_with_extra_files_contains_fat_data() {
     // ARRANGE
-    let uki = fake_uki(2048);
     let config = b"arm_64bit=1\n";
-    let blobs: &[(&str, &[u8])] = &[("config.txt", config)];
+    let spec = img_spec(
+        fake_uki(2048),
+        Arch::Aarch64,
+        vec![FileEntry {
+            path: "config.txt".to_owned(),
+            data: config.to_vec(),
+        }],
+    );
 
     // ACT
-    let img = miso::build_img(&uki, blobs).expect("build_img with blobs must succeed");
+    let img = miso::build_img(&spec).expect("build_img with extra files must succeed");
 
     // ASSERT
     let mut cursor = Cursor::new(&img);
@@ -322,10 +364,10 @@ fn build_img_aarch64_with_blobs_contains_fat_data() {
 #[test]
 fn build_img_disk_size_is_sector_aligned() {
     // ARRANGE
-    let uki = fake_uki(4096);
+    let spec = img_spec(fake_uki(4096), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = miso::build_img(&uki, &[]).expect("build_img must succeed");
+    let img = miso::build_img(&spec).expect("build_img must succeed");
 
     // ASSERT
     assert_eq!(img.len() % 512, 0, "disk image size must be sector-aligned");
@@ -334,10 +376,10 @@ fn build_img_disk_size_is_sector_aligned() {
 #[test]
 fn build_img_partition_name_is_efi() {
     // ARRANGE
-    let uki = fake_uki(512);
+    let spec = img_spec(fake_uki(512), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = miso::build_img(&uki, &[]).expect("build_img must succeed");
+    let img = miso::build_img(&spec).expect("build_img must succeed");
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -347,4 +389,18 @@ fn build_img_partition_name_is_efi() {
         .find(|(_, p)| p.is_used())
         .expect("must have partition");
     assert_eq!(part.partition_name.as_str(), "EFI");
+}
+
+#[test]
+fn build_img_x86_64_produces_valid_gpt() {
+    // ARRANGE
+    let spec = img_spec(fake_uki(1024), Arch::X86_64, vec![]);
+
+    // ACT
+    let img = miso::build_img(&spec).expect("build_img x86_64 must succeed");
+
+    // ASSERT
+    let mut cursor = Cursor::new(img);
+    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
+    assert!(gpt.iter().any(|(_, p)| p.is_used()));
 }
