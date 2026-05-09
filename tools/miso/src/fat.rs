@@ -10,8 +10,11 @@ use crate::{BootFsSpec, MisoError};
 /// Minimum FAT32 image size in bytes.
 const FAT_MIN_IMAGE_BYTES: usize = 1024 * 1024;
 
-/// Flat overhead added on top of content size to reserve space for FAT metadata.
-const FAT_METADATA_OVERHEAD: usize = 512 * 1024;
+/// Minimum image growth step while searching for a fitting FAT image.
+const FAT_GROWTH_MIN_BYTES: usize = 128 * 1024;
+
+/// Maximum number of growth attempts before giving up.
+const FAT_GROWTH_ATTEMPTS: usize = 16;
 
 /// Rounds `n` up to the nearest multiple of `align`.
 fn align_up(n: usize, align: usize) -> usize {
@@ -21,11 +24,20 @@ fn align_up(n: usize, align: usize) -> usize {
 /// Builds an in-memory FAT32 EFI System Partition image from a `BootFsSpec`.
 pub fn build_efi_image(spec: &BootFsSpec) -> Result<Vec<u8>, MisoError> {
     let total_content: usize = spec.files.iter().map(|e| e.data.len()).sum();
-    let size = align_up(
-        (total_content + FAT_METADATA_OVERHEAD).max(FAT_MIN_IMAGE_BYTES),
-        512,
-    );
-    try_build_efi_image(size, spec)
+    let mut size = minimum_image_size(total_content);
+    let mut last_error = None;
+
+    for _ in 0..FAT_GROWTH_ATTEMPTS {
+        match try_build_efi_image(size, spec) {
+            Ok(image) => return Ok(image),
+            Err(err) => {
+                last_error = Some(err);
+                size = next_image_size(size);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| MisoError::Fat("failed to size FAT image".to_owned())))
 }
 
 /// Attempts to format and populate a FAT32 image of exactly `image_size` bytes.
@@ -52,6 +64,17 @@ fn try_build_efi_image(image_size: usize, spec: &BootFsSpec) -> Result<Vec<u8>, 
     }
 
     Ok(cursor.into_inner())
+}
+
+fn minimum_image_size(total_content: usize) -> usize {
+    align_up(total_content.max(FAT_MIN_IMAGE_BYTES), 512)
+}
+
+fn next_image_size(image_size: usize) -> usize {
+    align_up(
+        image_size + (image_size / 16).max(FAT_GROWTH_MIN_BYTES),
+        512,
+    )
 }
 
 /// Creates all intermediate directories and writes `data` at the given `path`.
@@ -178,6 +201,18 @@ mod tests {
             image.len() >= FAT_MIN_IMAGE_BYTES,
             "image must be at least the minimum FAT image size"
         );
+    }
+
+    #[test]
+    fn build_efi_image_large_payload_grows_past_minimum_size() {
+        // ARRANGE
+        let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0xABu8; 96 * 1024 * 1024], vec![]);
+
+        // ACT
+        let image = build_efi_image(&spec).expect("should succeed");
+
+        // ASSERT
+        assert!(image.len() > minimum_image_size(spec.files[0].data.len()));
     }
 
     #[test]
