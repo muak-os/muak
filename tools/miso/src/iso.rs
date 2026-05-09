@@ -16,19 +16,19 @@ const BOOT_RECORD_CATALOG_OFFSET: usize = 71;
 /// LBA of the Primary Volume Descriptor (ECMA-119 §6.7.1).
 const LBA_PVD: u64 = 16;
 /// LBA of the Boot Record Volume Descriptor.
-const LBA_BOOT_RECORD: u64 = 17;
+const LBA_BOOT_RECORD: u64 = LBA_PVD + 1;
 /// LBA of the Volume Descriptor Set Terminator.
-const LBA_VD_TERMINATOR: u64 = 18;
+const LBA_VD_TERMINATOR: u64 = LBA_BOOT_RECORD + 1;
 /// LBA of the L-path table.
-const LBA_PATH_TABLE_L: u64 = 19;
+const LBA_PATH_TABLE_L: u64 = LBA_VD_TERMINATOR + 1;
 /// LBA of the M-path table.
-const LBA_PATH_TABLE_M: u64 = 20;
+const LBA_PATH_TABLE_M: u64 = LBA_PATH_TABLE_L + 1;
 /// LBA of the El Torito boot catalog.
-const LBA_BOOT_CATALOG: u64 = 21;
+const LBA_BOOT_CATALOG: u64 = LBA_PATH_TABLE_M + 1;
 /// LBA of the root directory record.
-const LBA_ROOT_DIR: u64 = 22;
+const LBA_ROOT_DIR: u64 = LBA_BOOT_CATALOG + 1;
 /// LBA where file data begins.
-const LBA_FILE_DATA: u64 = 23;
+const LBA_FILE_DATA: u64 = LBA_ROOT_DIR + 1;
 
 /// Volume identifier written into the PVD (padded to 32 bytes by callers).
 const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
@@ -263,8 +263,8 @@ fn build_root_dir(efi_image_size: u32) -> [u8; SECTOR_SIZE] {
     dir
 }
 
-/// Writes a GPT hybrid suffix so the ISO doubles as a valid GPT disk image.
-fn write_gpt_hybrid(
+/// Writes a protective MBR entry so the ISO doubles as a valid hybrid MBR disk image.
+fn write_protective_mbr(
     out: &mut (impl Write + Seek),
     efi_image_offset_bytes: u64,
     efi_image_size_bytes: u64,
@@ -356,7 +356,7 @@ pub fn write_iso(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), 
 
     // GPT hybrid MBR entry at byte 446
     let efi_offset = LBA_FILE_DATA * SECTOR_SIZE as u64;
-    write_gpt_hybrid(out, efi_offset, efi_image.len() as u64)?;
+    write_protective_mbr(out, efi_offset, efi_image.len() as u64)?;
 
     Ok(())
 }

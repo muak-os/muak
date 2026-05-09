@@ -27,7 +27,13 @@ fn iso_subcommand_produces_valid_output() {
 
     // ACT
     let status = miso_bin()
-        .args(["iso", "--uki", uki.to_str().unwrap(), "--output", output.to_str().unwrap()])
+        .args([
+            "iso",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
         .status()
         .expect("failed to run miso");
 
@@ -46,7 +52,13 @@ fn img_subcommand_produces_valid_output() {
 
     // ACT
     let status = miso_bin()
-        .args(["img", "--uki", uki.to_str().unwrap(), "--output", output.to_str().unwrap()])
+        .args([
+            "img",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
         .status()
         .expect("failed to run miso");
 
@@ -67,9 +79,12 @@ fn iso_subcommand_with_explicit_arch_x86_64() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--arch", "x86_64",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--arch",
+            "x86_64",
         ])
         .status()
         .expect("failed to run miso");
@@ -89,9 +104,12 @@ fn img_subcommand_with_explicit_arch_aarch64() {
     let status = miso_bin()
         .args([
             "img",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--arch", "aarch64",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--arch",
+            "aarch64",
         ])
         .status()
         .expect("failed to run miso");
@@ -114,9 +132,12 @@ fn iso_subcommand_with_extra_file() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--file", &file_spec,
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--file",
+            &file_spec,
         ])
         .status()
         .expect("failed to run miso");
@@ -139,9 +160,12 @@ fn img_subcommand_with_extra_file() {
     let status = miso_bin()
         .args([
             "img",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--file", &file_spec,
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--file",
+            &file_spec,
         ])
         .status()
         .expect("failed to run miso");
@@ -161,9 +185,12 @@ fn iso_unsupported_arch_exits_nonzero() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--arch", "riscv64",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--arch",
+            "riscv64",
         ])
         .status()
         .expect("failed to run miso");
@@ -183,9 +210,12 @@ fn img_unsupported_arch_exits_nonzero() {
     let status = miso_bin()
         .args([
             "img",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--arch", "riscv64",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--arch",
+            "riscv64",
         ])
         .status()
         .expect("failed to run miso");
@@ -204,8 +234,10 @@ fn missing_uki_file_exits_nonzero() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", "/nonexistent/path/uki.efi",
-            "--output", output.to_str().unwrap(),
+            "--uki",
+            "/nonexistent/path/uki.efi",
+            "--output",
+            output.to_str().unwrap(),
         ])
         .status()
         .expect("failed to run miso");
@@ -225,9 +257,12 @@ fn invalid_file_spec_exits_nonzero() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--file", "no-colon-here",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--file",
+            "no-colon-here",
         ])
         .status()
         .expect("failed to run miso");
@@ -247,9 +282,12 @@ fn missing_extra_file_exits_nonzero() {
     let status = miso_bin()
         .args([
             "iso",
-            "--uki", uki.to_str().unwrap(),
-            "--output", output.to_str().unwrap(),
-            "--file", "/nonexistent/src.dat:dst/path.dat",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--file",
+            "/nonexistent/src.dat:dst/path.dat",
         ])
         .status()
         .expect("failed to run miso");
@@ -266,7 +304,13 @@ fn iso_output_has_cd001_magic() {
     let output = dir.path().join("out.iso");
 
     miso_bin()
-        .args(["iso", "--uki", uki.to_str().unwrap(), "--output", output.to_str().unwrap()])
+        .args([
+            "iso",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
         .status()
         .expect("run miso");
 
@@ -275,5 +319,9 @@ fn iso_output_has_cd001_magic() {
 
     // ASSERT
     let offset = 2048 * 16 + 1;
-    assert_eq!(&bytes[offset..offset + 5], b"CD001", "ISO 9660 magic must be present");
+    assert_eq!(
+        &bytes[offset..offset + 5],
+        b"CD001",
+        "ISO 9660 magic must be present"
+    );
 }

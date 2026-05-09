@@ -10,11 +10,8 @@ use crate::{BootFsSpec, MisoError};
 /// Minimum FAT32 image size in bytes.
 const FAT_MIN_IMAGE_BYTES: usize = 1024 * 1024;
 
-/// Minimum image growth step while searching for the smallest fitting FAT image.
-const FAT_GROWTH_MIN_BYTES: usize = 128 * 1024;
-
-/// Maximum number of growth attempts before giving up.
-const FAT_GROWTH_ATTEMPTS: usize = 16;
+/// Flat overhead added on top of content size to reserve space for FAT metadata.
+const FAT_METADATA_OVERHEAD: usize = 512 * 1024;
 
 /// Rounds `n` up to the nearest multiple of `align`.
 fn align_up(n: usize, align: usize) -> usize {
@@ -23,53 +20,15 @@ fn align_up(n: usize, align: usize) -> usize {
 
 /// Builds an in-memory FAT32 EFI System Partition image from a `BootFsSpec`.
 pub fn build_efi_image(spec: &BootFsSpec) -> Result<Vec<u8>, MisoError> {
-    let total_content: usize =
-        spec.uki.len() + spec.files.iter().map(|e| e.data.len()).sum::<usize>();
-    let mut size = minimum_image_size(total_content);
-    let mut failed_size = None;
-
-    for _ in 0..FAT_GROWTH_ATTEMPTS {
-        let image = match try_build_efi_image(size, spec) {
-            Ok(image) => image,
-            Err(_) => {
-                failed_size = Some(size);
-                size = next_image_size(size);
-                continue;
-            }
-        };
-
-        return match failed_size {
-            Some(failed) => build_smallest_fitting_image(failed, size, spec),
-            None => Ok(image),
-        };
-    }
-
-    Err(MisoError::Fat(format!(
-        "could not fit FAT image after {FAT_GROWTH_ATTEMPTS} attempts; last tried {size} bytes"
-    )))
+    let total_content: usize = spec.files.iter().map(|e| e.data.len()).sum();
+    let size = align_up(
+        (total_content + FAT_METADATA_OVERHEAD).max(FAT_MIN_IMAGE_BYTES),
+        512,
+    );
+    try_build_efi_image(size, spec)
 }
 
-fn build_smallest_fitting_image(
-    failed_size: usize,
-    success_size: usize,
-    spec: &BootFsSpec,
-) -> Result<Vec<u8>, MisoError> {
-    let mut low = failed_size / 512;
-    let mut high = success_size / 512;
-
-    while high - low > 1 {
-        let mid = low + (high - low) / 2;
-        let candidate = mid * 512;
-        if try_build_efi_image(candidate, spec).is_ok() {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-
-    try_build_efi_image(high * 512, spec)
-}
-
+/// Attempts to format and populate a FAT32 image of exactly `image_size` bytes.
 fn try_build_efi_image(image_size: usize, spec: &BootFsSpec) -> Result<Vec<u8>, MisoError> {
     let buf = vec![0u8; image_size];
     let mut cursor = Cursor::new(buf);
@@ -87,10 +46,6 @@ fn try_build_efi_image(image_size: usize, spec: &BootFsSpec) -> Result<Vec<u8>, 
             .map_err(|e| MisoError::Fat(e.to_string()))?;
 
         let root = fs.root_dir();
-
-        let uki_path = format!("EFI/BOOT/{}", spec.boot_filename);
-        write_file_at_path(&root, &uki_path, &spec.uki)?;
-
         for entry in &spec.files {
             write_file_at_path(&root, &entry.path, &entry.data)?;
         }
@@ -142,35 +97,18 @@ where
     Ok(current)
 }
 
-fn minimum_image_size(total_content: usize) -> usize {
-    align_up(total_content.max(FAT_MIN_IMAGE_BYTES), 512)
-}
-
-fn next_image_size(image_size: usize) -> usize {
-    align_up(
-        image_size + (image_size / 16).max(FAT_GROWTH_MIN_BYTES),
-        512,
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{Arch, FileEntry};
+    use std::io::Read as _;
 
-    fn simple_spec(uki: &[u8], arch: Arch) -> BootFsSpec {
-        BootFsSpec {
-            boot_filename: arch.boot_filename().to_owned(),
-            uki: uki.to_vec(),
-            files: vec![],
-        }
-    }
+    use super::*;
+    use crate::{Arch, BootFsSpec, FileEntry};
 
     #[test]
     fn build_efi_image_returns_fat32_volume() {
         // ARRANGE
         let uki = b"fake-uki-payload";
-        let spec = simple_spec(uki, Arch::X86_64);
+        let spec = BootFsSpec::with_uki(Arch::X86_64, uki.to_vec(), vec![]);
 
         // ACT
         let image = build_efi_image(&spec).expect("should build FAT32 image");
@@ -185,14 +123,15 @@ mod tests {
         let boot = efi.open_dir("BOOT").expect("BOOT directory must exist");
         let mut file = boot.open_file("BOOTX64.EFI").expect("UKI file must exist");
         let mut content = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut content).expect("should read UKI file");
+        file.read_to_end(&mut content)
+            .expect("should read UKI file");
         assert_eq!(content, uki);
     }
 
     #[test]
     fn build_efi_image_size_is_sector_aligned() {
         // ARRANGE
-        let spec = simple_spec(&vec![0xABu8; 512], Arch::X86_64);
+        let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0xABu8; 512], vec![]);
 
         // ACT
         let image = build_efi_image(&spec).expect("should succeed");
@@ -205,7 +144,7 @@ mod tests {
     fn build_efi_image_aarch64_boot_filename() {
         // ARRANGE
         let uki = b"arm-uki";
-        let spec = simple_spec(uki, Arch::Aarch64);
+        let spec = BootFsSpec::with_uki(Arch::Aarch64, uki.to_vec(), vec![]);
 
         // ACT
         let image = build_efi_image(&spec).expect("should build FAT32 image");
@@ -222,22 +161,21 @@ mod tests {
             .open_file("BOOTAA64.EFI")
             .expect("BOOTAA64.EFI must exist");
         let mut content = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut content).expect("read");
+        file.read_to_end(&mut content).expect("read");
         assert_eq!(content, uki);
     }
 
     #[test]
-    fn build_efi_image_minimum_size_exceeds_uki() {
+    fn build_efi_image_minimum_size_at_least_fat_min() {
         // ARRANGE
-        let spec = simple_spec(&vec![0u8; 100], Arch::X86_64);
+        let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0u8; 100], vec![]);
 
         // ACT
         let image = build_efi_image(&spec).expect("should succeed");
 
         // ASSERT
-        let total: usize = spec.files.iter().map(|e| e.data.len()).sum::<usize>() + spec.uki.len();
         assert!(
-            image.len() >= minimum_image_size(total),
+            image.len() >= FAT_MIN_IMAGE_BYTES,
             "image must be at least the minimum FAT image size"
         );
     }
@@ -248,10 +186,10 @@ mod tests {
         let uki = b"uki-payload";
         let blob_a = b"firmware-blob-a";
         let blob_b = b"firmware-blob-b";
-        let spec = BootFsSpec {
-            boot_filename: Arch::Aarch64.boot_filename().to_owned(),
-            uki: uki.to_vec(),
-            files: vec![
+        let spec = BootFsSpec::with_uki(
+            Arch::Aarch64,
+            uki.to_vec(),
+            vec![
                 FileEntry {
                     path: "START4.ELF".to_owned(),
                     data: blob_a.to_vec(),
@@ -261,7 +199,7 @@ mod tests {
                     data: blob_b.to_vec(),
                 },
             ],
-        };
+        );
 
         // ACT
         let image = build_efi_image(&spec).expect("should succeed");
@@ -279,7 +217,7 @@ mod tests {
             .open_file("BOOTAA64.EFI")
             .expect("UKI must exist");
         let mut uki_content = Vec::new();
-        std::io::Read::read_to_end(&mut uki_file, &mut uki_content).expect("read uki");
+        uki_file.read_to_end(&mut uki_content).expect("read uki");
         assert_eq!(uki_content, uki);
 
         for (name, expected) in [("START4.ELF", blob_a as &[u8]), ("FIXUP4.DAT", blob_b)] {
@@ -287,7 +225,7 @@ mod tests {
                 .open_file(name)
                 .unwrap_or_else(|_| panic!("{name} must exist"));
             let mut content = Vec::new();
-            std::io::Read::read_to_end(&mut f, &mut content).expect("read blob");
+            f.read_to_end(&mut content).expect("read blob");
             assert_eq!(content, expected, "{name} content mismatch");
         }
     }
@@ -295,14 +233,14 @@ mod tests {
     #[test]
     fn build_efi_image_recursive_directory_support() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: b"uki".to_vec(),
-            files: vec![FileEntry {
+        let spec = BootFsSpec::with_uki(
+            Arch::X86_64,
+            b"uki".to_vec(),
+            vec![FileEntry {
                 path: "overlays/rpi/config.txt".to_owned(),
                 data: b"arm_64bit=1".to_vec(),
             }],
-        };
+        );
 
         // ACT
         let image = build_efi_image(&spec).expect("should succeed");
@@ -319,25 +257,23 @@ mod tests {
             .open_file("config.txt")
             .expect("config.txt must exist");
         let mut content = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut content).expect("read");
+        file.read_to_end(&mut content).expect("read");
         assert_eq!(content, b"arm_64bit=1");
     }
 
     #[test]
-    fn build_efi_image_large_payload_avoids_fixed_five_percent_slack() {
+    fn try_build_efi_image_zero_size_returns_error() {
         // ARRANGE
-        let spec = simple_spec(&vec![0xABu8; 64 * 1024 * 1024], Arch::X86_64);
+        let spec = BootFsSpec::with_uki(Arch::X86_64, b"uki".to_vec(), vec![]);
 
         // ACT
-        let image = build_efi_image(&spec).expect("should succeed");
+        let result = try_build_efi_image(0, &spec);
 
         // ASSERT
-        let total: usize = spec.uki.len();
-        let old_heuristic = align_up(total + (total / 20).max(FAT_MIN_IMAGE_BYTES), 512);
-        assert!(image.len() < old_heuristic);
+        assert!(result.is_err());
     }
 
-    fn make_fs_root(size: usize) -> (Cursor<Vec<u8>>, ()) {
+    fn make_fs_root(size: usize) -> Cursor<Vec<u8>> {
         let buf = vec![0u8; size];
         let mut cursor = Cursor::new(buf);
         fatfs::format_volume(
@@ -347,25 +283,13 @@ mod tests {
                 .fat_type(FatType::Fat32),
         )
         .expect("format");
-        (cursor, ())
+        cursor
     }
 
     fn with_root<F: FnOnce(fatfs::Dir<'_, &mut Cursor<Vec<u8>>>)>(size: usize, f: F) {
-        let (mut cursor, _) = make_fs_root(size);
+        let mut cursor = make_fs_root(size);
         let fs = FileSystem::new(&mut cursor, FsOptions::new()).expect("open fs");
         f(fs.root_dir());
-    }
-
-    #[test]
-    fn try_build_efi_image_zero_size_hits_format_volume_error_closure() {
-        // ARRANGE
-        let spec = simple_spec(b"uki", Arch::X86_64);
-
-        // ACT
-        let result = try_build_efi_image(0, &spec);
-
-        // ASSERT
-        assert!(result.is_err());
     }
 
     #[test]
@@ -379,13 +303,13 @@ mod tests {
             assert!(result.is_ok());
             let mut f = root.open_file("flat.txt").expect("file must exist");
             let mut content = Vec::new();
-            std::io::Read::read_to_end(&mut f, &mut content).expect("read");
+            f.read_to_end(&mut content).expect("read");
             assert_eq!(content, b"hello");
         });
     }
 
     #[test]
-    fn write_file_at_path_dotdot_hits_invalid_filename_closure() {
+    fn write_file_at_path_dotdot_returns_error() {
         // ARRANGE
         with_root(1024 * 1024, |root| {
             // ACT
@@ -398,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn write_file_at_path_name_collides_with_dir_hits_create_file_error_closure() {
+    fn write_file_at_path_name_collides_with_dir_returns_error() {
         // ARRANGE
         with_root(1024 * 1024, |root| {
             root.create_dir("EFI").expect("create EFI dir");
@@ -412,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn open_or_create_dir_name_collides_with_file_hits_create_dir_error_closure() {
+    fn open_or_create_dir_name_collides_with_file_returns_error() {
         // ARRANGE
         with_root(1024 * 1024, |root| {
             write_file_at_path(&root, "blob", b"x").expect("write file");

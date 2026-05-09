@@ -35,9 +35,21 @@ pub struct FileEntry {
 /// Describes the boot filesystem layout for ISO and IMG generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootFsSpec {
-    pub boot_filename: String,
-    pub uki: Vec<u8>,
     pub files: Vec<FileEntry>,
+}
+
+impl BootFsSpec {
+    /// Constructs a [`BootFsSpec`] from a UKI blob and architecture.
+    pub fn with_uki(arch: Arch, uki: Vec<u8>, extra_files: Vec<FileEntry>) -> Self {
+        let uki_path = format!("EFI/BOOT/{}", arch.boot_filename());
+        let mut files = Vec::with_capacity(1 + extra_files.len());
+        files.push(FileEntry {
+            path: uki_path,
+            data: uki,
+        });
+        files.extend(extra_files);
+        Self { files }
+    }
 }
 
 /// Builds a bootable ISO 9660 image in memory from a `BootFsSpec`.
@@ -73,13 +85,41 @@ mod tests {
     }
 
     #[test]
+    fn with_uki_places_uki_first_at_efi_boot_path() {
+        // ARRANGE
+        let uki = vec![0xABu8; 64];
+
+        // ACT
+        let spec = BootFsSpec::with_uki(Arch::X86_64, uki.clone(), vec![]);
+
+        // ASSERT
+        assert_eq!(spec.files.len(), 1);
+        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(spec.files[0].data, uki);
+    }
+
+    #[test]
+    fn with_uki_appends_extra_files_after_uki() {
+        // ARRANGE
+        let uki = vec![0u8; 32];
+        let extra = FileEntry {
+            path: "config.txt".to_owned(),
+            data: b"arm_64bit=1".to_vec(),
+        };
+
+        // ACT
+        let spec = BootFsSpec::with_uki(Arch::Aarch64, uki, vec![extra.clone()]);
+
+        // ASSERT
+        assert_eq!(spec.files.len(), 2);
+        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTAA64.EFI");
+        assert_eq!(spec.files[1], extra);
+    }
+
+    #[test]
     fn build_iso_returns_nonempty_image() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: vec![0xABu8; 1024],
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0xABu8; 1024], vec![]);
 
         // ACT
         let iso = build_iso(&spec).expect("build_iso must succeed");
@@ -91,11 +131,7 @@ mod tests {
     #[test]
     fn build_iso_output_has_cd001_magic() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: vec![0u8; 512],
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0u8; 512], vec![]);
 
         // ACT
         let iso = build_iso(&spec).expect("build_iso must succeed");
@@ -108,11 +144,7 @@ mod tests {
     #[test]
     fn build_iso_aarch64_produces_valid_iso() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::Aarch64.boot_filename().to_owned(),
-            uki: vec![0xCCu8; 512],
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::Aarch64, vec![0xCCu8; 512], vec![]);
 
         // ACT
         let iso = build_iso(&spec).expect("build_iso must succeed for aarch64");
@@ -125,11 +157,7 @@ mod tests {
     #[test]
     fn build_img_returns_nonempty_image() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::Aarch64.boot_filename().to_owned(),
-            uki: vec![0xABu8; 1024],
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
 
         // ACT
         let img = build_img(&spec).expect("build_img must succeed");
@@ -141,14 +169,14 @@ mod tests {
     #[test]
     fn build_img_with_extra_files_succeeds() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::Aarch64.boot_filename().to_owned(),
-            uki: vec![0xCCu8; 512],
-            files: vec![FileEntry {
+        let spec = BootFsSpec::with_uki(
+            Arch::Aarch64,
+            vec![0xCCu8; 512],
+            vec![FileEntry {
                 path: "config.txt".to_owned(),
                 data: b"arm_64bit=1\n".to_vec(),
             }],
-        };
+        );
 
         // ACT
         let img = build_img(&spec).expect("build_img must succeed with extra files");
@@ -160,14 +188,14 @@ mod tests {
     #[test]
     fn build_iso_with_recursive_files_produces_valid_image() {
         // ARRANGE
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: vec![0u8; 512],
-            files: vec![FileEntry {
+        let spec = BootFsSpec::with_uki(
+            Arch::X86_64,
+            vec![0u8; 512],
+            vec![FileEntry {
                 path: "overlays/rpi/config.txt".to_owned(),
                 data: b"arm_64bit=1".to_vec(),
             }],
-        };
+        );
 
         // ACT
         let iso = build_iso(&spec).expect("build_iso must succeed");

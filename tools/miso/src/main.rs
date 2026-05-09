@@ -114,11 +114,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = BootFsSpec {
-                    boot_filename: arch.boot_filename().to_owned(),
-                    uki: uki_bytes,
-                    files: extra_files,
-                };
+                let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
                 let iso = miso::build_iso(&spec).context("Failed to build ISO")?;
                 std::fs::write(&output, &iso)
                     .with_context(|| format!("Failed to write {}", output.display()))?;
@@ -135,11 +131,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = BootFsSpec {
-                    boot_filename: arch.boot_filename().to_owned(),
-                    uki: uki_bytes,
-                    files: extra_files,
-                };
+                let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
                 let img = miso::build_img(&spec).context("Failed to build disk image")?;
                 std::fs::write(&output, &img)
                     .with_context(|| format!("Failed to write {}", output.display()))?;
@@ -164,10 +156,12 @@ fn main() {
 
 #[cfg(all(test, feature = "cli"))]
 mod tests {
-    use super::cli::{load_file_entries, parse_arch, parse_file_spec};
-    use miso::Arch;
     use std::io::Write as _;
+
+    use miso::Arch;
     use tempfile::NamedTempFile;
+
+    use super::cli::{load_file_entries, parse_arch, parse_file_spec};
 
     #[test]
     fn parse_arch_x86_64() {

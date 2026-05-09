@@ -12,19 +12,11 @@ fn fake_uki(size: usize) -> Vec<u8> {
 }
 
 fn iso_spec(uki: Vec<u8>, arch: Arch) -> BootFsSpec {
-    BootFsSpec {
-        boot_filename: arch.boot_filename().to_owned(),
-        uki,
-        files: vec![],
-    }
+    BootFsSpec::with_uki(arch, uki, vec![])
 }
 
 fn img_spec(uki: Vec<u8>, arch: Arch, files: Vec<FileEntry>) -> BootFsSpec {
-    BootFsSpec {
-        boot_filename: arch.boot_filename().to_owned(),
-        uki,
-        files,
-    }
+    BootFsSpec::with_uki(arch, uki, files)
 }
 
 #[test]
@@ -240,14 +232,14 @@ fn build_iso_default_entry_is_bootable() {
 #[test]
 fn build_iso_with_extra_files_includes_recursive_dirs() {
     // ARRANGE
-    let spec = BootFsSpec {
-        boot_filename: Arch::X86_64.boot_filename().to_owned(),
-        uki: fake_uki(512),
-        files: vec![FileEntry {
+    let spec = BootFsSpec::with_uki(
+        Arch::X86_64,
+        fake_uki(512),
+        vec![FileEntry {
             path: "overlays/rpi/config.txt".to_owned(),
             data: b"arm_64bit=1".to_vec(),
         }],
-    };
+    );
 
     // ACT
     let iso = miso::build_iso(&spec).expect("build_iso must succeed with extra files");

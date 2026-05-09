@@ -88,11 +88,7 @@ mod tests {
     use crate::{Arch, BootFsSpec, fat::build_efi_image};
 
     fn minimal_esp() -> Vec<u8> {
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: b"fake-uki".to_vec(),
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
         build_efi_image(&spec).expect("should build FAT32 image")
     }
 
@@ -155,11 +151,7 @@ mod tests {
     fn write_img_esp_contains_uki_data() {
         // ARRANGE
         let uki = b"test-uki-content";
-        let spec = BootFsSpec {
-            boot_filename: Arch::X86_64.boot_filename().to_owned(),
-            uki: uki.to_vec(),
-            files: vec![],
-        };
+        let spec = BootFsSpec::with_uki(Arch::X86_64, uki.to_vec(), vec![]);
         let esp = build_efi_image(&spec).expect("build FAT32");
         let mut buf = Cursor::new(Vec::new());
 
