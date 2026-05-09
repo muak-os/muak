@@ -4,7 +4,7 @@ mod fixtures;
 
 use std::fs;
 
-use fixtures::{fake_dtb, fake_initrd, fake_kernel, generate_minimal_stub, sample_cmdline};
+use fixtures::*;
 use object::LittleEndian as LE;
 use object::pe;
 use object::read::pe::PeFile64;
@@ -522,5 +522,31 @@ fn generated_stub_is_valid() {
     assert!(
         section.name.starts_with(b".text"),
         "section should be .text"
+    );
+}
+
+#[test]
+fn build_rejects_too_many_sections() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let stub_path = env.write_file("stub.efi", &generate_stub_with_section_count(u16::MAX - 2));
+    let kernel_path = env.write_file("vmlinuz", b"kernel");
+    let initrd_path = env.write_file("initrd.img", b"initrd");
+    let cmdline_path = env.write_file("cmdline.txt", b"quiet");
+
+    // ACT
+    let result = yuki::build(&yuki::Components {
+        stub: stub_path,
+        kernel: kernel_path,
+        initramfs: initrd_path,
+        cmdline: cmdline_path,
+        dtb: None,
+        luks_key: None,
+    });
+
+    // ASSERT
+    assert!(
+        matches!(result, Err(yuki::YukiError::TooManySections)),
+        "should return TooManySections, got: {result:?}"
     );
 }

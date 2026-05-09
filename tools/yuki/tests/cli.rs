@@ -196,5 +196,8 @@ fn cli_exits_with_error_on_unwritable_output() {
         .expect("failed to run yuki");
 
     // ASSERT
-    assert!(!status.success(), "yuki should fail with unwritable output path");
+    assert!(
+        !status.success(),
+        "yuki should fail with unwritable output path"
+    );
 }

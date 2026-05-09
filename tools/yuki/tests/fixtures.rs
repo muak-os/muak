@@ -10,102 +10,86 @@ const SECTION_HEADER_SIZE: usize = 40;
 const FILE_ALIGNMENT: usize = 512;
 const SECTION_ALIGNMENT: usize = 4096;
 
-/// Generates a minimal valid PE64 EFI stub.
-pub fn generate_minimal_stub() -> Vec<u8> {
-    let headers_size = DOS_HEADER_SIZE
-        + PE_SIGNATURE_SIZE
-        + COFF_HEADER_SIZE
-        + OPTIONAL_HEADER_SIZE
-        + SECTION_HEADER_SIZE;
-    let headers_aligned = align_up(headers_size, FILE_ALIGNMENT);
-    let section_size = FILE_ALIGNMENT;
-    let total_size = headers_aligned + section_size;
+fn align_up(value: usize, alignment: usize) -> usize {
+    (value + alignment - 1) & !(alignment - 1)
+}
 
-    let mut pe = vec![0u8; total_size];
+/// Writes the PE signature, COFF header, optional header, and section headers into the provided buffer.
+fn write_pe_headers(buf: &mut [u8], coff_offset: usize, num_sections: u16) {
+    let mut off = coff_offset;
+    buf[off..off + 4].copy_from_slice(b"PE\0\0");
+    off += PE_SIGNATURE_SIZE;
 
-    pe[0] = b'M';
-    pe[1] = b'Z';
-    let pe_offset = DOS_HEADER_SIZE as u32;
-    pe[0x3C..0x40].copy_from_slice(&pe_offset.to_le_bytes());
-
-    let mut offset = DOS_HEADER_SIZE;
-
-    pe[offset..offset + 4].copy_from_slice(b"PE\0\0");
-    offset += PE_SIGNATURE_SIZE;
-
-    pe[offset..offset + 2].copy_from_slice(&pe::IMAGE_FILE_MACHINE_AMD64.to_le_bytes());
-    offset += 2;
-    pe[offset..offset + 2].copy_from_slice(&1u16.to_le_bytes());
-    offset += 2;
-    offset += 4; // TimeDateStamp
-    offset += 4; // PointerToSymbolTable
-    offset += 4; // NumberOfSymbols
-    pe[offset..offset + 2].copy_from_slice(&(OPTIONAL_HEADER_SIZE as u16).to_le_bytes());
-    offset += 2;
+    buf[off..off + 2].copy_from_slice(&pe::IMAGE_FILE_MACHINE_AMD64.to_le_bytes());
+    off += 2;
+    buf[off..off + 2].copy_from_slice(&num_sections.to_le_bytes());
+    off += 2;
+    off += 12;
+    buf[off..off + 2].copy_from_slice(&(OPTIONAL_HEADER_SIZE as u16).to_le_bytes());
+    off += 2;
     let characteristics: u16 =
         pe::IMAGE_FILE_EXECUTABLE_IMAGE | pe::IMAGE_FILE_LARGE_ADDRESS_AWARE | pe::IMAGE_FILE_DLL;
-    pe[offset..offset + 2].copy_from_slice(&characteristics.to_le_bytes());
-    offset += 2;
+    buf[off..off + 2].copy_from_slice(&characteristics.to_le_bytes());
+    off += 2;
 
-    let opt_offset = offset;
-    pe[offset..offset + 2].copy_from_slice(&pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC.to_le_bytes());
-    offset += 2;
-    offset += 2; // Linker versions
-    pe[offset..offset + 4].copy_from_slice(&(section_size as u32).to_le_bytes());
-    offset += 4;
-    offset += 4; // SizeOfInitializedData
-    offset += 4; // SizeOfUninitializedData
-    pe[offset..offset + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
-    offset += 4;
-    pe[offset..offset + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
-    offset += 4;
-    pe[offset..offset + 8].copy_from_slice(&0x10000u64.to_le_bytes());
-    offset += 8;
-    pe[offset..offset + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
-    offset += 4;
-    pe[offset..offset + 4].copy_from_slice(&(FILE_ALIGNMENT as u32).to_le_bytes());
-    offset += 4;
-    offset += 4; // OS versions
-    offset += 4; // Image versions
-    offset += 4; // Subsystem versions
-    offset += 4; // Win32VersionValue
-    let size_of_image = align_up(SECTION_ALIGNMENT + section_size, SECTION_ALIGNMENT) as u32;
-    pe[offset..offset + 4].copy_from_slice(&size_of_image.to_le_bytes());
-    offset += 4;
-    pe[offset..offset + 4].copy_from_slice(&(headers_aligned as u32).to_le_bytes());
-    offset += 4;
-    offset += 4; // CheckSum
-    pe[offset..offset + 2].copy_from_slice(&pe::IMAGE_SUBSYSTEM_EFI_APPLICATION.to_le_bytes());
-    offset += 2;
-    offset += 2; // DllCharacteristics
-    offset += 8; // SizeOfStackReserve
-    offset += 8; // SizeOfStackCommit
-    offset += 8; // SizeOfHeapReserve
-    offset += 8; // SizeOfHeapCommit
-    offset += 4; // LoaderFlags
-    pe[offset..offset + 4].copy_from_slice(&0u32.to_le_bytes());
+    let opt_off = off;
+    buf[off..off + 2].copy_from_slice(&pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC.to_le_bytes());
+    off += 2;
+    off += 2;
+    let section_size = FILE_ALIGNMENT;
+    buf[off..off + 4].copy_from_slice(&(section_size as u32).to_le_bytes());
+    off += 4;
+    off += 8;
+    buf[off..off + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
+    off += 4;
+    buf[off..off + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
+    off += 4;
+    buf[off..off + 8].copy_from_slice(&0x10000u64.to_le_bytes());
+    off += 8;
+    buf[off..off + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
+    off += 4;
+    buf[off..off + 4].copy_from_slice(&(FILE_ALIGNMENT as u32).to_le_bytes());
+    off += 4;
+    off += 16;
+    let size_of_image = (SECTION_ALIGNMENT * 2) as u32;
+    buf[off..off + 4].copy_from_slice(&size_of_image.to_le_bytes());
+    off += 4;
+    let headers_aligned = ((opt_off
+        + OPTIONAL_HEADER_SIZE
+        + num_sections as usize * SECTION_HEADER_SIZE
+        + FILE_ALIGNMENT
+        - 1)
+        & !(FILE_ALIGNMENT - 1)) as u32;
+    buf[off..off + 4].copy_from_slice(&headers_aligned.to_le_bytes());
+    off += 4;
+    off += 4;
+    buf[off..off + 2].copy_from_slice(&pe::IMAGE_SUBSYSTEM_EFI_APPLICATION.to_le_bytes());
+    off += 2;
+    off += 2 + 8 + 8 + 8 + 8 + 4;
+    buf[off..off + 4].copy_from_slice(&0u32.to_le_bytes());
 
-    let section_header_offset = opt_offset + OPTIONAL_HEADER_SIZE;
-    let mut sh_offset = section_header_offset;
+    let sh_base = opt_off + OPTIONAL_HEADER_SIZE;
+    buf[sh_base..sh_base + 5].copy_from_slice(b".text");
+    buf[sh_base + 8..sh_base + 12].copy_from_slice(&(section_size as u32).to_le_bytes());
+    buf[sh_base + 12..sh_base + 16].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
+    buf[sh_base + 16..sh_base + 20].copy_from_slice(&(section_size as u32).to_le_bytes());
+    let section_rva = ((opt_off + OPTIONAL_HEADER_SIZE + SECTION_HEADER_SIZE + FILE_ALIGNMENT - 1)
+        & !(FILE_ALIGNMENT - 1)) as u32;
+    buf[sh_base + 20..sh_base + 24].copy_from_slice(&section_rva.to_le_bytes());
+    buf[sh_base + 36..sh_base + 40].copy_from_slice(&0x60000020u32.to_le_bytes());
 
-    pe[sh_offset..sh_offset + 5].copy_from_slice(b".text");
-    sh_offset += 8;
-    pe[sh_offset..sh_offset + 4].copy_from_slice(&(section_size as u32).to_le_bytes());
-    sh_offset += 4;
-    pe[sh_offset..sh_offset + 4].copy_from_slice(&(SECTION_ALIGNMENT as u32).to_le_bytes());
-    sh_offset += 4;
-    pe[sh_offset..sh_offset + 4].copy_from_slice(&(section_size as u32).to_le_bytes());
-    sh_offset += 4;
-    pe[sh_offset..sh_offset + 4].copy_from_slice(&(headers_aligned as u32).to_le_bytes());
-    sh_offset += 4;
-    sh_offset += 12; // Relocations/Linenumbers
-    let section_chars: u32 =
-        pe::IMAGE_SCN_CNT_CODE | pe::IMAGE_SCN_MEM_EXECUTE | pe::IMAGE_SCN_MEM_READ;
-    pe[sh_offset..sh_offset + 4].copy_from_slice(&section_chars.to_le_bytes());
+    for i in 1..num_sections as usize {
+        let sh = sh_base + i * SECTION_HEADER_SIZE;
+        buf[sh..sh + 5].copy_from_slice(b".null");
+        buf[sh + 8..sh + 12].copy_from_slice(&1u32.to_le_bytes());
+        let virt = ((i + 1) * SECTION_ALIGNMENT) as u32;
+        buf[sh + 12..sh + 16].copy_from_slice(&virt.to_le_bytes());
+    }
+}
 
-    pe[headers_aligned] = 0xC3; // RET
-
-    pe
+/// Generates a minimal valid PE64 EFI stub.
+pub fn generate_minimal_stub() -> Vec<u8> {
+    generate_stub_with_section_count(1)
 }
 
 /// Generates a fake Linux kernel image.
@@ -147,9 +131,24 @@ pub fn fake_dtb(size: usize) -> Vec<u8> {
     dtb
 }
 
-fn align_up(value: usize, alignment: usize) -> usize {
-    if alignment == 0 {
-        return value;
-    }
-    (value + alignment - 1) & !(alignment - 1)
+/// Generates a minimal valid PE64 EFI stub with `n` sections declared in the COFF header.
+pub fn generate_stub_with_section_count(n: u16) -> Vec<u8> {
+    let section_table_size = SECTION_HEADER_SIZE * n as usize;
+    let headers_raw = DOS_HEADER_SIZE
+        + PE_SIGNATURE_SIZE
+        + COFF_HEADER_SIZE
+        + OPTIONAL_HEADER_SIZE
+        + section_table_size;
+    let headers_aligned = align_up(headers_raw, FILE_ALIGNMENT);
+    let total_size = headers_aligned + FILE_ALIGNMENT;
+
+    let mut pe = vec![0u8; total_size];
+    pe[0] = b'M';
+    pe[1] = b'Z';
+    pe[0x3C..0x40].copy_from_slice(&(DOS_HEADER_SIZE as u32).to_le_bytes());
+
+    write_pe_headers(&mut pe, DOS_HEADER_SIZE, n);
+    pe[headers_aligned] = 0xC3;
+
+    pe
 }

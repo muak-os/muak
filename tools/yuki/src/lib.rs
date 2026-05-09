@@ -94,7 +94,7 @@ pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
     };
 
     let sections = section::build_section_list(&data);
-    let layout = section::build_headers(&metadata, &sections)?;
+    let layout = section::build_headers(&metadata, &sections);
 
     stub.resize(layout.total_file_size, 0);
 

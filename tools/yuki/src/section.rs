@@ -46,10 +46,7 @@ pub(crate) fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static st
 }
 
 /// Builds PE section headers and computes file offsets for the given sections based on the provided metadata.
-pub fn build_headers(
-    metadata: &PeMetadata,
-    sections: &[(&str, &[u8])],
-) -> Result<SectionLayout, YukiError> {
+pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> SectionLayout {
     let mut headers = Vec::new();
     let mut offsets = Vec::new();
     let mut current_file_offset = align_to(metadata.last_section_file_end, metadata.file_alignment);
@@ -92,12 +89,12 @@ pub fn build_headers(
         current_virtual_address += align_to(virtual_size, metadata.section_alignment);
     }
 
-    Ok(SectionLayout {
+    SectionLayout {
         headers,
         offsets,
         max_virtual_end,
         total_file_size: current_file_offset as usize,
-    })
+    }
 }
 
 /// Writes the provided section headers and data into the given PE image buffer at the appropriate offsets.
@@ -111,11 +108,7 @@ pub fn write_to_image(
         let offset = metadata.section_table_offset
             + (metadata.current_section_count as usize + i) * mem::size_of::<ImageSectionHeader>();
         let header_bytes = section_header_to_bytes(section_header);
-        let end = offset
-            .checked_add(header_bytes.len())
-            .ok_or(YukiError::InvalidPeStructure(
-                "Section header offset overflow".to_string(),
-            ))?;
+        let end = offset + header_bytes.len();
         if end > stub.len() {
             return Err(YukiError::InvalidPeStructure(format!(
                 "Section header offset out of bounds: {}-{}",
@@ -126,11 +119,7 @@ pub fn write_to_image(
     }
 
     for (i, (file_offset, data_len)) in layout.offsets.iter().enumerate() {
-        let end = file_offset
-            .checked_add(*data_len)
-            .ok_or(YukiError::InvalidPeStructure(
-                "Section data offset overflow".to_string(),
-            ))?;
+        let end = file_offset + data_len;
         if end > stub.len() {
             return Err(YukiError::InvalidPeStructure(format!(
                 "Section data offset out of bounds: {}-{}",
@@ -275,7 +264,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         assert_eq!(layout.headers.len(), 3);
@@ -302,15 +291,14 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         let first_offset = layout.offsets[0].0;
         assert_eq!(first_offset % metadata.file_alignment as usize, 0);
-        for i in 0..layout.offsets.len() {
-            let (offset, len) = layout.offsets[i];
-            assert!(offset > 0 || i == 0);
-            assert!(len > 0 || i == 0);
+        for (offset, len) in layout.offsets.iter().skip(1) {
+            assert!(*offset > 0, "section offset should be positive");
+            assert!(*len > 0, "section data length should be positive");
         }
     }
 
@@ -331,7 +319,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         let linux_chars = layout.headers[1].characteristics.get(LE);
@@ -365,7 +353,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         assert!(layout.max_virtual_end > metadata.last_section_virtual_end);
@@ -388,7 +376,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         let cmdline_header = &layout.headers[0];
@@ -413,7 +401,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         for i in 1..layout.offsets.len() {
@@ -441,7 +429,7 @@ mod tests {
         let sections = build_section_list(&data);
 
         // ACT
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
 
         // ASSERT
         assert_eq!(layout.headers.len(), 4);
@@ -467,7 +455,7 @@ mod tests {
             luks: None,
         };
         let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
         let mut stub_data = vec![0u8; 100 * 1024];
 
         // ACT
@@ -487,14 +475,14 @@ mod tests {
                 i
             );
         }
+        let expected: [&[u8]; 3] = [cmdline, &linux, &initrd];
         for (i, (file_offset, data_len)) in layout.offsets.iter().enumerate() {
             let end = file_offset + data_len;
-            match i {
-                0 => assert_eq!(&stub_data[*file_offset..end], cmdline, "Cmdline data"),
-                1 => assert_eq!(&stub_data[*file_offset..end], &linux, "Linux data"),
-                2 => assert_eq!(&stub_data[*file_offset..end], &initrd, "Initrd data"),
-                _ => panic!("Unexpected section index"),
-            }
+            assert_eq!(
+                &stub_data[*file_offset..end],
+                expected[i],
+                "Section data {i} mismatch"
+            );
         }
     }
 
@@ -513,7 +501,7 @@ mod tests {
             luks: None,
         };
         let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
         let header_offset = metadata.section_table_offset
             + (metadata.current_section_count as usize) * mem::size_of::<ImageSectionHeader>();
         let mut stub_data = vec![0u8; header_offset + 10];
@@ -522,14 +510,12 @@ mod tests {
         let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
 
         // ASSERT
-        assert!(
-            result.is_err(),
-            "write_to_image should fail with buffer too small"
+        let err = result.expect_err("write_to_image should fail with buffer too small");
+        assert_eq!(
+            std::mem::discriminant(&err),
+            std::mem::discriminant(&YukiError::InvalidPeStructure(String::new())),
+            "expected InvalidPeStructure, got: {err:?}"
         );
-        assert!(matches!(
-            result.unwrap_err(),
-            YukiError::InvalidPeStructure(_)
-        ));
     }
 
     #[test]
@@ -547,7 +533,7 @@ mod tests {
             luks: None,
         };
         let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
         let data_offset = layout.offsets[0].0;
         let mut stub_data = vec![0u8; data_offset + 10];
 
@@ -555,14 +541,12 @@ mod tests {
         let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
 
         // ASSERT
-        assert!(
-            result.is_err(),
-            "write_to_image should fail with buffer too small for data"
+        let err = result.expect_err("write_to_image should fail with buffer too small for data");
+        assert_eq!(
+            std::mem::discriminant(&err),
+            std::mem::discriminant(&YukiError::InvalidPeStructure(String::new())),
+            "expected InvalidPeStructure, got: {err:?}"
         );
-        assert!(matches!(
-            result.unwrap_err(),
-            YukiError::InvalidPeStructure(_)
-        ));
     }
 
     #[test]
@@ -580,7 +564,7 @@ mod tests {
             luks: None,
         };
         let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).expect("Should build");
+        let layout = build_headers(&metadata, &sections);
         let mut stub_data = vec![0u8; 10 * 1024];
 
         // ACT
