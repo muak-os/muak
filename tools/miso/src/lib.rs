@@ -52,25 +52,41 @@ impl BootFsSpec {
     }
 }
 
-/// Builds a bootable ISO 9660 image in memory from a `BootFsSpec`.
-pub fn build_iso(spec: &BootFsSpec) -> Result<Vec<u8>, MisoError> {
+/// Builds a bootable ISO 9660 image from a `BootFsSpec` into any `Write + Seek` sink.
+pub fn build_iso(
+    spec: &BootFsSpec,
+    out: &mut (impl std::io::Write + std::io::Seek),
+) -> Result<(), MisoError> {
     let efi_image = fat::build_efi_image(spec)?;
-    let mut out = std::io::Cursor::new(Vec::new());
-    iso::write_iso(&mut out, &efi_image)?;
-    Ok(out.into_inner())
+    iso::write_iso(out, &efi_image)
 }
 
-/// Builds a raw GPT disk image in memory from a `BootFsSpec`.
-pub fn build_img(spec: &BootFsSpec) -> Result<Vec<u8>, MisoError> {
+/// Builds a raw GPT disk image from a `BootFsSpec` into any `Read + Write + Seek` sink.
+pub fn build_img(
+    spec: &BootFsSpec,
+    out: &mut (impl std::io::Read + std::io::Write + std::io::Seek),
+) -> Result<(), MisoError> {
     let efi_image = fat::build_efi_image(spec)?;
-    let mut out = std::io::Cursor::new(Vec::new());
-    img::write_img(&mut out, &efi_image)?;
-    Ok(out.into_inner())
+    img::write_img(out, &efi_image)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
+
+    fn build_iso_bytes(spec: &BootFsSpec) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        build_iso(spec, &mut out).expect("build_iso must succeed");
+        out.into_inner()
+    }
+
+    fn build_img_bytes(spec: &BootFsSpec) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        build_img(spec, &mut out).expect("build_img must succeed");
+        out.into_inner()
+    }
 
     #[test]
     fn arch_x86_64_boot_filename() {
@@ -122,7 +138,7 @@ mod tests {
         let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0xABu8; 1024], vec![]);
 
         // ACT
-        let iso = build_iso(&spec).expect("build_iso must succeed");
+        let iso = build_iso_bytes(&spec);
 
         // ASSERT
         assert!(!iso.is_empty());
@@ -134,7 +150,7 @@ mod tests {
         let spec = BootFsSpec::with_uki(Arch::X86_64, vec![0u8; 512], vec![]);
 
         // ACT
-        let iso = build_iso(&spec).expect("build_iso must succeed");
+        let iso = build_iso_bytes(&spec);
 
         // ASSERT
         let pvd_offset = SECTOR_SIZE * 16 + 1;
@@ -147,7 +163,7 @@ mod tests {
         let spec = BootFsSpec::with_uki(Arch::Aarch64, vec![0xCCu8; 512], vec![]);
 
         // ACT
-        let iso = build_iso(&spec).expect("build_iso must succeed for aarch64");
+        let iso = build_iso_bytes(&spec);
 
         // ASSERT
         let pvd_offset = SECTOR_SIZE * 16 + 1;
@@ -160,7 +176,7 @@ mod tests {
         let spec = BootFsSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
 
         // ACT
-        let img = build_img(&spec).expect("build_img must succeed");
+        let img = build_img_bytes(&spec);
 
         // ASSERT
         assert!(!img.is_empty());
@@ -179,7 +195,7 @@ mod tests {
         );
 
         // ACT
-        let img = build_img(&spec).expect("build_img must succeed with extra files");
+        let img = build_img_bytes(&spec);
 
         // ASSERT
         assert!(!img.is_empty());
@@ -198,7 +214,7 @@ mod tests {
         );
 
         // ACT
-        let iso = build_iso(&spec).expect("build_iso must succeed");
+        let iso = build_iso_bytes(&spec);
 
         // ASSERT
         let pvd_offset = SECTOR_SIZE * 16 + 1;

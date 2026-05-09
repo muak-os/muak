@@ -2,6 +2,7 @@
 
 #[cfg(feature = "cli")]
 mod cli {
+    use std::fs::File;
     use std::path::PathBuf;
 
     use anyhow::{Context, Result, bail, ensure};
@@ -115,10 +116,14 @@ mod cli {
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
                 let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
-                let iso = miso::build_iso(&spec).context("Failed to build ISO")?;
-                std::fs::write(&output, &iso)
-                    .with_context(|| format!("Failed to write {}", output.display()))?;
-                println!("ISO written to {} ({} bytes)", output.display(), iso.len());
+                let mut file = File::create(&output)
+                    .with_context(|| format!("Failed to create {}", output.display()))?;
+                miso::build_iso(&spec, &mut file).context("Failed to build ISO")?;
+                let size = file
+                    .metadata()
+                    .with_context(|| format!("Failed to stat {}", output.display()))?
+                    .len();
+                println!("ISO written to {} ({} bytes)", output.display(), size);
                 Ok(())
             }
             Command::Img {
@@ -132,14 +137,14 @@ mod cli {
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
                 let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
-                let img = miso::build_img(&spec).context("Failed to build disk image")?;
-                std::fs::write(&output, &img)
-                    .with_context(|| format!("Failed to write {}", output.display()))?;
-                println!(
-                    "Image written to {} ({} bytes)",
-                    output.display(),
-                    img.len()
-                );
+                let mut file = File::create(&output)
+                    .with_context(|| format!("Failed to create {}", output.display()))?;
+                miso::build_img(&spec, &mut file).context("Failed to build disk image")?;
+                let size = file
+                    .metadata()
+                    .with_context(|| format!("Failed to stat {}", output.display()))?
+                    .len();
+                println!("Image written to {} ({} bytes)", output.display(), size);
                 Ok(())
             }
         }
