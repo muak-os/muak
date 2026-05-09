@@ -82,7 +82,7 @@ mod cli {
                     compression_level,
                 };
 
-                ramune::create_initramfs(&config, &output).context("Failed to create initramfs")?;
+                ramune::create(&config, &output).context("Failed to create initramfs")?;
 
                 println!(
                     "Successfully created initramfs at {} ({} bytes)",
@@ -97,7 +97,7 @@ mod cli {
             } => {
                 let ext_pairs: Vec<(String, PathBuf)> =
                     extension.iter().map(|p| (ext_name(p), p.clone())).collect();
-                ramune::extend_initramfs(&base, &ext_pairs, &output)
+                ramune::extend(&base, &ext_pairs, &output)
                     .await
                     .context("Failed to build initramfs")?;
                 println!(

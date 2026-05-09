@@ -13,7 +13,7 @@ pub use create::CreateConfig;
 pub use error::{RamuneError, Result};
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
-pub fn create_initramfs(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
+pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
     let data = create::create_initramfs(config)?;
     std::fs::write(output, &data).map_err(|e| RamuneError::WriteError {
         file: output.display().to_string(),
@@ -22,11 +22,7 @@ pub fn create_initramfs(config: &CreateConfig<'_>, output: &Path) -> Result<()> 
 }
 
 /// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
-pub async fn extend_initramfs(
-    base: &Path,
-    extensions: &[(String, PathBuf)],
-    output: &Path,
-) -> Result<()> {
+pub async fn extend(base: &Path, extensions: &[(String, PathBuf)], output: &Path) -> Result<()> {
     let same_file = is_same_file(base, output).await;
 
     if !same_file {
@@ -111,7 +107,7 @@ mod tests {
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         // ACT
-        extend_initramfs(base.path(), &[], output.path())
+        extend(base.path(), &[], output.path())
             .await
             .expect("extend_initramfs");
 
@@ -131,7 +127,7 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        extend_initramfs(
+        extend(
             base.path(),
             &[("test-ext".to_string(), ext_dir.path().to_path_buf())],
             output.path(),
@@ -152,7 +148,7 @@ mod tests {
         std::fs::write(file.path(), b"initramfs-content").expect("write");
 
         // ACT
-        extend_initramfs(file.path(), &[], file.path())
+        extend(file.path(), &[], file.path())
             .await
             .expect("extend_initramfs");
 
@@ -171,7 +167,7 @@ mod tests {
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         // ACT
-        extend_initramfs(
+        extend(
             file.path(),
             &[("test-ext".to_string(), ext_dir.path().to_path_buf())],
             file.path(),
@@ -191,7 +187,7 @@ mod tests {
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         // ACT
-        let result = extend_initramfs(Path::new("/nonexistent/base.img"), &[], output.path()).await;
+        let result = extend(Path::new("/nonexistent/base.img"), &[], output.path()).await;
 
         // ASSERT
         assert!(matches!(result, Err(RamuneError::ReadError { .. })));

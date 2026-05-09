@@ -168,7 +168,7 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
         .map(|(name, d)| (name.clone(), d.path().to_path_buf()))
         .collect();
 
-    ramune::extend_initramfs(&base_initramfs, &ext_pairs, output)
+    ramune::extend(&base_initramfs, &ext_pairs, output)
         .await
         .context("Failed to build initramfs")?;
 
