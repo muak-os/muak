@@ -2,6 +2,8 @@
 
 use serde::Deserialize;
 
+pub(crate) mod manifest;
+
 /// OCI Manifest structure (platform-specific image manifest)
 #[derive(Deserialize)]
 pub struct OciManifest {

@@ -1,55 +1,12 @@
-//! OCI integrity and signature verification.
+//! OCI manifest signature verification.
 
 use base64ct::{Base64Url, Encoding};
 use ring::signature;
 use serde_json::Value;
 
 use crate::error::{KociError, Result};
-use crate::oci::sign::manifest_signing_payload;
-
-/// Annotation key used to store the image signature.
-pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
-
-/// Compute the SHA-256 hex digest of the given bytes.
-pub(crate) fn sha256_hex(data: &[u8]) -> String {
-    use ring::digest;
-    let hash = digest::digest(&digest::SHA256, data);
-    hex_encode(hash.as_ref())
-}
-
-/// Encode bytes as a lowercase hex string.
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        use std::fmt::Write;
-        let _ = write!(s, "{:02x}", b);
-    }
-    s
-}
-
-/// Verify that the SHA-256 digest of a downloaded blob matches its expected OCI digest.
-pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<()> {
-    let expected_hash =
-        expected_digest
-            .strip_prefix("sha256:")
-            .ok_or_else(|| KociError::DigestMismatch {
-                resource: "blob".to_string(),
-                expected: expected_digest.to_string(),
-                actual: "unsupported digest algorithm".to_string(),
-            })?;
-
-    let actual_hash = sha256_hex(data);
-
-    if actual_hash != expected_hash {
-        return Err(KociError::DigestMismatch {
-            resource: expected_digest.to_string(),
-            expected: expected_hash.to_string(),
-            actual: actual_hash,
-        });
-    }
-
-    Ok(())
-}
+use crate::sign::key::parse_pem_public_key;
+use crate::sign::{SIG_ANNOTATION, manifest_signing_payload};
 
 /// Check the `SIG_ANNOTATION` annotation on the manifest against the provided public key.
 pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> Result<()> {
@@ -103,56 +60,6 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
     Ok(())
 }
 
-/// Parse a PEM-encoded ECDSA P-256 public key and return the raw SubjectPublicKeyInfo DER bytes.
-pub(crate) fn parse_pem_public_key(pem: &str) -> Result<Vec<u8>> {
-    let mut b64 = String::new();
-    let mut in_block = false;
-
-    for line in pem.lines() {
-        let line = line.trim();
-        if line == "-----BEGIN PUBLIC KEY-----" {
-            in_block = true;
-            continue;
-        }
-        if line == "-----END PUBLIC KEY-----" {
-            break;
-        }
-        if in_block {
-            b64.push_str(line);
-        }
-    }
-
-    if b64.is_empty() {
-        return Err(KociError::SignatureVerificationFailed(
-            "No public key data found in PEM".to_string(),
-        ));
-    }
-
-    let spki = base64ct::Base64::decode_vec(&b64).map_err(|e| {
-        KociError::SignatureVerificationFailed(format!(
-            "Failed to decode public key from PEM: {}",
-            e
-        ))
-    })?;
-
-    const POINT_OFFSET: usize = 26; // 2 (outer SEQ tag+len) + 21 (AlgId) + 2 (BIT STRING tag+len) + 1 (unused bits)
-    const POINT_LEN: usize = 65; // 0x04 || x[32] || y[32]
-
-    if spki.len() < POINT_OFFSET + POINT_LEN {
-        return Err(KociError::SignatureVerificationFailed(
-            "Public key SPKI DER is too short to contain a P-256 point".to_string(),
-        ));
-    }
-
-    if spki[POINT_OFFSET] != 0x04 {
-        return Err(KociError::SignatureVerificationFailed(
-            "Public key is not an uncompressed EC point (expected 0x04 prefix)".to_string(),
-        ));
-    }
-
-    Ok(spki[POINT_OFFSET..POINT_OFFSET + POINT_LEN].to_vec())
-}
-
 #[cfg(test)]
 mod tests {
     use base64ct::Encoding;
@@ -160,6 +67,7 @@ mod tests {
     use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
 
     use super::*;
+    use crate::error::KociError;
 
     fn must<T, E: std::fmt::Display>(result: std::result::Result<T, E>, context: &str) -> T {
         match result {
@@ -168,7 +76,7 @@ mod tests {
         }
     }
 
-    fn generate_test_key_pair(rng: &SystemRandom) -> Result<EcdsaKeyPair> {
+    fn generate_test_key_pair(rng: &SystemRandom) -> crate::error::Result<EcdsaKeyPair> {
         let pkcs8 =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng).map_err(|_| {
                 KociError::SignatureVerificationFailed(
@@ -189,7 +97,7 @@ mod tests {
         key_pair: &EcdsaKeyPair,
         rng: &SystemRandom,
         digest: &str,
-    ) -> Result<String> {
+    ) -> crate::error::Result<String> {
         let sig = key_pair.sign(rng, digest.as_bytes()).map_err(|_| {
             KociError::SignatureVerificationFailed(
                 "failed to sign manifest digest in test".to_string(),
@@ -201,107 +109,26 @@ mod tests {
 
     /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
     fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
-        // OID for id-ecPublicKey + OID for P-256 (prime256v1)
         let algorithm: &[u8] = &[
-            0x30, 0x13, // SEQUENCE
-            0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID id-ecPublicKey
-            0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // OID prime256v1
+            0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
+            0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
         ];
-        let bit_string_len = 1 + pub_raw.len(); // leading 0x00 unused-bits byte
-        let content_len = algorithm.len() + 2 + bit_string_len; // 2 = tag+len for BIT STRING
+        let bit_string_len = 1 + pub_raw.len();
+        let content_len = algorithm.len() + 2 + bit_string_len;
         let mut der = Vec::new();
-        der.push(0x30); // SEQUENCE
+        der.push(0x30);
         der.push(content_len as u8);
         der.extend_from_slice(algorithm);
-        der.push(0x03); // BIT STRING
+        der.push(0x03);
         der.push(bit_string_len as u8);
-        der.push(0x00); // unused bits
+        der.push(0x00);
         der.extend_from_slice(pub_raw);
         der
-    }
-
-    #[test]
-    fn sha256_hex_empty() {
-        // ACT & ASSERT
-        assert_eq!(
-            sha256_hex(b""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-    }
-
-    #[test]
-    fn sha256_hex_hello() {
-        // ACT & ASSERT
-        assert_eq!(
-            sha256_hex(b"hello"),
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-        );
-    }
-
-    #[test]
-    fn verify_blob_digest_ok() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-
-        // ACT
-        let result = verify_blob_digest(data, digest);
-
-        // ASSERT
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn verify_blob_digest_unsupported_algorithm() {
-        // ARRANGE
-        let data = b"hello";
-        let digest = "md5:abcdef";
-
-        // ACT
-        let result = verify_blob_digest(data, digest);
-
-        // ASSERT
-        assert!(matches!(result, Err(KociError::DigestMismatch { .. })));
-    }
-
-    #[test]
-    fn parse_pem_valid() {
-        // ARRANGE
-        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
-
-        // ACT
-        let bytes = must(parse_pem_public_key(pem), "parse PEM public key");
-
-        // ASSERT
-        assert_eq!(bytes.len(), 65, "expected 65-byte uncompressed point");
-        assert_eq!(bytes[0], 0x04, "expected uncompressed point prefix 0x04");
-    }
-
-    #[test]
-    fn parse_pem_empty() {
-        // ARRANGE
-        let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
-
-        // ACT & ASSERT
-        assert!(parse_pem_public_key(pem).is_err());
-    }
-
-    #[test]
-    fn parse_pem_no_markers() {
-        // ARRANGE
-        let input = "not a pem file";
-
-        // ACT
-        let result = parse_pem_public_key(input);
-
-        // ASSERT
-        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn check_signature_manifest_digest_roundtrip() {
         // ARRANGE
-
         let rng = SystemRandom::new();
         let key_pair = must(generate_test_key_pair(&rng), "generate test key pair");
 
@@ -431,41 +258,6 @@ mod tests {
         // ACT
         let error = match check_signature(manifest_json, Some(pem)).await {
             Ok(()) => panic!("signature verification unexpectedly succeeded"),
-            Err(error) => error,
-        };
-
-        // ASSERT
-        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
-    }
-
-    #[test]
-    fn parse_pem_public_key_rejects_short_spki() {
-        // ARRANGE
-        let pem = "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n";
-
-        // ACT
-        let error = match parse_pem_public_key(pem) {
-            Ok(_) => panic!("public key unexpectedly parsed"),
-            Err(error) => error,
-        };
-
-        // ASSERT
-        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
-    }
-
-    #[test]
-    fn parse_pem_public_key_rejects_compressed_point() {
-        // ARRANGE
-        let mut spki = vec![0u8; 26 + 65];
-        spki[26] = 0x02;
-        let pem = format!(
-            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-            base64ct::Base64::encode_string(&spki)
-        );
-
-        // ACT
-        let error = match parse_pem_public_key(&pem) {
-            Ok(_) => panic!("public key unexpectedly parsed"),
             Err(error) => error,
         };
 

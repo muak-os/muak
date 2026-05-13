@@ -7,10 +7,10 @@ use std::path::{Component, Path, PathBuf};
 use flate2::read::GzDecoder;
 use tar::Archive;
 
+use crate::digest::verify_blob_digest;
 use crate::error::{KociError, Result};
 use crate::image::ImageReference;
-use crate::oci::http::{HttpClient, collect_body, get};
-use crate::oci::verify::verify_blob_digest;
+use crate::registry::http::{HttpClient, collect_body, get};
 
 const OCI_LAYER_TAR: &str = "application/vnd.oci.image.layer.v1.tar";
 const OCI_LAYER_TAR_GZIP: &str = "application/vnd.oci.image.layer.v1.tar+gzip";

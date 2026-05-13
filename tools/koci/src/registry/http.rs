@@ -9,7 +9,7 @@ use hyper_util::rt::TokioExecutor;
 use rustls::{ClientConfig, RootCertStore};
 
 use crate::error::{KociError, Result};
-use crate::oci::USER_AGENT;
+use crate::registry::USER_AGENT;
 
 /// HTTPS connector backed by rustls that also supports plain HTTP.
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;

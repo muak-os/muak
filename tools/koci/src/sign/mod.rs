@@ -1,20 +1,23 @@
 //! OCI image signing.
-//!
-//! Signs an OCI image by adding a `dev.muak.sig` annotation to the manifest
-//! containing a base64url-encoded ECDSA P-256 DER signature over the manifest's
-//! own SHA-256 content digest.
 
 use base64ct::{Base64Url, Encoding};
 use hyper::body::Bytes;
 use ring::rand::SystemRandom;
-use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair};
+use ring::signature::EcdsaKeyPair;
 
+use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
+use crate::image::manifest;
 use crate::image::{ImageReference, OciManifest};
-use crate::oci::auth::fetch_auth_token;
-use crate::oci::http::{HttpClient, build_client, put};
-use crate::oci::manifest;
-use crate::oci::verify::{SIG_ANNOTATION, sha256_hex};
+use crate::registry::auth::fetch_auth_token;
+use crate::registry::http::{HttpClient, build_client, put};
+use crate::sign::key::parse_pem_private_key;
+
+pub(crate) mod key;
+pub(crate) mod verify;
+
+/// Annotation key used to store the image signature.
+pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 
 /// Sign an OCI image manifest in the registry.
 pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
@@ -112,7 +115,7 @@ fn sort_keys(value: &mut serde_json::Value) {
 
 /// Build a signed manifest: compute the payload, sign it, inject the annotation,
 /// and return `(signed_bytes, content_type)`.
-fn build_signed_manifest(
+pub(crate) fn build_signed_manifest(
     manifest_json: &str,
     key_pair: &EcdsaKeyPair,
     rng: &SystemRandom,
@@ -168,48 +171,6 @@ async fn push_manifest(
     Ok(())
 }
 
-/// Parse a PKCS#8 PEM-encoded ECDSA P-256 private key.
-fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
-    let mut b64 = String::new();
-    let mut in_block = false;
-
-    for line in pem.lines() {
-        let line = line.trim();
-        if line == "-----BEGIN PRIVATE KEY-----" {
-            in_block = true;
-            continue;
-        }
-        if line == "-----END PRIVATE KEY-----" {
-            break;
-        }
-        if in_block {
-            b64.push_str(line);
-        }
-    }
-
-    if b64.is_empty() {
-        return Err(KociError::SignatureVerificationFailed(
-            "No private key data found in PEM (expected PKCS#8 '-----BEGIN PRIVATE KEY-----')"
-                .to_string(),
-        ));
-    }
-
-    let der = base64ct::Base64::decode_vec(&b64).map_err(|e| {
-        KociError::SignatureVerificationFailed(format!(
-            "Failed to decode private key from PEM: {}",
-            e
-        ))
-    })?;
-
-    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &der, &SystemRandom::new()).map_err(
-        |_| {
-            KociError::SignatureVerificationFailed(
-                "Failed to parse ECDSA P-256 private key (must be PKCS#8 format)".to_string(),
-            )
-        },
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use ring::signature::{
@@ -217,7 +178,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::oci::verify::sha256_hex;
+    use crate::digest::sha256_hex;
 
     fn generate_test_key_pair(rng: &SystemRandom) -> EcdsaKeyPair {
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng)
@@ -374,36 +335,6 @@ mod tests {
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
-    }
-
-    #[test]
-    fn parse_pem_private_key_rejects_invalid_base64() {
-        // ARRANGE
-        let pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
-
-        // ACT / ASSERT
-        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
-        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
-    }
-
-    #[test]
-    fn parse_pem_private_key_rejects_missing_pem_block() {
-        // ARRANGE / ACT
-        let error =
-            parse_pem_private_key("not a pem file").expect_err("private key parsing should fail");
-
-        // ASSERT
-        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
-    }
-
-    #[test]
-    fn parse_pem_private_key_rejects_invalid_pkcs8_bytes() {
-        // ARRANGE
-        let pem = "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
-
-        // ACT / ASSERT
-        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
-        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[tokio::test]

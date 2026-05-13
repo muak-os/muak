@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use crate::error::{KociError, Result};
-use crate::oci::http::{HttpClient, collect_body, get};
+use crate::registry::http::{HttpClient, collect_body, get};
 
 /// JSON response returned by OCI token endpoints.
 #[derive(Deserialize)]
@@ -68,7 +68,7 @@ mod tests {
     use std::thread;
 
     use super::*;
-    use crate::oci::http::build_client;
+    use crate::registry::http::build_client;
 
     struct TestServer {
         address: String,

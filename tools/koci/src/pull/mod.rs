@@ -3,12 +3,13 @@
 use std::path::Path;
 
 use crate::error::{KociError, Result};
+use crate::image::manifest;
 use crate::image::{ImageReference, OciDescriptor};
-use crate::oci::auth::fetch_auth_token;
-use crate::oci::http::{HttpClient, build_client};
-use crate::oci::layer;
-use crate::oci::manifest;
-use crate::oci::verify;
+use crate::registry::auth::fetch_auth_token;
+use crate::registry::http::{HttpClient, build_client};
+use crate::sign::verify;
+
+pub(crate) mod layer;
 
 /// Maximum number of concurrent layer downloads.
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
@@ -138,7 +139,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::oci::http::build_client;
+    use crate::registry::http::build_client;
 
     type RouteKey = (String, String);
 
@@ -380,7 +381,7 @@ mod tests {
     }
 
     fn sha256_digest(bytes: &[u8]) -> String {
-        format!("sha256:{}", crate::oci::verify::sha256_hex(bytes))
+        format!("sha256:{}", crate::digest::sha256_hex(bytes))
     }
 
     fn manifest_json(layer_digest: &str, layer_size: usize, media_type: &str) -> Vec<u8> {

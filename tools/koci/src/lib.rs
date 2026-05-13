@@ -1,14 +1,17 @@
-//! Imager library for OCI image pulling and manifest signing.
+//! OCI image pulling and manifest signing.
 
+mod digest;
 mod image;
-mod oci;
+mod pull;
+mod registry;
+mod sign;
 
 pub mod error;
 
 use std::path::Path;
 
 pub use error::{KociError, Result};
-use oci::remote::pull_to_dir;
+use pull::pull_to_dir;
 
 /// Pull an OCI image and extract it to a directory.
 pub async fn pull(
@@ -23,7 +26,7 @@ pub async fn pull(
 
 /// Sign an OCI image manifest in the registry.
 pub async fn sign(reference: &str, privkey_pem: &str) -> Result<()> {
-    oci::sign::sign_manifest(reference, privkey_pem).await
+    sign::sign_manifest(reference, privkey_pem).await
 }
 
 #[cfg(test)]

@@ -2,8 +2,8 @@
 
 use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor, OciManifest};
-use crate::oci::OCI_MANIFEST_ACCEPT_HEADERS;
-use crate::oci::http::{HttpClient, collect_body, get};
+use crate::registry::OCI_MANIFEST_ACCEPT_HEADERS;
+use crate::registry::http::{HttpClient, collect_body, get};
 
 /// Build the manifest URL for a given image reference and tag or digest.
 pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
@@ -61,7 +61,7 @@ mod tests {
 
     use super::*;
     use crate::image::{ImageReference, Platform};
-    use crate::oci::http::build_client;
+    use crate::registry::http::build_client;
 
     struct TestServer {
         address: String,
