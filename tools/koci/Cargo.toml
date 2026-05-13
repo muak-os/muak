@@ -1,11 +1,11 @@
 [package]
-name = "imager"
-description = "Pull and sign OCI images"
+name = "koci"
+description = "OCI images management tool"
 edition.workspace = true
 version.workspace = true
 
 [[bin]]
-name = "imager"
+name = "koci"
 required-features = ["cli"]
 
 [dependencies]

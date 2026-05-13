@@ -9,7 +9,7 @@ const OCI_MANIFEST_ACCEPT_HEADERS: &[&str] = &[
 ];
 
 /// HTTP User-Agent header value sent to OCI registries.
-const USER_AGENT: &str = "muak-imager/0.1";
+const USER_AGENT: &str = "muak-koci/0.1";
 
 mod auth;
 mod http;

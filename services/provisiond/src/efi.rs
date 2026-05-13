@@ -17,7 +17,7 @@ pub async fn pull_firmware(firmware_ref: &str, variant: &str, dest: &Path) -> Re
     std::fs::create_dir_all(dest)
         .with_context(|| format!("Failed to create firmware dir {}", dest.display()))?;
 
-    imager::pull(firmware_ref, host_oci_arch(), dest, None)
+    koci::pull(firmware_ref, host_oci_arch(), dest, None)
         .await
         .with_context(|| format!("Failed to pull board firmware: {firmware_ref}"))?;
 

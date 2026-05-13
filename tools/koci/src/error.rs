@@ -1,10 +1,10 @@
-//! Error types for the imager library.
+//! Error types for the koci library.
 
 use thiserror::Error;
 
 /// Error type for OCI image pulling and signing operations.
 #[derive(Error, Debug)]
-pub enum ImagerError {
+pub enum KociError {
     #[error("Failed to read {file}: {source}")]
     ReadError {
         file: String,
@@ -55,5 +55,5 @@ pub enum ImagerError {
     SignatureVerificationFailed(String),
 }
 
-/// Result type alias for imager operations.
-pub type Result<T> = std::result::Result<T, ImagerError>;
+/// Result type alias for koci operations.
+pub type Result<T> = std::result::Result<T, KociError>;

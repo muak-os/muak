@@ -1,6 +1,6 @@
 //! OCI manifest fetching, parsing, and platform selection.
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor, OciManifest};
 use crate::oci::OCI_MANIFEST_ACCEPT_HEADERS;
 use crate::oci::http::{HttpClient, collect_body, get};
@@ -25,13 +25,13 @@ pub(crate) async fn fetch(
     let resp = get(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS).await?;
     let body = collect_body(resp).await?;
     String::from_utf8(body.to_vec())
-        .map_err(|e| ImagerError::NetworkError(format!("Manifest response is not UTF-8: {}", e)))
+        .map_err(|e| KociError::NetworkError(format!("Manifest response is not UTF-8: {}", e)))
 }
 
 /// Parse manifest JSON into an [`OciManifest`].
 pub(crate) fn parse(json: &str) -> Result<OciManifest> {
     serde_json::from_str(json)
-        .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest: {}", e)))
+        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest: {}", e)))
 }
 
 /// Select the matching platform manifest for the requested target architecture.
@@ -47,7 +47,7 @@ pub(crate) fn select_platform<'a>(
             })
         })
         .ok_or_else(|| {
-            ImagerError::InvalidOciFormat(format!(
+            KociError::InvalidOciFormat(format!(
                 "No linux/{target_arch} manifest found in manifest list"
             ))
         })
@@ -154,7 +154,7 @@ mod tests {
         let result = parse("not json");
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::OciParseError(_))));
+        assert!(matches!(result, Err(KociError::OciParseError(_))));
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
             .expect_err("fetch should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 
     #[tokio::test]
@@ -236,7 +236,7 @@ mod tests {
             .expect_err("fetch should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::DownloadError(_)));
+        assert!(matches!(error, KociError::DownloadError(_)));
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::InvalidOciFormat(_)));
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod tests {
         let result = select_platform(&manifests, "amd64");
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::InvalidOciFormat(_))));
+        assert!(matches!(result, Err(KociError::InvalidOciFormat(_))));
     }
 
     #[test]
@@ -311,6 +311,6 @@ mod tests {
         let result = select_platform(&[], "amd64");
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::InvalidOciFormat(_))));
+        assert!(matches!(result, Err(KociError::InvalidOciFormat(_))));
     }
 }

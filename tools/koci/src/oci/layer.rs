@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::image::ImageReference;
 use crate::oci::http::{HttpClient, collect_body, get};
 use crate::oci::verify::verify_blob_digest;
@@ -45,7 +45,7 @@ pub(crate) fn extract_archive(bytes: &[u8], media_type: Option<&str>, dest: &Pat
             extract_tar(decoder, dest)
         }
         OCI_LAYER_TAR => extract_tar(Cursor::new(bytes), dest),
-        other => Err(ImagerError::UnsupportedLayerMediaType(other.to_string())),
+        other => Err(KociError::UnsupportedLayerMediaType(other.to_string())),
     }
 }
 
@@ -76,21 +76,21 @@ fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
         }
 
         if entry_type.is_symlink() {
-            return Err(ImagerError::LayerExtractionError(format!(
+            return Err(KociError::LayerExtractionError(format!(
                 "Unsupported symlink entry in OCI layer: {}",
                 relative_path.display()
             )));
         }
 
         if entry_type.is_hard_link() {
-            return Err(ImagerError::LayerExtractionError(format!(
+            return Err(KociError::LayerExtractionError(format!(
                 "Unsupported hard link entry in OCI layer: {}",
                 relative_path.display()
             )));
         }
 
         if !entry_type.is_file() {
-            return Err(ImagerError::LayerExtractionError(format!(
+            return Err(KociError::LayerExtractionError(format!(
                 "Unsupported OCI layer entry type for {}",
                 relative_path.display()
             )));
@@ -115,13 +115,13 @@ fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
             Component::Normal(part) => normalized.push(part),
             Component::CurDir | Component::RootDir => {}
             Component::ParentDir => {
-                return Err(ImagerError::LayerExtractionError(format!(
+                return Err(KociError::LayerExtractionError(format!(
                     "OCI layer entry escapes extraction root: {}",
                     path.display()
                 )));
             }
             Component::Prefix(_) => {
-                return Err(ImagerError::LayerExtractionError(format!(
+                return Err(KociError::LayerExtractionError(format!(
                     "OCI layer entry uses unsupported path prefix: {}",
                     path.display()
                 )));
@@ -179,15 +179,15 @@ fn ensure_within_root(root: &Path, candidate: &Path) -> Result<()> {
     if candidate.starts_with(root) {
         Ok(())
     } else {
-        Err(ImagerError::LayerExtractionError(format!(
+        Err(KociError::LayerExtractionError(format!(
             "OCI layer entry escapes extraction root: {}",
             candidate.display()
         )))
     }
 }
 
-fn layer_extract_error(error: std::io::Error) -> ImagerError {
-    ImagerError::LayerExtractionError(format!("Failed to extract tar: {error}"))
+fn layer_extract_error(error: std::io::Error) -> KociError {
+    KociError::LayerExtractionError(format!("Failed to extract tar: {error}"))
 }
 
 #[cfg(test)]
@@ -265,7 +265,7 @@ mod tests {
         let result = extract_archive(b"not a gzip archive", None, output.path());
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::LayerExtractionError(_))));
+        assert!(matches!(result, Err(KociError::LayerExtractionError(_))));
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
             normalize_entry_path(Path::new("../escape")).expect_err("normalize should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
         let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
@@ -426,7 +426,7 @@ mod tests {
             .expect_err("extract should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::UnsupportedLayerMediaType(_)));
+        assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
     }
 
     #[test]
@@ -452,7 +452,7 @@ mod tests {
         let error = apply_whiteout(outside.path(), root.path()).expect_err("whiteout should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
@@ -466,6 +466,6 @@ mod tests {
             ensure_within_root(root.path(), outside.path()).expect_err("path check should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::LayerExtractionError(_)));
+        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 }

@@ -15,7 +15,7 @@ members = [
     "services/timed",
     "services/vmd",
 
-    "tools/imager",
+    "tools/koci",
     "tools/miso",
     "tools/ramune",
     "tools/yuki",
@@ -41,7 +41,7 @@ version = "1.0.0-beta"
 [workspace.dependencies]
 # Internal crates
 
-imager = { path = "tools/imager", default-features = false }
+koci = { path = "tools/koci", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 

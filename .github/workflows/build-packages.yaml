@@ -126,7 +126,7 @@ jobs:
               - 'libs/luks2/**'
               - 'libs/tpm2/**'
               - 'libs/sbolt/**'
-              - 'tools/imager/**'
+              - 'tools/koci/**'
               - 'tools/ramune/**'
               - 'tools/yuki/**'
             timed:

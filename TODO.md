@@ -17,11 +17,11 @@
     - Bridge migration to back-up interface
   - Selective drift detection for interfaces
 
-- Enchance `imager`:
+- Enchance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
   - Remove HTTP support
-  - Sign extensions and verify them in `imager/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
+  - Sign extensions and verify them in `koci/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
 
 - Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
@@ -33,16 +33,17 @@
   - Make it an extension & rename to workloadd
   - Support for containers like LXC and OCI
 
-- Generate SBOM (https://github.com/rust-lang/rfcs/pull/3553)
+- Generate SBOM (https://doc.rust-lang.org/cargo/reference/unstable.html#sbom)
 
 - Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
 - Support for SBCs devices using .img installation
-- Support RISC-V architecture
 - Support Apple M series processor chips
+- Support RISC-V architecture
 
 - Add a web interface for easier management (in a separate product easily installable with a golden image?) style with
   Swiss Web Design (could also manage secure boot key when TPM not supported)
+- Linux Kernel abstraction layer to support different kernels
 - Make the VM themselves declarative?

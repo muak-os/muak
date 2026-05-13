@@ -1,4 +1,4 @@
-//! Integration tests for imager OCI pulling and signing.
+//! Integration tests for koci OCI pulling and signing.
 
 mod fixtures;
 mod registry;
@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 
 use fixtures::*;
-use imager::ImagerError;
+use koci::KociError;
 use registry::{HttpResponse, MockRegistry, RecordedRequest, get, put};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -22,16 +22,16 @@ fn required_request(registry: &MockRegistry, method: &str, path: &str) -> Record
     }
 }
 
-fn imager_bin() -> &'static Path {
-    Path::new(env!("CARGO_BIN_EXE_imager"))
+fn koci_bin() -> &'static Path {
+    Path::new(env!("CARGO_BIN_EXE_koci"))
 }
 
 #[tokio::test]
 async fn pull_extracts_single_layer_from_local_registry() {
     // ARRANGE
     let layer = layer_archive(&[
-        ("etc/motd", b"hello from imager\n"),
-        ("usr/share/imager/message.txt", b"integration test\n"),
+        ("etc/motd", b"hello from koci\n"),
+        ("usr/share/koci/message.txt", b"integration test\n"),
     ])
     .expect("build layer archive");
     let layer_digest = sha256_digest(&layer);
@@ -48,7 +48,7 @@ async fn pull_extracts_single_layer_from_local_registry() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(
+    koci::pull(
         &registry.reference("repo", "test"),
         host_oci_arch(),
         output.path(),
@@ -60,10 +60,10 @@ async fn pull_extracts_single_layer_from_local_registry() {
     // ASSERT
     assert_eq!(
         std::fs::read_to_string(output.path().join("etc/motd")).expect("read motd"),
-        "hello from imager\n"
+        "hello from koci\n"
     );
     assert_eq!(
-        std::fs::read_to_string(output.path().join("usr/share/imager/message.txt"))
+        std::fs::read_to_string(output.path().join("usr/share/koci/message.txt"))
             .expect("read message file"),
         "integration test\n"
     );
@@ -111,7 +111,7 @@ async fn pull_selects_requested_platform_manifest_from_index() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(
+    koci::pull(
         &registry.reference("repo", "test"),
         "arm64",
         output.path(),
@@ -144,7 +144,7 @@ async fn pull_rejects_index_without_requested_platform_match() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = imager::pull(
+    let error = koci::pull(
         &registry.reference("repo", "test"),
         "arm64",
         output.path(),
@@ -154,7 +154,7 @@ async fn pull_rejects_index_without_requested_platform_match() {
     .expect_err("pull should fail");
 
     // ASSERT
-    assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+    assert!(matches!(error, KociError::InvalidOciFormat(_)));
 }
 
 #[tokio::test]
@@ -179,7 +179,7 @@ async fn pull_supports_digest_manifest_reference() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(
+    koci::pull(
         &registry.digest_reference("repo", &manifest_digest),
         host_oci_arch(),
         output.path(),
@@ -226,7 +226,7 @@ async fn pull_rejects_blob_with_digest_mismatch() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = match imager::pull(
+    let error = match koci::pull(
         &registry.reference("repo", "test"),
         host_oci_arch(),
         output.path(),
@@ -241,7 +241,7 @@ async fn pull_rejects_blob_with_digest_mismatch() {
     };
 
     // ASSERT
-    assert!(matches!(error, ImagerError::DigestMismatch { .. }));
+    assert!(matches!(error, KociError::DigestMismatch { .. }));
     assert!(
         std::fs::read_dir(output.path())
             .expect("read output directory")
@@ -289,7 +289,7 @@ async fn sign_signs_index_and_platform_manifests() {
     .expect("start mock registry");
 
     // ACT
-    imager::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+    koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
         .await
         .expect("sign image");
 
@@ -325,7 +325,7 @@ async fn sign_uses_default_manifest_content_type_when_media_type_is_missing() {
     .expect("start mock registry");
 
     // ACT
-    imager::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+    koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
         .await
         .expect("sign image");
 
@@ -353,7 +353,7 @@ async fn sign_signs_single_manifest_in_registry() {
     .expect("start mock registry");
 
     // ACT
-    imager::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+    koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
         .await
         .expect("sign image");
 
@@ -367,7 +367,7 @@ async fn sign_signs_single_manifest_in_registry() {
 #[tokio::test]
 async fn sign_rejects_invalid_private_key_before_network() {
     // ARRANGE / ACT
-    let error = match imager::sign("127.0.0.1:9/repo:test", "not a pem file").await {
+    let error = match koci::sign("127.0.0.1:9/repo:test", "not a pem file").await {
         Ok(()) => {
             panic!("sign unexpectedly succeeded");
         }
@@ -375,7 +375,7 @@ async fn sign_rejects_invalid_private_key_before_network() {
     };
 
     // ASSERT
-    assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
 }
 
 #[tokio::test]
@@ -384,7 +384,7 @@ async fn sign_rejects_invalid_private_key_base64_before_network() {
     let private_key_pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
 
     // ACT
-    let error = match imager::sign("127.0.0.1:9/repo:test", private_key_pem).await {
+    let error = match koci::sign("127.0.0.1:9/repo:test", private_key_pem).await {
         Ok(()) => {
             panic!("sign unexpectedly succeeded");
         }
@@ -392,7 +392,7 @@ async fn sign_rejects_invalid_private_key_base64_before_network() {
     };
 
     // ASSERT
-    assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     assert!(
         error
             .to_string()
@@ -406,7 +406,7 @@ async fn sign_rejects_invalid_private_key_pkcs8_before_network() {
     let private_key_pem = "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
 
     // ACT
-    let error = match imager::sign("127.0.0.1:9/repo:test", private_key_pem).await {
+    let error = match koci::sign("127.0.0.1:9/repo:test", private_key_pem).await {
         Ok(()) => {
             panic!("sign unexpectedly succeeded");
         }
@@ -414,7 +414,7 @@ async fn sign_rejects_invalid_private_key_pkcs8_before_network() {
     };
 
     // ASSERT
-    assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+    assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     assert!(
         error
             .to_string()
@@ -438,8 +438,7 @@ async fn sign_rejects_non_object_manifest_annotations() {
     .expect("start mock registry");
 
     // ACT
-    let error = match imager::sign(&registry.reference("repo", "test"), &keys.private_key_pem).await
-    {
+    let error = match koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem).await {
         Ok(()) => {
             panic!("sign unexpectedly succeeded");
         }
@@ -447,7 +446,7 @@ async fn sign_rejects_non_object_manifest_annotations() {
     };
 
     // ASSERT
-    assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+    assert!(matches!(error, KociError::InvalidOciFormat(_)));
 }
 
 #[test]
@@ -456,7 +455,7 @@ fn cli_pull_extracts_signed_image_with_pub_key() {
     let keys = generate_test_keys().expect("generate test keys");
     let workspace = TempDir::new().expect("create temp dir");
     let output_dir = workspace.path().join("out");
-    let pub_key_path = workspace.path().join("imager.pub.pem");
+    let pub_key_path = workspace.path().join("koci.pub.pem");
     std::fs::write(&pub_key_path, &keys.public_key_pem).expect("write public key");
 
     let layer = layer_archive(&[("etc/cli", b"pulled from cli\n")]).expect("build layer archive");
@@ -476,7 +475,7 @@ fn cli_pull_extracts_signed_image_with_pub_key() {
     .expect("start mock registry");
 
     // ACT
-    let output = Command::new(imager_bin())
+    let output = Command::new(koci_bin())
         .arg("pull")
         .arg("--image")
         .arg(registry.reference("repo", "test"))
@@ -485,7 +484,7 @@ fn cli_pull_extracts_signed_image_with_pub_key() {
         .arg("--pub-key")
         .arg(&pub_key_path)
         .output()
-        .expect("run imager pull");
+        .expect("run koci pull");
 
     // ASSERT
     assert!(
@@ -512,7 +511,7 @@ fn cli_pull_reports_missing_pubkey_file() {
     let missing_key = workspace.path().join("missing.pub.pem");
 
     // ACT
-    let output = Command::new(imager_bin())
+    let output = Command::new(koci_bin())
         .arg("pull")
         .arg("--image")
         .arg("127.0.0.1:9/repo:test")
@@ -521,7 +520,7 @@ fn cli_pull_reports_missing_pubkey_file() {
         .arg("--pub-key")
         .arg(&missing_key)
         .output()
-        .expect("run imager pull");
+        .expect("run koci pull");
 
     // ASSERT
     assert!(!output.status.success(), "pull unexpectedly succeeded");
@@ -569,7 +568,7 @@ fn cli_pull_uses_explicit_arch_argument() {
     .expect("start mock registry");
 
     // ACT
-    let output = Command::new(imager_bin())
+    let output = Command::new(koci_bin())
         .arg("pull")
         .arg("--image")
         .arg(registry.reference("repo", "test"))
@@ -578,7 +577,7 @@ fn cli_pull_uses_explicit_arch_argument() {
         .arg("--output")
         .arg(&output_dir)
         .output()
-        .expect("run imager pull");
+        .expect("run koci pull");
 
     // ASSERT
     assert!(
@@ -628,7 +627,7 @@ async fn pull_applies_multiple_layers_in_order() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    imager::pull(
+    koci::pull(
         &registry.reference("repo", "test"),
         host_oci_arch(),
         output.path(),
@@ -655,7 +654,7 @@ async fn pull_rejects_non_utf8_manifest_response() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = imager::pull(
+    let error = koci::pull(
         &registry.reference("repo", "test"),
         host_oci_arch(),
         output.path(),
@@ -665,7 +664,7 @@ async fn pull_rejects_non_utf8_manifest_response() {
     .expect_err("pull should fail");
 
     // ASSERT
-    assert!(matches!(error, ImagerError::NetworkError(_)));
+    assert!(matches!(error, KociError::NetworkError(_)));
 }
 
 #[tokio::test]
@@ -679,7 +678,7 @@ async fn pull_rejects_invalid_manifest_json() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = imager::pull(
+    let error = koci::pull(
         &registry.reference("repo", "test"),
         host_oci_arch(),
         output.path(),
@@ -689,7 +688,7 @@ async fn pull_rejects_invalid_manifest_json() {
     .expect_err("pull should fail");
 
     // ASSERT
-    assert!(matches!(error, ImagerError::OciParseError(_)));
+    assert!(matches!(error, KociError::OciParseError(_)));
 }
 
 #[test]
@@ -697,7 +696,7 @@ fn cli_sign_signs_manifest_in_registry() {
     // ARRANGE
     let keys = generate_test_keys().expect("generate test keys");
     let workspace = TempDir::new().expect("create temp dir");
-    let key_path = workspace.path().join("imager.key.pem");
+    let key_path = workspace.path().join("koci.key.pem");
     std::fs::write(&key_path, &keys.private_key_pem).expect("write private key");
 
     let path = "/v2/repo/manifests/test";
@@ -711,14 +710,14 @@ fn cli_sign_signs_manifest_in_registry() {
     .expect("start mock registry");
 
     // ACT
-    let output = Command::new(imager_bin())
+    let output = Command::new(koci_bin())
         .arg("sign")
         .arg("--image")
         .arg(registry.reference("repo", "test"))
         .arg("--key")
         .arg(&key_path)
         .output()
-        .expect("run imager sign");
+        .expect("run koci sign");
 
     // ASSERT
     assert!(
@@ -748,14 +747,14 @@ fn cli_reports_key_file_read_error() {
     let missing_path = workspace.path().join("missing.pem");
 
     // ACT
-    let output = Command::new(imager_bin())
+    let output = Command::new(koci_bin())
         .arg("sign")
         .arg("--image")
         .arg("127.0.0.1:9/repo:test")
         .arg("--key")
         .arg(&missing_path)
         .output()
-        .expect("run imager sign");
+        .expect("run koci sign");
 
     // ASSERT
     assert!(!output.status.success(), "sign unexpectedly succeeded");

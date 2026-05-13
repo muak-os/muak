@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::oci::http::{HttpClient, collect_body, get};
 
 /// JSON response returned by OCI token endpoints.
@@ -55,9 +55,8 @@ async fn fetch_auth_token_from_url(client: &HttpClient, token_url: &str) -> Resu
 }
 
 fn parse_token_response(body: &[u8]) -> Result<String> {
-    let text = std::str::from_utf8(body).map_err(|e| {
-        ImagerError::NetworkError(format!("Auth token response is not UTF-8: {}", e))
-    })?;
+    let text = std::str::from_utf8(body)
+        .map_err(|e| KociError::NetworkError(format!("Auth token response is not UTF-8: {}", e)))?;
     let token_resp: TokenResponse = serde_json::from_str(text)?;
     Ok(token_resp.token)
 }
@@ -157,7 +156,7 @@ mod tests {
         // ACT / ASSERT
         assert!(matches!(
             parse_token_response(&body),
-            Err(ImagerError::NetworkError(_))
+            Err(KociError::NetworkError(_))
         ));
     }
 
@@ -169,7 +168,7 @@ mod tests {
         // ACT / ASSERT
         assert!(matches!(
             parse_token_response(body),
-            Err(ImagerError::SerializationError(_))
+            Err(KociError::SerializationError(_))
         ));
     }
 
@@ -221,7 +220,7 @@ mod tests {
         // ACT / ASSERT
         assert!(matches!(
             fetch_auth_token_from_url(&client, &server.url()).await,
-            Err(ImagerError::SerializationError(_))
+            Err(KociError::SerializationError(_))
         ));
     }
 }

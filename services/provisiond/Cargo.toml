@@ -34,7 +34,7 @@ tonic-prost = { workspace = true }
 # Internal
 btrfs = { workspace = true }
 granola = { workspace = true }
-imager = { workspace = true }
+koci = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
 pki = { workspace = true }

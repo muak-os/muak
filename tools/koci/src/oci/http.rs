@@ -8,7 +8,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rustls::{ClientConfig, RootCertStore};
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::oci::USER_AGENT;
 
 /// HTTPS connector backed by rustls that also supports plain HTTP.
@@ -86,15 +86,15 @@ async fn send(
     url: &str,
 ) -> Result<Response<Incoming>> {
     let req =
-        req.map_err(|e| ImagerError::NetworkError(format!("Failed to build request: {}", e)))?;
+        req.map_err(|e| KociError::NetworkError(format!("Failed to build request: {}", e)))?;
     let resp = client
         .request(req)
         .await
-        .map_err(|e| ImagerError::NetworkError(format!("HTTP request failed: {}", e)))?;
+        .map_err(|e| KociError::NetworkError(format!("HTTP request failed: {}", e)))?;
     if resp.status().is_success() {
         Ok(resp)
     } else {
-        Err(ImagerError::DownloadError(format!(
+        Err(KociError::DownloadError(format!(
             "HTTP {} for URL: {}",
             resp.status(),
             url
@@ -108,7 +108,7 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
         .collect()
         .await
         .map(|c| c.to_bytes())
-        .map_err(|e| ImagerError::NetworkError(format!("Failed to read response body: {}", e)))
+        .map_err(|e| KociError::NetworkError(format!("Failed to read response body: {}", e)))
 }
 
 #[cfg(test)]
@@ -134,7 +134,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 
     #[tokio::test]
@@ -157,7 +157,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 
     #[tokio::test]
@@ -179,6 +179,6 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 }

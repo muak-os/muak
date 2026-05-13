@@ -64,7 +64,7 @@ mod cli {
                 let key_contents = pub_key.map(|p| read_key_file(&p)).transpose()?;
                 let arch = arch.unwrap_or_else(|| host_oci_arch().to_string());
 
-                imager::pull(&image, &arch, &output, key_contents.as_deref())
+                koci::pull(&image, &arch, &output, key_contents.as_deref())
                     .await
                     .context("Failed to pull image")?;
                 println!("Successfully extracted image to {}", output.display());
@@ -72,7 +72,7 @@ mod cli {
             Command::Sign { image, key } => {
                 let privkey_pem = read_key_file(&key)?;
 
-                imager::sign(&image, &privkey_pem)
+                koci::sign(&image, &privkey_pem)
                     .await
                     .context("Failed to sign image")?;
                 println!("Successfully signed {}", image);

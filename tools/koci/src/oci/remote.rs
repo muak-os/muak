@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor};
 use crate::oci::auth::fetch_auth_token;
 use crate::oci::http::{HttpClient, build_client};
@@ -76,7 +76,7 @@ async fn download_and_extract_layers(
             }
             Err(error) => {
                 join_set.abort_all();
-                return Err(ImagerError::DownloadError(format!(
+                return Err(KociError::DownloadError(format!(
                     "Layer download task panicked: {error}"
                 )));
             }
@@ -85,14 +85,14 @@ async fn download_and_extract_layers(
 
     for (index, entry) in downloaded.into_iter().enumerate() {
         let (bytes, media_type) = entry.ok_or_else(|| {
-            ImagerError::DownloadError(format!("missing download result for layer {index}"))
+            KociError::DownloadError(format!("missing download result for layer {index}"))
         })?;
         tokio::task::spawn_blocking({
             let dest = dest.to_path_buf();
             move || layer::extract_archive(&bytes, media_type.as_deref(), &dest)
         })
         .await
-        .map_err(|e| ImagerError::LayerExtractionError(format!("layer {index}: {e}")))??;
+        .map_err(|e| KociError::LayerExtractionError(format!("layer {index}: {e}")))??;
     }
 
     Ok(())
@@ -526,7 +526,7 @@ mod tests {
         .expect_err("download should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::UnsupportedLayerMediaType(_)));
+        assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
     }
 
     #[tokio::test]
@@ -576,7 +576,7 @@ mod tests {
         .expect_err("pull should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 
     #[tokio::test]
@@ -599,7 +599,7 @@ mod tests {
         .expect_err("pull should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::OciParseError(_)));
+        assert!(matches!(error, KociError::OciParseError(_)));
     }
 
     #[tokio::test]
@@ -631,6 +631,6 @@ mod tests {
         .expect_err("pull should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::UnsupportedLayerMediaType(_)));
+        assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
     }
 }

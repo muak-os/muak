@@ -7,7 +7,7 @@ pub mod error;
 
 use std::path::Path;
 
-pub use error::{ImagerError, Result};
+pub use error::{KociError, Result};
 use oci::remote::pull_to_dir;
 
 /// Pull an OCI image and extract it to a directory.
@@ -45,6 +45,6 @@ mod tests {
 
         // ASSERT
         assert!(output.is_dir());
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 }

@@ -4,7 +4,7 @@ use base64ct::{Base64Url, Encoding};
 use ring::signature;
 use serde_json::Value;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::oci::sign::manifest_signing_payload;
 
 /// Annotation key used to store the image signature.
@@ -32,7 +32,7 @@ pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<(
     let expected_hash =
         expected_digest
             .strip_prefix("sha256:")
-            .ok_or_else(|| ImagerError::DigestMismatch {
+            .ok_or_else(|| KociError::DigestMismatch {
                 resource: "blob".to_string(),
                 expected: expected_digest.to_string(),
                 actual: "unsupported digest algorithm".to_string(),
@@ -41,7 +41,7 @@ pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<(
     let actual_hash = sha256_hex(data);
 
     if actual_hash != expected_hash {
-        return Err(ImagerError::DigestMismatch {
+        return Err(KociError::DigestMismatch {
             resource: expected_digest.to_string(),
             expected: expected_hash.to_string(),
             actual: actual_hash,
@@ -62,7 +62,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
     };
 
     let manifest_value: Value = serde_json::from_str(manifest_json).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!("Failed to parse manifest JSON: {}", e))
+        KociError::SignatureVerificationFailed(format!("Failed to parse manifest JSON: {}", e))
     })?;
 
     let sig_b64 = manifest_value
@@ -70,7 +70,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
         .and_then(|a| a.get(SIG_ANNOTATION))
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            ImagerError::SignatureVerificationFailed(format!(
+            KociError::SignatureVerificationFailed(format!(
                 "Manifest has no '{}' annotation — image is not signed",
                 SIG_ANNOTATION
             ))
@@ -80,7 +80,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
     let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
 
     let sig_bytes = Base64Url::decode_vec(&sig_b64).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
+        KociError::SignatureVerificationFailed(format!(
             "Failed to decode signature annotation: {}",
             e
         ))
@@ -94,7 +94,7 @@ pub(crate) async fn check_signature(manifest_json: &str, pubkey_pem: Option<&str
     public_key
         .verify(digest.as_bytes(), &sig_bytes)
         .map_err(|_| {
-            ImagerError::SignatureVerificationFailed(
+            KociError::SignatureVerificationFailed(
                 "Signature verification failed: image was not signed by the trusted key"
                     .to_string(),
             )
@@ -123,13 +123,13 @@ pub(crate) fn parse_pem_public_key(pem: &str) -> Result<Vec<u8>> {
     }
 
     if b64.is_empty() {
-        return Err(ImagerError::SignatureVerificationFailed(
+        return Err(KociError::SignatureVerificationFailed(
             "No public key data found in PEM".to_string(),
         ));
     }
 
     let spki = base64ct::Base64::decode_vec(&b64).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
+        KociError::SignatureVerificationFailed(format!(
             "Failed to decode public key from PEM: {}",
             e
         ))
@@ -139,13 +139,13 @@ pub(crate) fn parse_pem_public_key(pem: &str) -> Result<Vec<u8>> {
     const POINT_LEN: usize = 65; // 0x04 || x[32] || y[32]
 
     if spki.len() < POINT_OFFSET + POINT_LEN {
-        return Err(ImagerError::SignatureVerificationFailed(
+        return Err(KociError::SignatureVerificationFailed(
             "Public key SPKI DER is too short to contain a P-256 point".to_string(),
         ));
     }
 
     if spki[POINT_OFFSET] != 0x04 {
-        return Err(ImagerError::SignatureVerificationFailed(
+        return Err(KociError::SignatureVerificationFailed(
             "Public key is not an uncompressed EC point (expected 0x04 prefix)".to_string(),
         ));
     }
@@ -171,14 +171,14 @@ mod tests {
     fn generate_test_key_pair(rng: &SystemRandom) -> Result<EcdsaKeyPair> {
         let pkcs8 =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng).map_err(|_| {
-                ImagerError::SignatureVerificationFailed(
+                KociError::SignatureVerificationFailed(
                     "failed to generate ECDSA test key".to_string(),
                 )
             })?;
 
         EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), rng).map_err(
             |_| {
-                ImagerError::SignatureVerificationFailed(
+                KociError::SignatureVerificationFailed(
                     "failed to parse generated ECDSA test key".to_string(),
                 )
             },
@@ -191,7 +191,7 @@ mod tests {
         digest: &str,
     ) -> Result<String> {
         let sig = key_pair.sign(rng, digest.as_bytes()).map_err(|_| {
-            ImagerError::SignatureVerificationFailed(
+            KociError::SignatureVerificationFailed(
                 "failed to sign manifest digest in test".to_string(),
             )
         })?;
@@ -261,7 +261,7 @@ mod tests {
         let result = verify_blob_digest(data, digest);
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::DigestMismatch { .. })));
+        assert!(matches!(result, Err(KociError::DigestMismatch { .. })));
     }
 
     #[test]
@@ -418,7 +418,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[tokio::test]
@@ -435,7 +435,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[test]
@@ -450,7 +450,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[test]
@@ -470,6 +470,6 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 }

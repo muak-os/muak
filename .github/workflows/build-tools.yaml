@@ -5,7 +5,7 @@ on:
     branches: [master]
     paths:
       - "tools/miso/**"
-      - "tools/imager/**"
+      - "tools/koci/**"
       - "tools/ramune/**"
       - "tools/yuki/**"
       - "libs/erofs/**"
@@ -19,7 +19,7 @@ on:
   pull_request:
     paths:
       - "tools/miso/**"
-      - "tools/imager/**"
+      - "tools/koci/**"
       - "tools/ramune/**"
       - "tools/yuki/**"
       - "libs/erofs/**"

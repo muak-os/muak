@@ -9,7 +9,7 @@ use hyper::body::Bytes;
 use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair};
 
-use crate::error::{ImagerError, Result};
+use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciManifest};
 use crate::oci::auth::fetch_auth_token;
 use crate::oci::http::{HttpClient, build_client, put};
@@ -62,7 +62,7 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
 /// Compute the canonical payload for signing a manifest JSON string.
 pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, Vec<u8>)> {
     let mut value: serde_json::Value = serde_json::from_str(manifest_json)
-        .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
+        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
 
     if let Some(obj) = value.as_object_mut() {
         let remove_annotations =
@@ -80,7 +80,7 @@ pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, V
     sort_keys(&mut value);
 
     let canonical = serde_json::to_vec(&value).map_err(|e| {
-        ImagerError::OciParseError(format!("Failed to serialise canonical manifest: {}", e))
+        KociError::OciParseError(format!("Failed to serialise canonical manifest: {}", e))
     })?;
 
     let digest = format!("sha256:{}", sha256_hex(&canonical));
@@ -121,20 +121,20 @@ fn build_signed_manifest(
 
     let sig = key_pair
         .sign(rng, digest.as_bytes())
-        .map_err(|_| ImagerError::SignatureVerificationFailed("Signing failed".to_string()))?;
+        .map_err(|_| KociError::SignatureVerificationFailed("Signing failed".to_string()))?;
     let sig_b64 = Base64Url::encode_string(sig.as_ref());
 
     let mut manifest_value: serde_json::Value = serde_json::from_str(manifest_json)
-        .map_err(|e| ImagerError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
+        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
 
     manifest_value
         .as_object_mut()
-        .ok_or_else(|| ImagerError::InvalidOciFormat("Manifest is not a JSON object".to_string()))?
+        .ok_or_else(|| KociError::InvalidOciFormat("Manifest is not a JSON object".to_string()))?
         .entry("annotations")
         .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
         .as_object_mut()
         .ok_or_else(|| {
-            ImagerError::InvalidOciFormat("Manifest annotations is not a JSON object".to_string())
+            KociError::InvalidOciFormat("Manifest annotations is not a JSON object".to_string())
         })?
         .insert(
             SIG_ANNOTATION.to_string(),
@@ -148,7 +148,7 @@ fn build_signed_manifest(
         .to_string();
 
     let signed_bytes = serde_json::to_vec(&manifest_value).map_err(|e| {
-        ImagerError::OciParseError(format!("Failed to serialise signed manifest: {}", e))
+        KociError::OciParseError(format!("Failed to serialise signed manifest: {}", e))
     })?;
 
     Ok((Bytes::from(signed_bytes), content_type))
@@ -188,14 +188,14 @@ fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
     }
 
     if b64.is_empty() {
-        return Err(ImagerError::SignatureVerificationFailed(
+        return Err(KociError::SignatureVerificationFailed(
             "No private key data found in PEM (expected PKCS#8 '-----BEGIN PRIVATE KEY-----')"
                 .to_string(),
         ));
     }
 
     let der = base64ct::Base64::decode_vec(&b64).map_err(|e| {
-        ImagerError::SignatureVerificationFailed(format!(
+        KociError::SignatureVerificationFailed(format!(
             "Failed to decode private key from PEM: {}",
             e
         ))
@@ -203,7 +203,7 @@ fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
 
     EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &der, &SystemRandom::new()).map_err(
         |_| {
-            ImagerError::SignatureVerificationFailed(
+            KociError::SignatureVerificationFailed(
                 "Failed to parse ECDSA P-256 private key (must be PKCS#8 format)".to_string(),
             )
         },
@@ -358,7 +358,7 @@ mod tests {
         };
 
         // ASSERT
-        assert!(matches!(error, ImagerError::OciParseError(_)));
+        assert!(matches!(error, KociError::OciParseError(_)));
     }
 
     #[test]
@@ -373,7 +373,7 @@ mod tests {
             build_signed_manifest(manifest_json, &key_pair, &rng).expect_err("signing should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::InvalidOciFormat(_)));
     }
 
     #[test]
@@ -383,7 +383,7 @@ mod tests {
 
         // ACT / ASSERT
         let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[test]
@@ -393,7 +393,7 @@ mod tests {
             parse_pem_private_key("not a pem file").expect_err("private key parsing should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[test]
@@ -403,7 +403,7 @@ mod tests {
 
         // ACT / ASSERT
         let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
-        assert!(matches!(error, ImagerError::SignatureVerificationFailed(_)));
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
     #[tokio::test]
@@ -425,6 +425,6 @@ mod tests {
         .expect_err("push manifest should fail");
 
         // ASSERT
-        assert!(matches!(error, ImagerError::NetworkError(_)));
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 }

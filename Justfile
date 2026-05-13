@@ -138,7 +138,7 @@ sign image=(registry + "/installer:" + tag):
     {{ container_runtime }} run --rm --network=host \
         -v "{{ absolute_path(signature) }}:/key:ro" \
         {{ tools }} \
-        /imager sign \
+        /koci sign \
             --image "{{ image }}" \
             --key /key
 
@@ -186,7 +186,7 @@ oci *pkgs:
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run clippy and rustfmt (e.g., just lint or just lint yuki imager)
+# Run clippy and rustfmt (e.g., just lint or just lint yuki koci)
 [script]
 lint *pkgs:
     printf "{{ cyan }}Running lints{{ reset }}\n"
@@ -204,7 +204,7 @@ lint *pkgs:
         cargo +nightly clippy --target {{ arch }}-unknown-uefi --features uefi -p stub
     fi
 
-# Run tests (e.g., just test or just test yuki imager)
+# Run tests (e.g., just test or just test yuki koci)
 [script]
 test *pkgs:
     just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}

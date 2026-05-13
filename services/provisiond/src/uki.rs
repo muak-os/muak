@@ -130,7 +130,7 @@ impl Uki {
 async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    imager::pull(image, host_oci_arch(), dest_dir, Some(SIGNATURE_PUB))
+    koci::pull(image, host_oci_arch(), dest_dir, Some(SIGNATURE_PUB))
         .await
         .context("Failed to pull installer image")?;
 
@@ -192,7 +192,7 @@ async fn pull_extensions(extensions: &[String]) -> Result<Vec<(String, tempfile:
     for ext in extensions {
         let tmp =
             tempfile::TempDir::new_in("/run").context("Failed to create temp dir for extension")?;
-        imager::pull(ext, host_oci_arch(), tmp.path(), None)
+        koci::pull(ext, host_oci_arch(), tmp.path(), None)
             .await
             .with_context(|| format!("Failed to pull extension: {ext}"))?;
         dirs.push((oci_ref_to_logical_name(ext), tmp));
