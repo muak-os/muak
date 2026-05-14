@@ -112,10 +112,7 @@ fn main() -> Result<()> {
 
     let combined_cmdline: Vec<u8>;
     let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
-        let base_cmd = sections
-            .cmdline
-            .map(strip_trailing_nuls)
-            .unwrap_or(b"");
+        let base_cmd = sections.cmdline.map(strip_trailing_nuls).unwrap_or(b"");
         let encoded_len = Base64Unpadded::encoded_len(luks_data);
 
         let total_len = base_cmd.len() + LUKS_KEY_PREFIX.len() + encoded_len;
