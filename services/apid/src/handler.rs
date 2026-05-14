@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
@@ -19,7 +20,7 @@ pub async fn handle_request(
     req: Request<Incoming>,
     client_fingerprint: Option<Arc<str>>,
     maintenance_mode: bool,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Body>> {
     let path = req.uri().path();
     let requirement = rbac::method_permission(path);
 
@@ -31,7 +32,7 @@ pub async fn handle_request(
 
     if !skip_rbac && let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
         kmsg::warn!("Access denied for {}: {}", path, e);
-        return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
+        return grpc_error(e.grpc_status_code(), &e.grpc_message());
     }
 
     if !maintenance_mode
@@ -40,14 +41,14 @@ pub async fn handle_request(
     {
         let e = rbac::RbacError::InsecureNotAllowed;
         kmsg::warn!("Insecure access blocked for {}: {}", path, e);
-        return Ok(grpc_error(e.grpc_status_code(), &e.grpc_message()));
+        return grpc_error(e.grpc_status_code(), &e.grpc_message());
     }
 
     let socket_path = match route_request(path).await {
         Some(socket) => socket,
         None => {
             kmsg::warn!("Unknown service path: {}", path);
-            return Ok(grpc_error(12, "Unknown service"));
+            return grpc_error(12, "Unknown service");
         }
     };
 
@@ -55,7 +56,7 @@ pub async fn handle_request(
         Ok(response) => Ok(response.map(Either::Right)),
         Err(e) => {
             kmsg::error!("Proxy error to {}: {}", socket_path, e);
-            Ok(grpc_error(14, &format!("Backend unavailable: {}", e)))
+            grpc_error(14, &format!("Backend unavailable: {}", e))
         }
     }
 }
@@ -87,14 +88,14 @@ pub async fn route_request(path: &str) -> Option<&'static str> {
 }
 
 /// Creates a gRPC error response with the given status code and message.
-pub fn grpc_error(status: u8, message: &str) -> Response<Body> {
+pub fn grpc_error(status: u8, message: &str) -> Result<Response<Body>> {
     Response::builder()
         .status(200)
         .header("content-type", "application/grpc")
         .header("grpc-status", status.to_string())
         .header("grpc-message", message)
         .body(Either::Left(Empty::new()))
-        .expect("building response should not fail")
+        .context("Failed to build gRPC error response")
 }
 
 #[cfg(test)]

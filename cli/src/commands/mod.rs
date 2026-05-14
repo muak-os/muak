@@ -181,7 +181,8 @@ async fn handle_cmd(
 ) -> Result<()> {
     match cli.command {
         Commands::Auth { action } => {
-            let action = action.expect("None case handled in offline commands");
+            let action =
+                action.ok_or_else(|| anyhow::anyhow!("Auth action missing in online handler"))?;
             auth::handle(channel, action).await
         }
         Commands::Config { action } => config::handle(channel, action).await,

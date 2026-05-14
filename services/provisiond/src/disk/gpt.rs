@@ -218,7 +218,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
 fn uuid_now() -> uuid::Timestamp {
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system time is before Unix epoch");
+        .unwrap_or_default();
     uuid::Timestamp::from_unix(uuid::NoContext, dur.as_secs(), dur.subsec_nanos())
 }
 

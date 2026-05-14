@@ -37,14 +37,14 @@ pub async fn apply() -> Result<()> {
 
     uki.build(&staged, sb_hierarchy.as_ref())?;
 
-    let needs_enrollment = sb_hierarchy.is_some()
-        && sbolt::efi::get_pk()
+    if let Some(hier) = sb_hierarchy.as_ref() {
+        let pk_missing = sbolt::efi::get_pk()
             .context("Failed to read PK from firmware")?
             .is_none();
-
-    if needs_enrollment {
-        sbolt::efi::enroll_keys(sb_hierarchy.as_ref().expect("checked above"))
-            .context("Failed to enroll Secure Boot keys into firmware")?;
+        if pk_missing {
+            sbolt::efi::enroll_keys(hier)
+                .context("Failed to enroll Secure Boot keys into firmware")?;
+        }
     }
 
     let firmware_dir = efi::resolve_firmware(config::host(), Path::new(FIRMWARE_DIR)).await?;

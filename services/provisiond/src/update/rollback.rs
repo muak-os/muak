@@ -87,7 +87,7 @@ pub fn list(limit: usize) -> Result<Vec<RollbackInfo>> {
         Err(_) => return Ok(Vec::new()),
     };
 
-    entries.sort_unstable_by(|a, b| b.rolled_back_at.cmp(&a.rolled_back_at));
+    entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.rolled_back_at));
     entries.truncate(limit);
     Ok(entries)
 }

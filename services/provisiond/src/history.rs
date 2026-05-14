@@ -82,7 +82,7 @@ pub fn list(limit: usize) -> Result<Vec<HistoryEntry>> {
     }
 
     let mut entries = read_all_entries(dir)?;
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
     entries.truncate(limit);
     Ok(entries)
 }

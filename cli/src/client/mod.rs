@@ -114,7 +114,7 @@ pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Ch
         .with_context(|| format!("Failed to connect to {} (TLS)", server))?;
 
     let fingerprint = state
-        .fingerprint()
+        .fingerprint()?
         .context("Server certificate fingerprint not captured during TLS handshake")?;
 
     Ok((channel, fingerprint))

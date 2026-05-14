@@ -62,7 +62,7 @@ pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
 /// Unmounts all partitions in the provided list, deepest mount points first.
 pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
     let mut sorted: Vec<_> = partitions.iter().collect();
-    sorted.sort_by(|a, b| b.mount_point.len().cmp(&a.mount_point.len()));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.mount_point.len()));
 
     for p in sorted {
         unmount(p.mount_point.as_str(), UnmountFlags::empty())

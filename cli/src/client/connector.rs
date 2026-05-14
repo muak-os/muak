@@ -16,8 +16,12 @@ pub struct TofuState {
 
 impl TofuState {
     /// Returns the captured server fingerprint, if one has been recorded.
-    pub fn fingerprint(&self) -> Option<String> {
-        self.inner.lock().unwrap().clone()
+    pub fn fingerprint(&self) -> Result<Option<String>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("TofuState mutex poisoned: {}", e))?
+            .clone())
     }
 }
 
@@ -195,7 +199,12 @@ impl ServerCertVerifier for TofuServerCertVerifier {
             )));
         }
 
-        *self.state.inner.lock().unwrap() = Some(fingerprint);
+        *self
+            .state
+            .inner
+            .lock()
+            .map_err(|e| rustls::Error::General(format!("TofuState mutex poisoned: {}", e)))? =
+            Some(fingerprint);
         Ok(ServerCertVerified::assertion())
     }
 

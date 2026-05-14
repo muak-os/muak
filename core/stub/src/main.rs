@@ -28,7 +28,7 @@ const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca
 const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
 
 /// Initializes the UEFI crate with system table and image handle
-fn setup_uefi_crate() {
+fn setup_uefi_crate() -> Result<()> {
     let st = uefi_std::env::system_table();
     let ih = uefi_std::env::image_handle();
 
@@ -37,14 +37,16 @@ fn setup_uefi_crate() {
     unsafe {
         uefi::table::set_system_table(st.as_ptr().cast());
 
-        let ih = Handle::from_ptr(ih.as_ptr().cast()).expect("Something's very wrong");
+        let ih =
+            Handle::from_ptr(ih.as_ptr().cast()).context("UEFI image handle pointer is null")?;
         uefi::boot::set_image_handle(ih);
     }
+    Ok(())
 }
 
 /// Entry point for the UEFI stub
 fn main() -> Result<()> {
-    setup_uefi_crate();
+    setup_uefi_crate()?;
 
     info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
 
@@ -112,7 +114,7 @@ fn main() -> Result<()> {
     let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
         let base_cmd = sections
             .cmdline
-            .map(|c| strip_trailing_nuls(c))
+            .map(strip_trailing_nuls)
             .unwrap_or(b"");
         let encoded_len = Base64Unpadded::encoded_len(luks_data);
 

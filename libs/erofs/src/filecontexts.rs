@@ -25,7 +25,7 @@ impl FileContexts {
             Self::parse_entry(line.trim(), &mut exact, &mut prefix, &mut default)?;
         }
 
-        prefix.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        prefix.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
 
         Ok(Self {
             exact,
