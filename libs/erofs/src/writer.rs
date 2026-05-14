@@ -60,7 +60,7 @@ pub fn write_image(inodes: &[InodeLayout], config: &crate::MkfsConfig<'_>) -> Re
     let root_nid = inodes.first().map_or(0, |i| i.nid as u16);
     let blocks = (total_size / bs) as u32;
 
-    superblock::write_superblock(
+    superblock::write(
         &mut image,
         &SuperblockParams {
             root_nid,
@@ -251,6 +251,8 @@ fn write_compressed_file_data(
         out_off: ebase,
         blkaddr_ret: inode.data_blkaddr,
         dummy_head: false,
+        blkaddr: inode.data_blkaddr,
+        update_blkaddr_in_pack: false,
     };
 
     write_compact_indexes(image, &entries, &mut st, c4i, c2b, c4e);
@@ -340,17 +342,14 @@ fn build_legacy_index_entries(cf: &CompressedFile, start_blkaddr: u32) -> Vec<Le
         }
 
         while local_clusterofs + count >= bs {
-            if d0 == 0 {
-                entries.push(LegacyIndexEntry::head(head_clusterofs, blkaddr));
-            } else if d0 == 1 {
-                entries.push(LegacyIndexEntry::nonhead(
-                    Z_EROFS_LI_D0_CBLKCNT | 1,
+            entries.push(match d0 {
+                0 => LegacyIndexEntry::head(head_clusterofs, blkaddr),
+                1 => LegacyIndexEntry::nonhead(Z_EROFS_LI_D0_CBLKCNT | 1, d1 as u16),
+                _ => LegacyIndexEntry::nonhead(
+                    d0.min((Z_EROFS_LI_D0_CBLKCNT - 1) as usize) as u16,
                     d1 as u16,
-                ));
-            } else {
-                let encoded_d0 = d0.min((Z_EROFS_LI_D0_CBLKCNT - 1) as usize) as u16;
-                entries.push(LegacyIndexEntry::nonhead(encoded_d0, d1 as u16));
-            }
+                ),
+            });
 
             count -= bs - local_clusterofs;
             local_clusterofs = 0;
@@ -373,6 +372,8 @@ struct CompactWriteState {
     out_off: usize,
     blkaddr_ret: u32,
     dummy_head: bool,
+    blkaddr: u32,
+    update_blkaddr_in_pack: bool,
 }
 
 /// Convert full-index vectors into compact packs.
@@ -436,37 +437,14 @@ fn write_compacted_pack(
     let out_len = destsize * vcnt;
 
     let mut bit_pos = 0usize;
-    let mut blkaddr = st.blkaddr_ret;
-    let mut update_blkaddr_in_pack = update_blkaddr;
+    st.blkaddr = st.blkaddr_ret;
+    st.update_blkaddr_in_pack = update_blkaddr;
 
     for (i, e) in pack.iter().enumerate() {
         let offset = if e.clustertype == Z_EROFS_LCLUSTER_TYPE_NONHEAD {
-            if e.delta0 & Z_EROFS_LI_D0_CBLKCNT != 0 {
-                let cblks = e.delta0 & !Z_EROFS_LI_D0_CBLKCNT;
-                blkaddr += cblks as u32;
-                st.dummy_head = false;
-                e.delta0
-            } else if i + 1 == vcnt {
-                e.delta1.min(Z_EROFS_LI_D0_CBLKCNT - 1)
-            } else {
-                e.delta0
-            }
+            nonhead_offset(e, i, vcnt, st)
         } else {
-            if st.dummy_head {
-                blkaddr += 1;
-                if update_blkaddr_in_pack {
-                    st.blkaddr_ret = blkaddr;
-                }
-            }
-            st.dummy_head = true;
-            update_blkaddr_in_pack = false;
-
-            if e.blkaddr != blkaddr {
-                debug_assert!(i + 1 == vcnt || final_pack);
-                debug_assert_eq!(e.blkaddr, 0);
-            }
-
-            e.clusterofs
+            head_offset(e, i, vcnt, final_pack, st)
         };
 
         let encoded = ((e.clustertype as u32) << LOBITS) | u32::from(offset);
@@ -476,7 +454,7 @@ fn write_compacted_pack(
 
     debug_assert_eq!(out_len * 8, bit_pos + 32);
     out[out_len - 4..out_len].copy_from_slice(&st.blkaddr_ret.to_le_bytes());
-    st.blkaddr_ret = blkaddr;
+    st.blkaddr_ret = st.blkaddr;
     image[st.out_off..st.out_off + out_len].copy_from_slice(&out[..out_len]);
     st.out_off += out_len;
 }
@@ -488,6 +466,40 @@ fn pack_bits_le(buf: &mut [u8], bit_offset: usize, value: u32, nbits: usize) {
             let pos = bit_offset + i;
             buf[pos / 8] |= 1 << (pos % 8);
         }
+    }
+}
+
+/// Compute the packed offset for a HEAD entry, advancing blkaddr state.
+fn head_offset(
+    e: &LegacyIndexEntry,
+    i: usize,
+    vcnt: usize,
+    final_pack: bool,
+    st: &mut CompactWriteState,
+) -> u16 {
+    if st.dummy_head {
+        st.blkaddr += 1;
+        if st.update_blkaddr_in_pack {
+            st.blkaddr_ret = st.blkaddr;
+        }
+    }
+    st.dummy_head = true;
+    st.update_blkaddr_in_pack = false;
+    debug_assert!(e.blkaddr == st.blkaddr || i + 1 == vcnt || final_pack);
+    debug_assert!(e.blkaddr == st.blkaddr || e.blkaddr == 0);
+    e.clusterofs
+}
+
+/// Compute the packed offset for a NONHEAD entry.
+fn nonhead_offset(e: &LegacyIndexEntry, i: usize, vcnt: usize, st: &mut CompactWriteState) -> u16 {
+    if e.delta0 & Z_EROFS_LI_D0_CBLKCNT != 0 {
+        st.blkaddr += (e.delta0 & !Z_EROFS_LI_D0_CBLKCNT) as u32;
+        st.dummy_head = false;
+        e.delta0
+    } else if i + 1 == vcnt {
+        e.delta1.min(Z_EROFS_LI_D0_CBLKCNT - 1)
+    } else {
+        e.delta0
     }
 }
 
@@ -1125,6 +1137,8 @@ mod tests {
             out_off: 512,
             blkaddr_ret: 200,
             dummy_head: false,
+            blkaddr: 200,
+            update_blkaddr_in_pack: false,
         };
         let pack = [LegacyIndexEntry::head(904, 200), LegacyIndexEntry::zero()];
 

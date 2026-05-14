@@ -39,18 +39,7 @@ pub fn serialize_dir_entries(entries: &[DirEntry]) -> Vec<u8> {
     let mut idx = 0usize;
 
     while idx < entries.len() {
-        let mut block_end = idx;
-        let mut used = 0usize;
-
-        while block_end < entries.len() {
-            let len = DIRENT_SIZE + entries[block_end].name.len();
-            if used + len > bs {
-                break;
-            }
-            used += len;
-            block_end += 1;
-        }
-
+        let block_end = block_end(entries, idx, bs);
         let mut dirent_offset = 0usize;
         let mut name_offset = (block_end - idx) * DIRENT_SIZE;
 
@@ -78,6 +67,21 @@ pub fn serialize_dir_entries(entries: &[DirEntry]) -> Vec<u8> {
     }
 
     buf
+}
+
+/// Determine how many entries fit in the current block starting from `start`.
+fn block_end(entries: &[DirEntry], start: usize, bs: usize) -> usize {
+    let mut used = 0usize;
+    let mut end = start;
+    while end < entries.len() {
+        let len = DIRENT_SIZE + entries[end].name.len();
+        if used + len > bs {
+            break;
+        }
+        used += len;
+        end += 1;
+    }
+    end
 }
 
 #[cfg(test)]

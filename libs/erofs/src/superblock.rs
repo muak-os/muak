@@ -25,7 +25,7 @@ pub struct SuperblockParams {
 }
 
 /// Serialize the 128-byte on-disk superblock into `buf` at the correct offset.
-pub fn write_superblock(buf: &mut [u8], p: &SuperblockParams) {
+pub fn write(buf: &mut [u8], p: &SuperblockParams) {
     let sb = &mut buf[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 128];
 
     sb[0x00..0x04].copy_from_slice(&EROFS_SUPER_MAGIC_V1.to_le_bytes());
@@ -91,7 +91,7 @@ mod tests {
         let mut buf = vec![0u8; BLOCK_SIZE as usize];
 
         // ACT
-        write_superblock(&mut buf, &test_params());
+        write(&mut buf, &test_params());
 
         // ASSERT
         let magic = u32::from_le_bytes(
@@ -108,7 +108,7 @@ mod tests {
         let mut buf = vec![0u8; BLOCK_SIZE as usize];
 
         // ACT
-        write_superblock(&mut buf, &test_params());
+        write(&mut buf, &test_params());
 
         // ASSERT
         assert_eq!(buf[EROFS_SUPER_OFFSET + 0x0C], 12);
@@ -120,7 +120,7 @@ mod tests {
         let mut buf = vec![0u8; BLOCK_SIZE as usize];
 
         // ACT
-        write_superblock(&mut buf, &test_params());
+        write(&mut buf, &test_params());
 
         // ASSERT
         let meta = u32::from_le_bytes(
@@ -135,7 +135,7 @@ mod tests {
     fn checksum_roundtrip() {
         // ARRANGE
         let mut buf = vec![0u8; BLOCK_SIZE as usize];
-        write_superblock(&mut buf, &test_params());
+        write(&mut buf, &test_params());
 
         // ACT
         write_checksum(&mut buf);
@@ -161,7 +161,7 @@ mod tests {
         p.epoch = 1_700_000_000;
 
         // ACT
-        write_superblock(&mut buf, &p);
+        write(&mut buf, &p);
 
         // ASSERT
         let stored = u64::from_le_bytes(
@@ -180,7 +180,7 @@ mod tests {
         p.root_nid = 42;
 
         // ACT
-        write_superblock(&mut buf, &p);
+        write(&mut buf, &p);
 
         // ASSERT
         let nid = u16::from_le_bytes(
@@ -205,7 +205,7 @@ mod tests {
         };
 
         // ACT
-        write_superblock(&mut buf, &p);
+        write(&mut buf, &p);
 
         // ASSERT
         let feature_incompat = u32::from_le_bytes(
@@ -239,7 +239,7 @@ mod tests {
         };
 
         // ACT
-        write_superblock(&mut buf, &p);
+        write(&mut buf, &p);
 
         // ASSERT
         let cfg_offset = EROFS_SUPER_OFFSET + 128;
@@ -256,7 +256,7 @@ mod tests {
         let mut buf = vec![0u8; BLOCK_SIZE as usize];
 
         // ACT
-        write_superblock(&mut buf, &test_params());
+        write(&mut buf, &test_params());
 
         // ASSERT
         let feature_incompat = u32::from_le_bytes(

@@ -107,73 +107,112 @@ fn destsize_compress_all(data: &[u8]) -> Result<Vec<Pcluster>> {
     Ok(pclusters)
 }
 
+enum FitblkStep {
+    Advance(usize),
+    Shrink,
+    DoneOk,
+    DoneShrink,
+}
+
+struct FitblkState {
+    l: usize,
+    r: usize,
+    dstsize: usize,
+    l_data: Vec<u8>,
+}
+
+fn fitblk_step(
+    cctx: &mut zstd::zstd_safe::CCtx<'_>,
+    buf: &mut [u8],
+    src: &[u8],
+    m: usize,
+    st: &mut FitblkState,
+) -> Result<FitblkStep> {
+    let to_err = |e: usize| ErofsError::Compression {
+        detail: format!("zstd error code: {e}"),
+    };
+    match cctx.compress2(buf, &src[..m]) {
+        Ok(csize) if csize > 0 && csize <= st.dstsize => {
+            st.l_data.clear();
+            st.l_data.extend_from_slice(&buf[..csize]);
+            if st.r <= m + 1 || csize + 1 >= st.dstsize {
+                Ok(FitblkStep::DoneOk)
+            } else {
+                Ok(FitblkStep::Advance((st.dstsize * m) / csize))
+            }
+        }
+        Ok(_) => {
+            if st.r <= st.l + 1 {
+                Ok(FitblkStep::DoneShrink)
+            } else {
+                Ok(FitblkStep::Shrink)
+            }
+        }
+        Err(code) => {
+            let err_name = zstd::zstd_safe::get_error_name(code);
+            if !err_name.contains("too small")
+                && !err_name.contains("dstSize")
+                && !err_name.contains("Destination buffer")
+            {
+                return Err(to_err(code));
+            }
+            if st.r <= st.l + 1 {
+                Ok(FitblkStep::DoneShrink)
+            } else {
+                Ok(FitblkStep::Shrink)
+            }
+        }
+    }
+}
+
 /// Compress one pcluster: find the largest input prefix that fits in PCLUSTER_SIZE.
 fn destsize_compress_one(
     cctx: &mut zstd::zstd_safe::CCtx<'_>,
     src: &[u8],
 ) -> Result<(Vec<u8>, usize)> {
-    let to_err = |e: usize| ErofsError::Compression {
-        detail: format!("zstd error code: {e}"),
-    };
     let dstsize = PCLUSTER_SIZE;
     let buf_size = dstsize + 32;
     let mut fitblk_buffer = vec![0u8; buf_size];
-
-    let mut l: usize = 0;
-    let mut l_data: Vec<u8> = Vec::new();
-    let mut r: usize = src.len() + 1;
-
+    let mut st = FitblkState {
+        l: 0,
+        r: src.len() + 1,
+        dstsize,
+        l_data: Vec::new(),
+    };
     let mut m: usize = dstsize * 4;
 
     loop {
-        m = m.max(l + 1);
-        m = m.min(r - 1);
-
-        let result = cctx.compress2(&mut fitblk_buffer, &src[..m]);
-        match result {
-            Ok(csize) if csize > 0 && csize <= dstsize => {
-                l_data.clear();
-                l_data.extend_from_slice(&fitblk_buffer[..csize]);
-                l = m;
-                if r <= l + 1 || csize + 1 >= dstsize {
-                    break;
-                }
-                m = (dstsize * m) / csize;
+        m = m.max(st.l + 1).min(st.r - 1);
+        match fitblk_step(cctx, &mut fitblk_buffer, src, m, &mut st)? {
+            FitblkStep::Advance(next_m) => {
+                st.l = m;
+                m = next_m;
             }
-            Ok(_) => {
-                r = m;
-                if r <= l + 1 {
-                    break;
-                }
-                m = (l + r) / 2;
+            FitblkStep::Shrink => {
+                st.r = m;
+                m = (st.l + st.r) / 2;
             }
-            Err(code) => {
-                let err_name = zstd::zstd_safe::get_error_name(code);
-                if err_name.contains("too small")
-                    || err_name.contains("dstSize")
-                    || err_name.contains("Destination buffer")
-                {
-                    r = m;
-                    if r <= l + 1 {
-                        break;
-                    }
-                    m = (l + r) / 2;
-                } else {
-                    return Err(to_err(code));
-                }
+            FitblkStep::DoneOk => {
+                st.l = m;
+                break;
             }
+            FitblkStep::DoneShrink => break,
         }
     }
 
-    if l == 0 {
+    if st.l == 0 {
         let upper = zstd::zstd_safe::compress_bound(src.len());
         let mut dst = vec![0u8; upper];
-        let n = cctx.compress2(&mut dst, src).map_err(to_err)?;
+        let n = cctx
+            .compress2(&mut dst, src)
+            .map_err(|e| ErofsError::Compression {
+                detail: format!("zstd error code: {e}"),
+            })?;
         dst.truncate(n);
         return Ok((dst, src.len()));
     }
 
-    Ok((l_data, l))
+    Ok((st.l_data, st.l))
 }
 
 #[cfg(test)]
