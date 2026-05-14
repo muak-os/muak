@@ -102,6 +102,15 @@ pub fn grpc_error(status: u8, message: &str) -> Result<Response<Body>> {
 mod tests {
     use super::*;
 
+    fn header_value<'a>(response: &'a Response<Body>, name: &str) -> Result<&'a str> {
+        response
+            .headers()
+            .get(name)
+            .with_context(|| format!("Missing {name} header"))?
+            .to_str()
+            .with_context(|| format!("Invalid {name} header value"))
+    }
+
     #[tokio::test]
     async fn route_request_process_service() {
         // ARRANGE
@@ -247,107 +256,116 @@ mod tests {
     }
 
     #[test]
-    fn grpc_error_response_status_is_200() {
+    fn grpc_error_response_status_is_200() -> Result<()> {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
 
         // ACT
-        let response = grpc_error(status_code, message);
+        let response = grpc_error(status_code, message)?;
 
         // ASSERT
         assert_eq!(response.status().as_u16(), 200);
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_content_type() {
+    fn grpc_error_content_type() -> Result<()> {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let content_type = response.headers().get("content-type").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let content_type = header_value(&response, "content-type")?;
 
         // ASSERT
         assert_eq!(content_type, "application/grpc");
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_status_header() {
+    fn grpc_error_status_header() -> Result<()> {
         // ARRANGE
         let status_code = 7;
         let message = "permission denied";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let grpc_status = response.headers().get("grpc-status").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let grpc_status = header_value(&response, "grpc-status")?;
 
         // ASSERT
         assert_eq!(grpc_status, "7");
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_message_header() {
+    fn grpc_error_message_header() -> Result<()> {
         // ARRANGE
         let status_code = 12;
         let message = "method not found";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let grpc_message = response.headers().get("grpc-message").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let grpc_message = header_value(&response, "grpc-message")?;
 
         // ASSERT
         assert_eq!(grpc_message, "method not found");
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_unauthenticated() {
+    fn grpc_error_unauthenticated() -> Result<()> {
         // ARRANGE
         let status_code = 16;
         let message = "client certificate required";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let grpc_status = response.headers().get("grpc-status").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let grpc_status = header_value(&response, "grpc-status")?;
 
         // ASSERT
         assert_eq!(grpc_status, "16");
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_unavailable() {
+    fn grpc_error_unavailable() -> Result<()> {
         // ARRANGE
         let status_code = 14;
         let message = "Backend unavailable: connection refused";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let grpc_status = response.headers().get("grpc-status").unwrap();
-        let grpc_message = response.headers().get("grpc-message").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let grpc_status = header_value(&response, "grpc-status")?;
+        let grpc_message = header_value(&response, "grpc-message")?;
 
         // ASSERT
         assert_eq!(grpc_status, "14");
-        assert!(
-            grpc_message
-                .to_str()
-                .unwrap()
-                .contains("Backend unavailable")
-        );
+        assert!(grpc_message.contains("Backend unavailable"));
+
+        Ok(())
     }
 
     #[test]
-    fn grpc_error_empty_message() {
+    fn grpc_error_empty_message() -> Result<()> {
         // ARRANGE
         let status_code = 0;
         let message = "";
 
         // ACT
-        let response = grpc_error(status_code, message);
-        let grpc_message = response.headers().get("grpc-message").unwrap();
+        let response = grpc_error(status_code, message)?;
+        let grpc_message = header_value(&response, "grpc-message")?;
 
         // ASSERT
         assert_eq!(grpc_message, "");
+
+        Ok(())
     }
 
     #[test]
