@@ -261,10 +261,11 @@ start: (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
         -drive file="/tmp/nvme-disk.img",format=raw,if=none,id=nvme0 \
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
-# Run tests with coverage (e.g., just coverage or just coverage yuki)
+# Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
+[arg("missing", long="missing", value="--show-missing-lines")]
 [script]
-coverage *pkgs:
-    just _test-run "cargo llvm-cov nextest" "Running tests with coverage for" {{ pkgs }}
+coverage missing="" *pkgs:
+    just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
 
 # Check kernel config, cmdline & sysctl against KSPP security hardening recommendations
 [script]
