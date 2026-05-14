@@ -311,6 +311,10 @@ fn try_layout_compressed(
     let file_data = std::fs::read(&inodes[i].path).ok()?;
     let cf = compress::compress_file(&file_data).ok()??;
 
+    if !compress::has_representable_compact_indexes(&cf) {
+        return None;
+    }
+
     let totalidx = compress::lcluster_count(&cf) as usize;
     let pclusters = compress::pcluster_blocks(&cf);
 

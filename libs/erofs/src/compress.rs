@@ -32,6 +32,30 @@ pub fn lcluster_count(cf: &CompressedFile) -> u32 {
     (cf.original_size as usize).div_ceil(bs) as u32
 }
 
+/// Returns whether compact indexes can represent this compressed layout.
+pub(crate) fn has_representable_compact_indexes(cf: &CompressedFile) -> bool {
+    let bs = BLOCK_SIZE as usize;
+    let mut clusterofs = 0usize;
+    let mut index_count = 0usize;
+
+    for pc in &cf.pclusters {
+        let logical_bytes = clusterofs + pc.input_len;
+
+        if logical_bytes < bs {
+            return false;
+        }
+
+        index_count += logical_bytes / bs;
+        clusterofs = logical_bytes % bs;
+    }
+
+    if clusterofs != 0 {
+        index_count += 1;
+    }
+
+    index_count == lcluster_count(cf) as usize
+}
+
 /// Compress file data into multiple destsize-bounded pclusters.
 pub fn compress_file(data: &[u8]) -> Result<Option<CompressedFile>> {
     if data.is_empty() {
@@ -300,6 +324,48 @@ mod tests {
         // ASSERT
         let total_input: usize = cf.pclusters.iter().map(|p| p.input_len).sum();
         assert_eq!(total_input, data.len());
+    }
+
+    #[test]
+    fn representable_compact_indexes_accept_cross_block_pclusters() {
+        // ARRANGE
+        let cf = CompressedFile {
+            pclusters: vec![
+                Pcluster {
+                    compressed_data: vec![0u8; 64],
+                    input_len: 5000,
+                },
+                Pcluster {
+                    compressed_data: vec![0u8; 64],
+                    input_len: 12_000,
+                },
+            ],
+            original_size: 17_000,
+        };
+
+        // ACT & ASSERT
+        assert!(has_representable_compact_indexes(&cf));
+    }
+
+    #[test]
+    fn representable_compact_indexes_reject_tail_end_pclusters() {
+        // ARRANGE
+        let cf = CompressedFile {
+            pclusters: vec![
+                Pcluster {
+                    compressed_data: vec![0u8; 64],
+                    input_len: 5000,
+                },
+                Pcluster {
+                    compressed_data: vec![0u8; 64],
+                    input_len: 500,
+                },
+            ],
+            original_size: 5500,
+        };
+
+        // ACT & ASSERT
+        assert!(!has_representable_compact_indexes(&cf));
     }
 
     #[test]

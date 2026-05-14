@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use crate::compress::{self, CompressedFile};
 use crate::dir::{self, DirEntry, EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-use crate::error::Result;
+use crate::error::{ErofsError, Result};
 use crate::inode::{
     self, COMPACT_INODE_SIZE, CompactInodeParams, EROFS_INODE_FLAT_INLINE,
     Z_EROFS_COMPRESSION_ZSTD, Z_EROFS_MAP_HEADER_SIZE,
@@ -223,9 +224,7 @@ fn write_compressed_file_data(
     let cf = inode
         .compressed
         .as_ref()
-        .ok_or(crate::error::ErofsError::Internal(
-            "compressed data present",
-        ))?;
+        .ok_or(ErofsError::Internal("compressed data present"))?;
     let xattr_size = inode.xattr_payload.len();
     let inode_header_end = slot_offset + COMPACT_INODE_SIZE + xattr_size;
 
@@ -233,11 +232,21 @@ fn write_compressed_file_data(
     write_z_erofs_map_header(image, map_header_off);
 
     let ebase = map_header_off + Z_EROFS_MAP_HEADER_SIZE;
-    let totalidx = crate::compress::lcluster_count(cf) as usize;
+    let totalidx = compress::lcluster_count(cf) as usize;
     let (c4i, c2b, c4e) = layout::compact_index_layout(totalidx, ebase);
 
+    if !compress::has_representable_compact_indexes(cf) {
+        return Err(ErofsError::Internal(
+            "compressed file requires unsupported compact indexes",
+        ));
+    }
+
     let entries = build_legacy_index_entries(cf, inode.data_blkaddr);
-    debug_assert_eq!(entries.len(), totalidx);
+    if entries.len() != totalidx {
+        return Err(ErofsError::Internal(
+            "compressed index entry count mismatch",
+        ));
+    }
     let mut st = CompactWriteState {
         out_off: ebase,
         blkaddr_ret: inode.data_blkaddr,
@@ -309,12 +318,9 @@ impl LegacyIndexEntry {
 }
 
 /// Build full-index semantics from compressed pclusters.
-fn build_legacy_index_entries(
-    cf: &crate::compress::CompressedFile,
-    start_blkaddr: u32,
-) -> Vec<LegacyIndexEntry> {
+fn build_legacy_index_entries(cf: &CompressedFile, start_blkaddr: u32) -> Vec<LegacyIndexEntry> {
     let bs = BLOCK_SIZE as usize;
-    let totalidx = crate::compress::lcluster_count(cf) as usize;
+    let totalidx = compress::lcluster_count(cf) as usize;
     let mut entries = Vec::with_capacity(totalidx);
     let mut clusterofs = 0usize;
     let mut blkaddr = start_blkaddr;
@@ -968,7 +974,7 @@ mod tests {
                 .expect("4b"),
         );
         let cf = file.compressed.as_ref().expect("compressed");
-        assert_eq!(i_u, crate::compress::pcluster_blocks(cf));
+        assert_eq!(i_u, compress::pcluster_blocks(cf));
     }
 
     #[test]
@@ -1063,7 +1069,7 @@ mod tests {
         let h_advise = u16::from_le_bytes(image[map_off + 4..map_off + 6].try_into().expect("2b"));
         assert_eq!(h_advise, 0x0007, "Z_EROFS_ADVISE_COMPACTED_2B|BIG_PCLUSTER");
         let ebase = map_off + 8;
-        let totalidx = crate::compress::lcluster_count(cf) as usize;
+        let totalidx = compress::lcluster_count(cf) as usize;
         let (c4i, c2b, c4e) = layout::compact_index_layout(totalidx, ebase);
         assert!(c4i + c2b + c4e == totalidx, "zone counts sum to totalidx");
     }
@@ -1071,13 +1077,13 @@ mod tests {
     #[test]
     fn build_legacy_index_entries_tracks_clusterofs_and_local_d1() {
         // ARRANGE
-        let cf = crate::compress::CompressedFile {
+        let cf = CompressedFile {
             pclusters: vec![
-                crate::compress::Pcluster {
+                compress::Pcluster {
                     compressed_data: vec![0u8; 64],
                     input_len: 5000,
                 },
-                crate::compress::Pcluster {
+                compress::Pcluster {
                     compressed_data: vec![0u8; 64],
                     input_len: 12_000,
                 },
