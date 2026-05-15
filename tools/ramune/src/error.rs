@@ -17,6 +17,18 @@ pub enum RamuneError {
         source: std::io::Error,
     },
 
+    #[error("Failed to initialize zstd encoder: {0}")]
+    ZstdInitError(#[source] std::io::Error),
+
+    #[error("Failed to finish zstd compression: {0}")]
+    CompressionError(#[source] std::io::Error),
+
+    #[error("Invalid compression level {level}; expected 0 or {min}..={max}")]
+    InvalidCompressionLevel { level: i32, min: i32, max: i32 },
+
+    #[error("Extension worker task failed: {0}")]
+    ExtensionTaskError(#[source] tokio::task::JoinError),
+
     #[error("Failed to create EROFS image: {0}")]
     ErofsError(String),
 

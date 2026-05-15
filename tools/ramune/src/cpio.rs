@@ -36,14 +36,14 @@ struct CpioHeader {
 }
 
 /// Creates a CPIO archive in newc format from a list of entries.
-pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Result<Vec<u8>> {
+pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Vec<u8> {
     let capacity = entries
         .iter()
         .map(|e| 110 + e.path.len() + e.data.len() + 8)
         .sum();
     let mut buf = Vec::with_capacity(capacity);
-    write_entries(&mut buf, entries)?;
-    Ok(buf)
+    write_entries_to_vec(&mut buf, entries);
+    buf
 }
 
 /// Writes a CPIO archive containing the given files under an `extensions/` directory into `writer`.
@@ -61,6 +61,7 @@ pub(crate) fn write_archive<W: Write>(writer: &mut W, files: &[(String, Vec<u8>)
 }
 
 /// Writes all entries plus the TRAILER to `writer`.
+#[cfg(test)]
 fn write_entries<W: Write>(writer: &mut W, entries: &[CpioEntry]) -> Result<()> {
     for (i, entry) in entries.iter().enumerate() {
         write_entry(writer, (i + 1) as u32, &entry.path, entry.mode, &entry.data)?;
@@ -68,9 +69,15 @@ fn write_entries<W: Write>(writer: &mut W, entries: &[CpioEntry]) -> Result<()> 
     write_entry(writer, (entries.len() + 1) as u32, TRAILER, 0, &[])
 }
 
-/// Writes a CPIO newc format header to `writer`, returning bytes written.
-fn write_header<W: Write>(writer: &mut W, h: &CpioHeader) -> Result<usize> {
-    let s = format!(
+fn write_entries_to_vec(buf: &mut Vec<u8>, entries: &[CpioEntry]) {
+    for (i, entry) in entries.iter().enumerate() {
+        write_entry_to_vec(buf, (i + 1) as u32, &entry.path, entry.mode, &entry.data);
+    }
+    write_entry_to_vec(buf, (entries.len() + 1) as u32, TRAILER, 0, &[]);
+}
+
+fn header_string(h: &CpioHeader) -> String {
+    format!(
         "{NEWC_MAGIC}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
         h.ino,
         h.mode,
@@ -85,11 +92,22 @@ fn write_header<W: Write>(writer: &mut W, h: &CpioHeader) -> Result<usize> {
         h.rdevminor,
         h.namesize,
         h.check,
-    );
+    )
+}
+
+/// Writes a CPIO newc format header to `writer`, returning bytes written.
+fn write_header<W: Write>(writer: &mut W, h: &CpioHeader) -> Result<usize> {
+    let s = header_string(h);
     writer
         .write_all(s.as_bytes())
         .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
     Ok(s.len())
+}
+
+fn write_header_to_vec(buf: &mut Vec<u8>, h: &CpioHeader) -> usize {
+    let s = header_string(h);
+    buf.extend_from_slice(s.as_bytes());
+    s.len()
 }
 
 /// Writes a single entry (file or directory) to the CPIO archive.
@@ -136,6 +154,35 @@ fn write_entry<W: Write>(
     Ok(())
 }
 
+fn write_entry_to_vec(buf: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8]) {
+    let name_bytes = name.as_bytes();
+    let namesize = (name_bytes.len() + 1) as u32;
+    let filesize = data.len() as u32;
+
+    let mut pos = write_header_to_vec(
+        buf,
+        &CpioHeader {
+            ino,
+            mode,
+            nlink: 1,
+            filesize,
+            namesize,
+            ..CpioHeader::default()
+        },
+    );
+
+    buf.extend_from_slice(name_bytes);
+    buf.push(0);
+    pos += name_bytes.len() + 1;
+    pos += write_pad4_to_vec(buf, pos);
+
+    if !data.is_empty() {
+        buf.extend_from_slice(data);
+        pos += data.len();
+        write_pad4_to_vec(buf, pos);
+    }
+}
+
 /// Writes null padding to align `pos` to a 4-byte boundary; returns bytes written.
 fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
     let pad = (4 - (pos % 4)) % 4;
@@ -147,9 +194,51 @@ fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
     Ok(pad)
 }
 
+fn write_pad4_to_vec(buf: &mut Vec<u8>, pos: usize) -> usize {
+    let pad = (4 - (pos % 4)) % 4;
+    buf.resize(buf.len() + pad, 0);
+    pad
+}
+
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    struct FailingWriter {
+        fail_on_call: usize,
+        calls: usize,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.calls += 1;
+            let should_fail = self.calls == self.fail_on_call;
+
+            match should_fail {
+                true => Err(std::io::Error::other("boom")),
+                false => Ok(buf.len()),
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failing_writer_flush_succeeds() {
+        use std::io::Write as _;
+
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: usize::MAX,
+            calls: 0,
+        };
+
+        // ACT / ASSERT
+        writer.flush().expect("flush");
+    }
 
     #[test]
     fn create_archive_single_file() {
@@ -262,7 +351,7 @@ mod tests {
         ];
 
         // ACT
-        let result = create_from_entries(&entries).unwrap();
+        let result = create_from_entries(&entries);
 
         // ASSERT
         assert!(!result.is_empty());
@@ -276,7 +365,7 @@ mod tests {
     #[test]
     fn create_from_entries_empty() {
         // ARRANGE / ACT
-        let result = create_from_entries(&[]).unwrap();
+        let result = create_from_entries(&[]);
 
         // ASSERT
         assert!(
@@ -284,5 +373,119 @@ mod tests {
                 .windows(TRAILER.len())
                 .any(|w| w == TRAILER.as_bytes())
         );
+    }
+
+    #[test]
+    fn write_entries_write_error_propagates() {
+        // ARRANGE
+        let entry = CpioEntry {
+            path: "init".to_string(),
+            mode: 0o100755,
+            data: b"data".to_vec(),
+        };
+        let mut writer = FailingWriter {
+            fail_on_call: 1,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entries(&mut writer, &[entry]);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::CpioError(_)))
+        );
+    }
+
+    #[test]
+    fn write_entries_writes_trailer_on_success() {
+        // ARRANGE
+        let entries = [CpioEntry {
+            path: "init".to_string(),
+            mode: 0o100755,
+            data: b"data".to_vec(),
+        }];
+        let mut writer = Vec::new();
+
+        // ACT
+        write_entries(&mut writer, &entries).expect("write_entries");
+
+        // ASSERT
+        assert!(
+            writer
+                .windows(TRAILER.len())
+                .any(|window| window == TRAILER.as_bytes())
+        );
+    }
+
+    #[test]
+    fn create_from_entries_contains_trailer() {
+        // ARRANGE
+        let entry = CpioEntry {
+            path: "init".to_string(),
+            mode: 0o100755,
+            data: b"data".to_vec(),
+        };
+
+        // ACT
+        let archive = create_from_entries(&[entry]);
+
+        // ASSERT
+        assert!(
+            archive
+                .windows(TRAILER.len())
+                .any(|window| window == TRAILER.as_bytes())
+        );
+    }
+
+    #[test]
+    fn write_archive_maps_writer_errors() {
+        // ARRANGE
+        let files = vec![("extensions/test.erofs".to_string(), b"abc".to_vec())];
+        let cases = [
+            (1, "Failed to write header"),
+            (2, "Failed to write filename"),
+            (3, "Failed to write null byte"),
+            (4, "Failed to write padding"),
+            (8, "Failed to write file data"),
+            (9, "Failed to write padding"),
+        ];
+
+        for (fail_on_call, expected_message) in cases {
+            let mut writer = FailingWriter {
+                fail_on_call,
+                calls: 0,
+            };
+
+            // ACT
+            let result = write_archive(&mut writer, &files);
+
+            // ASSERT
+            let message = result.expect_err("expected CPIO error").to_string();
+            assert!(
+                message.contains(expected_message),
+                "unexpected message: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_entry_maps_post_data_padding_errors() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 6,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "init", 0o100755, b"abc");
+
+        // ASSERT
+        let message = result
+            .expect_err("expected post-data padding error")
+            .to_string();
+        assert!(message.contains("Failed to write padding"));
     }
 }

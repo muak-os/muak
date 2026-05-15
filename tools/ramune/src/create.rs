@@ -26,70 +26,101 @@ pub struct CreateConfig<'a> {
 
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst).map_err(|e| RamuneError::WriteError {
+    std::fs::create_dir_all(dst).map_err(|source| RamuneError::WriteError {
         file: dst.display().to_string(),
-        source: e,
+        source,
     })?;
-    for entry in std::fs::read_dir(src).map_err(|e| RamuneError::ReadError {
+
+    let entries = std::fs::read_dir(src).map_err(|source| RamuneError::ReadError {
         file: src.display().to_string(),
-        source: e,
-    })? {
-        let entry = entry.map_err(|e| RamuneError::ReadError {
+        source,
+    })?;
+
+    copy_dir_entries(src, dst, entries)
+}
+
+fn copy_dir_entries<I>(src: &Path, dst: &Path, entries: I) -> Result<()>
+where
+    I: IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+{
+    entries.into_iter().try_for_each(|entry| {
+        let entry = entry.map_err(|source| RamuneError::ReadError {
             file: src.display().to_string(),
-            source: e,
+            source,
         })?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-        let meta = std::fs::symlink_metadata(&src_path).map_err(|e| RamuneError::ReadError {
-            file: src_path.display().to_string(),
-            source: e,
-        })?;
-        if meta.is_symlink() {
-            let target = std::fs::read_link(&src_path).map_err(|e| RamuneError::ReadError {
-                file: src_path.display().to_string(),
-                source: e,
-            })?;
-            unix_fs::symlink(&target, &dst_path).map_err(|e| RamuneError::WriteError {
-                file: dst_path.display().to_string(),
-                source: e,
-            })?;
-        } else if meta.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path).map_err(|e| RamuneError::WriteError {
-                file: dst_path.display().to_string(),
-                source: e,
-            })?;
-        }
+        copy_path(&src_path, &dst_path)
+    })
+}
+
+fn copy_path(src: &Path, dst: &Path) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(src).map_err(|source| RamuneError::ReadError {
+        file: src.display().to_string(),
+        source,
+    })?;
+
+    if metadata.is_symlink() {
+        copy_symlink(src, dst)
+    } else if metadata.is_dir() {
+        copy_dir_all(src, dst)
+    } else {
+        std::fs::copy(src, dst)
+            .map(|_| ())
+            .map_err(|source| RamuneError::WriteError {
+                file: dst.display().to_string(),
+                source,
+            })
     }
-    Ok(())
+}
+
+fn copy_symlink(src: &Path, dst: &Path) -> Result<()> {
+    let target = std::fs::read_link(src).map_err(|source| RamuneError::ReadError {
+        file: src.display().to_string(),
+        source,
+    })?;
+
+    unix_fs::symlink(&target, dst).map_err(|source| RamuneError::WriteError {
+        file: dst.display().to_string(),
+        source,
+    })
 }
 
 /// Stages rootfs into a temp dir, ensuring required dirs exists.
 fn prepare_rootfs(rootfs_dir: &Path) -> Result<tempfile::TempDir> {
     let parent = rootfs_dir.parent().unwrap_or(rootfs_dir);
-    let staging =
-        tempfile::Builder::new()
-            .tempdir_in(parent)
-            .map_err(|e| RamuneError::WriteError {
-                file: parent.display().to_string(),
-                source: e,
-            })?;
+    let staging = tempfile::Builder::new()
+        .tempdir_in(parent)
+        .map_err(|source| RamuneError::WriteError {
+            file: parent.display().to_string(),
+            source,
+        })?;
+
     copy_dir_all(rootfs_dir, staging.path())?;
+
     for dir in REQUIRED_DIRS {
-        std::fs::create_dir_all(staging.path().join(dir)).map_err(|e| RamuneError::WriteError {
-            file: dir.to_string(),
-            source: e,
+        let path = staging.path().join(dir);
+        std::fs::create_dir_all(&path).map_err(|source| RamuneError::WriteError {
+            file: path.display().to_string(),
+            source,
         })?;
     }
+
     let resolv = staging.path().join("etc/resolv.conf");
-    if std::fs::symlink_metadata(&resolv).is_err() {
-        unix_fs::symlink("/run/resolv.conf", &resolv).map_err(|e| RamuneError::WriteError {
-            file: resolv.display().to_string(),
-            source: e,
+    ensure_default_resolv_conf(&resolv).map(|()| staging)
+}
+
+fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
+    if std::fs::symlink_metadata(path).is_err() {
+        unix_fs::symlink(Path::new("/run/resolv.conf"), path).map_err(|source| {
+            RamuneError::WriteError {
+                file: path.display().to_string(),
+                source,
+            }
         })?;
     }
-    Ok(staging)
+
+    Ok(())
 }
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
@@ -99,8 +130,8 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
         source: e,
     })?;
 
-    let staging = prepare_rootfs(config.rootfs_dir)?;
-    let rootfs_erofs = erofs::create(staging.path(), config.file_contexts)?;
+    let rootfs_erofs = prepare_rootfs(config.rootfs_dir)
+        .and_then(|staging| erofs::create(staging.path(), config.file_contexts))?;
 
     let entries = vec![
         CpioEntry {
@@ -115,12 +146,13 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
         },
     ];
 
-    let cpio_data = cpio::create_from_entries(&entries)?;
-    zstd::encode_all(&cpio_data[..], config.compression_level)
-        .map_err(|e| RamuneError::CpioError(format!("Compression failed: {e}")))
+    let cpio_data = cpio::create_from_entries(&entries);
+    let compression_level = crate::validate_compression_level(config.compression_level)?;
+    zstd::encode_all(&cpio_data[..], compression_level).map_err(RamuneError::CompressionError)
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -190,7 +222,35 @@ mod tests {
         });
 
         // ASSERT
-        assert!(matches!(result, Err(RamuneError::ReadError { .. })));
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn create_initramfs_missing_rootfs_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let init_file = tmp.path().join("init");
+        std::fs::write(&init_file, b"init").expect("write init");
+        let rootfs = tmp.path().join("missing-rootfs");
+
+        // ACT
+        let result = create_initramfs(&CreateConfig {
+            init: &init_file,
+            rootfs_dir: &rootfs,
+            file_contexts: None,
+            compression_level: 19,
+        });
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
     }
 
     #[test]
@@ -217,6 +277,32 @@ mod tests {
 
         // ASSERT
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn create_initramfs_invalid_compression_level_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let init_file = tmp.path().join("init");
+        std::fs::write(&init_file, b"init").expect("write init");
+        let rootfs = tmp.path().join("rootfs");
+        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::write(rootfs.join("file"), b"data").expect("write");
+
+        // ACT
+        let result = create_initramfs(&CreateConfig {
+            init: &init_file,
+            rootfs_dir: &rootfs,
+            file_contexts: None,
+            compression_level: i32::MAX,
+        });
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::InvalidCompressionLevel { .. }))
+        );
     }
 
     #[test]
@@ -290,6 +376,233 @@ mod tests {
         assert_eq!(
             std::fs::read(staging.path().join("sbin/init")).expect("read"),
             b"binary"
+        );
+    }
+
+    #[test]
+    fn copy_dir_all_preserves_symlinks() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(src.join("bin")).expect("mkdir src");
+        std::fs::write(src.join("bin/tool"), b"binary").expect("write");
+        unix_fs::symlink("bin/tool", src.join("init")).expect("symlink");
+        let dst = tmp.path().join("dst");
+
+        // ACT
+        copy_dir_all(&src, &dst).expect("copy_dir_all");
+
+        // ASSERT
+        assert_eq!(
+            std::fs::read_link(dst.join("init")).expect("read_link"),
+            std::path::Path::new("bin/tool")
+        );
+        assert_eq!(
+            std::fs::read(dst.join("bin/tool")).expect("read"),
+            b"binary"
+        );
+    }
+
+    #[test]
+    fn copy_dir_all_missing_source_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("missing");
+        let dst = tmp.path().join("dst");
+
+        // ACT
+        let result = copy_dir_all(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn prepare_rootfs_missing_rootfs_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let rootfs = tmp.path().join("missing-rootfs");
+
+        // ACT
+        let result = prepare_rootfs(&rootfs);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_path_missing_source_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("missing");
+        let dst = tmp.path().join("dst");
+
+        // ACT
+        let result = copy_path(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_symlink_non_symlink_source_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("file");
+        std::fs::write(&src, b"data").expect("write");
+        let dst = tmp.path().join("dst");
+
+        // ACT
+        let result = copy_symlink(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_symlink_missing_parent_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("link");
+        unix_fs::symlink("target", &src).expect("symlink");
+        let dst = tmp.path().join("missing/dst");
+
+        // ACT
+        let result = copy_symlink(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_path_regular_file_missing_parent_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("source");
+        std::fs::write(&src, b"data").expect("write");
+        let dst = tmp.path().join("missing/dst");
+
+        // ACT
+        let result = copy_path(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_dir_all_missing_destination_parent_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).expect("mkdir src");
+        let blocked = tmp.path().join("blocked");
+        std::fs::write(&blocked, b"not a directory").expect("write blocked");
+        let dst = blocked.join("dst");
+
+        // ACT
+        let result = copy_dir_all(&src, &dst);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
+        );
+    }
+
+    #[test]
+    fn copy_dir_entries_iteration_error() {
+        // ARRANGE
+        let src = Path::new("/virtual/src");
+        let dst = Path::new("/virtual/dst");
+
+        // ACT
+        let result = copy_dir_entries(src, dst, [Err(std::io::Error::other("boom"))]);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[test]
+    fn prepare_rootfs_parent_not_directory_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let parent = tmp.path().join("parent");
+        std::fs::write(&parent, b"not a directory").expect("write");
+        let rootfs = parent.join("rootfs");
+
+        // ACT
+        let result = prepare_rootfs(&rootfs);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
+        );
+    }
+
+    #[test]
+    fn prepare_rootfs_required_dir_conflict_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let rootfs = tmp.path().join("rootfs");
+        std::fs::create_dir(&rootfs).expect("mkdir");
+        std::fs::write(rootfs.join("etc"), b"not a directory").expect("write");
+
+        // ACT
+        let result = prepare_rootfs(&rootfs);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
+        );
+    }
+
+    #[test]
+    fn ensure_default_resolv_conf_missing_parent_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let resolv = tmp.path().join("missing/resolv.conf");
+
+        // ACT
+        let result = ensure_default_resolv_conf(&resolv);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
         );
     }
 }

@@ -20,6 +20,7 @@ pub(crate) fn create(source_dir: &Path, file_contexts: Option<&FileContexts>) ->
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::io::Write;
 
@@ -96,5 +97,18 @@ mod tests {
         // ASSERT
         assert!(!image.is_empty());
         assert_eq!(image.len() % 4096, 0);
+    }
+
+    #[test]
+    fn create_missing_source_dir_errors() {
+        // ARRANGE / ACT
+        let result = create(Path::new("/nonexistent/erofs-source"), None);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ErofsError(_)))
+        );
     }
 }

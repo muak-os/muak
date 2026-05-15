@@ -1,6 +1,8 @@
 //! Concurrent processing of pre-extracted extension directories into named EROFS blobs.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use tokio::task::JoinSet;
 
 use crate::erofs;
 use crate::error::{RamuneError, Result};
@@ -8,50 +10,73 @@ use crate::error::{RamuneError, Result};
 /// Maximum number of extensions processed concurrently.
 pub(crate) const MAX_CONCURRENT: usize = 8;
 
-/// Processes all extension directories concurrently and deterministicly.
+type ProcessFn = fn(&str, &Path) -> Result<(String, Vec<u8>)>;
+
+type ProcessOutput = (String, Vec<u8>);
+
+/// Processes all extension directories concurrently and deterministically.
 pub(crate) async fn process_all(
     extensions: &[(String, PathBuf)],
 ) -> Result<Vec<(String, Vec<u8>)>> {
-    let mut join_set = tokio::task::JoinSet::new();
-    let mut iter = extensions.iter().cloned();
     let mut files = Vec::with_capacity(extensions.len());
 
-    spawn_batch(&mut join_set, &mut iter);
-
-    while let Some(result) = join_set.join_next().await {
-        files.push(result.map_err(|e| RamuneError::ErofsError(e.to_string()))??);
-        spawn_batch(&mut join_set, &mut iter);
+    for batch in extensions.chunks(MAX_CONCURRENT) {
+        files.extend(process_batch(batch, process).await?);
     }
 
     files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     Ok(files)
 }
 
-/// Spawns EROFS conversion tasks up to the concurrency limit.
-fn spawn_batch(
-    join_set: &mut tokio::task::JoinSet<Result<(String, Vec<u8>)>>,
-    iter: &mut impl Iterator<Item = (String, PathBuf)>,
-) {
-    while join_set.len() < MAX_CONCURRENT {
-        let Some((name, path)) = iter.next() else {
-            return;
-        };
-        join_set.spawn(process_one(name, path));
+async fn process_batch(
+    batch: &[(String, PathBuf)],
+    process: ProcessFn,
+) -> Result<Vec<ProcessOutput>> {
+    let mut tasks = JoinSet::new();
+
+    for (name, path) in batch {
+        let name = name.clone();
+        let path = path.clone();
+
+        tasks.spawn_blocking(move || process(&name, &path));
     }
+
+    let mut files = Vec::with_capacity(batch.len());
+
+    while let Some(result) = tasks.join_next().await {
+        files.push(result.map_err(RamuneError::ExtensionTaskError)??);
+    }
+
+    Ok(files)
 }
 
 /// Converts a single extension directory into a named EROFS blob.
-async fn process_one(name: String, path: PathBuf) -> Result<(String, Vec<u8>)> {
-    let erofs_data = tokio::task::spawn_blocking(move || erofs::create(&path, None))
-        .await
-        .map_err(|e| RamuneError::ErofsError(e.to_string()))??;
-
-    Ok((format!("extensions/{name}.erofs"), erofs_data))
+fn process(name: &str, path: &Path) -> Result<(String, Vec<u8>)> {
+    erofs::create(path, None).map(|erofs_data| (format!("extensions/{name}.erofs"), erofs_data))
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn panic_process_one(_: &str, _: &Path) -> Result<(String, Vec<u8>)> {
+        panic!("extension task panicked");
+    }
+
+    fn make_extension_dir(name: &str, data: &[u8]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(name), data).expect("write");
+        dir
+    }
+
+    fn make_leaked_extension(i: usize) -> (String, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("x.txt"), format!("{i}")).expect("write");
+        let path = dir.path().to_path_buf();
+        std::mem::forget(dir);
+        (format!("ext-{i:02}"), path)
+    }
 
     #[tokio::test]
     async fn process_all_empty() {
@@ -65,8 +90,7 @@ mod tests {
     #[tokio::test]
     async fn process_all_single_extension() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("file.txt"), b"data").expect("write");
+        let dir = make_extension_dir("file.txt", b"data");
 
         // ACT
         let files = process_all(&[("muak-os-iscsi-tools".to_string(), dir.path().to_path_buf())])
@@ -85,11 +109,7 @@ mod tests {
         let names = ["zebra", "alpha", "mango", "beta"];
         let dirs: Vec<_> = names
             .iter()
-            .map(|n| {
-                let d = tempfile::tempdir().expect("tempdir");
-                std::fs::write(d.path().join("f.txt"), n.as_bytes()).expect("write");
-                d
-            })
+            .map(|n| make_extension_dir("f.txt", n.as_bytes()))
             .collect();
         let inputs: Vec<(String, PathBuf)> = names
             .iter()
@@ -117,21 +137,45 @@ mod tests {
     #[tokio::test]
     async fn process_all_exceeds_concurrency_limit() {
         // ARRANGE
-        let entries: Vec<(String, PathBuf)> = (0..MAX_CONCURRENT + 2)
-            .map(|i| {
-                let d = tempfile::tempdir().expect("tempdir");
-                std::fs::write(d.path().join("x.txt"), format!("{i}")).expect("write");
-                // leak the TempDir so it stays alive for the test duration
-                let path = d.path().to_path_buf();
-                std::mem::forget(d);
-                (format!("ext-{i:02}"), path)
-            })
-            .collect();
+        let entries: Vec<(String, PathBuf)> =
+            (0..MAX_CONCURRENT + 2).map(make_leaked_extension).collect();
 
         // ACT
         let files = process_all(&entries).await.expect("process_all");
 
         // ASSERT
         assert_eq!(files.len(), MAX_CONCURRENT + 2);
+    }
+
+    #[tokio::test]
+    async fn process_all_missing_extension_errors() {
+        // ARRANGE
+        let missing = PathBuf::from("/nonexistent/extension-dir");
+
+        // ACT
+        let result = process_all(&[("missing".to_string(), missing)]).await;
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, crate::error::RamuneError::ErofsError(_)))
+        );
+    }
+
+    #[tokio::test]
+    async fn process_all_task_panic_errors() {
+        // ARRANGE
+        let dir = make_extension_dir("file.txt", b"data");
+        let extensions = [("panic-ext".to_string(), dir.path().to_path_buf())];
+
+        // ACT
+        let result = process_batch(&extensions, panic_process_one).await;
+
+        // ASSERT
+        assert!(matches!(
+            result.as_ref(),
+            Err(crate::error::RamuneError::ExtensionTaskError(error)) if error.is_panic()
+        ));
     }
 }
