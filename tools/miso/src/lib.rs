@@ -4,8 +4,9 @@ mod error;
 mod img;
 mod iso;
 
+use esp::EspSpec;
+
 pub use error::MisoError;
-pub use esp::{Arch, EspFile, EspSpec};
 pub use iso::SECTOR_SIZE;
 
 /// Builds a bootable ISO 9660 image from an `EspSpec` into any `Write + Seek` sink.
@@ -29,6 +30,8 @@ pub fn build_img(
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
+
+    use esp::{Arch, EspFile};
 
     use super::*;
 

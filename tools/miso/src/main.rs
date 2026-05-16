@@ -7,7 +7,7 @@ mod cli {
 
     use anyhow::{Context, Result, bail, ensure};
     use clap::{Parser, Subcommand};
-    use miso::{Arch, EspFile, EspSpec};
+    use esp::{Arch, EspFile, EspSpec};
 
     /// Top-level CLI arguments.
     #[derive(Parser, Debug)]
