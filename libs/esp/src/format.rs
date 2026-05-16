@@ -113,5 +113,4 @@ mod tests {
         assert!(io.flush().is_ok());
         assert!(io.seek(SeekFrom::Start(0)).is_err());
     }
-
 }

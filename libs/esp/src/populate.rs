@@ -11,9 +11,9 @@ pub fn populate(spec: &EspSpec, esp_root: &Path) -> Result<(), EspError> {
     for file in &spec.files {
         let rel_path = path::validate_relative_path(&file.path)?;
         let dest = esp_root.join(rel_path);
-        let parent = dest
-            .parent()
-            .expect("validated ESP paths always have a parent");
+        let parent = dest.parent().ok_or_else(|| {
+            EspError::InvalidPath(format!("destination has no parent: {}", file.path))
+        })?;
         std::fs::create_dir_all(parent)?;
         std::fs::write(dest, &file.data)?;
     }

@@ -39,8 +39,7 @@ fn public_api_build_and_populate_match() {
         boot_bytes
     );
     assert_eq!(
-        std::fs::read(dest.path().join("overlays/rpi/config.txt"))
-            .expect("config file must exist"),
+        std::fs::read(dest.path().join("overlays/rpi/config.txt")).expect("config file must exist"),
         b"arm_64bit=1"
     );
 }

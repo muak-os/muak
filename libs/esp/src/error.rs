@@ -11,6 +11,9 @@ pub enum EspError {
     #[error("Invalid ESP path: {0}")]
     InvalidPath(String),
 
+    #[error("Unsupported source entry: {0}")]
+    UnsupportedEntry(String),
+
     #[error("FAT filesystem error: {0}")]
     Fat(String),
 }

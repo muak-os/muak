@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use esp::{Arch, EspFile, EspSpec};
+use esp::{Arch, EspSpec};
 use rustix::fs::sync;
 
 use crate::constants::host_oci_arch;
@@ -66,32 +66,10 @@ fn build_esp_spec(staged_uki: &Path, firmware_dir: Option<&Path>) -> Result<EspS
     let uki = std::fs::read(staged_uki)
         .with_context(|| format!("Failed to read staged UKI {}", staged_uki.display()))?;
     let extra_files = match firmware_dir {
-        Some(dir) => collect_firmware(dir)?,
+        Some(dir) => esp::collect_tree(dir).context("Failed to collect firmware tree")?,
         None => Vec::new(),
     };
     Ok(EspSpec::with_uki(Arch::current(), uki, extra_files))
-}
-
-/// Collects all firmware files for placement at the ESP root.
-fn collect_firmware(src: &Path) -> Result<Vec<EspFile>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(src)
-        .with_context(|| format!("Failed to read firmware dir {}", src.display()))?
-    {
-        let entry = entry.context("Failed to read firmware entry")?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        let data = std::fs::read(&path)
-            .with_context(|| format!("Failed to read firmware file {}", path.display()))?;
-        files.push(EspFile {
-            path: name.to_string_lossy().into_owned(),
-            data,
-        });
-    }
-    Ok(files)
 }
 
 #[cfg(test)]
@@ -99,16 +77,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn copy_firmware_copies_files_to_dest() {
+    fn copy_firmware_copies_recursive_tree_to_dest() {
         // ARRANGE
         let src = tempfile::tempdir().expect("create src dir");
         let dst = tempfile::tempdir().expect("create dst dir");
         std::fs::write(src.path().join("start4.elf"), b"gpu-fw").expect("write start4");
-        std::fs::write(src.path().join("config.txt"), b"kernel=u-boot.bin").expect("write config");
         std::fs::create_dir(src.path().join("subdir")).expect("create subdir");
+        std::fs::write(src.path().join("subdir/config.txt"), b"kernel=u-boot.bin")
+            .expect("write config");
 
         // ACT
-        let files = collect_firmware(src.path()).expect("collect firmware");
+        let files = esp::collect_tree(src.path()).expect("collect firmware");
         let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
         esp::populate(&spec, dst.path()).expect("populate firmware");
 
@@ -118,10 +97,10 @@ mod tests {
             b"gpu-fw"
         );
         assert_eq!(
-            std::fs::read(dst.path().join("config.txt")).expect("read"),
+            std::fs::read(dst.path().join("subdir/config.txt")).expect("read"),
             b"kernel=u-boot.bin"
         );
-        assert!(!dst.path().join("subdir").exists());
+        assert!(dst.path().join("subdir").exists());
     }
 
     #[test]
@@ -131,7 +110,7 @@ mod tests {
         let dst = tempfile::tempdir().expect("create dst dir");
 
         // ACT
-        let files = collect_firmware(src.path()).expect("collect firmware");
+        let files = esp::collect_tree(src.path()).expect("collect firmware");
         let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
         esp::populate(&spec, dst.path()).expect("populate firmware");
 
@@ -144,7 +123,7 @@ mod tests {
     #[test]
     fn copy_firmware_fails_on_missing_src() {
         // ARRANGE / ACT
-        let result = collect_firmware(Path::new("/nonexistent/firmware"));
+        let result = esp::collect_tree(Path::new("/nonexistent/firmware"));
 
         // ASSERT
         assert!(result.is_err());
