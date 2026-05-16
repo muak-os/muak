@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
-use super::constants::{EFI_GUID, EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
+use super::constants::{EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
 use super::utils::{format_partition_name, wait_for_device};
 
 /// Returns `true` when `disk` has a valid MBR boot signature with a non-GPT partition type.
@@ -108,7 +108,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
     let efi_end = efi_start + EFI_SIZE / SECTOR_SIZE - 1;
 
     gpt[1] = GPTPartitionEntry {
-        partition_type_guid: EFI_GUID,
+        partition_type_guid: esp::EFI_GUID,
         unique_partition_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
         starting_lba: efi_start,
         ending_lba: efi_end,

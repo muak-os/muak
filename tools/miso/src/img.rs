@@ -12,11 +12,6 @@ const SECTOR_SIZE: u64 = 512;
 /// Partition alignment in sectors (1 MiB boundary).
 const ALIGN_SECTORS: u64 = 2048;
 
-/// EFI System Partition type GUID (C12A7328-F81F-11D2-BA4B-00A0C93EC93B), mixed-endian.
-const EFI_GUID: [u8; 16] = [
-    0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
-];
-
 /// Rounds `lba` up to the nearest multiple of `align`.
 fn align_up(lba: u64, align: u64) -> u64 {
     if lba.is_multiple_of(align) {
@@ -61,7 +56,7 @@ pub fn write_img<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Resul
         GPT::new_from(out, SECTOR_SIZE, [0xff; 16]).map_err(|e| MisoError::Gpt(e.to_string()))?;
 
     gpt[1] = GPTPartitionEntry {
-        partition_type_guid: EFI_GUID,
+        partition_type_guid: esp::EFI_GUID,
         unique_partition_guid: [0xAA; 16],
         starting_lba: esp_start,
         ending_lba: esp_end,
