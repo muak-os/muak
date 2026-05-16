@@ -1,4 +1,4 @@
-//! Integration tests for miso ISO and IMG building.
+//! Integration tests for miso ISO and RAW building.
 
 use std::io::Cursor;
 
@@ -25,9 +25,9 @@ fn build_iso_bytes(spec: &EspSpec) -> Vec<u8> {
     out.into_inner()
 }
 
-fn build_img_bytes(spec: &EspSpec) -> Vec<u8> {
+fn build_raw_bytes(spec: &EspSpec) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
-    miso::build_img(spec, &mut out).expect("build_img must succeed");
+    miso::build_raw(spec, &mut out).expect("build_raw must succeed");
     out.into_inner()
 }
 
@@ -262,12 +262,12 @@ fn build_iso_with_extra_files_includes_recursive_dirs() {
 }
 
 #[test]
-fn build_img_has_valid_gpt() {
+fn build_raw_has_valid_gpt() {
     // ARRANGE
     let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -279,12 +279,12 @@ fn build_img_has_valid_gpt() {
 }
 
 #[test]
-fn build_img_has_protective_mbr() {
+fn build_raw_has_protective_mbr() {
     // ARRANGE
     let spec = img_spec(fake_uki(512), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     assert_eq!(img[510], 0x55, "MBR byte 510 must be 0x55");
@@ -296,7 +296,7 @@ fn build_img_has_protective_mbr() {
 }
 
 #[test]
-fn build_img_esp_has_efi_system_partition_guid() {
+fn build_raw_esp_has_efi_system_partition_guid() {
     // ARRANGE
     let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
     let efi_guid: [u8; 16] = [
@@ -305,7 +305,7 @@ fn build_img_esp_has_efi_system_partition_guid() {
     ];
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -318,24 +318,24 @@ fn build_img_esp_has_efi_system_partition_guid() {
 }
 
 #[test]
-fn build_img_disk_size_is_sector_aligned() {
+fn build_raw_disk_size_is_sector_aligned() {
     // ARRANGE
     let spec = img_spec(fake_uki(4096), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     assert_eq!(img.len() % 512, 0, "disk image size must be sector-aligned");
 }
 
 #[test]
-fn build_img_partition_name_is_efi() {
+fn build_raw_partition_name_is_efi() {
     // ARRANGE
     let spec = img_spec(fake_uki(512), Arch::Aarch64, vec![]);
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     let mut cursor = Cursor::new(img);
@@ -348,12 +348,12 @@ fn build_img_partition_name_is_efi() {
 }
 
 #[test]
-fn build_img_x86_64_produces_valid_gpt() {
+fn build_raw_x86_64_produces_valid_gpt() {
     // ARRANGE
     let spec = img_spec(fake_uki(1024), Arch::X86_64, vec![]);
 
     // ACT
-    let img = build_img_bytes(&spec);
+    let img = build_raw_bytes(&spec);
 
     // ASSERT
     let mut cursor = Cursor::new(img);

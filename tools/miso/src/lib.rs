@@ -1,7 +1,7 @@
 //! Miso - Packages a Unified Kernel Image into a bootable image.
 
 mod error;
-mod img;
+mod raw;
 mod iso;
 
 use esp::EspSpec;
@@ -19,12 +19,12 @@ pub fn build_iso(
 }
 
 /// Builds a raw GPT disk image from an `EspSpec` into any `Read + Write + Seek` sink.
-pub fn build_img(
+pub fn build_raw(
     spec: &EspSpec,
     out: &mut (impl std::io::Read + std::io::Write + std::io::Seek),
 ) -> Result<(), MisoError> {
     let efi_image = esp::build(spec)?;
-    img::write_img(out, &efi_image)
+    raw::write_raw(out, &efi_image)
 }
 
 #[cfg(test)]
@@ -41,9 +41,9 @@ mod tests {
         out.into_inner()
     }
 
-    fn build_img_bytes(spec: &EspSpec) -> Vec<u8> {
+    fn build_raw_bytes(spec: &EspSpec) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());
-        build_img(spec, &mut out).expect("build_img must succeed");
+        build_raw(spec, &mut out).expect("build_raw must succeed");
         out.into_inner()
     }
 
@@ -130,19 +130,19 @@ mod tests {
     }
 
     #[test]
-    fn build_img_returns_nonempty_image() {
+    fn build_raw_returns_nonempty_image() {
         // ARRANGE
         let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
 
         // ACT
-        let img = build_img_bytes(&spec);
+        let img = build_raw_bytes(&spec);
 
         // ASSERT
         assert!(!img.is_empty());
     }
 
     #[test]
-    fn build_img_with_extra_files_succeeds() {
+    fn build_raw_with_extra_files_succeeds() {
         // ARRANGE
         let spec = EspSpec::with_uki(
             Arch::Aarch64,
@@ -154,7 +154,7 @@ mod tests {
         );
 
         // ACT
-        let img = build_img_bytes(&spec);
+        let img = build_raw_bytes(&spec);
 
         // ASSERT
         assert!(!img.is_empty());

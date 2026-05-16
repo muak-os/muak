@@ -171,15 +171,15 @@ iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
     @printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
 
 # Build bootable raw disk image containing an EFI System Partition
-img: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
-    @printf "{{ cyan }}Building IMG for {{ arch }}{{ reset }}\n"
+raw: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
+    @printf "{{ cyan }}Building RAW for {{ arch }}{{ reset }}\n"
     {{ container_runtime }} run --rm -v {{ artifacts }}:/out \
         {{ tools }} \
-        /miso img \
+        /miso raw \
             --uki /out/muak-{{ arch }}.efi \
-            --output /out/muak-{{ arch }}.img \
+            --output /out/muak-{{ arch }}.raw \
             --arch {{ arch }}
-    @printf "{{ green }}IMG built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.img\n"
+    @printf "{{ green }}RAW built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.raw\n"
 
 # Build OCI images (e.g., just oci granola kernel installer cli)
 [script]

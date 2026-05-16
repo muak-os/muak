@@ -40,7 +40,7 @@ fn write_protective_mbr<W: Write + Seek>(w: &mut W, disk_size: u64) -> Result<()
 }
 
 /// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
-pub fn write_img<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
+pub fn write_raw<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
     let esp_sectors = efi_image.len().div_ceil(SECTOR_SIZE as usize) as u64;
     let gpt_overhead_sectors = 34;
     let esp_start = align_up(gpt_overhead_sectors, ALIGN_SECTORS);
@@ -88,13 +88,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_produces_valid_gpt() {
+    fn write_raw_produces_valid_gpt() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -108,13 +108,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_has_protective_mbr() {
+    fn write_raw_has_protective_mbr() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -124,13 +124,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_esp_partition_has_efi_guid() {
+    fn write_raw_esp_partition_has_efi_guid() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());
@@ -143,14 +143,14 @@ mod tests {
     }
 
     #[test]
-    fn write_img_esp_contains_uki_data() {
+    fn write_raw_esp_contains_uki_data() {
         // ARRANGE
         let spec = EspSpec::with_uki(Arch::X86_64, b"test-uki-content".to_vec(), vec![]);
         let esp = esp::build(&spec).expect("build FAT32");
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -166,13 +166,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_partition_is_aligned() {
+    fn write_raw_partition_is_aligned() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());
@@ -189,13 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_disk_size_is_sector_aligned() {
+    fn write_raw_disk_size_is_sector_aligned() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -207,13 +207,13 @@ mod tests {
     }
 
     #[test]
-    fn write_img_partition_name_is_efi() {
+    fn write_raw_partition_name_is_efi() {
         // ARRANGE
         let esp = minimal_esp();
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_img(&mut buf, &esp).expect("write_img must succeed");
+        write_raw(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());

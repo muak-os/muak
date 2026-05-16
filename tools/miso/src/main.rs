@@ -40,11 +40,11 @@ mod cli {
             files: Vec<String>,
         },
 
-        Img {
+        Raw {
             #[arg(short, long, help = "Path to the UKI .efi file")]
             uki: PathBuf,
 
-            #[arg(short, long, help = "Path for the output .img file")]
+            #[arg(short, long, help = "Path for the output .raw file")]
             output: PathBuf,
 
             #[arg(
@@ -126,7 +126,7 @@ mod cli {
                 println!("ISO written to {} ({} bytes)", output.display(), size);
                 Ok(())
             }
-            Command::Img {
+            Command::Raw {
                 uki,
                 output,
                 arch,
@@ -139,7 +139,7 @@ mod cli {
                 let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
-                miso::build_img(&spec, &mut file).context("Failed to build disk image")?;
+                miso::build_raw(&spec, &mut file).context("Failed to build disk image")?;
                 let size = file
                     .metadata()
                     .with_context(|| format!("Failed to stat {}", output.display()))?

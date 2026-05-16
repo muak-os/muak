@@ -44,16 +44,16 @@ fn iso_subcommand_produces_valid_output() {
 }
 
 #[test]
-fn img_subcommand_produces_valid_output() {
+fn raw_subcommand_produces_valid_output() {
     // ARRANGE
     let dir = TempDir::new().expect("tempdir");
     let uki = fake_uki(&dir);
-    let output = dir.path().join("out.img");
+    let output = dir.path().join("out.raw");
 
     // ACT
     let status = miso_bin()
         .args([
-            "img",
+            "raw",
             "--uki",
             uki.to_str().unwrap(),
             "--output",
@@ -63,9 +63,9 @@ fn img_subcommand_produces_valid_output() {
         .expect("failed to run miso");
 
     // ASSERT
-    assert!(status.success(), "miso img must exit 0");
-    let bytes = fs::read(&output).expect("read output img");
-    assert!(!bytes.is_empty(), "output IMG must not be empty");
+    assert!(status.success(), "miso raw must exit 0");
+    let bytes = fs::read(&output).expect("read output raw image");
+    assert!(!bytes.is_empty(), "output RAW must not be empty");
 }
 
 #[test]
@@ -94,16 +94,16 @@ fn iso_subcommand_with_explicit_arch_x86_64() {
 }
 
 #[test]
-fn img_subcommand_with_explicit_arch_aarch64() {
+fn raw_subcommand_with_explicit_arch_aarch64() {
     // ARRANGE
     let dir = TempDir::new().expect("tempdir");
     let uki = fake_uki(&dir);
-    let output = dir.path().join("out.img");
+    let output = dir.path().join("out.raw");
 
     // ACT
     let status = miso_bin()
         .args([
-            "img",
+            "raw",
             "--uki",
             uki.to_str().unwrap(),
             "--output",
@@ -147,19 +147,19 @@ fn iso_subcommand_with_extra_file() {
 }
 
 #[test]
-fn img_subcommand_with_extra_file() {
+fn raw_subcommand_with_extra_file() {
     // ARRANGE
     let dir = TempDir::new().expect("tempdir");
     let uki = fake_uki(&dir);
     let extra = dir.path().join("blob.dat");
     fs::write(&extra, b"firmware").expect("write extra file");
-    let output = dir.path().join("out.img");
+    let output = dir.path().join("out.raw");
     let file_spec = format!("{}:firmware/blob.dat", extra.to_str().unwrap());
 
     // ACT
     let status = miso_bin()
         .args([
-            "img",
+            "raw",
             "--uki",
             uki.to_str().unwrap(),
             "--output",
@@ -200,16 +200,16 @@ fn iso_unsupported_arch_exits_nonzero() {
 }
 
 #[test]
-fn img_unsupported_arch_exits_nonzero() {
+fn raw_unsupported_arch_exits_nonzero() {
     // ARRANGE
     let dir = TempDir::new().expect("tempdir");
     let uki = fake_uki(&dir);
-    let output = dir.path().join("out.img");
+    let output = dir.path().join("out.raw");
 
     // ACT
     let status = miso_bin()
         .args([
-            "img",
+            "raw",
             "--uki",
             uki.to_str().unwrap(),
             "--output",
