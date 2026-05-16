@@ -114,7 +114,7 @@ async fn reconcile_reapplies_static_ipv4_after_drift() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // ASSERT
-    let addrs = mock.ipv4_addrs(idx);
+    let addrs = ipv4_addrs(&mock, idx);
     assert!(
         addrs.contains(&(std::net::Ipv4Addr::new(192, 168, 10, 2), 24)),
         "expected 192.168.10.2/24 in {addrs:?}"
@@ -144,7 +144,7 @@ async fn reconcile_before_initialization_is_a_noop() {
 
     // ASSERT
     assert!(
-        mock.ipv4_addrs(idx).is_empty(),
+        ipv4_addrs(&mock, idx).is_empty(),
         "reconcile should do nothing before initialization"
     );
 }
@@ -176,13 +176,13 @@ async fn reconcile_reapplies_static_ipv6_after_drift() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // ASSERT
-    let addrs = mock.ipv6_addrs(idx);
+    let addrs = ipv6_addrs(&mock, idx);
     assert!(
         addrs.contains(&("2001:db8::2".parse().expect("valid ipv6"), 64)),
         "expected 2001:db8::2/64 in {addrs:?}"
     );
     assert!(
-        mock.has_default_route_v6("2001:db8::1".parse().expect("valid ipv6")),
+        has_default_route_v6(&mock, "2001:db8::1".parse().expect("valid ipv6")),
         "expected IPv6 default route to be restored"
     );
 }
@@ -235,7 +235,7 @@ async fn reconcile_skips_bridge_when_port_is_missing() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // ASSERT
-    assert!(!mock.has_link("br0"), "bridge should not be created");
+    assert!(!has_link(&mock, "br0"), "bridge should not be created");
 }
 
 /// Verifies reconcile tolerates a configured interface that is absent at runtime.

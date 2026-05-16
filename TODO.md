@@ -4,7 +4,11 @@
   - Support ARM architecture
   - Test true networking with IPv6
 
-- Pin extension version to muak's version to avoid breaking changes and allow for better compatibility management
+- Use `wizard` to generate boots assets
+  - Support for SBCs devices using .img installation
+  - Support installing with profile id directly
+  - Pin extension version to muak's version to avoid breaking changes and allow for better compatibility management
+  - Move the luks2 key out of the `.luks` section to directly reuse the UKI from the wizard during installation
 
 - Allow forwarding kernel logs to external monitoring system.
 
@@ -15,13 +19,13 @@
 - Enhance `networkd`:
   - Configurable failover when primary interface fails
     - Bridge migration to back-up interface
-  - Selective drift detection for interfaces
 
 - Enchance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
   - Remove HTTP support
-  - Sign extensions and verify them in `koci/ramune` for better supply chain security & allow for "community extensions" that are still usable with a warning about security risks
+  - Sign extensions and verify them for better supply chain security
+    - Allow for "community extensions" that are still usable with a warning about security risks
 
 - Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
@@ -30,7 +34,7 @@
 - Enchance `vmd`:
   - Allow for ISO images for VMS
   - Rework commands to be pass through to the hypervisor
-  - Make it an extension & rename to workloadd
+  - Make it an extension & rename to `workloadd`
   - Support for containers like LXC and OCI
 
 - Generate SBOM (https://doc.rust-lang.org/cargo/reference/unstable.html#sbom)
@@ -39,7 +43,6 @@
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
-- Support for SBCs devices using .img installation
 - Support Apple M series processor chips
 - Support RISC-V architecture
 

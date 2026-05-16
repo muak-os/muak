@@ -147,22 +147,13 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         bridge_name: &str,
         bridge_cfg: &BridgeConfig,
     ) -> Result<()> {
-        let primary = self.get_primary_name()?;
-        let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
-
-        let port_iface_name = InterfaceName::new(&*port_name)?;
-        let actor_handle = self
-            .interfaces
-            .get(&port_iface_name)
-            .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_name))?;
-
-        let mut state_rx = actor_handle.state_rx.clone();
+        let (port_iface_name, mut state_rx) = self.bridge_port_handle(bridge_cfg)?;
         wait_for_configured(&mut state_rx).await?;
 
         let actor_handle = self
             .interfaces
             .get(&port_iface_name)
-            .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_name))?;
+            .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_iface_name))?;
 
         let (reply_tx, reply_rx) = oneshot::channel();
         actor_handle
@@ -173,12 +164,39 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
                 reply: reply_tx,
             })
             .await
-            .map_err(|_| anyhow::anyhow!("interface actor gone: {}", port_name))?;
+            .map_err(|_| anyhow::anyhow!("interface actor gone: {}", port_iface_name))?;
 
         let bridge_snapshot = reply_rx.await??;
         self.spawn_interface_actor(bridge_snapshot);
 
         Ok(())
+    }
+
+    /// Returns the configured bridge port actor and a watch receiver for its state.
+    pub(super) fn bridge_port_handle(
+        &self,
+        bridge_cfg: &BridgeConfig,
+    ) -> Result<(
+        InterfaceName,
+        tokio::sync::watch::Receiver<std::sync::Arc<InterfaceSnapshot>>,
+    )> {
+        let primary = self.get_primary_name()?;
+        let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
+        let port_iface_name = InterfaceName::new(&*port_name)?;
+        let actor_handle = self
+            .interfaces
+            .get(&port_iface_name)
+            .ok_or_else(|| anyhow::anyhow!("bridge port '{}' not found", port_name))?;
+
+        Ok((port_iface_name, actor_handle.state_rx.clone()))
+    }
+
+    /// Replaces an existing interface actor with a fresh snapshot.
+    pub(super) async fn respawn_interface_actor(&mut self, snapshot: InterfaceSnapshot) {
+        if let Some(existing) = self.interfaces.remove(&snapshot.name) {
+            let _ = existing.cmd_tx.send(InterfaceCommand::Shutdown).await;
+        }
+        self.spawn_interface_actor(snapshot);
     }
 }
 
