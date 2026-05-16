@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use miso::{Arch, BootFsSpec, FileEntry, SECTOR_SIZE};
+use miso::{Arch, EspFile, EspSpec, SECTOR_SIZE};
 
 fn fake_uki(size: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(size);
@@ -11,21 +11,21 @@ fn fake_uki(size: usize) -> Vec<u8> {
     v
 }
 
-fn iso_spec(uki: Vec<u8>, arch: Arch) -> BootFsSpec {
-    BootFsSpec::with_uki(arch, uki, vec![])
+fn iso_spec(uki: Vec<u8>, arch: Arch) -> EspSpec {
+    EspSpec::with_uki(arch, uki, vec![])
 }
 
-fn img_spec(uki: Vec<u8>, arch: Arch, files: Vec<FileEntry>) -> BootFsSpec {
-    BootFsSpec::with_uki(arch, uki, files)
+fn img_spec(uki: Vec<u8>, arch: Arch, files: Vec<EspFile>) -> EspSpec {
+    EspSpec::with_uki(arch, uki, files)
 }
 
-fn build_iso_bytes(spec: &BootFsSpec) -> Vec<u8> {
+fn build_iso_bytes(spec: &EspSpec) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     miso::build_iso(spec, &mut out).expect("build_iso must succeed");
     out.into_inner()
 }
 
-fn build_img_bytes(spec: &BootFsSpec) -> Vec<u8> {
+fn build_img_bytes(spec: &EspSpec) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     miso::build_img(spec, &mut out).expect("build_img must succeed");
     out.into_inner()
@@ -244,10 +244,10 @@ fn build_iso_default_entry_is_bootable() {
 #[test]
 fn build_iso_with_extra_files_includes_recursive_dirs() {
     // ARRANGE
-    let spec = BootFsSpec::with_uki(
+    let spec = EspSpec::with_uki(
         Arch::X86_64,
         fake_uki(512),
-        vec![FileEntry {
+        vec![EspFile {
             path: "overlays/rpi/config.txt".to_owned(),
             data: b"arm_64bit=1".to_vec(),
         }],
@@ -315,54 +315,6 @@ fn build_img_esp_has_efi_system_partition_guid() {
         .find(|(_, p)| p.is_used())
         .expect("must have partition");
     assert_eq!(part.partition_type_guid, efi_guid);
-}
-
-#[test]
-fn build_img_aarch64_with_extra_files_contains_fat_data() {
-    // ARRANGE
-    let config = b"arm_64bit=1\n";
-    let spec = img_spec(
-        fake_uki(2048),
-        Arch::Aarch64,
-        vec![FileEntry {
-            path: "config.txt".to_owned(),
-            data: config.to_vec(),
-        }],
-    );
-
-    // ACT
-    let img = build_img_bytes(&spec);
-
-    // ASSERT
-    let mut cursor = Cursor::new(&img);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    let (_, part) = gpt
-        .iter()
-        .find(|(_, p)| p.is_used())
-        .expect("must have partition");
-    let offset = (part.starting_lba * 512) as usize;
-    let esp_len = ((part.ending_lba - part.starting_lba + 1) * 512) as usize;
-    let fat_data = &img[offset..offset + esp_len];
-    let mut fat_cursor = Cursor::new(fat_data.to_vec());
-    let fs = fatfs::FileSystem::new(&mut fat_cursor, fatfs::FsOptions::new())
-        .expect("FAT32 must be valid");
-    let root = fs.root_dir();
-
-    let mut cfg_file = root.open_file("config.txt").expect("config.txt must exist");
-    let mut cfg_content = Vec::new();
-    std::io::Read::read_to_end(&mut cfg_file, &mut cfg_content).expect("read config.txt");
-    assert_eq!(cfg_content, config);
-
-    let mut uki_file = root
-        .open_dir("EFI")
-        .expect("EFI dir")
-        .open_dir("BOOT")
-        .expect("BOOT dir")
-        .open_file("BOOTAA64.EFI")
-        .expect("BOOTAA64.EFI must exist");
-    let mut uki_content = Vec::new();
-    std::io::Read::read_to_end(&mut uki_file, &mut uki_content).expect("read UKI");
-    assert_eq!(uki_content, fake_uki(2048));
 }
 
 #[test]

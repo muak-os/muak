@@ -3,11 +3,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use esp::{Arch, EspFile, EspSpec};
 use rustix::fs::sync;
 
 use crate::constants::host_oci_arch;
 use crate::disk;
-use crate::uki;
 
 /// Mount point for the EFI partition during deployment.
 const MOUNT_POINT: &str = "/run/mnt/efi";
@@ -51,20 +51,9 @@ pub fn deploy(efi_device: &str, staged_uki: &Path, firmware_dir: Option<&Path>) 
         bail!("EFI device {} does not exist", efi_device);
     }
 
+    let spec = build_esp_spec(staged_uki, firmware_dir)?;
     disk::mount_efi_partition(efi_device, MOUNT_POINT)?;
-
-    std::fs::create_dir_all(format!("{}/EFI/BOOT", MOUNT_POINT))?;
-
-    let uki_path = Path::new(MOUNT_POINT)
-        .join("EFI")
-        .join("BOOT")
-        .join(uki::UKI_FILENAME);
-    std::fs::copy(staged_uki, &uki_path)
-        .with_context(|| format!("Failed to copy UKI to {}", uki_path.display()))?;
-
-    if let Some(dir) = firmware_dir {
-        copy_firmware(dir, Path::new(MOUNT_POINT))?;
-    }
+    esp::populate(&spec, Path::new(MOUNT_POINT)).context("Failed to populate EFI partition")?;
 
     sync();
     disk::try_unmount(MOUNT_POINT);
@@ -72,8 +61,20 @@ pub fn deploy(efi_device: &str, staged_uki: &Path, firmware_dir: Option<&Path>) 
     Ok(())
 }
 
-/// Copies all files from the firmware directory to the EFI partition root.
-fn copy_firmware(src: &Path, efi_root: &Path) -> Result<()> {
+/// Builds an ESP spec from the staged UKI and optional firmware files.
+fn build_esp_spec(staged_uki: &Path, firmware_dir: Option<&Path>) -> Result<EspSpec> {
+    let uki = std::fs::read(staged_uki)
+        .with_context(|| format!("Failed to read staged UKI {}", staged_uki.display()))?;
+    let extra_files = match firmware_dir {
+        Some(dir) => collect_firmware(dir)?,
+        None => Vec::new(),
+    };
+    Ok(EspSpec::with_uki(Arch::current(), uki, extra_files))
+}
+
+/// Collects all firmware files for placement at the ESP root.
+fn collect_firmware(src: &Path) -> Result<Vec<EspFile>> {
+    let mut files = Vec::new();
     for entry in std::fs::read_dir(src)
         .with_context(|| format!("Failed to read firmware dir {}", src.display()))?
     {
@@ -83,16 +84,14 @@ fn copy_firmware(src: &Path, efi_root: &Path) -> Result<()> {
             continue;
         }
         let name = entry.file_name();
-        let dest = efi_root.join(&name);
-        std::fs::copy(&path, &dest).with_context(|| {
-            format!(
-                "Failed to copy firmware file {} to {}",
-                path.display(),
-                dest.display()
-            )
-        })?;
+        let data = std::fs::read(&path)
+            .with_context(|| format!("Failed to read firmware file {}", path.display()))?;
+        files.push(EspFile {
+            path: name.to_string_lossy().into_owned(),
+            data,
+        });
     }
-    Ok(())
+    Ok(files)
 }
 
 #[cfg(test)]
@@ -109,7 +108,9 @@ mod tests {
         std::fs::create_dir(src.path().join("subdir")).expect("create subdir");
 
         // ACT
-        copy_firmware(src.path(), dst.path()).expect("copy firmware");
+        let files = collect_firmware(src.path()).expect("collect firmware");
+        let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
+        esp::populate(&spec, dst.path()).expect("populate firmware");
 
         // ASSERT
         assert_eq!(
@@ -130,22 +131,41 @@ mod tests {
         let dst = tempfile::tempdir().expect("create dst dir");
 
         // ACT
-        copy_firmware(src.path(), dst.path()).expect("copy firmware");
+        let files = collect_firmware(src.path()).expect("collect firmware");
+        let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
+        esp::populate(&spec, dst.path()).expect("populate firmware");
 
         // ASSERT
         let count = std::fs::read_dir(dst.path()).expect("read dst").count();
-        assert_eq!(count, 0);
+        assert_eq!(count, 1);
+        assert!(dst.path().join("EFI").exists());
     }
 
     #[test]
     fn copy_firmware_fails_on_missing_src() {
-        // ARRANGE
-        let dst = tempfile::tempdir().expect("create dst dir");
-
-        // ACT
-        let result = copy_firmware(Path::new("/nonexistent/firmware"), dst.path());
+        // ARRANGE / ACT
+        let result = collect_firmware(Path::new("/nonexistent/firmware"));
 
         // ASSERT
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_spec_places_uki_at_fallback_path() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let staged = dir.path().join("staged.efi");
+        std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
+
+        // ACT
+        let spec = build_esp_spec(&staged, None).expect("build spec");
+
+        // ASSERT
+        assert_eq!(spec.files.len(), 1);
+        assert_eq!(
+            spec.files[0].path,
+            format!("EFI/BOOT/{}", Arch::current().boot_filename())
+        );
+        assert_eq!(spec.files[0].data, b"uki-bytes");
     }
 }

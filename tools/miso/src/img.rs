@@ -85,11 +85,11 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::{Arch, BootFsSpec, fat::build_efi_image};
+    use crate::{Arch, EspSpec};
 
     fn minimal_esp() -> Vec<u8> {
-        let spec = BootFsSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
-        build_efi_image(&spec).expect("should build FAT32 image")
+        let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
+        esp::build(&spec).expect("should build FAT32 image")
     }
 
     #[test]
@@ -150,9 +150,8 @@ mod tests {
     #[test]
     fn write_img_esp_contains_uki_data() {
         // ARRANGE
-        let uki = b"test-uki-content";
-        let spec = BootFsSpec::with_uki(Arch::X86_64, uki.to_vec(), vec![]);
-        let esp = build_efi_image(&spec).expect("build FAT32");
+        let spec = EspSpec::with_uki(Arch::X86_64, b"test-uki-content".to_vec(), vec![]);
+        let esp = esp::build(&spec).expect("build FAT32");
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
@@ -167,21 +166,8 @@ mod tests {
             .find(|(_, p)| p.is_used())
             .expect("must have partition");
         let offset = (part.starting_lba * SECTOR_SIZE) as usize;
-        let fat_data = &data[offset..offset + esp.len()];
-        let mut fat_cursor = Cursor::new(fat_data.to_vec());
-        let fs = fatfs::FileSystem::new(&mut fat_cursor, fatfs::FsOptions::new())
-            .expect("FAT32 must be valid");
-        let mut file = fs
-            .root_dir()
-            .open_dir("EFI")
-            .expect("EFI dir")
-            .open_dir("BOOT")
-            .expect("BOOT dir")
-            .open_file("BOOTX64.EFI")
-            .expect("UKI file");
-        let mut content = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut content).expect("read UKI");
-        assert_eq!(content, uki);
+        let esp_data = &data[offset..offset + esp.len()];
+        assert_eq!(esp_data, esp.as_slice());
     }
 
     #[test]

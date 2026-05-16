@@ -1,0 +1,18 @@
+[package]
+name = "esp"
+description = "EFI System Partition manifest and renderers"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Filesystem
+fatfs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

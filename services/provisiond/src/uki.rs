@@ -6,12 +6,6 @@ use anyhow::{Context, Result, bail};
 
 use crate::constants::host_oci_arch;
 
-#[cfg(target_arch = "x86_64")]
-pub const UKI_FILENAME: &str = "BOOTX64.EFI";
-
-#[cfg(target_arch = "aarch64")]
-pub const UKI_FILENAME: &str = "BOOTAA64.EFI";
-
 /// Default kernel command line for x86_64 architecture.
 #[cfg(target_arch = "x86_64")]
 const DEFAULT_CMDLINE: &str = include_str!(concat!(

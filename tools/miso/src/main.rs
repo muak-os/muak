@@ -7,7 +7,7 @@ mod cli {
 
     use anyhow::{Context, Result, bail, ensure};
     use clap::{Parser, Subcommand};
-    use miso::{Arch, BootFsSpec, FileEntry};
+    use miso::{Arch, EspFile, EspSpec};
 
     /// Top-level CLI arguments.
     #[derive(Parser, Debug)]
@@ -86,14 +86,14 @@ mod cli {
     }
 
     /// Loads extra file entries from `src:dst` specs.
-    pub(super) fn load_file_entries(specs: &[String]) -> Result<Vec<FileEntry>> {
+    pub(super) fn load_file_entries(specs: &[String]) -> Result<Vec<EspFile>> {
         specs
             .iter()
             .map(|s| {
                 let (src, dst) = parse_file_spec(s)?;
                 let data =
                     std::fs::read(src).with_context(|| format!("Failed to read file '{src}'"))?;
-                Ok(FileEntry {
+                Ok(EspFile {
                     path: dst.to_owned(),
                     data,
                 })
@@ -115,7 +115,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
+                let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
                 miso::build_iso(&spec, &mut file).context("Failed to build ISO")?;
@@ -136,7 +136,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = BootFsSpec::with_uki(arch, uki_bytes, extra_files);
+                let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
                 miso::build_img(&spec, &mut file).context("Failed to build disk image")?;

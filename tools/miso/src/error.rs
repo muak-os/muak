@@ -1,5 +1,6 @@
 //! Error types for miso operations.
 
+use esp::EspError;
 use thiserror::Error;
 
 /// Errors produced during image construction.
@@ -7,6 +8,9 @@ use thiserror::Error;
 pub enum MisoError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Esp(#[from] EspError),
 
     #[error("FAT filesystem error: {0}")]
     Fat(String),
