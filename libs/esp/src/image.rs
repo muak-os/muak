@@ -280,6 +280,29 @@ mod tests {
     }
 
     #[test]
+    fn build_propagates_file_creation_collisions() {
+        // ARRANGE
+        let spec = EspSpec {
+            files: vec![
+                EspFile {
+                    path: "EFI".to_owned(),
+                    data: b"file".to_vec(),
+                },
+                EspFile {
+                    path: "EFI/BOOT/BOOTX64.EFI".to_owned(),
+                    data: b"uki".to_vec(),
+                },
+            ],
+        };
+
+        // ACT
+        let result = build(&spec);
+
+        // ASSERT
+        assert!(matches!(result, Err(EspError::Fat(_))));
+    }
+
+    #[test]
     fn write_file_at_path_writes_root_level_file() {
         // ARRANGE
         with_root(FAT_MIN_IMAGE_BYTES, |root| {
