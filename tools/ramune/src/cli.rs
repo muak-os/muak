@@ -32,6 +32,9 @@ enum Command {
 
         #[arg(long, default_value_t = 19)]
         compression_level: i32,
+
+        #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
+        rootfs_compression_level: i32,
     },
     Extend {
         #[arg(short, long)]
@@ -63,6 +66,7 @@ async fn run_command(command: Command) -> Result<String> {
             file_contexts,
             output,
             compression_level,
+            rootfs_compression_level,
         } => {
             let file_contexts = match file_contexts.as_ref() {
                 Some(path) => {
@@ -81,6 +85,7 @@ async fn run_command(command: Command) -> Result<String> {
                 rootfs_dir: &rootfs_dir,
                 file_contexts: file_contexts.as_ref(),
                 compression_level,
+                rootfs_compression_level,
             };
 
             crate::create(&config, &output).context("Failed to create initramfs")?;

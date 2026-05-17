@@ -27,8 +27,8 @@ pub fn plan(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<InodeLayou
     indices::apply_nlinks(&mut inodes, &idx.nlink_map, &idx.path_to_idx);
     indices::apply_children(&mut inodes, &idx.dir_children, &idx.path_to_idx);
     indices::assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
-    assign::assign_nids_and_layouts(&mut inodes, &idx.path_to_idx, config.compress);
-    assign::assign_data_block_addrs(&mut inodes, config.compress);
+    assign::assign_nids_and_layouts(&mut inodes, &idx.path_to_idx, config.compression);
+    assign::assign_data_block_addrs(&mut inodes, config.compression.is_enabled());
 
     Ok(inodes)
 }

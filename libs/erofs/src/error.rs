@@ -37,6 +37,10 @@ pub enum ErofsError {
     #[error("compression error: {detail}")]
     Compression { detail: String },
 
+    /// Compression level is outside the zstd-supported range.
+    #[error("invalid compression level {level}; expected 0 or {min}..={max}")]
+    InvalidCompressionLevel { level: i32, min: i32, max: i32 },
+
     /// Internal invariant violated.
     #[error("internal error: {0}")]
     Internal(&'static str),

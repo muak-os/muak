@@ -18,7 +18,7 @@ use crate::{BLOCK_SIZE, SLOT_SIZE};
 /// Build a complete EROFS image from the planned layout.
 pub fn write_image(inodes: &[InodeLayout], config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
     let bs = BLOCK_SIZE as usize;
-    let total_size = layout::total_image_size(inodes, config.compress);
+    let total_size = layout::total_image_size(inodes, config.compression.is_enabled());
     let mut image = vec![0u8; total_size];
 
     let path_to_idx: BTreeMap<String, usize> = inodes
@@ -56,7 +56,7 @@ pub fn write_image(inodes: &[InodeLayout], config: &crate::MkfsConfig<'_>) -> Re
         }
     }
 
-    let has_compressed = config.compress;
+    let has_compressed = config.compression.is_enabled();
     let root_nid = inodes.first().map_or(0, |i| i.nid as u16);
     let blocks = (total_size / bs) as u32;
 

@@ -101,6 +101,72 @@ fn cli_create_with_file_contexts_builds_initramfs() {
 }
 
 #[test]
+fn cli_create_accepts_separate_rootfs_compression_level() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+    let rootfs = env.write_rootfs();
+    let output = env.path("initramfs.img");
+
+    // ACT
+    let process_output = Command::new(ramune_bin())
+        .args([
+            "create",
+            "--init",
+            init.to_str().expect("init path"),
+            "--rootfs-dir",
+            rootfs.to_str().expect("rootfs path"),
+            "--compression-level",
+            "19",
+            "--rootfs-compression-level",
+            "7",
+            "--output",
+            output.to_str().expect("output path"),
+        ])
+        .output()
+        .expect("failed to run ramune create with separate compression levels");
+
+    // ASSERT
+    assert!(
+        process_output.status.success(),
+        "ramune create should accept separate rootfs compression level"
+    );
+    assert!(output.exists(), "output image should exist");
+}
+
+#[test]
+fn cli_create_invalid_rootfs_compression_level_exits_with_error() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+    let rootfs = env.write_rootfs();
+    let output = env.path("initramfs.img");
+
+    // ACT
+    let process_output = Command::new(ramune_bin())
+        .args([
+            "create",
+            "--init",
+            init.to_str().expect("init path"),
+            "--rootfs-dir",
+            rootfs.to_str().expect("rootfs path"),
+            "--rootfs-compression-level",
+            &i32::MAX.to_string(),
+            "--output",
+            output.to_str().expect("output path"),
+        ])
+        .output()
+        .expect("failed to run ramune create with invalid rootfs compression level");
+
+    // ASSERT
+    assert!(
+        !process_output.status.success(),
+        "ramune create should fail for invalid rootfs compression level"
+    );
+    assert!(String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level"));
+}
+
+#[test]
 fn cli_create_missing_init_exits_with_error() {
     // ARRANGE
     let env = TestEnv::new();
@@ -299,6 +365,35 @@ async fn run_with_create_with_file_contexts_writes_output() {
     // ASSERT
     assert!(output.exists());
     assert!(message.contains(output.to_str().expect("output path")));
+}
+
+#[tokio::test]
+async fn run_with_create_accepts_rootfs_compression_level() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+    let rootfs = env.write_rootfs();
+    let output = env.path("run-with-initramfs.img");
+
+    // ACT
+    let message = cli::run_with([
+        "ramune",
+        "create",
+        "--init",
+        init.to_str().expect("init path"),
+        "--rootfs-dir",
+        rootfs.to_str().expect("rootfs path"),
+        "--rootfs-compression-level",
+        "7",
+        "--output",
+        output.to_str().expect("output path"),
+    ])
+    .await
+    .expect("run_with create");
+
+    // ASSERT
+    assert!(output.exists());
+    assert!(message.contains("Successfully created initramfs at"));
 }
 
 #[tokio::test]

@@ -216,6 +216,7 @@ mod tests {
             rootfs_dir,
             file_contexts: None,
             compression_level: 19,
+            rootfs_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         }
     }
 

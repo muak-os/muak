@@ -2,19 +2,26 @@
 
 use std::path::Path;
 
-use erofs::{FileContexts, MkfsConfig};
+use erofs::{Compression, FileContexts, MkfsConfig};
 
 use crate::error::{RamuneError, Result};
 
 /// Creates a reproducible EROFS image with optional SELinux file contexts.
-pub(crate) fn create(source_dir: &Path, file_contexts: Option<&FileContexts>) -> Result<Vec<u8>> {
+pub(crate) fn create(
+    source_dir: &Path,
+    file_contexts: Option<&FileContexts>,
+    compression_level: i32,
+) -> Result<Vec<u8>> {
+    let compression_level = crate::validate_compression_level(compression_level)?;
     let config = MkfsConfig {
         source_date_epoch: 0,
         file_contexts,
         uuid: [0; 16],
         force_uid: Some(0),
         force_gid: Some(0),
-        compress: true,
+        compression: Compression::Zstd {
+            level: compression_level,
+        },
     };
     erofs::mkfs(source_dir, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))
 }
@@ -34,7 +41,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
 
         // ACT
-        let image = create(dir.path(), None).expect("create");
+        let image = create(dir.path(), None, 3).expect("create");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -49,7 +56,7 @@ mod tests {
         f.write_all(b"hello world").expect("write");
 
         // ACT
-        let image = create(dir.path(), None).expect("create");
+        let image = create(dir.path(), None, 3).expect("create");
 
         // ASSERT
         assert!(image.len() >= 4096);
@@ -63,7 +70,7 @@ mod tests {
         std::fs::write(dir.path().join("sub").join("file.txt"), b"data").expect("write");
 
         // ACT
-        let image = create(dir.path(), None).expect("create");
+        let image = create(dir.path(), None, 3).expect("create");
 
         // ASSERT
         assert!(image.len() >= 4096);
@@ -76,8 +83,8 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), b"aaa").expect("write");
 
         // ACT
-        let img1 = create(dir.path(), None).expect("create 1");
-        let img2 = create(dir.path(), None).expect("create 2");
+        let img1 = create(dir.path(), None, 3).expect("create 1");
+        let img2 = create(dir.path(), None, 3).expect("create 2");
 
         // ASSERT
         assert_eq!(img1, img2);
@@ -92,7 +99,7 @@ mod tests {
             .expect("fc");
 
         // ACT
-        let image = create(dir.path(), Some(&fc)).expect("create");
+        let image = create(dir.path(), Some(&fc), 3).expect("create");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -102,13 +109,29 @@ mod tests {
     #[test]
     fn create_missing_source_dir_errors() {
         // ARRANGE / ACT
-        let result = create(Path::new("/nonexistent/erofs-source"), None);
+        let result = create(Path::new("/nonexistent/erofs-source"), None, 3);
 
         // ASSERT
         assert!(
             result
                 .as_ref()
                 .is_err_and(|error| matches!(error, RamuneError::ErofsError(_)))
+        );
+    }
+
+    #[test]
+    fn create_invalid_compression_level_errors() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // ACT
+        let result = create(dir.path(), None, i32::MAX);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::InvalidCompressionLevel { .. }))
         );
     }
 }

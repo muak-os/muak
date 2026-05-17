@@ -17,6 +17,7 @@ fn create_config<'a>(
         rootfs_dir,
         file_contexts,
         compression_level: 19,
+        rootfs_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
     }
 }
 

@@ -12,7 +12,7 @@ use crate::inode::{
     EROFS_INODE_FLAT_PLAIN, Z_EROFS_MAP_HEADER_SIZE,
 };
 use crate::superblock::EROFS_SUPER_OFFSET;
-use crate::{BLOCK_SIZE, SLOT_SIZE};
+use crate::{BLOCK_SIZE, Compression, SLOT_SIZE};
 
 /// Byte offset at which the inode metadata region begins (no compression).
 pub(super) const META_START: usize = EROFS_SUPER_OFFSET + 128;
@@ -34,9 +34,10 @@ pub(super) fn meta_start(has_compression: bool) -> usize {
 pub fn assign_nids_and_layouts(
     inodes: &mut [InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
-    do_compress: bool,
+    compression: Compression,
 ) {
     let bs = BLOCK_SIZE as usize;
+    let do_compress = compression.is_enabled();
     let mut meta_offset = meta_start(do_compress);
     let visit_order = bfs_order(inodes, path_to_idx);
 
@@ -50,7 +51,7 @@ pub fn assign_nids_and_layouts(
             EROFS_FT_DIR => layout_dir(inodes, i, nid, slot_offset, inode_header, path_to_idx, bs),
             EROFS_FT_SYMLINK => layout_symlink(inodes, i, nid, slot_offset, inode_header, bs),
             EROFS_FT_REG_FILE => {
-                layout_regular(inodes, i, nid, slot_offset, inode_header, bs, do_compress)
+                layout_regular(inodes, i, nid, slot_offset, inode_header, bs, compression)
             }
             _ => layout_special(inodes, i, nid, inode_header),
         };
@@ -258,13 +259,13 @@ fn layout_regular(
     slot_offset: usize,
     inode_header: usize,
     bs: usize,
-    do_compress: bool,
+    compression: Compression,
 ) -> usize {
     let file_size = inodes[i].size as usize;
 
-    if do_compress
+    if compression.is_enabled()
         && file_size > 0
-        && let Some(advance) = try_layout_compressed(inodes, i, nid, inode_header)
+        && let Some(advance) = try_layout_compressed(inodes, i, nid, inode_header, compression)
     {
         return advance;
     }
@@ -307,9 +308,13 @@ fn try_layout_compressed(
     i: usize,
     nid: u64,
     inode_header: usize,
+    compression: Compression,
 ) -> Option<usize> {
+    let Compression::Zstd { level } = compression else {
+        return None;
+    };
     let file_data = std::fs::read(&inodes[i].path).ok()?;
-    let cf = compress::compress_file(&file_data).ok()??;
+    let cf = compress::compress_file(&file_data, level).ok()??;
 
     if !compress::has_representable_compact_indexes(&cf) {
         return None;
@@ -447,6 +452,7 @@ fn inline_data_size(inode: &InodeLayout) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Compression;
     use crate::layout::types::InodeLayout;
 
     fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
@@ -596,7 +602,7 @@ mod tests {
         path_to_idx.insert("/dev".to_string(), 1);
 
         // ACT
-        assign_nids_and_layouts(&mut inodes, &path_to_idx, false);
+        assign_nids_and_layouts(&mut inodes, &path_to_idx, Compression::None);
 
         // ASSERT
         assert_eq!(inodes[1].datalayout, EROFS_INODE_FLAT_PLAIN);

@@ -52,7 +52,8 @@ async fn process_batch(
 
 /// Converts a single extension directory into a named EROFS blob.
 fn process(name: &str, path: &Path) -> Result<(String, Vec<u8>)> {
-    erofs::create(path, None).map(|erofs_data| (format!("extensions/{name}.erofs"), erofs_data))
+    erofs::create(path, None, ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+        .map(|erofs_data| (format!("extensions/{name}.erofs"), erofs_data))
 }
 
 #[cfg(test)]

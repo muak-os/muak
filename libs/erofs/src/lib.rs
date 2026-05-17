@@ -12,6 +12,7 @@ mod xattr;
 
 use std::path::Path;
 
+pub use compress::{Compression, DEFAULT_ZSTD_COMPRESSION_LEVEL};
 pub use error::{ErofsError, Result};
 pub use filecontexts::FileContexts;
 pub use layout::InodeLayout;
@@ -28,18 +29,35 @@ pub struct MkfsConfig<'a> {
     pub uuid: [u8; 16],
     pub force_uid: Option<u16>,
     pub force_gid: Option<u16>,
-    pub compress: bool,
+    pub compression: Compression,
 }
 
 /// Build an EROFS filesystem image from a source directory.
 pub fn mkfs(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
+    if let Some(level) = config.compression.level() {
+        validate_compression_level(level)?;
+    }
     let inodes = layout::plan(source_dir, config)?;
     writer::write_image(&inodes, config)
 }
 
+fn validate_compression_level(level: i32) -> Result<i32> {
+    let range = zstd::compression_level_range();
+
+    if level == 0 || range.contains(&level) {
+        Ok(level)
+    } else {
+        Err(ErofsError::InvalidCompressionLevel {
+            level,
+            min: *range.start(),
+            max: *range.end(),
+        })
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod testutil {
-    use super::MkfsConfig;
+    use super::{Compression, MkfsConfig};
 
     /// Returns a minimal uncompressed [`MkfsConfig`] for use in unit tests.
     pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
@@ -49,7 +67,7 @@ pub(crate) mod testutil {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compress: false,
+            compression: Compression::None,
         }
     }
 
@@ -61,7 +79,7 @@ pub(crate) mod testutil {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compress: true,
+            compression: Compression::default(),
         }
     }
 }
@@ -187,6 +205,36 @@ mod tests {
         // ASSERT
         assert!(!image.is_empty());
         assert_eq!(image.len() % 4096, 0);
+    }
+
+    #[test]
+    fn compression_default_uses_default_zstd_level() {
+        // ASSERT
+        assert_eq!(
+            Compression::default(),
+            Compression::Zstd {
+                level: DEFAULT_ZSTD_COMPRESSION_LEVEL,
+            }
+        );
+    }
+
+    #[test]
+    fn mkfs_rejects_invalid_compression_level() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = MkfsConfig {
+            compression: Compression::Zstd { level: i32::MAX },
+            ..test_config(0)
+        };
+
+        // ACT
+        let result = mkfs(dir.path(), &config);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ErofsError::InvalidCompressionLevel { .. })
+        ));
     }
 
     #[test]

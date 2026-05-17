@@ -22,6 +22,7 @@ pub struct CreateConfig<'a> {
     pub rootfs_dir: &'a Path,
     pub file_contexts: Option<&'a ::erofs::FileContexts>,
     pub compression_level: i32,
+    pub rootfs_compression_level: i32,
 }
 
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
@@ -130,8 +131,13 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
         source: e,
     })?;
 
-    let rootfs_erofs = prepare_rootfs(config.rootfs_dir)
-        .and_then(|staging| erofs::create(staging.path(), config.file_contexts))?;
+    let rootfs_erofs = prepare_rootfs(config.rootfs_dir).and_then(|staging| {
+        erofs::create(
+            staging.path(),
+            config.file_contexts,
+            config.rootfs_compression_level,
+        )
+    })?;
 
     let entries = vec![
         CpioEntry {
@@ -167,6 +173,7 @@ mod tests {
             rootfs_dir: rootfs,
             file_contexts: None,
             compression_level: 19,
+            rootfs_compression_level: 3,
         }
     }
 
@@ -219,6 +226,7 @@ mod tests {
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: 19,
+            rootfs_compression_level: 3,
         });
 
         // ASSERT
@@ -243,6 +251,7 @@ mod tests {
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: 19,
+            rootfs_compression_level: 3,
         });
 
         // ASSERT
@@ -272,6 +281,7 @@ mod tests {
             rootfs_dir: &rootfs,
             file_contexts: Some(&fc),
             compression_level: 19,
+            rootfs_compression_level: 3,
         })
         .expect("create_initramfs");
 
@@ -295,6 +305,34 @@ mod tests {
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: i32::MAX,
+            rootfs_compression_level: 3,
+        });
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::InvalidCompressionLevel { .. }))
+        );
+    }
+
+    #[test]
+    fn create_initramfs_invalid_rootfs_compression_level_errors() {
+        // ARRANGE
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let init_file = tmp.path().join("init");
+        std::fs::write(&init_file, b"init").expect("write init");
+        let rootfs = tmp.path().join("rootfs");
+        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::write(rootfs.join("file"), b"data").expect("write");
+
+        // ACT
+        let result = create_initramfs(&CreateConfig {
+            init: &init_file,
+            rootfs_dir: &rootfs,
+            file_contexts: None,
+            compression_level: 19,
+            rootfs_compression_level: i32::MAX,
         });
 
         // ASSERT

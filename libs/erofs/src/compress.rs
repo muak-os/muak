@@ -1,9 +1,41 @@
 //! Destsize-bounded zstd compression for EROFS, producing per-pcluster streams.
 
-use crate::BLOCK_SIZE;
 use crate::error::{ErofsError, Result};
+use crate::{BLOCK_SIZE, validate_compression_level};
 
-const ZSTD_DEFAULT_LEVEL: i32 = 3;
+/// Default zstd compression level used for compressed EROFS data.
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 3;
+
+/// Compression configuration for EROFS file data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Compression {
+    /// Disable file data compression.
+    None,
+    /// Compress file data with zstd at the provided level.
+    Zstd { level: i32 },
+}
+
+impl Compression {
+    pub(crate) fn is_enabled(self) -> bool {
+        matches!(self, Self::Zstd { .. })
+    }
+
+    pub(crate) fn level(self) -> Option<i32> {
+        match self {
+            Self::None => None,
+            Self::Zstd { level } => Some(level),
+        }
+    }
+}
+
+impl Default for Compression {
+    fn default() -> Self {
+        Self::Zstd {
+            level: DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        }
+    }
+}
+
 const ZSTD_WINDOW_LOG: u32 = 15;
 const PCLUSTER_SIZE: usize = BLOCK_SIZE as usize;
 
@@ -57,12 +89,12 @@ pub(crate) fn has_representable_compact_indexes(cf: &CompressedFile) -> bool {
 }
 
 /// Compress file data into multiple destsize-bounded pclusters.
-pub fn compress_file(data: &[u8]) -> Result<Option<CompressedFile>> {
+pub fn compress_file(data: &[u8], compression_level: i32) -> Result<Option<CompressedFile>> {
     if data.is_empty() {
         return Ok(None);
     }
 
-    let pclusters = destsize_compress_all(data)?;
+    let pclusters = destsize_compress_all(data, compression_level)?;
 
     let total_compressed: usize = pclusters.len() * PCLUSTER_SIZE;
     if total_compressed >= data.len() {
@@ -75,13 +107,14 @@ pub fn compress_file(data: &[u8]) -> Result<Option<CompressedFile>> {
     }))
 }
 
-fn new_cctx() -> Result<zstd::zstd_safe::CCtx<'static>> {
+fn new_cctx(compression_level: i32) -> Result<zstd::zstd_safe::CCtx<'static>> {
     let to_err = |e: usize| ErofsError::Compression {
         detail: format!("zstd error code: {e}"),
     };
+    let compression_level = validate_compression_level(compression_level)?;
     let mut cctx = zstd::zstd_safe::CCtx::create();
     cctx.set_parameter(zstd::zstd_safe::CParameter::CompressionLevel(
-        ZSTD_DEFAULT_LEVEL,
+        compression_level,
     ))
     .map_err(to_err)?;
     cctx.set_parameter(zstd::zstd_safe::CParameter::WindowLog(ZSTD_WINDOW_LOG))
@@ -90,8 +123,8 @@ fn new_cctx() -> Result<zstd::zstd_safe::CCtx<'static>> {
 }
 
 /// Compress all data into multiple pclusters using destsize binary search.
-fn destsize_compress_all(data: &[u8]) -> Result<Vec<Pcluster>> {
-    let mut cctx = new_cctx()?;
+fn destsize_compress_all(data: &[u8], compression_level: i32) -> Result<Vec<Pcluster>> {
+    let mut cctx = new_cctx(compression_level)?;
     let mut pclusters = Vec::new();
     let mut offset = 0usize;
 
@@ -238,7 +271,7 @@ mod tests {
     #[test]
     fn compress_empty_returns_none() {
         // ARRANGE & ACT
-        let result = compress_file(b"").expect("compress_file");
+        let result = compress_file(b"", 3).expect("compress_file");
 
         // ASSERT
         assert!(result.is_none());
@@ -250,7 +283,7 @@ mod tests {
         let data = xorshift32_bytes(0xDEAD_BEEF, 4096);
 
         // ACT
-        let result = compress_file(&data).expect("compress_file");
+        let result = compress_file(&data, 3).expect("compress_file");
 
         // ASSERT
         assert!(result.is_none());
@@ -262,7 +295,7 @@ mod tests {
         let data = vec![0u8; 8192];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert!(cf.pclusters.len() <= 2);
@@ -275,7 +308,7 @@ mod tests {
         let data = vec![0u8; 4096];
 
         // ACT
-        let result = compress_file(&data).expect("compress_file");
+        let result = compress_file(&data, 3).expect("compress_file");
 
         // ASSERT
         assert!(
@@ -290,7 +323,7 @@ mod tests {
         let data = vec![0u8; 5000];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert_eq!(cf.original_size, 5000);
@@ -302,7 +335,7 @@ mod tests {
         let data = vec![0u8; 8192];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert_eq!(pcluster_blocks(&cf), cf.pclusters.len() as u32);
@@ -314,7 +347,7 @@ mod tests {
         let data = vec![0u8; 8192];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert_eq!(lcluster_count(&cf), 2);
@@ -326,7 +359,7 @@ mod tests {
         let data = vec![0u8; 4100];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert_eq!(cf.original_size, 4100);
@@ -339,7 +372,7 @@ mod tests {
         let data = vec![0u8; 131_072];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         for pc in &cf.pclusters {
@@ -358,7 +391,7 @@ mod tests {
         let data = vec![0u8; 131_072];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         let total_input: usize = cf.pclusters.iter().map(|p| p.input_len).sum();
@@ -413,7 +446,7 @@ mod tests {
         let data = vec![0u8; 131_072];
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         let mut offset = 0;
@@ -447,7 +480,7 @@ mod tests {
         }
 
         // ACT
-        let cf = compress_file(&data).expect("compress_file").expect("cf");
+        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
 
         // ASSERT
         assert!(cf.pclusters.len() > 1, "should produce multiple pclusters");
@@ -474,7 +507,7 @@ mod tests {
 
         // ACT
         eprintln!("Data size: {}", data.len());
-        let pclusters = destsize_compress_all(&data).expect("compress");
+        let pclusters = destsize_compress_all(&data, 3).expect("compress");
 
         // ASSERT
         for (i, pc) in pclusters.iter().enumerate() {
@@ -486,5 +519,20 @@ mod tests {
             );
         }
         eprintln!("Total pclusters: {}", pclusters.len());
+    }
+
+    #[test]
+    fn compress_invalid_level_errors() {
+        // ARRANGE
+        let data = vec![0u8; 8192];
+
+        // ACT
+        let result = compress_file(&data, i32::MAX);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ErofsError::InvalidCompressionLevel { .. })
+        ));
     }
 }
