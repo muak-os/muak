@@ -30,7 +30,7 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
 
-        #[arg(long, default_value_t = 19)]
+        #[arg(long, default_value_t = 6)]
         compression_level: i32,
 
         #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
