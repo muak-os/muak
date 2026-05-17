@@ -3,6 +3,7 @@
 use std::io::Cursor;
 
 use miso::{Arch, EspFile, EspSpec, SECTOR_SIZE};
+use parttable::{EFI_GUID, MBR_PROTECTIVE_GPT_TYPE, Table};
 
 fn fake_uki(size: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(size);
@@ -278,9 +279,9 @@ fn build_raw_has_valid_gpt() {
 
     // ASSERT
     let mut cursor = Cursor::new(img);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("image must contain a valid GPT");
+    let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
     assert!(
-        gpt.iter().any(|(_, p)| p.is_used()),
+        gpt.has_used_partitions(),
         "GPT must have at least one partition"
     );
 }
@@ -297,7 +298,7 @@ fn build_raw_has_protective_mbr() {
     assert_eq!(img[510], 0x55, "MBR byte 510 must be 0x55");
     assert_eq!(img[511], 0xAA, "MBR byte 511 must be 0xAA");
     assert_eq!(
-        img[450], 0xEE,
+        img[450], MBR_PROTECTIVE_GPT_TYPE,
         "MBR partition type must be 0xEE (GPT protective)"
     );
 }
@@ -306,22 +307,15 @@ fn build_raw_has_protective_mbr() {
 fn build_raw_esp_has_efi_system_partition_guid() {
     // ARRANGE
     let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
-    let efi_guid: [u8; 16] = [
-        0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ];
 
     // ACT
     let img = build_raw_bytes(&spec);
 
     // ASSERT
     let mut cursor = Cursor::new(img);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    let (_, part) = gpt
-        .iter()
-        .find(|(_, p)| p.is_used())
-        .expect("must have partition");
-    assert_eq!(part.partition_type_guid, efi_guid);
+    let gpt = Table::read(&mut cursor).expect("valid GPT");
+    let part = gpt.partition(1).expect("must have partition");
+    assert_eq!(part.type_guid, EFI_GUID);
 }
 
 #[test]
@@ -346,12 +340,9 @@ fn build_raw_partition_name_is_efi() {
 
     // ASSERT
     let mut cursor = Cursor::new(img);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    let (_, part) = gpt
-        .iter()
-        .find(|(_, p)| p.is_used())
-        .expect("must have partition");
-    assert_eq!(part.partition_name.as_str(), "EFI");
+    let gpt = Table::read(&mut cursor).expect("valid GPT");
+    let part = gpt.partition(1).expect("must have partition");
+    assert_eq!(part.name.as_str(), "EFI");
 }
 
 #[test]
@@ -364,8 +355,8 @@ fn build_raw_x86_64_produces_valid_gpt() {
 
     // ASSERT
     let mut cursor = Cursor::new(img);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    assert!(gpt.iter().any(|(_, p)| p.is_used()));
+    let gpt = Table::read(&mut cursor).expect("valid GPT");
+    assert!(gpt.has_used_partitions());
 }
 
 #[test]
@@ -379,6 +370,6 @@ fn build_compressed_raw_round_trips_to_valid_gpt() {
 
     // ASSERT
     let mut cursor = Cursor::new(raw);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    assert!(gpt.iter().any(|(_, p)| p.is_used()));
+    let gpt = Table::read(&mut cursor).expect("valid GPT");
+    assert!(gpt.has_used_partitions());
 }

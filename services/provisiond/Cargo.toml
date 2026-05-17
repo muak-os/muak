@@ -23,7 +23,6 @@ uuid = { workspace = true }
 anyhow = { workspace = true }
 
 # Filesystem
-gptman = { workspace = true }
 tempfile = { workspace = true }
 
 # gRPC

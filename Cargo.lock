@@ -1333,7 +1333,6 @@ dependencies = [
  "anyhow",
  "clap",
  "esp",
- "gptman",
  "parttable",
  "tempfile",
  "thiserror 2.0.18",
@@ -1534,7 +1533,9 @@ dependencies = [
 name = "parttable"
 version = "1.0.0-beta"
 dependencies = [
+ "gptman",
  "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1774,7 +1775,6 @@ dependencies = [
  "btrfs",
  "config",
  "esp",
- "gptman",
  "granola",
  "kmsg",
  "koci",

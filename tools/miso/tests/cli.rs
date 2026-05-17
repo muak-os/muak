@@ -3,6 +3,7 @@
 use std::fs;
 use std::process::Command;
 
+use parttable::Table;
 use tempfile::TempDir;
 
 fn miso_bin() -> Command {
@@ -94,8 +95,8 @@ fn raw_subcommand_with_compression_produces_zstd_output() {
     let bytes = fs::read(&output).expect("read compressed raw output");
     let raw = zstd::decode_all(&bytes[..]).expect("decode zstd output");
     let mut cursor = std::io::Cursor::new(raw);
-    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
-    assert!(gpt.iter().any(|(_, p)| p.is_used()));
+    let gpt = Table::read(&mut cursor).expect("valid GPT");
+    assert!(gpt.has_used_partitions());
 }
 
 #[test]

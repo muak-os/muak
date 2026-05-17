@@ -23,15 +23,11 @@ thiserror = { workspace = true }
 esp = { workspace = true }
 parttable = { workspace = true }
 
-# Filesystem
-gptman = { workspace = true }
-
 [features]
 default = ["cli"]
 cli = ["clap", "anyhow"]
 
 [dev-dependencies]
-gptman = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

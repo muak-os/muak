@@ -62,6 +62,7 @@ mod tests {
     use std::io::Cursor;
 
     use esp::{Arch, EspFile};
+    use parttable::Table;
 
     use super::*;
 
@@ -220,8 +221,8 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(raw);
-        let gpt = gptman::GPT::find_from(&mut cursor).expect("image must contain a valid GPT");
-        assert!(gpt.iter().any(|(_, p)| p.is_used()));
+        let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
+        assert!(gpt.has_used_partitions());
     }
 
     #[test]

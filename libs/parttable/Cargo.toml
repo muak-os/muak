@@ -5,6 +5,11 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+# Compression
+gptman = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

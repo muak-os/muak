@@ -2,6 +2,8 @@
 
 use std::io::{Seek, SeekFrom, Write};
 
+use parttable::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
+
 use crate::MisoError;
 
 /// Logical block size for ISO 9660, mandated by ECMA-119.
@@ -269,25 +271,17 @@ fn write_protective_mbr(
     efi_image_offset_bytes: u64,
     efi_image_size_bytes: u64,
 ) -> Result<(), MisoError> {
-    out.seek(SeekFrom::Start(446))?;
-    let mut entry = [0u8; 16];
-    entry[0] = 0x00; // Not bootable
-    entry[4] = 0xEF; // Partition type: EFI System Partition
-    // CHS values are set to 0xFEFFFF (max) when LBA addressing is used
-    entry[1] = 0xFE;
-    entry[2] = 0xFF;
-    entry[3] = 0xFF;
-    entry[5] = 0xFE;
-    entry[6] = 0xFF;
-    entry[7] = 0xFF;
     let start_lba = (efi_image_offset_bytes / 512) as u32;
     let size_lba = (efi_image_size_bytes / 512) as u32;
-    entry[8..12].copy_from_slice(&start_lba.to_le_bytes());
-    entry[12..16].copy_from_slice(&size_lba.to_le_bytes());
-    out.write_all(&entry)?;
+    let entry = MbrPartitionEntry {
+        bootable: false,
+        partition_type: MBR_EFI_SYSTEM_TYPE,
+        starting_lba: start_lba,
+        size_lba,
+    };
 
-    out.seek(SeekFrom::Start(510))?;
-    out.write_all(&[0x55, 0xAA])?;
+    parttable::write_mbr_partition_entry(out, 0, &entry)?;
+    parttable::write_mbr_boot_signature(out)?;
 
     Ok(())
 }
