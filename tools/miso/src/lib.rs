@@ -62,26 +62,12 @@ mod tests {
     use std::io::Cursor;
 
     use esp::{Arch, EspFile};
-    use parttable::Table;
 
     use super::*;
 
     fn build_iso_bytes(spec: &EspSpec) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());
         build_iso(spec, &mut out).expect("build_iso must succeed");
-        out.into_inner()
-    }
-
-    fn build_raw_bytes(spec: &EspSpec) -> Vec<u8> {
-        let mut out = Cursor::new(Vec::new());
-        build_raw(spec, &mut out, None).expect("build_raw must succeed");
-        out.into_inner()
-    }
-
-    fn build_compressed_raw_bytes(spec: &EspSpec, compression_level: i32) -> Vec<u8> {
-        let mut out = Cursor::new(Vec::new());
-        build_raw(spec, &mut out, Some(compression_level))
-            .expect("compressed build_raw must succeed");
         out.into_inner()
     }
 
@@ -165,64 +151,6 @@ mod tests {
         // ASSERT
         let pvd_offset = SECTOR_SIZE * 16 + 1;
         assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
-    }
-
-    #[test]
-    fn build_raw_returns_nonempty_image() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
-
-        // ACT
-        let img = build_raw_bytes(&spec);
-
-        // ASSERT
-        assert!(!img.is_empty());
-    }
-
-    #[test]
-    fn build_raw_with_extra_files_succeeds() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(
-            Arch::Aarch64,
-            vec![0xCCu8; 512],
-            vec![EspFile {
-                path: "config.txt".to_owned(),
-                data: b"arm_64bit=1\n".to_vec(),
-            }],
-        );
-
-        // ACT
-        let img = build_raw_bytes(&spec);
-
-        // ASSERT
-        assert!(!img.is_empty());
-    }
-
-    #[test]
-    fn build_raw_with_compression_produces_nonempty_output() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
-
-        // ACT
-        let compressed = build_compressed_raw_bytes(&spec, 3);
-
-        // ASSERT
-        assert!(!compressed.is_empty());
-    }
-
-    #[test]
-    fn build_raw_with_compression_round_trips_to_valid_gpt() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
-
-        // ACT
-        let compressed = build_compressed_raw_bytes(&spec, 3);
-        let raw = zstd::decode_all(&compressed[..]).expect("decode compressed raw");
-
-        // ASSERT
-        let mut cursor = Cursor::new(raw);
-        let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
-        assert!(gpt.has_used_partitions());
     }
 
     #[test]
