@@ -12,7 +12,7 @@ mod utils;
 pub use blkpg::delete_all_partitions_blkpg;
 pub use format::{format_btrfs_partition, format_efi_partition};
 pub use gpt::{
-    create_data_partition, create_system_partitions, delete_partitions, has_existing_partitions,
+    create_data_partition, create_system_partitions, delete_partitions, has_state_partition,
 };
 pub use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub use sysfs::find_partition_by_partname;

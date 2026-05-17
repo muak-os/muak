@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Seek;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use parttable::{
     ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start, Table,
 };
@@ -14,16 +14,8 @@ use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
 use super::utils::{format_partition_name, wait_for_device};
 
 /// Returns `true` when `disk` already has a Muak STATE partition installed.
-pub fn has_existing_partitions(disk: &str) -> Result<bool> {
+pub fn has_state_partition(disk: &str) -> Result<bool> {
     let mut f = File::open(disk)?;
-    if parttable::is_mbr_disk(&mut f)? {
-        bail!(
-            "Disk '{}' has an MBR partition table. Only GPT disks are supported. \
-             Wipe the disk first or use a different one.",
-            disk
-        );
-    }
-
     match Table::read(&mut f) {
         Ok(gpt) => Ok(gpt
             .used_partitions()
@@ -256,39 +248,39 @@ mod tests {
     }
 
     #[test]
-    fn has_existing_partitions_returns_false_for_blank_disk() {
+    fn has_state_partition_returns_false_for_blank_disk() {
         // ARRANGE
         let disk = blank_disk(64 * 1024 * 1024);
 
         // ACT
         let result =
-            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+            has_state_partition(disk.path().to_str().expect("path")).expect("should succeed");
 
         // ASSERT
         assert!(!result);
     }
 
     #[test]
-    fn has_existing_partitions_returns_false_for_efi_only_disk() {
+    fn has_state_partition_returns_false_for_efi_only_disk() {
         // ARRANGE
         let disk = disk_with_partitions(&["EFI"]);
 
         // ACT
         let result =
-            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+            has_state_partition(disk.path().to_str().expect("path")).expect("should succeed");
 
         // ASSERT
         assert!(!result, "EFI-only disk must not be treated as installed");
     }
 
     #[test]
-    fn has_existing_partitions_returns_true_for_state_partition() {
+    fn has_state_partition_returns_true_for_state_partition() {
         // ARRANGE
         let disk = disk_with_partitions(&["EFI", "STATE"]);
 
         // ACT
         let result =
-            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+            has_state_partition(disk.path().to_str().expect("path")).expect("should succeed");
 
         // ASSERT
         assert!(
@@ -298,26 +290,26 @@ mod tests {
     }
 
     #[test]
-    fn has_existing_partitions_returns_true_for_state_only_disk() {
+    fn has_state_partition_returns_true_for_state_only_disk() {
         // ARRANGE
         let disk = disk_with_partitions(&["STATE"]);
 
         // ACT
         let result =
-            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+            has_state_partition(disk.path().to_str().expect("path")).expect("should succeed");
 
         // ASSERT
         assert!(result);
     }
 
     #[test]
-    fn has_existing_partitions_returns_false_for_unrelated_partitions() {
+    fn has_state_partition_returns_false_for_unrelated_partitions() {
         // ARRANGE
         let disk = disk_with_partitions(&["BOOT", "ROOT", "SWAP"]);
 
         // ACT
         let result =
-            has_existing_partitions(disk.path().to_str().expect("path")).expect("should succeed");
+            has_state_partition(disk.path().to_str().expect("path")).expect("should succeed");
 
         // ASSERT
         assert!(!result, "non-Muak partitions must not block installation");

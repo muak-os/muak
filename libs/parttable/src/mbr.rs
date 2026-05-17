@@ -1,6 +1,6 @@
 //! MBR-specific constants and helpers.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 
 /// The byte offset of the first MBR partition entry.
 pub const MBR_PARTITION_ENTRY_OFFSET: u64 = 446;
@@ -38,21 +38,6 @@ pub fn protective_mbr_size_lba(disk_size: u64, sector_size: u64) -> u32 {
     (disk_size / sector_size)
         .saturating_sub(1)
         .min(u32::MAX as u64) as u32
-}
-
-/// Returns `true` when `reader` contains a non-protective MBR partition table.
-pub fn is_mbr_disk<R: Read + Seek>(reader: &mut R) -> std::io::Result<bool> {
-    let mut sector = [0u8; MBR_BYTES];
-    reader.seek(SeekFrom::Start(0))?;
-    reader.read_exact(&mut sector)?;
-
-    let boot_sig = u16::from_le_bytes([sector[510], sector[511]]);
-    if boot_sig != u16::from_le_bytes(MBR_BOOT_SIGNATURE) {
-        return Ok(false);
-    }
-
-    let part_type = sector[MBR_PARTITION_ENTRY_OFFSET as usize + MBR_PARTITION_TYPE_OFFSET];
-    Ok(part_type != 0x00 && part_type != MBR_PROTECTIVE_GPT_TYPE)
 }
 
 /// Writes one MBR partition entry into `slot`.
@@ -117,7 +102,7 @@ mod tests {
 
     use super::{
         MBR_BOOT_SIGNATURE, MBR_EFI_SYSTEM_TYPE, MBR_PARTITION_ENTRY_OFFSET,
-        MBR_PROTECTIVE_GPT_TYPE, MbrPartitionEntry, is_mbr_disk, protective_mbr_size_lba,
+        MBR_PROTECTIVE_GPT_TYPE, MbrPartitionEntry, protective_mbr_size_lba,
         write_gpt_protective_mbr, write_mbr_boot_signature, write_mbr_partition_entry,
     };
 
@@ -232,51 +217,6 @@ mod tests {
         // ASSERT
         let data = cursor.into_inner();
         assert_eq!(data[510..512], MBR_BOOT_SIGNATURE);
-    }
-
-    #[test]
-    fn is_mbr_disk_returns_false_without_boot_signature() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0u8; 512]);
-
-        // ACT
-        let result = is_mbr_disk(&mut cursor).expect("MBR detection must work");
-
-        // ASSERT
-        assert!(!result);
-    }
-
-    #[test]
-    fn is_mbr_disk_returns_false_for_protective_gpt_mbr() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0u8; 512]);
-        write_gpt_protective_mbr(&mut cursor, 4096, 512).expect("protective MBR write must work");
-
-        // ACT
-        let result = is_mbr_disk(&mut cursor).expect("MBR detection must work");
-
-        // ASSERT
-        assert!(!result);
-    }
-
-    #[test]
-    fn is_mbr_disk_returns_true_for_regular_mbr_partition() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0u8; 512]);
-        let entry = MbrPartitionEntry {
-            bootable: true,
-            partition_type: MBR_EFI_SYSTEM_TYPE,
-            starting_lba: 2048,
-            size_lba: 4096,
-        };
-        write_mbr_partition_entry(&mut cursor, 0, &entry).expect("MBR entry write must work");
-        write_mbr_boot_signature(&mut cursor).expect("signature write must work");
-
-        // ACT
-        let result = is_mbr_disk(&mut cursor).expect("MBR detection must work");
-
-        // ASSERT
-        assert!(result);
     }
 
     #[test]

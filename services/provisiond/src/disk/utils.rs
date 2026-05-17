@@ -1,14 +1,20 @@
 //! Utility functions for disk operations including partitioning, mounting, and formatting.
 
 use std::fs::OpenOptions;
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use parttable::{MBR_BOOT_SIGNATURE, MBR_PARTITION_ENTRY_OFFSET, Table};
 use rustix::fs::sync;
 use rustix::mount::{UnmountFlags, unmount};
 
 use super::constants::MB;
+
+const MBR_BYTES: usize = 512;
+const MBR_ENTRY_BYTES: usize = 16;
+const MBR_MAX_SLOTS: usize = 4;
+const MBR_PARTITION_TYPE_OFFSET: usize = 4;
 
 /// Represents a mounted partition with device path and mount point.
 pub struct MountedPartition {
@@ -91,6 +97,32 @@ pub fn wipe_disk(disk: &str) -> Result<()> {
     Ok(())
 }
 
+/// Returns `true` when `disk` contains GPT or MBR partition state.
+pub fn disk_is_non_empty(disk: &str) -> Result<bool> {
+    let mut f = OpenOptions::new().read(true).open(disk)?;
+
+    if Table::read(&mut f).is_ok() {
+        return Ok(true);
+    }
+
+    f.seek(SeekFrom::Start(0))?;
+
+    let mut sector = [0u8; MBR_BYTES];
+    if f.read_exact(&mut sector).is_err() {
+        return Ok(false);
+    }
+
+    let boot_sig = [sector[510], sector[511]];
+    if boot_sig != MBR_BOOT_SIGNATURE {
+        return Ok(false);
+    }
+
+    Ok((0..MBR_MAX_SLOTS).any(|slot| {
+        let entry_offset = MBR_PARTITION_ENTRY_OFFSET as usize + slot * MBR_ENTRY_BYTES;
+        sector[entry_offset + MBR_PARTITION_TYPE_OFFSET] != 0x00
+    }))
+}
+
 /// Validates that the system and data disks are suitable install targets.
 pub fn validate_install_target(system_disk: &str, data_disk: &str, force: bool) -> Result<()> {
     if !force && Path::new(config::CONFIG_PATH).exists() {
@@ -131,11 +163,18 @@ fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
     sync();
     unmount_all(&mounted)?;
 
-    let has_partitions = super::has_existing_partitions(disk_path)?;
-    if has_partitions && !force {
+    let has_state_partition = super::has_state_partition(disk_path)?;
+    if has_state_partition && !force {
         bail!(
             "Disk '{}' already has a Muak installation (STATE partition found). \
              Use --force to overwrite.",
+            disk_path
+        );
+    }
+
+    if disk_is_non_empty(disk_path)? && !force {
+        bail!(
+            "Disk '{}' is not empty and will be overwritten. Use --force to continue.",
             disk_path
         );
     }
@@ -145,7 +184,18 @@ fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+
+    use parttable::{MbrPartitionEntry, write_mbr_boot_signature, write_mbr_partition_entry};
+    use tempfile::NamedTempFile;
+
     use super::*;
+
+    fn disk_with_contents(bytes: &[u8]) -> NamedTempFile {
+        let mut f = NamedTempFile::new().expect("temp file");
+        f.write_all(bytes).expect("write");
+        f
+    }
 
     #[test]
     fn format_partition_name_nvme_uses_p_separator() {
@@ -193,5 +243,70 @@ mod tests {
 
         // ASSERT
         assert_eq!(name, "/dev/vda1");
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_false_for_zeroed_disk() {
+        // ARRANGE
+        let disk = disk_with_contents(&[0; 4096]);
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(!result);
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_true_for_gpt_disk() {
+        // ARRANGE
+        let disk = NamedTempFile::new().expect("temp file");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open");
+        file.set_len(64 * 1024 * 1024).expect("resize");
+        let mut gpt = Table::create(&mut file, 512, [0xff; 16]).expect("new gpt");
+        gpt.write(&mut file).expect("write gpt");
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(result);
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_true_for_mbr_disk() {
+        // ARRANGE
+        let disk = NamedTempFile::new().expect("temp file");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open");
+        file.set_len(4096).expect("resize");
+        write_mbr_partition_entry(
+            &mut file,
+            0,
+            &MbrPartitionEntry {
+                bootable: false,
+                partition_type: 0x83,
+                starting_lba: 1,
+                size_lba: 1,
+            },
+        )
+        .expect("write mbr entry");
+        write_mbr_boot_signature(&mut file).expect("write mbr signature");
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(result);
     }
 }
