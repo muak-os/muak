@@ -1,12 +1,14 @@
 //! Miso - Packages a Unified Kernel Image into a bootable image.
+#![deny(missing_docs)]
 
 mod error;
-mod raw;
 mod iso;
+mod raw;
 
-use esp::EspSpec;
+use std::io::{Cursor, Write};
 
 pub use error::MisoError;
+pub use esp::{Arch, EspFile, EspSpec};
 pub use iso::SECTOR_SIZE;
 
 /// Builds a bootable ISO 9660 image from an `EspSpec` into any `Write + Seek` sink.
@@ -21,10 +23,38 @@ pub fn build_iso(
 /// Builds a raw GPT disk image from an `EspSpec` into any `Read + Write + Seek` sink.
 pub fn build_raw(
     spec: &EspSpec,
-    out: &mut (impl std::io::Read + std::io::Write + std::io::Seek),
+    out: &mut impl Write,
+    compression_level: Option<i32>,
 ) -> Result<(), MisoError> {
     let efi_image = esp::build(spec)?;
-    raw::write_raw(out, &efi_image)
+    let mut raw_out = Cursor::new(Vec::new());
+    raw::write_raw(&mut raw_out, &efi_image)?;
+    let raw_bytes = raw_out.into_inner();
+
+    if let Some(level) = compression_level {
+        let level = validate_compression_level(level)?;
+        let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
+        encoder.write_all(&raw_bytes)?;
+        encoder.finish().map_err(MisoError::Compression)?;
+    } else {
+        out.write_all(&raw_bytes)?;
+    }
+
+    Ok(())
+}
+
+fn validate_compression_level(level: i32) -> Result<i32, MisoError> {
+    let range = zstd::compression_level_range();
+
+    if level == 0 || range.contains(&level) {
+        Ok(level)
+    } else {
+        Err(MisoError::InvalidCompressionLevel {
+            level,
+            min: *range.start(),
+            max: *range.end(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -43,7 +73,14 @@ mod tests {
 
     fn build_raw_bytes(spec: &EspSpec) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());
-        build_raw(spec, &mut out).expect("build_raw must succeed");
+        build_raw(spec, &mut out, None).expect("build_raw must succeed");
+        out.into_inner()
+    }
+
+    fn build_compressed_raw_bytes(spec: &EspSpec, compression_level: i32) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        build_raw(spec, &mut out, Some(compression_level))
+            .expect("compressed build_raw must succeed");
         out.into_inner()
     }
 
@@ -158,6 +195,49 @@ mod tests {
 
         // ASSERT
         assert!(!img.is_empty());
+    }
+
+    #[test]
+    fn build_raw_with_compression_produces_nonempty_output() {
+        // ARRANGE
+        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
+
+        // ACT
+        let compressed = build_compressed_raw_bytes(&spec, 3);
+
+        // ASSERT
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn build_raw_with_compression_round_trips_to_valid_gpt() {
+        // ARRANGE
+        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
+
+        // ACT
+        let compressed = build_compressed_raw_bytes(&spec, 3);
+        let raw = zstd::decode_all(&compressed[..]).expect("decode compressed raw");
+
+        // ASSERT
+        let mut cursor = Cursor::new(raw);
+        let gpt = gptman::GPT::find_from(&mut cursor).expect("image must contain a valid GPT");
+        assert!(gpt.iter().any(|(_, p)| p.is_used()));
+    }
+
+    #[test]
+    fn build_raw_rejects_invalid_compression_level() {
+        // ARRANGE
+        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
+        let mut out = Cursor::new(Vec::new());
+
+        // ACT
+        let result = build_raw(&spec, &mut out, Some(i32::MAX));
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(MisoError::InvalidCompressionLevel { .. })
+        ));
     }
 
     #[test]

@@ -13,14 +13,14 @@ mod cli {
     #[derive(Parser, Debug)]
     #[command(name = env!("CARGO_PKG_NAME"))]
     #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
-    struct Args {
+    pub(super) struct Args {
         #[command(subcommand)]
-        command: Command,
+        pub(super) command: Command,
     }
 
     /// Available subcommands.
     #[derive(Subcommand, Debug)]
-    enum Command {
+    pub(super) enum Command {
         Iso {
             #[arg(short, long, help = "Path to the UKI .efi file")]
             uki: PathBuf,
@@ -57,6 +57,9 @@ mod cli {
 
             #[arg(short, long = "file", help = "Extra file as src:dst/path")]
             files: Vec<String>,
+
+            #[arg(long, help = "Compress the output with zstd at the given level")]
+            compression_level: Option<i32>,
         },
     }
 
@@ -131,6 +134,7 @@ mod cli {
                 output,
                 arch,
                 files,
+                compression_level,
             } => {
                 let arch = parse_arch(&arch)?;
                 let uki_bytes = std::fs::read(&uki)
@@ -139,7 +143,8 @@ mod cli {
                 let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
-                miso::build_raw(&spec, &mut file).context("Failed to build disk image")?;
+                miso::build_raw(&spec, &mut file, compression_level)
+                    .context("Failed to build disk image")?;
                 let size = file
                     .metadata()
                     .with_context(|| format!("Failed to stat {}", output.display()))?
@@ -163,10 +168,11 @@ fn main() {
 mod tests {
     use std::io::Write as _;
 
+    use clap::Parser as _;
     use miso::Arch;
     use tempfile::NamedTempFile;
 
-    use super::cli::{load_file_entries, parse_arch, parse_file_spec};
+    use super::cli::{Args, Command, load_file_entries, parse_arch, parse_file_spec};
 
     #[test]
     fn parse_arch_x86_64() {
@@ -240,5 +246,96 @@ mod tests {
     fn load_file_entries_missing_file_returns_error() {
         // ARRANGE / ACT / ASSERT
         assert!(load_file_entries(&["/nonexistent/file.bin:dst".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn raw_subcommand_parses_compression_level() {
+        // ARRANGE / ACT
+        let args = Args::try_parse_from([
+            "miso",
+            "raw",
+            "--uki",
+            "input.efi",
+            "--output",
+            "output.raw.zst",
+            "--compression-level",
+            "3",
+        ])
+        .expect("parse args");
+
+        // ASSERT
+        match args.command {
+            Command::Raw {
+                uki,
+                output,
+                arch,
+                files,
+                compression_level,
+            } => {
+                assert_eq!(uki, std::path::PathBuf::from("input.efi"));
+                assert_eq!(output, std::path::PathBuf::from("output.raw.zst"));
+                assert_eq!(arch, "aarch64");
+                assert!(files.is_empty());
+                assert_eq!(compression_level, Some(3));
+            }
+            other => panic!("expected raw command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_subcommand_defaults_to_aarch64_without_compression() {
+        // ARRANGE / ACT
+        let args = Args::try_parse_from([
+            "miso",
+            "raw",
+            "--uki",
+            "input.efi",
+            "--output",
+            "output.raw",
+        ])
+        .expect("parse args");
+
+        // ASSERT
+        match args.command {
+            Command::Raw {
+                arch,
+                compression_level,
+                ..
+            } => {
+                assert_eq!(arch, "aarch64");
+                assert_eq!(compression_level, None);
+            }
+            other => panic!("expected raw command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iso_subcommand_defaults_to_x86_64() {
+        // ARRANGE / ACT
+        let args = Args::try_parse_from([
+            "miso",
+            "iso",
+            "--uki",
+            "input.efi",
+            "--output",
+            "output.iso",
+        ])
+        .expect("parse args");
+
+        // ASSERT
+        match args.command {
+            Command::Iso {
+                uki,
+                output,
+                arch,
+                files,
+            } => {
+                assert_eq!(uki, std::path::PathBuf::from("input.efi"));
+                assert_eq!(output, std::path::PathBuf::from("output.iso"));
+                assert_eq!(arch, "x86_64");
+                assert!(files.is_empty());
+            }
+            other => panic!("expected iso command, got {other:?}"),
+        }
     }
 }

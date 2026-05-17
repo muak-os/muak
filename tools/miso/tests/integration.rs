@@ -27,7 +27,14 @@ fn build_iso_bytes(spec: &EspSpec) -> Vec<u8> {
 
 fn build_raw_bytes(spec: &EspSpec) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
-    miso::build_raw(spec, &mut out).expect("build_raw must succeed");
+    miso::build_raw(spec, &mut out, None).expect("build_raw must succeed");
+    out.into_inner()
+}
+
+fn build_compressed_raw_bytes(spec: &EspSpec, compression_level: i32) -> Vec<u8> {
+    let mut out = Cursor::new(Vec::new());
+    miso::build_raw(spec, &mut out, Some(compression_level))
+        .expect("compressed build_raw must succeed");
     out.into_inner()
 }
 
@@ -357,6 +364,21 @@ fn build_raw_x86_64_produces_valid_gpt() {
 
     // ASSERT
     let mut cursor = Cursor::new(img);
+    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
+    assert!(gpt.iter().any(|(_, p)| p.is_used()));
+}
+
+#[test]
+fn build_compressed_raw_round_trips_to_valid_gpt() {
+    // ARRANGE
+    let spec = img_spec(fake_uki(1024), Arch::Aarch64, vec![]);
+
+    // ACT
+    let compressed = build_compressed_raw_bytes(&spec, 3);
+    let raw = zstd::decode_all(&compressed[..]).expect("decode compressed raw");
+
+    // ASSERT
+    let mut cursor = Cursor::new(raw);
     let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
     assert!(gpt.iter().any(|(_, p)| p.is_used()));
 }

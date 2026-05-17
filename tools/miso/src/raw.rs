@@ -79,8 +79,9 @@ pub fn write_raw<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Resul
 mod tests {
     use std::io::Cursor;
 
+    use esp::{Arch, EFI_GUID, EspSpec};
+
     use super::*;
-    use crate::{Arch, EspSpec};
 
     fn minimal_esp() -> Vec<u8> {
         let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);

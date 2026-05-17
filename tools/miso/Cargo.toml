@@ -12,6 +12,9 @@ required-features = ["cli"]
 # CLI
 clap = { workspace = true, optional = true }
 
+# Compression
+zstd = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }

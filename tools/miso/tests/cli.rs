@@ -69,6 +69,64 @@ fn raw_subcommand_produces_valid_output() {
 }
 
 #[test]
+fn raw_subcommand_with_compression_produces_zstd_output() {
+    // ARRANGE
+    let dir = TempDir::new().expect("tempdir");
+    let uki = fake_uki(&dir);
+    let output = dir.path().join("out.raw.zst");
+
+    // ACT
+    let status = miso_bin()
+        .args([
+            "raw",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--compression-level",
+            "3",
+        ])
+        .status()
+        .expect("failed to run miso");
+
+    // ASSERT
+    assert!(status.success(), "miso raw with compression must exit 0");
+    let bytes = fs::read(&output).expect("read compressed raw output");
+    let raw = zstd::decode_all(&bytes[..]).expect("decode zstd output");
+    let mut cursor = std::io::Cursor::new(raw);
+    let gpt = gptman::GPT::find_from(&mut cursor).expect("valid GPT");
+    assert!(gpt.iter().any(|(_, p)| p.is_used()));
+}
+
+#[test]
+fn raw_subcommand_with_invalid_compression_level_exits_nonzero() {
+    // ARRANGE
+    let dir = TempDir::new().expect("tempdir");
+    let uki = fake_uki(&dir);
+    let output = dir.path().join("out.raw.zst");
+
+    // ACT
+    let status = miso_bin()
+        .args([
+            "raw",
+            "--uki",
+            uki.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--compression-level",
+            "999999",
+        ])
+        .status()
+        .expect("failed to run miso");
+
+    // ASSERT
+    assert!(
+        !status.success(),
+        "invalid compression level must exit non-zero"
+    );
+}
+
+#[test]
 fn iso_subcommand_with_explicit_arch_x86_64() {
     // ARRANGE
     let dir = TempDir::new().expect("tempdir");
