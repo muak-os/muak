@@ -89,10 +89,16 @@ async fn run_command(command: Command) -> Result<String> {
             };
 
             crate::create(&config, &output).context("Failed to create initramfs")?;
+            let size = std::fs::metadata(&output)
+                .with_context(|| {
+                    format!("Failed to read initramfs metadata: {}", output.display())
+                })?
+                .len();
 
             Ok(format!(
-                "Successfully created initramfs at {}",
-                output.display()
+                "Successfully created initramfs at {} ({} bytes)",
+                output.display(),
+                size
             ))
         }
         Command::Extend {
