@@ -7,7 +7,7 @@ mod cli {
 
     use anyhow::{Context, Result, bail, ensure};
     use clap::{Parser, Subcommand};
-    use esp::{Arch, EspFile, EspSpec};
+    use esp::{Arch, EspFile, EspSpec, EspSpecBuilder};
 
     /// Top-level CLI arguments.
     #[derive(Parser, Debug)]
@@ -104,6 +104,17 @@ mod cli {
             .collect()
     }
 
+    /// Builds an ESP spec from UKI bytes and extra file entries.
+    fn build_spec(arch: Arch, uki: Vec<u8>, extra_files: Vec<EspFile>) -> Result<EspSpec> {
+        EspSpecBuilder::default()
+            .with_uki(arch, uki)
+            .context("Failed to add UKI to ESP spec")?
+            .add_files(extra_files)
+            .context("Failed to add extra files to ESP spec")?
+            .build()
+            .context("Failed to build ESP spec")
+    }
+
     pub fn run() -> Result<()> {
         let args = Args::parse();
 
@@ -118,7 +129,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
+                let spec = build_spec(arch, uki_bytes, extra_files)?;
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
                 miso::build_iso(&spec, &mut file).context("Failed to build ISO")?;
@@ -140,7 +151,7 @@ mod cli {
                 let uki_bytes = std::fs::read(&uki)
                     .with_context(|| format!("Failed to read {}", uki.display()))?;
                 let extra_files = load_file_entries(&files)?;
-                let spec = EspSpec::with_uki(arch, uki_bytes, extra_files);
+                let spec = build_spec(arch, uki_bytes, extra_files)?;
                 let mut file = File::create(&output)
                     .with_context(|| format!("Failed to create {}", output.display()))?;
                 miso::build_raw(&spec, &mut file, compression_level)

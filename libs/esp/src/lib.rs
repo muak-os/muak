@@ -12,5 +12,5 @@ pub use collect::collect_tree;
 pub use error::EspError;
 pub use format::format;
 pub use image::build;
-pub use model::{Arch, EspFile, EspSpec};
+pub use model::{Arch, EspFile, EspSpec, EspSpecBuilder};
 pub use populate::populate;

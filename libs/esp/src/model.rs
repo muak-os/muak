@@ -1,5 +1,9 @@
 //! ESP manifest model types.
 
+use std::collections::BTreeSet;
+
+use crate::{EspError, path};
+
 /// The target architecture determining the EFI fallback boot filename.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arch {
@@ -58,15 +62,65 @@ impl EspSpec {
         Self { files }
     }
 
+    /// Returns a new builder for assembling a validated spec.
+    pub fn builder() -> EspSpecBuilder {
+        EspSpecBuilder::default()
+    }
+
     /// Returns the total byte size of all file payloads in the spec.
     pub fn total_file_bytes(&self) -> usize {
         self.files.iter().map(|file| file.data.len()).sum()
     }
 }
 
+/// Builds a validated `EspSpec` incrementally.
+#[derive(Debug, Default)]
+pub struct EspSpecBuilder {
+    files: Vec<EspFile>,
+    paths: BTreeSet<String>,
+}
+
+impl EspSpecBuilder {
+    /// Adds the fallback boot file for `arch` from the provided UKI bytes.
+    pub fn with_uki(self, arch: Arch, uki: Vec<u8>) -> Result<Self, EspError> {
+        self.add_file(EspFile {
+            path: format!("EFI/BOOT/{}", arch.boot_filename()),
+            data: uki,
+        })
+    }
+
+    /// Adds one validated ESP file.
+    pub fn add_file(mut self, file: EspFile) -> Result<Self, EspError> {
+        let normalized_path = path::normalize_relative_path(&file.path)?;
+        if !self.paths.insert(normalized_path.clone()) {
+            return Err(EspError::InvalidPath(format!(
+                "duplicate ESP destination path: {normalized_path}"
+            )));
+        }
+        self.files.push(EspFile {
+            path: normalized_path,
+            data: file.data,
+        });
+        Ok(self)
+    }
+
+    /// Adds multiple validated ESP files.
+    pub fn add_files(self, files: Vec<EspFile>) -> Result<Self, EspError> {
+        files.into_iter().try_fold(self, Self::add_file)
+    }
+
+    /// Finalizes the builder into an `EspSpec`.
+    pub fn build(self) -> Result<EspSpec, EspError> {
+        let spec = EspSpec { files: self.files };
+        path::validate_spec(&spec)?;
+        Ok(spec)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Arch, EspFile, EspSpec};
+    use crate::EspError;
 
     #[test]
     fn arch_boot_filename_matches_uefi_fallback_names() {
@@ -127,5 +181,62 @@ mod tests {
 
         // ASSERT
         assert_eq!(total, 5);
+    }
+
+    #[test]
+    fn builder_with_uki_places_boot_file_first() {
+        // ARRANGE
+        let builder = EspSpec::builder();
+
+        // ACT
+        let spec = builder
+            .with_uki(Arch::X86_64, b"uki".to_vec())
+            .expect("boot file must be added")
+            .build()
+            .expect("spec must build");
+
+        // ASSERT
+        assert_eq!(spec.files.len(), 1);
+        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(spec.files[0].data, b"uki");
+    }
+
+    #[test]
+    fn builder_rejects_duplicate_normalized_paths() {
+        // ARRANGE
+        let builder = EspSpec::builder().add_file(EspFile {
+            path: "EFI/BOOT/BOOTX64.EFI".to_owned(),
+            data: b"first".to_vec(),
+        });
+
+        // ACT
+        let result = builder.and_then(|builder| {
+            builder.add_file(EspFile {
+                path: "./EFI/BOOT/BOOTX64.EFI".to_owned(),
+                data: b"second".to_vec(),
+            })
+        });
+
+        // ASSERT
+        assert!(matches!(result, Err(EspError::InvalidPath(_))));
+    }
+
+    #[test]
+    fn builder_normalizes_curdir_components() {
+        // ARRANGE
+        let builder = EspSpec::builder();
+
+        // ACT
+        let spec = builder
+            .add_file(EspFile {
+                path: "./nested/file.txt".to_owned(),
+                data: b"x".to_vec(),
+            })
+            .expect("file must be added")
+            .build()
+            .expect("spec must build");
+
+        // ASSERT
+        assert_eq!(spec.files[0].path, "nested/file.txt");
     }
 }

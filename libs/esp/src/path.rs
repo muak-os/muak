@@ -7,9 +7,38 @@ use crate::EspError;
 /// Validates all paths in an `EspSpec`.
 pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<(), EspError> {
     for file in &spec.files {
-        let _ = validate_relative_path(&file.path)?;
+        let normalized = normalize_relative_path(&file.path)?;
+        if normalized != file.path {
+            return Err(EspError::InvalidPath(format!(
+                "path is not normalized: {}",
+                file.path
+            )));
+        }
     }
     Ok(())
+}
+
+/// Validates an ESP-relative path and returns its normalized string form.
+pub(crate) fn normalize_relative_path(path: &str) -> Result<String, EspError> {
+    let rel_path = validate_relative_path(path)?;
+    let mut components = Vec::new();
+    for component in rel_path.components() {
+        if let Component::Normal(name) = component {
+            let name = name
+                .to_str()
+                .ok_or_else(|| EspError::InvalidPath(format!("non-UTF-8 path: {path}")))?;
+            components.push(name);
+        }
+    }
+
+    let normalized = components.join("/");
+    if normalized.is_empty() {
+        return Err(EspError::InvalidPath(format!(
+            "path does not contain a file name: {path}"
+        )));
+    }
+
+    Ok(normalized)
 }
 
 /// Validates an ESP-relative path and returns it as a `Path`.
@@ -52,7 +81,7 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<&Path, EspError> {
 mod tests {
     use std::path::Path;
 
-    use super::{validate_relative_path, validate_spec};
+    use super::{normalize_relative_path, validate_relative_path, validate_spec};
     use crate::{EspError, EspFile, EspSpec};
 
     #[test]
@@ -68,15 +97,12 @@ mod tests {
     }
 
     #[test]
-    fn validate_relative_path_accepts_curdir_component() {
+    fn normalize_relative_path_strips_curdir_component() {
         // ARRANGE / ACT
-        let result = validate_relative_path("./EFI/BOOT/BOOTX64.EFI");
+        let result = normalize_relative_path("./EFI/BOOT/BOOTX64.EFI");
 
         // ASSERT
-        assert_eq!(
-            result.expect("path must validate"),
-            Path::new("./EFI/BOOT/BOOTX64.EFI")
-        );
+        assert_eq!(result.expect("path must normalize"), "EFI/BOOT/BOOTX64.EFI");
     }
 
     #[test]
@@ -129,6 +155,23 @@ mod tests {
                     data: vec![],
                 },
             ],
+        };
+
+        // ACT
+        let result = validate_spec(&spec);
+
+        // ASSERT
+        assert!(matches!(result, Err(EspError::InvalidPath(_))));
+    }
+
+    #[test]
+    fn validate_spec_rejects_non_normalized_paths() {
+        // ARRANGE
+        let spec = EspSpec {
+            files: vec![EspFile {
+                path: "./EFI/BOOT/BOOTX64.EFI".to_owned(),
+                data: vec![],
+            }],
         };
 
         // ACT

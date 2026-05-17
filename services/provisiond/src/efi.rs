@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use esp::{Arch, EspSpec};
+use esp::{Arch, EspSpec, EspSpecBuilder};
 use rustix::fs::sync;
 
 use crate::constants::host_oci_arch;
@@ -65,11 +65,18 @@ pub fn deploy(efi_device: &str, staged_uki: &Path, firmware_dir: Option<&Path>) 
 fn build_esp_spec(staged_uki: &Path, firmware_dir: Option<&Path>) -> Result<EspSpec> {
     let uki = std::fs::read(staged_uki)
         .with_context(|| format!("Failed to read staged UKI {}", staged_uki.display()))?;
-    let extra_files = match firmware_dir {
-        Some(dir) => esp::collect_tree(dir).context("Failed to collect firmware tree")?,
-        None => Vec::new(),
+    let builder = EspSpecBuilder::default()
+        .with_uki(Arch::current(), uki)
+        .context("Failed to add staged UKI to ESP spec")?;
+
+    let builder = match firmware_dir {
+        Some(dir) => builder
+            .add_files(esp::collect_tree(dir).context("Failed to collect firmware tree")?)
+            .context("Failed to add firmware files to ESP spec")?,
+        None => builder,
     };
-    Ok(EspSpec::with_uki(Arch::current(), uki, extra_files))
+
+    builder.build().context("Failed to build ESP spec")
 }
 
 #[cfg(test)]
