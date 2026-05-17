@@ -5,7 +5,7 @@ use std::io::Seek;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
-use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, Partition, Table};
+use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, Partition, Table};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
