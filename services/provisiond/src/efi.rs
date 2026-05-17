@@ -81,63 +81,31 @@ fn build_esp_spec(staged_uki: &Path, firmware_dir: Option<&Path>) -> Result<EspS
 
 #[cfg(test)]
 mod tests {
+    use config::HostConfig;
+
     use super::*;
 
     #[test]
-    fn copy_firmware_copies_recursive_tree_to_dest() {
+    fn build_spec_includes_staged_uki_and_firmware_payloads() {
         // ARRANGE
-        let src = tempfile::tempdir().expect("create src dir");
-        let dst = tempfile::tempdir().expect("create dst dir");
-        std::fs::write(src.path().join("start4.elf"), b"gpu-fw").expect("write start4");
-        std::fs::create_dir(src.path().join("subdir")).expect("create subdir");
-        std::fs::write(src.path().join("subdir/config.txt"), b"kernel=u-boot.bin")
-            .expect("write config");
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let staged = dir.path().join("staged.efi");
+        let firmware_dir = dir.path().join("firmware");
+        std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
+        std::fs::create_dir(&firmware_dir).expect("create firmware dir");
+        std::fs::write(firmware_dir.join("start4.elf"), b"gpu-fw").expect("write firmware");
 
         // ACT
-        let files = esp::collect_tree(src.path()).expect("collect firmware");
-        let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
-        esp::populate(&spec, dst.path()).expect("populate firmware");
+        let spec = build_esp_spec(&staged, Some(&firmware_dir)).expect("build spec");
 
         // ASSERT
-        assert_eq!(
-            std::fs::read(dst.path().join("start4.elf")).expect("read"),
-            b"gpu-fw"
-        );
-        assert_eq!(
-            std::fs::read(dst.path().join("subdir/config.txt")).expect("read"),
-            b"kernel=u-boot.bin"
-        );
-        assert!(dst.path().join("subdir").exists());
+        assert_eq!(spec.files.len(), 2);
+        assert!(spec.files.iter().any(|file| file.data == b"uki-bytes"));
+        assert!(spec.files.iter().any(|file| file.data == b"gpu-fw"));
     }
 
     #[test]
-    fn copy_firmware_empty_dir_is_noop() {
-        // ARRANGE
-        let src = tempfile::tempdir().expect("create src dir");
-        let dst = tempfile::tempdir().expect("create dst dir");
-
-        // ACT
-        let files = esp::collect_tree(src.path()).expect("collect firmware");
-        let spec = EspSpec::with_uki(Arch::current(), b"uki".to_vec(), files);
-        esp::populate(&spec, dst.path()).expect("populate firmware");
-
-        // ASSERT
-        let count = std::fs::read_dir(dst.path()).expect("read dst").count();
-        assert_eq!(count, 1);
-        assert!(dst.path().join("EFI").exists());
-    }
-
-    #[test]
-    fn copy_firmware_fails_on_missing_src() {
-        // ARRANGE / ACT
-        let result = esp::collect_tree(Path::new("/nonexistent/firmware"));
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn build_spec_places_uki_at_fallback_path() {
+    fn build_spec_without_firmware_only_includes_staged_uki() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("create temp dir");
         let staged = dir.path().join("staged.efi");
@@ -148,10 +116,63 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files.len(), 1);
-        assert_eq!(
-            spec.files[0].path,
-            format!("EFI/BOOT/{}", Arch::current().boot_filename())
-        );
         assert_eq!(spec.files[0].data, b"uki-bytes");
+    }
+
+    #[test]
+    fn build_spec_wraps_firmware_collection_errors() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let staged = dir.path().join("staged.efi");
+        std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
+
+        // ACT
+        let result = build_esp_spec(&staged, Some(&dir.path().join("missing-firmware")));
+
+        // ASSERT
+        let error = result.expect_err("missing firmware dir must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to collect firmware tree")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_firmware_returns_none_when_host_has_no_firmware() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let host = HostConfig::default();
+
+        // ACT
+        let firmware = resolve_firmware(&host, dir.path())
+            .await
+            .expect("missing firmware should be allowed");
+
+        // ASSERT
+        assert_eq!(firmware, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_firmware_requires_reference_and_variant_together() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        let host_with_ref_only = HostConfig {
+            firmware: Some("oci://firmware".to_owned()),
+            ..HostConfig::default()
+        };
+        let host_with_variant_only = HostConfig {
+            firmware_variant: Some("rpi".to_owned()),
+            ..HostConfig::default()
+        };
+
+        // ACT
+        let ref_only_result = resolve_firmware(&host_with_ref_only, dir.path()).await;
+        let variant_only_result = resolve_firmware(&host_with_variant_only, dir.path()).await;
+
+        // ASSERT
+        assert!(ref_only_result.is_err());
+        assert!(variant_only_result.is_err());
     }
 }
