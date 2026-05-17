@@ -164,7 +164,7 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
         base: &base_initramfs,
         extensions: &ext_pairs,
         compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        extension_compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        extension_compression_level: ramune::EROFS_DEFAULT_ZSTD_COMPRESSION_LEVEL,
     };
 
     ramune::extend(&config, output)

@@ -14,6 +14,7 @@ pub use error::{RamuneError, Result};
 pub use extend::{ExtendConfig, extend};
 
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
+pub const EROFS_DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL;
 
 pub(crate) fn validate_compression_level(compression_level: i32) -> Result<i32> {
     let range = zstd::compression_level_range();
