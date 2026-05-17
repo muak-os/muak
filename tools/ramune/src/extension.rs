@@ -10,18 +10,19 @@ use crate::error::{RamuneError, Result};
 /// Maximum number of extensions processed concurrently.
 pub(crate) const MAX_CONCURRENT: usize = 8;
 
-type ProcessFn = fn(&str, &Path) -> Result<(String, Vec<u8>)>;
+type ProcessFn = fn(&str, &Path, i32) -> Result<(String, Vec<u8>)>;
 
 type ProcessOutput = (String, Vec<u8>);
 
 /// Processes all extension directories concurrently and deterministically.
 pub(crate) async fn process_all(
     extensions: &[(String, PathBuf)],
+    compression_level: i32,
 ) -> Result<Vec<(String, Vec<u8>)>> {
     let mut files = Vec::with_capacity(extensions.len());
 
     for batch in extensions.chunks(MAX_CONCURRENT) {
-        files.extend(process_batch(batch, process).await?);
+        files.extend(process_batch(batch, compression_level, process).await?);
     }
 
     files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
@@ -30,6 +31,7 @@ pub(crate) async fn process_all(
 
 async fn process_batch(
     batch: &[(String, PathBuf)],
+    compression_level: i32,
     process: ProcessFn,
 ) -> Result<Vec<ProcessOutput>> {
     let mut tasks = JoinSet::new();
@@ -38,7 +40,7 @@ async fn process_batch(
         let name = name.clone();
         let path = path.clone();
 
-        tasks.spawn_blocking(move || process(&name, &path));
+        tasks.spawn_blocking(move || process(&name, &path, compression_level));
     }
 
     let mut files = Vec::with_capacity(batch.len());
@@ -51,8 +53,8 @@ async fn process_batch(
 }
 
 /// Converts a single extension directory into a named EROFS blob.
-fn process(name: &str, path: &Path) -> Result<(String, Vec<u8>)> {
-    erofs::create(path, None, ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+fn process(name: &str, path: &Path, compression_level: i32) -> Result<(String, Vec<u8>)> {
+    erofs::create(path, None, compression_level)
         .map(|erofs_data| (format!("extensions/{name}.erofs"), erofs_data))
 }
 
@@ -61,7 +63,7 @@ fn process(name: &str, path: &Path) -> Result<(String, Vec<u8>)> {
 mod tests {
     use super::*;
 
-    fn panic_process_one(_: &str, _: &Path) -> Result<(String, Vec<u8>)> {
+    fn panic_process_one(_: &str, _: &Path, _: i32) -> Result<(String, Vec<u8>)> {
         panic!("extension task panicked");
     }
 
@@ -82,7 +84,9 @@ mod tests {
     #[tokio::test]
     async fn process_all_empty() {
         // ARRANGE & ACT
-        let result = process_all(&[]).await.expect("process_all");
+        let result = process_all(&[], ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+            .await
+            .expect("process_all");
 
         // ASSERT
         assert!(result.is_empty());
@@ -94,9 +98,12 @@ mod tests {
         let dir = make_extension_dir("file.txt", b"data");
 
         // ACT
-        let files = process_all(&[("muak-os-iscsi-tools".to_string(), dir.path().to_path_buf())])
-            .await
-            .expect("process_all");
+        let files = process_all(
+            &[("muak-os-iscsi-tools".to_string(), dir.path().to_path_buf())],
+            ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        )
+        .await
+        .expect("process_all");
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -119,7 +126,9 @@ mod tests {
             .collect();
 
         // ACT
-        let files = process_all(&inputs).await.expect("process_all");
+        let files = process_all(&inputs, ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+            .await
+            .expect("process_all");
 
         // ASSERT
         assert_eq!(files.len(), 4);
@@ -142,7 +151,9 @@ mod tests {
             (0..MAX_CONCURRENT + 2).map(make_leaked_extension).collect();
 
         // ACT
-        let files = process_all(&entries).await.expect("process_all");
+        let files = process_all(&entries, ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+            .await
+            .expect("process_all");
 
         // ASSERT
         assert_eq!(files.len(), MAX_CONCURRENT + 2);
@@ -154,7 +165,11 @@ mod tests {
         let missing = PathBuf::from("/nonexistent/extension-dir");
 
         // ACT
-        let result = process_all(&[("missing".to_string(), missing)]).await;
+        let result = process_all(
+            &[("missing".to_string(), missing)],
+            ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        )
+        .await;
 
         // ASSERT
         assert!(
@@ -171,7 +186,12 @@ mod tests {
         let extensions = [("panic-ext".to_string(), dir.path().to_path_buf())];
 
         // ACT
-        let result = process_batch(&extensions, panic_process_one).await;
+        let result = process_batch(
+            &extensions,
+            ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+            panic_process_one,
+        )
+        .await;
 
         // ASSERT
         assert!(matches!(

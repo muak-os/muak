@@ -26,7 +26,7 @@ pub struct CreateConfig<'a> {
 }
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
-pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
+pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
     let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
         file: config.init.display().to_string(),
         source: e,
@@ -55,7 +55,12 @@ pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
 
     let cpio_data = cpio::create_from_entries(&entries);
     let compression_level = crate::validate_compression_level(config.compression_level)?;
-    zstd::encode_all(&cpio_data[..], compression_level).map_err(RamuneError::CompressionError)
+    let data = zstd::encode_all(&cpio_data[..], compression_level)
+        .map_err(RamuneError::CompressionError)?;
+    std::fs::write(output, &data).map_err(|source| RamuneError::WriteError {
+        file: output.display().to_string(),
+        source,
+    })
 }
 
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
@@ -178,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn create_initramfs_produces_output() {
+    fn create_produces_output() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -188,14 +193,16 @@ mod tests {
         setup_rootfs_dir(&rootfs);
 
         // ACT
-        let result = create_initramfs(&make_config(&init_file, &rootfs)).expect("create_initramfs");
+        let output = tmp.path().join("initramfs.img");
+        create(&make_config(&init_file, &rootfs), &output).expect("create");
 
         // ASSERT
+        let result = std::fs::read(output).expect("read output");
         assert!(!result.is_empty());
     }
 
     #[test]
-    fn create_initramfs_reproducible() {
+    fn create_reproducible() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -205,29 +212,33 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
         let config = make_config(&init_file, &rootfs);
 
-        // ACT
-        let img1 = create_initramfs(&config).expect("create 1");
-        let img2 = create_initramfs(&config).expect("create 2");
+        let output1 = tmp.path().join("initramfs-1.img");
+        let output2 = tmp.path().join("initramfs-2.img");
+        create(&config, &output1).expect("create 1");
+        create(&config, &output2).expect("create 2");
 
         // ASSERT
+        let img1 = std::fs::read(output1).expect("read output 1");
+        let img2 = std::fs::read(output2).expect("read output 2");
         assert_eq!(img1, img2);
     }
 
     #[test]
-    fn create_initramfs_missing_init_errors() {
+    fn create_missing_init_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir(&rootfs).expect("mkdir");
 
         // ACT
-        let result = create_initramfs(&CreateConfig {
+        let output = tmp.path().join("initramfs.img");
+        let result = create(&CreateConfig {
             init: Path::new("/nonexistent/init"),
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: 19,
             rootfs_compression_level: 3,
-        });
+        }, &output);
 
         // ASSERT
         assert!(
@@ -238,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn create_initramfs_missing_rootfs_errors() {
+    fn create_missing_rootfs_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -246,13 +257,14 @@ mod tests {
         let rootfs = tmp.path().join("missing-rootfs");
 
         // ACT
-        let result = create_initramfs(&CreateConfig {
+        let output = tmp.path().join("initramfs.img");
+        let result = create(&CreateConfig {
             init: &init_file,
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: 19,
             rootfs_compression_level: 3,
-        });
+        }, &output);
 
         // ASSERT
         assert!(
@@ -263,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn create_initramfs_with_file_contexts() {
+    fn create_with_file_contexts() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -276,21 +288,23 @@ mod tests {
                 .expect("fc");
 
         // ACT
-        let result = create_initramfs(&CreateConfig {
+        let output = tmp.path().join("initramfs.img");
+        create(&CreateConfig {
             init: &init_file,
             rootfs_dir: &rootfs,
             file_contexts: Some(&fc),
             compression_level: 19,
             rootfs_compression_level: 3,
-        })
-        .expect("create_initramfs");
+        }, &output)
+        .expect("create");
 
         // ASSERT
+        let result = std::fs::read(output).expect("read output");
         assert!(!result.is_empty());
     }
 
     #[test]
-    fn create_initramfs_invalid_compression_level_errors() {
+    fn create_invalid_compression_level_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -300,13 +314,14 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
-        let result = create_initramfs(&CreateConfig {
+        let output = tmp.path().join("initramfs.img");
+        let result = create(&CreateConfig {
             init: &init_file,
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: i32::MAX,
             rootfs_compression_level: 3,
-        });
+        }, &output);
 
         // ASSERT
         assert!(
@@ -317,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn create_initramfs_invalid_rootfs_compression_level_errors() {
+    fn create_invalid_rootfs_compression_level_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
@@ -327,13 +342,14 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
-        let result = create_initramfs(&CreateConfig {
+        let output = tmp.path().join("initramfs.img");
+        let result = create(&CreateConfig {
             init: &init_file,
             rootfs_dir: &rootfs,
             file_contexts: None,
             compression_level: 19,
             rootfs_compression_level: i32::MAX,
-        });
+        }, &output);
 
         // ASSERT
         assert!(

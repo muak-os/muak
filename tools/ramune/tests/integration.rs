@@ -106,7 +106,15 @@ async fn extend_without_extensions_copies_base_image() {
     let output = env.path("copy.img");
 
     // ACT
-    ramune::extend(base.as_path(), &[], output.as_path())
+    let extensions: [(String, std::path::PathBuf); 0] = [];
+    let config = ramune::ExtendConfig {
+        base: base.as_path(),
+        extensions: &extensions,
+        compression_level: 19,
+        extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+    };
+
+    ramune::extend(&config, output.as_path())
         .await
         .expect("extend should succeed without extensions");
 
@@ -124,11 +132,15 @@ async fn extend_with_extensions_appends_named_archive() {
     let extension = env.write_extension("test-ext", b"hello extension");
 
     // ACT
-    ramune::extend(
-        base.as_path(),
-        &[("test-ext".to_string(), extension.clone())],
-        output.as_path(),
-    )
+    let extensions = [("test-ext".to_string(), extension.clone())];
+    let config = ramune::ExtendConfig {
+        base: base.as_path(),
+        extensions: &extensions,
+        compression_level: 19,
+        extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+    };
+
+    ramune::extend(&config, output.as_path())
     .await
     .expect("extend should succeed with extensions");
 
@@ -165,11 +177,15 @@ async fn extend_in_place_appends_archive() {
     let extension = env.write_extension("in-place-ext", b"payload");
 
     // ACT
-    ramune::extend(
-        image.as_path(),
-        &[("in-place-ext".to_string(), extension)],
-        image.as_path(),
-    )
+    let extensions = [("in-place-ext".to_string(), extension)];
+    let config = ramune::ExtendConfig {
+        base: image.as_path(),
+        extensions: &extensions,
+        compression_level: 19,
+        extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+    };
+
+    ramune::extend(&config, image.as_path())
     .await
     .expect("in-place extend should succeed");
 
@@ -192,7 +208,15 @@ async fn extend_returns_read_error_for_missing_base() {
     let output = env.path("extended.img");
 
     // ACT
-    let result = ramune::extend(Path::new("/nonexistent/base.img"), &[], output.as_path()).await;
+    let extensions: [(String, std::path::PathBuf); 0] = [];
+    let config = ramune::ExtendConfig {
+        base: Path::new("/nonexistent/base.img"),
+        extensions: &extensions,
+        compression_level: 19,
+        extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+    };
+
+    let result = ramune::extend(&config, output.as_path()).await;
 
     // ASSERT
     assert!(matches!(result, Err(ramune::RamuneError::ReadError { .. })));

@@ -30,7 +30,7 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
 
-        #[arg(long, default_value_t = 6)]
+        #[arg(long, default_value_t = crate::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
         compression_level: i32,
 
         #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
@@ -45,6 +45,12 @@ enum Command {
 
         #[arg(short, long)]
         output: PathBuf,
+
+        #[arg(long, default_value_t = crate::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
+        compression_level: i32,
+
+        #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
+        extension_compression_level: i32,
     },
 }
 
@@ -56,6 +62,19 @@ where
 {
     let args = Cli::try_parse_from(args)?;
     run_command(args.command).await
+}
+
+fn initramfs_size(output: &std::path::Path) -> Result<u64> {
+    Ok(std::fs::metadata(output)
+        .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
+        .len())
+}
+
+fn extension_name(path: &std::path::Path) -> String {
+    match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => path.display().to_string(),
+    }
 }
 
 async fn run_command(command: Command) -> Result<String> {
@@ -89,11 +108,7 @@ async fn run_command(command: Command) -> Result<String> {
             };
 
             crate::create(&config, &output).context("Failed to create initramfs")?;
-            let size = std::fs::metadata(&output)
-                .with_context(|| {
-                    format!("Failed to read initramfs metadata: {}", output.display())
-                })?
-                .len();
+            let size = initramfs_size(&output)?;
 
             Ok(format!(
                 "Successfully created initramfs at {} ({} bytes)",
@@ -105,19 +120,22 @@ async fn run_command(command: Command) -> Result<String> {
             base,
             extension,
             output,
+            compression_level,
+            extension_compression_level,
         } => {
             let extensions: Vec<(String, PathBuf)> = extension
                 .iter()
-                .map(|path| {
-                    let name = match path.file_name() {
-                        Some(name) => name.to_string_lossy().into_owned(),
-                        None => path.display().to_string(),
-                    };
-                    (name, path.clone())
-                })
+                .map(|path| (extension_name(path), path.clone()))
                 .collect();
 
-            crate::extend(&base, &extensions, &output)
+            let config = crate::ExtendConfig {
+                base: &base,
+                extensions: &extensions,
+                compression_level,
+                extension_compression_level,
+            };
+
+            crate::extend(&config, &output)
                 .await
                 .context("Failed to build initramfs")?;
 
@@ -126,5 +144,28 @@ async fn run_command(command: Command) -> Result<String> {
                 output.display()
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn initramfs_size_missing_output_reports_path() {
+        // ARRANGE
+        let path = Path::new("/nonexistent/initramfs.img");
+
+        // ACT
+        let error = initramfs_size(path).expect_err("missing file should error");
+
+        // ASSERT
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to read initramfs metadata: /nonexistent/initramfs.img")
+        );
     }
 }
