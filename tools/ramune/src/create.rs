@@ -25,6 +25,39 @@ pub struct CreateConfig<'a> {
     pub rootfs_compression_level: i32,
 }
 
+/// Creates a base initramfs image from an init binary and rootfs directory.
+pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
+    let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
+        file: config.init.display().to_string(),
+        source: e,
+    })?;
+
+    let rootfs_erofs = prepare_rootfs(config.rootfs_dir).and_then(|staging| {
+        erofs::create(
+            staging.path(),
+            config.file_contexts,
+            config.rootfs_compression_level,
+        )
+    })?;
+
+    let entries = vec![
+        CpioEntry {
+            path: "init".to_string(),
+            mode: MODE_EXEC,
+            data: init_data,
+        },
+        CpioEntry {
+            path: "rootfs.erofs".to_string(),
+            mode: MODE_FILE,
+            data: rootfs_erofs,
+        },
+    ];
+
+    let cpio_data = cpio::create_from_entries(&entries);
+    let compression_level = crate::validate_compression_level(config.compression_level)?;
+    zstd::encode_all(&cpio_data[..], compression_level).map_err(RamuneError::CompressionError)
+}
+
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst).map_err(|source| RamuneError::WriteError {
@@ -122,39 +155,6 @@ fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Creates a base initramfs image from an init binary and rootfs directory.
-pub(crate) fn create_initramfs(config: &CreateConfig<'_>) -> Result<Vec<u8>> {
-    let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
-        file: config.init.display().to_string(),
-        source: e,
-    })?;
-
-    let rootfs_erofs = prepare_rootfs(config.rootfs_dir).and_then(|staging| {
-        erofs::create(
-            staging.path(),
-            config.file_contexts,
-            config.rootfs_compression_level,
-        )
-    })?;
-
-    let entries = vec![
-        CpioEntry {
-            path: "init".to_string(),
-            mode: MODE_EXEC,
-            data: init_data,
-        },
-        CpioEntry {
-            path: "rootfs.erofs".to_string(),
-            mode: MODE_FILE,
-            data: rootfs_erofs,
-        },
-    ];
-
-    let cpio_data = cpio::create_from_entries(&entries);
-    let compression_level = crate::validate_compression_level(config.compression_level)?;
-    zstd::encode_all(&cpio_data[..], compression_level).map_err(RamuneError::CompressionError)
 }
 
 #[cfg(test)]
