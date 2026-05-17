@@ -160,7 +160,14 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
         .map(|(name, d)| (name.clone(), d.path().to_path_buf()))
         .collect();
 
-    ramune::extend(&base_initramfs, &ext_pairs, output)
+    let config = ramune::ExtendConfig {
+        base: &base_initramfs,
+        extensions: &ext_pairs,
+        compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        extension_compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+    };
+
+    ramune::extend(&config, output)
         .await
         .context("Failed to build initramfs")?;
 
