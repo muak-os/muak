@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 
 # Internal
 esp = { workspace = true }
+parttable = { workspace = true }
 
 # Filesystem
 gptman = { workspace = true }

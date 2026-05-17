@@ -1,11 +1,15 @@
 //! GPT partition table management and manipulation.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use gptman::{GPT, GPTPartitionEntry};
+use parttable::{
+    ALIGN_1_MIB_SECTORS, EFI_GUID, MBR_BOOT_SIGNATURE, MBR_PROTECTIVE_GPT_TYPE, align_up_lba,
+    protective_mbr_size_lba, write_gpt_protective_mbr,
+};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, LINUX_FS_GUID, SECTOR_SIZE, STATE_SIZE};
@@ -18,14 +22,14 @@ fn is_mbr_disk(disk: &str) -> Result<bool> {
     f.read_exact(&mut sector)?;
 
     let boot_sig = u16::from_le_bytes([sector[510], sector[511]]);
-    if boot_sig != 0xAA55 {
+    if boot_sig != u16::from_le_bytes(MBR_BOOT_SIGNATURE) {
         return Ok(false);
     }
 
     // Partition type byte is at offset 446 + 4 = 450 (first entry).
     let part_type = sector[450];
     // 0x00 = empty entry (blank disk), 0xEE = GPT protective MBR — both are fine.
-    Ok(part_type != 0x00 && part_type != 0xEE)
+    Ok(part_type != 0x00 && part_type != MBR_PROTECTIVE_GPT_TYPE)
 }
 
 /// Returns `true` when `disk` already has a Muak STATE partition installed.
@@ -44,34 +48,6 @@ pub fn has_existing_partitions(disk: &str) -> Result<bool> {
             .iter()
             .any(|(_, p)| p.is_used() && p.partition_name.as_str() == "STATE")),
         Err(_) => Ok(false),
-    }
-}
-
-/// Writes a protective MBR to prevent legacy tools from corrupting the GPT.
-fn write_protective_mbr(f: &mut File, disk_size: u64) -> Result<()> {
-    let mut pmbr = [0u8; 512];
-
-    pmbr[510] = 0x55;
-    pmbr[511] = 0xAA;
-    pmbr[446] = 0x00; // Not bootable
-    pmbr[450] = 0xEE; // GPT protective type
-    pmbr[454] = 0x01; // Starting LBA = 1
-
-    let total_lbas = disk_size / SECTOR_SIZE;
-    let part_size = if total_lbas > 0 { total_lbas - 1 } else { 0 } as u32;
-    pmbr[458..462].copy_from_slice(&part_size.to_le_bytes());
-
-    f.seek(std::io::SeekFrom::Start(0))?;
-    f.write_all(&pmbr)?;
-
-    Ok(())
-}
-
-fn align_up(lba: u64, align: u64) -> u64 {
-    if lba.is_multiple_of(align) {
-        lba
-    } else {
-        lba + (align - (lba % align))
     }
 }
 
@@ -103,12 +79,14 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
 
     let mut gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
 
-    const ALIGN: u64 = 2048;
-    let efi_start = align_up(gpt.header.first_usable_lba.max(ALIGN), ALIGN);
+    let efi_start = align_up_lba(
+        gpt.header.first_usable_lba.max(ALIGN_1_MIB_SECTORS),
+        ALIGN_1_MIB_SECTORS,
+    );
     let efi_end = efi_start + EFI_SIZE / SECTOR_SIZE - 1;
 
     gpt[1] = GPTPartitionEntry {
-        partition_type_guid: esp::EFI_GUID,
+        partition_type_guid: EFI_GUID,
         unique_partition_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
         starting_lba: efi_start,
         ending_lba: efi_end,
@@ -116,7 +94,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
         partition_name: "EFI".into(),
     };
 
-    let state_start = align_up(efi_end + 1, ALIGN);
+    let state_start = align_up_lba(efi_end + 1, ALIGN_1_MIB_SECTORS);
     let state_end = state_start + STATE_SIZE / SECTOR_SIZE - 1;
 
     gpt[2] = GPTPartitionEntry {
@@ -129,7 +107,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
     };
 
     gpt.write_into(&mut f)?;
-    write_protective_mbr(&mut f, disk_size)?;
+    write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
     f.sync_all()?;
     drop(f);
 
@@ -153,8 +131,6 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     let (mut f, disk_size) = open_disk_rw(disk)?;
     kmsg::info!("Data disk size: {} GB", disk_size / super::constants::GB);
 
-    const ALIGN: u64 = 2048;
-
     f.seek(std::io::SeekFrom::Start(0))?;
     let (mut gpt, data_num, data_start) = match GPT::find_from(&mut f) {
         Ok(existing) => {
@@ -170,7 +146,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
                 .map(|(n, _)| n)
                 .max()
                 .map_or(1, |n| n + 1);
-            let start = align_up(last_end + 1, ALIGN);
+            let start = align_up_lba(last_end + 1, ALIGN_1_MIB_SECTORS);
             kmsg::info!(
                 "Appending DATA as partition {} on existing GPT on {}",
                 next_num,
@@ -181,7 +157,10 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
         Err(_) => {
             f.seek(std::io::SeekFrom::Start(0))?;
             let gpt = GPT::new_from(&mut f, SECTOR_SIZE, [0xff; 16])?;
-            let start = align_up(gpt.header.first_usable_lba.max(ALIGN), ALIGN);
+            let start = align_up_lba(
+                gpt.header.first_usable_lba.max(ALIGN_1_MIB_SECTORS),
+                ALIGN_1_MIB_SECTORS,
+            );
             kmsg::info!("Creating new GPT with DATA as partition 1 on {}", disk);
             (gpt, 1, start)
         }
@@ -199,7 +178,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     };
 
     gpt.write_into(&mut f)?;
-    write_protective_mbr(&mut f, disk_size)?;
+    write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
     f.sync_all()?;
     drop(f);
 
@@ -361,76 +340,14 @@ mod tests {
     }
 
     #[test]
-    fn align_up_already_aligned_returns_same_value() {
+    fn protective_mbr_size_for_large_disk_is_clamped() {
         // ARRANGE
-        let lba = 2048u64;
-        let align = 2048u64;
+        let disk_size = (u32::MAX as u64 + 100) * SECTOR_SIZE;
 
         // ACT
-        let result = align_up(lba, align);
+        let result = protective_mbr_size_lba(disk_size, SECTOR_SIZE);
 
         // ASSERT
-        assert_eq!(result, 2048);
-    }
-
-    #[test]
-    fn align_up_rounds_unaligned_lba_to_next_multiple() {
-        // ARRANGE
-        let lba = 2049u64;
-        let align = 2048u64;
-
-        // ACT
-        let result = align_up(lba, align);
-
-        // ASSERT
-        assert_eq!(result, 4096);
-    }
-
-    #[test]
-    fn align_up_zero_is_already_aligned() {
-        // ARRANGE
-        let lba = 0u64;
-        let align = 2048u64;
-
-        // ACT
-        let result = align_up(lba, align);
-
-        // ASSERT
-        assert_eq!(result, 0);
-    }
-
-    #[test]
-    fn align_up_one_less_than_align_rounds_up_to_align() {
-        // ARRANGE
-        let lba = 2047u64;
-        let align = 2048u64;
-
-        // ACT
-        let result = align_up(lba, align);
-
-        // ASSERT
-        assert_eq!(result, 2048);
-    }
-
-    #[test]
-    fn align_up_result_is_always_a_multiple_of_align() {
-        // ARRANGE
-        let align = 2048u64;
-
-        for lba in [1u64, 100, 2047, 2048, 2049, 4095, 4096, 100_000] {
-            // ACT
-            let result = align_up(lba, align);
-
-            // ASSERT
-            assert_eq!(
-                result % align,
-                0,
-                "align_up({}, {}) = {} is not aligned",
-                lba,
-                align,
-                result
-            );
-            assert!(result >= lba, "align_up must not reduce lba");
-        }
+        assert_eq!(result, u32::MAX);
     }
 }

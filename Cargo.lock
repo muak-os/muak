@@ -1334,6 +1334,7 @@ dependencies = [
  "clap",
  "esp",
  "gptman",
+ "parttable",
  "tempfile",
  "thiserror 2.0.18",
  "zstd",
@@ -1527,6 +1528,13 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "parttable"
+version = "1.0.0-beta"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -1772,6 +1780,7 @@ dependencies = [
  "koci",
  "libc",
  "luks2",
+ "parttable",
  "pki",
  "prost",
  "protox",

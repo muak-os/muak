@@ -3,49 +3,23 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use gptman::{GPT, GPTPartitionEntry};
+use parttable::{
+    ALIGN_1_MIB_SECTORS, EFI_GUID, align_up_lba, write_gpt_protective_mbr,
+};
 
 use crate::MisoError;
 
 /// Sector size for the raw disk image (512 bytes).
 const SECTOR_SIZE: u64 = 512;
 
-/// Partition alignment in sectors (1 MiB boundary).
-const ALIGN_SECTORS: u64 = 2048;
-
-/// Rounds `lba` up to the nearest multiple of `align`.
-fn align_up(lba: u64, align: u64) -> u64 {
-    if lba.is_multiple_of(align) {
-        lba
-    } else {
-        lba + (align - (lba % align))
-    }
-}
-
-/// Writes a protective MBR covering the entire disk.
-fn write_protective_mbr<W: Write + Seek>(w: &mut W, disk_size: u64) -> Result<(), MisoError> {
-    let mut pmbr = [0u8; 512];
-    pmbr[510] = 0x55;
-    pmbr[511] = 0xAA;
-    pmbr[446] = 0x00;
-    pmbr[450] = 0xEE;
-    pmbr[454] = 0x01;
-
-    let total_lbas = disk_size / SECTOR_SIZE;
-    let part_size = total_lbas.saturating_sub(1).min(u32::MAX as u64) as u32;
-    pmbr[458..462].copy_from_slice(&part_size.to_le_bytes());
-
-    w.seek(SeekFrom::Start(0))?;
-    w.write_all(&pmbr)?;
-    Ok(())
-}
-
 /// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
 pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
     let esp_sectors = efi_image.len().div_ceil(SECTOR_SIZE as usize) as u64;
     let gpt_overhead_sectors = 34;
-    let esp_start = align_up(gpt_overhead_sectors, ALIGN_SECTORS);
+    let esp_start = align_up_lba(gpt_overhead_sectors, ALIGN_1_MIB_SECTORS);
     let esp_end = esp_start + esp_sectors - 1;
-    let disk_sectors = align_up(esp_end + 1 + gpt_overhead_sectors, ALIGN_SECTORS) + ALIGN_SECTORS;
+    let disk_sectors =
+        align_up_lba(esp_end + 1 + gpt_overhead_sectors, ALIGN_1_MIB_SECTORS) + ALIGN_1_MIB_SECTORS;
     let disk_size = disk_sectors * SECTOR_SIZE;
 
     let zeroed = vec![0u8; disk_size as usize];
@@ -56,7 +30,7 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
         GPT::new_from(out, SECTOR_SIZE, [0xff; 16]).map_err(|e| MisoError::Gpt(e.to_string()))?;
 
     gpt[1] = GPTPartitionEntry {
-        partition_type_guid: esp::EFI_GUID,
+        partition_type_guid: EFI_GUID,
         unique_partition_guid: [0xAA; 16],
         starting_lba: esp_start,
         ending_lba: esp_end,
@@ -67,7 +41,7 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
     gpt.write_into(out)
         .map_err(|e| MisoError::Gpt(e.to_string()))?;
 
-    write_protective_mbr(out, disk_size)?;
+    write_gpt_protective_mbr(out, disk_size, SECTOR_SIZE)?;
 
     out.seek(SeekFrom::Start(esp_start * SECTOR_SIZE))?;
     out.write_all(efi_image)?;
@@ -79,7 +53,8 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
 mod tests {
     use std::io::Cursor;
 
-    use esp::{Arch, EFI_GUID, EspSpec};
+    use esp::{Arch, EspSpec};
+    use parttable::MBR_PROTECTIVE_GPT_TYPE;
 
     use super::*;
 
@@ -121,7 +96,10 @@ mod tests {
         let data = buf.into_inner();
         assert_eq!(data[510], 0x55);
         assert_eq!(data[511], 0xAA);
-        assert_eq!(data[450], 0xEE, "protective MBR type must be 0xEE");
+        assert_eq!(
+            data[450], MBR_PROTECTIVE_GPT_TYPE,
+            "protective MBR type must be 0xEE"
+        );
     }
 
     #[test]
@@ -183,7 +161,7 @@ mod tests {
             .find(|(_, p)| p.is_used())
             .expect("must have partition");
         assert_eq!(
-            part.starting_lba % ALIGN_SECTORS,
+            part.starting_lba % ALIGN_1_MIB_SECTORS,
             0,
             "ESP start must be aligned to 1 MiB"
         );
@@ -224,24 +202,5 @@ mod tests {
             .find(|(_, p)| p.is_used())
             .expect("must have partition");
         assert_eq!(part.partition_name.as_str(), "EFI");
-    }
-
-    #[test]
-    fn align_up_already_aligned() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(align_up(2048, 2048), 2048);
-    }
-
-    #[test]
-    fn align_up_rounds_unaligned() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(align_up(2049, 2048), 4096);
-        assert_eq!(align_up(1, 2048), 2048);
-    }
-
-    #[test]
-    fn align_up_zero() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(align_up(0, 2048), 0);
     }
 }

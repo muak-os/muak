@@ -23,6 +23,7 @@ members = [
     "libs/btrfs",
     "libs/config",
     "libs/esp",
+    "libs/parttable",
     "libs/kmod",
     "libs/kmsg",
     "libs/luks2",
@@ -52,6 +53,7 @@ btrfs = { path = "libs/btrfs" }
 granola-macros = { path = "libs/granola-macros" }
 config = { path = "libs/config" }
 esp = { path = "libs/esp" }
+parttable = { path = "libs/parttable" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }

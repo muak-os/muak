@@ -1,0 +1,13 @@
+[package]
+name = "parttable"
+description = "Shared MBR and GPT partition table helpers"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
