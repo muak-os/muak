@@ -40,7 +40,7 @@ fn write_protective_mbr<W: Write + Seek>(w: &mut W, disk_size: u64) -> Result<()
 }
 
 /// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
-pub fn write_raw<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
+pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
     let esp_sectors = efi_image.len().div_ceil(SECTOR_SIZE as usize) as u64;
     let gpt_overhead_sectors = 34;
     let esp_start = align_up(gpt_overhead_sectors, ALIGN_SECTORS);
@@ -95,7 +95,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -115,7 +115,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -131,7 +131,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());
@@ -151,7 +151,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -173,7 +173,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());
@@ -196,7 +196,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -214,7 +214,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_raw(&mut buf, &esp).expect("write_raw must succeed");
+        write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
         let mut cursor = Cursor::new(buf.into_inner());

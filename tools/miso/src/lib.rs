@@ -17,7 +17,7 @@ pub fn build_iso(
     out: &mut (impl std::io::Write + std::io::Seek),
 ) -> Result<(), MisoError> {
     let efi_image = esp::build(spec)?;
-    iso::write_iso(out, &efi_image)
+    iso::write(out, &efi_image)
 }
 
 /// Builds a raw GPT disk image from an `EspSpec` into any `Read + Write + Seek` sink.
@@ -28,7 +28,7 @@ pub fn build_raw(
 ) -> Result<(), MisoError> {
     let efi_image = esp::build(spec)?;
     let mut raw_out = Cursor::new(Vec::new());
-    raw::write_raw(&mut raw_out, &efi_image)?;
+    raw::write(&mut raw_out, &efi_image)?;
     let raw_bytes = raw_out.into_inner();
 
     if let Some(level) = compression_level {

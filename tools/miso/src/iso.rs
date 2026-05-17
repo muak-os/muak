@@ -306,7 +306,7 @@ fn el_torito_sector_count(efi_image_len: usize) -> Result<u16, MisoError> {
 }
 
 /// Writes a complete bootable ISO 9660 image.
-pub fn write_iso(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), MisoError> {
+pub fn write(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), MisoError> {
     let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
     let efi_image_lba = LBA_FILE_DATA as u32;
     let efi_image_size = efi_image.len() as u32;
@@ -378,7 +378,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -397,7 +397,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -412,7 +412,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -427,7 +427,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -442,7 +442,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -461,7 +461,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -482,7 +482,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -506,7 +506,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -522,7 +522,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -537,7 +537,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let len = buf.into_inner().len();
@@ -551,7 +551,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
@@ -566,7 +566,7 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
-        write_iso(&mut buf, &efi).expect("write_iso must succeed");
+        write(&mut buf, &efi).expect("write_iso must succeed");
 
         // ASSERT
         let data = buf.into_inner();
