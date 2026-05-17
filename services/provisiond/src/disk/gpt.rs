@@ -5,7 +5,9 @@ use std::io::Seek;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
-use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, Partition, Table};
+use parttable::{
+    ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start, Table,
+};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
@@ -59,36 +61,33 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
 
     let mut gpt = Table::create(&mut f, SECTOR_SIZE, [0xff; 16])?;
 
-    let efi_start = parttable::align_up_lba(
-        gpt.first_usable_lba().max(ALIGN_1_MIB_SECTORS),
-        ALIGN_1_MIB_SECTORS,
-    );
-    let efi_end = efi_start + EFI_SIZE / SECTOR_SIZE - 1;
-    gpt.set_partition(
-        1,
-        Partition {
+    let efi = gpt.place_partition(
+        PlacementRequest {
+            slot: Slot::Exact(1),
+            start: Start::FirstUsable,
+            size: Size::Bytes(EFI_SIZE),
+            alignment_lba: ALIGN_1_MIB_SECTORS,
             type_guid: EFI_GUID,
             unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            starting_lba: efi_start,
-            ending_lba: efi_end,
             attributes: 0,
             name: "EFI".to_owned(),
         },
-    );
+        SECTOR_SIZE,
+    )?;
 
-    let state_start = parttable::align_up_lba(efi_end + 1, ALIGN_1_MIB_SECTORS);
-    let state_end = state_start + STATE_SIZE / SECTOR_SIZE - 1;
-    gpt.set_partition(
-        2,
-        Partition {
+    let state = gpt.place_partition(
+        PlacementRequest {
+            slot: Slot::Exact(2),
+            start: Start::AfterPartition(efi.number),
+            size: Size::Bytes(STATE_SIZE),
+            alignment_lba: ALIGN_1_MIB_SECTORS,
             type_guid: LINUX_FS_GUID,
             unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            starting_lba: state_start,
-            ending_lba: state_end,
             attributes: 0,
             name: "STATE".to_owned(),
         },
-    );
+        SECTOR_SIZE,
+    )?;
 
     gpt.write(&mut f)?;
     parttable::write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
@@ -97,8 +96,18 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
 
     verify_gpt(disk);
 
-    add_partition_blkpg(disk, 1, efi_start, efi_end)?;
-    add_partition_blkpg(disk, 2, state_start, state_end)?;
+    add_partition_blkpg(
+        disk,
+        efi.number,
+        efi.partition.starting_lba,
+        efi.partition.ending_lba,
+    )?;
+    add_partition_blkpg(
+        disk,
+        state.number,
+        state.partition.starting_lba,
+        state.partition.ending_lba,
+    )?;
 
     kmsg::info!("System partitions registered on {}", disk);
 
@@ -116,46 +125,32 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     kmsg::info!("Data disk size: {} GB", disk_size / super::constants::GB);
 
     f.seek(std::io::SeekFrom::Start(0))?;
-    let (mut gpt, data_num, data_start) = match Table::read(&mut f) {
+    let (mut gpt, start) = match Table::read(&mut f) {
         Ok(existing) => {
-            let last_end = existing
-                .last_used_ending_lba()
-                .unwrap_or(existing.first_usable_lba().saturating_sub(1));
-            let next_num = existing
-                .highest_used_partition_number()
-                .map_or(1, |n| n + 1);
-            let start = parttable::align_up_lba(last_end + 1, ALIGN_1_MIB_SECTORS);
-            kmsg::info!(
-                "Appending DATA as partition {} on existing GPT on {}",
-                next_num,
-                disk
-            );
-            (existing, next_num, start)
+            kmsg::info!("Appending DATA on existing GPT on {}", disk);
+            (existing, Start::AfterLastUsed)
         }
         Err(_) => {
             f.seek(std::io::SeekFrom::Start(0))?;
             let gpt = Table::create(&mut f, SECTOR_SIZE, [0xff; 16])?;
-            let start = parttable::align_up_lba(
-                gpt.first_usable_lba().max(ALIGN_1_MIB_SECTORS),
-                ALIGN_1_MIB_SECTORS,
-            );
             kmsg::info!("Creating new GPT with DATA as partition 1 on {}", disk);
-            (gpt, 1, start)
+            (gpt, Start::FirstUsable)
         }
     };
 
-    let data_end = gpt.last_usable_lba();
-    gpt.set_partition(
-        data_num,
-        Partition {
+    let data = gpt.place_partition(
+        PlacementRequest {
+            slot: Slot::Auto,
+            start,
+            size: Size::FillToLastUsable,
+            alignment_lba: ALIGN_1_MIB_SECTORS,
             type_guid: LINUX_FS_GUID,
             unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            starting_lba: data_start,
-            ending_lba: data_end,
             attributes: 0,
             name: "DATA".to_owned(),
         },
-    );
+        SECTOR_SIZE,
+    )?;
 
     gpt.write(&mut f)?;
     parttable::write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
@@ -164,11 +159,16 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
 
     verify_gpt(disk);
 
-    add_partition_blkpg(disk, data_num, data_start, data_end)?;
+    add_partition_blkpg(
+        disk,
+        data.number,
+        data.partition.starting_lba,
+        data.partition.ending_lba,
+    )?;
 
-    kmsg::info!("Data partition {} registered on {}", data_num, disk);
+    kmsg::info!("Data partition {} registered on {}", data.number, disk);
 
-    let data_part = format_partition_name(disk, data_num);
+    let data_part = format_partition_name(disk, data.number);
     wait_for_device(&data_part)?;
 
     Ok(data_part)

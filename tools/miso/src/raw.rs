@@ -2,7 +2,7 @@
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, Partition, Table};
+use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start, Table};
 
 use crate::MisoError;
 
@@ -11,13 +11,7 @@ const SECTOR_SIZE: u64 = 512;
 
 /// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
 pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
-    let esp_sectors = efi_image.len().div_ceil(SECTOR_SIZE as usize) as u64;
-    let gpt_overhead_sectors = 34;
-    let esp_start = parttable::align_up_lba(gpt_overhead_sectors, ALIGN_1_MIB_SECTORS);
-    let esp_end = esp_start + esp_sectors - 1;
-    let disk_sectors =
-        parttable::align_up_lba(esp_end + 1 + gpt_overhead_sectors, ALIGN_1_MIB_SECTORS)
-            + ALIGN_1_MIB_SECTORS;
+    let disk_sectors = layout_disk(efi_image.len() as u64)?;
     let disk_size = disk_sectors * SECTOR_SIZE;
 
     let zeroed = vec![0u8; disk_size as usize];
@@ -26,26 +20,61 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
 
     let mut gpt = Table::create(out, SECTOR_SIZE, [0xff; 16])
         .map_err(|err| MisoError::Gpt(err.to_string()))?;
-    gpt.set_partition(
-        1,
-        Partition {
-            type_guid: EFI_GUID,
-            unique_guid: [0xAA; 16],
-            starting_lba: esp_start,
-            ending_lba: esp_end,
-            attributes: 0,
-            name: "EFI".to_owned(),
-        },
-    );
+    let placement = gpt
+        .place_partition(
+            PlacementRequest {
+                slot: Slot::Exact(1),
+                start: Start::FirstUsable,
+                size: Size::Bytes(efi_image.len() as u64),
+                alignment_lba: ALIGN_1_MIB_SECTORS,
+                type_guid: EFI_GUID,
+                unique_guid: [0xAA; 16],
+                attributes: 0,
+                name: "EFI".to_owned(),
+            },
+            SECTOR_SIZE,
+        )
+        .map_err(|err| MisoError::Gpt(err.to_string()))?;
     gpt.write(out)
         .map_err(|err| MisoError::Gpt(err.to_string()))?;
 
     parttable::write_gpt_protective_mbr(out, disk_size, SECTOR_SIZE)?;
 
-    out.seek(SeekFrom::Start(esp_start * SECTOR_SIZE))?;
+    out.seek(SeekFrom::Start(
+        placement.partition.starting_lba * SECTOR_SIZE,
+    ))?;
     out.write_all(efi_image)?;
 
     Ok(())
+}
+
+fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
+    let mut disk_sectors = ALIGN_1_MIB_SECTORS * 2;
+
+    loop {
+        let mut disk = std::io::Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
+        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])
+            .map_err(|err| MisoError::Gpt(err.to_string()))?;
+        match gpt.place_partition(
+            PlacementRequest {
+                slot: Slot::Exact(1),
+                start: Start::FirstUsable,
+                size: Size::Bytes(efi_image_bytes),
+                alignment_lba: ALIGN_1_MIB_SECTORS,
+                type_guid: EFI_GUID,
+                unique_guid: [0xAA; 16],
+                attributes: 0,
+                name: "EFI".to_owned(),
+            },
+            SECTOR_SIZE,
+        ) {
+            Ok(_) => return Ok(disk_sectors),
+            Err(parttable::GptError::InvalidPlacement(_)) => {
+                disk_sectors += ALIGN_1_MIB_SECTORS;
+            }
+            Err(err) => return Err(MisoError::Gpt(err.to_string())),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -29,6 +29,50 @@ pub struct Partition {
     pub name: String,
 }
 
+/// Selects how a partition slot should be chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Auto,
+    Exact(u32),
+}
+
+/// Selects how a partition start LBA should be chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    FirstUsable,
+    AfterLastUsed,
+    AtOrAfter(u64),
+    AfterPartition(u32),
+}
+
+/// Selects how a partition size should be chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Size {
+    Bytes(u64),
+    Lbas(u64),
+    FillToLastUsable,
+}
+
+/// Describes one checked placement request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacementRequest {
+    pub slot: Slot,
+    pub start: Start,
+    pub size: Size,
+    pub alignment_lba: u64,
+    pub type_guid: [u8; 16],
+    pub unique_guid: [u8; 16],
+    pub attributes: u64,
+    pub name: String,
+}
+
+/// Returns the resolved partition placement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    pub number: u32,
+    pub partition: Partition,
+}
+
 /// Errors returned by GPT table operations.
 #[derive(Debug, Error)]
 pub enum GptError {
@@ -39,6 +83,10 @@ pub enum GptError {
     /// Wraps underlying GPT encoding and decoding failures.
     #[error("GPT error: {0}")]
     Gpt(String),
+
+    /// Reports invalid placement requests.
+    #[error("Invalid partition placement: {0}")]
+    InvalidPlacement(String),
 }
 
 /// A GPT table wrapper with a stable workspace-local API.
@@ -120,9 +168,46 @@ impl Table {
             .max()
     }
 
+    /// Returns the next free partition number, if any.
+    pub fn next_free_slot(&self) -> Option<u32> {
+        let max_slots = self.inner.iter().map(|(number, _)| number).max()?;
+        (1..=max_slots).find(|&number| !self.is_partition_used(number))
+    }
+
     /// Sets `number` to `partition`.
     pub fn set_partition(&mut self, number: u32, partition: Partition) {
         self.inner[number] = partition.into();
+    }
+
+    /// Places one partition using checked alignment and range rules.
+    pub fn place_partition(
+        &mut self,
+        request: PlacementRequest,
+        sector_size: u64,
+    ) -> Result<Placement, GptError> {
+        let number = match request.slot {
+            Slot::Auto => self.next_free_slot().ok_or_else(|| {
+                GptError::InvalidPlacement("no free GPT partition slots".to_owned())
+            })?,
+            Slot::Exact(number) => self.resolve_exact_slot(number)?,
+        };
+
+        let anchor = self.resolve_start_anchor(request.start)?;
+        let start = align_up_lba(anchor, request.alignment_lba);
+        let end = self.resolve_end_lba(start, request.size, sector_size)?;
+        self.validate_partition_range(number, start, end)?;
+
+        let partition = Partition {
+            type_guid: request.type_guid,
+            unique_guid: request.unique_guid,
+            starting_lba: start,
+            ending_lba: end,
+            attributes: request.attributes,
+            name: request.name,
+        };
+        self.set_partition(number, partition.clone());
+
+        Ok(Placement { number, partition })
     }
 
     /// Removes the partition at `number`.
@@ -138,6 +223,95 @@ impl Table {
             .write_into(writer)
             .map(|_| ())
             .map_err(|err| GptError::Gpt(err.to_string()))
+    }
+
+    fn resolve_start_anchor(&self, start: Start) -> Result<u64, GptError> {
+        match start {
+            Start::FirstUsable => Ok(self.first_usable_lba()),
+            Start::AfterLastUsed => Ok(self
+                .last_used_ending_lba()
+                .map_or(self.first_usable_lba(), |ending_lba| ending_lba + 1)),
+            Start::AtOrAfter(lba) => Ok(lba),
+            Start::AfterPartition(number) => self
+                .partition(number)
+                .map(|partition| partition.ending_lba + 1)
+                .ok_or_else(|| {
+                    GptError::InvalidPlacement(format!(
+                        "cannot place after missing partition {number}"
+                    ))
+                }),
+        }
+    }
+
+    fn resolve_exact_slot(&self, number: u32) -> Result<u32, GptError> {
+        if !self.is_partition_used(number) {
+            return Ok(number);
+        }
+
+        Err(GptError::InvalidPlacement(format!(
+            "partition slot {number} is already in use"
+        )))
+    }
+
+    fn resolve_end_lba(&self, start: u64, size: Size, sector_size: u64) -> Result<u64, GptError> {
+        match size {
+            Size::Bytes(bytes) => {
+                let lbas = Self::nonzero_lbas(bytes.div_ceil(sector_size))?;
+                Ok(start + lbas - 1)
+            }
+            Size::Lbas(lbas) => {
+                let lbas = Self::nonzero_lbas(lbas)?;
+                Ok(start + lbas - 1)
+            }
+            Size::FillToLastUsable => Ok(self.last_usable_lba()),
+        }
+    }
+
+    fn nonzero_lbas(lbas: u64) -> Result<u64, GptError> {
+        if lbas != 0 {
+            return Ok(lbas);
+        }
+
+        Err(GptError::InvalidPlacement(
+            "partition size must be greater than zero".to_owned(),
+        ))
+    }
+
+    fn validate_partition_range(&self, number: u32, start: u64, end: u64) -> Result<(), GptError> {
+        if start > end {
+            return Err(GptError::InvalidPlacement(format!(
+                "partition {number} start LBA {start} is after end LBA {end}"
+            )));
+        }
+        if start < self.first_usable_lba() {
+            return Err(GptError::InvalidPlacement(format!(
+                "partition {number} starts before first usable LBA {}",
+                self.first_usable_lba()
+            )));
+        }
+        if end > self.last_usable_lba() {
+            return Err(GptError::InvalidPlacement(format!(
+                "partition {number} ends after last usable LBA {}",
+                self.last_usable_lba()
+            )));
+        }
+
+        if let Some(existing_number) =
+            self.used_partitions()
+                .into_iter()
+                .find_map(|(existing_number, existing)| {
+                    let overlaps_current_slot = existing_number == number;
+                    let overlaps_range =
+                        start <= existing.ending_lba && end >= existing.starting_lba;
+                    (!overlaps_current_slot && overlaps_range).then_some(existing_number)
+                })
+        {
+            return Err(GptError::InvalidPlacement(format!(
+                "partition {number} overlaps partition {existing_number}"
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -180,7 +354,10 @@ pub fn align_up_lba(lba: u64, align: u64) -> u64 {
 mod tests {
     use std::io::Cursor;
 
-    use super::{ALIGN_1_MIB_SECTORS, EFI_GUID, Partition, Table, align_up_lba};
+    use super::{
+        ALIGN_1_MIB_SECTORS, EFI_GUID, GptError, LINUX_FS_GUID, Partition, PlacementRequest, Size,
+        Slot, Start, Table, align_up_lba,
+    };
 
     fn blank_disk(size: usize) -> Cursor<Vec<u8>> {
         Cursor::new(vec![0u8; size])
@@ -194,6 +371,25 @@ mod tests {
             ending_lba,
             attributes: 0,
             name: "EFI".to_owned(),
+        }
+    }
+
+    fn request(
+        slot: Slot,
+        start: Start,
+        size: Size,
+        type_guid: [u8; 16],
+        name: &str,
+    ) -> PlacementRequest {
+        PlacementRequest {
+            slot,
+            start,
+            size,
+            alignment_lba: ALIGN_1_MIB_SECTORS,
+            type_guid,
+            unique_guid: [0xCD; 16],
+            attributes: 0,
+            name: name.to_owned(),
         }
     }
 
@@ -300,10 +496,7 @@ mod tests {
         table.set_partition(
             2,
             Partition {
-                type_guid: [
-                    0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47, 0x8E, 0x79, 0x3D, 0x69, 0xD8,
-                    0x47, 0x7D, 0xE4,
-                ],
+                type_guid: LINUX_FS_GUID,
                 unique_guid: [0xBC; 16],
                 starting_lba: 4096,
                 ending_lba: 8191,
@@ -349,6 +542,178 @@ mod tests {
 
         // ASSERT
         assert_eq!(last_end, Some(12287));
+    }
+
+    #[test]
+    fn next_free_slot_returns_first_unused_slot() {
+        // ARRANGE
+        let mut disk = blank_disk(8 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+        table.set_partition(3, efi_partition(4096, 8191));
+
+        // ACT
+        let next = table.next_free_slot();
+
+        // ASSERT
+        assert_eq!(next, Some(2));
+    }
+
+    #[test]
+    fn place_partition_aligns_first_usable_request() {
+        // ARRANGE
+        let mut disk = blank_disk(16 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let placement = table
+            .place_partition(
+                request(
+                    Slot::Exact(1),
+                    Start::FirstUsable,
+                    Size::Bytes(1024 * 1024),
+                    EFI_GUID,
+                    "EFI",
+                ),
+                512,
+            )
+            .expect("placement must succeed");
+
+        // ASSERT
+        assert_eq!(placement.number, 1);
+        assert_eq!(placement.partition.starting_lba % ALIGN_1_MIB_SECTORS, 0);
+    }
+
+    #[test]
+    fn place_partition_after_partition_uses_previous_end() {
+        // ARRANGE
+        let mut disk = blank_disk(32 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let first = table
+            .place_partition(
+                request(
+                    Slot::Exact(1),
+                    Start::FirstUsable,
+                    Size::Bytes(1024 * 1024),
+                    EFI_GUID,
+                    "EFI",
+                ),
+                512,
+            )
+            .expect("first placement must succeed");
+
+        // ACT
+        let second = table
+            .place_partition(
+                request(
+                    Slot::Exact(2),
+                    Start::AfterPartition(first.number),
+                    Size::Bytes(1024 * 1024),
+                    LINUX_FS_GUID,
+                    "STATE",
+                ),
+                512,
+            )
+            .expect("second placement must succeed");
+
+        // ASSERT
+        assert!(second.partition.starting_lba > first.partition.ending_lba);
+        assert_eq!(second.partition.starting_lba % ALIGN_1_MIB_SECTORS, 0);
+    }
+
+    #[test]
+    fn place_partition_auto_slot_uses_next_free_slot() {
+        // ARRANGE
+        let mut disk = blank_disk(16 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
+        let placement = table
+            .place_partition(
+                request(
+                    Slot::Auto,
+                    Start::AfterLastUsed,
+                    Size::Bytes(1024 * 1024),
+                    LINUX_FS_GUID,
+                    "DATA",
+                ),
+                512,
+            )
+            .expect("placement must succeed");
+
+        // ASSERT
+        assert_eq!(placement.number, 2);
+    }
+
+    #[test]
+    fn place_partition_fill_to_last_usable_extends_to_table_end() {
+        // ARRANGE
+        let mut disk = blank_disk(16 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let placement = table
+            .place_partition(
+                request(
+                    Slot::Exact(1),
+                    Start::FirstUsable,
+                    Size::FillToLastUsable,
+                    LINUX_FS_GUID,
+                    "DATA",
+                ),
+                512,
+            )
+            .expect("placement must succeed");
+
+        // ASSERT
+        assert_eq!(placement.partition.ending_lba, table.last_usable_lba());
+    }
+
+    #[test]
+    fn place_partition_rejects_overlap() {
+        // ARRANGE
+        let mut disk = blank_disk(16 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
+        let result = table.place_partition(
+            request(
+                Slot::Exact(2),
+                Start::AtOrAfter(2048),
+                Size::Lbas(10),
+                LINUX_FS_GUID,
+                "BAD",
+            ),
+            512,
+        );
+
+        // ASSERT
+        assert!(matches!(result, Err(GptError::InvalidPlacement(_))));
+    }
+
+    #[test]
+    fn place_partition_rejects_used_exact_slot() {
+        // ARRANGE
+        let mut disk = blank_disk(16 * 1024 * 1024);
+        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
+        let result = table.place_partition(
+            request(
+                Slot::Exact(1),
+                Start::AfterLastUsed,
+                Size::Lbas(10),
+                LINUX_FS_GUID,
+                "BAD",
+            ),
+            512,
+        );
+
+        // ASSERT
+        assert!(matches!(result, Err(GptError::InvalidPlacement(_))));
     }
 
     #[test]
