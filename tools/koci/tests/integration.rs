@@ -48,14 +48,9 @@ async fn pull_extracts_single_layer_from_local_registry() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    koci::pull(
-        &registry.reference("repo", "test"),
-        host_oci_arch(),
-        output.path(),
-        None,
-    )
-    .await
-    .expect("pull image");
+    koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        .await
+        .expect("pull image");
 
     // ASSERT
     assert_eq!(
@@ -111,7 +106,7 @@ async fn pull_selects_requested_platform_manifest_from_index() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    koci::pull(
+    koci::pull_arch(
         &registry.reference("repo", "test"),
         "arm64",
         output.path(),
@@ -144,7 +139,7 @@ async fn pull_rejects_index_without_requested_platform_match() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = koci::pull(
+    let error = koci::pull_arch(
         &registry.reference("repo", "test"),
         "arm64",
         output.path(),
@@ -181,7 +176,6 @@ async fn pull_supports_digest_manifest_reference() {
     // ACT
     koci::pull(
         &registry.digest_reference("repo", &manifest_digest),
-        host_oci_arch(),
         output.path(),
         None,
     )
@@ -226,14 +220,7 @@ async fn pull_rejects_blob_with_digest_mismatch() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = match koci::pull(
-        &registry.reference("repo", "test"),
-        host_oci_arch(),
-        output.path(),
-        None,
-    )
-    .await
-    {
+    let error = match koci::pull(&registry.reference("repo", "test"), output.path(), None).await {
         Ok(()) => {
             panic!("pull unexpectedly succeeded");
         }
@@ -627,14 +614,9 @@ async fn pull_applies_multiple_layers_in_order() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    koci::pull(
-        &registry.reference("repo", "test"),
-        host_oci_arch(),
-        output.path(),
-        None,
-    )
-    .await
-    .expect("pull image");
+    koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        .await
+        .expect("pull image");
 
     // ASSERT
     assert_eq!(
@@ -654,14 +636,9 @@ async fn pull_rejects_non_utf8_manifest_response() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = koci::pull(
-        &registry.reference("repo", "test"),
-        host_oci_arch(),
-        output.path(),
-        None,
-    )
-    .await
-    .expect_err("pull should fail");
+    let error = koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        .await
+        .expect_err("pull should fail");
 
     // ASSERT
     assert!(matches!(error, KociError::NetworkError(_)));
@@ -678,14 +655,9 @@ async fn pull_rejects_invalid_manifest_json() {
     let output = TempDir::new().expect("create temp dir");
 
     // ACT
-    let error = koci::pull(
-        &registry.reference("repo", "test"),
-        host_oci_arch(),
-        output.path(),
-        None,
-    )
-    .await
-    .expect_err("pull should fail");
+    let error = koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        .await
+        .expect_err("pull should fail");
 
     // ASSERT
     assert!(matches!(error, KociError::OciParseError(_)));

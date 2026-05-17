@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::constants::host_oci_arch;
-
 /// Default kernel command line for x86_64 architecture.
 #[cfg(target_arch = "x86_64")]
 const DEFAULT_CMDLINE: &str = include_str!(concat!(
@@ -124,7 +122,7 @@ impl Uki {
 async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
     kmsg::info!("Pulling installer image: {}", image);
 
-    koci::pull(image, host_oci_arch(), dest_dir, Some(SIGNATURE_PUB))
+    koci::pull(image, dest_dir, Some(SIGNATURE_PUB))
         .await
         .context("Failed to pull installer image")?;
 
@@ -186,7 +184,7 @@ async fn pull_extensions(extensions: &[String]) -> Result<Vec<(String, tempfile:
     for ext in extensions {
         let tmp =
             tempfile::TempDir::new_in("/run").context("Failed to create temp dir for extension")?;
-        koci::pull(ext, host_oci_arch(), tmp.path(), None)
+        koci::pull(ext, tmp.path(), None)
             .await
             .with_context(|| format!("Failed to pull extension: {ext}"))?;
         dirs.push((oci_ref_to_logical_name(ext), tmp));

@@ -112,15 +112,6 @@ mod tests {
         }
     }
 
-    /// Return the OCI architecture string for the current host.
-    fn host_oci_arch() -> &'static str {
-        match std::env::consts::ARCH {
-            "aarch64" => "arm64",
-            "x86_64" => "amd64",
-            other => other,
-        }
-    }
-
     fn descriptor(digest: &str, architecture: Option<&str>, os: Option<&str>) -> OciDescriptor {
         OciDescriptor {
             media_type: None,
@@ -277,14 +268,18 @@ mod tests {
     fn select_platform_prefers_host_linux_match() {
         // ARRANGE
         let manifests = vec![
-            descriptor("sha256:wrong-os", Some(host_oci_arch()), Some("windows")),
-            descriptor("sha256:match", Some(host_oci_arch()), Some("linux")),
+            descriptor(
+                "sha256:wrong-os",
+                Some(crate::host_oci_arch()),
+                Some("windows"),
+            ),
+            descriptor("sha256:match", Some(crate::host_oci_arch()), Some("linux")),
             descriptor("sha256:wrong-arch", Some("arm64"), Some("linux")),
         ];
 
         // ACT
         let selected =
-            select_platform(&manifests, host_oci_arch()).expect("select matching manifest");
+            select_platform(&manifests, crate::host_oci_arch()).expect("select matching manifest");
 
         // ASSERT
         assert_eq!(selected.digest, "sha256:match");

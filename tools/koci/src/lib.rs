@@ -13,8 +13,23 @@ use std::path::Path;
 pub use error::{KociError, Result};
 use pull::pull_to_dir;
 
+/// Return the OCI architecture string for the current host.
+#[must_use]
+pub fn host_oci_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => other,
+    }
+}
+
 /// Pull an OCI image and extract it to a directory.
-pub async fn pull(
+pub async fn pull(reference: &str, output: &Path, pubkey_pem: Option<&str>) -> Result<()> {
+    pull_arch(reference, host_oci_arch(), output, pubkey_pem).await
+}
+
+/// Pull an OCI image for a specific architecture and extract it to a directory.
+pub async fn pull_arch(
     reference: &str,
     arch: &str,
     output: &Path,
@@ -42,7 +57,7 @@ mod tests {
         let output = workspace.path().join("nested/output");
 
         // ACT
-        let error = pull("http://127.0.0.1:9/repo:test", "amd64", &output, None)
+        let error = pull_arch("http://127.0.0.1:9/repo:test", "amd64", &output, None)
             .await
             .expect_err("pull should fail");
 

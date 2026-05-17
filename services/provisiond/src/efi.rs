@@ -6,7 +6,6 @@ use anyhow::{Context, Result, bail};
 use esp::{Arch, EspSpec, EspSpecBuilder};
 use rustix::fs::sync;
 
-use crate::constants::host_oci_arch;
 use crate::disk;
 
 /// Mount point for the EFI partition during deployment.
@@ -17,7 +16,7 @@ pub async fn pull_firmware(firmware_ref: &str, variant: &str, dest: &Path) -> Re
     std::fs::create_dir_all(dest)
         .with_context(|| format!("Failed to create firmware dir {}", dest.display()))?;
 
-    koci::pull(firmware_ref, host_oci_arch(), dest, None)
+    koci::pull(firmware_ref, dest, None)
         .await
         .with_context(|| format!("Failed to pull board firmware: {firmware_ref}"))?;
 

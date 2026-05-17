@@ -7,14 +7,6 @@ mod cli {
     use anyhow::{Context, Result};
     use clap::{Parser, Subcommand};
 
-    fn host_oci_arch() -> &'static str {
-        match std::env::consts::ARCH {
-            "aarch64" => "arm64",
-            "x86_64" => "amd64",
-            other => other,
-        }
-    }
-
     #[derive(Parser)]
     #[command(name = env!("CARGO_PKG_NAME"))]
     #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -51,6 +43,19 @@ mod cli {
             .with_context(|| format!("Failed to read key from {}", path.display()))
     }
 
+    async fn pull_image(
+        image: &str,
+        arch: Option<&str>,
+        output: &std::path::Path,
+        pub_key: Option<&str>,
+    ) -> koci::Result<()> {
+        if let Some(arch) = arch {
+            return koci::pull_arch(image, arch, output, pub_key).await;
+        }
+
+        koci::pull(image, output, pub_key).await
+    }
+
     pub async fn run() -> Result<()> {
         let args = Cli::parse();
 
@@ -62,9 +67,8 @@ mod cli {
                 pub_key,
             } => {
                 let key_contents = pub_key.map(|p| read_key_file(&p)).transpose()?;
-                let arch = arch.unwrap_or_else(|| host_oci_arch().to_string());
 
-                koci::pull(&image, &arch, &output, key_contents.as_deref())
+                pull_image(&image, arch.as_deref(), &output, key_contents.as_deref())
                     .await
                     .context("Failed to pull image")?;
                 println!("Successfully extracted image to {}", output.display());

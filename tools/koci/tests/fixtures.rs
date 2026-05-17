@@ -12,14 +12,6 @@ use tar::{Builder, Header};
 
 const SIG_ANNOTATION: &str = "dev.muak.sig";
 
-pub fn host_oci_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        "x86_64" => "amd64",
-        other => other,
-    }
-}
-
 pub struct TestKeys {
     pub private_key_pem: String,
     pub public_key_pem: String,
@@ -108,7 +100,7 @@ pub fn index_json(manifest_digests: &[&str]) -> Result<Vec<u8>, serde_json::Erro
             json!({
                 "digest": digest,
                 "platform": {
-                    "architecture": host_oci_arch(),
+                    "architecture": koci::host_oci_arch(),
                     "os": "linux",
                 }
             })
