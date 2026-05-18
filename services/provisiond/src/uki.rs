@@ -4,22 +4,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-/// Default kernel command line for x86_64 architecture.
-#[cfg(target_arch = "x86_64")]
-const DEFAULT_CMDLINE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../core/kernel/cmdline-amd64.txt"
-))
-.trim_ascii();
-
-/// Default kernel command line for AArch64 architecture.
-#[cfg(target_arch = "aarch64")]
-const DEFAULT_CMDLINE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../core/kernel/cmdline-arm64.txt"
-))
-.trim_ascii();
-
 /// Public key for installer image verification.
 const SIGNATURE_PUB: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../signature.pub"));
@@ -48,7 +32,7 @@ impl Uki {
             stub: arch_dir.join("stub.efi"),
             kernel: arch_dir.join("vmlinuz"),
             initramfs: arch_dir.join("initramfs.img"),
-            cmdline: arch_dir.join("cmdline.txt"),
+            cmdline: arch_dir.join("cmdline"),
             dtb: None,
             luks_key: None,
         })
@@ -68,7 +52,6 @@ impl Uki {
 
         pull_installer(installer_image, parent).await?;
         build_initramfs(parent, &uki.initramfs, extensions).await?;
-        write_cmdline(&uki.cmdline, DEFAULT_CMDLINE)?;
 
         Ok(uki)
     }
@@ -134,7 +117,7 @@ async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
 
 /// Verifies required installer files are present.
 fn verify_installer_files(base_dir: &Path) -> Result<()> {
-    let required_files = ["vmlinuz", "stub.efi", "initramfs.img"];
+    let required_files = ["vmlinuz", "stub.efi", "initramfs.img", "cmdline"];
 
     for file in &required_files {
         let path = base_dir.join(file);
@@ -217,10 +200,4 @@ fn oci_ref_to_logical_name(oci_ref: &str) -> String {
         without_tag
     };
     repo.replace('/', "-")
-}
-
-/// Writes the kernel cmdline to file.
-fn write_cmdline(path: &Path, cmdline: &str) -> Result<()> {
-    std::fs::write(path, cmdline)
-        .with_context(|| format!("Failed to write cmdline to {}", path.display()))
 }
