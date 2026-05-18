@@ -18,25 +18,21 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
     out.seek(SeekFrom::Start(0))?;
     out.write_all(&zeroed)?;
 
-    let mut gpt = Table::create(out, SECTOR_SIZE, [0xff; 16])
-        .map_err(|err| MisoError::Gpt(err.to_string()))?;
-    let placement = gpt
-        .place_partition(
-            PlacementRequest {
-                slot: Slot::Exact(1),
-                start: Start::FirstUsable,
-                size: Size::Bytes(efi_image.len() as u64),
-                alignment_lba: ALIGN_1_MIB_SECTORS,
-                type_guid: EFI_GUID,
-                unique_guid: [0xAA; 16],
-                attributes: 0,
-                name: "EFI".to_owned(),
-            },
-            SECTOR_SIZE,
-        )
-        .map_err(|err| MisoError::Gpt(err.to_string()))?;
-    gpt.write(out)
-        .map_err(|err| MisoError::Gpt(err.to_string()))?;
+    let mut gpt = Table::create(out, SECTOR_SIZE, [0xff; 16])?;
+    let placement = gpt.place_partition(
+        PlacementRequest {
+            slot: Slot::Exact(1),
+            start: Start::FirstUsable,
+            size: Size::Bytes(efi_image.len() as u64),
+            alignment_lba: ALIGN_1_MIB_SECTORS,
+            type_guid: EFI_GUID,
+            unique_guid: [0xAA; 16],
+            attributes: 0,
+            name: "EFI".to_owned(),
+        },
+        SECTOR_SIZE,
+    )?;
+    gpt.write(out)?;
 
     parttable::write_gpt_protective_mbr(out, disk_size, SECTOR_SIZE)?;
 
@@ -53,9 +49,63 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
 
     loop {
         let mut disk = std::io::Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
-        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])
-            .map_err(|err| MisoError::Gpt(err.to_string()))?;
-        match gpt.place_partition(
+        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
+        match try_layout(
+            gpt.place_partition(
+                PlacementRequest {
+                    slot: Slot::Exact(1),
+                    start: Start::FirstUsable,
+                    size: Size::Bytes(efi_image_bytes),
+                    alignment_lba: ALIGN_1_MIB_SECTORS,
+                    type_guid: EFI_GUID,
+                    unique_guid: [0xAA; 16],
+                    attributes: 0,
+                    name: "EFI".to_owned(),
+                },
+                SECTOR_SIZE,
+            )
+            .map(|_| ()),
+            disk_sectors,
+        )? {
+            Some(disk_sectors) => return Ok(disk_sectors),
+            None => disk_sectors += ALIGN_1_MIB_SECTORS,
+        }
+    }
+}
+
+fn try_layout(
+    placement: Result<(), parttable::GptError>,
+    disk_sectors: u64,
+) -> Result<Option<u64>, MisoError> {
+    match placement {
+        Ok(()) => Ok(Some(disk_sectors)),
+        Err(parttable::GptError::InvalidPlacement(_)) => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use esp::{Arch, EspSpec};
+    use parttable::{MBR_PROTECTIVE_GPT_TYPE, PlacementRequest, Size, Slot, Start, Table};
+
+    use super::*;
+
+    fn minimal_esp() -> Vec<u8> {
+        let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
+        esp::build(&spec).expect("should build FAT32 image")
+    }
+
+    fn try_place_efi_partition(
+        disk_sectors: u64,
+        efi_image_bytes: u64,
+    ) -> Result<(), parttable::GptError> {
+        let mut disk = Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
+        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
+
+        gpt.place_partition(
             PlacementRequest {
                 slot: Slot::Exact(1),
                 start: Start::FirstUsable,
@@ -67,28 +117,9 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
                 name: "EFI".to_owned(),
             },
             SECTOR_SIZE,
-        ) {
-            Ok(_) => return Ok(disk_sectors),
-            Err(parttable::GptError::InvalidPlacement(_)) => {
-                disk_sectors += ALIGN_1_MIB_SECTORS;
-            }
-            Err(err) => return Err(MisoError::Gpt(err.to_string())),
-        }
-    }
-}
+        )?;
 
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use esp::{Arch, EspSpec};
-    use parttable::{MBR_PROTECTIVE_GPT_TYPE, Table};
-
-    use super::*;
-
-    fn minimal_esp() -> Vec<u8> {
-        let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
-        esp::build(&spec).expect("should build FAT32 image")
+        Ok(())
     }
 
     #[test]
@@ -215,5 +246,76 @@ mod tests {
         let gpt = Table::read(&mut cursor).expect("GPT must be valid");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.name.as_str(), "EFI");
+    }
+
+    #[test]
+    fn layout_disk_grows_until_the_esp_fits() {
+        // ARRANGE
+        let efi_image_bytes = 3 * 1024 * 1024;
+
+        // ACT
+        let disk_sectors = layout_disk(efi_image_bytes).expect("layout_disk must succeed");
+        let previous_attempt =
+            try_place_efi_partition(disk_sectors - ALIGN_1_MIB_SECTORS, efi_image_bytes);
+        let successful_attempt = try_place_efi_partition(disk_sectors, efi_image_bytes);
+
+        // ASSERT
+        assert!(
+            matches!(
+                previous_attempt,
+                Err(parttable::GptError::InvalidPlacement(_))
+            ),
+            "previous disk size must be too small to fit the ESP"
+        );
+        successful_attempt.expect("returned disk size must fit the ESP");
+        assert!(disk_sectors > ALIGN_1_MIB_SECTORS * 2);
+        assert_eq!(disk_sectors % ALIGN_1_MIB_SECTORS, 0);
+    }
+
+    #[test]
+    fn layout_result_returns_disk_size_when_partition_fits() {
+        // ARRANGE
+        let disk_sectors = ALIGN_1_MIB_SECTORS * 4;
+
+        // ACT
+        let result = try_layout(Ok(()), disk_sectors).expect("successful placement must work");
+
+        // ASSERT
+        assert_eq!(result, Some(disk_sectors));
+    }
+
+    #[test]
+    fn layout_result_retries_when_partition_does_not_fit() {
+        // ARRANGE
+        let disk_sectors = ALIGN_1_MIB_SECTORS * 2;
+
+        // ACT
+        let result = try_layout(
+            Err(parttable::GptError::InvalidPlacement(
+                "partition does not fit".to_owned(),
+            )),
+            disk_sectors,
+        )
+        .expect("invalid placement should trigger a retry");
+
+        // ASSERT
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn layout_result_propagates_unexpected_gpt_errors() {
+        // ARRANGE
+        let disk_sectors = ALIGN_1_MIB_SECTORS * 2;
+
+        // ACT
+        let err = try_layout(
+            Err(parttable::GptError::Gpt("corrupt header".to_owned())),
+            disk_sectors,
+        )
+        .expect_err("unexpected GPT errors must be propagated");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Gpt(_)));
+        assert!(err.to_string().contains("corrupt header"));
     }
 }

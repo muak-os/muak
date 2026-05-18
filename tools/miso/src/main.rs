@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn raw_subcommand_parses_compression_level() {
-        // ARRANGE / ACT
+        // ARRANGE
         let args = Args::try_parse_from([
             "miso",
             "raw",
@@ -274,28 +274,29 @@ mod tests {
         ])
         .expect("parse args");
 
+        // ACT
+        let command = args.command;
+
         // ASSERT
-        match args.command {
+        assert!(matches!(
+            command,
             Command::Raw {
                 uki,
                 output,
                 arch,
                 files,
                 compression_level,
-            } => {
-                assert_eq!(uki, std::path::PathBuf::from("input.efi"));
-                assert_eq!(output, std::path::PathBuf::from("output.raw.zst"));
-                assert_eq!(arch, "aarch64");
-                assert!(files.is_empty());
-                assert_eq!(compression_level, Some(3));
-            }
-            other => panic!("expected raw command, got {other:?}"),
-        }
+            } if uki == std::path::PathBuf::from("input.efi")
+                && output == std::path::PathBuf::from("output.raw.zst")
+                && arch == "aarch64"
+                && files.is_empty()
+                && compression_level == Some(3)
+        ));
     }
 
     #[test]
     fn raw_subcommand_defaults_to_aarch64_without_compression() {
-        // ARRANGE / ACT
+        // ARRANGE
         let args = Args::try_parse_from([
             "miso",
             "raw",
@@ -306,23 +307,23 @@ mod tests {
         ])
         .expect("parse args");
 
+        // ACT
+        let command = args.command;
+
         // ASSERT
-        match args.command {
+        assert!(matches!(
+            command,
             Command::Raw {
                 arch,
                 compression_level,
                 ..
-            } => {
-                assert_eq!(arch, "aarch64");
-                assert_eq!(compression_level, None);
-            }
-            other => panic!("expected raw command, got {other:?}"),
-        }
+            } if arch == "aarch64" && compression_level.is_none()
+        ));
     }
 
     #[test]
     fn iso_subcommand_defaults_to_x86_64() {
-        // ARRANGE / ACT
+        // ARRANGE
         let args = Args::try_parse_from([
             "miso",
             "iso",
@@ -333,20 +334,21 @@ mod tests {
         ])
         .expect("parse args");
 
+        // ACT
+        let command = args.command;
+
         // ASSERT
-        match args.command {
+        assert!(matches!(
+            command,
             Command::Iso {
                 uki,
                 output,
                 arch,
                 files,
-            } => {
-                assert_eq!(uki, std::path::PathBuf::from("input.efi"));
-                assert_eq!(output, std::path::PathBuf::from("output.iso"));
-                assert_eq!(arch, "x86_64");
-                assert!(files.is_empty());
-            }
-            other => panic!("expected iso command, got {other:?}"),
-        }
+            } if uki == std::path::PathBuf::from("input.efi")
+                && output == std::path::PathBuf::from("output.iso")
+                && arch == "x86_64"
+                && files.is_empty()
+        ));
     }
 }

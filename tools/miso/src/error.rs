@@ -45,3 +45,9 @@ pub enum MisoError {
         max: i32,
     },
 }
+
+impl From<parttable::GptError> for MisoError {
+    fn from(err: parttable::GptError) -> Self {
+        Self::Gpt(err.to_string())
+    }
+}

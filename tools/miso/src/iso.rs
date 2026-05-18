@@ -569,26 +569,24 @@ mod tests {
     }
 
     #[test]
-    fn directory_record_file_has_correct_length_and_name() {
+    fn directory_record_pads_odd_length_file_records_to_even_length() {
         // ARRANGE
-        let name = b"EFIBOOT.IMG;1";
+        let name = b"AB;1";
 
         // ACT
         let rec = directory_record(name, 23, 8192, false);
 
         // ASSERT
         let expected_base = 33 + name.len();
-        let expected_len = if expected_base.is_multiple_of(2) {
-            expected_base
-        } else {
-            expected_base + 1
-        };
+        let expected_len = expected_base + 1;
         assert_eq!(
             rec[0] as usize, expected_len,
             "record length field must match"
         );
         assert_eq!(&rec[33..33 + name.len()], name);
         assert_eq!(rec[25], 0x00, "file flag must be 0 for a file");
+        assert_eq!(rec.len() % 2, 0, "directory record length must be even");
+        assert_eq!(rec[expected_len - 1], 0, "padding byte must be zero-filled");
     }
 
     #[test]

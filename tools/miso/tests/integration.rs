@@ -3,7 +3,7 @@
 use std::io::Cursor;
 
 use miso::{Arch, EspFile, EspSpec, SECTOR_SIZE};
-use parttable::{EFI_GUID, MBR_PROTECTIVE_GPT_TYPE, Table};
+use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, MBR_PROTECTIVE_GPT_TYPE, Table};
 
 fn fake_uki(size: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(size);
@@ -372,4 +372,39 @@ fn build_compressed_raw_round_trips_to_valid_gpt() {
     let mut cursor = Cursor::new(raw);
     let gpt = Table::read(&mut cursor).expect("valid GPT");
     assert!(gpt.has_used_partitions());
+}
+
+#[test]
+fn build_raw_large_esp_content_grows_the_disk_image() {
+    // ARRANGE
+    let spec = img_spec(
+        fake_uki(1024),
+        Arch::Aarch64,
+        vec![EspFile {
+            path: "assets/rootfs.img".to_owned(),
+            data: vec![0x5Au8; 2 * 1024 * 1024],
+        }],
+    );
+
+    // ACT
+    let img = build_raw_bytes(&spec);
+
+    // ASSERT
+    let mut cursor = Cursor::new(&img);
+    let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
+    let part = gpt.partition(1).expect("must have partition");
+    let one_mib = (ALIGN_1_MIB_SECTORS * 512) as usize;
+
+    assert_eq!(part.type_guid, EFI_GUID);
+    assert_eq!(part.name.as_str(), "EFI");
+    assert_eq!(part.starting_lba % ALIGN_1_MIB_SECTORS, 0);
+    assert_eq!(
+        img.len() % one_mib,
+        0,
+        "raw disk size must grow in 1 MiB steps"
+    );
+    assert!(
+        img.len() > one_mib * 2,
+        "large ESP content must force the raw disk beyond the 2 MiB minimum"
+    );
 }
