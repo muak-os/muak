@@ -2,6 +2,7 @@
 
 ARG ALPINE_VERSION
 ARG KERNEL_VERSION=7.0.9
+ARG KERNEL_RELEASE=${KERNEL_VERSION}-muak
 
 ARG TOOLS=ghcr.io/muak-os/tools:latest
 
@@ -38,15 +39,17 @@ FROM ${TOOLS} AS tools
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch AS rootfs-base
 
-COPY --link --from=pkg-granola    /granola     /rootfs/sbin/init
-COPY --link --from=pkg-provisiond /provisiond  /rootfs/sbin/provisiond
-COPY --link --from=pkg-modd       /modd        /rootfs/sbin/modd
-COPY --link --from=pkg-networkd   /networkd    /rootfs/sbin/networkd
-COPY --link --from=pkg-apid       /apid        /rootfs/sbin/apid
-COPY --link --from=pkg-vmd        /vmd         /rootfs/sbin/vmd
-COPY --link --from=pkg-timed      /timed       /rootfs/sbin/timed
-COPY --link --from=pkg-consoled   /consoled    /rootfs/sbin/consoled
-COPY --link --from=pkg-kernel     /lib/modules /rootfs/lib/modules
+ARG KERNEL_RELEASE
+
+COPY --link --from=pkg-granola    /granola                       /rootfs/sbin/init
+COPY --link --from=pkg-provisiond /provisiond                    /rootfs/sbin/provisiond
+COPY --link --from=pkg-modd       /modd                          /rootfs/sbin/modd
+COPY --link --from=pkg-networkd   /networkd                      /rootfs/sbin/networkd
+COPY --link --from=pkg-apid       /apid                          /rootfs/sbin/apid
+COPY --link --from=pkg-vmd        /vmd                           /rootfs/sbin/vmd
+COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
+COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
+COPY --link --from=pkg-kernel     /lib/modules/${KERNEL_RELEASE} /rootfs/lib/modules/${KERNEL_RELEASE}
 
 COPY --link --from=services       **/*.service /rootfs/etc/services/
 
