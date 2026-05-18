@@ -141,8 +141,8 @@ async fn extend_with_extensions_appends_named_archive() {
     };
 
     ramune::extend(&config, output.as_path())
-    .await
-    .expect("extend should succeed with extensions");
+        .await
+        .expect("extend should succeed with extensions");
 
     // ASSERT
     let image = fs::read(&output).expect("read extended image");
@@ -186,8 +186,8 @@ async fn extend_in_place_appends_archive() {
     };
 
     ramune::extend(&config, image.as_path())
-    .await
-    .expect("in-place extend should succeed");
+        .await
+        .expect("in-place extend should succeed");
 
     // ASSERT
     let output = fs::read(&image).expect("read output");

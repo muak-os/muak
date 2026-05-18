@@ -232,13 +232,16 @@ mod tests {
 
         // ACT
         let output = tmp.path().join("initramfs.img");
-        let result = create(&CreateConfig {
-            init: Path::new("/nonexistent/init"),
-            rootfs_dir: &rootfs,
-            file_contexts: None,
-            compression_level: 19,
-            rootfs_compression_level: 3,
-        }, &output);
+        let result = create(
+            &CreateConfig {
+                init: Path::new("/nonexistent/init"),
+                rootfs_dir: &rootfs,
+                file_contexts: None,
+                compression_level: 19,
+                rootfs_compression_level: 3,
+            },
+            &output,
+        );
 
         // ASSERT
         assert!(
@@ -258,13 +261,16 @@ mod tests {
 
         // ACT
         let output = tmp.path().join("initramfs.img");
-        let result = create(&CreateConfig {
-            init: &init_file,
-            rootfs_dir: &rootfs,
-            file_contexts: None,
-            compression_level: 19,
-            rootfs_compression_level: 3,
-        }, &output);
+        let result = create(
+            &CreateConfig {
+                init: &init_file,
+                rootfs_dir: &rootfs,
+                file_contexts: None,
+                compression_level: 19,
+                rootfs_compression_level: 3,
+            },
+            &output,
+        );
 
         // ASSERT
         assert!(
@@ -289,13 +295,16 @@ mod tests {
 
         // ACT
         let output = tmp.path().join("initramfs.img");
-        create(&CreateConfig {
-            init: &init_file,
-            rootfs_dir: &rootfs,
-            file_contexts: Some(&fc),
-            compression_level: 19,
-            rootfs_compression_level: 3,
-        }, &output)
+        create(
+            &CreateConfig {
+                init: &init_file,
+                rootfs_dir: &rootfs,
+                file_contexts: Some(&fc),
+                compression_level: 19,
+                rootfs_compression_level: 3,
+            },
+            &output,
+        )
         .expect("create");
 
         // ASSERT
@@ -315,13 +324,16 @@ mod tests {
 
         // ACT
         let output = tmp.path().join("initramfs.img");
-        let result = create(&CreateConfig {
-            init: &init_file,
-            rootfs_dir: &rootfs,
-            file_contexts: None,
-            compression_level: i32::MAX,
-            rootfs_compression_level: 3,
-        }, &output);
+        let result = create(
+            &CreateConfig {
+                init: &init_file,
+                rootfs_dir: &rootfs,
+                file_contexts: None,
+                compression_level: i32::MAX,
+                rootfs_compression_level: 3,
+            },
+            &output,
+        );
 
         // ASSERT
         assert!(
@@ -343,13 +355,16 @@ mod tests {
 
         // ACT
         let output = tmp.path().join("initramfs.img");
-        let result = create(&CreateConfig {
-            init: &init_file,
-            rootfs_dir: &rootfs,
-            file_contexts: None,
-            compression_level: 19,
-            rootfs_compression_level: i32::MAX,
-        }, &output);
+        let result = create(
+            &CreateConfig {
+                init: &init_file,
+                rootfs_dir: &rootfs,
+                file_contexts: None,
+                compression_level: 19,
+                rootfs_compression_level: i32::MAX,
+            },
+            &output,
+        );
 
         // ASSERT
         assert!(
