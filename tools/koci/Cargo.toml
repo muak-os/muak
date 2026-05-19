@@ -11,8 +11,6 @@ required-features = ["cli"]
 [dependencies]
 # Async
 tokio = { workspace = true, features = ["fs", "io-util"] }
-tokio-stream = { workspace = true }
-tokio-rustls = { workspace = true }
 
 # CLI
 clap = { workspace = true, optional = true }

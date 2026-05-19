@@ -1157,8 +1157,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-rustls",
- "tokio-stream",
  "webpki-roots",
 ]
 
@@ -1458,7 +1456,6 @@ dependencies = [
  "rustix",
  "tempfile",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]

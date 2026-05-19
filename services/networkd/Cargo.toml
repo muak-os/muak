@@ -6,7 +6,6 @@ version.workspace = true
 [dependencies]
 # Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util"] }
-tokio-stream = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
