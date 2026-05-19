@@ -47,21 +47,20 @@ koci = { path = "tools/koci", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
-granola = { path = "core/granola" }
-
 btrfs = { path = "libs/btrfs" }
-granola-macros = { path = "libs/granola-macros" }
 config = { path = "libs/config" }
+erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
-parttable = { path = "libs/parttable" }
+granola = { path = "core/granola" }
+granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
+netlib = { path = "libs/netlib" }
+parttable = { path = "libs/parttable" }
 pki = { path = "libs/pki" }
 sbolt = { path = "libs/sbolt" }
 tpm2 = { path = "libs/tpm2" }
-erofs = { path = "libs/erofs" }
-netlib = { path = "libs/netlib" }
 
 # External crates
 
