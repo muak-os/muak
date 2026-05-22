@@ -3,6 +3,11 @@ name = "esp"
 description = "EFI System Partition manifest and renderers"
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Error handling

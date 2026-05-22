@@ -3,6 +3,11 @@ name = "koci"
 description = "OCI images management tool"
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "koci"

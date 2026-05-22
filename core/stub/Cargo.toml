@@ -1,7 +1,13 @@
 [package]
 name = "stub"
+description = "EFI stub binary and library"
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 name = "stub"

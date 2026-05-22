@@ -3,6 +3,11 @@ name = "config"
 description = "Configuration management crate for the muak project"
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Encoding

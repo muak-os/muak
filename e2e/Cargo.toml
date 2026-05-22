@@ -3,6 +3,11 @@ name = "e2e"
 description = "End-to-end tests for Muak (requires QEMU)"
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Asynchronous

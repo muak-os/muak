@@ -3,10 +3,11 @@ name = "yuki"
 description = "UKI builder - add PE sections to EFI stub"
 edition.workspace = true
 version.workspace = true
-
-[[bin]]
-name = "yuki"
-required-features = ["cli"]
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # CLI

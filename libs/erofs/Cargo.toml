@@ -3,6 +3,11 @@ name = "erofs"
 description = "A Rust library for working with EROFS (Enhanced Read-Only File System)."
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Error handling
