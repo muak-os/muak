@@ -24,10 +24,10 @@ pub const OPT_HEADER_SECTION_ALIGNMENT: usize = 32;
 /// Byte offset within the optional header to the file alignment field.
 pub const OPT_HEADER_FILE_ALIGNMENT: usize = 36;
 
-/// Byte offset within the optional header to the SizeOfImage field.
+/// Byte offset within the optional header to the `SizeOfImage` field.
 pub const OPT_HEADER_SIZE_OF_IMAGE: usize = 56;
 
-/// Byte offset within the COFF file header to the NumberOfSections field.
+/// Byte offset within the COFF file header to the `NumberOfSections` field.
 pub const COFF_NUMBER_OF_SECTIONS: usize = 2;
 
 /// Maximum length of a PE section name in bytes.

@@ -46,7 +46,7 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
     let (last_section_file_end, last_section_virtual_end) =
         sections
             .iter()
-            .fold((0u32, 0u32), |(max_file, max_virt), s| {
+            .fold((0_u32, 0_u32), |(max_file, max_virt), s| {
                 let file_end = s.pointer_to_raw_data.get(LE) + s.size_of_raw_data.get(LE);
                 let virt_end =
                     s.virtual_address.get(LE) + align_to(s.virtual_size.get(LE), section_alignment);

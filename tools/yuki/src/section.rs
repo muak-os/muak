@@ -111,8 +111,7 @@ pub fn write_to_image(
         let end = offset + header_bytes.len();
         if end > stub.len() {
             return Err(YukiError::InvalidPeStructure(format!(
-                "Section header offset out of bounds: {}-{}",
-                offset, end
+                "Section header offset out of bounds: {offset}-{end}"
             )));
         }
         stub[offset..end].copy_from_slice(&header_bytes);
@@ -122,8 +121,7 @@ pub fn write_to_image(
         let end = file_offset + data_len;
         if end > stub.len() {
             return Err(YukiError::InvalidPeStructure(format!(
-                "Section data offset out of bounds: {}-{}",
-                file_offset, end
+                "Section data offset out of bounds: {file_offset}-{end}"
             )));
         }
         let data = sections[i].1;
@@ -137,14 +135,14 @@ pub fn write_to_image(
 fn section_header_to_bytes(
     header: &ImageSectionHeader,
 ) -> [u8; mem::size_of::<ImageSectionHeader>()] {
-    let mut bytes = [0u8; mem::size_of::<ImageSectionHeader>()];
+    let mut bytes = [0_u8; mem::size_of::<ImageSectionHeader>()];
 
     bytes[0..8].copy_from_slice(&header.name);
     bytes[8..12].copy_from_slice(&header.virtual_size.get(LE).to_le_bytes());
     bytes[12..16].copy_from_slice(&header.virtual_address.get(LE).to_le_bytes());
     bytes[16..20].copy_from_slice(&header.size_of_raw_data.get(LE).to_le_bytes());
     bytes[20..24].copy_from_slice(&header.pointer_to_raw_data.get(LE).to_le_bytes());
-    bytes[24..36].copy_from_slice(&[0u8; 12]);
+    bytes[24..36].copy_from_slice(&[0_u8; 12]);
     bytes[36..40].copy_from_slice(&header.characteristics.get(LE).to_le_bytes());
 
     bytes
