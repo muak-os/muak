@@ -120,7 +120,6 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::pin::Pin;
     use std::task::{Context, Poll};

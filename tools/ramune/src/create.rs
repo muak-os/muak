@@ -163,7 +163,6 @@ fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -201,7 +201,6 @@ fn write_pad4_to_vec(buf: &mut Vec<u8>, pos: usize) -> usize {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

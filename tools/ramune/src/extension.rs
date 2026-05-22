@@ -59,7 +59,6 @@ fn process(name: &str, path: &Path, compression_level: i32) -> Result<(String, V
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
