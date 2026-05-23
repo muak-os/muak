@@ -1,14 +1,16 @@
 //! Yuki - A library to create Unified Kernel Images (UKI) for Linux on UEFI systems.
 
-use std::fs;
-use std::path::PathBuf;
-use std::result::Result;
-
 mod binary;
+#[cfg(feature = "cli")]
+pub mod cli;
 mod constants;
 mod error;
 mod pe;
 mod section;
+
+use std::fs;
+use std::path::PathBuf;
+use std::result::Result;
 
 pub use error::YukiError;
 
@@ -24,20 +26,10 @@ pub struct Components {
 
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
 ///
-/// # Example
+/// # Errors
 ///
-/// ```no_run
-/// use std::path::PathBuf;
-/// let buffer = yuki::build(&yuki::Components {
-///     stub: PathBuf::from("stub.efi"),
-///     kernel: PathBuf::from("vmlinuz"),
-///     initramfs: PathBuf::from("initramfs.img"),
-///     cmdline: PathBuf::from("cmdline.txt"),
-///     dtb: None,
-///     luks_key: None,
-/// })?;
-/// # Ok::<(), yuki::YukiError>(())
-/// ```
+/// Returns an error if any input component cannot be read, the EFI stub is not a
+/// valid PE image, or the resulting image would exceed PE section limits.
 pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
     let mut stub = fs::read(&c.stub).map_err(|e| YukiError::ReadError {
         file: c.stub.display().to_string(),
@@ -74,14 +66,12 @@ pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
 
     let metadata = pe::extract_metadata(&stub)?;
 
-    let mut section_count = 3;
-    if dtb.is_some() {
-        section_count += 1;
-    }
-    if luks_data.is_some() {
-        section_count += 1;
-    }
-    if metadata.current_section_count as usize + section_count > u16::MAX as usize {
+    let section_count = 3_u16
+        .saturating_add(u16::from(dtb.is_some()))
+        .saturating_add(u16::from(luks_data.is_some()));
+    if usize::from(metadata.current_section_count).saturating_add(usize::from(section_count))
+        > usize::from(u16::MAX)
+    {
         return Err(YukiError::TooManySections);
     }
 
@@ -94,18 +84,23 @@ pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
     };
 
     let sections = section::build_section_list(&data);
-    let layout = section::build_headers(&metadata, &sections);
+    pe::validate_section_header_capacity(&metadata, sections.len())?;
+    let layout = section::build_headers(&metadata, &sections)?;
 
     stub.resize(layout.total_file_size, 0);
 
-    let new_section_count = metadata.current_section_count + section_count as u16;
-    let section_count_offset = metadata.file_header_offset + constants::COFF_NUMBER_OF_SECTIONS;
-    stub[section_count_offset..section_count_offset + 2]
-        .copy_from_slice(&new_section_count.to_le_bytes());
+    let new_section_count = metadata
+        .current_section_count
+        .checked_add(section_count)
+        .ok_or(YukiError::TooManySections)?;
+    let section_count_offset = metadata
+        .file_header_offset
+        .saturating_add(constants::COFF_NUMBER_OF_SECTIONS);
+    binary::write_u16(&mut stub, section_count_offset, new_section_count)?;
 
     section::write_to_image(&mut stub, &metadata, &layout, &sections)?;
 
-    pe::update_image_size(&mut stub, &metadata, layout.max_virtual_end);
+    pe::update_image_size(&mut stub, &metadata, layout.max_virtual_end)?;
 
     Ok(stub)
 }

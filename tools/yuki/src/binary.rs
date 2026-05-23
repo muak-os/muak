@@ -1,24 +1,55 @@
 //! Utilities for binary data manipulation.
 
+use crate::YukiError;
+
 /// Aligns a value up to the nearest multiple of the given alignment.
 #[inline]
-pub const fn align_to(value: u32, alignment: u32) -> u32 {
-    if alignment == 0 {
-        return value;
-    }
-    (value + alignment - 1) & !(alignment - 1)
+pub(crate) const fn align_to(value: u32, alignment: u32) -> u32 {
+    let alignment = if alignment == 0 { 1 } else { alignment };
+    let mask = alignment.wrapping_sub(1);
+    value.saturating_add(mask) & !mask
 }
 
 /// Reads a little-endian u32 from a byte buffer at the given offset.
 #[inline]
-pub fn read_u32(buf: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+pub(crate) fn read_u32(buf: &[u8], off: usize) -> Result<u32, YukiError> {
+    let end = off.saturating_add(4);
+    let bytes = buf
+        .get(off..end)
+        .ok_or_else(|| YukiError::InvalidPeStructure(format!("u32 read oob: {off}-{end}")))?;
+    let [a, b, c, d]: [u8; 4] = bytes
+        .try_into()
+        .map_err(|_error| YukiError::InvalidPeStructure("u32 read width mismatch".to_string()))?;
+    Ok(u32::from_le_bytes([a, b, c, d]))
+}
+
+/// Writes a little-endian u16 to a byte buffer at the given offset.
+#[inline]
+pub(crate) fn write_u16(buf: &mut [u8], off: usize, val: u16) -> Result<(), YukiError> {
+    let end = off.saturating_add(2);
+    let dst = buf
+        .get_mut(off..end)
+        .ok_or_else(|| YukiError::InvalidPeStructure(format!("u16 write oob: {off}-{end}")))?;
+    dst.copy_from_slice(&val.to_le_bytes());
+    Ok(())
 }
 
 /// Writes a little-endian u32 to a byte buffer at the given offset.
 #[inline]
-pub fn write_u32(buf: &mut [u8], off: usize, val: u32) {
-    buf[off..off + 4].copy_from_slice(&val.to_le_bytes())
+pub(crate) fn write_u32(buf: &mut [u8], off: usize, val: u32) -> Result<(), YukiError> {
+    let end = off.saturating_add(4);
+    let dst = buf
+        .get_mut(off..end)
+        .ok_or_else(|| YukiError::InvalidPeStructure(format!("u32 write oob: {off}-{end}")))?;
+    dst.copy_from_slice(&val.to_le_bytes());
+    Ok(())
+}
+
+/// Converts a wide integer to `usize` with a contextual error.
+#[inline]
+pub(crate) fn usize_from_u128(value: u128, context: &'static str) -> Result<usize, YukiError> {
+    usize::try_from(value)
+        .map_err(|_conversion_error| YukiError::InvalidPeStructure(context.to_string()))
 }
 
 #[cfg(test)]
@@ -30,8 +61,9 @@ mod tests {
         // ARRANGE
         let test_cases = vec![(100, 0, 100), (0, 0, 0), (u32::MAX, 0, u32::MAX)];
 
-        // ACT & ASSERT
+        // ACT
         for (value, alignment, expected) in test_cases {
+            // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
     }
@@ -41,8 +73,9 @@ mod tests {
         // ARRANGE
         let test_cases = vec![(0, 4096, 0), (4096, 4096, 4096), (8192, 4096, 8192)];
 
-        // ACT & ASSERT
+        // ACT
         for (value, alignment, expected) in test_cases {
+            // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
     }
@@ -52,8 +85,9 @@ mod tests {
         // ARRANGE
         let test_cases = vec![(1, 4, 4), (100, 4, 100), (101, 4, 104), (4095, 4096, 4096)];
 
-        // ACT & ASSERT
+        // ACT
         for (value, alignment, expected) in test_cases {
+            // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
     }
@@ -69,8 +103,9 @@ mod tests {
             (64, 16, 64),
         ];
 
-        // ACT & ASSERT
+        // ACT
         for (value, alignment, expected) in test_cases {
+            // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
     }
@@ -80,14 +115,12 @@ mod tests {
         // ARRANGE
         let alignments = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
-        for alignment in &alignments {
-            let alignment = *alignment;
-            // ACT & ASSERT - Test values that are already aligned
+        // ACT
+        for alignment in alignments {
+            // ASSERT
             assert_eq!(align_to(0, alignment), 0);
             assert_eq!(align_to(alignment, alignment), alignment);
             assert_eq!(align_to(alignment * 2, alignment), alignment * 2);
-
-            // Test values that need alignment
             assert_eq!(align_to(1, alignment), alignment);
             assert_eq!(align_to(alignment - 1, alignment), alignment);
             assert_eq!(align_to(alignment + 1, alignment), alignment * 2);
@@ -100,10 +133,10 @@ mod tests {
         let buf = [0x78, 0x56, 0x34, 0x12, 0xFF, 0xFF];
 
         // ACT
-        let result = read_u32(&buf, 0);
+        let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(result, 0x12345678);
+        assert_eq!(value, 0x12345678);
     }
 
     #[test]
@@ -112,9 +145,10 @@ mod tests {
         let buf = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
         let test_cases = vec![(0, 0x33221100), (1, 0x44332211), (4, 0x77665544)];
 
-        // ACT & ASSERT
+        // ACT
         for (offset, expected) in test_cases {
-            assert_eq!(read_u32(&buf, offset), expected);
+            // ASSERT
+            assert_eq!(read_u32(&buf, offset).unwrap_or_default(), expected);
         }
     }
 
@@ -124,10 +158,10 @@ mod tests {
         let buf = [0x00, 0x00, 0x00, 0x00];
 
         // ACT
-        let result = read_u32(&buf, 0);
+        let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(result, 0);
+        assert_eq!(value, 0);
     }
 
     #[test]
@@ -136,10 +170,10 @@ mod tests {
         let buf = [0xFF, 0xFF, 0xFF, 0xFF];
 
         // ACT
-        let result = read_u32(&buf, 0);
+        let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(result, 0xFFFFFFFF);
+        assert_eq!(value, 0xFFFF_FFFF);
     }
 
     #[test]
@@ -148,10 +182,10 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04];
 
         // ACT
-        let result = read_u32(&buf, 0);
+        let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(result, 0x04030201);
+        assert_eq!(value, 0x04030201);
     }
 
     #[test]
@@ -160,7 +194,7 @@ mod tests {
         let mut buf = [0u8; 4];
 
         // ACT
-        write_u32(&mut buf, 0, 0x12345678);
+        write_u32(&mut buf, 0, 0x12345678).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0x78, 0x56, 0x34, 0x12]);
@@ -172,8 +206,8 @@ mod tests {
         let mut buf = [0u8; 8];
 
         // ACT
-        write_u32(&mut buf, 0, 0x11223344);
-        write_u32(&mut buf, 4, 0x55667788);
+        write_u32(&mut buf, 0, 0x11223344).unwrap_or_default();
+        write_u32(&mut buf, 4, 0x55667788).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55]);
@@ -185,7 +219,7 @@ mod tests {
         let mut buf = [0xFF; 8];
 
         // ACT
-        write_u32(&mut buf, 2, 0x00000000);
+        write_u32(&mut buf, 2, 0).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf[2..6], [0x00, 0x00, 0x00, 0x00]);
@@ -201,7 +235,7 @@ mod tests {
         let mut buf = [0xFF; 4];
 
         // ACT
-        write_u32(&mut buf, 0, 0);
+        write_u32(&mut buf, 0, 0).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0x00, 0x00, 0x00, 0x00]);
@@ -210,10 +244,10 @@ mod tests {
     #[test]
     fn write_u32_max_value() {
         // ARRANGE
-        let mut buf = [0x00; 4];
+        let mut buf = [0u8; 4];
 
         // ACT
-        write_u32(&mut buf, 0, 0xFFFFFFFF);
+        write_u32(&mut buf, 0, 0xFFFF_FFFF).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0xFF, 0xFF, 0xFF, 0xFF]);
@@ -225,13 +259,12 @@ mod tests {
         let mut buf = [0u8; 4];
         let test_values = [0x00000000, 0x12345678, 0xDEADBEEF, 0xFFFFFFFF, 0x00000001];
 
-        for &value in &test_values {
-            // ACT
-            write_u32(&mut buf, 0, value);
-            let read_value = read_u32(&buf, 0);
+        // ACT
+        for value in test_values {
+            write_u32(&mut buf, 0, value).unwrap_or_default();
 
             // ASSERT
-            assert_eq!(read_value, value);
+            assert_eq!(read_u32(&buf, 0).unwrap_or_default(), value);
         }
     }
 
@@ -239,18 +272,91 @@ mod tests {
     fn align_to_boundary_conditions() {
         // ARRANGE
         let test_cases = vec![
-            // Test boundary at alignment size
             (511, 512, 512),
             (512, 512, 512),
             (513, 512, 1024),
-            // Test with alignment = 1 (edge case, should return value)
             (100, 1, 100),
             (0, 1, 0),
         ];
 
-        // ACT & ASSERT
+        // ACT
         for (value, alignment, expected) in test_cases {
+            // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
+    }
+
+    #[test]
+    fn write_u16_basic() {
+        // ARRANGE
+        let mut buf = [0u8; 2];
+
+        // ACT
+        write_u16(&mut buf, 0, 0x1234).unwrap_or_default();
+
+        // ASSERT
+        assert_eq!(buf, [0x34, 0x12]);
+    }
+    #[test]
+    fn write_u16_rejects_out_of_bounds() {
+        // ARRANGE
+        let mut buf = [0u8; 1];
+
+        // ACT
+        let result = write_u16(&mut buf, 0, 0x1234);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_u32_rejects_out_of_bounds() {
+        // ARRANGE
+        let buf = [0u8; 3];
+
+        // ACT
+        let result = read_u32(&buf, 0);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_u32_rejects_out_of_bounds() {
+        // ARRANGE
+        let mut buf = [0u8; 3];
+
+        // ACT
+        let result = write_u32(&mut buf, 0, 1);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn usize_from_u128_accepts_small_value() {
+        // ARRANGE
+        let value = 123_u128;
+
+        // ACT
+        let result = usize_from_u128(value, "conversion failed").unwrap_or_default();
+
+        // ASSERT
+        assert_eq!(result, 123);
+    }
+
+    #[test]
+    fn usize_from_u128_rejects_large_value() {
+        // ARRANGE
+        let value = u128::MAX;
+
+        // ACT
+        let result = usize_from_u128(value, "conversion failed");
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message)) if message == "conversion failed"
+        ));
     }
 }

@@ -9,6 +9,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bin]]
+name = "yuki"
+required-features = ["cli"]
+
 [dependencies]
 # CLI
 clap = { workspace = true, optional = true }

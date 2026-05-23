@@ -1,77 +1,69 @@
 //! CLI tool for creating Unified Kernel Images (UKI) for Linux on UEFI systems.
 
 #[cfg(feature = "cli")]
-mod cli {
-    use std::path::PathBuf;
-
-    use anyhow::{Context, Result};
-    use clap::Parser;
-
-    /// Command line arguments for the UKI builder
-    #[derive(Parser, Debug)]
-    #[command(name = env!("CARGO_PKG_NAME"))]
-    #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
-    struct Args {
-        #[arg(short, long, help = "Path to EFI stub file")]
-        stub: PathBuf,
-
-        #[arg(short, long, help = "Path to Linux kernel image")]
-        linux: PathBuf,
-
-        #[arg(short, long, help = "Path to initrd image")]
-        initrd: PathBuf,
-
-        #[arg(short, long, help = "Path to text file containing kernel command line")]
-        cmdline: PathBuf,
-
-        #[arg(short, long, help = "Path to device tree blob (optional, for ARM64)")]
-        dtb: Option<PathBuf>,
-
-        #[arg(long, help = "Path to raw LUKS key file")]
-        luks: Option<PathBuf>,
-
-        #[arg(short, long, help = "Output path for the generated UKI")]
-        output: PathBuf,
-    }
-
-    pub fn run() -> Result<()> {
-        let args = Args::parse();
-
-        let luks_data = match &args.luks {
-            Some(path) => Some(
-                std::fs::read(path)
-                    .with_context(|| format!("Failed to read LUKS key from {}", path.display()))?,
-            ),
-            None => None,
-        };
-
-        let buffer = yuki::build(&yuki::Components {
-            stub: args.stub.clone(),
-            kernel: args.linux.clone(),
-            initramfs: args.initrd.clone(),
-            cmdline: args.cmdline.clone(),
-            dtb: args.dtb.clone(),
-            luks_key: luks_data,
-        })
-        .context("Failed to create UKI")?;
-
-        std::fs::write(&args.output, &buffer)
-            .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
-
-        println!(
-            "Successfully created UKI at {} ({} bytes)",
-            args.output.display(),
-            buffer.len()
-        );
-
-        Ok(())
-    }
+fn main() {
+    std::process::exit(run(std::env::args_os()));
 }
 
 #[cfg(feature = "cli")]
-fn main() {
-    if let Err(e) = cli::run() {
-        eprintln!("Error: {e:?}");
-        std::process::exit(1);
+fn run<I, T>(args: I) -> i32
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    handle_result(yuki::cli::run_with(args))
+}
+
+#[cfg(feature = "cli")]
+fn handle_result(result: anyhow::Result<String>) -> i32 {
+    let error = match result {
+        Ok(message) => {
+            println!("{message}");
+            return 0;
+        }
+        Err(error) => error,
+    };
+
+    if let Some(clap_error) = error.downcast_ref::<clap::Error>() {
+        drop(clap_error.print());
+        return clap_error.exit_code();
+    }
+
+    eprintln!("Error: {error:?}");
+    1
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod tests {
+    use anyhow::anyhow;
+    use clap::error::ErrorKind;
+
+    use super::*;
+
+    #[test]
+    fn handle_result_success_returns_zero() {
+        // ARRANGE & ACT & ASSERT
+        assert_eq!(handle_result(Ok("created".to_string())), 0);
+    }
+
+    #[test]
+    fn handle_result_clap_error_returns_clap_exit_code() {
+        // ARRANGE & ACT
+        let error = clap::Error::raw(ErrorKind::DisplayHelp, "usage");
+
+        // ASSERT
+        assert_eq!(handle_result(Err(error.into())), 0);
+    }
+
+    #[test]
+    fn handle_result_other_error_returns_one() {
+        // ARRANGE & ACT & ASSERT
+        assert_eq!(handle_result(Err(anyhow!("boom"))), 1);
+    }
+
+    #[test]
+    fn run_with_missing_args_returns_clap_exit_code() {
+        // ARRANGE & ACT & ASSERT
+        assert_eq!(run(["yuki"]), 2);
     }
 }

@@ -9,6 +9,7 @@ const OPTIONAL_HEADER_SIZE: usize = 240;
 const SECTION_HEADER_SIZE: usize = 40;
 const FILE_ALIGNMENT: usize = 512;
 const SECTION_ALIGNMENT: usize = 4096;
+const EXTRA_SECTION_HEADER_SLOTS: usize = 4;
 
 fn align_up(value: usize, alignment: usize) -> usize {
     (value + alignment - 1) & !(alignment - 1)
@@ -56,7 +57,7 @@ fn write_pe_headers(buf: &mut [u8], coff_offset: usize, num_sections: u16) {
     off += 4;
     let headers_aligned = ((opt_off
         + OPTIONAL_HEADER_SIZE
-        + num_sections as usize * SECTION_HEADER_SIZE
+        + (usize::from(num_sections) + EXTRA_SECTION_HEADER_SLOTS) * SECTION_HEADER_SIZE
         + FILE_ALIGNMENT
         - 1)
         & !(FILE_ALIGNMENT - 1)) as u32;
@@ -133,7 +134,7 @@ pub fn fake_dtb(size: usize) -> Vec<u8> {
 
 /// Generates a minimal valid PE64 EFI stub with `n` sections declared in the COFF header.
 pub fn generate_stub_with_section_count(n: u16) -> Vec<u8> {
-    let section_table_size = SECTION_HEADER_SIZE * n as usize;
+    let section_table_size = SECTION_HEADER_SIZE * (usize::from(n) + EXTRA_SECTION_HEADER_SLOTS);
     let headers_raw = DOS_HEADER_SIZE
         + PE_SIGNATURE_SIZE
         + COFF_HEADER_SIZE
