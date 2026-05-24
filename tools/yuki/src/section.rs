@@ -4,9 +4,23 @@ use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 
 use crate::binary::{align_to, usize_from_u128};
-use crate::constants;
 use crate::error::{Result, YukiError};
 use crate::pe::PeMetadata;
+
+/// Maximum length of a PE section name in bytes.
+const SECTION_NAME_MAX_LEN: usize = 8;
+
+/// PE section characteristic flag: section contains executable code.
+const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
+
+/// PE section characteristic flag: section contains initialized data.
+const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
+
+/// PE section characteristic flag: section is executable in memory.
+const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+
+/// PE section characteristic flag: section is readable in memory.
+const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
 
 /// Computed file and virtual memory layout for a set of PE sections to be embedded.
 #[derive(Default)]
@@ -68,8 +82,8 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
         for (destination, source) in section
             .name
             .iter_mut()
-            .take(constants::SECTION_NAME_MAX_LEN)
-            .zip(name_bytes.iter().take(constants::SECTION_NAME_MAX_LEN))
+            .take(SECTION_NAME_MAX_LEN)
+            .zip(name_bytes.iter().take(SECTION_NAME_MAX_LEN))
         {
             *destination = *source;
         }
@@ -80,11 +94,9 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
         let characteristics = if name == ".linux" {
-            constants::IMAGE_SCN_CNT_CODE
-                | constants::IMAGE_SCN_MEM_EXECUTE
-                | constants::IMAGE_SCN_MEM_READ
+            IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
         } else {
-            constants::IMAGE_SCN_CNT_INITIALIZED_DATA | constants::IMAGE_SCN_MEM_READ
+            IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
         };
         section.characteristics.set(LE, characteristics);
 
@@ -199,7 +211,6 @@ mod tests {
     use object::pe::ImageSectionHeader;
 
     use super::*;
-    use crate::constants;
     use crate::pe::PeMetadata;
 
     fn create_test_metadata() -> PeMetadata {
@@ -391,13 +402,11 @@ mod tests {
         // ASSERT
         assert_eq!(
             layout.headers[1].characteristics.get(LE),
-            constants::IMAGE_SCN_CNT_CODE
-                | constants::IMAGE_SCN_MEM_EXECUTE
-                | constants::IMAGE_SCN_MEM_READ
+            IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
         );
         assert_eq!(
             layout.headers[0].characteristics.get(LE),
-            constants::IMAGE_SCN_CNT_INITIALIZED_DATA | constants::IMAGE_SCN_MEM_READ
+            IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
         );
     }
 

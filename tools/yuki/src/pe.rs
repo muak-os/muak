@@ -6,8 +6,25 @@ use object::read::pe::{ImageNtHeaders as _, PeFile64};
 
 use crate::binary;
 use crate::binary::{align_to, read_u32, usize_from_u128};
-use crate::constants;
 use crate::error::{Result, YukiError};
+
+/// Byte offset within DOS header to the PE signature offset field.
+const DOS_HEADER_PE_OFFSET: usize = 0x3C;
+
+/// Size of the PE signature in bytes ("PE\0\0").
+const PE_SIGNATURE_SIZE: usize = 4;
+
+/// Byte offset within the COFF file header to the `NumberOfSections` field.
+const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = 2;
+
+/// Byte offset within the optional header to the section alignment field.
+const OPT_HEADER_SECTION_ALIGNMENT_OFFSET: usize = 32;
+
+/// Byte offset within the optional header to the file alignment field.
+const OPT_HEADER_FILE_ALIGNMENT_OFFSET: usize = 36;
+
+/// Byte offset within the optional header to the `SizeOfImage` field.
+const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = 56;
 
 pub struct PeMetadata {
     pub file_header_offset: usize,
@@ -29,10 +46,10 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata> {
     let sections = pe.section_table();
 
     let pe_offset = usize_from_u128(
-        u128::from(read_u32(stub_data, constants::DOS_HEADER_PE_OFFSET)?),
+        u128::from(read_u32(stub_data, DOS_HEADER_PE_OFFSET)?),
         "PE offset does not fit in usize",
     )?;
-    let file_header_offset = pe_offset.saturating_add(constants::PE_SIGNATURE_SIZE);
+    let file_header_offset = pe_offset.saturating_add(PE_SIGNATURE_SIZE);
     let optional_header_offset =
         file_header_offset.saturating_add(core::mem::size_of::<ImageFileHeader>());
     let optional_header_size =
@@ -40,9 +57,9 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata> {
     let section_table_offset = optional_header_offset.saturating_add(optional_header_size);
 
     let section_alignment_offset =
-        optional_header_offset.saturating_add(constants::OPT_HEADER_SECTION_ALIGNMENT);
+        optional_header_offset.saturating_add(OPT_HEADER_SECTION_ALIGNMENT_OFFSET);
     let file_alignment_offset =
-        optional_header_offset.saturating_add(constants::OPT_HEADER_FILE_ALIGNMENT);
+        optional_header_offset.saturating_add(OPT_HEADER_FILE_ALIGNMENT_OFFSET);
     let size_of_headers_offset = optional_header_offset.saturating_add(60);
 
     let section_alignment = read_u32(stub_data, section_alignment_offset)?;
@@ -105,6 +122,18 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata> {
     })
 }
 
+/// Updates the `NumberOfSections` field in the PE COFF header.
+pub fn update_section_count(
+    stub_data: &mut [u8],
+    metadata: &PeMetadata,
+    new_section_count: u16,
+) -> Result<()> {
+    let section_count_offset = metadata
+        .file_header_offset
+        .saturating_add(COFF_NUMBER_OF_SECTIONS_OFFSET);
+    binary::write_u16(stub_data, section_count_offset, new_section_count)
+}
+
 /// Updates the `SizeOfImage` field in the PE optional header to accommodate the specified maximum virtual end address.
 pub fn update_image_size(
     stub_data: &mut [u8],
@@ -113,7 +142,7 @@ pub fn update_image_size(
 ) -> Result<()> {
     let size_of_image_off = metadata
         .optional_header_offset
-        .saturating_add(constants::OPT_HEADER_SIZE_OF_IMAGE);
+        .saturating_add(OPT_HEADER_SIZE_OF_IMAGE_OFFSET);
     let new_size_of_image = align_to(max_virtual_end, metadata.section_alignment);
     binary::write_u32(stub_data, size_of_image_off, new_size_of_image)
 }
@@ -150,7 +179,6 @@ mod tests {
 
     use super::*;
     use crate::binary;
-    use crate::constants;
 
     fn generate_minimal_stub() -> Vec<u8> {
         const DOS_HEADER_SIZE: usize = 64;
@@ -379,7 +407,7 @@ mod tests {
 
         // ACT
         update_image_size(&mut stub, &metadata, 16384).unwrap_or_default();
-        let off = metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
+        let off = metadata.optional_header_offset + OPT_HEADER_SIZE_OF_IMAGE_OFFSET;
         let written = u32::from_le_bytes([stub[off], stub[off + 1], stub[off + 2], stub[off + 3]]);
 
         // ASSERT
@@ -405,7 +433,7 @@ mod tests {
 
         // ACT
         update_image_size(&mut stub, &metadata, size).unwrap_or_default();
-        let off = metadata.optional_header_offset + constants::OPT_HEADER_SIZE_OF_IMAGE;
+        let off = metadata.optional_header_offset + OPT_HEADER_SIZE_OF_IMAGE_OFFSET;
         let written = u32::from_le_bytes([stub[off], stub[off + 1], stub[off + 2], stub[off + 3]]);
 
         // ASSERT
@@ -509,7 +537,7 @@ mod tests {
     fn extract_metadata_rejects_invalid_alignment() {
         // ARRANGE
         let mut stub = generate_minimal_stub();
-        let file_alignment_offset = 88 + constants::OPT_HEADER_FILE_ALIGNMENT;
+        let file_alignment_offset = 88 + OPT_HEADER_FILE_ALIGNMENT_OFFSET;
         stub[file_alignment_offset..file_alignment_offset + 4].copy_from_slice(&3u32.to_le_bytes());
 
         // ACT
@@ -525,7 +553,7 @@ mod tests {
     fn extract_metadata_rejects_zero_section_alignment() {
         // ARRANGE
         let mut stub = generate_minimal_stub();
-        let section_alignment_offset = 88 + constants::OPT_HEADER_SECTION_ALIGNMENT;
+        let section_alignment_offset = 88 + OPT_HEADER_SECTION_ALIGNMENT_OFFSET;
         stub[section_alignment_offset..section_alignment_offset + 4]
             .copy_from_slice(&0u32.to_le_bytes());
 

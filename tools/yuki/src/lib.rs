@@ -3,7 +3,6 @@
 mod binary;
 #[cfg(feature = "cli")]
 pub mod cli;
-mod constants;
 pub mod error;
 mod pe;
 mod section;
@@ -92,13 +91,9 @@ pub fn build(components: &Components) -> Result<Vec<u8>> {
         .current_section_count
         .checked_add(section_count)
         .ok_or(YukiError::TooManySections)?;
-    let section_count_offset = metadata
-        .file_header_offset
-        .saturating_add(constants::COFF_NUMBER_OF_SECTIONS);
-    binary::write_u16(&mut stub, section_count_offset, new_section_count)?;
 
+    pe::update_section_count(&mut stub, &metadata, new_section_count)?;
     section::write_to_image(&mut stub, &metadata, &layout, &sections)?;
-
     pe::update_image_size(&mut stub, &metadata, layout.max_virtual_end)?;
 
     Ok(stub)
