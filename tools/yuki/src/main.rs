@@ -1,20 +1,19 @@
 //! CLI tool for creating Unified Kernel Images (UKI) for Linux on UEFI systems.
 
-#[cfg(feature = "cli")]
+use yuki::cli;
+
 fn main() {
     std::process::exit(run(std::env::args_os()));
 }
 
-#[cfg(feature = "cli")]
 fn run<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    handle_result(yuki::cli::run_with(args))
+    handle_result(cli::run_with(args))
 }
 
-#[cfg(feature = "cli")]
 fn handle_result(result: anyhow::Result<String>) -> i32 {
     let error = match result {
         Ok(message) => {
@@ -33,7 +32,7 @@ fn handle_result(result: anyhow::Result<String>) -> i32 {
     1
 }
 
-#[cfg(all(test, feature = "cli"))]
+#[cfg(test)]
 mod tests {
     use anyhow::anyhow;
     use clap::error::ErrorKind;

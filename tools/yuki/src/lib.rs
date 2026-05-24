@@ -4,15 +4,14 @@ mod binary;
 #[cfg(feature = "cli")]
 pub mod cli;
 mod constants;
-mod error;
+pub mod error;
 mod pe;
 mod section;
 
 use std::fs;
 use std::path::PathBuf;
-use std::result::Result;
 
-pub use error::YukiError;
+use error::{Result, YukiError};
 
 /// Paths to the components required to build a Unified Kernel Image.
 pub struct Components {
@@ -30,28 +29,28 @@ pub struct Components {
 ///
 /// Returns an error if any input component cannot be read, the EFI stub is not a
 /// valid PE image, or the resulting image would exceed PE section limits.
-pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
-    let mut stub = fs::read(&c.stub).map_err(|e| YukiError::ReadError {
-        file: c.stub.display().to_string(),
+pub fn build(components: &Components) -> Result<Vec<u8>> {
+    let mut stub = fs::read(&components.stub).map_err(|e| YukiError::ReadError {
+        file: components.stub.display().to_string(),
         source: e,
     })?;
 
-    let linux = fs::read(&c.kernel).map_err(|e| YukiError::ReadError {
-        file: c.kernel.display().to_string(),
+    let linux = fs::read(&components.kernel).map_err(|e| YukiError::ReadError {
+        file: components.kernel.display().to_string(),
         source: e,
     })?;
 
-    let initrd = fs::read(&c.initramfs).map_err(|e| YukiError::ReadError {
-        file: c.initramfs.display().to_string(),
+    let initrd = fs::read(&components.initramfs).map_err(|e| YukiError::ReadError {
+        file: components.initramfs.display().to_string(),
         source: e,
     })?;
 
-    let cmdline = fs::read(&c.cmdline).map_err(|e| YukiError::ReadError {
-        file: c.cmdline.display().to_string(),
+    let cmdline = fs::read(&components.cmdline).map_err(|e| YukiError::ReadError {
+        file: components.cmdline.display().to_string(),
         source: e,
     })?;
 
-    let dtb = c
+    let dtb = components
         .dtb
         .as_ref()
         .map(|path| {
@@ -62,7 +61,7 @@ pub fn build(c: &Components) -> Result<Vec<u8>, YukiError> {
         })
         .transpose()?;
 
-    let luks_data = c.luks_key.as_deref();
+    let luks_data = components.luks_key.as_deref();
 
     let metadata = pe::extract_metadata(&stub)?;
 

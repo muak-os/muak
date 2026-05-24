@@ -205,7 +205,7 @@ fn build_rejects_missing_stub() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::ReadError { .. })),
+        matches!(result, Err(yuki::error::YukiError::ReadError { .. })),
         "should fail with ReadError for missing stub, got: {:?}",
         result
     );
@@ -232,7 +232,7 @@ fn build_rejects_invalid_pe_stub() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::PeParseError(_))),
+        matches!(result, Err(yuki::error::YukiError::PeParseError(_))),
         "should fail with PE parse error for invalid stub, got: {:?}",
         result
     );
@@ -258,7 +258,7 @@ fn build_rejects_missing_kernel() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::ReadError { .. })),
+        matches!(result, Err(yuki::error::YukiError::ReadError { .. })),
         "should fail with ReadError for missing kernel"
     );
 }
@@ -283,7 +283,7 @@ fn build_rejects_missing_initrd() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::ReadError { .. })),
+        matches!(result, Err(yuki::error::YukiError::ReadError { .. })),
         "should fail with ReadError for missing initrd"
     );
 }
@@ -308,7 +308,7 @@ fn build_rejects_missing_cmdline() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::ReadError { .. })),
+        matches!(result, Err(yuki::error::YukiError::ReadError { .. })),
         "should fail with ReadError for missing cmdline"
     );
 }
@@ -334,7 +334,7 @@ fn build_rejects_missing_dtb_when_specified() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::ReadError { .. })),
+        matches!(result, Err(yuki::error::YukiError::ReadError { .. })),
         "should fail with ReadError for missing DTB"
     );
 }
@@ -546,7 +546,7 @@ fn build_rejects_too_many_sections() {
 
     // ASSERT
     assert!(
-        matches!(result, Err(yuki::YukiError::TooManySections)),
+        matches!(result, Err(yuki::error::YukiError::TooManySections)),
         "should return TooManySections, got: {result:?}"
     );
 }

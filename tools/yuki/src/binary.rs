@@ -1,6 +1,6 @@
 //! Utilities for binary data manipulation.
 
-use crate::YukiError;
+use crate::error::{Result, YukiError};
 
 /// Aligns a value up to the nearest multiple of the given alignment.
 #[inline]
@@ -12,20 +12,20 @@ pub(crate) const fn align_to(value: u32, alignment: u32) -> u32 {
 
 /// Reads a little-endian u32 from a byte buffer at the given offset.
 #[inline]
-pub(crate) fn read_u32(buf: &[u8], off: usize) -> Result<u32, YukiError> {
+pub(crate) fn read_u32(buf: &[u8], off: usize) -> Result<u32> {
     let end = off.saturating_add(4);
     let bytes = buf
         .get(off..end)
         .ok_or_else(|| YukiError::InvalidPeStructure(format!("u32 read oob: {off}-{end}")))?;
-    let [a, b, c, d]: [u8; 4] = bytes
+    let word_bytes: [u8; 4] = bytes
         .try_into()
-        .map_err(|_error| YukiError::InvalidPeStructure("u32 read width mismatch".to_string()))?;
-    Ok(u32::from_le_bytes([a, b, c, d]))
+        .map_err(|_error| YukiError::InvalidPeStructure("u32 read width mismatch".to_owned()))?;
+    Ok(u32::from_le_bytes(word_bytes))
 }
 
 /// Writes a little-endian u16 to a byte buffer at the given offset.
 #[inline]
-pub(crate) fn write_u16(buf: &mut [u8], off: usize, val: u16) -> Result<(), YukiError> {
+pub(crate) fn write_u16(buf: &mut [u8], off: usize, val: u16) -> Result<()> {
     let end = off.saturating_add(2);
     let dst = buf
         .get_mut(off..end)
@@ -36,7 +36,7 @@ pub(crate) fn write_u16(buf: &mut [u8], off: usize, val: u16) -> Result<(), Yuki
 
 /// Writes a little-endian u32 to a byte buffer at the given offset.
 #[inline]
-pub(crate) fn write_u32(buf: &mut [u8], off: usize, val: u32) -> Result<(), YukiError> {
+pub(crate) fn write_u32(buf: &mut [u8], off: usize, val: u32) -> Result<()> {
     let end = off.saturating_add(4);
     let dst = buf
         .get_mut(off..end)
@@ -47,9 +47,9 @@ pub(crate) fn write_u32(buf: &mut [u8], off: usize, val: u32) -> Result<(), Yuki
 
 /// Converts a wide integer to `usize` with a contextual error.
 #[inline]
-pub(crate) fn usize_from_u128(value: u128, context: &'static str) -> Result<usize, YukiError> {
+pub(crate) fn usize_from_u128(value: u128, context: &'static str) -> Result<usize> {
     usize::try_from(value)
-        .map_err(|_conversion_error| YukiError::InvalidPeStructure(context.to_string()))
+        .map_err(|_conversion_error| YukiError::InvalidPeStructure(context.to_owned()))
 }
 
 #[cfg(test)]

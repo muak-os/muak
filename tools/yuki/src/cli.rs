@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
@@ -56,13 +56,14 @@ where
 }
 
 fn run(args: Cli) -> Result<String> {
-    let luks_data = match &args.luks {
-        Some(path) => Some(
+    let luks_data = args
+        .luks
+        .as_ref()
+        .map(|path| {
             std::fs::read(path)
-                .with_context(|| format!("Failed to read LUKS key from {}", path.display()))?,
-        ),
-        None => None,
-    };
+                .with_context(|| format!("Failed to read LUKS key from {}", path.display()))
+        })
+        .transpose()?;
 
     let buffer = crate::build(&crate::Components {
         stub: args.stub,

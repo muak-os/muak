@@ -1,15 +1,13 @@
 //! PE file parsing and manipulation.
 
-use std::mem;
-
 use object::LittleEndian as LE;
 use object::pe::{ImageFileHeader, ImageSectionHeader};
-use object::read::pe::{ImageNtHeaders, PeFile64};
+use object::read::pe::{ImageNtHeaders as _, PeFile64};
 
-use crate::YukiError;
 use crate::binary;
 use crate::binary::{align_to, read_u32, usize_from_u128};
 use crate::constants;
+use crate::error::{Result, YukiError};
 
 pub struct PeMetadata {
     pub file_header_offset: usize,
@@ -23,8 +21,8 @@ pub struct PeMetadata {
     pub current_section_count: u16,
 }
 
-/// Extracts PE metadata from the given stub data, validating the structure and returning relevant offsets and alignment information
-pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
+/// Extracts PE metadata from the given stub data, validating the structure and returning relevant offsets and alignment information.
+pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata> {
     let pe = PeFile64::parse(stub_data)
         .map_err(|err| YukiError::PeParseError(format!("Invalid PE file format: {err}")))?;
     let nt_headers = pe.nt_headers();
@@ -36,7 +34,7 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
     )?;
     let file_header_offset = pe_offset.saturating_add(constants::PE_SIGNATURE_SIZE);
     let optional_header_offset =
-        file_header_offset.saturating_add(mem::size_of::<ImageFileHeader>());
+        file_header_offset.saturating_add(core::mem::size_of::<ImageFileHeader>());
     let optional_header_size =
         usize::from(nt_headers.file_header().size_of_optional_header.get(LE));
     let section_table_offset = optional_header_offset.saturating_add(optional_header_size);
@@ -65,28 +63,29 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
 
     if size_of_headers == 0 {
         return Err(YukiError::InvalidPeStructure(
-            "invalid size of headers 0".to_string(),
+            "invalid size of headers 0".to_owned(),
         ));
     }
 
     let (last_section_file_end, last_section_virtual_end) =
         sections
             .iter()
-            .try_fold((0_u32, 0_u32), |(max_file, max_virt), s| {
-                let file_end = s
+            .try_fold((0_u32, 0_u32), |(max_file, max_virt), section| {
+                let file_end = section
                     .pointer_to_raw_data
                     .get(LE)
-                    .checked_add(s.size_of_raw_data.get(LE))
+                    .checked_add(section.size_of_raw_data.get(LE))
                     .ok_or_else(|| {
-                        YukiError::InvalidPeStructure("section raw data end overflow".to_string())
+                        YukiError::InvalidPeStructure("section raw data end overflow".to_owned())
                     })?;
-                let aligned_virtual_size = align_to(s.virtual_size.get(LE), section_alignment);
-                let virt_end = s
+                let aligned_virtual_size =
+                    align_to(section.virtual_size.get(LE), section_alignment);
+                let virt_end = section
                     .virtual_address
                     .get(LE)
                     .checked_add(aligned_virtual_size)
                     .ok_or_else(|| {
-                        YukiError::InvalidPeStructure("section virtual end overflow".to_string())
+                        YukiError::InvalidPeStructure("section virtual end overflow".to_owned())
                     })?;
                 Ok((max_file.max(file_end), max_virt.max(virt_end)))
             })?;
@@ -106,12 +105,12 @@ pub fn extract_metadata(stub_data: &[u8]) -> Result<PeMetadata, YukiError> {
     })
 }
 
-/// Updates the `SizeOfImage` field in the PE optional header to accommodate the specified maximum virtual end address
+/// Updates the `SizeOfImage` field in the PE optional header to accommodate the specified maximum virtual end address.
 pub fn update_image_size(
     stub_data: &mut [u8],
     metadata: &PeMetadata,
     max_virtual_end: u32,
-) -> Result<(), YukiError> {
+) -> Result<()> {
     let size_of_image_off = metadata
         .optional_header_offset
         .saturating_add(constants::OPT_HEADER_SIZE_OF_IMAGE);
@@ -119,14 +118,15 @@ pub fn update_image_size(
     binary::write_u32(stub_data, size_of_image_off, new_size_of_image)
 }
 
-/// Validates that the section header table can accommodate the specified number of additional sections
+/// Validates that the section header table can accommodate the specified number of additional sections.
 pub fn validate_section_header_capacity(
     metadata: &PeMetadata,
     additional_sections: usize,
-) -> Result<(), YukiError> {
+) -> Result<()> {
     let total_sections =
         usize::from(metadata.current_section_count).saturating_add(additional_sections);
-    let section_table_size = total_sections.saturating_mul(mem::size_of::<ImageSectionHeader>());
+    let section_table_size =
+        total_sections.saturating_mul(core::mem::size_of::<ImageSectionHeader>());
     let section_table_end = metadata
         .section_table_offset
         .saturating_add(section_table_size);

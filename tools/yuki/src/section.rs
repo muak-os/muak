@@ -1,13 +1,11 @@
 //! PE section creation and embedding.
 
-use std::mem;
-
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 
-use crate::YukiError;
 use crate::binary::{align_to, usize_from_u128};
 use crate::constants;
+use crate::error::{Result, YukiError};
 use crate::pe::PeMetadata;
 
 /// Computed file and virtual memory layout for a set of PE sections to be embedded.
@@ -47,10 +45,7 @@ pub(crate) fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static st
 }
 
 /// Builds PE section headers and computes file offsets for the given sections based on the provided metadata.
-pub fn build_headers(
-    metadata: &PeMetadata,
-    sections: &[(&str, &[u8])],
-) -> Result<SectionLayout, YukiError> {
+pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Result<SectionLayout> {
     let mut headers = Vec::new();
     let mut offsets = Vec::new();
     let mut current_file_offset = align_to(metadata.last_section_file_end, metadata.file_alignment);
@@ -60,7 +55,7 @@ pub fn build_headers(
     );
     let mut max_virtual_end = metadata.last_section_virtual_end;
 
-    for (name, data) in sections {
+    for &(name, data) in sections {
         let virtual_size = u32::try_from(data.len()).map_err(|_conversion_error| {
             YukiError::InvalidPeStructure(format!("section '{name}' too large"))
         })?;
@@ -70,15 +65,21 @@ pub fn build_headers(
         let mut section = ImageSectionHeader::default();
 
         let name_bytes = name.as_bytes();
-        let name_len = name_bytes.len().min(constants::SECTION_NAME_MAX_LEN);
-        section.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
+        for (destination, source) in section
+            .name
+            .iter_mut()
+            .take(constants::SECTION_NAME_MAX_LEN)
+            .zip(name_bytes.iter().take(constants::SECTION_NAME_MAX_LEN))
+        {
+            *destination = *source;
+        }
 
         section.virtual_size.set(LE, virtual_size);
         section.virtual_address.set(LE, current_virtual_address);
         section.size_of_raw_data.set(LE, size_of_raw_data);
         section.pointer_to_raw_data.set(LE, current_file_offset);
 
-        let characteristics = if *name == ".linux" {
+        let characteristics = if name == ".linux" {
             constants::IMAGE_SCN_CNT_CODE
                 | constants::IMAGE_SCN_MEM_EXECUTE
                 | constants::IMAGE_SCN_MEM_READ
@@ -90,7 +91,7 @@ pub fn build_headers(
         let section_virtual_end = current_virtual_address
             .checked_add(aligned_virtual_size)
             .ok_or_else(|| {
-                YukiError::InvalidPeStructure("section virtual end overflow".to_string())
+                YukiError::InvalidPeStructure("section virtual end overflow".to_owned())
             })?;
 
         max_virtual_end = max_virtual_end.max(section_virtual_end);
@@ -105,7 +106,7 @@ pub fn build_headers(
         current_file_offset = current_file_offset
             .checked_add(size_of_raw_data)
             .ok_or_else(|| {
-                YukiError::InvalidPeStructure("next section file offset overflow".to_string())
+                YukiError::InvalidPeStructure("next section file offset overflow".to_owned())
             })?;
         current_virtual_address = section_virtual_end;
     }
@@ -129,47 +130,45 @@ pub fn write_to_image(
     metadata: &PeMetadata,
     layout: &SectionLayout,
     sections: &[(&str, &[u8])],
-) -> Result<(), YukiError> {
+) -> Result<()> {
     if layout.headers.len() != sections.len() || layout.offsets.len() != sections.len() {
         return Err(YukiError::InvalidPeStructure(
-            "section layout length mismatch".to_string(),
+            "section layout length mismatch".to_owned(),
         ));
     }
 
     for (i, section_header) in layout.headers.iter().enumerate() {
         let section_index = usize::from(metadata.current_section_count).saturating_add(i);
-        let section_offset = section_index.saturating_mul(mem::size_of::<ImageSectionHeader>());
+        let section_offset =
+            section_index.saturating_mul(core::mem::size_of::<ImageSectionHeader>());
         let offset = metadata.section_table_offset.saturating_add(section_offset);
         let header_bytes = section_header_to_bytes(section_header);
         let end = offset.saturating_add(header_bytes.len());
-        if end > stub.len() {
-            return Err(YukiError::InvalidPeStructure(format!(
-                "section header oob: {offset}-{end}"
-            )));
-        }
-        stub[offset..end].copy_from_slice(&header_bytes);
+        stub.get_mut(offset..end)
+            .ok_or_else(|| {
+                YukiError::InvalidPeStructure(format!("section header oob: {offset}-{end}"))
+            })?
+            .copy_from_slice(&header_bytes);
     }
 
-    for (i, (file_offset, data_len)) in layout.offsets.iter().enumerate() {
+    for (i, &(file_offset, data_len)) in layout.offsets.iter().enumerate() {
         let data = sections
             .get(i)
             .ok_or_else(|| YukiError::InvalidPeStructure(format!("missing section data at {i}")))?
             .1;
-        if data.len() != *data_len {
+        if data.len() != data_len {
             return Err(YukiError::InvalidPeStructure(format!(
                 "section data length mismatch at {i}: expected {data_len}, got {}",
                 data.len()
             )));
         }
 
-        let end = file_offset.saturating_add(*data_len);
-        if end > stub.len() {
-            return Err(YukiError::InvalidPeStructure(format!(
-                "section data oob: {file_offset}-{end}"
-            )));
-        }
-
-        stub[*file_offset..end].copy_from_slice(data);
+        let end = file_offset.saturating_add(data_len);
+        stub.get_mut(file_offset..end)
+            .ok_or_else(|| {
+                YukiError::InvalidPeStructure(format!("section data oob: {file_offset}-{end}"))
+            })?
+            .copy_from_slice(data);
     }
 
     Ok(())
@@ -178,8 +177,8 @@ pub fn write_to_image(
 /// Converts an `ImageSectionHeader` into its raw byte representation for writing into the PE image.
 pub(crate) fn section_header_to_bytes(
     header: &ImageSectionHeader,
-) -> [u8; mem::size_of::<ImageSectionHeader>()] {
-    let mut bytes = [0_u8; mem::size_of::<ImageSectionHeader>()];
+) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
+    let mut bytes = [0_u8; core::mem::size_of::<ImageSectionHeader>()];
 
     bytes[0..8].copy_from_slice(&header.name);
     bytes[8..12].copy_from_slice(&header.virtual_size.get(LE).to_le_bytes());
