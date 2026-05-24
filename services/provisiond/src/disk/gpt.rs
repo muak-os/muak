@@ -5,9 +5,11 @@ use std::io::Seek;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use parttable::{
-    ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start, Table,
+use parttable::gpt::table::Table;
+use parttable::gpt::types::{
+    ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start,
 };
+use parttable::mbr;
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
@@ -82,7 +84,7 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
     )?;
 
     gpt.write(&mut f)?;
-    parttable::write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
+    mbr::io::write_protective(&mut f, disk_size, SECTOR_SIZE)?;
     f.sync_all()?;
     drop(f);
 
@@ -145,7 +147,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     )?;
 
     gpt.write(&mut f)?;
-    parttable::write_gpt_protective_mbr(&mut f, disk_size, SECTOR_SIZE)?;
+    mbr::io::write_protective(&mut f, disk_size, SECTOR_SIZE)?;
     f.sync_all()?;
     drop(f);
 
@@ -206,7 +208,9 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
 mod tests {
     use std::io::Write as _;
 
-    use parttable::{Partition, Table};
+    use parttable::gpt::table::Table;
+    use parttable::gpt::types::{LINUX_FS_GUID, Partition};
+    use parttable::mbr;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -234,7 +238,7 @@ mod tests {
             gpt.set_partition(
                 i as u32 + 1,
                 Partition {
-                    type_guid: parttable::LINUX_FS_GUID,
+                    type_guid: LINUX_FS_GUID,
                     unique_guid: guid,
                     starting_lba: 2048 + i as u64 * 4096,
                     ending_lba: 2048 + i as u64 * 4096 + 4095,
@@ -321,7 +325,7 @@ mod tests {
         let disk_size = (u32::MAX as u64 + 100) * SECTOR_SIZE;
 
         // ACT
-        let result = parttable::protective_mbr_size_lba(disk_size, SECTOR_SIZE);
+        let result = mbr::io::protective_size_lba(disk_size, SECTOR_SIZE);
 
         // ASSERT
         assert_eq!(result, u32::MAX);

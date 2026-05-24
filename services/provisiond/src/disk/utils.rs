@@ -5,7 +5,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use parttable::{MBR_BOOT_SIGNATURE, MBR_PARTITION_ENTRY_OFFSET, Table};
+use parttable::gpt::table::Table;
+use parttable::mbr::types::{MBR_BOOT_SIGNATURE, MBR_PARTITION_ENTRY_OFFSET};
 use rustix::fs::sync;
 use rustix::mount::{UnmountFlags, unmount};
 
@@ -186,7 +187,8 @@ fn validate_disk(disk_path: &str, force: bool) -> Result<()> {
 mod tests {
     use std::io::Write as _;
 
-    use parttable::{MbrPartitionEntry, write_mbr_boot_signature, write_mbr_partition_entry};
+    use parttable::mbr;
+    use parttable::mbr::types::MbrPartitionEntry;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -289,7 +291,7 @@ mod tests {
             .open(disk.path())
             .expect("open");
         file.set_len(4096).expect("resize");
-        write_mbr_partition_entry(
+        mbr::io::write_entry(
             &mut file,
             0,
             &MbrPartitionEntry {
@@ -300,7 +302,7 @@ mod tests {
             },
         )
         .expect("write mbr entry");
-        write_mbr_boot_signature(&mut file).expect("write mbr signature");
+        mbr::io::write_signature(&mut file).expect("write mbr signature");
 
         // ACT
         let result = disk_is_non_empty(disk.path().to_str().expect("path"))
