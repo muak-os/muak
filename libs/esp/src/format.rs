@@ -8,6 +8,10 @@ use crate::EspError;
 const FAT_VOLUME_LABEL: [u8; 11] = *b"EFI        ";
 
 /// Formats any readable and writable target as an EFI FAT32 volume.
+///
+/// # Errors
+///
+/// Returns an error when FAT formatting fails for the provided I/O target.
 pub fn format<IO>(io: &mut IO) -> Result<(), EspError>
 where
     IO: fatfs::ReadWriteSeek,
@@ -57,7 +61,7 @@ mod tests {
     #[test]
     fn format_creates_efi_fat_volume() {
         // ARRANGE
-        let mut cursor = Cursor::new(vec![0u8; 1024 * 1024]);
+        let mut cursor = Cursor::new(vec![0_u8; 1024 * 1024]);
 
         // ACT
         format(&mut cursor).expect("format must succeed");
@@ -70,7 +74,7 @@ mod tests {
     #[test]
     fn format_resets_existing_data_to_empty_root() {
         // ARRANGE
-        let mut cursor = Cursor::new(vec![0u8; 1024 * 1024]);
+        let mut cursor = Cursor::new(vec![0_u8; 1024 * 1024]);
         format(&mut cursor).expect("initial format must succeed");
         {
             let fs =

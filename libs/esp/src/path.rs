@@ -2,10 +2,10 @@
 
 use std::path::{Component, Path};
 
-use crate::EspError;
+use crate::error::{EspError, Result};
 
 /// Validates all paths in an `EspSpec`.
-pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<(), EspError> {
+pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<()> {
     for file in &spec.files {
         let normalized = normalize_relative_path(&file.path)?;
         if normalized != file.path {
@@ -19,30 +19,22 @@ pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<(), EspError> {
 }
 
 /// Validates an ESP-relative path and returns its normalized string form.
-pub(crate) fn normalize_relative_path(path: &str) -> Result<String, EspError> {
+pub(crate) fn normalize_relative_path(path: &str) -> Result<String> {
     let rel_path = validate_relative_path(path)?;
     let mut components = Vec::new();
     for component in rel_path.components() {
-        if let Component::Normal(name) = component {
-            let name = name
-                .to_str()
-                .ok_or_else(|| EspError::InvalidPath(format!("non-UTF-8 path: {path}")))?;
-            components.push(name);
-        }
+        let Component::Normal(name) = component else {
+            continue;
+        };
+        components.push(name.to_string_lossy().into_owned());
     }
 
     let normalized = components.join("/");
-    if normalized.is_empty() {
-        return Err(EspError::InvalidPath(format!(
-            "path does not contain a file name: {path}"
-        )));
-    }
-
     Ok(normalized)
 }
 
 /// Validates an ESP-relative path and returns it as a `Path`.
-pub(crate) fn validate_relative_path(path: &str) -> Result<&Path, EspError> {
+pub(crate) fn validate_relative_path(path: &str) -> Result<&Path> {
     let rel_path = Path::new(path);
     if path.is_empty() {
         return Err(EspError::InvalidPath("path is empty".to_owned()));
@@ -60,7 +52,7 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<&Path, EspError> {
                 has_normal_component = true;
             }
             Component::CurDir => {}
-            _ => {
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
                 return Err(EspError::InvalidPath(format!(
                     "path contains unsupported component: {path}"
                 )));

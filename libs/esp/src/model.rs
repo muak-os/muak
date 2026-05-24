@@ -1,7 +1,8 @@
 //! ESP manifest model types.
 
-use std::collections::BTreeSet;
+use alloc::collections::BTreeSet;
 
+use crate::error::Result;
 use crate::{EspError, path};
 
 /// The target architecture determining the EFI fallback boot filename.
@@ -13,6 +14,7 @@ pub enum Arch {
 
 impl Arch {
     /// Returns the current compilation target architecture.
+    #[must_use]
     pub const fn current() -> Self {
         #[cfg(target_arch = "x86_64")]
         {
@@ -29,6 +31,7 @@ impl Arch {
     }
 
     /// Returns the UEFI fallback boot filename for this architecture.
+    #[must_use]
     pub const fn boot_filename(self) -> &'static str {
         match self {
             Self::X86_64 => "BOOTX64.EFI",
@@ -52,8 +55,9 @@ pub struct EspSpec {
 
 impl EspSpec {
     /// Constructs an ESP spec from a UKI blob and additional files.
+    #[must_use]
     pub fn with_uki(arch: Arch, uki: Vec<u8>, extra_files: Vec<EspFile>) -> Self {
-        let mut files = Vec::with_capacity(1 + extra_files.len());
+        let mut files = Vec::with_capacity(extra_files.len().saturating_add(1));
         files.push(EspFile {
             path: format!("EFI/BOOT/{}", arch.boot_filename()),
             data: uki,
@@ -63,11 +67,13 @@ impl EspSpec {
     }
 
     /// Returns a new builder for assembling a validated spec.
+    #[must_use]
     pub fn builder() -> EspSpecBuilder {
         EspSpecBuilder::default()
     }
 
     /// Returns the total byte size of all file payloads in the spec.
+    #[must_use]
     pub fn total_file_bytes(&self) -> usize {
         self.files.iter().map(|file| file.data.len()).sum()
     }
@@ -82,7 +88,12 @@ pub struct EspSpecBuilder {
 
 impl EspSpecBuilder {
     /// Adds the fallback boot file for `arch` from the provided UKI bytes.
-    pub fn with_uki(self, arch: Arch, uki: Vec<u8>) -> Result<Self, EspError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the generated fallback boot path conflicts with an existing
+    /// filepath in the builder.
+    pub fn with_uki(self, arch: Arch, uki: Vec<u8>) -> Result<Self> {
         self.add_file(EspFile {
             path: format!("EFI/BOOT/{}", arch.boot_filename()),
             data: uki,
@@ -90,7 +101,12 @@ impl EspSpecBuilder {
     }
 
     /// Adds one validated ESP file.
-    pub fn add_file(mut self, file: EspFile) -> Result<Self, EspError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the filepath is invalid or duplicates an existing normalized
+    /// destination path.
+    pub fn add_file(mut self, file: EspFile) -> Result<Self> {
         let normalized_path = path::normalize_relative_path(&file.path)?;
         if !self.paths.insert(normalized_path.clone()) {
             return Err(EspError::InvalidPath(format!(
@@ -105,12 +121,21 @@ impl EspSpecBuilder {
     }
 
     /// Adds multiple validated ESP files.
-    pub fn add_files(self, files: Vec<EspFile>) -> Result<Self, EspError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any filepath is invalid or duplicates an existing normalized
+    /// destination path.
+    pub fn add_files(self, files: Vec<EspFile>) -> Result<Self> {
         files.into_iter().try_fold(self, Self::add_file)
     }
 
     /// Finalizes the builder into an `EspSpec`.
-    pub fn build(self) -> Result<EspSpec, EspError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any filepath is invalid or not normalized.
+    pub fn build(self) -> Result<EspSpec> {
         let spec = EspSpec { files: self.files };
         path::validate_spec(&spec)?;
         Ok(spec)
@@ -238,5 +263,32 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files[0].path, "nested/file.txt");
+    }
+
+    #[test]
+    fn builder_add_files_adds_all_entries() {
+        // ARRANGE
+        let files = vec![
+            EspFile {
+                path: "first.txt".to_owned(),
+                data: b"a".to_vec(),
+            },
+            EspFile {
+                path: "second.txt".to_owned(),
+                data: b"bb".to_vec(),
+            },
+        ];
+
+        // ACT
+        let spec = EspSpec::builder()
+            .add_files(files)
+            .expect("files must be added")
+            .build()
+            .expect("spec must build");
+
+        // ASSERT
+        assert_eq!(spec.files.len(), 2);
+        assert_eq!(spec.files[0].path, "first.txt");
+        assert_eq!(spec.files[1].path, "second.txt");
     }
 }

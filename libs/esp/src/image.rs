@@ -5,7 +5,8 @@ use std::path::Path;
 
 use fatfs::{Dir, FileSystem, FsOptions};
 
-use crate::{EspError, EspSpec, format, path};
+use crate::error::{EspError, Result};
+use crate::{EspSpec, format, path};
 
 /// The minimum FAT32 ESP image size in bytes.
 const FAT_MIN_IMAGE_BYTES: usize = 1024 * 1024;
@@ -17,9 +18,17 @@ const FAT_GROWTH_MIN_BYTES: usize = 128 * 1024;
 const FAT_GROWTH_ATTEMPTS: usize = 16;
 
 /// Builds a FAT32 ESP image from an `EspSpec`.
-pub fn build(spec: &EspSpec) -> Result<Vec<u8>, EspError> {
+///
+/// # Errors
+///
+/// Returns an error when the spec contains invalid paths or the FAT image cannot be
+/// created within the configured growth attempts.
+pub fn build(spec: &EspSpec) -> Result<Vec<u8>> {
     path::validate_spec(spec)?;
-    let mut size = minimum_image_size(spec.total_file_bytes());
+    let mut size = spec
+        .total_file_bytes()
+        .max(FAT_MIN_IMAGE_BYTES)
+        .next_multiple_of(512);
     let mut last_error = None;
 
     for _ in 0..FAT_GROWTH_ATTEMPTS {
@@ -27,23 +36,31 @@ pub fn build(spec: &EspSpec) -> Result<Vec<u8>, EspError> {
             Ok(image) => return Ok(image),
             Err(err) => {
                 last_error = Some(err);
-                size = next_image_size(size);
+                size = size
+                    .saturating_add((size >> 4).max(FAT_GROWTH_MIN_BYTES))
+                    .next_multiple_of(512);
             }
         }
     }
 
-    Err(last_error.unwrap_or_else(|| EspError::Fat("failed to size FAT image".to_owned())))
+    if let Some(error) = last_error {
+        Err(error)
+    } else {
+        Err(EspError::Fat("failed to size FAT image".to_owned()))
+    }
 }
 
 /// Attempts to build an ESP image of exactly `image_size` bytes.
-fn try_build(image_size: usize, spec: &EspSpec) -> Result<Vec<u8>, EspError> {
-    let mut cursor = Cursor::new(vec![0u8; image_size]);
+fn try_build(image_size: usize, spec: &EspSpec) -> Result<Vec<u8>> {
+    let mut cursor = Cursor::new(vec![0_u8; image_size]);
 
     format(&mut cursor)?;
 
     {
-        let fs = FileSystem::new(&mut cursor, FsOptions::new())
-            .map_err(|err| EspError::Fat(err.to_string()))?;
+        let fs = match FileSystem::new(&mut cursor, FsOptions::new()) {
+            Ok(fs) => fs,
+            Err(err) => return Err(EspError::Fat(err.to_string())),
+        };
         let root = fs.root_dir();
         for file in &spec.files {
             write_file_at_path(&root, &file.path, &file.data)?;
@@ -53,67 +70,43 @@ fn try_build(image_size: usize, spec: &EspSpec) -> Result<Vec<u8>, EspError> {
     Ok(cursor.into_inner())
 }
 
-/// Rounds `n` up to the nearest multiple of `align`.
-fn align_up(n: usize, align: usize) -> usize {
-    (n + align - 1) & !(align - 1)
-}
-
-/// Returns the minimum viable ESP image size.
-fn minimum_image_size(total_content: usize) -> usize {
-    align_up(total_content.max(FAT_MIN_IMAGE_BYTES), 512)
-}
-
-/// Returns the next ESP image size to try.
-fn next_image_size(image_size: usize) -> usize {
-    align_up(
-        image_size + (image_size / 16).max(FAT_GROWTH_MIN_BYTES),
-        512,
-    )
-}
-
 /// Creates intermediate FAT directories and writes one file.
-pub(crate) fn write_file_at_path<'a, IO>(
-    root: &Dir<'a, IO>,
-    path: &str,
-    data: &[u8],
-) -> Result<(), EspError>
+pub(crate) fn write_file_at_path<IO>(root: &Dir<'_, IO>, path: &str, data: &[u8]) -> Result<()>
 where
     IO: fatfs::ReadWriteSeek,
 {
     let rel_path = path::validate_relative_path(path)?;
-    let parent = rel_path.parent();
-    let filename = rel_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| EspError::InvalidPath(format!("invalid file path: {path}")))?;
-
-    let dir = match parent {
-        None => root.clone(),
-        Some(parent) if parent == Path::new("") => root.clone(),
-        Some(parent) => open_or_create_dir(root, parent)?,
+    let parent = rel_path.parent().unwrap_or(Path::new(""));
+    let Some(filename) = rel_path.file_name().and_then(|name| name.to_str()) else {
+        return Err(EspError::InvalidPath(format!("invalid file path: {path}")));
     };
 
-    let mut file = dir
-        .create_file(filename)
-        .map_err(|err| EspError::Fat(err.to_string()))?;
+    let dir = if parent == Path::new("") {
+        root.clone()
+    } else {
+        open_or_create_dir(root, parent)?
+    };
+
+    let mut file = match dir.create_file(filename) {
+        Ok(file) => file,
+        Err(err) => return Err(EspError::Fat(err.to_string())),
+    };
     file.write_all(data)?;
     Ok(())
 }
 
 /// Opens or creates all FAT directories beneath `root`.
-fn open_or_create_dir<'a, IO>(root: &Dir<'a, IO>, dir_path: &Path) -> Result<Dir<'a, IO>, EspError>
+fn open_or_create_dir<'a, IO>(root: &Dir<'a, IO>, dir_path: &Path) -> Result<Dir<'a, IO>>
 where
     IO: fatfs::ReadWriteSeek,
 {
     let mut current = root.clone();
     for component in dir_path.components() {
-        let name = component
-            .as_os_str()
-            .to_str()
-            .ok_or_else(|| EspError::InvalidPath(format!("non-UTF-8 path: {dir_path:?}")))?;
-        current = current
-            .create_dir(name)
-            .map_err(|err| EspError::Fat(err.to_string()))?;
+        let name = component.as_os_str().to_string_lossy();
+        current = match current.create_dir(name.as_ref()) {
+            Ok(next) => next,
+            Err(err) => return Err(EspError::Fat(err.to_string())),
+        };
     }
     Ok(current)
 }
@@ -125,7 +118,7 @@ mod tests {
 
     use fatfs::{FileSystem, FsOptions};
 
-    use super::{FAT_MIN_IMAGE_BYTES, align_up, build, write_file_at_path};
+    use super::{FAT_MIN_IMAGE_BYTES, build, write_file_at_path};
     use crate::{Arch, EspError, EspFile, EspSpec, format};
 
     /// Creates a simple ESP spec for tests.
@@ -364,13 +357,5 @@ mod tests {
             // ASSERT
             assert!(result.is_err());
         });
-    }
-
-    #[test]
-    fn align_up_rounds_values_to_alignment() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(align_up(512, 512), 512);
-        assert_eq!(align_up(513, 512), 1024);
-        assert_eq!(align_up(1, 512), 512);
     }
 }

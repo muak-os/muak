@@ -17,3 +17,6 @@ pub enum EspError {
     #[error("FAT filesystem error: {0}")]
     Fat(String),
 }
+
+/// Result type alias for ESP operations.
+pub type Result<T> = core::result::Result<T, EspError>;

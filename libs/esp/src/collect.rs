@@ -2,24 +2,36 @@
 
 use std::path::Path;
 
+use crate::error::Result;
 use crate::{EspError, EspFile};
 
 /// Collects all regular files beneath `root` as ESP files.
-pub fn collect_tree(root: &Path) -> Result<Vec<EspFile>, EspError> {
+///
+/// # Errors
+///
+/// Returns an error when the tree cannot be read, contains symlinks, or contains paths
+/// that cannot be converted into normalized UTF-8 ESP-relative paths.
+pub fn collect_tree(root: &Path) -> Result<Vec<EspFile>> {
     let mut files = Vec::new();
-    collect_dir(root, root, &mut files)?;
-    files.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+    collect_dir(root, Path::new(""), &mut files)?;
+    files.sort_unstable_by(compare_files_by_path);
     Ok(files)
 }
 
+/// Compares two ESP files by their paths for sorting.
+fn compare_files_by_path(left: &EspFile, right: &EspFile) -> core::cmp::Ordering {
+    left.path.cmp(&right.path)
+}
+
 /// Walks one source directory recursively and collects its files.
-fn collect_dir(root: &Path, dir: &Path, files: &mut Vec<EspFile>) -> Result<(), EspError> {
+fn collect_dir(dir: &Path, rel_dir: &Path, files: &mut Vec<EspFile>) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         let file_type = entry.file_type()?;
+        let rel_path = rel_dir.join(entry.file_name());
         if file_type.is_dir() {
-            collect_dir(root, &path, files)?;
+            collect_dir(&path, &rel_path, files)?;
             continue;
         }
         if file_type.is_symlink() {
@@ -28,16 +40,13 @@ fn collect_dir(root: &Path, dir: &Path, files: &mut Vec<EspFile>) -> Result<(), 
                 path.display()
             )));
         }
-        if !file_type.is_file() {
-            continue;
-        }
 
-        let rel_path = path.strip_prefix(root).map_err(|_| {
-            EspError::InvalidPath(format!("failed to strip root: {}", path.display()))
-        })?;
-        let rel_path = rel_path.to_str().ok_or_else(|| {
-            EspError::InvalidPath(format!("non-UTF-8 source path: {}", path.display()))
-        })?;
+        let Some(rel_path) = rel_path.to_str() else {
+            return Err(EspError::InvalidPath(format!(
+                "non-UTF-8 source path: {}",
+                path.display()
+            )));
+        };
         files.push(EspFile {
             path: rel_path.to_owned(),
             data: std::fs::read(&path)?,
