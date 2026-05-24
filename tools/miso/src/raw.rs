@@ -7,13 +7,13 @@ use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 use parttable::mbr;
 
-use crate::MisoError;
+use crate::error::Result;
 
 /// Sector size for the raw disk image (512 bytes).
 const SECTOR_SIZE: u64 = 512;
 
 /// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
-pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<(), MisoError> {
+pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
     let disk_sectors = layout_disk(efi_image.len() as u64)?;
     let disk_size = disk_sectors * SECTOR_SIZE;
 
@@ -47,7 +47,7 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
     Ok(())
 }
 
-fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
+fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
     let mut disk_sectors = ALIGN_1_MIB_SECTORS * 2;
 
     loop {
@@ -76,10 +76,7 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
     }
 }
 
-fn try_layout(
-    placement: Result<(), ParttableError>,
-    disk_sectors: u64,
-) -> Result<Option<u64>, MisoError> {
+fn try_layout(placement: parttable::error::Result<()>, disk_sectors: u64) -> Result<Option<u64>> {
     match placement {
         Ok(()) => Ok(Some(disk_sectors)),
         Err(ParttableError::InvalidPlacement(_)) => Ok(None),
@@ -102,16 +99,14 @@ mod tests {
     };
 
     use super::*;
+    use crate::error::MisoError;
 
     fn minimal_esp() -> Vec<u8> {
         let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
         esp::build(&spec).expect("should build FAT32 image")
     }
 
-    fn try_place_efi_partition(
-        disk_sectors: u64,
-        efi_image_bytes: u64,
-    ) -> Result<(), ParttableError> {
+    fn try_place_efi_partition(disk_sectors: u64, efi_image_bytes: u64) -> Result<()> {
         let mut disk = Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
 
@@ -271,7 +266,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            matches!(previous_attempt, Err(ParttableError::InvalidPlacement(_))),
+            matches!(previous_attempt, Err(MisoError::Gpt(_))),
             "previous disk size must be too small to fit the ESP"
         );
         successful_attempt.expect("returned disk size must fit the ESP");

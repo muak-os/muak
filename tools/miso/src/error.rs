@@ -51,3 +51,6 @@ impl From<parttable::error::ParttableError> for MisoError {
         Self::Gpt(err.to_string())
     }
 }
+
+/// Result type alias for miso operations.
+pub type Result<T> = core::result::Result<T, MisoError>;

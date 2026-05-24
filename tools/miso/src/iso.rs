@@ -5,7 +5,7 @@ use std::io::{Seek, SeekFrom, Write};
 use parttable::mbr;
 use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
 
-use crate::MisoError;
+use crate::error::{MisoError, Result};
 
 /// Logical block size for ISO 9660, mandated by ECMA-119.
 pub const SECTOR_SIZE: usize = 2048;
@@ -271,7 +271,7 @@ fn write_protective_mbr(
     out: &mut (impl Write + Seek),
     efi_image_offset_bytes: u64,
     efi_image_size_bytes: u64,
-) -> Result<(), MisoError> {
+) -> Result<()> {
     let start_lba = (efi_image_offset_bytes / 512) as u32;
     let size_lba = (efi_image_size_bytes / 512) as u32;
     let entry = MbrPartitionEntry {
@@ -288,7 +288,7 @@ fn write_protective_mbr(
 }
 
 /// Returns the El Torito boot image sector count, rejecting oversized EFI images.
-fn el_torito_sector_count(efi_image_len: usize) -> Result<u16, MisoError> {
+fn el_torito_sector_count(efi_image_len: usize) -> Result<u16> {
     let efi_sectors = efi_image_len.div_ceil(SECTOR_SIZE);
     if efi_sectors > MAX_EL_TORITO_IMAGE_SECTORS {
         return Err(MisoError::Iso(format!(
@@ -301,7 +301,7 @@ fn el_torito_sector_count(efi_image_len: usize) -> Result<u16, MisoError> {
 }
 
 /// Writes a complete bootable ISO 9660 image.
-pub fn write(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<(), MisoError> {
+pub fn write(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<()> {
     let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
     let efi_image_lba = LBA_FILE_DATA as u32;
     let efi_image_size = efi_image.len() as u32;

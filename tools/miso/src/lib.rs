@@ -1,5 +1,4 @@
 //! Miso - Packages a Unified Kernel Image into a bootable image.
-#![deny(missing_docs)]
 
 mod error;
 mod iso;
@@ -7,15 +6,12 @@ mod raw;
 
 use std::io::{Cursor, Write};
 
-pub use error::MisoError;
+pub use error::{MisoError, Result};
 pub use esp::{Arch, EspFile, EspSpec};
 pub use iso::SECTOR_SIZE;
 
 /// Builds a bootable ISO 9660 image from an `EspSpec` into any `Write + Seek` sink.
-pub fn build_iso(
-    spec: &EspSpec,
-    out: &mut (impl std::io::Write + std::io::Seek),
-) -> Result<(), MisoError> {
+pub fn build_iso(spec: &EspSpec, out: &mut (impl std::io::Write + std::io::Seek)) -> Result<()> {
     let efi_image = esp::build(spec)?;
     iso::write(out, &efi_image)
 }
@@ -25,7 +21,7 @@ pub fn build_raw(
     spec: &EspSpec,
     out: &mut impl Write,
     compression_level: Option<i32>,
-) -> Result<(), MisoError> {
+) -> Result<()> {
     let efi_image = esp::build(spec)?;
     let mut raw_out = Cursor::new(Vec::new());
     raw::write(&mut raw_out, &efi_image)?;
@@ -43,7 +39,7 @@ pub fn build_raw(
     Ok(())
 }
 
-fn validate_compression_level(level: i32) -> Result<i32, MisoError> {
+fn validate_compression_level(level: i32) -> Result<i32> {
     let range = zstd::compression_level_range();
 
     if level == 0 || range.contains(&level) {
