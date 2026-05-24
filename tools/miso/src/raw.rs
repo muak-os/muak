@@ -2,7 +2,10 @@
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start, Table};
+use parttable::error::ParttableError;
+use parttable::gpt::table::Table;
+use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
+use parttable::mbr;
 
 use crate::MisoError;
 
@@ -34,7 +37,7 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
     )?;
     gpt.write(out)?;
 
-    parttable::write_gpt_protective_mbr(out, disk_size, SECTOR_SIZE)?;
+    mbr::io::write_protective(out, disk_size, SECTOR_SIZE)?;
 
     out.seek(SeekFrom::Start(
         placement.partition.starting_lba * SECTOR_SIZE,
@@ -74,12 +77,12 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64, MisoError> {
 }
 
 fn try_layout(
-    placement: Result<(), parttable::GptError>,
+    placement: Result<(), ParttableError>,
     disk_sectors: u64,
 ) -> Result<Option<u64>, MisoError> {
     match placement {
         Ok(()) => Ok(Some(disk_sectors)),
-        Err(parttable::GptError::InvalidPlacement(_)) => Ok(None),
+        Err(ParttableError::InvalidPlacement(_)) => Ok(None),
         Err(err) => Err(err.into()),
     }
 }
@@ -89,7 +92,14 @@ mod tests {
     use std::io::Cursor;
 
     use esp::{Arch, EspSpec};
-    use parttable::{MBR_PROTECTIVE_GPT_TYPE, PlacementRequest, Size, Slot, Start, Table};
+    use parttable::{
+        error::ParttableError,
+        gpt::{
+            table::Table,
+            types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start},
+        },
+        mbr::types::MBR_PROTECTIVE_GPT_TYPE,
+    };
 
     use super::*;
 
@@ -101,7 +111,7 @@ mod tests {
     fn try_place_efi_partition(
         disk_sectors: u64,
         efi_image_bytes: u64,
-    ) -> Result<(), parttable::GptError> {
+    ) -> Result<(), ParttableError> {
         let mut disk = Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
 
@@ -261,10 +271,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            matches!(
-                previous_attempt,
-                Err(parttable::GptError::InvalidPlacement(_))
-            ),
+            matches!(previous_attempt, Err(ParttableError::InvalidPlacement(_))),
             "previous disk size must be too small to fit the ESP"
         );
         successful_attempt.expect("returned disk size must fit the ESP");
@@ -291,7 +298,7 @@ mod tests {
 
         // ACT
         let result = try_layout(
-            Err(parttable::GptError::InvalidPlacement(
+            Err(ParttableError::InvalidPlacement(
                 "partition does not fit".to_owned(),
             )),
             disk_sectors,
@@ -309,7 +316,7 @@ mod tests {
 
         // ACT
         let err = try_layout(
-            Err(parttable::GptError::Gpt("corrupt header".to_owned())),
+            Err(ParttableError::Gpt("corrupt header".to_owned())),
             disk_sectors,
         )
         .expect_err("unexpected GPT errors must be propagated");

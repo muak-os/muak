@@ -2,7 +2,8 @@
 
 use std::io::{Seek, SeekFrom, Write};
 
-use parttable::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
+use parttable::mbr;
+use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
 
 use crate::MisoError;
 
@@ -280,8 +281,8 @@ fn write_protective_mbr(
         size_lba,
     };
 
-    parttable::write_mbr_partition_entry(out, 0, &entry)?;
-    parttable::write_mbr_boot_signature(out)?;
+    mbr::io::write_entry(out, 0, &entry)?;
+    mbr::io::write_signature(out)?;
 
     Ok(())
 }

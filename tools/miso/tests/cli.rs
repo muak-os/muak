@@ -3,7 +3,7 @@
 use std::fs;
 use std::process::Command;
 
-use parttable::Table;
+use parttable::gpt::table::Table;
 use tempfile::TempDir;
 
 fn miso_bin() -> Command {

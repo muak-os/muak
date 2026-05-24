@@ -3,7 +3,13 @@
 use std::io::Cursor;
 
 use miso::{Arch, EspFile, EspSpec, SECTOR_SIZE};
-use parttable::{ALIGN_1_MIB_SECTORS, EFI_GUID, MBR_PROTECTIVE_GPT_TYPE, Table};
+use parttable::{
+    gpt::{
+        table::Table,
+        types::{ALIGN_1_MIB_SECTORS, EFI_GUID},
+    },
+    mbr::types::MBR_PROTECTIVE_GPT_TYPE,
+};
 
 fn fake_uki(size: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(size);

@@ -46,8 +46,8 @@ pub enum MisoError {
     },
 }
 
-impl From<parttable::GptError> for MisoError {
-    fn from(err: parttable::GptError) -> Self {
+impl From<parttable::error::ParttableError> for MisoError {
+    fn from(err: parttable::error::ParttableError) -> Self {
         Self::Gpt(err.to_string())
     }
 }
