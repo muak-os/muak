@@ -1,4 +1,6 @@
-excessive-nesting-threshold = 3
+absolute-paths-allowed-crates = ["std", "core", "alloc"]
 allow-panic-in-tests = true
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+allowed-idents-below-min-chars = ["..", "e"]
+excessive-nesting-threshold = 3
