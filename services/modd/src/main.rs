@@ -9,7 +9,9 @@ use std::path::Path;
 
 use anyhow::Context;
 use granola::Health;
-use kmod::{AliasDb, DepDb, ModuleLoader, load_module};
+use kmod::aliases::AliasDb;
+use kmod::deps::DepDb;
+use kmod::kernel::{ModuleLoader, load_module};
 use uevent::{UeventAction, UeventListener};
 
 #[granola::service("modd")]
