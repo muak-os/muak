@@ -1,24 +1,21 @@
+//! Sysfs modalias discovery.
+
 use std::fs;
 use std::path::Path;
 
-fn read_modalias(device_path: &Path) -> Option<String> {
-    let modalias_path = device_path.join("modalias");
-    let modalias = fs::read_to_string(&modalias_path).ok()?;
-    let modalias = modalias.trim();
-    if modalias.is_empty() {
-        return None;
-    }
-    Some(modalias.to_string())
-}
-
-pub fn for_each_modalias<F>(mut f: F) -> std::io::Result<()>
+/// Calls `callback` for each discovered sysfs modalias.
+///
+/// # Errors
+///
+/// Returns an error when the sysfs bus root cannot be enumerated.
+pub fn for_each_modalias<F>(mut callback: F) -> std::io::Result<()>
 where
     F: FnMut(&str),
 {
-    for_each_modalias_in(Path::new("/sys/bus"), &mut f)
+    for_each_modalias_in(Path::new("/sys/bus"), &mut callback)
 }
 
-fn for_each_modalias_in<F>(sys_bus: &Path, f: &mut F) -> std::io::Result<()>
+fn for_each_modalias_in<F>(sys_bus: &Path, callback: &mut F) -> std::io::Result<()>
 where
     F: FnMut(&str),
 {
@@ -28,8 +25,8 @@ where
 
     let devices_dirs: Vec<_> = fs::read_dir(sys_bus)?
         .filter_map(Result::ok)
-        .map(|e| e.path().join("devices"))
-        .filter(|p| p.exists())
+        .map(|entry| entry.path().join("devices"))
+        .filter(|devices_dir| devices_dir.exists())
         .collect();
 
     for devices_dir in devices_dirs {
@@ -38,13 +35,23 @@ where
         };
         for modalias in entries
             .filter_map(Result::ok)
-            .filter_map(|e| read_modalias(&e.path()))
+            .filter_map(|entry| read_modalias(&entry.path()))
         {
-            f(&modalias);
+            callback(&modalias);
         }
     }
 
     Ok(())
+}
+
+fn read_modalias(device_path: &Path) -> Option<String> {
+    let modalias_path = device_path.join("modalias");
+    let modalias = fs::read_to_string(&modalias_path).ok()?;
+    let modalias = modalias.trim();
+    if modalias.is_empty() {
+        return None;
+    }
+    Some(modalias.to_owned())
 }
 
 #[cfg(test)]
@@ -54,6 +61,14 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    fn collect_modaliases(sys_bus: &Path) -> std::io::Result<Vec<String>> {
+        let mut collected = Vec::new();
+        for_each_modalias_in(sys_bus, &mut |modalias| {
+            collected.push(modalias.to_owned());
+        })?;
+        Ok(collected)
+    }
 
     #[test]
     fn read_modalias_valid() {
@@ -131,7 +146,7 @@ mod tests {
                 if let Some(alias) = modalias {
                     let modalias_path = device_dir.join("modalias");
                     let mut file = std::fs::File::create(&modalias_path).expect("create modalias");
-                    writeln!(file, "{}", alias).expect("write modalias");
+                    writeln!(file, "{alias}").expect("write modalias");
                 }
             }
         }
@@ -141,30 +156,22 @@ mod tests {
     fn for_each_modalias_empty_sysfs() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
-        let mut collected = Vec::new();
 
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert!(collected.is_empty());
     }
 
     #[test]
     fn for_each_modalias_nonexistent_path() {
         // ARRANGE
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(Path::new("/nonexistent/sys/bus"), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected =
+            collect_modaliases(Path::new("/nonexistent/sys/bus")).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert!(collected.is_empty());
     }
 
@@ -177,15 +184,10 @@ mod tests {
             &[("pci", &[("0000:00:1f.0", Some("pci:v00008086d00001234"))])],
         );
 
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(collected, vec!["pci:v00008086d00001234"]);
     }
 
@@ -202,15 +204,10 @@ mod tests {
             ],
         );
 
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(collected.len(), 3);
         assert!(collected.contains(&"pci:v00008086d00001234".to_string()));
         assert!(collected.contains(&"usb:v046DpC52B".to_string()));
@@ -233,15 +230,10 @@ mod tests {
             )],
         );
 
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(collected.len(), 3);
     }
 
@@ -260,15 +252,10 @@ mod tests {
             )],
         );
 
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0], "pci:v00008086d00001234");
     }
@@ -280,15 +267,10 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("pci")).expect("create bus dir");
         create_mock_sysfs(dir.path(), &[("usb", &[("1-1", Some("usb:v1234p5678"))])]);
 
-        let mut collected = Vec::new();
-
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
-        });
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0], "usb:v1234p5678");
     }
@@ -301,15 +283,39 @@ mod tests {
         std::fs::create_dir_all(&bus_dir).expect("create dirs");
         std::fs::write(bus_dir.join("modalias"), "").expect("write empty");
 
+        // ACT
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
+
+        // ASSERT
+        assert!(collected.is_empty());
+    }
+
+    #[test]
+    fn for_each_modalias_skips_unreadable_devices_dir() {
+        // ARRANGE
+        let dir = TempDir::new().expect("Failed to create temp dir");
+        std::fs::create_dir_all(dir.path().join("pci")).expect("create bus dir");
+        std::fs::write(dir.path().join("pci").join("devices"), b"not a directory")
+            .expect("write devices file");
+
+        // ACT
+        let collected = collect_modaliases(dir.path()).expect("collect failed");
+
+        // ASSERT
+        assert!(collected.is_empty());
+    }
+
+    #[test]
+    fn public_for_each_modalias_reads_live_sysfs() {
+        // ARRANGE
         let mut collected = Vec::new();
 
         // ACT
-        let result = for_each_modalias_in(dir.path(), &mut |m| {
-            collected.push(m.to_string());
+        let result = for_each_modalias(|modalias| {
+            collected.push(modalias.to_owned());
         });
 
         // ASSERT
         assert!(result.is_ok());
-        assert!(collected.is_empty());
     }
 }

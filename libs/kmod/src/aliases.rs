@@ -1,23 +1,21 @@
+//! Module alias database support.
+
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
+/// Parsed `modules.alias` database.
 #[derive(Debug)]
 pub struct AliasDb {
     entries: Vec<(String, String)>, // (pattern, module)
 }
 
-fn parse_alias_line(line: &str) -> Option<(String, String)> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-    let rest = line.strip_prefix("alias ")?;
-    let (pattern, module) = rest.rsplit_once(' ')?;
-    Some((pattern.trim().to_string(), module.trim().to_string()))
-}
-
 impl AliasDb {
+    /// Loads a `modules.alias` database from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `path` cannot be opened.
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -30,48 +28,52 @@ impl AliasDb {
         Ok(Self { entries })
     }
 
+    /// Finds the first module whose alias pattern matches `modalias`.
+    #[must_use]
     pub fn find_module(&self, modalias: &str) -> Option<&str> {
         let modalias_lower = modalias.to_ascii_lowercase();
-        self.entries
-            .iter()
-            .find(|(pattern, _)| {
-                let pattern_lower = pattern.to_ascii_lowercase();
-                glob_match_bytes(pattern_lower.as_bytes(), modalias_lower.as_bytes())
-            })
-            .map(|(_, module)| module.as_str())
+        self.entries.iter().find_map(|entry| {
+            let pattern_lower = entry.0.to_ascii_lowercase();
+            glob_match_bytes(pattern_lower.as_bytes(), modalias_lower.as_bytes())
+                .then_some(entry.1.as_str())
+        })
     }
 
+    /// Returns the number of alias entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Returns whether the alias database is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
 fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
-    let mut p = 0;
-    let mut t = 0;
-    let mut star_p = None;
-    let mut star_t = None;
+    let mut pattern_index = 0;
+    let mut text_index = 0;
+    let mut star_pattern_index = None;
+    let mut star_text_index = None;
 
-    while t < text.len() {
-        let matched = match pattern.get(p) {
+    while let Some(&text_byte) = text.get(text_index) {
+        let matched = match pattern.get(pattern_index).copied() {
             Some(b'*') => {
-                star_p = Some(p);
-                star_t = Some(t);
-                p += 1;
+                star_pattern_index = Some(pattern_index);
+                star_text_index = Some(text_index);
+                pattern_index = pattern_index.saturating_add(1);
                 true
             }
             Some(b'?') => {
-                p += 1;
-                t += 1;
+                pattern_index = pattern_index.saturating_add(1);
+                text_index = text_index.saturating_add(1);
                 true
             }
-            Some(&c) if c == text[t] => {
-                p += 1;
-                t += 1;
+            Some(pattern_byte) if pattern_byte == text_byte => {
+                pattern_index = pattern_index.saturating_add(1);
+                text_index = text_index.saturating_add(1);
                 true
             }
             _ => false,
@@ -81,19 +83,34 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
             continue;
         }
 
-        let Some((sp, st)) = star_p.zip(star_t) else {
+        let Some((saved_pattern_index, saved_text_index)) = star_pattern_index.zip(star_text_index)
+        else {
             return false;
         };
-        p = sp + 1;
-        star_t = Some(st + 1);
-        t = st + 1;
+        pattern_index = saved_pattern_index.saturating_add(1);
+        text_index = saved_text_index.saturating_add(1);
+        star_text_index = Some(text_index);
     }
 
-    while p < pattern.len() && pattern[p] == b'*' {
-        p += 1;
+    while pattern
+        .get(pattern_index)
+        .is_some_and(|pattern_byte| *pattern_byte == b'*')
+    {
+        pattern_index = pattern_index.saturating_add(1);
     }
 
-    p == pattern.len()
+    pattern_index == pattern.len()
+}
+
+/// Parses a line from `modules.alias` and returns the (pattern, module) if it's a valid alias line.
+fn parse_alias_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let rest = line.strip_prefix("alias ")?;
+    let (pattern, module) = rest.rsplit_once(' ')?;
+    Some((pattern.trim().to_owned(), module.trim().to_owned()))
 }
 
 #[cfg(test)]

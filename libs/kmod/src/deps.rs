@@ -1,8 +1,11 @@
+//! Module dependency database support.
+
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
+/// Parsed `modules.dep` database.
 #[derive(Debug)]
 pub struct DepDb {
     modules: HashMap<String, ModuleInfo>,
@@ -32,13 +35,18 @@ fn parse_dep_line(line: &str) -> Option<(String, ModuleInfo)> {
     Some((
         name,
         ModuleInfo {
-            path: module_path.to_string(),
+            path: module_path.to_owned(),
             deps,
         },
     ))
 }
 
 impl DepDb {
+    /// Loads a `modules.dep` database from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `path` cannot be opened.
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -52,11 +60,19 @@ impl DepDb {
         Ok(Self { modules })
     }
 
+    /// Returns the relative module path for `module_name`.
+    #[must_use]
     pub fn get_path(&self, module_name: &str) -> Option<&str> {
-        self.modules.get(module_name).map(|m| m.path.as_str())
+        self.modules
+            .get(module_name)
+            .map(|module| module.path.as_str())
     }
 
+    /// Resolves the dependency-first module load order for `module_name`.
+    #[must_use]
     pub fn resolve_load_order(&self, module_name: &str) -> Option<Vec<String>> {
+        self.modules.get(module_name)?;
+
         let mut result = Vec::new();
         let mut visited = HashSet::new();
         self.resolve_deps_recursive(module_name, &mut result, &mut visited);
@@ -72,7 +88,7 @@ impl DepDb {
         if visited.contains(module_name) {
             return;
         }
-        visited.insert(module_name.to_string());
+        visited.insert(module_name.to_owned());
 
         let Some(info) = self.modules.get(module_name) else {
             return;
@@ -85,21 +101,26 @@ impl DepDb {
         result.push(info.path.clone());
     }
 
+    /// Returns the number of indexed modules.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.modules.len()
     }
 
+    /// Returns whether the dependency database is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty()
     }
 }
 
+/// Extracts the module name from a relative module path.
 pub(crate) fn get_module_name(path: &str) -> Option<String> {
     let filename = path.rsplit('/').next()?;
     let name = filename
         .strip_suffix(".ko.zst")
         .or_else(|| filename.strip_suffix(".ko"))?;
-    Some(name.to_string())
+    Some(name.to_owned())
 }
 
 #[cfg(test)]
@@ -167,6 +188,15 @@ mod tests {
 
         // ASSERT
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_dep_line_whitespace_only() {
+        // ACT
+        let result = parse_dep_line("   ");
+
+        // ASSERT
+        assert!(result.is_none());
     }
 
     #[test]
@@ -402,12 +432,10 @@ mod tests {
         let db = DepDb::load(file.path()).expect("load failed");
 
         // ACT
-        let order = db
-            .resolve_load_order("nonexistent")
-            .expect("resolve failed");
+        let order = db.resolve_load_order("nonexistent");
 
         // ASSERT
-        assert!(order.is_empty());
+        assert_eq!(order, None);
     }
 
     #[test]

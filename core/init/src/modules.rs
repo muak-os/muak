@@ -3,7 +3,10 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use kmod::{AliasDb, DepDb, ModuleLoader, for_each_modalias, load_module};
+use kmod::aliases::AliasDb;
+use kmod::deps::DepDb;
+use kmod::kernel::{ModuleLoader, load_module};
+use kmod::sysfs::for_each_modalias;
 
 /// Loads kernel modules from `root` based on the current system's modaliases.
 pub fn load(root: &Path) -> Result<usize> {
