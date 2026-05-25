@@ -2,7 +2,8 @@
 
 use std::io::Cursor;
 
-use miso::{Arch, EspFile, EspSpec, SECTOR_SIZE};
+use esp::{Arch, EspFile, EspSpec};
+use miso::iso::SECTOR_SIZE;
 use parttable::{
     gpt::{
         table::Table,

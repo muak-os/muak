@@ -10,270 +10,383 @@ use crate::error::{MisoError, Result};
 /// Logical block size for ISO 9660, mandated by ECMA-119.
 pub const SECTOR_SIZE: usize = 2048;
 
-/// Maximum El Torito EFI boot image size expressed in 2048-byte sectors.
-const MAX_EL_TORITO_IMAGE_SECTORS: usize = u16::MAX as usize;
+const LBA_PVD_USIZE: usize = 16;
 
 /// Offset of the El Torito boot catalog LBA field in the Boot Record VD (byte offset into sector).
 const BOOT_RECORD_CATALOG_OFFSET: usize = 71;
 
 /// LBA of the Primary Volume Descriptor (ECMA-119 §6.7.1).
-const LBA_PVD: u64 = 16;
+const LBA_PVD: u32 = 16;
 /// LBA of the Boot Record Volume Descriptor.
-const LBA_BOOT_RECORD: u64 = LBA_PVD + 1;
+const LBA_BOOT_RECORD: u32 = LBA_PVD + 1;
 /// LBA of the Volume Descriptor Set Terminator.
-const LBA_VD_TERMINATOR: u64 = LBA_BOOT_RECORD + 1;
+const LBA_VD_TERMINATOR: u32 = LBA_BOOT_RECORD + 1;
 /// LBA of the L-path table.
-const LBA_PATH_TABLE_L: u64 = LBA_VD_TERMINATOR + 1;
+const LBA_PATH_TABLE_L: u32 = LBA_VD_TERMINATOR + 1;
 /// LBA of the M-path table.
-const LBA_PATH_TABLE_M: u64 = LBA_PATH_TABLE_L + 1;
+const LBA_PATH_TABLE_M: u32 = LBA_PATH_TABLE_L + 1;
 /// LBA of the El Torito boot catalog.
-const LBA_BOOT_CATALOG: u64 = LBA_PATH_TABLE_M + 1;
+const LBA_BOOT_CATALOG: u32 = LBA_PATH_TABLE_M + 1;
 /// LBA of the root directory record.
-const LBA_ROOT_DIR: u64 = LBA_BOOT_CATALOG + 1;
+const LBA_ROOT_DIR: u32 = LBA_BOOT_CATALOG + 1;
 /// LBA where file data begins.
-const LBA_FILE_DATA: u64 = LBA_ROOT_DIR + 1;
+const LBA_FILE_DATA: u32 = LBA_ROOT_DIR + 1;
 
 /// Volume identifier written into the PVD (padded to 32 bytes by callers).
 const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
 
-/// Writes an ISO date/time field with all-zero (unspecified) values.
-fn zero_date() -> [u8; 17] {
-    let mut d = [b'0'; 17];
-    d[16] = 0; // GMT offset byte
-    d
-}
-
-/// Writes `value` in both little-endian and big-endian form (ISO 7.3.3).
-fn both_endian_u32(buf: &mut [u8], offset: usize, value: u32) {
-    buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    buf[offset + 4..offset + 8].copy_from_slice(&value.to_be_bytes());
-}
-
-/// Writes `value` in both little-endian and big-endian form (ISO 7.2.3).
-fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
-    buf[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-    buf[offset + 2..offset + 4].copy_from_slice(&value.to_be_bytes());
-}
-
-/// Builds a single directory record for use inside the root directory sector.
-fn directory_record(name_bytes: &[u8], lba: u32, size: u32, is_dir: bool) -> Vec<u8> {
-    let name_len = name_bytes.len();
-    let base_len = 33 + name_len;
-    let record_len = if base_len.is_multiple_of(2) {
-        base_len
-    } else {
-        base_len + 1
+/// Writes a complete bootable ISO 9660 image.
+///
+/// # Errors
+///
+/// Returns an error if ISO metadata construction overflows format limits or if any
+/// write or seek operation fails.
+pub fn write<W: Write + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
+    let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
+    let efi_image_lba = LBA_FILE_DATA;
+    let efi_image_size = match u32::try_from(efi_image.len()) {
+        Ok(efi_image_size) => efi_image_size,
+        Err(_conversion_error) => {
+            return Err(MisoError::Iso("ISO field must fit in u32".to_owned()));
+        }
     };
-    let mut rec = vec![0u8; record_len];
-    rec[0] = record_len as u8;
-    rec[1] = 0; // Extended attribute record length
-    rec[2..6].copy_from_slice(&lba.to_le_bytes());
-    rec[6..10].copy_from_slice(&lba.to_be_bytes());
-    rec[10..14].copy_from_slice(&size.to_le_bytes());
-    rec[14..18].copy_from_slice(&size.to_be_bytes());
-    rec[18..25].copy_from_slice(&[0u8; 7]); // Recording date/time
-    rec[25] = if is_dir { 0x02 } else { 0x00 }; // File flags
-    rec[26] = 0; // File unit size
-    rec[27] = 0; // Interleave gap size
-    both_endian_u16(&mut rec, 28, 1); // Volume sequence number
-    rec[32] = name_len as u8;
-    rec[33..33 + name_len].copy_from_slice(name_bytes);
-    rec
+    let efi_image_sectors_u16 = el_torito_sector_count(efi_image.len())?;
+    let efi_sectors_u32 = u32::try_from(efi_sectors).unwrap_or(u32::MAX);
+    let total_sectors = LBA_FILE_DATA
+        .checked_add(efi_sectors_u32)
+        .ok_or(MisoError::Iso(
+            "u32 addition for ISO sectors overflowed".to_owned(),
+        ))?
+        .checked_add(1)
+        .ok_or(MisoError::Iso(
+            "u32 addition for ISO sectors overflowed".to_owned(),
+        ))?;
+
+    // System area: 16 empty sectors (bytes 0–32767)
+    let system_area = vec![
+        0_u8;
+        SECTOR_SIZE
+            .checked_mul(LBA_PVD_USIZE)
+            .ok_or(MisoError::Iso(
+                "usize multiplication for ISO structures overflowed".to_owned(),
+            ))?
+    ];
+    out.seek(SeekFrom::Start(0))?;
+    out.write_all(&system_area)?;
+
+    // Sector 16: Primary Volume Descriptor
+    out.seek(SeekFrom::Start(sector_offset(LBA_PVD)?))?;
+    out.write_all(&build_pvd(total_sectors, efi_image_size)?)?;
+
+    // Sector 17: Boot Record Volume Descriptor
+    out.seek(SeekFrom::Start(sector_offset(LBA_BOOT_RECORD)?))?;
+    out.write_all(&build_boot_record_vd())?;
+
+    // Sector 18: Volume Descriptor Set Terminator
+    out.seek(SeekFrom::Start(sector_offset(LBA_VD_TERMINATOR)?))?;
+    out.write_all(&build_vd_terminator())?;
+
+    // Sector 19: L-path table
+    out.seek(SeekFrom::Start(sector_offset(LBA_PATH_TABLE_L)?))?;
+    out.write_all(&build_path_table_l())?;
+
+    // Sector 20: M-path table
+    out.seek(SeekFrom::Start(sector_offset(LBA_PATH_TABLE_M)?))?;
+    out.write_all(&build_path_table_m())?;
+
+    // Sector 21: El Torito boot catalog
+    out.seek(SeekFrom::Start(sector_offset(LBA_BOOT_CATALOG)?))?;
+    out.write_all(&build_boot_catalog(efi_image_lba, efi_image_sectors_u16)?)?;
+
+    // Sector 22: Root directory
+    out.seek(SeekFrom::Start(sector_offset(LBA_ROOT_DIR)?))?;
+    out.write_all(&build_root_dir(efi_image_size)?)?;
+
+    // Sector 23+: EFI image data (padded to sector boundary)
+    out.seek(SeekFrom::Start(sector_offset(LBA_FILE_DATA)?))?;
+    out.write_all(efi_image)?;
+    let padding = efi_sectors
+        .checked_mul(SECTOR_SIZE)
+        .ok_or(MisoError::Iso(
+            "usize multiplication for ISO structures overflowed".to_owned(),
+        ))?
+        .checked_sub(efi_image.len())
+        .ok_or(MisoError::Iso(
+            "padded ISO image length underflowed".to_owned(),
+        ))?;
+    if padding > 0 {
+        let padding_bytes = vec![0_u8; padding];
+        out.write_all(&padding_bytes)?;
+    }
+
+    // GPT hybrid MBR entry at byte 446
+    let efi_offset = sector_offset(LBA_FILE_DATA)?;
+    write_protective_mbr(out, efi_offset, u64::from(efi_image_size))?;
+
+    Ok(())
+}
+
+/// Returns the El Torito boot image sector count, rejecting oversized EFI images.
+fn el_torito_sector_count(efi_image_len: usize) -> Result<u16> {
+    let efi_sectors = efi_image_len.div_ceil(SECTOR_SIZE);
+    if efi_sectors > usize::from(u16::MAX) {
+        return Err(MisoError::Iso(format!(
+            "EFI boot image too large for El Torito: {efi_sectors} sectors > {}",
+            u16::MAX
+        )));
+    }
+
+    Ok(u16::try_from(efi_sectors).unwrap_or(u16::MAX))
 }
 
 /// Builds the Primary Volume Descriptor sector (LBA 16, ECMA-119 §8.4).
-fn build_pvd(total_sectors: u32, efi_image_size: u32) -> [u8; SECTOR_SIZE] {
-    let mut pvd = [0u8; SECTOR_SIZE];
-    pvd[0] = 1; // Type: Primary VD
-    pvd[1..6].copy_from_slice(b"CD001");
-    pvd[6] = 1; // Version
-    pvd[8..40].copy_from_slice(SYSTEM_IDENTIFIER);
-    pvd[40..72].copy_from_slice(&[b' '; 32]); // Volume identifier (unused)
+fn build_pvd(total_sectors: u32, efi_image_size: u32) -> Result<[u8; SECTOR_SIZE]> {
+    let mut pvd = [0_u8; SECTOR_SIZE];
+
+    write_byte(&mut pvd, 0, 1);
+    write_bytes(&mut pvd, 1, b"CD001");
+    write_byte(&mut pvd, 6, 1);
+    write_bytes(&mut pvd, 8, SYSTEM_IDENTIFIER);
+    write_bytes(&mut pvd, 40, &[b' '; 32]);
     both_endian_u32(&mut pvd, 80, total_sectors);
-    pvd[88] = 1; // Escape sequences
-    both_endian_u16(&mut pvd, 120, 1); // Volume set size
-    both_endian_u16(&mut pvd, 124, 1); // Volume sequence number
-    both_endian_u16(&mut pvd, 128, SECTOR_SIZE as u16); // Logical block size
+    write_byte(&mut pvd, 88, 1);
+    both_endian_u16(&mut pvd, 120, 1);
+    both_endian_u16(&mut pvd, 124, 1);
+    both_endian_u16(
+        &mut pvd,
+        128,
+        u16::try_from(SECTOR_SIZE).unwrap_or(u16::MAX),
+    );
     // Path table size: one root entry = 8 + 1 (name "\x01") + 1 pad = 10 bytes
     both_endian_u32(&mut pvd, 132, 10);
     // L-path table LBA (little-endian only, §8.4.19)
-    pvd[140..144].copy_from_slice(&(LBA_PATH_TABLE_L as u32).to_le_bytes());
+    write_bytes(&mut pvd, 140, &LBA_PATH_TABLE_L.to_le_bytes());
     // M-path table LBA (big-endian only, §8.4.21)
-    pvd[148..152].copy_from_slice(&(LBA_PATH_TABLE_M as u32).to_be_bytes());
+    write_bytes(&mut pvd, 148, &LBA_PATH_TABLE_M.to_be_bytes());
 
     // Root directory record (34 bytes, §8.4.23)
-    let root_size = root_dir_size(efi_image_size);
-    let root = &mut pvd[156..190];
-    root[0] = 34; // Length of directory record
-    root[1] = 0;
-    root[2..6].copy_from_slice(&(LBA_ROOT_DIR as u32).to_le_bytes());
-    root[6..10].copy_from_slice(&(LBA_ROOT_DIR as u32).to_be_bytes());
-    root[10..14].copy_from_slice(&(root_size as u32).to_le_bytes());
-    root[14..18].copy_from_slice(&(root_size as u32).to_be_bytes());
-    root[18..25].copy_from_slice(&[0u8; 7]);
-    root[25] = 0x02; // Directory flag
-    root[26] = 0;
-    root[27] = 0;
-    root[28..30].copy_from_slice(&1u16.to_le_bytes());
-    root[30..32].copy_from_slice(&1u16.to_be_bytes());
-    root[32] = 1; // File identifier length
-    root[33] = 0x00; // Root directory identifier
+    let root_dir_bytes = root_dir_size(efi_image_size)?;
+    let root = directory_record(&[0x00], LBA_ROOT_DIR, root_dir_bytes, true)?;
+    write_bytes(&mut pvd, 156, &root);
 
-    pvd[190..222].copy_from_slice(&[b' '; 32]); // Volume set identifier
-    pvd[222..254].copy_from_slice(&[b' '; 32]); // Publisher identifier
-    pvd[254..286].copy_from_slice(&[b' '; 32]); // Data preparer identifier
-    pvd[286..318].copy_from_slice(&[b' '; 32]); // Application identifier
-    pvd[318..446].copy_from_slice(&[b' '; 128]); // Copyright / abstract / biblio
-    pvd[446..463].copy_from_slice(&zero_date()); // Volume creation
-    pvd[463..480].copy_from_slice(&zero_date()); // Volume modification
-    pvd[480..497].copy_from_slice(&zero_date()); // Volume expiration
-    pvd[497..514].copy_from_slice(&zero_date()); // Volume effective
-    pvd[514] = 1; // File structure version
-    pvd
+    write_bytes(&mut pvd, 190, &[b' '; 32]);
+    write_bytes(&mut pvd, 222, &[b' '; 32]);
+    write_bytes(&mut pvd, 254, &[b' '; 32]);
+    write_bytes(&mut pvd, 286, &[b' '; 32]);
+    write_bytes(&mut pvd, 318, &[b' '; 128]);
+    write_bytes(&mut pvd, 446, &zero_date());
+    write_bytes(&mut pvd, 463, &zero_date());
+    write_bytes(&mut pvd, 480, &zero_date());
+    write_bytes(&mut pvd, 497, &zero_date());
+    write_byte(&mut pvd, 514, 1);
+    Ok(pvd)
 }
 
 /// Builds the Boot Record Volume Descriptor sector (LBA 17, El Torito §2.1).
 fn build_boot_record_vd() -> [u8; SECTOR_SIZE] {
-    let mut vd = [0u8; SECTOR_SIZE];
-    vd[0] = 0; // Type: Boot Record
-    vd[1..6].copy_from_slice(b"CD001");
-    vd[6] = 1; // Version
-    vd[7..39].copy_from_slice(b"EL TORITO SPECIFICATION         "); // Boot system id (32 bytes)
+    let mut vd = [0_u8; SECTOR_SIZE];
+    write_byte(&mut vd, 0, 0);
+    write_bytes(&mut vd, 1, b"CD001");
+    write_byte(&mut vd, 6, 1);
+    write_bytes(&mut vd, 7, b"EL TORITO SPECIFICATION         ");
     // Boot catalog LBA at offset 71 (El Torito §2.1)
-    vd[BOOT_RECORD_CATALOG_OFFSET..BOOT_RECORD_CATALOG_OFFSET + 4]
-        .copy_from_slice(&(LBA_BOOT_CATALOG as u32).to_le_bytes());
+    write_bytes(
+        &mut vd,
+        BOOT_RECORD_CATALOG_OFFSET,
+        &LBA_BOOT_CATALOG.to_le_bytes(),
+    );
     vd
 }
 
 /// Builds the Volume Descriptor Set Terminator sector (LBA 18, ECMA-119 §8.3).
 fn build_vd_terminator() -> [u8; SECTOR_SIZE] {
-    let mut vd = [0u8; SECTOR_SIZE];
-    vd[0] = 255; // Type: Terminator
-    vd[1..6].copy_from_slice(b"CD001");
-    vd[6] = 1;
+    let mut vd = [0_u8; SECTOR_SIZE];
+    write_byte(&mut vd, 0, 255);
+    write_bytes(&mut vd, 1, b"CD001");
+    write_byte(&mut vd, 6, 1);
     vd
 }
 
 /// Builds the L-path table sector (little-endian, ECMA-119 §9.4).
 fn build_path_table_l() -> [u8; SECTOR_SIZE] {
-    let mut pt = [0u8; SECTOR_SIZE];
-    pt[0] = 1; // Length of directory identifier
-    pt[1] = 0; // Extended attribute record length
-    pt[2..6].copy_from_slice(&(LBA_ROOT_DIR as u32).to_le_bytes());
-    pt[6..8].copy_from_slice(&1u16.to_le_bytes()); // Directory number of parent
-    pt[8] = 0x00; // Root directory identifier
-    pt[9] = 0x00; // Padding
+    let mut pt = [0_u8; SECTOR_SIZE];
+    write_byte(&mut pt, 0, 1);
+    write_byte(&mut pt, 1, 0);
+    write_bytes(&mut pt, 2, &LBA_ROOT_DIR.to_le_bytes());
+    write_bytes(&mut pt, 6, &1_u16.to_le_bytes());
+    write_byte(&mut pt, 8, 0x00);
+    write_byte(&mut pt, 9, 0x00);
     pt
 }
 
 /// Builds the M-path table sector (big-endian, ECMA-119 §9.4).
 fn build_path_table_m() -> [u8; SECTOR_SIZE] {
-    let mut pt = [0u8; SECTOR_SIZE];
-    pt[0] = 1;
-    pt[1] = 0;
-    pt[2..6].copy_from_slice(&(LBA_ROOT_DIR as u32).to_be_bytes());
-    pt[6..8].copy_from_slice(&1u16.to_be_bytes());
-    pt[8] = 0x00;
-    pt[9] = 0x00;
+    let mut pt = [0_u8; SECTOR_SIZE];
+    write_byte(&mut pt, 0, 1);
+    write_byte(&mut pt, 1, 0);
+    write_bytes(&mut pt, 2, &LBA_ROOT_DIR.to_be_bytes());
+    write_bytes(&mut pt, 6, &1_u16.to_be_bytes());
+    write_byte(&mut pt, 8, 0x00);
+    write_byte(&mut pt, 9, 0x00);
     pt
 }
 
 /// Builds the El Torito boot catalog sector (LBA 21, El Torito §2.2 & §2.3).
-fn build_boot_catalog(efi_image_lba: u32, efi_image_sectors: u16) -> [u8; SECTOR_SIZE] {
-    let mut cat = [0u8; SECTOR_SIZE];
+fn build_boot_catalog(efi_image_lba: u32, efi_image_sectors: u16) -> Result<[u8; SECTOR_SIZE]> {
+    let mut cat = [0_u8; SECTOR_SIZE];
 
     // Validation entry (§2.2): 0x01 header, platform 0xEF (EFI), checksum
-    cat[0] = 0x01; // Header ID
-    cat[1] = 0xEF; // Platform: EFI
-    cat[2] = 0x00;
-    cat[3] = 0x00;
+    write_byte(&mut cat, 0, 0x01);
+    write_byte(&mut cat, 1, 0xEF);
+    write_byte(&mut cat, 2, 0x00);
+    write_byte(&mut cat, 3, 0x00);
     // Manufacturer ID: 24 bytes of spaces at offset 4
-    for b in cat[4..28].iter_mut() {
-        *b = b' ';
+    for manufacturer_byte in &mut cat[4..28] {
+        *manufacturer_byte = b' ';
     }
-    cat[30] = 0x55; // Key byte 1
-    cat[31] = 0xAA; // Key byte 2
+    write_byte(&mut cat, 30, 0x55);
+    write_byte(&mut cat, 31, 0xAA);
 
     // The two-byte checksum at offset 28 must make the sum of all 16 words (32 bytes) == 0 mod 0x10000
     let mut sum: u16 = 0;
     for chunk in cat[0..32].chunks(2) {
-        sum = sum.wrapping_add(u16::from_le_bytes([chunk[0], chunk[1]]));
+        sum = sum.wrapping_add(checksum_word(chunk)?);
     }
-    let checksum = (0u16).wrapping_sub(sum);
-    cat[28..30].copy_from_slice(&checksum.to_le_bytes());
+    let checksum = (0_u16).wrapping_sub(sum);
+    write_bytes(&mut cat, 28, &checksum.to_le_bytes());
 
     // Initial/default entry (§2.3): EFI, no emulation
-    cat[32] = 0x88; // Boot indicator: bootable
-    cat[33] = 0x00; // Boot media type: no emulation
-    cat[34] = 0x00; // Load segment: 0 (use default)
-    cat[35] = 0x00;
-    cat[36] = 0x00; // System type
-    cat[37] = 0x00; // Unused
-    cat[38..40].copy_from_slice(&efi_image_sectors.to_le_bytes()); // Sector count
-    cat[40..44].copy_from_slice(&efi_image_lba.to_le_bytes()); // LBA of load image
+    write_byte(&mut cat, 32, 0x88);
+    write_byte(&mut cat, 33, 0x00);
+    write_byte(&mut cat, 34, 0x00);
+    write_byte(&mut cat, 35, 0x00);
+    write_byte(&mut cat, 36, 0x00);
+    write_byte(&mut cat, 37, 0x00);
+    write_bytes(&mut cat, 38, &efi_image_sectors.to_le_bytes());
+    write_bytes(&mut cat, 40, &efi_image_lba.to_le_bytes());
 
     // Section header entry for EFI (§2.4)
-    cat[64] = 0x91; // Header indicator: final section header, platform EFI
-    cat[65] = 0xEF; // Platform: EFI
-    cat[66..68].copy_from_slice(&1u16.to_le_bytes()); // Number of section entries
+    write_byte(&mut cat, 64, 0x91);
+    write_byte(&mut cat, 65, 0xEF);
+    write_bytes(&mut cat, 66, &1_u16.to_le_bytes());
     // Section entry (§2.5) — same as default entry above
-    cat[96] = 0x88;
-    cat[97] = 0x00;
-    cat[98] = 0x00;
-    cat[99] = 0x00;
-    cat[100] = 0x00;
-    cat[101] = 0x00;
-    cat[102..104].copy_from_slice(&efi_image_sectors.to_le_bytes());
-    cat[104..108].copy_from_slice(&efi_image_lba.to_le_bytes());
+    write_byte(&mut cat, 96, 0x88);
+    write_byte(&mut cat, 97, 0x00);
+    write_byte(&mut cat, 98, 0x00);
+    write_byte(&mut cat, 99, 0x00);
+    write_byte(&mut cat, 100, 0x00);
+    write_byte(&mut cat, 101, 0x00);
+    write_bytes(&mut cat, 102, &efi_image_sectors.to_le_bytes());
+    write_bytes(&mut cat, 104, &efi_image_lba.to_le_bytes());
 
-    cat
+    Ok(cat)
 }
 
-/// Returns the total size of the root directory sector in bytes.
-fn root_dir_size(efi_image_size: u32) -> usize {
-    // Dot + dotdot + efiboot.img entry
-    let dot = directory_record(&[0x00], LBA_ROOT_DIR as u32, SECTOR_SIZE as u32, true);
-    let dotdot = directory_record(&[0x01], LBA_ROOT_DIR as u32, SECTOR_SIZE as u32, true);
-    let efi = directory_record(
-        b"EFIBOOT.IMG;1",
-        LBA_FILE_DATA as u32,
-        efi_image_size,
-        false,
+/// Builds a single directory record for use inside the root directory sector.
+fn directory_record(name_bytes: &[u8], lba: u32, size: u32, is_dir: bool) -> Result<Vec<u8>> {
+    let name_len = name_bytes.len();
+    if name_len > usize::from(u8::MAX) {
+        return Err(MisoError::Iso("ISO field must fit in u8".to_owned()));
+    }
+
+    let base_len = 33_usize.checked_add(name_len).ok_or(MisoError::Iso(
+        "usize addition for ISO structures overflowed".to_owned(),
+    ))?;
+    let record_len = if base_len.is_multiple_of(2) {
+        base_len
+    } else {
+        base_len.checked_add(1).ok_or(MisoError::Iso(
+            "usize addition for ISO structures overflowed".to_owned(),
+        ))?
+    };
+    let mut rec = vec![0_u8; record_len];
+    write_byte(
+        &mut rec,
+        0,
+        match u8::try_from(record_len) {
+            Ok(record_len) => record_len,
+            Err(_conversion_error) => {
+                return Err(MisoError::Iso("ISO field must fit in u8".to_owned()));
+            }
+        },
     );
-    dot.len() + dotdot.len() + efi.len()
+    write_byte(&mut rec, 1, 0);
+    write_bytes(&mut rec, 2, &lba.to_le_bytes());
+    write_bytes(&mut rec, 6, &lba.to_be_bytes());
+    write_bytes(&mut rec, 10, &size.to_le_bytes());
+    write_bytes(&mut rec, 14, &size.to_be_bytes());
+    write_bytes(&mut rec, 18, &[0_u8; 7]);
+    write_byte(&mut rec, 25, if is_dir { 0x02 } else { 0x00 });
+    write_byte(&mut rec, 26, 0);
+    write_byte(&mut rec, 27, 0);
+    both_endian_u16(&mut rec, 28, 1);
+    write_byte(&mut rec, 32, u8::try_from(name_len).unwrap_or(u8::MAX));
+    write_bytes(&mut rec, 33, name_bytes);
+    Ok(rec)
 }
 
 /// Builds the root directory sector containing entries for the FAT image.
-fn build_root_dir(efi_image_size: u32) -> [u8; SECTOR_SIZE] {
-    let mut dir = [0u8; SECTOR_SIZE];
-    let dir_size = root_dir_size(efi_image_size) as u32;
+fn build_root_dir(efi_image_size: u32) -> Result<[u8; SECTOR_SIZE]> {
+    let mut dir = [0_u8; SECTOR_SIZE];
+    let dir_size = root_dir_size(efi_image_size)?;
 
-    let dot = directory_record(&[0x00], LBA_ROOT_DIR as u32, dir_size, true);
-    let dotdot = directory_record(&[0x01], LBA_ROOT_DIR as u32, dir_size, true);
-    let efi = directory_record(
-        b"EFIBOOT.IMG;1",
-        LBA_FILE_DATA as u32,
-        efi_image_size,
-        false,
-    );
+    let dot = directory_record(&[0x00], LBA_ROOT_DIR, dir_size, true)?;
+    let dotdot = directory_record(&[0x01], LBA_ROOT_DIR, dir_size, true)?;
+    let efi = directory_record(b"EFIBOOT.IMG;1", LBA_FILE_DATA, efi_image_size, false)?;
 
     let mut offset = 0;
-    dir[offset..offset + dot.len()].copy_from_slice(&dot);
-    offset += dot.len();
-    dir[offset..offset + dotdot.len()].copy_from_slice(&dotdot);
-    offset += dotdot.len();
-    dir[offset..offset + efi.len()].copy_from_slice(&efi);
-    dir
+    write_bytes(&mut dir, offset, &dot);
+    offset = offset.checked_add(dot.len()).ok_or(MisoError::Iso(
+        "usize addition for ISO structures overflowed".to_owned(),
+    ))?;
+    write_bytes(&mut dir, offset, &dotdot);
+    offset = offset.checked_add(dotdot.len()).ok_or(MisoError::Iso(
+        "usize addition for ISO structures overflowed".to_owned(),
+    ))?;
+    write_bytes(&mut dir, offset, &efi);
+    Ok(dir)
+}
+
+/// Returns the total size of the root directory sector in bytes.
+fn root_dir_size(efi_image_size: u32) -> Result<u32> {
+    // Dot + dotdot records are always 34 bytes in ISO 9660.
+    let efi = directory_record(b"EFIBOOT.IMG;1", LBA_FILE_DATA, efi_image_size, false)?;
+    let efi_len = efi.first().copied().ok_or(MisoError::Iso(
+        "directory record must contain a length byte".to_owned(),
+    ))?;
+
+    let size = 34_u32
+        .checked_add(34)
+        .and_then(|size| size.checked_add(u32::from(efi_len)))
+        .ok_or(MisoError::Iso(
+            "usize addition for ISO structures overflowed".to_owned(),
+        ))?;
+
+    Ok(size)
 }
 
 /// Writes a protective MBR entry so the ISO doubles as a valid hybrid MBR disk image.
-fn write_protective_mbr(
-    out: &mut (impl Write + Seek),
+fn write_protective_mbr<W: Write + Seek>(
+    out: &mut W,
     efi_image_offset_bytes: u64,
     efi_image_size_bytes: u64,
 ) -> Result<()> {
-    let start_lba = (efi_image_offset_bytes / 512) as u32;
-    let size_lba = (efi_image_size_bytes / 512) as u32;
+    let start_lba = match u32::try_from(efi_image_offset_bytes >> 9) {
+        Ok(start_lba) => start_lba,
+        Err(_conversion_error) => {
+            return Err(MisoError::Iso(
+                "EFI image offset sectors must fit in u32".to_owned(),
+            ));
+        }
+    };
+    let size_lba = match u32::try_from(efi_image_size_bytes >> 9) {
+        Ok(size_lba) => size_lba,
+        Err(_conversion_error) => {
+            return Err(MisoError::Iso(
+                "EFI image size sectors must fit in u32".to_owned(),
+            ));
+        }
+    };
     let entry = MbrPartitionEntry {
         bootable: false,
         partition_type: MBR_EFI_SYSTEM_TYPE,
@@ -287,73 +400,59 @@ fn write_protective_mbr(
     Ok(())
 }
 
-/// Returns the El Torito boot image sector count, rejecting oversized EFI images.
-fn el_torito_sector_count(efi_image_len: usize) -> Result<u16> {
-    let efi_sectors = efi_image_len.div_ceil(SECTOR_SIZE);
-    if efi_sectors > MAX_EL_TORITO_IMAGE_SECTORS {
-        return Err(MisoError::Iso(format!(
-            "EFI boot image too large for El Torito: {efi_sectors} sectors > {}",
-            u16::MAX
-        )));
-    }
-
-    Ok(efi_sectors as u16)
+/// Writes an ISO date/time field with all-zero (unspecified) values.
+fn zero_date() -> [u8; 17] {
+    let mut date = [b'0'; 17];
+    date[16] = 0;
+    date
 }
 
-/// Writes a complete bootable ISO 9660 image.
-pub fn write(out: &mut (impl Write + Seek), efi_image: &[u8]) -> Result<()> {
-    let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
-    let efi_image_lba = LBA_FILE_DATA as u32;
-    let efi_image_size = efi_image.len() as u32;
-    let efi_image_sectors_u16 = el_torito_sector_count(efi_image.len())?;
-    let total_sectors = (LBA_FILE_DATA + efi_sectors as u64 + 1) as u32;
+fn write_bytes(buf: &mut [u8], offset: usize, bytes: &[u8]) {
+    let (_, tail) = buf.split_at_mut(offset);
+    let (dst, _) = tail.split_at_mut(bytes.len());
+    dst.copy_from_slice(bytes);
+}
 
-    // System area: 16 empty sectors (bytes 0–32767)
-    let system_area = vec![0u8; SECTOR_SIZE * LBA_PVD as usize];
-    out.seek(SeekFrom::Start(0))?;
-    out.write_all(&system_area)?;
+fn write_byte(buf: &mut [u8], offset: usize, value: u8) {
+    write_bytes(buf, offset, &[value]);
+}
 
-    // Sector 16: Primary Volume Descriptor
-    out.seek(SeekFrom::Start(LBA_PVD * SECTOR_SIZE as u64))?;
-    out.write_all(&build_pvd(total_sectors, efi_image_size))?;
+fn sector_offset(lba: u32) -> Result<u64> {
+    u64::from(lba)
+        .checked_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX))
+        .ok_or(MisoError::Iso(
+            "u64 multiplication for ISO offsets overflowed".to_owned(),
+        ))
+}
 
-    // Sector 17: Boot Record Volume Descriptor
-    out.seek(SeekFrom::Start(LBA_BOOT_RECORD * SECTOR_SIZE as u64))?;
-    out.write_all(&build_boot_record_vd())?;
+fn checksum_word(chunk: &[u8]) -> Result<u16> {
+    let pair: [u8; 2] = match chunk.try_into() {
+        Ok(pair) => pair,
+        Err(_chunk_error) => {
+            return Err(MisoError::Iso(
+                "boot catalog checksum chunk must be 2 bytes".to_owned(),
+            ));
+        }
+    };
+    Ok(u16::from_le_bytes(pair))
+}
 
-    // Sector 18: Volume Descriptor Set Terminator
-    out.seek(SeekFrom::Start(LBA_VD_TERMINATOR * SECTOR_SIZE as u64))?;
-    out.write_all(&build_vd_terminator())?;
+/// Writes `value` in both little-endian and big-endian form (ISO 7.3.3).
+fn both_endian_u32(buf: &mut [u8], offset: usize, value: u32) {
+    let (_, tail) = buf.split_at_mut(offset);
+    let (field, _) = tail.split_at_mut(8);
+    let (little_endian, big_endian) = field.split_at_mut(4);
+    little_endian.copy_from_slice(&value.to_le_bytes());
+    big_endian.copy_from_slice(&value.to_be_bytes());
+}
 
-    // Sector 19: L-path table
-    out.seek(SeekFrom::Start(LBA_PATH_TABLE_L * SECTOR_SIZE as u64))?;
-    out.write_all(&build_path_table_l())?;
-
-    // Sector 20: M-path table
-    out.seek(SeekFrom::Start(LBA_PATH_TABLE_M * SECTOR_SIZE as u64))?;
-    out.write_all(&build_path_table_m())?;
-
-    // Sector 21: El Torito boot catalog
-    out.seek(SeekFrom::Start(LBA_BOOT_CATALOG * SECTOR_SIZE as u64))?;
-    out.write_all(&build_boot_catalog(efi_image_lba, efi_image_sectors_u16))?;
-
-    // Sector 22: Root directory
-    out.seek(SeekFrom::Start(LBA_ROOT_DIR * SECTOR_SIZE as u64))?;
-    out.write_all(&build_root_dir(efi_image_size))?;
-
-    // Sector 23+: EFI image data (padded to sector boundary)
-    out.seek(SeekFrom::Start(LBA_FILE_DATA * SECTOR_SIZE as u64))?;
-    out.write_all(efi_image)?;
-    let padding = efi_sectors * SECTOR_SIZE - efi_image.len();
-    if padding > 0 {
-        out.write_all(&vec![0u8; padding])?;
-    }
-
-    // GPT hybrid MBR entry at byte 446
-    let efi_offset = LBA_FILE_DATA * SECTOR_SIZE as u64;
-    write_protective_mbr(out, efi_offset, efi_image.len() as u64)?;
-
-    Ok(())
+/// Writes `value` in both little-endian and big-endian form (ISO 7.2.3).
+fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
+    let (_, tail) = buf.split_at_mut(offset);
+    let (field, _) = tail.split_at_mut(4);
+    let (little_endian, big_endian) = field.split_at_mut(2);
+    little_endian.copy_from_slice(&value.to_le_bytes());
+    big_endian.copy_from_slice(&value.to_be_bytes());
 }
 
 #[cfg(test)]
@@ -361,6 +460,7 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::error::MisoError;
 
     fn minimal_efi_image() -> Vec<u8> {
         vec![0xEFu8; 4 * SECTOR_SIZE]
@@ -575,7 +675,7 @@ mod tests {
         let name = b"AB;1";
 
         // ACT
-        let rec = directory_record(name, 23, 8192, false);
+        let rec = directory_record(name, 23, 8192, false).expect("directory record must build");
 
         // ASSERT
         let expected_base = 33 + name.len();
@@ -593,7 +693,7 @@ mod tests {
     #[test]
     fn directory_record_dir_flag_is_set() {
         // ARRANGE / ACT
-        let rec = directory_record(&[0x00], 22, 2048, true);
+        let rec = directory_record(&[0x00], 22, 2048, true).expect("directory record must build");
 
         // ASSERT
         assert_eq!(rec[25], 0x02, "directory flag must be 0x02");
@@ -611,7 +711,7 @@ mod tests {
     #[test]
     fn el_torito_sector_count_rejects_oversized_image() {
         // ARRANGE
-        let oversized = (MAX_EL_TORITO_IMAGE_SECTORS + 1) * SECTOR_SIZE;
+        let oversized = (usize::from(u16::MAX) + 1) * SECTOR_SIZE;
 
         // ACT
         let err = el_torito_sector_count(oversized).expect_err("oversized image must fail");
@@ -619,5 +719,106 @@ mod tests {
         // ASSERT
         assert!(matches!(err, MisoError::Iso(_)));
         assert!(err.to_string().contains("too large for El Torito"));
+    }
+
+    #[test]
+    fn directory_record_rejects_name_lengths_that_do_not_fit_in_u8() {
+        // ARRANGE
+        let too_long_name = vec![b'A'; usize::from(u8::MAX) + 1];
+
+        // ACT
+        let err = directory_record(&too_long_name, 23, 8192, false)
+            .expect_err("oversized file name must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("must fit in u8"));
+    }
+
+    #[test]
+    fn directory_record_rejects_record_lengths_that_do_not_fit_in_u8() {
+        // ARRANGE
+        let too_large_record_name = vec![b'A'; 223];
+
+        // ACT
+        let err = directory_record(&too_large_record_name, 23, 8192, false)
+            .expect_err("oversized record length must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("must fit in u8"));
+    }
+
+    #[test]
+    fn root_dir_size_counts_dot_dotdot_and_efi_records() {
+        // ARRANGE
+        let efi_image_size = 4 * 1024;
+
+        // ACT
+        let size = root_dir_size(efi_image_size).expect("root directory size must build");
+
+        // ASSERT
+        assert_eq!(
+            size,
+            34 + 34 + 46,
+            "root directory size must sum all record lengths"
+        );
+    }
+
+    #[test]
+    fn write_iso_rejects_sizes_that_do_not_fit_in_u32() {
+        // ARRANGE
+        let oversized = vec![0_u8; usize::try_from(u32::MAX).unwrap() + 1];
+        let mut out = Cursor::new(Vec::new());
+
+        // ACT
+        let err = write(&mut out, &oversized).expect_err("oversized image must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("must fit in u32"));
+    }
+
+    #[test]
+    fn checksum_word_rejects_non_word_sized_chunks() {
+        // ARRANGE
+        let short_chunk = [0xAA_u8];
+
+        // ACT
+        let err = checksum_word(&short_chunk).expect_err("short chunk must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("2 bytes"));
+    }
+
+    #[test]
+    fn write_protective_mbr_rejects_offsets_that_do_not_fit_in_u32_sectors() {
+        // ARRANGE
+        let mut out = Cursor::new(Vec::new());
+        let overflowing_offset = (u64::from(u32::MAX) + 1) << 9;
+
+        // ACT
+        let err = write_protective_mbr(&mut out, overflowing_offset, 512)
+            .expect_err("oversized offset must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("offset sectors must fit in u32"));
+    }
+
+    #[test]
+    fn write_protective_mbr_rejects_sizes_that_do_not_fit_in_u32_sectors() {
+        // ARRANGE
+        let mut out = Cursor::new(Vec::new());
+        let overflowing_size = (u64::from(u32::MAX) + 1) << 9;
+
+        // ACT
+        let err = write_protective_mbr(&mut out, 512, overflowing_size)
+            .expect_err("oversized size must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("size sectors must fit in u32"));
     }
 }

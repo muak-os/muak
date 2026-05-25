@@ -3,85 +3,122 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use parttable::error::ParttableError;
+use parttable::error::Result as ParttableResult;
 use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 use parttable::mbr;
 
-use crate::error::Result;
+use crate::error::{MisoError, Result};
 
 /// Sector size for the raw disk image (512 bytes).
 const SECTOR_SIZE: u64 = 512;
 
-/// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
-pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
-    let disk_sectors = layout_disk(efi_image.len() as u64)?;
-    let disk_size = disk_sectors * SECTOR_SIZE;
+type PlacementResult = ParttableResult<()>;
 
-    let zeroed = vec![0u8; disk_size as usize];
-    out.seek(SeekFrom::Start(0))?;
-    out.write_all(&zeroed)?;
+/// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
+///
+/// # Errors
+///
+/// Returns an error if the image layout overflows, GPT/MBR generation fails,
+/// or any write or seek operation fails.
+pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
+    let efi_image_len_bytes = efi_image.len().to_le_bytes();
+    let mut efi_image_len = [0_u8; 8];
+    for (dst, src) in efi_image_len.iter_mut().zip(efi_image_len_bytes) {
+        *dst = src;
+    }
+    let efi_image_len = u64::from_le_bytes(efi_image_len);
+    let disk_sectors = layout_disk(efi_image_len)?;
+    let disk_size = disk_sectors
+        .checked_mul(SECTOR_SIZE)
+        .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
+
+    zero_fill_to_size(out, disk_size)?;
 
     let mut gpt = Table::create(out, SECTOR_SIZE, [0xff; 16])?;
-    let placement = gpt.place_partition(
-        PlacementRequest {
-            slot: Slot::Exact(1),
-            start: Start::FirstUsable,
-            size: Size::Bytes(efi_image.len() as u64),
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: EFI_GUID,
-            unique_guid: [0xAA; 16],
-            attributes: 0,
-            name: "EFI".to_owned(),
-        },
-        SECTOR_SIZE,
-    )?;
+    let request = PlacementRequest {
+        slot: Slot::Exact(1),
+        start: Start::FirstUsable,
+        size: Size::Bytes(efi_image_len),
+        alignment_lba: ALIGN_1_MIB_SECTORS,
+        type_guid: EFI_GUID,
+        unique_guid: [0xAA; 16],
+        attributes: 0,
+        name: "EFI".to_owned(),
+    };
+    let placement = gpt.place_partition(request, SECTOR_SIZE)?;
     gpt.write(out)?;
 
     mbr::io::write_protective(out, disk_size, SECTOR_SIZE)?;
 
-    out.seek(SeekFrom::Start(
-        placement.partition.starting_lba * SECTOR_SIZE,
-    ))?;
+    let partition_offset = placement
+        .partition
+        .starting_lba
+        .checked_mul(SECTOR_SIZE)
+        .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
+    out.seek(SeekFrom::Start(partition_offset))?;
     out.write_all(efi_image)?;
 
     Ok(())
 }
 
+/// Computes the number of sectors needed for the raw disk image to fit the ESP partition.
 fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
     let mut disk_sectors = ALIGN_1_MIB_SECTORS * 2;
 
     loop {
-        let mut disk = std::io::Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
+        let disk_size = disk_sectors
+            .checked_mul(SECTOR_SIZE)
+            .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
+        let mut disk = std::io::Cursor::new(Vec::new());
+        zero_fill_to_size(&mut disk, disk_size)?;
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
-        match try_layout(
-            gpt.place_partition(
-                PlacementRequest {
-                    slot: Slot::Exact(1),
-                    start: Start::FirstUsable,
-                    size: Size::Bytes(efi_image_bytes),
-                    alignment_lba: ALIGN_1_MIB_SECTORS,
-                    type_guid: EFI_GUID,
-                    unique_guid: [0xAA; 16],
-                    attributes: 0,
-                    name: "EFI".to_owned(),
-                },
-                SECTOR_SIZE,
-            )
-            .map(|_| ()),
-            disk_sectors,
-        )? {
+        let request = PlacementRequest {
+            slot: Slot::Exact(1),
+            start: Start::FirstUsable,
+            size: Size::Bytes(efi_image_bytes),
+            alignment_lba: ALIGN_1_MIB_SECTORS,
+            type_guid: EFI_GUID,
+            unique_guid: [0xAA; 16],
+            attributes: 0,
+            name: "EFI".to_owned(),
+        };
+        let placement = gpt.place_partition(request, SECTOR_SIZE).map(|_| ());
+
+        match try_layout(placement, disk_sectors)? {
             Some(disk_sectors) => return Ok(disk_sectors),
-            None => disk_sectors += ALIGN_1_MIB_SECTORS,
+            None => {
+                disk_sectors =
+                    disk_sectors
+                        .checked_add(ALIGN_1_MIB_SECTORS)
+                        .ok_or(MisoError::Gpt(
+                            "raw disk sector count overflowed".to_owned(),
+                        ))?;
+            }
         }
     }
 }
 
-fn try_layout(placement: parttable::error::Result<()>, disk_sectors: u64) -> Result<Option<u64>> {
+/// Interprets the result of a partition placement attempt.
+fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u64>> {
     match placement {
         Ok(()) => Ok(Some(disk_sectors)),
         Err(ParttableError::InvalidPlacement(_)) => Ok(None),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Fills `out` with zeros until it reaches `size` bytes, then seeks back to the start.
+fn zero_fill_to_size<W: Write + Seek>(out: &mut W, size: u64) -> Result<()> {
+    let Some(last_byte) = size.checked_sub(1) else {
+        return Ok(());
+    };
+
+    out.seek(SeekFrom::Start(last_byte))?;
+    out.write_all(&[0])?;
+    out.seek(SeekFrom::Start(0))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -107,7 +144,11 @@ mod tests {
     }
 
     fn try_place_efi_partition(disk_sectors: u64, efi_image_bytes: u64) -> Result<()> {
-        let mut disk = Cursor::new(vec![0u8; (disk_sectors * SECTOR_SIZE) as usize]);
+        let disk_size = disk_sectors
+            .checked_mul(SECTOR_SIZE)
+            .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
+        let mut disk = Cursor::new(Vec::new());
+        zero_fill_to_size(&mut disk, disk_size)?;
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
 
         gpt.place_partition(
@@ -142,6 +183,18 @@ mod tests {
         let mut cursor = Cursor::new(data);
         let gpt = Table::read(&mut cursor).expect("GPT must be valid");
         assert!(gpt.has_used_partitions(), "must have a partition");
+    }
+
+    #[test]
+    fn zero_fill_to_size_with_zero_leaves_output_empty() {
+        // ARRANGE
+        let mut out = Cursor::new(Vec::new());
+
+        // ACT
+        zero_fill_to_size(&mut out, 0).expect("zero fill must succeed");
+
+        // ASSERT
+        assert!(out.into_inner().is_empty());
     }
 
     #[test]
@@ -194,7 +247,12 @@ mod tests {
         let mut cursor = Cursor::new(&data);
         let gpt = Table::read(&mut cursor).expect("GPT must be valid");
         let part = gpt.partition(1).expect("must have partition");
-        let offset = (part.starting_lba * SECTOR_SIZE) as usize;
+        let offset = usize::try_from(
+            part.starting_lba
+                .checked_mul(SECTOR_SIZE)
+                .expect("partition offset must fit in u64"),
+        )
+        .expect("partition offset must fit in usize");
         let esp_data = &data[offset..offset + esp.len()];
         assert_eq!(esp_data, esp.as_slice());
     }

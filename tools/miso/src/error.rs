@@ -1,10 +1,15 @@
 //! Error types for miso operations.
 
 use esp::EspError;
+use parttable::error::ParttableError;
 use thiserror::Error;
 
 /// Errors produced during image construction.
 #[derive(Error, Debug)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 pub enum MisoError {
     /// Errors from file system and network I/O operations.
     #[error("I/O error: {0}")]
@@ -46,8 +51,8 @@ pub enum MisoError {
     },
 }
 
-impl From<parttable::error::ParttableError> for MisoError {
-    fn from(err: parttable::error::ParttableError) -> Self {
+impl From<ParttableError> for MisoError {
+    fn from(err: ParttableError) -> Self {
         Self::Gpt(err.to_string())
     }
 }

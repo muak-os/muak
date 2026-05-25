@@ -1,25 +1,36 @@
 //! Miso - Packages a Unified Kernel Image into a bootable image.
 
-mod error;
-mod iso;
-mod raw;
+#[cfg(feature = "cli")]
+pub mod cli;
+pub mod error;
+pub mod iso;
+pub mod raw;
 
 use std::io::{Cursor, Write};
 
-pub use error::{MisoError, Result};
-pub use esp::{Arch, EspFile, EspSpec};
-pub use iso::SECTOR_SIZE;
+use esp::EspSpec;
 
-/// Builds a bootable ISO 9660 image from an `EspSpec` into any `Write + Seek` sink.
-pub fn build_iso(spec: &EspSpec, out: &mut (impl std::io::Write + std::io::Seek)) -> Result<()> {
+use crate::error::{MisoError, Result};
+
+/// Builds a bootable ISO 9660 image from an `esp::EspSpec` into any `Write + Seek` sink.
+///
+/// # Errors
+///
+/// Returns an error if ESP construction fails or writing the ISO image fails.
+pub fn build_iso<W: std::io::Write + std::io::Seek>(spec: &EspSpec, out: &mut W) -> Result<()> {
     let efi_image = esp::build(spec)?;
     iso::write(out, &efi_image)
 }
 
-/// Builds a raw GPT disk image from an `EspSpec` into any `Read + Write + Seek` sink.
-pub fn build_raw(
+/// Builds a raw GPT disk image from an `esp::EspSpec` into any `Read + Write + Seek` sink.
+///
+/// # Errors
+///
+/// Returns an error if ESP construction fails, compression level validation fails,
+/// raw image creation fails, or output writing/compression fails.
+pub fn build_raw<W: Write>(
     spec: &EspSpec,
-    out: &mut impl Write,
+    out: &mut W,
     compression_level: Option<i32>,
 ) -> Result<()> {
     let efi_image = esp::build(spec)?;
@@ -132,7 +143,7 @@ mod tests {
         let iso = build_iso_bytes(&spec);
 
         // ASSERT
-        let pvd_offset = SECTOR_SIZE * 16 + 1;
+        let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
         assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
     }
 
@@ -145,7 +156,7 @@ mod tests {
         let iso = build_iso_bytes(&spec);
 
         // ASSERT
-        let pvd_offset = SECTOR_SIZE * 16 + 1;
+        let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
         assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
     }
 
@@ -181,7 +192,7 @@ mod tests {
         let iso = build_iso_bytes(&spec);
 
         // ASSERT
-        let pvd_offset = SECTOR_SIZE * 16 + 1;
+        let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
         assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
     }
 }
