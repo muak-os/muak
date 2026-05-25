@@ -6,7 +6,7 @@ use erofs::{Compression, FileContexts, MkfsConfig};
 
 use crate::error::{RamuneError, Result};
 
-/// Creates a reproducible EROFS image with optional SELinux file contexts.
+/// Creates a reproducible EROFS image with optional `SELinux` file contexts.
 pub(crate) fn create(
     source_dir: &Path,
     file_contexts: Option<&FileContexts>,

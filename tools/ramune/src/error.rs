@@ -1,9 +1,14 @@
 //! Error types for the ramune initramfs builder.
 
 use thiserror::Error;
+use tokio::task::JoinError;
 
 /// Error type for initramfs build operations.
 #[derive(Error, Debug)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 pub enum RamuneError {
     #[error("Failed to read {file}: {source}")]
     ReadError {
@@ -27,7 +32,7 @@ pub enum RamuneError {
     InvalidCompressionLevel { level: i32, min: i32, max: i32 },
 
     #[error("Extension worker task failed: {0}")]
-    ExtensionTaskError(#[source] tokio::task::JoinError),
+    ExtensionTaskError(#[source] JoinError),
 
     #[error("Failed to create EROFS image: {0}")]
     ErofsError(String),
@@ -37,4 +42,4 @@ pub enum RamuneError {
 }
 
 /// Result type alias for ramune operations.
-pub type Result<T> = std::result::Result<T, RamuneError>;
+pub type Result<T> = core::result::Result<T, RamuneError>;

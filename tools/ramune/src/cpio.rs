@@ -10,6 +10,12 @@ const NEWC_MAGIC: &str = "070701";
 /// Trailer entry name marking the end of the archive.
 const TRAILER: &str = "TRAILER!!!";
 
+/// Fixed width of a `newc` header.
+const HEADER_LEN: usize = 110;
+
+/// Zero bytes used for archive padding.
+const PAD_SLICES: [&[u8]; 4] = [&[], &[0_u8], &[0_u8, 0_u8], &[0_u8, 0_u8, 0_u8]];
+
 /// A single entry in a CPIO archive.
 pub(crate) struct CpioEntry {
     pub path: String,
@@ -36,78 +42,86 @@ struct CpioHeader {
 }
 
 /// Creates a CPIO archive in newc format from a list of entries.
-pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Vec<u8> {
-    let capacity = entries
-        .iter()
-        .map(|e| 110 + e.path.len() + e.data.len() + 8)
-        .sum();
+pub(crate) fn create_from_entries(entries: &[CpioEntry]) -> Result<Vec<u8>> {
+    let capacity = entries.iter().fold(0_usize, |total, entry| {
+        total
+            .saturating_add(HEADER_LEN)
+            .saturating_add(entry.path.len())
+            .saturating_add(entry.data.len())
+            .saturating_add(8)
+    });
     let mut buf = Vec::with_capacity(capacity);
-    write_entries_to_vec(&mut buf, entries);
-    buf
+    write_entries_to_vec(&mut buf, entries)?;
+    Ok(buf)
 }
 
 /// Writes a CPIO archive containing the given files under an `extensions/` directory into `writer`.
 pub(crate) fn write_archive<W: Write>(writer: &mut W, files: &[(String, Vec<u8>)]) -> Result<()> {
     let dir_entry = CpioEntry {
-        path: "extensions".to_string(),
-        mode: 0o040755,
+        path: "extensions".to_owned(),
+        mode: 0o040_755,
         data: Vec::new(),
     };
     write_entry(writer, 1, &dir_entry.path, dir_entry.mode, &dir_entry.data)?;
-    for (ino, (path, data)) in files.iter().enumerate() {
-        write_entry(writer, (ino + 2) as u32, path, 0o100644, data)?;
+    let mut inode = 2_u32;
+
+    for file in files {
+        write_entry(writer, inode, &file.0, 0o100_644, &file.1)?;
+        inode = inode
+            .checked_add(1)
+            .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
     }
-    write_entry(writer, (files.len() + 2) as u32, TRAILER, 0, &[])
+
+    write_entry(writer, inode, TRAILER, 0, &[])
 }
 
-/// Writes all entries plus the TRAILER to `writer`.
-#[cfg(test)]
-fn write_entries<W: Write>(writer: &mut W, entries: &[CpioEntry]) -> Result<()> {
-    for (i, entry) in entries.iter().enumerate() {
-        write_entry(writer, (i + 1) as u32, &entry.path, entry.mode, &entry.data)?;
+fn write_entries_to_vec(buf: &mut Vec<u8>, entries: &[CpioEntry]) -> Result<()> {
+    let mut inode = 1_u32;
+
+    for entry in entries {
+        write_entry_to_vec(buf, inode, &entry.path, entry.mode, &entry.data)?;
+        inode = inode
+            .checked_add(1)
+            .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
     }
-    write_entry(writer, (entries.len() + 1) as u32, TRAILER, 0, &[])
+
+    write_entry_to_vec(buf, inode, TRAILER, 0, &[])?;
+
+    Ok(())
 }
 
-fn write_entries_to_vec(buf: &mut Vec<u8>, entries: &[CpioEntry]) {
-    for (i, entry) in entries.iter().enumerate() {
-        write_entry_to_vec(buf, (i + 1) as u32, &entry.path, entry.mode, &entry.data);
-    }
-    write_entry_to_vec(buf, (entries.len() + 1) as u32, TRAILER, 0, &[]);
-}
-
-fn header_string(h: &CpioHeader) -> String {
+fn header_string(header: &CpioHeader) -> String {
     format!(
         "{NEWC_MAGIC}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
-        h.ino,
-        h.mode,
-        h.uid,
-        h.gid,
-        h.nlink,
-        h.mtime,
-        h.filesize,
-        h.devmajor,
-        h.devminor,
-        h.rdevmajor,
-        h.rdevminor,
-        h.namesize,
-        h.check,
+        header.ino,
+        header.mode,
+        header.uid,
+        header.gid,
+        header.nlink,
+        header.mtime,
+        header.filesize,
+        header.devmajor,
+        header.devminor,
+        header.rdevmajor,
+        header.rdevminor,
+        header.namesize,
+        header.check,
     )
 }
 
 /// Writes a CPIO newc format header to `writer`, returning bytes written.
-fn write_header<W: Write>(writer: &mut W, h: &CpioHeader) -> Result<usize> {
-    let s = header_string(h);
+fn write_header<W: Write>(writer: &mut W, header: &CpioHeader) -> Result<usize> {
+    let header_text = header_string(header);
     writer
-        .write_all(s.as_bytes())
+        .write_all(header_text.as_bytes())
         .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
-    Ok(s.len())
+    Ok(header_text.len())
 }
 
-fn write_header_to_vec(buf: &mut Vec<u8>, h: &CpioHeader) -> usize {
-    let s = header_string(h);
-    buf.extend_from_slice(s.as_bytes());
-    s.len()
+fn write_header_to_vec(buf: &mut Vec<u8>, header: &CpioHeader) -> usize {
+    let header_text = header_string(header);
+    buf.extend_from_slice(header_text.as_bytes());
+    header_text.len()
 }
 
 /// Writes a single entry (file or directory) to the CPIO archive.
@@ -119,10 +133,10 @@ fn write_entry<W: Write>(
     data: &[u8],
 ) -> Result<()> {
     let name_bytes = name.as_bytes();
-    let namesize = (name_bytes.len() + 1) as u32;
-    let filesize = data.len() as u32;
+    let namesize = usize_to_u32(name_bytes.len().saturating_add(1), "filename length")?;
+    let filesize = usize_to_u32(data.len(), "file size")?;
 
-    let mut pos = write_header(
+    let mut position = write_header(
         writer,
         &CpioHeader {
             ino,
@@ -140,26 +154,32 @@ fn write_entry<W: Write>(
     writer
         .write_all(&[0])
         .map_err(|e| RamuneError::CpioError(format!("Failed to write null byte: {e}")))?;
-    pos += name_bytes.len() + 1;
-    pos += write_pad4(writer, pos)?;
+    position = position.saturating_add(name_bytes.len()).saturating_add(1);
+    position = position.saturating_add(write_pad4(writer, position)?);
 
     if !data.is_empty() {
         writer
             .write_all(data)
             .map_err(|e| RamuneError::CpioError(format!("Failed to write file data: {e}")))?;
-        pos += data.len();
-        write_pad4(writer, pos)?;
+        position = position.saturating_add(data.len());
+        let _padding = write_pad4(writer, position)?;
     }
 
     Ok(())
 }
 
-fn write_entry_to_vec(buf: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8]) {
+fn write_entry_to_vec(
+    buf: &mut Vec<u8>,
+    ino: u32,
+    name: &str,
+    mode: u32,
+    data: &[u8],
+) -> Result<()> {
     let name_bytes = name.as_bytes();
-    let namesize = (name_bytes.len() + 1) as u32;
-    let filesize = data.len() as u32;
+    let namesize = usize_to_u32(name_bytes.len().saturating_add(1), "filename length")?;
+    let filesize = usize_to_u32(data.len(), "file size")?;
 
-    let mut pos = write_header_to_vec(
+    let mut position = write_header_to_vec(
         buf,
         &CpioHeader {
             ino,
@@ -173,36 +193,62 @@ fn write_entry_to_vec(buf: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: 
 
     buf.extend_from_slice(name_bytes);
     buf.push(0);
-    pos += name_bytes.len() + 1;
-    pos += write_pad4_to_vec(buf, pos);
+    position = position.saturating_add(name_bytes.len()).saturating_add(1);
+    position = position.saturating_add(write_pad4_to_vec(buf, position));
 
     if !data.is_empty() {
         buf.extend_from_slice(data);
-        pos += data.len();
-        write_pad4_to_vec(buf, pos);
+        position = position.saturating_add(data.len());
+        let _padding = write_pad4_to_vec(buf, position);
     }
+
+    Ok(())
 }
 
 /// Writes null padding to align `pos` to a 4-byte boundary; returns bytes written.
 fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
-    let pad = (4 - (pos % 4)) % 4;
+    let pad = pos.next_multiple_of(4).saturating_sub(pos);
     if pad > 0 {
+        let padding = PAD_SLICES.get(pad).copied().unwrap_or(&[]);
         writer
-            .write_all(&[0u8; 3][..pad])
+            .write_all(padding)
             .map_err(|e| RamuneError::CpioError(format!("Failed to write padding: {e}")))?;
     }
     Ok(pad)
 }
 
 fn write_pad4_to_vec(buf: &mut Vec<u8>, pos: usize) -> usize {
-    let pad = (4 - (pos % 4)) % 4;
-    buf.resize(buf.len() + pad, 0);
+    let pad = pos.next_multiple_of(4).saturating_sub(pos);
+    let new_len = buf.len().saturating_add(pad);
+    buf.resize(new_len, 0);
     pad
+}
+
+fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
+    match u32::try_from(value) {
+        Ok(converted) => Ok(converted),
+        Err(_conversion_error) => Err(RamuneError::CpioError(format!(
+            "{context} exceeds CPIO limits"
+        ))),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_entries<W: Write>(writer: &mut W, entries: &[CpioEntry]) -> Result<()> {
+        let mut inode = 1_u32;
+
+        for entry in entries {
+            write_entry(writer, inode, &entry.path, entry.mode, &entry.data)?;
+            inode = inode
+                .checked_add(1)
+                .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
+        }
+
+        write_entry(writer, inode, TRAILER, 0, &[])
+    }
 
     struct FailingWriter {
         fail_on_call: usize,
@@ -350,7 +396,7 @@ mod tests {
         ];
 
         // ACT
-        let result = create_from_entries(&entries);
+        let result = create_from_entries(&entries).expect("create_from_entries");
 
         // ASSERT
         assert!(!result.is_empty());
@@ -364,7 +410,7 @@ mod tests {
     #[test]
     fn create_from_entries_empty() {
         // ARRANGE / ACT
-        let result = create_from_entries(&[]);
+        let result = create_from_entries(&[]).expect("create_from_entries");
 
         // ASSERT
         assert!(
@@ -429,7 +475,7 @@ mod tests {
         };
 
         // ACT
-        let archive = create_from_entries(&[entry]);
+        let archive = create_from_entries(&[entry]).expect("create_from_entries");
 
         // ASSERT
         assert!(

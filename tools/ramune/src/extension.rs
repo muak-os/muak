@@ -25,7 +25,7 @@ pub(crate) async fn process_all(
         files.extend(process_batch(batch, compression_level, process).await?);
     }
 
-    files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    files.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     Ok(files)
 }
 
@@ -36,9 +36,9 @@ async fn process_batch(
 ) -> Result<Vec<ProcessOutput>> {
     let mut tasks = JoinSet::new();
 
-    for (name, path) in batch {
-        let name = name.clone();
-        let path = path.clone();
+    for entry in batch {
+        let name = entry.0.clone();
+        let path = entry.1.clone();
 
         tasks.spawn_blocking(move || process(&name, &path, compression_level));
     }

@@ -3,7 +3,12 @@
 use std::io::Write;
 use std::path::Path;
 
+use tokio::fs::{OpenOptions, canonicalize, copy};
+use tokio::io::{AsyncWrite, AsyncWriteExt as _};
+
+use crate::cpio::write_archive as write_cpio_archive;
 use crate::error::{RamuneError, Result};
+use crate::extension::process_all;
 
 /// Settings for appending extension archives to an initramfs image.
 pub struct ExtendConfig<'a> {
@@ -18,11 +23,16 @@ pub struct ExtendConfig<'a> {
 }
 
 /// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
+///
+/// # Errors
+///
+/// Returns an error when reading the base image, processing extensions, compressing the
+/// appended archive, or writing the output image fails.
 pub async fn extend(config: &ExtendConfig<'_>, output: &Path) -> Result<()> {
     let same_file = is_same_file(config.base, output).await;
 
     if !same_file {
-        tokio::fs::copy(config.base, output)
+        copy(config.base, output)
             .await
             .map_err(|e| RamuneError::ReadError {
                 file: config.base.display().to_string(),
@@ -38,20 +48,15 @@ pub async fn extend(config: &ExtendConfig<'_>, output: &Path) -> Result<()> {
     append_to_file(output, &archive).await
 }
 
-async fn is_same_file(a: &Path, b: &Path) -> bool {
-    match (
-        tokio::fs::canonicalize(a).await,
-        tokio::fs::canonicalize(b).await,
-    ) {
-        (Ok(a), Ok(b)) => a == b,
+async fn is_same_file(first: &Path, second: &Path) -> bool {
+    match (canonicalize(first).await, canonicalize(second).await) {
+        (Ok(first_path), Ok(second_path)) => first_path == second_path,
         _ => false,
     }
 }
 
 async fn build_extensions_archive(config: &ExtendConfig<'_>) -> Result<Vec<u8>> {
-    let files =
-        crate::extension::process_all(config.extensions, config.extension_compression_level)
-            .await?;
+    let files = process_all(config.extensions, config.extension_compression_level).await?;
     write_compressed_extensions_archive(Vec::new(), &files, config.compression_level)
 }
 
@@ -64,7 +69,7 @@ fn write_compressed_extensions_archive<W: Write>(
         writer,
         files,
         compression_level,
-        crate::cpio::write_archive::<zstd::Encoder<'static, W>>,
+        write_cpio_archive::<zstd::Encoder<'static, W>>,
     )
 }
 
@@ -89,7 +94,7 @@ where
 }
 
 async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
-    let mut file = tokio::fs::OpenOptions::new()
+    let mut file = OpenOptions::new()
         .append(true)
         .open(path)
         .await
@@ -103,15 +108,17 @@ async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
 
 async fn append_to_writer<W>(path: &Path, writer: &mut W, data: &[u8]) -> Result<()>
 where
-    W: tokio::io::AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin,
 {
-    tokio::io::AsyncWriteExt::write_all(writer, data)
+    writer
+        .write_all(data)
         .await
         .map_err(|source| RamuneError::WriteError {
             file: path.display().to_string(),
             source,
         })?;
-    tokio::io::AsyncWriteExt::flush(writer)
+    writer
+        .flush()
         .await
         .map_err(|source| RamuneError::WriteError {
             file: path.display().to_string(),

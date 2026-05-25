@@ -3,8 +3,10 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
+
+use crate::{CreateConfig, ExtendConfig};
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -54,14 +56,37 @@ enum Command {
     },
 }
 
-/// Parses command-line arguments and runs the requested command.
-pub async fn run_with<I, T>(args: I) -> Result<String>
+/// Runs the CLI from a caller-provided argument iterator.
+///
+/// # Errors
+///
+/// Returns an error when argument parsing fails or when the requested command fails.
+pub async fn run_from<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let args = Cli::try_parse_from(args)?;
+    let args = Cli::parse_from(args);
     run_command(args.command).await
+}
+
+pub async fn run_with<I, T>(args: I) -> i32
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    match run_from(args).await {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            1
+        }
+    }
+}
+
+#[must_use]
+pub async fn run() -> i32 {
+    run_with(std::env::args_os()).await
 }
 
 fn initramfs_size(output: &std::path::Path) -> Result<u64> {
@@ -77,7 +102,7 @@ fn extension_name(path: &std::path::Path) -> String {
     }
 }
 
-async fn run_command(command: Command) -> Result<String> {
+async fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Create {
             init,
@@ -99,7 +124,7 @@ async fn run_command(command: Command) -> Result<String> {
                 None => None,
             };
 
-            let config = crate::CreateConfig {
+            let config = CreateConfig {
                 init: &init,
                 rootfs_dir: &rootfs_dir,
                 file_contexts: file_contexts.as_ref(),
@@ -110,11 +135,13 @@ async fn run_command(command: Command) -> Result<String> {
             crate::create(&config, &output).context("Failed to create initramfs")?;
             let size = initramfs_size(&output)?;
 
-            Ok(format!(
+            println!(
                 "Successfully created initramfs at {} ({} bytes)",
                 output.display(),
                 size
-            ))
+            );
+
+            Ok(())
         }
         Command::Extend {
             base,
@@ -128,7 +155,7 @@ async fn run_command(command: Command) -> Result<String> {
                 .map(|path| (extension_name(path), path.clone()))
                 .collect();
 
-            let config = crate::ExtendConfig {
+            let config = ExtendConfig {
                 base: &base,
                 extensions: &extensions,
                 compression_level,
@@ -139,10 +166,9 @@ async fn run_command(command: Command) -> Result<String> {
                 .await
                 .context("Failed to build initramfs")?;
 
-            Ok(format!(
-                "Successfully created initramfs at {}",
-                output.display()
-            ))
+            println!("Successfully created initramfs at {}", output.display());
+
+            Ok(())
         }
     }
 }

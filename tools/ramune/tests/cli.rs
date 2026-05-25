@@ -422,7 +422,7 @@ async fn run_with_create_writes_output() {
     let output = env.path("run-with-initramfs.img");
 
     // ACT
-    let message = cli::run_with([
+    cli::run_from([
         "ramune",
         "create",
         "--init",
@@ -433,11 +433,10 @@ async fn run_with_create_writes_output() {
         output.to_str().expect("output path"),
     ])
     .await
-    .expect("run_with create");
+    .expect("run_from create");
 
     // ASSERT
     assert!(output.exists());
-    assert!(message.contains("Successfully created initramfs at"));
 }
 
 #[tokio::test]
@@ -450,7 +449,7 @@ async fn run_with_create_with_file_contexts_writes_output() {
     let output = env.path("run-with-initramfs.img");
 
     // ACT
-    let message = cli::run_with([
+    cli::run_from([
         "ramune",
         "create",
         "--init",
@@ -463,11 +462,10 @@ async fn run_with_create_with_file_contexts_writes_output() {
         output.to_str().expect("output path"),
     ])
     .await
-    .expect("run_with create");
+    .expect("run_from create");
 
     // ASSERT
     assert!(output.exists());
-    assert!(message.contains(output.to_str().expect("output path")));
 }
 
 #[tokio::test]
@@ -479,7 +477,7 @@ async fn run_with_create_accepts_rootfs_compression_level() {
     let output = env.path("run-with-initramfs.img");
 
     // ACT
-    let message = cli::run_with([
+    cli::run_from([
         "ramune",
         "create",
         "--init",
@@ -492,11 +490,10 @@ async fn run_with_create_accepts_rootfs_compression_level() {
         output.to_str().expect("output path"),
     ])
     .await
-    .expect("run_with create");
+    .expect("run_from create");
 
     // ASSERT
     assert!(output.exists());
-    assert!(message.contains("Successfully created initramfs at"));
 }
 
 #[tokio::test]
@@ -508,7 +505,7 @@ async fn run_with_create_missing_file_contexts_errors() {
     let output = env.path("run-with-initramfs.img");
 
     // ACT
-    let result = cli::run_with([
+    let result = cli::run_from([
         "ramune",
         "create",
         "--init",
@@ -538,7 +535,7 @@ async fn run_with_create_invalid_file_contexts_errors() {
     let output = env.path("run-with-initramfs.img");
 
     // ACT
-    let result = cli::run_with([
+    let result = cli::run_from([
         "ramune",
         "create",
         "--init",
@@ -565,7 +562,7 @@ async fn run_with_extend_writes_output() {
     let output = env.path("run-with-extended.img");
 
     // ACT
-    let message = cli::run_with([
+    cli::run_from([
         "ramune",
         "extend",
         "--base",
@@ -576,11 +573,10 @@ async fn run_with_extend_writes_output() {
         output.to_str().expect("output path"),
     ])
     .await
-    .expect("run_with extend");
+    .expect("run_from extend");
 
     // ASSERT
     assert!(output.exists());
-    assert!(message.contains(output.to_str().expect("output path")));
 }
 
 #[tokio::test]
@@ -592,7 +588,7 @@ async fn run_with_extend_accepts_extension_compression_level() {
     let output = env.path("run-with-extended.img");
 
     // ACT
-    let message = cli::run_with([
+    cli::run_from([
         "ramune",
         "extend",
         "--base",
@@ -605,11 +601,10 @@ async fn run_with_extend_accepts_extension_compression_level() {
         output.to_str().expect("output path"),
     ])
     .await
-    .expect("run_with extend");
+    .expect("run_from extend");
 
     // ASSERT
     assert!(output.exists());
-    assert!(message.contains("Successfully created initramfs at"));
 }
 
 #[tokio::test]
@@ -619,7 +614,7 @@ async fn run_with_extend_missing_base_errors() {
     let output = env.path("run-with-extended.img");
 
     // ACT
-    let result = cli::run_with([
+    let result = cli::run_from([
         "ramune",
         "extend",
         "--base",
@@ -634,10 +629,59 @@ async fn run_with_extend_missing_base_errors() {
 }
 
 #[tokio::test]
-async fn run_with_invalid_args_errors() {
-    // ARRANGE / ACT
-    let result = cli::run_with(["ramune"]).await;
+async fn run_with_returns_zero_for_success() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+    let rootfs = env.write_rootfs();
+    let output = env.path("run-with-initramfs.img");
+
+    // ACT
+    let exit_code = cli::run_with([
+        "ramune",
+        "create",
+        "--init",
+        init.to_str().expect("init path"),
+        "--rootfs-dir",
+        rootfs.to_str().expect("rootfs path"),
+        "--output",
+        output.to_str().expect("output path"),
+    ])
+    .await;
 
     // ASSERT
-    assert!(result.is_err());
+    assert_eq!(exit_code, 0);
+}
+
+#[tokio::test]
+async fn run_with_returns_one_for_error() {
+    // ARRANGE
+    let env = TestEnv::new();
+    let output = env.path("run-with-extended.img");
+
+    // ACT
+    let exit_code = cli::run_with([
+        "ramune",
+        "extend",
+        "--base",
+        env.path("missing.img").to_str().expect("base path"),
+        "--output",
+        output.to_str().expect("output path"),
+    ])
+    .await;
+
+    // ASSERT
+    assert_eq!(exit_code, 1);
+}
+
+#[test]
+fn cli_without_subcommand_exits_with_error() {
+    // ACT
+    let process_output = Command::new(ramune_bin())
+        .output()
+        .expect("failed to run ramune without subcommand");
+
+    // ASSERT
+    assert!(!process_output.status.success());
+    assert!(String::from_utf8_lossy(&process_output.stderr).contains("Usage: ramune <COMMAND>"));
 }

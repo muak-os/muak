@@ -8,10 +8,10 @@ use crate::erofs;
 use crate::error::{RamuneError, Result};
 
 /// CPIO mode for regular executable files.
-const MODE_EXEC: u32 = 0o100755;
+const MODE_EXEC: u32 = 0o100_755;
 
 /// CPIO mode for regular files.
-const MODE_FILE: u32 = 0o100644;
+const MODE_FILE: u32 = 0o100_644;
 
 /// Directories that must always exist in the rootfs.
 const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "etc/selinux"];
@@ -26,6 +26,11 @@ pub struct CreateConfig<'a> {
 }
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
+///
+/// # Errors
+///
+/// Returns an error when reading inputs, building the staged rootfs, compressing the archive,
+/// or writing the output image fails.
 pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
     let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
         file: config.init.display().to_string(),
@@ -42,20 +47,20 @@ pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
 
     let entries = vec![
         CpioEntry {
-            path: "init".to_string(),
+            path: "init".to_owned(),
             mode: MODE_EXEC,
             data: init_data,
         },
         CpioEntry {
-            path: "rootfs.erofs".to_string(),
+            path: "rootfs.erofs".to_owned(),
             mode: MODE_FILE,
             data: rootfs_erofs,
         },
     ];
 
-    let cpio_data = cpio::create_from_entries(&entries);
+    let cpio_data = cpio::create_from_entries(&entries)?;
     let compression_level = crate::validate_compression_level(config.compression_level)?;
-    let data = zstd::encode_all(&cpio_data[..], compression_level)
+    let data = zstd::encode_all(cpio_data.as_slice(), compression_level)
         .map_err(RamuneError::CompressionError)?;
     std::fs::write(output, &data).map_err(|source| RamuneError::WriteError {
         file: output.display().to_string(),
