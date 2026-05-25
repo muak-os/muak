@@ -81,7 +81,7 @@ crossterm = { version = "0.29", default-features = false, features = ["bracketed
 ## Compression
 flate2 = "1.1"
 tar = "0.4"
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.13", default-features = false, features = ["zstdmt"] }
 
 ## Cryptography
 ring = { version = "0.17", default-features = false, features = ["std"] }

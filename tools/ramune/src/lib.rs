@@ -3,6 +3,7 @@
 pub mod builder;
 #[cfg(feature = "cli")]
 pub mod cli;
+mod compress;
 mod cpio;
 mod erofs;
 pub mod error;
@@ -34,18 +35,4 @@ pub fn create(config: &CreateConfig<'_>, output: &std::path::Path) -> error::Res
 /// appended archive, or writing the output image fails.
 pub async fn extend(config: &ExtendConfig<'_>, output: &std::path::Path) -> error::Result<()> {
     extender::extend(config, output).await
-}
-
-pub(crate) fn validate_compression_level(compression_level: i32) -> error::Result<i32> {
-    let range = zstd::compression_level_range();
-
-    if compression_level == 0 || range.contains(&compression_level) {
-        Ok(compression_level)
-    } else {
-        Err(error::RamuneError::InvalidCompressionLevel {
-            level: compression_level,
-            min: *range.start(),
-            max: *range.end(),
-        })
-    }
 }

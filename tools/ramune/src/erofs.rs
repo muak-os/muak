@@ -4,6 +4,7 @@ use std::path::Path;
 
 use erofs::{Compression, FileContexts, MkfsConfig};
 
+use crate::compress;
 use crate::error::{RamuneError, Result};
 
 /// Creates a reproducible EROFS image with optional `SELinux` file contexts.
@@ -12,7 +13,7 @@ pub(crate) fn create(
     file_contexts: Option<&FileContexts>,
     compression_level: i32,
 ) -> Result<Vec<u8>> {
-    let compression_level = crate::validate_compression_level(compression_level)?;
+    let compression_level = compress::validate_level(compression_level)?;
     let config = MkfsConfig {
         source_date_epoch: 0,
         file_contexts,

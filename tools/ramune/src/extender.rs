@@ -6,7 +6,8 @@ use std::path::Path;
 use tokio::fs::{OpenOptions, canonicalize, copy};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 
-use crate::cpio::write_archive as write_cpio_archive;
+use crate::compress;
+use crate::cpio::{CpioEntry, write_archive as write_cpio_archive};
 use crate::error::{RamuneError, Result};
 use crate::extension::process_all;
 
@@ -14,10 +15,13 @@ use crate::extension::process_all;
 pub struct ExtendConfig<'a> {
     /// Path to the base initramfs image to extend.
     pub base: &'a Path,
+
     /// List of (extension name, extension directory) pairs to include in the appended archive.
     pub extensions: &'a [(String, std::path::PathBuf)],
+
     /// Zstd compression level for the outer appended extensions archive.
     pub compression_level: i32,
+
     /// Zstd compression level for each generated extension EROFS image.
     pub extension_compression_level: i32,
 }
@@ -57,17 +61,18 @@ async fn is_same_file(first: &Path, second: &Path) -> bool {
 
 async fn build_extensions_archive(config: &ExtendConfig<'_>) -> Result<Vec<u8>> {
     let files = process_all(config.extensions, config.extension_compression_level).await?;
-    write_compressed_extensions_archive(Vec::new(), &files, config.compression_level)
+    let entries = extension_archive_entries(&files);
+    write_compressed_extensions_archive(Vec::new(), &entries, config.compression_level)
 }
 
 fn write_compressed_extensions_archive<W: Write>(
     writer: W,
-    files: &[(String, Vec<u8>)],
+    entries: &[CpioEntry<'_>],
     compression_level: i32,
 ) -> Result<W> {
     write_compressed_extensions_archive_with(
         writer,
-        files,
+        entries,
         compression_level,
         write_cpio_archive::<zstd::Encoder<'static, W>>,
     )
@@ -75,22 +80,35 @@ fn write_compressed_extensions_archive<W: Write>(
 
 fn write_compressed_extensions_archive_with<W, WriteArchive>(
     writer: W,
-    files: &[(String, Vec<u8>)],
+    entries: &[CpioEntry<'_>],
     compression_level: i32,
     write_archive: WriteArchive,
 ) -> Result<W>
 where
     W: Write,
-    WriteArchive: FnOnce(&mut zstd::Encoder<'static, W>, &[(String, Vec<u8>)]) -> Result<()>,
+    WriteArchive: FnOnce(&mut zstd::Encoder<'static, W>, &[CpioEntry<'_>]) -> Result<()>,
 {
-    let compression_level = crate::validate_compression_level(compression_level)?;
-    let mut encoder =
-        zstd::Encoder::new(writer, compression_level).map_err(RamuneError::ZstdInitError)?;
+    let mut encoder = compress::encoder(writer, compression_level)?;
 
-    match write_archive(&mut encoder, files) {
+    match write_archive(&mut encoder, entries) {
         Ok(()) => encoder.finish().map_err(RamuneError::CompressionError),
         Err(error) => Err(error),
     }
+}
+
+fn extension_archive_entries(files: &[(String, Vec<u8>)]) -> Vec<CpioEntry<'_>> {
+    let mut entries = Vec::with_capacity(files.len().saturating_add(1));
+    entries.push(CpioEntry {
+        path: "extensions",
+        mode: 0o040_755,
+        data: &[],
+    });
+    entries.extend(files.iter().map(|file| CpioEntry {
+        path: file.0.as_str(),
+        mode: 0o100_644,
+        data: file.1.as_slice(),
+    }));
+    entries
 }
 
 async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
@@ -194,14 +212,22 @@ mod tests {
         }
     }
 
-    fn extension_files() -> Vec<(String, Vec<u8>)> {
-        vec![("extensions/test-ext.erofs".to_string(), b"payload".to_vec())]
+    fn extension_entries() -> Vec<CpioEntry<'static>> {
+        vec![
+            CpioEntry {
+                path: "extensions",
+                mode: 0o040_755,
+                data: &[],
+            },
+            CpioEntry {
+                path: "extensions/test-ext.erofs",
+                mode: 0o100_644,
+                data: b"payload",
+            },
+        ]
     }
 
-    fn fail_cpio_archive<W>(
-        _: &mut zstd::Encoder<'static, W>,
-        _: &[(String, Vec<u8>)],
-    ) -> Result<()>
+    fn fail_cpio_archive<W>(_: &mut zstd::Encoder<'static, W>, _: &[CpioEntry<'_>]) -> Result<()>
     where
         W: Write,
     {
@@ -494,7 +520,8 @@ mod tests {
 
     #[test]
     fn write_compressed_extensions_archive_invalid_level_errors() {
-        let result = write_compressed_extensions_archive(Vec::new(), &extension_files(), i32::MAX);
+        let result =
+            write_compressed_extensions_archive(Vec::new(), &extension_entries(), i32::MAX);
 
         assert!(
             result
@@ -507,7 +534,7 @@ mod tests {
     fn write_compressed_extensions_archive_cpio_errors() {
         let result = write_compressed_extensions_archive_with(
             Vec::new(),
-            &extension_files(),
+            &extension_entries(),
             19,
             fail_cpio_archive::<Vec<u8>>,
         );
@@ -521,7 +548,7 @@ mod tests {
 
     #[test]
     fn write_compressed_extensions_archive_finish_errors() {
-        let files = extension_files();
+        let entries = extension_entries();
         let mut encoder = zstd::Encoder::new(
             CountingFailingWriter {
                 fail_on_call: usize::MAX,
@@ -530,7 +557,7 @@ mod tests {
             19,
         )
         .expect("encoder");
-        crate::cpio::write_archive(&mut encoder, &files).expect("write archive");
+        crate::cpio::write_archive(&mut encoder, &entries).expect("write archive");
         let fail_on_call = encoder.get_ref().calls + 1;
 
         let result = write_compressed_extensions_archive(
@@ -538,7 +565,7 @@ mod tests {
                 fail_on_call,
                 calls: 0,
             },
-            &files,
+            &entries,
             19,
         );
 

@@ -3,6 +3,7 @@
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
+use crate::compress;
 use crate::cpio::{self, CpioEntry};
 use crate::erofs;
 use crate::error::{RamuneError, Result};
@@ -47,21 +48,21 @@ pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
 
     let entries = vec![
         CpioEntry {
-            path: "init".to_owned(),
+            path: "init",
             mode: MODE_EXEC,
-            data: init_data,
+            data: init_data.as_slice(),
         },
         CpioEntry {
-            path: "rootfs.erofs".to_owned(),
+            path: "rootfs.erofs",
             mode: MODE_FILE,
-            data: rootfs_erofs,
+            data: rootfs_erofs.as_slice(),
         },
     ];
 
-    let cpio_data = cpio::create_from_entries(&entries)?;
-    let compression_level = crate::validate_compression_level(config.compression_level)?;
-    let data = zstd::encode_all(cpio_data.as_slice(), compression_level)
-        .map_err(RamuneError::CompressionError)?;
+    let mut encoder = compress::encoder(Vec::new(), config.compression_level)?;
+    cpio::write_archive(&mut encoder, &entries)?;
+    let data = encoder.finish().map_err(RamuneError::CompressionError)?;
+
     std::fs::write(output, &data).map_err(|source| RamuneError::WriteError {
         file: output.display().to_string(),
         source,
