@@ -19,9 +19,6 @@ crc32c = { workspace = true }
 # Compression
 zstd = { workspace = true }
 
-# Utilities
-uuid = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }
 

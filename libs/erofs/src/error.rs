@@ -29,7 +29,7 @@ pub enum ErofsError {
     #[error("directory walk error: {0}")]
     Walk(String),
 
-    /// file_contexts parse error.
+    /// `file_contexts` parse error.
     #[error("file_contexts error: {0}")]
     FileContexts(String),
 
@@ -47,4 +47,4 @@ pub enum ErofsError {
 }
 
 /// Result type alias for erofs operations.
-pub type Result<T> = std::result::Result<T, ErofsError>;
+pub type Result<T> = core::result::Result<T, ErofsError>;

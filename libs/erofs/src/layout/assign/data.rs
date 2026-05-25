@@ -1,0 +1,122 @@
+//! Data block address assignment and total image size computation.
+
+use super::super::types::InodeLayout;
+use super::{meta_start, util};
+use crate::checked::{align_up, u32_from_usize};
+
+pub(super) fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
+    let bs = util::block_size();
+    let meta_end = compute_meta_end(inodes, do_compress);
+    let meta_end_aligned = align_up(meta_end, bs).unwrap_or(meta_end);
+
+    let mut data_offset = meta_end_aligned;
+    for inode in inodes {
+        if inode.data_blocks > 0 {
+            inode.data_blkaddr = data_offset
+                .checked_div(bs)
+                .and_then(u32_from_usize)
+                .unwrap_or_default();
+            let block_count = usize::try_from(inode.data_blocks).unwrap_or_default();
+            data_offset = data_offset.saturating_add(block_count.saturating_mul(bs));
+        }
+    }
+}
+
+pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usize {
+    let bs = util::block_size();
+    let mut max_end = meta_start(do_compress);
+
+    for inode in inodes {
+        let slot_end =
+            util::nid_slot_offset(inode.nid).saturating_add(util::meta_size_bytes(inode));
+        max_end = max_end.max(slot_end);
+
+        if inode.data_blocks > 0 {
+            let data_end = usize::try_from(inode.data_blkaddr)
+                .unwrap_or_default()
+                .saturating_mul(bs)
+                .saturating_add(
+                    usize::try_from(inode.data_blocks)
+                        .unwrap_or_default()
+                        .saturating_mul(bs),
+                );
+            max_end = max_end.max(data_end);
+        }
+    }
+
+    align_up(max_end, bs).unwrap_or(max_end)
+}
+
+fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
+    inodes
+        .iter()
+        .map(|inode| util::nid_slot_offset(inode.nid).saturating_add(util::meta_size_bytes(inode)))
+        .max()
+        .unwrap_or(meta_start(do_compress))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{data_block_addrs, total_image_size};
+    use crate::BLOCK_SIZE;
+    use crate::dir::EROFS_FT_DIR;
+    use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::InodeLayout;
+
+    #[test]
+    fn compressed_data_blkaddr_assigned() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+
+        let inodes =
+            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let file = inodes
+            .iter()
+            .find(|inode| inode.rel_path == "/zeros")
+            .expect("found");
+
+        // ACT
+        // ASSERT
+        assert!(file.data_blocks > 0);
+        assert!(file.data_blkaddr > 0);
+    }
+
+    #[test]
+    fn assign_data_and_total_size_handle_large_nid_fallbacks() {
+        // ARRANGE
+        let inode = InodeLayout {
+            path: std::path::PathBuf::new(),
+            rel_path: "/".to_owned(),
+            nid: u64::MAX,
+            ino: 0,
+            mode: 0,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            nlink: 1,
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            datalayout: EROFS_INODE_FLAT_PLAIN,
+            xattr_payload: Vec::new(),
+            xattr_icount: 0,
+            inline_data: Vec::new(),
+            data_blkaddr: 0,
+            data_blocks: 1,
+            children: Vec::new(),
+            symlink_target: Vec::new(),
+            rdev: 0,
+            compressed: None,
+        };
+        let mut inodes = vec![inode];
+
+        data_block_addrs(&mut inodes, false);
+        let total_size = total_image_size(&inodes, false);
+
+        // ACT
+        // ASSERT
+        assert_eq!(inodes[0].data_blkaddr, 0);
+        assert!(total_size >= BLOCK_SIZE as usize);
+    }
+}

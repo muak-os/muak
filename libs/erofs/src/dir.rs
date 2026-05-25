@@ -1,5 +1,7 @@
 //! Directory block construction with sorted dirent arrays.
 
+use crate::checked::{u16_from_usize, write_byte, write_bytes};
+
 pub const EROFS_FT_REG_FILE: u8 = 1;
 pub const EROFS_FT_DIR: u8 = 2;
 pub const EROFS_FT_SYMLINK: u8 = 7;
@@ -15,55 +17,71 @@ pub struct DirEntry {
 }
 
 /// Compute the actual directory data size in bytes (dirent array + packed names).
-pub fn dir_data_size(entries: &[DirEntry]) -> usize {
-    let bs = crate::BLOCK_SIZE as usize;
-    let mut size = 0usize;
+pub fn data_size(entries: &[DirEntry]) -> usize {
+    let block_size = 4096_usize;
+    let mut size = 0_usize;
 
     for entry in entries {
-        let len = DIRENT_SIZE + entry.name.len();
-        if size % bs + len > bs {
-            size = size.div_ceil(bs) * bs;
+        let entry_size = DIRENT_SIZE.saturating_add(entry.name.len());
+        if size.rem_euclid(block_size).saturating_add(entry_size) > block_size {
+            size = size.div_ceil(block_size).saturating_mul(block_size);
         }
-        size += len;
+        size = size.saturating_add(entry_size);
     }
 
     size
 }
 
 /// Serialize directory entries into EROFS directory blocks.
-pub fn serialize_dir_entries(entries: &[DirEntry]) -> Vec<u8> {
-    let bs = crate::BLOCK_SIZE as usize;
-    let total_size = dir_data_size(entries);
-    let mut buf = vec![0u8; total_size];
-    let mut block_start = 0usize;
-    let mut idx = 0usize;
+pub fn serialize_entries(entries: &[DirEntry]) -> Vec<u8> {
+    let block_size = 4096_usize;
+    let total_size = data_size(entries);
+    let mut buf = vec![0_u8; total_size];
+    let mut block_start = 0_usize;
+    let mut start_index = 0_usize;
 
-    while idx < entries.len() {
-        let block_end = block_end(entries, idx, bs);
-        let mut dirent_offset = 0usize;
-        let mut name_offset = (block_end - idx) * DIRENT_SIZE;
+    while start_index < entries.len() {
+        let end_index = block_end(entries, start_index, block_size);
+        let mut dirent_offset = 0_usize;
+        let mut name_offset = end_index
+            .saturating_sub(start_index)
+            .saturating_mul(DIRENT_SIZE);
 
-        for entry in &entries[idx..block_end] {
-            let d = block_start + dirent_offset;
-            let name_start = block_start + name_offset;
-            let name_end = name_start + entry.name.len();
+        for entry in entries
+            .iter()
+            .skip(start_index)
+            .take(end_index.saturating_sub(start_index))
+        {
+            let dirent_start = block_start.saturating_add(dirent_offset);
+            let name_start = block_start.saturating_add(name_offset);
+            let name_offset_u16 = u16_from_usize(name_offset).unwrap_or_default();
 
-            buf[d..d + 8].copy_from_slice(&entry.nid.to_le_bytes());
-            buf[d + 8..d + 10].copy_from_slice(&(name_offset as u16).to_le_bytes());
-            buf[d + 10] = entry.file_type;
-            buf[d + 11] = 0;
-            buf[name_start..name_end].copy_from_slice(&entry.name);
+            let wrote_all = write_bytes(&mut buf, dirent_start, &entry.nid.to_le_bytes())
+                && write_bytes(
+                    &mut buf,
+                    dirent_start.saturating_add(8),
+                    &name_offset_u16.to_le_bytes(),
+                )
+                && write_byte(&mut buf, dirent_start.saturating_add(10), entry.file_type)
+                && write_byte(&mut buf, dirent_start.saturating_add(11), 0)
+                && write_bytes(&mut buf, name_start, &entry.name);
 
-            dirent_offset += DIRENT_SIZE;
-            name_offset += entry.name.len();
+            assert!(
+                wrote_all,
+                "directory serialization must fit the precomputed output buffer"
+            );
+
+            dirent_offset = dirent_offset.saturating_add(DIRENT_SIZE);
+            name_offset = name_offset.saturating_add(entry.name.len());
         }
 
-        block_start += if block_end == entries.len() {
-            total_size - block_start
+        let block_advance = if end_index == entries.len() {
+            total_size.saturating_sub(block_start)
         } else {
-            bs
+            block_size
         };
-        idx = block_end;
+        block_start = block_start.saturating_add(block_advance);
+        start_index = end_index;
     }
 
     buf
@@ -71,15 +89,15 @@ pub fn serialize_dir_entries(entries: &[DirEntry]) -> Vec<u8> {
 
 /// Determine how many entries fit in the current block starting from `start`.
 fn block_end(entries: &[DirEntry], start: usize, bs: usize) -> usize {
-    let mut used = 0usize;
+    let mut used = 0_usize;
     let mut end = start;
-    while end < entries.len() {
-        let len = DIRENT_SIZE + entries[end].name.len();
-        if used + len > bs {
+    while let Some(entry) = entries.get(end) {
+        let entry_size = DIRENT_SIZE.saturating_add(entry.name.len());
+        if used.saturating_add(entry_size) > bs {
             break;
         }
-        used += len;
-        end += 1;
+        used = used.saturating_add(entry_size);
+        end = end.saturating_add(1);
     }
     end
 }
@@ -110,7 +128,7 @@ mod tests {
         ];
 
         // ACT
-        let size = dir_data_size(&entries);
+        let size = data_size(&entries);
 
         // ASSERT
         assert_eq!(size, 3 * 12 + 1 + 2 + 9);
@@ -140,7 +158,7 @@ mod tests {
             entries.len() * DIRENT_SIZE + entries.iter().map(|e| e.name.len()).sum::<usize>();
 
         // ACT
-        let size = dir_data_size(&entries);
+        let size = data_size(&entries);
 
         // ASSERT
         assert!(size > packed);
@@ -169,7 +187,7 @@ mod tests {
         ];
 
         // ACT
-        let data = serialize_dir_entries(&entries);
+        let data = serialize_entries(&entries);
 
         // ASSERT
         assert_eq!(data.len(), 3 * 12 + 1 + 2 + 5);
@@ -202,7 +220,7 @@ mod tests {
         }));
 
         // ACT
-        let data = serialize_dir_entries(&entries);
+        let data = serialize_entries(&entries);
 
         // ASSERT
         let second_block = crate::BLOCK_SIZE as usize;

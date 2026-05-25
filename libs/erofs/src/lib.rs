@@ -1,5 +1,8 @@
 //! Pure-Rust EROFS image writer (mkfs.erofs equivalent).
 
+extern crate alloc;
+
+mod checked;
 mod compress;
 mod dir;
 mod error;
@@ -12,13 +15,17 @@ mod xattr;
 
 use std::path::Path;
 
-pub use compress::{Compression, DEFAULT_ZSTD_COMPRESSION_LEVEL};
-pub use error::{ErofsError, Result};
-pub use filecontexts::FileContexts;
-pub use layout::InodeLayout;
+pub type Compression = compress::Compression;
+pub type ErofsError = error::ErofsError;
+pub type FileContexts = filecontexts::FileContexts;
+pub type InodeLayout = layout::InodeLayout;
+
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+pub type Result<T> = error::Result<T>;
 
 /// Block size used throughout EROFS images (4 KiB).
 pub const BLOCK_SIZE: u32 = 4096;
+
 /// Slot size: every inode occupies an integer number of 32-byte slots.
 pub const SLOT_SIZE: usize = 32;
 
@@ -33,26 +40,17 @@ pub struct MkfsConfig<'a> {
 }
 
 /// Build an EROFS filesystem image from a source directory.
+///
+/// # Errors
+///
+/// Returns an error when the source directory is invalid, compression settings are invalid,
+/// filesystem metadata cannot be read, or the image cannot be serialized.
 pub fn mkfs(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
     if let Some(level) = config.compression.level() {
-        validate_compression_level(level)?;
+        compress::validate_compression_level(level)?;
     }
     let inodes = layout::plan(source_dir, config)?;
     writer::write_image(&inodes, config)
-}
-
-fn validate_compression_level(level: i32) -> Result<i32> {
-    let range = zstd::compression_level_range();
-
-    if level == 0 || range.contains(&level) {
-        Ok(level)
-    } else {
-        Err(ErofsError::InvalidCompressionLevel {
-            level,
-            min: *range.start(),
-            max: *range.end(),
-        })
-    }
 }
 
 #[cfg(test)]
@@ -209,6 +207,7 @@ mod tests {
 
     #[test]
     fn compression_default_uses_default_zstd_level() {
+        // ARRANGE
         // ASSERT
         assert_eq!(
             Compression::default(),
@@ -251,6 +250,7 @@ mod tests {
 
     #[test]
     fn block_size_and_slot_size_constants() {
+        // ARRANGE
         // ASSERT
         assert_eq!(BLOCK_SIZE, 4096);
         assert_eq!(SLOT_SIZE, 32);

@@ -1,6 +1,8 @@
 //! On-disk superblock serialization.
 
 use crate::BLOCK_SIZE;
+use crate::checked::{write_byte, write_bytes};
+use crate::inode::Z_EROFS_COMPRESSION_ZSTD;
 
 pub const EROFS_SUPER_MAGIC_V1: u32 = 0xE0F5_E1E2;
 /// Byte offset of the superblock within the image (after the boot sector).
@@ -25,49 +27,85 @@ pub struct SuperblockParams {
 }
 
 /// Serialize the 128-byte on-disk superblock into `buf` at the correct offset.
-pub fn write(buf: &mut [u8], p: &SuperblockParams) {
-    let sb = &mut buf[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 128];
-
-    sb[0x00..0x04].copy_from_slice(&EROFS_SUPER_MAGIC_V1.to_le_bytes());
-    sb[0x04..0x08].copy_from_slice(&0u32.to_le_bytes());
+pub fn write(buf: &mut [u8], params: &SuperblockParams) {
     let feature_compat = EROFS_FEATURE_COMPAT_SB_CHKSUM | EROFS_FEATURE_COMPAT_MTIME;
-    sb[0x08..0x0C].copy_from_slice(&feature_compat.to_le_bytes());
-    sb[0x0C] = 12;
-    sb[0x0D] = 0;
-    sb[0x0E..0x10].copy_from_slice(&p.root_nid.to_le_bytes());
-    sb[0x10..0x18].copy_from_slice(&p.inos.to_le_bytes());
-    sb[0x18..0x20].copy_from_slice(&p.epoch.to_le_bytes());
-    sb[0x20..0x24].copy_from_slice(&0u32.to_le_bytes());
-    sb[0x24..0x28].copy_from_slice(&p.blocks.to_le_bytes());
-    sb[0x28..0x2C].copy_from_slice(&0u32.to_le_bytes());
-    sb[0x2C..0x30].copy_from_slice(&0u32.to_le_bytes());
-    sb[0x30..0x40].copy_from_slice(&p.uuid);
+    let wrote_superblock =
+        write_bytes(buf, EROFS_SUPER_OFFSET, &EROFS_SUPER_MAGIC_V1.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x04, &0_u32.to_le_bytes())
+            && write_bytes(
+                buf,
+                EROFS_SUPER_OFFSET + 0x08,
+                &feature_compat.to_le_bytes(),
+            )
+            && write_byte(buf, EROFS_SUPER_OFFSET + 0x0C, 12)
+            && write_byte(buf, EROFS_SUPER_OFFSET + 0x0D, 0)
+            && write_bytes(
+                buf,
+                EROFS_SUPER_OFFSET + 0x0E,
+                &params.root_nid.to_le_bytes(),
+            )
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x10, &params.inos.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x18, &params.epoch.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x20, &0_u32.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x24, &params.blocks.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x28, &0_u32.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x2C, &0_u32.to_le_bytes())
+            && write_bytes(buf, EROFS_SUPER_OFFSET + 0x30, &params.uuid);
 
-    if p.has_compression {
+    assert!(
+        wrote_superblock,
+        "superblock buffer must be large enough for the fixed header"
+    );
+
+    if params.has_compression {
         let feature_incompat =
             EROFS_FEATURE_INCOMPAT_ZERO_PADDING | EROFS_FEATURE_INCOMPAT_COMPR_CFGS;
-        sb[0x50..0x54].copy_from_slice(&feature_incompat.to_le_bytes());
-        let available_compr_algs: u16 = 1 << crate::inode::Z_EROFS_COMPRESSION_ZSTD;
-        sb[0x54..0x56].copy_from_slice(&available_compr_algs.to_le_bytes());
+        let available_compr_algs: u16 = 1 << Z_EROFS_COMPRESSION_ZSTD;
+        let wrote_compression = write_bytes(
+            buf,
+            EROFS_SUPER_OFFSET + 0x50,
+            &feature_incompat.to_le_bytes(),
+        ) && write_bytes(
+            buf,
+            EROFS_SUPER_OFFSET + 0x54,
+            &available_compr_algs.to_le_bytes(),
+        );
+
+        assert!(
+            wrote_compression,
+            "superblock buffer must be large enough for compression metadata"
+        );
 
         write_compr_cfgs(buf);
     }
 }
 
-/// Write the zstd compression config after the superblock (COMPR_CFGS area).
+/// Write the zstd compression config after the superblock (`COMPR_CFGS` area).
 fn write_compr_cfgs(buf: &mut [u8]) {
     let cfg_offset = EROFS_SUPER_OFFSET + 128;
     let cfg_size: u16 = 6;
-    buf[cfg_offset..cfg_offset + 2].copy_from_slice(&cfg_size.to_le_bytes());
-    buf[cfg_offset + 2] = 0;
-    buf[cfg_offset + 3] = 5;
+    let wrote_cfg = write_bytes(buf, cfg_offset, &cfg_size.to_le_bytes())
+        && write_byte(buf, cfg_offset + 2, 0)
+        && write_byte(buf, cfg_offset + 3, 5);
+
+    assert!(
+        wrote_cfg,
+        "superblock buffer must be large enough for compression config bytes"
+    );
 }
 
 /// Compute and write the CRC32-C checksum over the superblock region.
 pub fn write_checksum(buf: &mut [u8]) {
-    buf[EROFS_SUPER_OFFSET + 0x04..EROFS_SUPER_OFFSET + 0x08].copy_from_slice(&0u32.to_le_bytes());
-    let crc = !crc32c::crc32c(&buf[EROFS_SUPER_OFFSET..BLOCK_SIZE as usize]);
-    buf[EROFS_SUPER_OFFSET + 0x04..EROFS_SUPER_OFFSET + 0x08].copy_from_slice(&crc.to_le_bytes());
+    let block_size = usize::try_from(BLOCK_SIZE).ok().unwrap_or_default();
+    let wrote_zero_checksum = write_bytes(buf, EROFS_SUPER_OFFSET + 0x04, &0_u32.to_le_bytes());
+    let checksum_region = buf.get(EROFS_SUPER_OFFSET..block_size).unwrap_or_default();
+    let crc = !crc32c::crc32c(checksum_region);
+    let wrote_checksum = write_bytes(buf, EROFS_SUPER_OFFSET + 0x04, &crc.to_le_bytes());
+
+    assert!(
+        wrote_zero_checksum && wrote_checksum,
+        "superblock buffer must be large enough for checksum updates"
+    );
 }
 
 #[cfg(test)]

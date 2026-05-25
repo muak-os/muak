@@ -1,6 +1,6 @@
 //! Index structures for mapping paths to inodes and tracking parent-child relationships.
 
-use std::collections::BTreeMap;
+use alloc::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 
 use super::parent_rel;
@@ -15,14 +15,15 @@ pub struct LayoutIndices {
 }
 
 /// Populate `LayoutIndices` from the flat entries list.
-pub fn build_indices(entries: &[(PathBuf, String)], inodes: &[InodeLayout]) -> LayoutIndices {
+pub fn build(entries: &[(PathBuf, String)], inodes: &[InodeLayout]) -> LayoutIndices {
     let mut idx = LayoutIndices {
         path_to_idx: BTreeMap::new(),
         dir_children: BTreeMap::new(),
         nlink_map: BTreeMap::new(),
     };
 
-    for (i, (_abs, rel)) in entries.iter().enumerate() {
+    for (i, entry) in entries.iter().enumerate() {
+        let rel = &entry.1;
         idx.path_to_idx.insert(rel.clone(), i);
         let p_rel = parent_rel(rel);
 
@@ -33,12 +34,17 @@ pub fn build_indices(entries: &[(PathBuf, String)], inodes: &[InodeLayout]) -> L
                 .push(rel.clone());
         }
 
-        if inodes[i].file_type != EROFS_FT_DIR {
+        let Some(inode) = inodes.get(i) else {
+            continue;
+        };
+
+        if inode.file_type != EROFS_FT_DIR {
             continue;
         }
         idx.nlink_map.entry(rel.clone()).or_insert(2);
         if *rel != "/" {
-            *idx.nlink_map.entry(p_rel).or_insert(2) += 1;
+            let parent_nlink = idx.nlink_map.entry(p_rel).or_insert(2);
+            *parent_nlink = parent_nlink.saturating_add(1);
         }
     }
     idx
@@ -51,9 +57,13 @@ pub fn apply_nlinks(
     path_to_idx: &BTreeMap<String, usize>,
 ) {
     for (rel, &count) in nlink_map {
-        if let Some(&idx) = path_to_idx.get(rel) {
-            inodes[idx].nlink = count;
-        }
+        let Some(&idx) = path_to_idx.get(rel) else {
+            continue;
+        };
+        let Some(inode) = inodes.get_mut(idx) else {
+            continue;
+        };
+        inode.nlink = count;
     }
 }
 
@@ -64,9 +74,13 @@ pub fn apply_children(
     path_to_idx: &BTreeMap<String, usize>,
 ) {
     for (parent_rel, children) in dir_children {
-        if let Some(&idx) = path_to_idx.get(parent_rel) {
-            inodes[idx].children.clone_from(children);
-        }
+        let Some(&idx) = path_to_idx.get(parent_rel) else {
+            continue;
+        };
+        let Some(inode) = inodes.get_mut(idx) else {
+            continue;
+        };
+        inode.children.clone_from(children);
     }
 }
 
@@ -78,13 +92,15 @@ pub fn assign_inos(
 ) {
     let mut ino: u32 = 1;
 
-    if let Some(&root_idx) = path_to_idx.get("/") {
-        inodes[root_idx].ino = ino;
-        ino += 1;
+    if let Some(&root_idx) = path_to_idx.get("/")
+        && let Some(root_inode) = inodes.get_mut(root_idx)
+    {
+        root_inode.ino = ino;
+        ino = ino.saturating_add(1);
     }
 
-    let mut bfs_queue = std::collections::VecDeque::new();
-    bfs_queue.push_back("/".to_string());
+    let mut bfs_queue = VecDeque::new();
+    bfs_queue.push_back("/".to_owned());
 
     while let Some(dir_rel) = bfs_queue.pop_front() {
         let Some(sorted_children) = dir_children.get(&dir_rel) else {
@@ -98,7 +114,7 @@ pub fn assign_inos(
         bfs_queue.extend(
             sorted_children
                 .iter()
-                .filter(|c| is_dir(inodes, path_to_idx, c))
+                .filter(|child_rel| is_dir(inodes, path_to_idx, child_rel))
                 .cloned(),
         );
     }
@@ -108,7 +124,8 @@ pub fn assign_inos(
 fn is_dir(inodes: &[InodeLayout], path_to_idx: &BTreeMap<String, usize>, rel: &str) -> bool {
     path_to_idx
         .get(rel)
-        .is_some_and(|&idx| inodes[idx].file_type == EROFS_FT_DIR)
+        .and_then(|&idx| inodes.get(idx))
+        .is_some_and(|inode| inode.file_type == EROFS_FT_DIR)
 }
 
 /// Set the inode number of a single inode and return the next number.
@@ -121,8 +138,11 @@ fn set_ino(
     let Some(&idx) = path_to_idx.get(rel) else {
         return ino;
     };
-    inodes[idx].ino = ino;
-    ino + 1
+    let Some(inode) = inodes.get_mut(idx) else {
+        return ino;
+    };
+    inode.ino = ino;
+    ino.saturating_add(1)
 }
 
 #[cfg(test)]
@@ -138,12 +158,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
-        let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
-            .expect("inodes");
+        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
+        let inodes =
+            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
-        let idx = build_indices(&entries, &inodes);
+        let idx = build(&entries, &inodes);
 
         // ASSERT
         assert_eq!(idx.path_to_idx.len(), 3);
@@ -156,10 +176,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
-        let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let mut inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
-            .expect("inodes");
-        let idx = build_indices(&entries, &inodes);
+        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
+        let mut inodes =
+            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        let idx = build(&entries, &inodes);
 
         // ACT
         assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
@@ -267,10 +287,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("a/b/c")).expect("mkdir");
         std::fs::write(dir.path().join("a/b/c/file"), b"x").expect("write");
-        let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let mut inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
-            .expect("inodes");
-        let idx = build_indices(&entries, &inodes);
+        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
+        let mut inodes =
+            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        let idx = build(&entries, &inodes);
 
         // ACT
         assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
@@ -287,15 +307,95 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/file"), b"x").expect("write");
-        let entries = crate::layout::collect::collect_entries(dir.path()).expect("entries");
-        let inodes = crate::layout::collect::build_initial_inodes(&entries, &test_config(0))
-            .expect("inodes");
+        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
+        let inodes =
+            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
-        let idx = build_indices(&entries, &inodes);
+        let idx = build(&entries, &inodes);
 
         // ASSERT
         assert!(idx.nlink_map.contains_key("/"));
         assert!(idx.nlink_map.contains_key("/subdir"));
+    }
+
+    #[test]
+    fn build_indices_ignores_missing_inode_entries() {
+        // ARRANGE
+        let entries = vec![
+            (PathBuf::from("/tmp/root"), "/".to_owned()),
+            (PathBuf::from("/tmp/root/file"), "/file".to_owned()),
+        ];
+        let inodes = vec![InodeLayout {
+            path: PathBuf::new(),
+            rel_path: "/".to_owned(),
+            nid: 0,
+            ino: 0,
+            mode: 0,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            nlink: 1,
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            datalayout: EROFS_INODE_FLAT_PLAIN,
+            xattr_payload: Vec::new(),
+            xattr_icount: 0,
+            inline_data: Vec::new(),
+            data_blkaddr: 0,
+            data_blocks: 0,
+            children: Vec::new(),
+            symlink_target: Vec::new(),
+            rdev: 0,
+            compressed: None,
+        }];
+
+        // ACT
+        let indices = build(&entries, &inodes);
+
+        // ASSERT
+        assert!(indices.path_to_idx.contains_key("/file"));
+        assert!(!indices.nlink_map.contains_key("/file"));
+    }
+
+    #[test]
+    fn apply_children_and_nlinks_ignore_missing_indices() {
+        // ARRANGE
+        let mut inodes = vec![InodeLayout {
+            path: PathBuf::new(),
+            rel_path: "/".to_owned(),
+            nid: 0,
+            ino: 0,
+            mode: 0,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            nlink: 1,
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            datalayout: EROFS_INODE_FLAT_PLAIN,
+            xattr_payload: Vec::new(),
+            xattr_icount: 0,
+            inline_data: Vec::new(),
+            data_blkaddr: 0,
+            data_blocks: 0,
+            children: Vec::new(),
+            symlink_target: Vec::new(),
+            rdev: 0,
+            compressed: None,
+        }];
+        let path_to_idx = BTreeMap::new();
+        let dir_children = BTreeMap::from([("/missing".to_owned(), vec!["/child".to_owned()])]);
+        let nlink_map = BTreeMap::from([("/missing".to_owned(), 3_u16)]);
+
+        // ACT
+        apply_children(&mut inodes, &dir_children, &path_to_idx);
+        apply_nlinks(&mut inodes, &nlink_map, &path_to_idx);
+
+        // ASSERT
+        assert!(inodes[0].children.is_empty());
+        assert_eq!(inodes[0].nlink, 1);
     }
 }

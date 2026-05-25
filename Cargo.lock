@@ -611,7 +611,6 @@ dependencies = [
  "crc32c",
  "tempfile",
  "thiserror 2.0.18",
- "uuid",
  "zstd",
 ]
 
