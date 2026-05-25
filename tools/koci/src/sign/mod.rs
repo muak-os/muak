@@ -1,6 +1,8 @@
 //! OCI image signing.
 
-use base64ct::{Base64Url, Encoding};
+use core::mem;
+
+use base64ct::{Base64Url, Encoding as _};
 use hyper::body::Bytes;
 use ring::rand::SystemRandom;
 use ring::signature::EcdsaKeyPair;
@@ -22,7 +24,7 @@ pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 /// Sign an OCI image manifest in the registry.
 pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
-    let client = build_client()?;
+    let client = build_client();
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
     let key_pair = parse_pem_private_key(privkey_pem)?;
@@ -64,17 +66,25 @@ pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<
 
 /// Compute the canonical payload for signing a manifest JSON string.
 pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, Vec<u8>)> {
-    let mut value: serde_json::Value = serde_json::from_str(manifest_json)
-        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
+    let mut value: serde_json::Value = match serde_json::from_str(manifest_json) {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(KociError::OciParseError(format!(
+                "Failed to parse manifest JSON: {error}"
+            )));
+        }
+    };
 
     if let Some(obj) = value.as_object_mut() {
-        let remove_annotations =
-            if let Some(annotations) = obj.get_mut("annotations").and_then(|a| a.as_object_mut()) {
-                annotations.remove(SIG_ANNOTATION);
-                annotations.is_empty()
-            } else {
-                false
-            };
+        let remove_annotations = if let Some(annotations) = obj
+            .get_mut("annotations")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            annotations.remove(SIG_ANNOTATION);
+            annotations.is_empty()
+        } else {
+            false
+        };
         if remove_annotations {
             obj.remove("annotations");
         }
@@ -82,9 +92,7 @@ pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, V
 
     sort_keys(&mut value);
 
-    let canonical = serde_json::to_vec(&value).map_err(|e| {
-        KociError::OciParseError(format!("Failed to serialise canonical manifest: {}", e))
-    })?;
+    let canonical = serde_json::to_vec(&value)?;
 
     let digest = format!("sha256:{}", sha256_hex(&canonical));
     Ok((digest, canonical))
@@ -92,29 +100,28 @@ pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, V
 
 /// Recursively sort all JSON object keys in lexicographic order.
 fn sort_keys(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) => {
-            let mut entries: Vec<(String, serde_json::Value)> = map
-                .iter_mut()
-                .map(|(k, v)| {
-                    sort_keys(v);
-                    (k.clone(), v.clone())
-                })
-                .collect();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
+    match *value {
+        serde_json::Value::Object(ref mut map) => {
+            let mut entries = mem::take(map).into_iter().collect::<Vec<_>>();
+            for &mut (_, ref mut entry_value) in &mut entries {
+                sort_keys(entry_value);
+            }
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
             *map = entries.into_iter().collect();
         }
-        serde_json::Value::Array(arr) => {
+        serde_json::Value::Array(ref mut arr) => {
             for item in arr.iter_mut() {
                 sort_keys(item);
             }
         }
-        _ => {}
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {}
     }
 }
 
-/// Build a signed manifest: compute the payload, sign it, inject the annotation,
-/// and return `(signed_bytes, content_type)`.
+/// Build a signed manifest: compute the payload, sign it and inject the annotation.
 pub(crate) fn build_signed_manifest(
     manifest_json: &str,
     key_pair: &EcdsaKeyPair,
@@ -122,37 +129,46 @@ pub(crate) fn build_signed_manifest(
 ) -> Result<(Bytes, String)> {
     let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
 
-    let sig = key_pair
-        .sign(rng, digest.as_bytes())
-        .map_err(|_| KociError::SignatureVerificationFailed("Signing failed".to_string()))?;
+    let sig = match key_pair.sign(rng, digest.as_bytes()) {
+        Ok(signature) => signature,
+        Err(error) => {
+            return Err(KociError::SignatureVerificationFailed(format!(
+                "Signing failed: {error}"
+            )));
+        }
+    };
     let sig_b64 = Base64Url::encode_string(sig.as_ref());
 
-    let mut manifest_value: serde_json::Value = serde_json::from_str(manifest_json)
-        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest JSON: {}", e)))?;
+    let mut manifest_value: serde_json::Value = match serde_json::from_str(manifest_json) {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(KociError::OciParseError(format!(
+                "Failed to parse manifest JSON: {error}"
+            )));
+        }
+    };
 
     manifest_value
         .as_object_mut()
-        .ok_or_else(|| KociError::InvalidOciFormat("Manifest is not a JSON object".to_string()))?
+        .ok_or_else(|| KociError::InvalidOciFormat("Manifest is not a JSON object".to_owned()))?
         .entry("annotations")
         .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
         .as_object_mut()
         .ok_or_else(|| {
-            KociError::InvalidOciFormat("Manifest annotations is not a JSON object".to_string())
+            KociError::InvalidOciFormat("Manifest annotations is not a JSON object".to_owned())
         })?
         .insert(
-            SIG_ANNOTATION.to_string(),
+            SIG_ANNOTATION.to_owned(),
             serde_json::Value::String(sig_b64),
         );
 
     let content_type = manifest_value
         .get("mediaType")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("application/vnd.oci.image.manifest.v1+json")
-        .to_string();
+        .to_owned();
 
-    let signed_bytes = serde_json::to_vec(&manifest_value).map_err(|e| {
-        KociError::OciParseError(format!("Failed to serialise signed manifest: {}", e))
-    })?;
+    let signed_bytes = serde_json::to_vec(&manifest_value)?;
 
     Ok((Bytes::from(signed_bytes), content_type))
 }
@@ -242,9 +258,9 @@ mod tests {
             build_signed_manifest(manifest_json, &key_pair, &rng).expect("build signed manifest");
         let signed_value: serde_json::Value =
             serde_json::from_slice(&signed_bytes).expect("parse signed manifest");
-        let Some(sig_b64) = signed_value["annotations"][SIG_ANNOTATION].as_str() else {
-            panic!("signed manifest is missing the signature annotation");
-        };
+        let sig_b64 = signed_value["annotations"][SIG_ANNOTATION]
+            .as_str()
+            .expect("signed manifest must include the signature annotation");
         let sig_bytes = decode_base64url(sig_b64);
         let (digest, _) =
             manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
@@ -268,16 +284,13 @@ mod tests {
             .expect("compute initial manifest signing payload");
         let mut value: serde_json::Value =
             serde_json::from_str(manifest_json).expect("parse manifest json");
-        let Some(root) = value.as_object_mut() else {
-            panic!("manifest payload is not a JSON object");
-        };
-        let annotations = root
+        let annotations = value
+            .as_object_mut()
+            .expect("manifest payload must be a JSON object")
             .entry("annotations")
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
-            .as_object_mut();
-        let Some(annotations) = annotations else {
-            panic!("manifest annotations is not a JSON object");
-        };
+            .as_object_mut()
+            .expect("manifest annotations must be a JSON object");
         annotations.insert(
             SIG_ANNOTATION.to_string(),
             serde_json::Value::String("somesig".to_string()),
@@ -313,10 +326,22 @@ mod tests {
     #[test]
     fn manifest_signing_payload_rejects_invalid_json() {
         // ARRANGE / ACT
-        let error = match manifest_signing_payload("not json") {
-            Ok(_) => panic!("payload generation unexpectedly succeeded"),
-            Err(error) => error,
-        };
+        let error =
+            manifest_signing_payload("not json").expect_err("payload generation should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::OciParseError(_)));
+    }
+
+    #[test]
+    fn build_signed_manifest_rejects_invalid_json() {
+        // ARRANGE
+        let rng = SystemRandom::new();
+        let key_pair = generate_test_key_pair(&rng);
+
+        // ACT
+        let error =
+            build_signed_manifest("not json", &key_pair, &rng).expect_err("signing should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::OciParseError(_)));
@@ -340,7 +365,7 @@ mod tests {
     #[tokio::test]
     async fn push_manifest_propagates_put_failures() {
         // ARRANGE
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
         let image_ref = ImageReference::parse("127.0.0.1:9/repo:test");
 
         // ACT

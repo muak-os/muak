@@ -1,7 +1,10 @@
 //! Shared HTTP/HTTPS client and low-level request helpers for OCI registry communication.
 
-use http_body_util::{BodyExt, Full};
+use core::result::Result as CoreResult;
+
+use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
+use hyper::http::Error as HttpError;
 use hyper::{Method, Request, Response};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -18,7 +21,7 @@ type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 pub(crate) type HttpClient = Client<HttpsConnector, Full<Bytes>>;
 
 /// Build a reusable client supporting both HTTPS and plain HTTP.
-pub(crate) fn build_client() -> Result<HttpClient> {
+pub(crate) fn build_client() -> HttpClient {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
@@ -33,7 +36,7 @@ pub(crate) fn build_client() -> Result<HttpClient> {
         .enable_http2()
         .build();
 
-    Ok(Client::builder(TokioExecutor::new()).build(connector))
+    Client::builder(TokioExecutor::new()).build(connector)
 }
 
 /// Execute an authenticated GET, returning the response on 2xx.
@@ -51,8 +54,8 @@ pub(crate) async fn get(
     for accept in accept_headers {
         builder = builder.header("Accept", *accept);
     }
-    if let Some(t) = token {
-        builder = builder.header("Authorization", format!("Bearer {}", t));
+    if let Some(token_value) = token {
+        builder = builder.header("Authorization", format!("Bearer {token_value}"));
     }
 
     send(client, builder.body(Full::new(Bytes::new())), url).await
@@ -72,8 +75,8 @@ pub(crate) async fn put(
         .header("User-Agent", USER_AGENT)
         .header("Content-Type", content_type);
 
-    if let Some(t) = token {
-        builder = builder.header("Authorization", format!("Bearer {}", t));
+    if let Some(token_value) = token {
+        builder = builder.header("Authorization", format!("Bearer {token_value}"));
     }
 
     send(client, builder.body(Full::new(body)), url).await
@@ -82,15 +85,15 @@ pub(crate) async fn put(
 /// Dispatch a pre-built request and validate the response status.
 async fn send(
     client: &HttpClient,
-    req: std::result::Result<Request<Full<Bytes>>, hyper::http::Error>,
+    req: CoreResult<Request<Full<Bytes>>, HttpError>,
     url: &str,
 ) -> Result<Response<Incoming>> {
     let req =
-        req.map_err(|e| KociError::NetworkError(format!("Failed to build request: {}", e)))?;
+        req.map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))?;
     let resp = client
         .request(req)
         .await
-        .map_err(|e| KociError::NetworkError(format!("HTTP request failed: {}", e)))?;
+        .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))?;
     if resp.status().is_success() {
         Ok(resp)
     } else {
@@ -107,31 +110,23 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
     resp.into_body()
         .collect()
         .await
-        .map(|c| c.to_bytes())
-        .map_err(|e| KociError::NetworkError(format!("Failed to read response body: {}", e)))
+        .map(http_body_util::Collected::to_bytes)
+        .map_err(|error| KociError::NetworkError(format!("Failed to read response body: {error}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn must<T, E: std::fmt::Display>(result: std::result::Result<T, E>, context: &str) -> T {
-        match result {
-            Ok(value) => value,
-            Err(error) => panic!("{context}: {error}"),
-        }
-    }
-
     #[tokio::test]
     async fn get_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = must(build_client(), "build HTTP client");
+        let client = build_client();
 
         // ACT
-        let error = match get(&client, "http://127.0.0.1:5000/has space", None, &[]).await {
-            Ok(_) => panic!("request unexpectedly succeeded"),
-            Err(error) => error,
-        };
+        let error = get(&client, "http://127.0.0.1:5000/has space", None, &[])
+            .await
+            .expect_err("request should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));
@@ -140,10 +135,10 @@ mod tests {
     #[tokio::test]
     async fn put_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = must(build_client(), "build HTTP client");
+        let client = build_client();
 
         // ACT
-        let error = match put(
+        let error = put(
             &client,
             "http://127.0.0.1:5000/has space",
             Some("token"),
@@ -151,10 +146,7 @@ mod tests {
             Bytes::from_static(b"{}"),
         )
         .await
-        {
-            Ok(_) => panic!("request unexpectedly succeeded"),
-            Err(error) => error,
-        };
+        .expect_err("request should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));
@@ -163,20 +155,17 @@ mod tests {
     #[tokio::test]
     async fn get_reports_connection_failures() {
         // ARRANGE
-        let client = must(build_client(), "build HTTP client");
+        let client = build_client();
 
         // ACT
-        let error = match get(
+        let error = get(
             &client,
             "http://127.0.0.1:9/v2/repo/manifests/test",
             None,
             &[],
         )
         .await
-        {
-            Ok(_) => panic!("request unexpectedly succeeded"),
-            Err(error) => error,
-        };
+        .expect_err("request should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));

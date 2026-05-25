@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 
 use fixtures::*;
-use koci::KociError;
+use koci::error::KociError;
 use registry::{HttpResponse, MockRegistry, RecordedRequest, get, put};
 use serde_json::Value;
 use tempfile::TempDir;

@@ -4,8 +4,8 @@ use serde::Deserialize;
 
 pub(crate) mod manifest;
 
-/// OCI Manifest structure (platform-specific image manifest)
-#[derive(Deserialize)]
+/// OCI manifest structure for a platform-specific image manifest.
+#[derive(Debug, Deserialize)]
 pub struct OciManifest {
     #[serde(default)]
     pub layers: Vec<OciDescriptor>,
@@ -13,8 +13,8 @@ pub struct OciManifest {
     pub manifests: Vec<OciDescriptor>,
 }
 
-/// OCI Descriptor (blob reference)
-#[derive(Deserialize)]
+/// OCI descriptor used to reference a blob.
+#[derive(Debug, Deserialize)]
 pub struct OciDescriptor {
     #[serde(rename = "mediaType")]
     pub media_type: Option<String>,
@@ -23,14 +23,14 @@ pub struct OciDescriptor {
     pub platform: Option<Platform>,
 }
 
-/// Platform information for multi-architecture images
-#[derive(Deserialize, Default)]
+/// Platform information for multi-architecture images.
+#[derive(Debug, Deserialize, Default)]
 pub struct Platform {
     pub architecture: Option<String>,
     pub os: Option<String>,
 }
 
-/// Image reference parser and utilities
+/// Image reference parser and utilities.
 #[derive(Debug, Clone)]
 pub struct ImageReference {
     pub registry: String,
@@ -39,35 +39,33 @@ pub struct ImageReference {
 }
 
 impl ImageReference {
-    /// Parse an image reference string into an ImageReference.
+    /// Parse an image reference string into an `ImageReference`.
     pub fn parse(reference: &str) -> Self {
         let digest_ref = reference
             .rsplit_once('@')
-            .filter(|(_, digest)| is_digest_reference(digest))
-            .map(|(name, digest)| (name, digest.to_string()));
-        let (reference, manifest_ref) = digest_ref.unwrap_or_else(|| parse_tag_ref(reference));
+            .filter(|&(_, digest_ref)| is_digest_reference(digest_ref))
+            .map(|(name, digest_ref)| (name, digest_ref.to_owned()));
+        let (repository, manifest_ref) = digest_ref.unwrap_or_else(|| parse_tag_ref(reference));
 
-        let parts: Vec<&str> = reference.splitn(2, '/').collect();
-        if parts.len() == 2 && (parts[0].contains('.') || parts[0].contains(':')) {
-            let registry = match parts[0] {
-                "docker.io" => "registry-1.docker.io",
-                other => other,
+        if let Some((registry_candidate, image_name)) = repository
+            .split_once('/')
+            .filter(|&(candidate, _)| candidate.contains('.') || candidate.contains(':'))
+        {
+            return Self {
+                registry: normalize_registry(registry_candidate).to_owned(),
+                name: image_name.to_owned(),
+                manifest_ref,
             };
-            Self {
-                registry: registry.to_string(),
-                name: parts[1].to_string(),
-                manifest_ref,
-            }
-        } else {
-            Self {
-                registry: "registry-1.docker.io".to_string(),
-                name: reference.to_string(),
-                manifest_ref,
-            }
+        }
+
+        Self {
+            registry: "registry-1.docker.io".to_owned(),
+            name: repository.to_owned(),
+            manifest_ref,
         }
     }
 
-    /// Determine the URL scheme (http or https) for the registry.
+    /// Determine the URL scheme (`http` or `https`) for the registry.
     pub fn scheme(&self) -> &'static str {
         if self.registry.starts_with("192.168.")
             || self.registry.starts_with("10.")
@@ -82,10 +80,17 @@ impl ImageReference {
     }
 }
 
+fn normalize_registry(registry: &str) -> &str {
+    match registry {
+        "docker.io" => "registry-1.docker.io",
+        other => other,
+    }
+}
+
 fn parse_tag_ref(reference: &str) -> (&str, String) {
     match reference.rsplit_once(':') {
-        Some((r, t)) if !t.contains('/') => (r, t.to_string()),
-        _ => (reference, "latest".to_string()),
+        Some((repository, tag)) if !tag.contains('/') => (repository, tag.to_owned()),
+        _ => (reference, "latest".to_owned()),
     }
 }
 

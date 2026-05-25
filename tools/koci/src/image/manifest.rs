@@ -24,14 +24,15 @@ pub(crate) async fn fetch(
 ) -> Result<String> {
     let resp = get(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS).await?;
     let body = collect_body(resp).await?;
-    String::from_utf8(body.to_vec())
-        .map_err(|e| KociError::NetworkError(format!("Manifest response is not UTF-8: {}", e)))
+    String::from_utf8(body.to_vec()).map_err(|error| {
+        KociError::NetworkError(format!("Manifest response is not UTF-8: {error}"))
+    })
 }
 
 /// Parse manifest JSON into an [`OciManifest`].
 pub(crate) fn parse(json: &str) -> Result<OciManifest> {
     serde_json::from_str(json)
-        .map_err(|e| KociError::OciParseError(format!("Failed to parse manifest: {}", e)))
+        .map_err(|error| KociError::OciParseError(format!("Failed to parse manifest: {error}")))
 }
 
 /// Select the matching platform manifest for the requested target architecture.
@@ -41,9 +42,10 @@ pub(crate) fn select_platform<'a>(
 ) -> Result<&'a OciDescriptor> {
     manifests
         .iter()
-        .find(|m| {
-            m.platform.as_ref().is_some_and(|p| {
-                p.architecture.as_deref() == Some(target_arch) && p.os.as_deref() == Some("linux")
+        .find(|descriptor| {
+            descriptor.platform.as_ref().is_some_and(|platform| {
+                platform.architecture.as_deref() == Some(target_arch)
+                    && platform.os.as_deref() == Some("linux")
             })
         })
         .ok_or_else(|| {
@@ -189,7 +191,7 @@ mod tests {
     async fn fetch_manifest_returns_body_text() {
         // ARRANGE
         let server = TestServer::spawn("200 OK", br#"{"schemaVersion":2}"#);
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT
         let manifest = fetch(&client, &server.url(), Some("token"))
@@ -204,7 +206,7 @@ mod tests {
     async fn fetch_manifest_rejects_non_utf8_body() {
         // ARRANGE
         let server = TestServer::spawn("200 OK", &[0xff, 0xfe, 0xfd]);
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT
         let error = fetch(&client, &server.url(), None)
@@ -219,7 +221,7 @@ mod tests {
     async fn fetch_manifest_propagates_http_failures() {
         // ARRANGE
         let server = TestServer::spawn("404 Not Found", b"missing");
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT
         let error = fetch(&client, &server.url(), None)
@@ -255,10 +257,7 @@ mod tests {
         let manifests = vec![descriptor("sha256:wrong-os", Some("amd64"), Some("darwin"))];
 
         // ACT
-        let error = match select_platform(&manifests, "amd64") {
-            Ok(_) => panic!("selection unexpectedly succeeded"),
-            Err(error) => error,
-        };
+        let error = select_platform(&manifests, "amd64").expect_err("selection should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));

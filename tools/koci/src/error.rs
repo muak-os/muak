@@ -4,6 +4,10 @@ use thiserror::Error;
 
 /// Error type for OCI image pulling and signing operations.
 #[derive(Error, Debug)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 pub enum KociError {
     #[error("Failed to read {file}: {source}")]
     ReadError {
@@ -56,4 +60,4 @@ pub enum KociError {
 }
 
 /// Result type alias for koci operations.
-pub type Result<T> = std::result::Result<T, KociError>;
+pub type Result<T> = core::result::Result<T, KociError>;

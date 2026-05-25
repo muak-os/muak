@@ -11,12 +11,16 @@ pub(crate) fn sha256_hex(data: &[u8]) -> String {
 
 /// Encode bytes as a lowercase hex string.
 pub(crate) fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        use std::fmt::Write;
-        let _ = write!(s, "{:02x}", b);
+    let mut encoded = String::new();
+    for &byte in bytes {
+        encoded.push(hex_digit(byte >> 4));
+        encoded.push(hex_digit(byte & 0x0f));
     }
-    s
+    encoded
+}
+
+fn hex_digit(nibble: u8) -> char {
+    char::from_digit(u32::from(nibble), 16).unwrap_or('0')
 }
 
 /// Verify that the SHA-256 digest of a downloaded blob matches its expected OCI digest.
@@ -25,17 +29,17 @@ pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<(
         expected_digest
             .strip_prefix("sha256:")
             .ok_or_else(|| KociError::DigestMismatch {
-                resource: "blob".to_string(),
-                expected: expected_digest.to_string(),
-                actual: "unsupported digest algorithm".to_string(),
+                resource: "blob".to_owned(),
+                expected: expected_digest.to_owned(),
+                actual: "unsupported digest algorithm".to_owned(),
             })?;
 
     let actual_hash = sha256_hex(data);
 
     if actual_hash != expected_hash {
         return Err(KociError::DigestMismatch {
-            resource: expected_digest.to_string(),
-            expected: expected_hash.to_string(),
+            resource: expected_digest.to_owned(),
+            expected: expected_hash.to_owned(),
             actual: actual_hash,
         });
     }

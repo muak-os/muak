@@ -15,13 +15,11 @@ pub(crate) struct TokenResponse {
 pub(crate) fn get_token_url(registry: &str, name: &str) -> Option<String> {
     if registry == "ghcr.io" {
         Some(format!(
-            "https://ghcr.io/token?scope=repository:{}:pull",
-            name
+            "https://ghcr.io/token?scope=repository:{name}:pull"
         ))
     } else if registry.contains("docker.io") {
         Some(format!(
-            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:{}:pull",
-            name
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:{name}:pull"
         ))
     } else {
         None
@@ -34,18 +32,17 @@ pub(crate) async fn fetch_auth_token(
     registry: &str,
     name: &str,
 ) -> Result<Option<String>> {
-    let Some(token_url) = get_token_url(registry, name) else {
-        return Ok(None);
-    };
-
-    fetch_auth_token_from_url(client, &token_url).await
+    match get_token_url(registry, name) {
+        Some(token_url) => fetch_auth_token_from_url(client, &token_url).await,
+        None => Ok(None),
+    }
 }
 
 async fn fetch_auth_token_from_url(client: &HttpClient, token_url: &str) -> Result<Option<String>> {
     let resp = match get(client, token_url, None, &[]).await {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Warning: Failed to get auth token: {}", e);
+        Ok(response) => response,
+        Err(error) => {
+            eprintln!("Warning: Failed to get auth token: {error}");
             return Ok(None);
         }
     };
@@ -55,8 +52,9 @@ async fn fetch_auth_token_from_url(client: &HttpClient, token_url: &str) -> Resu
 }
 
 fn parse_token_response(body: &[u8]) -> Result<String> {
-    let text = std::str::from_utf8(body)
-        .map_err(|e| KociError::NetworkError(format!("Auth token response is not UTF-8: {}", e)))?;
+    let text = core::str::from_utf8(body).map_err(|error| {
+        KociError::NetworkError(format!("Auth token response is not UTF-8: {error}"))
+    })?;
     let token_resp: TokenResponse = serde_json::from_str(text)?;
     Ok(token_resp.token)
 }
@@ -175,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_auth_token_skips_private_registries() {
         // ARRANGE
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT / ASSERT
         assert!(matches!(
@@ -188,7 +186,7 @@ mod tests {
     async fn fetch_auth_token_from_url_parses_token_body() {
         // ARRANGE
         let server = TestServer::spawn("200 OK", br#"{"token":"abc123"}"#);
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT / ASSERT
         assert_eq!(
@@ -202,7 +200,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_auth_token_from_url_returns_none_on_request_failure() {
         // ARRANGE
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT / ASSERT
         assert!(matches!(
@@ -215,7 +213,7 @@ mod tests {
     async fn fetch_auth_token_from_url_propagates_invalid_json() {
         // ARRANGE
         let server = TestServer::spawn("200 OK", br#"{"access_token":"abc123"}"#);
-        let client = build_client().expect("build HTTP client");
+        let client = build_client();
 
         // ACT / ASSERT
         assert!(matches!(

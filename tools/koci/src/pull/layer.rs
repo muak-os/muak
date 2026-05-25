@@ -45,19 +45,26 @@ pub(crate) fn extract_archive(bytes: &[u8], media_type: Option<&str>, dest: &Pat
             extract_tar(decoder, dest)
         }
         OCI_LAYER_TAR => extract_tar(Cursor::new(bytes), dest),
-        other => Err(KociError::UnsupportedLayerMediaType(other.to_string())),
+        other => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
     }
 }
 
 fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
     let mut archive = Archive::new(reader);
 
-    for entry in archive.entries().map_err(layer_extract_error)? {
-        let mut entry = entry.map_err(layer_extract_error)?;
+    for entry in archive
+        .entries()
+        .map_err(|error| layer_extract_error(&error))?
+    {
+        let mut entry = entry.map_err(|error| layer_extract_error(&error))?;
         let header = entry.header().clone();
         let entry_type = header.entry_type();
-        let relative_path =
-            normalize_entry_path(entry.path().map_err(layer_extract_error)?.as_ref())?;
+        let relative_path = normalize_entry_path(
+            entry
+                .path()
+                .map_err(|error| layer_extract_error(&error))?
+                .as_ref(),
+        )?;
         let Some(relative_path) = relative_path else {
             continue;
         };
@@ -96,7 +103,10 @@ fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
             )));
         }
 
-        if let Some(parent) = output_path.parent() {
+        if let Some(parent) = output_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent)?;
         }
 
@@ -120,11 +130,18 @@ fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
                     path.display()
                 )));
             }
-            Component::Prefix(_) => {
-                return Err(KociError::LayerExtractionError(format!(
-                    "OCI layer entry uses unsupported path prefix: {}",
-                    path.display()
-                )));
+            Component::Prefix(prefix) => {
+                #[cfg(windows)]
+                {
+                    let _ = prefix;
+                    return Err(KociError::LayerExtractionError(format!(
+                        "OCI layer entry uses unsupported path prefix: {}",
+                        path.display()
+                    )));
+                }
+
+                #[cfg(not(windows))]
+                normalized.push(prefix.as_os_str());
             }
         }
     }
@@ -186,7 +203,7 @@ fn ensure_within_root(root: &Path, candidate: &Path) -> Result<()> {
     }
 }
 
-fn layer_extract_error(error: std::io::Error) -> KociError {
+fn layer_extract_error(error: &std::io::Error) -> KociError {
     KociError::LayerExtractionError(format!("Failed to extract tar: {error}"))
 }
 
@@ -254,6 +271,95 @@ mod tests {
         }
 
         Ok(archive.into_inner()?)
+    }
+
+    #[test]
+    fn normalize_entry_path_returns_none_for_current_directory() {
+        // ARRANGE
+        let path = Path::new("./");
+
+        // ACT
+        let normalized = normalize_entry_path(path).expect("normalize path");
+
+        // ASSERT
+        assert!(normalized.is_none());
+    }
+
+    #[test]
+    fn apply_whiteout_removes_directories() {
+        // ARRANGE
+        let output = TempDir::new().expect("create temp dir");
+        let target = output.path().join("etc/conf.d");
+        fs::create_dir_all(&target).expect("create target dir");
+        fs::write(target.join("stale"), b"old").expect("write target file");
+
+        // ACT
+        apply_whiteout(&target, output.path()).expect("apply whiteout");
+
+        // ASSERT
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn ensure_within_root_accepts_path_inside_root() {
+        // ARRANGE
+        let output = TempDir::new().expect("create temp dir");
+        let candidate = output.path().join("etc/file");
+
+        // ACT
+        let result = ensure_within_root(output.path(), &candidate);
+
+        // ASSERT
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn normalize_entry_path_strips_root_dir_and_current_dir_components() {
+        // ARRANGE
+        let path = Path::new("/./etc/absolute");
+
+        // ACT
+        let normalized = normalize_entry_path(path).expect("normalize path");
+
+        // ASSERT
+        assert_eq!(normalized, Some(PathBuf::from("etc/absolute")));
+    }
+
+    #[test]
+    fn extract_archive_writes_root_level_file_without_parent_directory_creation() {
+        // ARRANGE
+        let output = TempDir::new().expect("create temp dir");
+        let layer = archive_bytes(&[("root.txt", b"hello\n")]).expect("build layer archive");
+
+        // ACT
+        extract_archive(&layer, None, output.path()).expect("extract layer");
+
+        // ASSERT
+        assert_eq!(
+            fs::read_to_string(output.path().join("root.txt")).expect("read extracted file"),
+            "hello\n"
+        );
+    }
+
+    #[test]
+    fn whiteout_target_returns_none_for_non_utf8_file_name() {
+        // ARRANGE
+        let output = TempDir::new().expect("create temp dir");
+        #[cfg(unix)]
+        let path = {
+            use std::ffi::OsString;
+            use std::os::unix::ffi::OsStringExt;
+
+            PathBuf::from(OsString::from_vec(vec![0xff]))
+        };
+
+        // ACT
+        #[cfg(unix)]
+        let target = whiteout_target(output.path(), &path).expect("resolve whiteout target");
+
+        // ASSERT
+        #[cfg(unix)]
+        assert!(target.is_none());
     }
 
     #[test]
