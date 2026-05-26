@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// LUKS2 operation error types.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Luks2Error {
     #[error("invalid LUKS2 magic bytes")]
     InvalidMagic,
 
@@ -55,4 +55,4 @@ pub enum Error {
 }
 
 /// Result type for LUKS2 operations.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Luks2Error>;

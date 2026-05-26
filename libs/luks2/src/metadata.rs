@@ -5,14 +5,19 @@
 
 use std::collections::HashMap;
 
-use base64ct::{Base64, Encoding};
+use base64ct::{Base64, Encoding as _};
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{
-    AF_STRIPES, CIPHER_SPEC, DEFAULT_HEADER_SIZE, DEFAULT_JSON_SIZE, DEFAULT_KEYSLOT_AREA_OFFSET,
-    DEFAULT_KEYSLOT_AREA_SIZE, DEFAULT_KEYSLOTS_SIZE, VOLUME_KEY_SIZE,
-};
-use crate::error::{Error, Result};
+use crate::error::{Luks2Error, Result};
+
+const AF_STRIPES: u32 = 4000;
+const CIPHER_SPEC: &str = "aes-xts-plain64";
+const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
+const DEFAULT_JSON_SIZE: u64 = 12288;
+const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 32768;
+const DEFAULT_KEYSLOT_AREA_SIZE: u64 = 64 * 4000;
+const DEFAULT_KEYSLOTS_SIZE: u64 = 16_744_448;
+const VOLUME_KEY_SIZE_U32: u32 = 64;
 
 /// Top-level LUKS2 JSON metadata.
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,7 +67,7 @@ pub struct Kdf {
     pub cpus: Option<u32>,
 }
 
-/// Anti-forensic splitter parameters.
+/// Antiforensic splitter parameters.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AntiForensic {
     pub r#type: String,
@@ -100,7 +105,8 @@ pub struct Digest {
     pub hash: String,
     pub iterations: u32,
     pub salt: String,
-    pub digest: String,
+    #[serde(rename = "digest")]
+    pub value: String,
 }
 
 /// Header configuration section.
@@ -115,13 +121,13 @@ impl Metadata {
     pub fn new(sector_size: u32) -> Self {
         let mut segments = HashMap::new();
         segments.insert(
-            "0".to_string(),
+            String::from("0"),
             Segment {
-                r#type: "crypt".to_string(),
+                r#type: String::from("crypt"),
                 offset: DEFAULT_HEADER_SIZE.to_string(),
-                iv_tweak: "0".to_string(),
-                size: "dynamic".to_string(),
-                encryption: CIPHER_SPEC.to_string(),
+                iv_tweak: String::from("0"),
+                size: String::from("dynamic"),
+                encryption: CIPHER_SPEC.to_owned(),
                 sector_size,
             },
         );
@@ -141,53 +147,64 @@ impl Metadata {
     /// Adds a keyslot entry with the given Argon2id parameters and salt.
     pub fn add_keyslot(&mut self, id: &str, kdf_salt: &[u8]) {
         let keyslot = Keyslot {
-            r#type: "luks2".to_string(),
-            key_size: VOLUME_KEY_SIZE as u32,
+            r#type: String::from("luks2"),
+            key_size: VOLUME_KEY_SIZE_U32,
             kdf: Kdf {
                 // NOTE: Those parameters are fine because the entropy of the key is already 512
                 // bits due to random key generation of 64 bytes created during install
-                r#type: "argon2id".to_string(),
+                r#type: String::from("argon2id"),
                 salt: Base64::encode_string(kdf_salt),
                 time: Some(1),
                 memory: Some(65_536),
                 cpus: Some(4),
             },
             af: AntiForensic {
-                r#type: "luks1".to_string(),
+                r#type: String::from("luks1"),
                 stripes: AF_STRIPES,
-                hash: "sha256".to_string(),
+                hash: String::from("sha256"),
             },
             area: KeyslotArea {
-                r#type: "raw".to_string(),
+                r#type: String::from("raw"),
                 offset: DEFAULT_KEYSLOT_AREA_OFFSET.to_string(),
                 size: DEFAULT_KEYSLOT_AREA_SIZE.to_string(),
-                encryption: CIPHER_SPEC.to_string(),
-                key_size: VOLUME_KEY_SIZE as u32,
+                encryption: CIPHER_SPEC.to_owned(),
+                key_size: VOLUME_KEY_SIZE_U32,
             },
         };
 
-        self.keyslots.insert(id.to_string(), keyslot);
+        self.keyslots.insert(id.to_owned(), keyslot);
     }
 
     /// Serializes the metadata to a JSON byte buffer padded to `json_size`.
-    pub fn serialize(&self, json_size: u64) -> Result<Vec<u8>> {
+    pub fn to_json_buffer(&self, json_size: u64) -> Result<Vec<u8>> {
         let json = serde_json::to_vec_pretty(self)?;
-        if json.len() > json_size as usize {
-            return Err(Error::InvalidField(format!(
+        let json_size = usize::try_from(json_size)
+            .map_err(|_error| Luks2Error::InvalidField("json size exceeds usize".into()))?;
+        if json.len() > json_size {
+            return Err(Luks2Error::InvalidField(format!(
                 "JSON size {} exceeds buffer size {}",
                 json.len(),
                 json_size
             )));
         }
-        let mut buf = vec![0u8; json_size as usize];
-        buf[..json.len()].copy_from_slice(&json);
+        let mut buf = vec![0_u8; json_size];
+        let prefix = buf
+            .get_mut(..json.len())
+            .ok_or_else(|| Luks2Error::InvalidField("json buffer too small".into()))?;
+        prefix.copy_from_slice(&json);
         Ok(buf)
     }
 
     /// Deserializes metadata from a raw JSON area buffer.
-    pub fn deserialize(data: &[u8]) -> Result<Self> {
-        let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
-        Ok(serde_json::from_slice(&data[..end])?)
+    pub fn from_json_buffer(data: &[u8]) -> Result<Self> {
+        let end = data
+            .iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(data.len());
+        let json = data
+            .get(..end)
+            .ok_or_else(|| Luks2Error::InvalidField("json buffer end out of bounds".into()))?;
+        Ok(serde_json::from_slice(json)?)
     }
 
     /// Sets a TPM2 token in the metadata, replacing any existing one.
@@ -203,22 +220,25 @@ impl Metadata {
         let value = self
             .tokens
             .values()
-            .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("tpm2"))
-            .ok_or(Error::NoTpm2Token)?;
+            .find(|value| {
+                value.get("type").and_then(|token_type| token_type.as_str()) == Some("tpm2")
+            })
+            .ok_or(Luks2Error::NoTpm2Token)?;
         Ok(serde_json::from_value(value.clone())?)
     }
 
     /// Finds existing TPM2 token ID or allocates the next available one.
     fn find_or_alloc_tpm2_token_id(&self) -> String {
-        if let Some(id) = self.tokens.iter().find_map(|(id, v)| {
-            (v.get("type").and_then(|t| t.as_str()) == Some("tpm2")).then(|| id.clone())
+        if let Some(id) = self.tokens.iter().find_map(|(id, value)| {
+            (value.get("type").and_then(|token_type| token_type.as_str()) == Some("tpm2"))
+                .then(|| id.clone())
         }) {
             return id;
         }
 
-        let mut next_id = 0u32;
+        let mut next_id = 0_u32;
         while self.tokens.contains_key(&next_id.to_string()) {
-            next_id += 1;
+            next_id = next_id.saturating_add(1);
         }
         next_id.to_string()
     }
@@ -267,7 +287,7 @@ mod tests {
         let keyslot = meta.keyslots.get("0").unwrap();
 
         assert_eq!(keyslot.r#type, "luks2");
-        assert_eq!(keyslot.key_size, VOLUME_KEY_SIZE as u32);
+        assert_eq!(keyslot.key_size, VOLUME_KEY_SIZE_U32);
         assert_eq!(keyslot.kdf.r#type, "argon2id");
         assert_eq!(keyslot.af.stripes, AF_STRIPES);
         assert_eq!(keyslot.af.hash, "sha256");
@@ -308,13 +328,13 @@ mod tests {
         let json_size = 4096u64;
 
         // ACT
-        let serialized = meta.serialize(json_size).unwrap();
+        let serialized = meta.to_json_buffer(json_size).unwrap();
 
         // ASSERT
-        assert_eq!(serialized.len(), json_size as usize);
+        assert_eq!(serialized.len(), usize::try_from(json_size).unwrap());
 
         // ACT
-        let deserialized = Metadata::deserialize(&serialized).unwrap();
+        let deserialized = Metadata::from_json_buffer(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(deserialized.keyslots.len(), meta.keyslots.len());
@@ -335,7 +355,7 @@ mod tests {
         data.extend(vec![0u8; 100]);
 
         // ACT
-        let result = Metadata::deserialize(&data);
+        let result = Metadata::from_json_buffer(&data);
 
         // ASSERT
         assert!(result.is_ok());
@@ -350,7 +370,7 @@ mod tests {
         let json_size = 4096u64;
 
         // ACT
-        let serialized = meta.serialize(json_size).unwrap();
+        let serialized = meta.to_json_buffer(json_size).unwrap();
 
         // ASSERT
         let mut json_end = serialized.len();
@@ -417,7 +437,7 @@ mod tests {
         assert_eq!(keyslot.area.offset, DEFAULT_KEYSLOT_AREA_OFFSET.to_string());
         assert_eq!(keyslot.area.size, DEFAULT_KEYSLOT_AREA_SIZE.to_string());
         assert_eq!(keyslot.area.encryption, CIPHER_SPEC);
-        assert_eq!(keyslot.area.key_size, VOLUME_KEY_SIZE as u32);
+        assert_eq!(keyslot.area.key_size, VOLUME_KEY_SIZE_U32);
     }
 
     #[test]
@@ -443,7 +463,7 @@ mod tests {
         let data = b"not valid json".to_vec();
 
         // ACT
-        let result = Metadata::deserialize(&data);
+        let result = Metadata::from_json_buffer(&data);
 
         // ASSERT
         assert!(result.is_err());
@@ -467,12 +487,90 @@ mod tests {
 
         // ACT
         let small_size = 256u64;
-        let result = meta.serialize(small_size);
+        let result = meta.to_json_buffer(small_size);
         let large_size = 4096u64;
-        let serialized = meta.serialize(large_size).unwrap();
+        let serialized = meta.to_json_buffer(large_size).unwrap();
 
         // ASSERT
         assert!(result.is_err());
         assert_eq!(serialized.len(), large_size as usize);
+    }
+
+    #[test]
+    fn set_tpm2_token_reuses_existing_tpm2_id() {
+        // ARRANGE
+        let mut meta = Metadata::new(4096);
+        meta.tokens.insert(
+            String::from("7"),
+            serde_json::json!({ "type": "tpm2", "tpm2-blob": "old" }),
+        );
+        let token = Tpm2Token {
+            r#type: String::from("tpm2"),
+            keyslots: vec![String::from("0")],
+            tpm2_pcrs: vec![11],
+            tpm2_hash_alg: String::from("sha256"),
+            tpm2_blob: String::from("new"),
+            tpm2_policy_hash: String::from("policy"),
+        };
+
+        // ACT
+        meta.set_tpm2_token(&token).unwrap();
+
+        // ASSERT
+        assert_eq!(meta.tokens.len(), 1);
+        assert_eq!(
+            meta.tokens.get("7").unwrap().get("tpm2-blob").unwrap(),
+            "new"
+        );
+    }
+
+    #[test]
+    fn set_tpm2_token_allocates_next_available_id() {
+        // ARRANGE
+        let mut meta = Metadata::new(4096);
+        meta.tokens
+            .insert(String::from("0"), serde_json::json!({ "type": "other" }));
+        meta.tokens
+            .insert(String::from("1"), serde_json::json!({ "type": "other" }));
+        let token = Tpm2Token {
+            r#type: String::from("tpm2"),
+            keyslots: vec![String::from("0")],
+            tpm2_pcrs: vec![11],
+            tpm2_hash_alg: String::from("sha256"),
+            tpm2_blob: String::from("blob"),
+            tpm2_policy_hash: String::from("policy"),
+        };
+
+        // ACT
+        meta.set_tpm2_token(&token).unwrap();
+
+        // ASSERT
+        assert!(meta.tokens.contains_key("2"));
+    }
+
+    #[test]
+    fn get_tpm2_token_ignores_non_tpm2_entries() {
+        // ARRANGE
+        let mut meta = Metadata::new(4096);
+        meta.tokens
+            .insert(String::from("0"), serde_json::json!({ "type": "other" }));
+        meta.tokens.insert(
+            String::from("1"),
+            serde_json::json!({
+                "type": "tpm2",
+                "keyslots": ["0"],
+                "tpm2-pcrs": [11],
+                "tpm2-hash-alg": "sha256",
+                "tpm2-blob": "blob",
+                "tpm2-policy-hash": "policy"
+            }),
+        );
+
+        // ACT
+        let token = meta.get_tpm2_token().unwrap();
+
+        // ASSERT
+        assert_eq!(token.r#type, "tpm2");
+        assert_eq!(token.tpm2_blob, "blob");
     }
 }

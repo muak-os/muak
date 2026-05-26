@@ -5,10 +5,10 @@
 //! and one for tweak encryption.
 
 use aes::Aes256;
-use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
-use zeroize::Zeroize;
+use aes::cipher::{BlockCipherDecrypt as _, BlockCipherEncrypt as _, KeyInit as _};
+use zeroize::Zeroize as _;
 
-use crate::error::{Error, Result};
+use crate::error::{Luks2Error, Result};
 
 const AES_BLOCK_SIZE: usize = 16;
 
@@ -28,6 +28,7 @@ pub fn decrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
     xts_process(key, tweak, data, Mode::Decrypt)
 }
 
+#[derive(Clone, Copy)]
 enum Mode {
     Encrypt,
     Decrypt,
@@ -35,69 +36,79 @@ enum Mode {
 
 fn xts_process(key: &[u8], tweak: &[u8; 16], data: &mut [u8], mode: Mode) -> Result<()> {
     if key.len() != 64 {
-        return Err(Error::InvalidField("AES-XTS key must be 64 bytes".into()));
+        return Err(Luks2Error::InvalidField(
+            "AES-XTS key must be 64 bytes".into(),
+        ));
     }
 
     if data.len() < AES_BLOCK_SIZE {
-        return Err(Error::InvalidField("data must be at least 16 bytes".into()));
+        return Err(Luks2Error::InvalidField(
+            "data must be at least 16 bytes".into(),
+        ));
     }
 
-    let key1: &[u8; 32] = key[..32]
+    let key1_slice = key
+        .get(..32)
+        .ok_or_else(|| Luks2Error::InvalidField("invalid AES key length".into()))?;
+    let key1: &[u8; 32] = key1_slice
         .try_into()
-        .map_err(|_| Error::InvalidField("invalid AES key length".into()))?;
-    let key2: &[u8; 32] = key[32..]
+        .map_err(|_error| Luks2Error::InvalidField("invalid AES key length".into()))?;
+    let key2_slice = key
+        .get(32..)
+        .ok_or_else(|| Luks2Error::InvalidField("invalid AES key length".into()))?;
+    let key2: &[u8; 32] = key2_slice
         .try_into()
-        .map_err(|_| Error::InvalidField("invalid AES key length".into()))?;
+        .map_err(|_error| Luks2Error::InvalidField("invalid AES key length".into()))?;
 
     let cipher1 = Aes256::new(key1.into());
     let cipher2 = Aes256::new(key2.into());
 
-    let mut t = *tweak;
-    cipher2.encrypt_block((&mut t).into());
+    let mut current_tweak = *tweak;
+    cipher2.encrypt_block((&mut current_tweak).into());
 
-    let full_blocks = data.len() / AES_BLOCK_SIZE;
+    for block in data.chunks_exact_mut(AES_BLOCK_SIZE) {
+        xor_block(block, &current_tweak);
 
-    for i in 0..full_blocks {
-        let offset = i * AES_BLOCK_SIZE;
-        let block = &mut data[offset..offset + AES_BLOCK_SIZE];
+        {
+            let aes_block: &mut [u8; 16] = block
+                .try_into()
+                .map_err(|_error| Luks2Error::InvalidField("invalid block length".into()))?;
 
-        xor_block(block, &t);
-
-        let aes_block: &mut [u8; 16] = block
-            .try_into()
-            .map_err(|_| Error::InvalidField("invalid block length".into()))?;
-        match mode {
-            Mode::Encrypt => cipher1.encrypt_block(aes_block.into()),
-            Mode::Decrypt => cipher1.decrypt_block(aes_block.into()),
+            match mode {
+                Mode::Encrypt => cipher1.encrypt_block(aes_block.into()),
+                Mode::Decrypt => cipher1.decrypt_block(aes_block.into()),
+            }
         }
 
-        xor_block(block, &t);
+        xor_block(block, &current_tweak);
 
-        gf128_mul_x(&mut t);
+        gf128_mul_x(&mut current_tweak);
     }
 
-    t.zeroize();
+    current_tweak.zeroize();
 
     Ok(())
 }
 
 /// XOR a 16-byte block with a tweak value.
 fn xor_block(block: &mut [u8], tweak: &[u8; 16]) {
-    for (b, t) in block.iter_mut().zip(tweak.iter()) {
-        *b ^= *t;
+    for (block_byte, tweak_byte) in block.iter_mut().zip(tweak.iter()) {
+        *block_byte ^= *tweak_byte;
     }
 }
 
 /// Multiply a value in GF(2^128) by x (left shift with reduction).
 fn gf128_mul_x(tweak: &mut [u8; 16]) {
-    let mut carry = 0u8;
+    let mut carry = 0_u8;
     for byte in tweak.iter_mut() {
         let new_carry = *byte >> 7;
         *byte = (*byte << 1) | carry;
         carry = new_carry;
     }
     // If the MSB was set, reduce with the polynomial x^128 + x^7 + x^2 + x + 1 (0x87)
-    tweak[0] ^= carry * 0x87;
+    if carry == 1 {
+        tweak[0] ^= 0x87;
+    }
 }
 
 #[cfg(test)]
@@ -324,5 +335,19 @@ mod tests {
 
         // ASSERT
         assert_ne!(data1.as_slice(), data2.as_slice());
+    }
+
+    #[test]
+    fn decrypt_accepts_partial_final_block() {
+        // ARRANGE
+        let key = [0x42_u8; 64];
+        let tweak = [0x01_u8; 16];
+        let mut data = b"seventeen-byte-msg".to_vec();
+
+        // ACT
+        let result = decrypt(&key, &tweak, &mut data);
+
+        // ASSERT
+        assert!(result.is_ok());
     }
 }

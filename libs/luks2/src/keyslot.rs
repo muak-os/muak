@@ -1,15 +1,13 @@
 //! LUKS2 keyslot operations.
-//!
-//! Handles volume key protection: deriving intermediate keys from passphrases
-//! via Argon2id, anti-forensic splitting/merging for secure key storage, and
-//! AES-XTS encryption/decryption of keyslot binary areas.
 
-use base64ct::{Base64, Encoding};
+use core::num::NonZeroUsize;
+
+use base64ct::{Base64, Encoding as _};
 use ring::digest::{Context, SHA256};
-use ring::rand::SecureRandom;
-use zeroize::Zeroize;
+use ring::rand::{SecureRandom as _, SystemRandom};
+use zeroize::Zeroize as _;
 
-use crate::error::{Error, Result};
+use crate::error::{Luks2Error, Result};
 use crate::metadata::Keyslot;
 use crate::xts;
 
@@ -18,55 +16,69 @@ const SHA256_LEN: usize = 32;
 /// Derives an intermediate key from a passphrase using Argon2id.
 pub fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
     if keyslot.kdf.r#type != "argon2id" {
-        return Err(Error::UnsupportedKdf(keyslot.kdf.r#type.clone()));
+        return Err(Luks2Error::UnsupportedKdf(keyslot.kdf.r#type.clone()));
     }
 
     let salt = Base64::decode_vec(&keyslot.kdf.salt)?;
+    let key_size = usize::try_from(keyslot.key_size)
+        .map_err(|_error| Luks2Error::InvalidField("invalid key size".into()))?;
 
     let t_cost = keyslot.kdf.time.unwrap_or(4);
     let m_cost = keyslot.kdf.memory.unwrap_or(1_048_576);
     let p_cost = keyslot.kdf.cpus.unwrap_or(4);
 
-    let params = argon2::Params::new(m_cost, t_cost, p_cost, Some(keyslot.key_size as usize))
-        .map_err(Error::Argon2)?;
+    let params =
+        argon2::Params::new(m_cost, t_cost, p_cost, Some(key_size)).map_err(Luks2Error::Argon2)?;
 
     let argon2 = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
-    let mut derived = vec![0u8; keyslot.key_size as usize];
+    let mut derived = vec![0_u8; key_size];
     argon2.hash_password_into(passphrase, &salt, &mut derived)?;
 
     Ok(derived)
 }
 
-/// Anti-forensic split: expand a volume key into `stripes` * key_size bytes.
+/// Anti-forensic split: expand a volume key into `stripes` * `key_size` bytes.
 pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
     let key_size = key.len();
-    let total = key_size * stripes as usize;
-    let mut buf = vec![0u8; total];
+    let stripes = usize::try_from(stripes)
+        .map_err(|_error| Luks2Error::InvalidField("invalid stripe count".into()))?;
+    let total = key_size
+        .checked_mul(stripes)
+        .ok_or_else(|| Luks2Error::InvalidField("AF split size overflow".into()))?;
+    let mut buf = vec![0_u8; total];
 
-    let rng = ring::rand::SystemRandom::new();
+    let rng = SystemRandom::new();
 
     // Generate random data for all stripes except the last
-    for i in 0..(stripes as usize - 1) {
-        let offset = i * key_size;
-        rng.fill(&mut buf[offset..offset + key_size])
-            .map_err(|_| Error::InvalidField("random generation failed".into()))?;
+    for stripe in buf
+        .chunks_exact_mut(key_size)
+        .take(stripes.saturating_sub(1))
+    {
+        rng.fill(stripe)
+            .map_err(|_error| Luks2Error::InvalidField("random generation failed".into()))?;
     }
 
     // Compute the diffusion digest of all stripes except the last
-    let mut d = vec![0u8; key_size];
-    for i in 0..(stripes as usize - 1) {
-        let offset = i * key_size;
-        for (j, byte) in d.iter_mut().enumerate() {
-            *byte ^= buf[offset + j];
+    let mut diffusion = vec![0_u8; key_size];
+    for stripe in buf.chunks_exact(key_size).take(stripes.saturating_sub(1)) {
+        for (byte, stripe_byte) in diffusion.iter_mut().zip(stripe.iter().copied()) {
+            *byte ^= stripe_byte;
         }
-        af_diffuse(&mut d);
+        af_diffuse(&mut diffusion)?;
     }
 
     // The last stripe is key XOR diffused-sum so that merge recovers the key
-    let last_offset = (stripes as usize - 1) * key_size;
-    for (j, byte) in d.iter().enumerate() {
-        buf[last_offset + j] = key[j] ^ byte;
+    let last_stripe = buf
+        .chunks_exact_mut(key_size)
+        .nth(stripes.saturating_sub(1))
+        .ok_or_else(|| Luks2Error::InvalidField("missing last stripe".into()))?;
+    for ((dst, key_byte), byte) in last_stripe
+        .iter_mut()
+        .zip(key.iter().copied())
+        .zip(diffusion.iter().copied())
+    {
+        *dst = key_byte ^ byte;
     }
 
     Ok(buf)
@@ -74,47 +86,65 @@ pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
 
 /// Anti-forensic merge: recover the volume key from split stripes.
 pub fn af_merge(data: &[u8], key_size: usize, stripes: u32) -> Result<Vec<u8>> {
-    if data.len() != key_size * stripes as usize {
-        return Err(Error::InvalidField("AF data size mismatch".into()));
+    let stripes = usize::try_from(stripes)
+        .map_err(|_error| Luks2Error::InvalidField("invalid stripe count".into()))?;
+    let expected_len = key_size
+        .checked_mul(stripes)
+        .ok_or_else(|| Luks2Error::InvalidField("AF merge size overflow".into()))?;
+    if data.len() != expected_len {
+        return Err(Luks2Error::InvalidField("AF data size mismatch".into()));
     }
 
-    let mut d = vec![0u8; key_size];
+    let mut diffusion = vec![0_u8; key_size];
 
-    for i in 0..stripes as usize {
-        let offset = i * key_size;
-        for (j, byte) in d.iter_mut().enumerate() {
-            *byte ^= data[offset + j];
+    for (index, stripe) in data.chunks_exact(key_size).enumerate() {
+        for (byte, stripe_byte) in diffusion.iter_mut().zip(stripe.iter().copied()) {
+            *byte ^= stripe_byte;
         }
-        if i < (stripes as usize - 1) {
-            af_diffuse(&mut d);
+        if index < stripes.saturating_sub(1) {
+            af_diffuse(&mut diffusion)?;
         }
     }
 
-    Ok(d)
+    Ok(diffusion)
 }
 
 /// SHA-256 based diffusion function for anti-forensic splitting.
-fn af_diffuse(data: &mut [u8]) {
-    let chunks = data.len() / SHA256_LEN;
-    let remainder = data.len() % SHA256_LEN;
+fn af_diffuse(data: &mut [u8]) -> Result<()> {
+    let mut chunks = data.chunks_exact_mut(SHA256_LEN);
+    let mut chunk_count = 0_usize;
 
-    for i in 0..chunks {
-        let offset = i * SHA256_LEN;
+    for (index, chunk) in chunks.by_ref().enumerate() {
         let mut ctx = Context::new(&SHA256);
-        ctx.update(&(i as u32).to_be_bytes());
-        ctx.update(&data[offset..offset + SHA256_LEN]);
+        let index = u32::try_from(index)
+            .map_err(|_error| Luks2Error::InvalidField("too many AF chunks".into()))?;
+        ctx.update(&index.to_be_bytes());
+        ctx.update(chunk);
         let hash = ctx.finish();
-        data[offset..offset + SHA256_LEN].copy_from_slice(&hash.as_ref()[..SHA256_LEN]);
+        let hash_prefix = hash
+            .as_ref()
+            .get(..SHA256_LEN)
+            .ok_or_else(|| Luks2Error::InvalidField("hash shorter than chunk".into()))?;
+        chunk.copy_from_slice(hash_prefix);
+        chunk_count = chunk_count.saturating_add(1);
     }
 
-    if remainder > 0 {
-        let offset = chunks * SHA256_LEN;
+    let remainder = chunks.into_remainder();
+    if let Some(remainder_len) = NonZeroUsize::new(remainder.len()) {
         let mut ctx = Context::new(&SHA256);
-        ctx.update(&(chunks as u32).to_be_bytes());
-        ctx.update(&data[offset..offset + remainder]);
+        let index = u32::try_from(chunk_count)
+            .map_err(|_error| Luks2Error::InvalidField("too many AF chunks".into()))?;
+        ctx.update(&index.to_be_bytes());
+        ctx.update(remainder);
         let hash = ctx.finish();
-        data[offset..offset + remainder].copy_from_slice(&hash.as_ref()[..remainder]);
+        let hash_prefix = hash
+            .as_ref()
+            .get(..remainder_len.get())
+            .ok_or_else(|| Luks2Error::InvalidField("hash shorter than remainder".into()))?;
+        remainder.copy_from_slice(hash_prefix);
     }
+
+    Ok(())
 }
 
 /// Encrypts a volume key into keyslot binary data ready to be written to disk.
@@ -122,7 +152,7 @@ pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) 
     let mut derived_key = derive_key(passphrase, keyslot)?;
     let mut striped = af_split(volume_key, keyslot.af.stripes)?;
 
-    let tweak = [0u8; 16];
+    let tweak = [0_u8; 16];
     xts::encrypt(&derived_key, &tweak, &mut striped)?;
 
     derived_key.zeroize();
@@ -138,12 +168,13 @@ pub fn decrypt_keyslot(
     let mut derived_key = derive_key(passphrase, keyslot)?;
 
     let mut data = encrypted_data.to_vec();
-    let tweak = [0u8; 16];
+    let tweak = [0_u8; 16];
     xts::decrypt(&derived_key, &tweak, &mut data)?;
 
     derived_key.zeroize();
 
-    let key_size = keyslot.key_size as usize;
+    let key_size = usize::try_from(keyslot.key_size)
+        .map_err(|_error| Luks2Error::InvalidField("invalid key size".into()))?;
     let volume_key = af_merge(&data, key_size, keyslot.af.stripes)?;
     data.zeroize();
 
@@ -302,8 +333,8 @@ mod tests {
         let mut data2 = data1.clone();
 
         // ACT
-        af_diffuse(&mut data1);
-        af_diffuse(&mut data2);
+        af_diffuse(&mut data1).unwrap();
+        af_diffuse(&mut data2).unwrap();
 
         // ASSERT
         assert_eq!(data1, data2);
@@ -316,7 +347,7 @@ mod tests {
         let mut data = original.clone();
 
         // ACT
-        af_diffuse(&mut data);
+        af_diffuse(&mut data).unwrap();
 
         // ASSERT
         assert_ne!(data, original);
@@ -351,9 +382,21 @@ mod tests {
         let result = decrypt_keyslot(wrong_passphrase, &keyslot, &encrypted);
 
         // ASSERT
-        if let Ok(decrypted) = result {
-            assert_ne!(decrypted, volume_key);
-        }
+        assert!(!matches!(result, Ok(decrypted) if decrypted == volume_key));
+    }
+
+    #[test]
+    fn af_diffuse_handles_remainder_chunk() {
+        // ARRANGE
+        let mut data = vec![0x42_u8; 33];
+        let original = data.clone();
+
+        // ACT
+        af_diffuse(&mut data).unwrap();
+
+        // ASSERT
+        assert_ne!(data, original);
+        assert_eq!(data.len(), 33);
     }
 
     #[test]

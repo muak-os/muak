@@ -1,17 +1,44 @@
 //! LUKS2 binary header parsing and serialization.
 
-use ring::digest::SHA256;
+use core::str;
 
-use crate::constants::{
-    BINARY_HEADER_SIZE, CHECKSUM_ALG, CHECKSUM_OFFSET, DEFAULT_HEADER_SIZE, LUKS_MAGIC,
-    LUKS2_VERSION, SHA256_LEN,
-};
-use crate::error::{Error, Result};
+use ring::digest::{SHA256, digest};
+use ring::rand::{SecureRandom as _, SystemRandom};
+
+use crate::error::{Luks2Error as Error, Result};
+
+const LUKS_MAGIC: [u8; 6] = [0x4c, 0x55, 0x4b, 0x53, 0xba, 0xbe];
+const LUKS2_VERSION: u16 = 0x0002;
+const BINARY_HEADER_SIZE: usize = 4096;
+const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
+const CHECKSUM_ALG: &str = "sha256";
+const SHA256_LEN: usize = 32;
+const CHECKSUM_OFFSET: usize = 376;
+
+const MAGIC_OFFSET: usize = 0;
+const MAGIC_END: usize = 6;
+const VERSION_OFFSET: usize = 6;
+const VERSION_END: usize = 8;
+const HEADER_SIZE_OFFSET: usize = 8;
+const HEADER_SIZE_END: usize = 16;
+const SEQUENCE_ID_OFFSET: usize = 16;
+const SEQUENCE_ID_END: usize = 24;
+const LABEL_OFFSET: usize = 24;
+const LABEL_END: usize = 72;
+const CHECKSUM_ALG_OFFSET: usize = 72;
+const SALT_OFFSET: usize = 104;
+const SALT_END: usize = 168;
+const UUID_OFFSET: usize = 168;
+const UUID_END: usize = 208;
+const SUBSYSTEM_OFFSET: usize = 208;
+const SUBSYSTEM_END: usize = 256;
+const OFFSET_OFFSET: usize = 256;
+const OFFSET_END: usize = 264;
 
 /// On-disk LUKS2 binary header.
 #[derive(Debug)]
 pub struct Header {
-    pub header_size: u64,
+    pub size: u64,
     pub sequence_id: u64,
     pub label: [u8; 48],
     pub salt: [u8; 64],
@@ -23,55 +50,75 @@ pub struct Header {
 impl Header {
     /// Creates a new header for formatting a fresh LUKS2 volume.
     pub fn new(uuid_str: &str, label: &str) -> Result<Self> {
-        let mut label_buf = [0u8; 48];
+        let mut label_buf = [0_u8; 48];
         let label_bytes = label.as_bytes();
         let len = label_bytes.len().min(47);
-        label_buf[..len].copy_from_slice(&label_bytes[..len]);
+        copy_prefix(&mut label_buf, label_bytes, len)?;
 
-        let mut uuid_buf = [0u8; 40];
+        let mut uuid_buf = [0_u8; 40];
         let uuid_bytes = uuid_str.as_bytes();
         let len = uuid_bytes.len().min(40);
-        uuid_buf[..len].copy_from_slice(&uuid_bytes[..len]);
+        copy_prefix(&mut uuid_buf, uuid_bytes, len)?;
 
-        let mut salt = [0u8; 64];
-        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut salt)
-            .map_err(|_| Error::Rng)?;
+        let mut salt = [0_u8; 64];
+        SystemRandom::new()
+            .fill(&mut salt)
+            .map_err(|_error| Error::Rng)?;
 
         Ok(Self {
-            header_size: DEFAULT_HEADER_SIZE,
+            size: DEFAULT_HEADER_SIZE,
             sequence_id: 1,
             label: label_buf,
             salt,
             uuid: uuid_buf,
-            subsystem: [0u8; 48],
-            checksum: [0u8; 64],
+            subsystem: [0_u8; 48],
+            checksum: [0_u8; 64],
         })
     }
 
     /// Serializes the header to a 4096-byte buffer and computes its checksum.
-    pub fn serialize(&mut self, is_primary: bool) -> Vec<u8> {
-        let mut buf = vec![0u8; BINARY_HEADER_SIZE];
+    pub fn serialize(&mut self, is_primary: bool) -> Result<Vec<u8>> {
+        let mut buf = vec![0_u8; BINARY_HEADER_SIZE];
 
-        buf[0..6].copy_from_slice(&LUKS_MAGIC);
-        buf[6..8].copy_from_slice(&LUKS2_VERSION.to_be_bytes());
-        buf[8..16].copy_from_slice(&self.header_size.to_be_bytes());
-        buf[16..24].copy_from_slice(&self.sequence_id.to_be_bytes());
-        buf[24..72].copy_from_slice(&self.label);
+        write_range(&mut buf, MAGIC_OFFSET..MAGIC_END, &LUKS_MAGIC)?;
+        write_range(
+            &mut buf,
+            VERSION_OFFSET..VERSION_END,
+            &LUKS2_VERSION.to_be_bytes(),
+        )?;
+        write_range(
+            &mut buf,
+            HEADER_SIZE_OFFSET..HEADER_SIZE_END,
+            &self.size.to_be_bytes(),
+        )?;
+        write_range(
+            &mut buf,
+            SEQUENCE_ID_OFFSET..SEQUENCE_ID_END,
+            &self.sequence_id.to_be_bytes(),
+        )?;
+        write_range(&mut buf, LABEL_OFFSET..LABEL_END, &self.label)?;
         let alg = CHECKSUM_ALG.as_bytes();
-        buf[72..72 + alg.len()].copy_from_slice(alg);
-        buf[104..168].copy_from_slice(&self.salt);
-        buf[168..208].copy_from_slice(&self.uuid);
-        buf[208..256].copy_from_slice(&self.subsystem);
-        let offset = if is_primary { 0u64 } else { self.header_size };
-        buf[256..264].copy_from_slice(&offset.to_be_bytes());
+        let checksum_alg_end = CHECKSUM_ALG_OFFSET
+            .checked_add(alg.len())
+            .ok_or_else(|| Error::InvalidField("checksum algorithm range overflow".into()))?;
+        write_range(&mut buf, CHECKSUM_ALG_OFFSET..checksum_alg_end, alg)?;
+        write_range(&mut buf, SALT_OFFSET..SALT_END, &self.salt)?;
+        write_range(&mut buf, UUID_OFFSET..UUID_END, &self.uuid)?;
+        write_range(&mut buf, SUBSYSTEM_OFFSET..SUBSYSTEM_END, &self.subsystem)?;
+        let offset = if is_primary { 0_u64 } else { self.size };
+        write_range(&mut buf, OFFSET_OFFSET..OFFSET_END, &offset.to_be_bytes())?;
 
-        buf[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64].fill(0);
+        fill_range(&mut buf, CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64, 0)?;
 
-        let hash = ring::digest::digest(&SHA256, &buf);
-        buf[CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN].copy_from_slice(hash.as_ref());
-        self.checksum[..SHA256_LEN].copy_from_slice(hash.as_ref());
+        let hash = digest(&SHA256, &buf);
+        write_range(
+            &mut buf,
+            CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN,
+            hash.as_ref(),
+        )?;
+        copy_prefix(&mut self.checksum, hash.as_ref(), SHA256_LEN)?;
 
-        buf
+        Ok(buf)
     }
 
     /// Parses a binary header from a 4096-byte buffer.
@@ -80,50 +127,60 @@ impl Header {
             return Err(Error::InvalidField("header too short".into()));
         }
 
-        if data[0..6] != LUKS_MAGIC {
+        if read_range(data, MAGIC_OFFSET..MAGIC_END)? != LUKS_MAGIC {
             return Err(Error::InvalidMagic);
         }
 
-        let version = u16::from_be_bytes([data[6], data[7]]);
+        let version = u16::from_be_bytes(read_array::<2>(
+            data,
+            VERSION_OFFSET..VERSION_END,
+            "version",
+        )?);
         if version != LUKS2_VERSION {
             return Err(Error::UnsupportedVersion(version));
         }
 
-        let header_size = u64::from_be_bytes(
-            data[8..16]
-                .try_into()
-                .map_err(|_| Error::InvalidField("header_size".into()))?,
-        );
-        let sequence_id = u64::from_be_bytes(
-            data[16..24]
-                .try_into()
-                .map_err(|_| Error::InvalidField("sequence_id".into()))?,
-        );
+        let header_size = u64::from_be_bytes(read_array::<8>(
+            data,
+            HEADER_SIZE_OFFSET..HEADER_SIZE_END,
+            "header_size",
+        )?);
+        let sequence_id = u64::from_be_bytes(read_array::<8>(
+            data,
+            SEQUENCE_ID_OFFSET..SEQUENCE_ID_END,
+            "sequence_id",
+        )?);
 
-        let mut label = [0u8; 48];
-        label.copy_from_slice(&data[24..72]);
+        let mut label = [0_u8; 48];
+        copy_exact(&mut label, read_range(data, LABEL_OFFSET..LABEL_END)?)?;
 
-        let mut salt = [0u8; 64];
-        salt.copy_from_slice(&data[104..168]);
+        let mut salt = [0_u8; 64];
+        copy_exact(&mut salt, read_range(data, SALT_OFFSET..SALT_END)?)?;
 
-        let mut uuid = [0u8; 40];
-        uuid.copy_from_slice(&data[168..208]);
+        let mut uuid = [0_u8; 40];
+        copy_exact(&mut uuid, read_range(data, UUID_OFFSET..UUID_END)?)?;
 
-        let mut subsystem = [0u8; 48];
-        subsystem.copy_from_slice(&data[208..256]);
+        let mut subsystem = [0_u8; 48];
+        copy_exact(
+            &mut subsystem,
+            read_range(data, SUBSYSTEM_OFFSET..SUBSYSTEM_END)?,
+        )?;
 
-        let mut checksum = [0u8; 64];
-        checksum.copy_from_slice(&data[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64]);
+        let mut checksum = [0_u8; 64];
+        copy_exact(
+            &mut checksum,
+            read_range(data, CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64)?,
+        )?;
 
-        let mut verify_buf = data[..BINARY_HEADER_SIZE].to_vec();
-        verify_buf[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64].fill(0);
-        let computed = ring::digest::digest(&SHA256, &verify_buf);
+        let mut verify_buf = read_range(data, 0..BINARY_HEADER_SIZE)?.to_vec();
+        fill_range(&mut verify_buf, CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64, 0)?;
+        let computed = digest(&SHA256, &verify_buf);
         if computed.as_ref() != &checksum[..SHA256_LEN] {
             return Err(Error::ChecksumMismatch);
         }
 
         Ok(Self {
-            header_size,
+            size: header_size,
             sequence_id,
             label,
             salt,
@@ -137,10 +194,70 @@ impl Header {
         let end = self
             .uuid
             .iter()
-            .position(|&b| b == 0)
+            .position(|&byte| byte == 0)
             .unwrap_or(self.uuid.len());
-        std::str::from_utf8(&self.uuid[..end]).unwrap_or("")
+        self.uuid
+            .get(..end)
+            .and_then(|uuid| str::from_utf8(uuid).ok())
+            .unwrap_or("")
     }
+}
+
+fn copy_prefix(dst: &mut [u8], src: &[u8], len: usize) -> Result<()> {
+    let dst = dst
+        .get_mut(..len)
+        .ok_or_else(|| Error::InvalidField("destination prefix out of bounds".into()))?;
+    let src = src
+        .get(..len)
+        .ok_or_else(|| Error::InvalidField("source prefix out of bounds".into()))?;
+    dst.copy_from_slice(src);
+
+    Ok(())
+}
+
+fn copy_exact<const N: usize>(dst: &mut [u8; N], src: &[u8]) -> Result<()> {
+    if src.len() != N {
+        return Err(Error::InvalidField("slice size mismatch".into()));
+    }
+    dst.copy_from_slice(src);
+
+    Ok(())
+}
+
+fn read_range(data: &[u8], range: core::ops::Range<usize>) -> Result<&[u8]> {
+    data.get(range)
+        .ok_or_else(|| Error::InvalidField("header slice out of bounds".into()))
+}
+
+fn read_array<const N: usize>(
+    data: &[u8],
+    range: core::ops::Range<usize>,
+    field: &str,
+) -> Result<[u8; N]> {
+    read_range(data, range)?
+        .try_into()
+        .map_err(|_error| Error::InvalidField(field.into()))
+}
+
+fn write_range(buf: &mut [u8], range: core::ops::Range<usize>, src: &[u8]) -> Result<()> {
+    let dst = buf
+        .get_mut(range)
+        .ok_or_else(|| Error::InvalidField("header write out of bounds".into()))?;
+    if dst.len() != src.len() {
+        return Err(Error::InvalidField("header write size mismatch".into()));
+    }
+    dst.copy_from_slice(src);
+
+    Ok(())
+}
+
+fn fill_range(buf: &mut [u8], range: core::ops::Range<usize>, value: u8) -> Result<()> {
+    let dst = buf
+        .get_mut(range)
+        .ok_or_else(|| Error::InvalidField("header fill out of bounds".into()))?;
+    dst.fill(value);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -157,7 +274,7 @@ mod tests {
         let header = Header::new(uuid, label)?;
 
         // ASSERT
-        assert_eq!(header.header_size, DEFAULT_HEADER_SIZE);
+        assert_eq!(header.size, DEFAULT_HEADER_SIZE);
         assert_eq!(header.sequence_id, 1);
 
         let label_str = std::str::from_utf8(&header.label)
@@ -197,7 +314,7 @@ mod tests {
         let mut header = Header::new(uuid, label)?;
 
         // ACT
-        let serialized = header.serialize(true);
+        let serialized = header.serialize(true)?;
 
         // ASSERT
         assert_eq!(serialized.len(), BINARY_HEADER_SIZE);
@@ -206,7 +323,7 @@ mod tests {
         let parsed = Header::parse(&serialized).unwrap();
 
         // ASSERT
-        assert_eq!(parsed.header_size, header.header_size);
+        assert_eq!(parsed.size, header.size);
         assert_eq!(parsed.sequence_id, header.sequence_id);
         assert_eq!(parsed.uuid_str(), header.uuid_str());
         assert_eq!(parsed.label, header.label);
@@ -223,12 +340,12 @@ mod tests {
         let mut header = Header::new(uuid, label)?;
 
         // ACT
-        let serialized = header.serialize(false);
+        let serialized = header.serialize(false)?;
 
         // ASSERT
         let parsed = Header::parse(&serialized).unwrap();
 
-        assert_eq!(parsed.header_size, header.header_size);
+        assert_eq!(parsed.size, header.size);
         Ok(())
     }
 
@@ -239,7 +356,7 @@ mod tests {
         let mut header = Header::new(uuid, "test")?;
 
         // ACT
-        let serialized = header.serialize(true);
+        let serialized = header.serialize(true)?;
 
         // ASSERT
         assert_eq!(&serialized[0..6], &LUKS_MAGIC);
@@ -253,7 +370,7 @@ mod tests {
         let mut header = Header::new(uuid, "test")?;
 
         // ACT
-        let serialized = header.serialize(true);
+        let serialized = header.serialize(true)?;
 
         // ASSERT
         let version = u16::from_be_bytes([serialized[6], serialized[7]]);
@@ -266,7 +383,7 @@ mod tests {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test")?;
-        let mut serialized = header.serialize(true);
+        let mut serialized = header.serialize(true)?;
 
         // ACT & ASSERT
         let result = Header::parse(&serialized);
@@ -286,7 +403,7 @@ mod tests {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test")?;
-        let mut serialized = header.serialize(true);
+        let mut serialized = header.serialize(true)?;
 
         let checksum_start = CHECKSUM_OFFSET;
         serialized[checksum_start] ^= 0xFF;
@@ -304,7 +421,7 @@ mod tests {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test")?;
-        let mut serialized = header.serialize(true);
+        let mut serialized = header.serialize(true)?;
 
         serialized[0] = 0x00;
         serialized[1] = 0x00;
@@ -322,7 +439,7 @@ mod tests {
         // ARRANGE
         let uuid = "12345678-1234-1234-1234-123456789abc";
         let mut header = Header::new(uuid, "test")?;
-        let mut serialized = header.serialize(true);
+        let mut serialized = header.serialize(true)?;
 
         serialized[6..8].copy_from_slice(&1u16.to_be_bytes());
 
@@ -369,7 +486,7 @@ mod tests {
         let mut header = Header::new(uuid, "test")?;
 
         // ACT
-        let serialized_primary = header.serialize(true);
+        let serialized_primary = header.serialize(true)?;
 
         // ASSERT
         let offset_primary = u64::from_be_bytes([
@@ -385,7 +502,7 @@ mod tests {
         assert_eq!(offset_primary, 0);
 
         // ACT
-        let serialized_secondary = header.serialize(false);
+        let serialized_secondary = header.serialize(false)?;
 
         // ASSERT
         let offset_secondary = u64::from_be_bytes([
@@ -412,8 +529,8 @@ mod tests {
         let mut header2 = Header::new(uuid2, "test2")?;
 
         // ACT
-        let serialized1 = header1.serialize(true);
-        let serialized2 = header2.serialize(true);
+        let serialized1 = header1.serialize(true)?;
+        let serialized2 = header2.serialize(true)?;
 
         // ASSERT
         let checksum1 = &serialized1[CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN];
@@ -430,7 +547,7 @@ mod tests {
         let mut header = Header::new(uuid, "test")?;
 
         // ACT
-        let serialized = header.serialize(true);
+        let serialized = header.serialize(true)?;
 
         // ASSERT
         let alg_bytes = &serialized[72..104];
@@ -439,5 +556,58 @@ mod tests {
             .trim_end_matches('\0');
         assert_eq!(alg_str, CHECKSUM_ALG);
         Ok(())
+    }
+
+    #[test]
+    fn write_range_rejects_mismatched_lengths() {
+        // ARRANGE
+        let mut buffer = [0_u8; 4];
+
+        // ACT
+        let result = write_range(&mut buffer, 0..2, &[1, 2, 3]);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(Error::InvalidField(field)) if field == "header write size mismatch")
+        );
+    }
+
+    #[test]
+    fn copy_exact_rejects_wrong_length() {
+        // ARRANGE
+        let mut dst = [0_u8; 4];
+
+        // ACT
+        let result = copy_exact(&mut dst, &[1, 2]);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(Error::InvalidField(field)) if field == "slice size mismatch")
+        );
+    }
+
+    #[test]
+    fn read_range_rejects_out_of_bounds_range() {
+        // ACT
+        let result = read_range(&[0_u8; 2], 0..3);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(Error::InvalidField(field)) if field == "header slice out of bounds")
+        );
+    }
+
+    #[test]
+    fn fill_range_rejects_out_of_bounds_range() {
+        // ARRANGE
+        let mut dst = [0_u8; 2];
+
+        // ACT
+        let result = fill_range(&mut dst, 0..3, 0);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(Error::InvalidField(field)) if field == "header fill out of bounds")
+        );
     }
 }
