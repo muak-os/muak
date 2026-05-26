@@ -1,6 +1,6 @@
 [package]
 name = "tpm2"
-description = "TPM 2.0 helpers"
+description = "Library to interact with TPM2 devices"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
@@ -13,9 +13,6 @@ categories.workspace = true
 # Cryptography
 ring = { workspace = true }
 zeroize = { workspace = true }
-
-# Encoding
-base64ct = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

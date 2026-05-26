@@ -2,158 +2,373 @@
 
 use zeroize::Zeroizing;
 
-use crate::commands;
-use crate::device::Device;
-use crate::errors::{Error, Result};
-use crate::pcr;
-use crate::types::{SHA256_DIGEST_SIZE, SRK_HANDLE};
+use crate::blob::SealedBlob;
+use crate::commands::{
+    self, CreateCommand, CreatePrimaryCommand, EvictControlCommand, FlushContextCommand,
+    HandleExistsCommand, LoadCommand, PolicyPcrCommand, StartAuthSessionCommand, UnsealCommand,
+};
+use crate::device::{self, TpmDevice};
+use crate::error::Result;
+use crate::handles::{HierarchyHandle, PersistentHandle};
+use crate::pcr::{Digest, compute_policy_digest};
 
-/// Sealed blob format: [pub_size:u16][pub_data][priv_size:u16][priv_data].
-pub struct SealedBlob {
-    pub pub_data: Vec<u8>,
-    pub priv_data: Vec<u8>,
-}
+const SRK_HANDLE: PersistentHandle = PersistentHandle::new(0x8100_0001);
 
-impl SealedBlob {
-    /// Serializes into wire format.
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(4 + self.pub_data.len() + self.priv_data.len());
-        buf.extend_from_slice(&(self.pub_data.len() as u16).to_le_bytes());
-        buf.extend_from_slice(&self.pub_data);
-        buf.extend_from_slice(&(self.priv_data.len() as u16).to_le_bytes());
-        buf.extend_from_slice(&self.priv_data);
-        buf
-    }
-
-    /// Deserializes from wire format.
-    pub fn deserialize(data: &[u8]) -> Result<Self> {
-        if data.len() < 4 {
-            return Err(Error::InvalidBlob);
-        }
-
-        let pub_size = u16::from_le_bytes([data[0], data[1]]) as usize;
-        if data.len() < 2 + pub_size + 2 {
-            return Err(Error::InvalidBlob);
-        }
-
-        let pub_data = data[2..2 + pub_size].to_vec();
-        let priv_offset = 2 + pub_size;
-
-        let priv_size = u16::from_le_bytes([data[priv_offset], data[priv_offset + 1]]) as usize;
-        if data.len() < priv_offset + 2 + priv_size {
-            return Err(Error::InvalidBlob);
-        }
-
-        let priv_data = data[priv_offset + 2..priv_offset + 2 + priv_size].to_vec();
-
-        Ok(Self {
-            pub_data,
-            priv_data,
-        })
-    }
-}
-
-/// Ensures the SRK exists at the well-known persistent handle.
-fn ensure_srk(dev: &mut Device) -> Result<()> {
-    if commands::handle_exists(dev, SRK_HANDLE)? {
-        return Ok(());
-    }
-
-    let (transient_handle, _pub) = commands::create_primary(dev)?;
-
-    let result = commands::evict_control(
-        dev,
-        crate::types::TPM2_RH_OWNER,
-        transient_handle,
-        SRK_HANDLE,
-    );
-    let _ = commands::flush_context(dev, transient_handle);
-    result?;
-    Ok(())
+pub struct SealResult {
+    pub blob: SealedBlob,
+    pub policy_digest: Digest,
 }
 
 /// Seals data to PCR#11 with the given expected PCR value.
-pub fn seal(
+///
+/// # Errors
+///
+/// Returns an error if TPM access or command execution fails.
+pub fn seal(data: &[u8], expected_pcr: &Digest) -> Result<SealResult> {
+    let mut dev = device::open(None)?;
+    seal_with_device(&mut dev, data, expected_pcr)
+}
+
+fn seal_with_device(
+    dev: &mut impl TpmDevice,
     data: &[u8],
-    expected_pcr: &[u8; SHA256_DIGEST_SIZE],
-) -> Result<(SealedBlob, [u8; SHA256_DIGEST_SIZE])> {
-    let mut dev = Device::open()?;
-    ensure_srk(&mut dev)?;
+    expected_pcr: &Digest,
+) -> Result<SealResult> {
+    ensure_srk(dev)?;
 
-    let policy_digest = pcr::compute_policy_digest(expected_pcr);
+    let policy_digest = compute_policy_digest(expected_pcr);
+    let (pub_data, priv_data) = commands::execute(
+        dev,
+        &CreateCommand {
+            parent_handle: SRK_HANDLE,
+            policy_digest: &policy_digest,
+            data,
+        },
+    )?;
 
-    let (pub_data, priv_data) = commands::create(&mut dev, SRK_HANDLE, &policy_digest, data)?;
-
-    let blob = SealedBlob {
-        pub_data,
-        priv_data,
-    };
-    Ok((blob, policy_digest))
+    Ok(SealResult {
+        blob: SealedBlob::try_new(pub_data, priv_data)?,
+        policy_digest,
+    })
 }
 
 /// Unseals data using current PCR#11 values.
+///
+/// # Errors
+///
+/// Returns an error if TPM access, object loading, policy setup, or unsealing fails.
 pub fn unseal(blob: &SealedBlob) -> Result<Zeroizing<Vec<u8>>> {
-    let mut dev = Device::open()?;
-    ensure_srk(&mut dev)?;
+    let mut dev = device::open(None)?;
+    unseal_with_device(&mut dev, blob)
+}
 
-    let obj_handle = commands::load(&mut dev, SRK_HANDLE, &blob.pub_data, &blob.priv_data)?;
+fn unseal_with_device(dev: &mut impl TpmDevice, blob: &SealedBlob) -> Result<Zeroizing<Vec<u8>>> {
+    ensure_srk(dev)?;
 
-    let session = commands::start_auth_session(&mut dev)?;
+    let obj_handle = commands::execute(
+        dev,
+        &LoadCommand {
+            parent_handle: SRK_HANDLE,
+            pub_data: blob.public(),
+            priv_data: blob.private(),
+        },
+    )?;
+    let session = commands::execute(dev, &StartAuthSessionCommand)?;
 
     let result = (|| -> Result<Zeroizing<Vec<u8>>> {
-        commands::policy_pcr(&mut dev, session, &[])?;
-        commands::unseal(&mut dev, obj_handle, session)
+        commands::execute(
+            dev,
+            &PolicyPcrCommand {
+                session_handle: session,
+                pcr_digest: &[],
+            },
+        )?;
+        commands::execute(
+            dev,
+            &UnsealCommand {
+                object_handle: obj_handle,
+                session_handle: session,
+            },
+        )
     })();
 
-    let _ = commands::flush_context(&mut dev, session);
-    let _ = commands::flush_context(&mut dev, obj_handle);
+    drop(commands::execute(
+        dev,
+        &FlushContextCommand { handle: session },
+    ));
+    drop(commands::execute(
+        dev,
+        &FlushContextCommand { handle: obj_handle },
+    ));
 
     result
 }
 
+/// Ensures the SRK exists at the well-known persistent handle.
+fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
+    if commands::execute(dev, &HandleExistsCommand { handle: SRK_HANDLE })? {
+        return Ok(());
+    }
+
+    let (transient_handle, _pub) = commands::execute(dev, &CreatePrimaryCommand)?;
+
+    let result = commands::execute(
+        dev,
+        &EvictControlCommand {
+            auth: HierarchyHandle::OWNER,
+            object: transient_handle,
+            persistent: SRK_HANDLE,
+        },
+    );
+    drop(commands::execute(
+        dev,
+        &FlushContextCommand {
+            handle: transient_handle,
+        },
+    ));
+    result?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::io::{Read, Result as IoResult, Write};
+
     use super::*;
+    use crate::commands::TpmCommand;
+    const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
+    const TPM2_CAP_HANDLES: u32 = 0x0000_0001;
 
-    #[test]
-    fn sealed_blob_roundtrip() {
-        // ARRANGE
-        let blob = SealedBlob {
-            pub_data: vec![1, 2, 3, 4, 5],
-            priv_data: vec![10, 20, 30],
-        };
+    #[derive(Default)]
+    struct MockDevice {
+        responses: VecDeque<Vec<u8>>,
+    }
 
-        // ACT
-        let serialized = blob.serialize();
-        let deserialized = SealedBlob::deserialize(&serialized).expect("should deserialize");
+    impl MockDevice {
+        fn new(responses: Vec<Vec<u8>>) -> Self {
+            Self {
+                responses: responses.into(),
+            }
+        }
+    }
 
-        // ASSERT
-        assert_eq!(deserialized.pub_data, vec![1, 2, 3, 4, 5]);
-        assert_eq!(deserialized.priv_data, vec![10, 20, 30]);
+    impl Read for MockDevice {
+        fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+            let Some(response) = self.responses.pop_front() else {
+                return Ok(0);
+            };
+
+            let read_len = response.len();
+            buf[..read_len].copy_from_slice(&response);
+            Ok(read_len)
+        }
+    }
+
+    impl Write for MockDevice {
+        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
+
+    impl TpmDevice for MockDevice {}
+
+    fn body_response(body: &[u8]) -> Vec<u8> {
+        let size = 10_usize + body.len();
+        let mut out = Vec::with_capacity(size);
+        out.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
+        out.extend_from_slice(&u32::try_from(size).ok().unwrap_or(0).to_be_bytes());
+        out.extend_from_slice(&0_u32.to_be_bytes());
+        out.extend_from_slice(body);
+
+        out
+    }
+
+    fn handle_exists_response(found: bool) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(0);
+        body.extend_from_slice(&TPM2_CAP_HANDLES.to_be_bytes());
+        body.extend_from_slice(&u32::from(found).to_be_bytes());
+        if found {
+            body.extend_from_slice(&u32::from(SRK_HANDLE).to_be_bytes());
+        }
+
+        body_response(&body)
+    }
+
+    fn sized(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(2 + data.len());
+        out.extend_from_slice(&u16::try_from(data.len()).ok().unwrap_or(0).to_be_bytes());
+        out.extend_from_slice(data);
+
+        out
     }
 
     #[test]
-    fn sealed_blob_empty() {
+    fn ensure_srk_returns_when_handle_exists() {
         // ARRANGE
-        let blob = SealedBlob {
-            pub_data: vec![],
-            priv_data: vec![],
-        };
+        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
 
         // ACT
-        let serialized = blob.serialize();
-        let deserialized = SealedBlob::deserialize(&serialized).expect("should deserialize");
+        let result = ensure_srk(&mut dev);
 
         // ASSERT
-        assert!(deserialized.pub_data.is_empty());
-        assert!(deserialized.priv_data.is_empty());
+        assert!(result.is_ok(), "existing SRK should succeed");
     }
 
     #[test]
-    fn sealed_blob_invalid() {
-        // ACT & ASSERT
-        assert!(SealedBlob::deserialize(&[]).is_err());
-        assert!(SealedBlob::deserialize(&[0, 0]).is_err());
-        assert!(SealedBlob::deserialize(&[5, 0, 1]).is_err());
+    fn seal_with_device_creates_blob_when_srk_exists() {
+        // ARRANGE
+        let mut create_body = Vec::new();
+        create_body.extend_from_slice(&8_u32.to_be_bytes());
+        create_body.extend_from_slice(&sized(&[1, 2]));
+        create_body.extend_from_slice(&sized(&[3, 4]));
+        let mut dev = MockDevice::new(vec![
+            handle_exists_response(true),
+            body_response(&create_body),
+        ]);
+        let pcr = [0xAA; 32];
+
+        // ACT
+        let result = seal_with_device(&mut dev, &[9], &pcr);
+
+        // ASSERT
+        assert!(result.is_ok(), "seal should succeed");
+        let sealed = result.unwrap_or_else(|_| panic!("seal should succeed"));
+        assert_eq!(sealed.blob.public(), &[3, 4], "public blob should match");
+        assert_eq!(sealed.blob.private(), &[1, 2], "private blob should match");
+        assert_eq!(
+            sealed.policy_digest,
+            compute_policy_digest(&pcr),
+            "policy should match"
+        );
+    }
+
+    #[test]
+    fn ensure_srk_creates_and_flushes_missing_srk() {
+        // ARRANGE
+        let mut create_primary_body = Vec::new();
+        create_primary_body.extend_from_slice(&0x8000_0001_u32.to_be_bytes());
+        create_primary_body.extend_from_slice(&5_u32.to_be_bytes());
+        create_primary_body.extend_from_slice(&sized(&[1]));
+        let mut dev = MockDevice::new(vec![
+            handle_exists_response(false),
+            body_response(&create_primary_body),
+            body_response(&[]),
+            body_response(&[]),
+        ]);
+
+        // ACT
+        let result = ensure_srk(&mut dev);
+
+        // ASSERT
+        assert!(result.is_ok(), "missing SRK should be created");
+    }
+
+    #[test]
+    fn seal_with_device_propagates_create_failure() {
+        // ARRANGE
+        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
+
+        // ACT
+        let result = seal_with_device(&mut dev, &[9], &[0xAA; 32]);
+
+        // ASSERT
+        assert!(result.is_err(), "missing create response should fail");
+    }
+
+    #[test]
+    fn unseal_with_device_loads_policy_and_flushes() {
+        // ARRANGE
+        let blob = SealedBlob::try_new(vec![1], vec![2])
+            .ok()
+            .unwrap_or_else(|| panic!("small sealed blob should be valid"));
+        let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
+        let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
+        let mut unseal_body = Vec::new();
+        unseal_body.extend_from_slice(&4_u32.to_be_bytes());
+        unseal_body.extend_from_slice(&sized(&[0xAA]));
+        let mut dev = MockDevice::new(vec![
+            handle_exists_response(true),
+            body_response(&load_body),
+            body_response(&session_body),
+            body_response(&[]),
+            body_response(&unseal_body),
+            body_response(&[]),
+            body_response(&[]),
+        ]);
+
+        // ACT
+        let result = unseal_with_device(&mut dev, &blob);
+
+        // ASSERT
+        assert_eq!(
+            result.ok().map(|data| data.to_vec()),
+            Some(vec![0xAA]),
+            "data should unseal"
+        );
+    }
+
+    #[test]
+    fn unseal_with_device_propagates_load_failure() {
+        // ARRANGE
+        let blob = SealedBlob::try_new(vec![1], vec![2])
+            .unwrap_or_else(|_| panic!("small sealed blob should be valid"));
+        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
+
+        // ACT
+        let result = unseal_with_device(&mut dev, &blob);
+
+        // ASSERT
+        assert!(result.is_err(), "missing load response should fail");
+    }
+
+    #[test]
+    fn unseal_with_device_propagates_policy_failure() {
+        // ARRANGE
+        let blob = SealedBlob::try_new(vec![1], vec![2])
+            .unwrap_or_else(|_| panic!("small sealed blob should be valid"));
+        let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
+        let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
+        let policy_failure = {
+            let mut out = Vec::with_capacity(10);
+            out.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
+            out.extend_from_slice(&10_u32.to_be_bytes());
+            out.extend_from_slice(&0x101_u32.to_be_bytes());
+            out
+        };
+        let mut dev = MockDevice::new(vec![
+            handle_exists_response(true),
+            body_response(&load_body),
+            body_response(&session_body),
+            policy_failure,
+            body_response(&[]),
+            body_response(&[]),
+        ]);
+
+        // ACT
+        let result = unseal_with_device(&mut dev, &blob);
+
+        // ASSERT
+        assert!(result.is_err(), "policy failure should be propagated");
+    }
+
+    #[test]
+    fn command_structs_provide_metadata() {
+        // ASSERT
+        assert_eq!(
+            CreatePrimaryCommand::TAG,
+            0x8002,
+            "create primary tag should match"
+        );
+        assert_eq!(
+            StartAuthSessionCommand::COMMAND_CODE,
+            0x0000_0176,
+            "start auth session code should match"
+        );
     }
 }

@@ -2,70 +2,62 @@
 
 use ring::digest;
 
-use crate::types::SHA256_DIGEST_SIZE;
+pub(crate) type Digest = [u8; 32];
+
+const TPM2_CC_POLICY_PCR: u32 = 0x0000_017F;
+const PCR11_SELECTION: [u8; 10] = [0, 0, 0, 1, 0, 0x0B, 3, 0, 8, 0];
+const SHA256_DIGEST_SIZE: usize = 32;
 
 /// Computes the expected PCR#11 value by simulating extend operations.
-pub fn predict_pcr11(section_data: &[(&str, &[u8])]) -> [u8; SHA256_DIGEST_SIZE] {
-    let mut pcr = [0u8; SHA256_DIGEST_SIZE];
+#[must_use]
+pub fn predict_pcr11(section_data: &[(&str, &[u8])]) -> Digest {
+    let mut pcr = [0_u8; SHA256_DIGEST_SIZE];
 
-    for (name, data) in section_data {
-        let mut name_bytes = name.as_bytes().to_vec();
-        name_bytes.push(0u8);
-        let name_measurement = digest::digest(&digest::SHA256, &name_bytes);
-        pcr = extend(&pcr, name_measurement.as_ref());
-
-        let data_measurement = digest::digest(&digest::SHA256, data);
-        pcr = extend(&pcr, data_measurement.as_ref());
+    for &(name, data) in section_data {
+        pcr = extend(&pcr, hash_name(name).as_ref());
+        pcr = extend(&pcr, digest::digest(&digest::SHA256, data).as_ref());
     }
 
     pcr
 }
 
 /// Computes the trial policy digest for PCR#11 with a given expected value.
-pub fn compute_policy_digest(expected_pcr: &[u8; SHA256_DIGEST_SIZE]) -> [u8; SHA256_DIGEST_SIZE] {
-    let mut policy = [0u8; SHA256_DIGEST_SIZE];
-
-    let mut buf = Vec::with_capacity(SHA256_DIGEST_SIZE + 4 + 4 + 2 + 1 + 3);
-    buf.extend_from_slice(&policy);
-    buf.extend_from_slice(&crate::types::TPM2_CC_POLICY_PCR.to_be_bytes());
-
-    let pcr_select = pcr_selection_bytes();
-    buf.extend_from_slice(&pcr_select);
-
-    let mut pcr_digest_ctx = digest::Context::new(&digest::SHA256);
-    pcr_digest_ctx.update(expected_pcr);
-    let pcr_digest = pcr_digest_ctx.finish();
-    buf.extend_from_slice(pcr_digest.as_ref());
-
-    let result = digest::digest(&digest::SHA256, &buf);
-    policy.copy_from_slice(result.as_ref());
+#[must_use]
+pub(crate) fn compute_policy_digest(expected_pcr: &Digest) -> Digest {
+    let mut policy = [0_u8; SHA256_DIGEST_SIZE];
+    let mut policy_ctx = digest::Context::new(&digest::SHA256);
+    policy_ctx.update(&policy);
+    policy_ctx.update(&TPM2_CC_POLICY_PCR.to_be_bytes());
+    policy_ctx.update(&PCR11_SELECTION);
+    policy_ctx.update(digest::digest(&digest::SHA256, expected_pcr).as_ref());
+    policy.copy_from_slice(policy_ctx.finish().as_ref());
 
     policy
 }
 
-/// PCR extend: SHA256(old_value || measurement).
-fn extend(current: &[u8; SHA256_DIGEST_SIZE], measurement: &[u8]) -> [u8; SHA256_DIGEST_SIZE] {
-    let mut buf = Vec::with_capacity(SHA256_DIGEST_SIZE + measurement.len());
-    buf.extend_from_slice(current);
-    buf.extend_from_slice(measurement);
-    let result = digest::digest(&digest::SHA256, &buf);
-    let mut out = [0u8; SHA256_DIGEST_SIZE];
+/// Hashes a section name with a null terminator using SHA256.
+fn hash_name(name: &str) -> digest::Digest {
+    let mut context = digest::Context::new(&digest::SHA256);
+    context.update(name.as_bytes());
+    context.update(&[0_u8]);
+
+    context.finish()
+}
+
+/// PCR extend: `SHA256(old_value || measurement)`.
+fn extend(current: &Digest, measurement: &[u8]) -> Digest {
+    let mut context = digest::Context::new(&digest::SHA256);
+    context.update(current);
+    context.update(measurement);
+    let result = context.finish();
+    let mut out = [0_u8; SHA256_DIGEST_SIZE];
     out.copy_from_slice(result.as_ref());
+
     out
 }
 
-/// Serializes PCR selection for SHA-256 PCR#11.
-fn pcr_selection_bytes() -> Vec<u8> {
-    let mut sel = Vec::with_capacity(8);
-    sel.extend_from_slice(&1u32.to_be_bytes());
-    sel.extend_from_slice(&crate::types::TPM2_ALG_SHA256.to_be_bytes());
-    sel.push(3);
-    let byte_index = (crate::types::PCR_INDEX / 8) as usize;
-    let bit_index = crate::types::PCR_INDEX % 8;
-    let mut bitmap = [0u8; 3];
-    bitmap[byte_index] = 1 << bit_index;
-    sel.extend_from_slice(&bitmap);
-    sel
+pub(crate) fn pcr11_selection_bytes() -> &'static [u8; 10] {
+    &PCR11_SELECTION
 }
 
 #[cfg(test)]
@@ -78,7 +70,10 @@ mod tests {
         let result = predict_pcr11(&[]);
 
         // ASSERT
-        assert_eq!(result, [0u8; SHA256_DIGEST_SIZE]);
+        assert_eq!(
+            result, [0_u8; SHA256_DIGEST_SIZE],
+            "empty PCR prediction should be zero"
+        );
     }
 
     #[test]
@@ -95,7 +90,7 @@ mod tests {
         let b = predict_pcr11(&sections);
 
         // ASSERT
-        assert_eq!(a, b);
+        assert_eq!(a, b, "PCR prediction should be deterministic");
     }
 
     #[test]
@@ -109,33 +104,33 @@ mod tests {
         let b = predict_pcr11(&s2);
 
         // ASSERT
-        assert_ne!(a, b);
+        assert_ne!(a, b, "PCR prediction should be order-sensitive");
     }
 
     #[test]
     fn policy_digest_deterministic() {
         // ARRANGE
-        let pcr = [0x42u8; SHA256_DIGEST_SIZE];
+        let pcr = [0x42_u8; SHA256_DIGEST_SIZE];
 
         // ACT
         let a = compute_policy_digest(&pcr);
         let b = compute_policy_digest(&pcr);
 
         // ASSERT
-        assert_eq!(a, b);
+        assert_eq!(a, b, "policy digest should be deterministic");
     }
 
     #[test]
     fn policy_digest_different_pcrs() {
         // ARRANGE
-        let pcr_a = [0x01u8; SHA256_DIGEST_SIZE];
-        let pcr_b = [0x02u8; SHA256_DIGEST_SIZE];
+        let pcr_a = [0x01_u8; SHA256_DIGEST_SIZE];
+        let pcr_b = [0x02_u8; SHA256_DIGEST_SIZE];
 
         // ACT
         let a = compute_policy_digest(&pcr_a);
         let b = compute_policy_digest(&pcr_b);
 
         // ASSERT
-        assert_ne!(a, b);
+        assert_ne!(a, b, "policy digest should depend on PCR value");
     }
 }

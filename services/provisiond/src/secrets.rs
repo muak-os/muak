@@ -100,15 +100,18 @@ fn seal_to_token(luks_key: &[u8], uki: &Uki) -> Result<luks2::Tpm2Token> {
         .map(|(name, data)| (name.as_str(), data.as_slice()))
         .collect();
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections_ref);
-    let (blob, policy_digest) =
-        tpm2::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
+    let sealed = tpm2::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
 
     Ok(luks2::Tpm2Token {
         r#type: "tpm2".to_string(),
         keyslots: vec!["0".to_string()],
         tpm2_pcrs: vec![11],
         tpm2_hash_alg: "sha256".to_string(),
-        tpm2_blob: <base64ct::Base64 as base64ct::Encoding>::encode_string(&blob.serialize()),
-        tpm2_policy_hash: <base64ct::Base64 as base64ct::Encoding>::encode_string(&policy_digest),
+        tpm2_blob: <base64ct::Base64 as base64ct::Encoding>::encode_string(
+            &sealed.blob.serialize(),
+        ),
+        tpm2_policy_hash: <base64ct::Base64 as base64ct::Encoding>::encode_string(
+            &sealed.policy_digest,
+        ),
     })
 }

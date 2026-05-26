@@ -2,9 +2,9 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum Error {
-    #[error("TPM2 device not found at {0}")]
-    DeviceNotFound(String),
+pub enum Tpm2Error {
+    #[error("TPM2 device not found")]
+    DeviceNotFound,
 
     #[error("TPM2 I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -18,17 +18,14 @@ pub enum Error {
     #[error("TPM2 response tag mismatch")]
     BadResponseTag,
 
-    #[error("TPM2 unseal failed")]
-    UnsealFailed,
-
-    #[error("TPM2 SRK not found and creation failed")]
-    NoSrk,
-
     #[error("invalid sealed blob format")]
     InvalidBlob,
 
     #[error("random number generation failed")]
     RngFailed,
+
+    #[error("TPM2 buffer too large: {actual} bytes exceeds {max} bytes")]
+    BufferTooLarge { actual: usize, max: usize },
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Tpm2Error>;
