@@ -238,7 +238,7 @@ mod tests {
 
         // ASSERT
         assert!(result.is_ok(), "seal should succeed");
-        let sealed = result.unwrap_or_else(|_| panic!("seal should succeed"));
+        let sealed = result.expect("seal should succeed");
         assert_eq!(sealed.blob.public(), &[3, 4], "public blob should match");
         assert_eq!(sealed.blob.private(), &[1, 2], "private blob should match");
         assert_eq!(
@@ -284,9 +284,8 @@ mod tests {
     #[test]
     fn unseal_with_device_loads_policy_and_flushes() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1], vec![2])
-            .ok()
-            .unwrap_or_else(|| panic!("small sealed blob should be valid"));
+        let blob =
+            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let mut unseal_body = Vec::new();
@@ -306,18 +305,15 @@ mod tests {
         let result = unseal_with_device(&mut dev, &blob);
 
         // ASSERT
-        assert_eq!(
-            result.ok().map(|data| data.to_vec()),
-            Some(vec![0xAA]),
-            "data should unseal"
-        );
+        let result = result.expect("data should unseal");
+        assert_eq!(result.as_slice(), [0xAA].as_slice(), "data should unseal");
     }
 
     #[test]
     fn unseal_with_device_propagates_load_failure() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1], vec![2])
-            .unwrap_or_else(|_| panic!("small sealed blob should be valid"));
+        let blob =
+            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
 
         // ACT
@@ -330,8 +326,8 @@ mod tests {
     #[test]
     fn unseal_with_device_propagates_policy_failure() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1], vec![2])
-            .unwrap_or_else(|_| panic!("small sealed blob should be valid"));
+        let blob =
+            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let policy_failure = {
@@ -369,6 +365,26 @@ mod tests {
             StartAuthSessionCommand::COMMAND_CODE,
             0x0000_0176,
             "start auth session code should match"
+        );
+    }
+
+    #[test]
+    fn public_entrypoints_propagate_open_failures() {
+        // ARRANGE
+        let blob = SealedBlob::try_new(vec![], vec![]).expect("empty blob should be valid");
+
+        // ACT
+        let seal_result = seal(&[], &[0x11; 32]);
+        let unseal_result = unseal(&blob);
+
+        // ASSERT
+        assert!(
+            seal_result.is_err(),
+            "seal wrapper should propagate open failure"
+        );
+        assert!(
+            unseal_result.is_err(),
+            "unseal wrapper should propagate open failure"
         );
     }
 }

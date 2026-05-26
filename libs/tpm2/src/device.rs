@@ -116,10 +116,10 @@ mod tests {
         fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
             let read_len = buf.len().min(self.response.len());
             for byte in buf.iter_mut().take(read_len) {
-                let value = self
-                    .response
-                    .pop_front()
-                    .unwrap_or_else(|| panic!("response should contain enough bytes"));
+                let value = match self.response.pop_front() {
+                    Some(value) => value,
+                    None => panic!("response should contain enough bytes"),
+                };
                 *byte = value;
             }
             Ok(read_len)
@@ -173,11 +173,10 @@ mod tests {
     }
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
+        let unique = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(_) => 0,
+        };
         std::env::temp_dir().join(format!("tpm2-{name}-{unique}"))
     }
 
@@ -240,9 +239,10 @@ mod tests {
             .write(true)
             .open(&path);
         assert!(file_result.is_ok(), "temporary file should be created");
-        let mut device = open(Some(&path))
-            .ok()
-            .unwrap_or_else(|| panic!("file should open"));
+        let mut device = match open(Some(&path)) {
+            Ok(device) => device,
+            Err(_) => panic!("file should open"),
+        };
 
         // ACT
         let write_result = device.write_all(&[1, 2, 3]);

@@ -90,18 +90,22 @@ mod tests {
     fn sealed_blob_roundtrip() {
         // ARRANGE
         let blob = SealedBlob::try_new(vec![1, 2, 3, 4, 5], vec![10, 20, 30]);
+        assert!(blob.is_ok(), "blob should be valid");
+        let blob = match blob {
+            Ok(blob) => blob,
+            Err(_) => panic!("blob should be valid"),
+        };
 
         // ACT
-        let serialized = blob.as_ref().ok().map(SealedBlob::serialize);
-        let deserialized = serialized
-            .as_deref()
-            .map(SealedBlob::deserialize)
-            .unwrap_or_else(|| Err(Tpm2Error::InvalidBlob));
+        let serialized = blob.serialize();
+        let deserialized = SealedBlob::deserialize(&serialized);
 
         // ASSERT
-        assert!(blob.is_ok(), "blob should be valid");
         assert!(deserialized.is_ok(), "blob should deserialize");
-        let deserialized = deserialized.unwrap_or_else(|_| panic!("blob should deserialize"));
+        let deserialized = match deserialized {
+            Ok(blob) => blob,
+            Err(_) => panic!("blob should deserialize"),
+        };
         assert_eq!(
             deserialized.public(),
             &[1, 2, 3, 4, 5],
@@ -118,18 +122,22 @@ mod tests {
     fn sealed_blob_empty() {
         // ARRANGE
         let blob = SealedBlob::try_new(vec![], vec![]);
+        assert!(blob.is_ok(), "empty blob should be valid");
+        let blob = match blob {
+            Ok(blob) => blob,
+            Err(_) => panic!("empty blob should be valid"),
+        };
 
         // ACT
-        let serialized = blob.as_ref().ok().map(SealedBlob::serialize);
-        let deserialized = serialized
-            .as_deref()
-            .map(SealedBlob::deserialize)
-            .unwrap_or_else(|| Err(Tpm2Error::InvalidBlob));
+        let serialized = blob.serialize();
+        let deserialized = SealedBlob::deserialize(&serialized);
 
         // ASSERT
-        assert!(blob.is_ok(), "empty blob should be valid");
         assert!(deserialized.is_ok(), "empty blob should deserialize");
-        let deserialized = deserialized.unwrap_or_else(|_| panic!("blob should deserialize"));
+        let deserialized = match deserialized {
+            Ok(blob) => blob,
+            Err(_) => panic!("blob should deserialize"),
+        };
         assert!(
             deserialized.public().is_empty(),
             "public data should be empty"
@@ -137,6 +145,56 @@ mod tests {
         assert!(
             deserialized.private().is_empty(),
             "private data should be empty"
+        );
+    }
+
+    #[test]
+    fn accessors_return_original_slices() {
+        // ARRANGE
+        let blob = match SealedBlob::try_new(vec![1, 2], vec![3, 4]) {
+            Ok(blob) => blob,
+            Err(_) => panic!("small blob should be valid"),
+        };
+
+        // ACT
+        let public = blob.public();
+        let private = blob.private();
+
+        // ASSERT
+        assert_eq!(
+            public,
+            &[1, 2],
+            "public accessor should expose public bytes"
+        );
+        assert_eq!(
+            private,
+            &[3, 4],
+            "private accessor should expose private bytes"
+        );
+    }
+
+    #[test]
+    fn serialize_clamps_oversized_sections() {
+        // ARRANGE
+        let blob = SealedBlob {
+            pub_data: vec![0xAA; usize::from(u16::MAX) + 1],
+            priv_data: vec![0xBB; usize::from(u16::MAX) + 1],
+        };
+
+        // ACT
+        let serialized = blob.serialize();
+
+        // ASSERT
+        assert_eq!(
+            serialized.get(0..2),
+            Some(u16::MAX.to_le_bytes().as_slice()),
+            "public size should clamp to u16::MAX"
+        );
+        let private_size_offset = 2 + blob.pub_data.len();
+        assert_eq!(
+            serialized.get(private_size_offset..private_size_offset + 2),
+            Some(u16::MAX.to_le_bytes().as_slice()),
+            "private size should clamp to u16::MAX"
         );
     }
 
@@ -179,7 +237,10 @@ mod tests {
 
         // ASSERT
         assert!(result.is_ok(), "trailing data should be ignored");
-        let blob = result.unwrap_or_else(|_| panic!("blob should deserialize"));
+        let blob = match result {
+            Ok(blob) => blob,
+            Err(_) => panic!("blob should deserialize"),
+        };
         assert_eq!(blob.public(), &[0xAA], "public data should match");
         assert_eq!(blob.private(), &[0xBB], "private data should match");
     }
@@ -211,5 +272,17 @@ mod tests {
 
         // ASSERT
         assert!(result.is_err(), "invalid size slice should fail");
+    }
+
+    #[test]
+    fn deserialize_rejects_missing_private_size_bytes() {
+        // ARRANGE
+        let data = [0, 0, 1];
+
+        // ACT
+        let result = SealedBlob::deserialize(&data);
+
+        // ASSERT
+        assert!(result.is_err(), "missing private size bytes should fail");
     }
 }
