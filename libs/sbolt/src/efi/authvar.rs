@@ -1,4 +1,4 @@
-//! Authenticated EFI variable signing
+//! Authenticated EFI variable signing.
 
 use uefi::Guid;
 use uefi::runtime::{Time, VariableAttributes};
@@ -10,10 +10,17 @@ use crate::Result;
 use crate::keys::Rsa2048Signer;
 use crate::pkcs7::build_detached_signed_data;
 
+const AUTHVAR_ATTRIBUTE_SIZE: usize = 4;
+const EFI_TIME_SIZE: usize = 16;
+const WIN_CERT_UEFI_GUID_HEADER_SIZE: usize = 24;
 const WIN_CERT_REVISION_2_0: u16 = 0x0200;
 const WIN_CERT_TYPE_EFI_GUID: u16 = 0x0EF1;
 
-/// Sign an EFI variable update with EFI_VARIABLE_AUTHENTICATION_2
+/// Sign an EFI variable update with `EFI_VARIABLE_AUTHENTICATION_2`.
+///
+/// # Errors
+///
+/// Returns an error if timestamp generation or PKCS#7 construction fails.
 pub fn sign_efi_variable(
     var_name: &str,
     vendor_guid: &Guid,
@@ -28,9 +35,18 @@ pub fn sign_efi_variable(
 
     let pkcs7_der = build_detached_signed_data(&descriptor, signer, certificate)?;
 
-    let win_cert = build_win_certificate(&pkcs7_der);
+    let win_cert = build_win_certificate(&pkcs7_der)?;
 
-    let mut payload = Vec::with_capacity(4 + 16 + win_cert.len() + content.len());
+    let payload_capacity = checked_add(
+        checked_add(
+            AUTHVAR_ATTRIBUTE_SIZE,
+            EFI_TIME_SIZE,
+            "authvar payload header",
+        )?,
+        checked_add(win_cert.len(), content.len(), "authvar payload content")?,
+        "authvar payload total",
+    )?;
+    let mut payload = Vec::with_capacity(payload_capacity);
     payload.extend_from_slice(&attributes.bits().to_le_bytes());
     payload.extend_from_slice(&time_to_bytes(&timestamp));
     payload.extend_from_slice(&win_cert);
@@ -39,7 +55,7 @@ pub fn sign_efi_variable(
     Ok(payload)
 }
 
-/// Build the descriptor that gets signed per UEFI spec 8.2.2
+/// Build the descriptor that gets signed per UEFI spec 8.2.2.
 fn build_descriptor(
     var_name: &str,
     vendor_guid: &Guid,
@@ -49,8 +65,8 @@ fn build_descriptor(
 ) -> Vec<u8> {
     let mut desc = Vec::new();
 
-    for c in var_name.encode_utf16() {
-        desc.extend_from_slice(&c.to_le_bytes());
+    for code_unit in var_name.encode_utf16() {
+        desc.extend_from_slice(&code_unit.to_le_bytes());
     }
 
     desc.extend_from_slice(&vendor_guid.to_bytes());
@@ -61,20 +77,30 @@ fn build_descriptor(
     desc
 }
 
-/// Build WIN_CERTIFICATE_UEFI_GUID structure.
-fn build_win_certificate(pkcs7_der: &[u8]) -> Vec<u8> {
-    let header_size = 4 + 2 + 2 + 16; // 24 bytes
-    let total_size = header_size + pkcs7_der.len();
+/// Build `WIN_CERTIFICATE_UEFI_GUID` structure.
+fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
+    let total_size = checked_add(
+        WIN_CERT_UEFI_GUID_HEADER_SIZE,
+        pkcs7_der.len(),
+        "WIN_CERTIFICATE_UEFI_GUID size",
+    )?;
+    let total_size_u32 = u32::try_from(total_size)
+        .map_err(|_size_error| crate::Error::EfiVar("WIN_CERTIFICATE size exceeds u32".into()))?;
 
     let mut result = Vec::with_capacity(total_size);
 
-    result.extend_from_slice(&(total_size as u32).to_le_bytes());
+    result.extend_from_slice(&total_size_u32.to_le_bytes());
     result.extend_from_slice(&WIN_CERT_REVISION_2_0.to_le_bytes());
     result.extend_from_slice(&WIN_CERT_TYPE_EFI_GUID.to_le_bytes());
     result.extend_from_slice(&EFI_CERT_TYPE_PKCS7_GUID.to_bytes());
     result.extend_from_slice(pkcs7_der);
 
-    result
+    Ok(result)
+}
+
+fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
+    lhs.checked_add(rhs)
+        .ok_or_else(|| crate::Error::EfiVar(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -156,7 +182,7 @@ mod tests {
         let fake_pkcs7 = b"fake-pkcs7-signature-data";
 
         // ACT
-        let wc = build_win_certificate(fake_pkcs7);
+        let wc = build_win_certificate(fake_pkcs7).expect("build win certificate");
 
         // ASSERT
         let expected_total = 24 + fake_pkcs7.len();
@@ -223,5 +249,14 @@ mod tests {
         );
 
         assert_eq!(payload.len(), 4 + 16 + win_cert_size + content.len());
+    }
+
+    #[test]
+    fn checked_add_rejects_overflow() {
+        // ACT
+        let result = checked_add(usize::MAX, 1, "authvar");
+
+        // ASSERT
+        assert!(result.is_err());
     }
 }

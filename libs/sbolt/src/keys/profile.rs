@@ -1,17 +1,15 @@
-//! X.509 certificate builder profiles for Secure Boot keys
+//! X.509 certificate builder profiles for Secure Boot keys.
 
-use x509_cert::{
-    certificate::TbsCertificate,
-    ext::{
-        Extension, ToExtension,
-        pkix::{
-            AuthorityKeyIdentifier, BasicConstraints, KeyUsage, KeyUsages, SubjectKeyIdentifier,
-        },
-    },
-    name::Name,
+use x509_cert::builder::Result as BuilderResult;
+use x509_cert::builder::profile::BuilderProfile;
+use x509_cert::certificate::TbsCertificate;
+use x509_cert::ext::pkix::{
+    AuthorityKeyIdentifier, BasicConstraints, KeyUsage, KeyUsages, SubjectKeyIdentifier,
 };
+use x509_cert::ext::{Extension, ToExtension as _};
+use x509_cert::name::Name;
 
-/// Unified profile for all Secure Boot certificate types (PK, KEK, db)
+/// Unified profile for all Secure Boot certificate types (PK, KEK, db).
 pub struct SecureBootProfile {
     pub issuer: Option<Name>,
     pub subject: Name,
@@ -21,7 +19,7 @@ pub struct SecureBootProfile {
 }
 
 impl SecureBootProfile {
-    /// Platform Key: self-signed CA root of trust
+    /// Platform Key: self-signed CA root of trust.
     pub fn pk(subject: Name) -> Self {
         Self {
             issuer: None,
@@ -32,7 +30,7 @@ impl SecureBootProfile {
         }
     }
 
-    /// Key Exchange Key: CA signed by PK
+    /// Key Exchange Key: CA signed by PK.
     pub fn kek(issuer: Name, subject: Name) -> Self {
         Self {
             issuer: Some(issuer),
@@ -43,7 +41,7 @@ impl SecureBootProfile {
         }
     }
 
-    /// Signature Database key: end-entity signed by KEK
+    /// Signature Database key: end-entity signed by KEK.
     pub fn db(issuer: Name, subject: Name) -> Self {
         Self {
             issuer: Some(issuer),
@@ -55,7 +53,7 @@ impl SecureBootProfile {
     }
 }
 
-impl x509_cert::builder::profile::BuilderProfile for SecureBootProfile {
+impl BuilderProfile for SecureBootProfile {
     fn get_issuer(&self, subject: &Name) -> Name {
         self.issuer.clone().unwrap_or_else(|| subject.clone())
     }
@@ -69,7 +67,7 @@ impl x509_cert::builder::profile::BuilderProfile for SecureBootProfile {
         spk: spki::SubjectPublicKeyInfoRef<'_>,
         issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
         tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
+    ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = Vec::new();
         let ski = SubjectKeyIdentifier::try_from(spk)?;
 

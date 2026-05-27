@@ -1,4 +1,4 @@
-//! Key generation and management
+//! Key generation and management.
 
 mod cert;
 mod hierarchy;

@@ -1,17 +1,22 @@
-//! Key storage operations (PEM file read/write)
+//! Key storage operations (PEM file read/write).
 
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
-use der::{Decode, Encode, pem::LineEnding};
+use der::pem::LineEnding;
+use der::{Decode as _, Encode as _};
 use x509_cert::Certificate;
 
 use super::hierarchy::{KeyHierarchy, KeyPair, KeyType};
 use super::signer::Rsa2048Signer;
-use crate::{Error, Result};
+use crate::error::{Result, SboltError};
 
-/// Save the key hierarchy to a directory
+/// Save the key hierarchy to a directory.
+///
+/// # Errors
+///
+/// Returns an error if a directory or any key material file cannot be written.
 pub fn save_key_hierarchy(hierarchy: &KeyHierarchy, dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
 
@@ -25,7 +30,7 @@ pub fn save_key_hierarchy(hierarchy: &KeyHierarchy, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Save a single key pair to a directory
+/// Save a single key pair to a directory.
 fn save_keypair(keypair: &KeyPair, dir: &Path) -> Result<()> {
     let prefix = keypair.key_type.file_prefix();
 
@@ -44,7 +49,11 @@ fn save_keypair(keypair: &KeyPair, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Load a key pair from key and certificate files
+/// Load a key pair from key and certificate files.
+///
+/// # Errors
+///
+/// Returns an error if the key or certificate cannot be read or decoded.
 pub fn load_keypair(key_path: &Path, cert_path: &Path, key_type: KeyType) -> Result<KeyPair> {
     let key_pem = std::fs::read_to_string(key_path)?;
     let key_der = pem_to_pkcs8_der(&key_pem)?;
@@ -60,15 +69,21 @@ pub fn load_keypair(key_path: &Path, cert_path: &Path, key_type: KeyType) -> Res
     })
 }
 
-/// Load a key hierarchy from a directory
+/// Load a key hierarchy from a directory.
+///
+/// # Errors
+///
+/// Returns an error if any stored key material or the owner GUID cannot be read
+/// or decoded.
 pub fn load_key_hierarchy(dir: &Path) -> Result<KeyHierarchy> {
     let pk = load_keypair(&dir.join("pk.key"), &dir.join("pk.crt"), KeyType::Pk)?;
     let kek = load_keypair(&dir.join("kek.key"), &dir.join("kek.crt"), KeyType::Kek)?;
     let db = load_keypair(&dir.join("db.key"), &dir.join("db.crt"), KeyType::Db)?;
 
     let guid_str = std::fs::read_to_string(dir.join("owner.guid"))?;
-    let owner_guid = uefi::Guid::try_parse(guid_str.trim())
-        .map_err(|_| Error::KeyStorage(format!("invalid GUID format: {}", &guid_str)))?;
+    let owner_guid = uefi::Guid::try_parse(guid_str.trim()).map_err(|_guid_parse_error| {
+        SboltError::KeyStorage(format!("invalid GUID format: {guid_str}"))
+    })?;
 
     Ok(KeyHierarchy {
         pk,
@@ -114,5 +129,77 @@ fn cert_to_pem(cert: &Certificate) -> Result<String> {
 /// Convert PEM-encoded certificate to Certificate.
 fn pem_to_cert(pem: &str) -> Result<Certificate> {
     let (_label, doc) = der::Document::from_pem(pem)?;
-    Certificate::from_der(doc.as_bytes()).map_err(Error::Der)
+    Certificate::from_der(doc.as_bytes()).map_err(SboltError::Der)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+    use crate::keys::KeyHierarchy;
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after epoch")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("sbolt-{name}-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("create test dir");
+        path
+    }
+
+    #[test]
+    fn save_and_load_key_hierarchy_round_trip() -> Result<()> {
+        // ARRANGE
+        let hierarchy = KeyHierarchy::generate("Storage Test")?;
+        let dir = test_dir("storage-roundtrip");
+
+        // ACT
+        save_key_hierarchy(&hierarchy, &dir)?;
+        let loaded = load_key_hierarchy(&dir)?;
+
+        // ASSERT
+        assert_eq!(loaded.pk.key_type, KeyType::Pk);
+        assert_eq!(loaded.kek.key_type, KeyType::Kek);
+        assert_eq!(loaded.db.key_type, KeyType::Db);
+        assert_eq!(loaded.owner_guid, hierarchy.owner_guid);
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_key_hierarchy_writes_private_key_permissions() -> Result<()> {
+        // ARRANGE
+        let hierarchy = KeyHierarchy::generate("Storage Permissions")?;
+        let dir = test_dir("storage-permissions");
+
+        // ACT
+        save_key_hierarchy(&hierarchy, &dir)?;
+        let metadata = std::fs::metadata(dir.join("pk.key"))?;
+
+        // ASSERT
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+
+        Ok(())
+    }
+
+    #[test]
+    fn load_key_hierarchy_rejects_invalid_guid() -> Result<()> {
+        // ARRANGE
+        let hierarchy = KeyHierarchy::generate("Storage Invalid Guid")?;
+        let dir = test_dir("storage-invalid-guid");
+        save_key_hierarchy(&hierarchy, &dir)?;
+        std::fs::write(dir.join("owner.guid"), "not-a-guid")?;
+
+        // ACT
+        let result = load_key_hierarchy(&dir);
+
+        // ASSERT
+        assert!(result.is_err());
+
+        Ok(())
+    }
 }

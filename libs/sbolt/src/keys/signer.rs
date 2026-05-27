@@ -1,18 +1,22 @@
-//! RSA-2048 signer implementation for UEFI Secure Boot compatibility
+//! RSA-2048 signer implementation for UEFI Secure Boot compatibility.
 
-use der::asn1::BitString;
+use core::result::Result as CoreResult;
+
+use const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION;
+use der::asn1::{Any, BitString};
 use ring::digest::{Context, SHA256};
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::error::Unspecified;
+use ring::rand::{SecureRandom as _, SystemRandom};
 use rsa::pkcs1v15::Pkcs1v15Sign;
-use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use rsa::pkcs8::{DecodePrivateKey as _, EncodePrivateKey as _};
 use rsa::rand_core::{TryCryptoRng, TryRng, UnwrapErr};
-use rsa::traits::SignatureScheme;
+use rsa::traits::SignatureScheme as _;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use spki::AlgorithmIdentifierOwned;
 
-use crate::{Error, Result};
+use crate::error::{Result, SboltError};
 
-/// DigestInfo prefix for SHA-256 (DER-encoded AlgorithmIdentifier + OCTET STRING header).
+/// `DigestInfo` prefix for SHA-256 (DER-encoded `AlgorithmIdentifier` + OCTET STRING header).
 const SHA256_DIGEST_INFO_PREFIX: &[u8] = &[
     0x30, 0x31, // SEQUENCE, 49 bytes
     0x30, 0x0d, // SEQUENCE, 13 bytes (AlgorithmIdentifier)
@@ -22,26 +26,26 @@ const SHA256_DIGEST_INFO_PREFIX: &[u8] = &[
     0x04, 0x20, // OCTET STRING, 32 bytes
 ];
 
-/// Wrapper around ring's SystemRandom implementing `TryRng`/`TryCryptoRng`.
+/// Wrapper around ring's `SystemRandom` implementing `TryRng`/`TryCryptoRng`.
 struct RingRng(SystemRandom);
 
 impl TryRng for RingRng {
-    type Error = ring::error::Unspecified;
+    type Error = Unspecified;
 
-    fn try_next_u32(&mut self) -> std::result::Result<u32, Self::Error> {
-        let mut buf = [0u8; 4];
+    fn try_next_u32(&mut self) -> CoreResult<u32, Self::Error> {
+        let mut buf = [0_u8; 4];
         self.0.fill(&mut buf)?;
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn try_next_u64(&mut self) -> std::result::Result<u64, Self::Error> {
-        let mut buf = [0u8; 8];
+    fn try_next_u64(&mut self) -> CoreResult<u64, Self::Error> {
+        let mut buf = [0_u8; 8];
         self.0.fill(&mut buf)?;
         Ok(u64::from_le_bytes(buf))
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), Self::Error> {
-        self.0.fill(dest)
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> CoreResult<(), Self::Error> {
+        self.0.fill(dst)
     }
 }
 
@@ -59,37 +63,54 @@ pub struct Rsa2048Signer {
 
 impl Rsa2048Signer {
     /// Generate a new RSA-2048 key pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if RSA key generation fails.
     pub fn generate() -> Result<Self> {
         let mut rng = make_rng();
         let private_key = RsaPrivateKey::new(&mut rng, 2048)
-            .map_err(|e| Error::KeyGeneration(format!("RSA key generation failed: {e}")))?;
+            .map_err(|e| SboltError::KeyGeneration(format!("RSA key generation failed: {e}")))?;
 
         Ok(Self { private_key })
     }
 
     /// Load from PKCS#8 DER bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PKCS#8 document cannot be decoded as an RSA key.
     pub fn from_pkcs8_der(pkcs8_der: &[u8]) -> Result<Self> {
         let private_key = RsaPrivateKey::from_pkcs8_der(pkcs8_der)
-            .map_err(|e| Error::KeyGeneration(format!("failed to load RSA key: {e}")))?;
+            .map_err(|e| SboltError::KeyGeneration(format!("failed to load RSA key: {e}")))?;
 
         Ok(Self { private_key })
     }
 
     /// Encode the private key as PKCS#8 DER.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if PKCS#8 encoding fails.
     pub fn to_pkcs8_der(&self) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         self.private_key
             .to_pkcs8_der()
             .map(|doc| zeroize::Zeroizing::new(doc.to_bytes().to_vec()))
-            .map_err(|e| Error::KeyGeneration(format!("PKCS#8 encoding failed: {e}")))
+            .map_err(|e| SboltError::KeyGeneration(format!("PKCS#8 encoding failed: {e}")))
     }
 
     /// Get the public key.
+    #[must_use]
     pub fn public_key(&self) -> RsaPublicKey {
         self.private_key.to_public_key()
     }
 
     /// Sign data with RSA-PKCS1-SHA256 using ring for hashing.
-    pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if RSA signing fails.
+    pub fn sign_pkcs1v15_sha256(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut ctx = Context::new(&SHA256);
         ctx.update(data);
         let digest = ctx.finish();
@@ -101,7 +122,7 @@ impl Rsa2048Signer {
 
         let signature = scheme
             .sign::<UnwrapErr<RingRng>>(None, &self.private_key, digest.as_ref())
-            .map_err(|e| Error::Signing(format!("RSA signing failed: {e}")))?;
+            .map_err(|e| SboltError::Signing(format!("RSA signing failed: {e}")))?;
 
         Ok(signature)
     }
@@ -118,8 +139,8 @@ impl signature::Keypair for Rsa2048Signer {
 impl spki::DynSignatureAlgorithmIdentifier for Rsa2048Signer {
     fn signature_algorithm_identifier(&self) -> spki::Result<AlgorithmIdentifierOwned> {
         Ok(AlgorithmIdentifierOwned {
-            oid: const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION,
-            parameters: Some(der::asn1::Any::null()),
+            oid: SHA_256_WITH_RSA_ENCRYPTION,
+            parameters: Some(Any::null()),
         })
     }
 }
@@ -134,9 +155,73 @@ impl spki::SignatureBitStringEncoding for Rsa2048Signature {
 }
 
 impl signature::Signer<Rsa2048Signature> for Rsa2048Signer {
-    fn try_sign(&self, msg: &[u8]) -> std::result::Result<Rsa2048Signature, signature::Error> {
-        self.sign(msg)
+    fn try_sign(&self, msg: &[u8]) -> CoreResult<Rsa2048Signature, signature::Error> {
+        self.sign_pkcs1v15_sha256(msg)
             .map(Rsa2048Signature)
-            .map_err(|_| signature::Error::new())
+            .map_err(|_signing_error| signature::Error::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rsa::traits::PublicKeyParts;
+    use signature::{Keypair as _, Signer as _};
+    use spki::SignatureBitStringEncoding;
+
+    use super::*;
+
+    #[test]
+    fn signer_generates_serializes_and_reloads() -> Result<()> {
+        // ARRANGE
+        let signer = Rsa2048Signer::generate()?;
+
+        // ACT
+        let pkcs8 = signer.to_pkcs8_der()?;
+        let reloaded = Rsa2048Signer::from_pkcs8_der(&pkcs8)?;
+
+        // ASSERT
+        assert_eq!(signer.verifying_key().n(), reloaded.verifying_key().n());
+        assert_eq!(signer.verifying_key().e(), reloaded.verifying_key().e());
+
+        Ok(())
+    }
+
+    #[test]
+    fn signer_produces_signature_and_bitstring() -> Result<()> {
+        // ARRANGE
+        let signer = Rsa2048Signer::generate()?;
+        let message = b"test message";
+
+        // ACT
+        let signature = signer.sign_pkcs1v15_sha256(message)?;
+        let wrapped = signer
+            .try_sign(message)
+            .map_err(|e| SboltError::Signing(format!("try_sign: {e}")))?;
+        let bit_string = wrapped.to_bitstring()?;
+
+        // ASSERT
+        assert!(!signature.is_empty());
+        assert_eq!(signature, wrapped.0);
+        assert_eq!(bit_string.raw_bytes(), signature.as_slice());
+
+        Ok(())
+    }
+
+    #[test]
+    fn ring_rng_generates_random_words() -> CoreResult<(), Unspecified> {
+        // ARRANGE
+        let mut rng = RingRng(SystemRandom::new());
+        let mut bytes = [0_u8; 16];
+
+        // ACT
+        let word32 = rng.try_next_u32()?;
+        let word64 = rng.try_next_u64()?;
+        rng.try_fill_bytes(&mut bytes)?;
+
+        // ASSERT
+        let any_bytes = bytes.iter().any(|byte| *byte != 0);
+        assert!(word32 != 0 || word64 != 0 || any_bytes);
+
+        Ok(())
     }
 }

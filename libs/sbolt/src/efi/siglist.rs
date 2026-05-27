@@ -1,47 +1,63 @@
-//! EFI Signature List structures
+//! EFI signature list structures.
 
 use uefi::Guid;
 
 use super::EFI_CERT_X509_GUID;
-use crate::{Error, Result};
+use crate::error::{Result, SboltError};
 
 pub const SIGNATURE_LIST_HEADER_SIZE: usize = 28;
 pub const SIGNATURE_DATA_HEADER_SIZE: usize = 16;
 
-/// A signature database containing multiple signature lists
+/// A signature database containing multiple signature lists.
 #[derive(Default)]
 pub struct SignatureDatabase {
     lists: Vec<Vec<u8>>,
 }
 
 impl SignatureDatabase {
-    /// Create a new empty signature database
+    /// Create a new empty signature database.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Parse a signature database from raw bytes
+    /// Parse a signature database from raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any signature list header is truncated or contains an
+    /// invalid size.
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let lists = parse_signature_lists(data)?;
         Ok(Self { lists })
     }
 
-    /// Add an X.509 certificate to the database
-    pub fn add_x509(&mut self, owner: &Guid, cert_der: &[u8]) {
-        self.lists.push(build_x509_siglist(owner, cert_der));
+    /// Add an X.509 certificate to the database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the serialized signature list would exceed `u32`
+    /// size limits.
+    pub fn add_x509(&mut self, owner: &Guid, cert_der: &[u8]) -> Result<()> {
+        self.lists.push(build_x509_siglist(owner, cert_der)?);
+
+        Ok(())
     }
 
-    /// Serialize the database to bytes
+    /// Serialize the database to bytes.
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.lists.iter().flatten().copied().collect()
     }
 
-    /// Get the number of signature lists
+    /// Get the number of signature lists.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.lists.len()
     }
 
-    /// Check if the database is empty
+    /// Check if the database is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.lists.is_empty()
     }
@@ -50,37 +66,73 @@ impl SignatureDatabase {
 fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     let mut lists = Vec::new();
     let mut offset = 0;
-    while offset + SIGNATURE_LIST_HEADER_SIZE <= data.len() {
-        let list_size = u32::from_le_bytes(
-            data[offset + 16..offset + 20]
-                .try_into()
-                .map_err(|_| Error::EfiVar("read signature list size".into()))?,
-        ) as usize;
-        if list_size < SIGNATURE_LIST_HEADER_SIZE || offset + list_size > data.len() {
-            return Err(Error::EfiVar("invalid signature list size".into()));
+    while checked_add(offset, SIGNATURE_LIST_HEADER_SIZE, "signature list header")? <= data.len() {
+        let size_offset = checked_add(offset, 16, "signature list size offset")?;
+        let list_size =
+            usize::try_from(read_u32_le(data, size_offset)?).map_err(|_size_error| {
+                SboltError::EfiVar("signature list size exceeds usize".into())
+            })?;
+        if list_size < SIGNATURE_LIST_HEADER_SIZE
+            || checked_add(offset, list_size, "signature list end")? > data.len()
+        {
+            return Err(SboltError::EfiVar("invalid signature list size".into()));
         }
-        lists.push(data[offset..offset + list_size].to_vec());
-        offset += list_size;
+        let end = checked_add(offset, list_size, "signature list end")?;
+        let list_bytes = data
+            .get(offset..end)
+            .ok_or_else(|| SboltError::EfiVar("signature list exceeds buffer".into()))?;
+        lists.push(list_bytes.to_vec());
+        offset = end;
     }
     Ok(lists)
 }
 
-/// Build an EFI_SIGNATURE_LIST containing a single X.509 certificate
-pub fn build_x509_siglist(owner_guid: &Guid, cert_der: &[u8]) -> Vec<u8> {
-    let signature_size = SIGNATURE_DATA_HEADER_SIZE + cert_der.len();
-    let list_size = SIGNATURE_LIST_HEADER_SIZE + signature_size;
+/// Build an `EFI_SIGNATURE_LIST` containing a single X.509 certificate.
+///
+/// # Errors
+///
+/// Returns an error if the serialized list would exceed `u32` size limits.
+pub fn build_x509_siglist(owner_guid: &Guid, cert_der: &[u8]) -> Result<Vec<u8>> {
+    let signature_size = checked_add(
+        SIGNATURE_DATA_HEADER_SIZE,
+        cert_der.len(),
+        "signature data size",
+    )?;
+    let list_size = checked_add(
+        SIGNATURE_LIST_HEADER_SIZE,
+        signature_size,
+        "signature list size",
+    )?;
+    let list_size_u32 = u32::try_from(list_size)
+        .map_err(|_size_error| SboltError::EfiVar("signature list size exceeds u32".into()))?;
+    let signature_size_u32 = u32::try_from(signature_size)
+        .map_err(|_size_error| SboltError::EfiVar("signature data size exceeds u32".into()))?;
 
     let mut buf = Vec::with_capacity(list_size);
 
     buf.extend_from_slice(&EFI_CERT_X509_GUID.to_bytes());
-    buf.extend_from_slice(&(list_size as u32).to_le_bytes());
-    buf.extend_from_slice(&0u32.to_le_bytes());
-    buf.extend_from_slice(&(signature_size as u32).to_le_bytes());
+    buf.extend_from_slice(&list_size_u32.to_le_bytes());
+    buf.extend_from_slice(&0_u32.to_le_bytes());
+    buf.extend_from_slice(&signature_size_u32.to_le_bytes());
 
     buf.extend_from_slice(&owner_guid.to_bytes());
     buf.extend_from_slice(cert_der);
 
-    buf
+    Ok(buf)
+}
+
+fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
+    let end = checked_add(offset, 4, "u32 read end")?;
+
+    data.get(offset..end)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u32::from_le_bytes)
+        .ok_or_else(|| SboltError::EfiVar("read signature list size".into()))
+}
+
+fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
+    lhs.checked_add(rhs)
+        .ok_or_else(|| SboltError::EfiVar(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -95,7 +147,7 @@ mod tests {
     #[test]
     fn build_x509_siglist_layout() {
         // ACT
-        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT);
+        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT).expect("build siglist");
 
         // ASSERT
         let expected_sig_size = SIGNATURE_DATA_HEADER_SIZE + FAKE_CERT.len();
@@ -121,7 +173,7 @@ mod tests {
     #[test]
     fn roundtrip_build_then_parse() {
         // ARRANGE
-        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT);
+        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT).expect("build siglist");
 
         // ACT
         let db = SignatureDatabase::from_bytes(&siglist).expect("parse siglist");
@@ -149,13 +201,14 @@ mod tests {
         let mut db = SignatureDatabase::new();
 
         // ACT
-        db.add_x509(&TEST_OWNER, FAKE_CERT);
+        db.add_x509(&TEST_OWNER, FAKE_CERT).expect("add first cert");
 
         // ASSERT
         assert_eq!(db.len(), 1);
 
         // ACT
-        db.add_x509(&TEST_OWNER, b"second-cert");
+        db.add_x509(&TEST_OWNER, b"second-cert")
+            .expect("add second cert");
 
         // ASSERT
         assert_eq!(db.len(), 2);
@@ -168,8 +221,8 @@ mod tests {
         let cert_b = b"cert-bravo";
 
         let mut db = SignatureDatabase::new();
-        db.add_x509(&TEST_OWNER, cert_a);
-        db.add_x509(&TEST_OWNER, cert_b);
+        db.add_x509(&TEST_OWNER, cert_a).expect("add cert a");
+        db.add_x509(&TEST_OWNER, cert_b).expect("add cert b");
 
         // ACT
         let bytes = db.to_bytes();
@@ -218,5 +271,16 @@ mod tests {
 
         // ASSERT
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn helper_bounds_checks_reject_invalid_inputs() {
+        // ACT
+        let read_result = read_u32_le(&[1_u8, 2, 3], 0);
+        let add_result = checked_add(usize::MAX, 1, "siglist");
+
+        // ASSERT
+        assert!(read_result.is_err());
+        assert!(add_result.is_err());
     }
 }

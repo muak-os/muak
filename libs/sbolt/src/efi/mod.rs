@@ -1,4 +1,4 @@
-//! EFI types and efivarfs interface
+//! EFI types and efivarfs interface.
 
 mod authvar;
 mod efivarfs;

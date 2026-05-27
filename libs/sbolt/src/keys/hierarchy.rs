@@ -1,13 +1,13 @@
-//! Key type and hierarchy definitions
+//! Key type and hierarchy definitions.
 
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::rand::{SecureRandom as _, SystemRandom};
 use x509_cert::Certificate;
 
 use super::cert::{generate_db_certificate, generate_kek_certificate, generate_pk_certificate};
 use super::signer::Rsa2048Signer;
-use crate::Result;
+use crate::error::Result;
 
-/// Type of Secure Boot key
+/// Type of Secure Boot key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyType {
     Pk,
@@ -16,8 +16,9 @@ pub enum KeyType {
 }
 
 impl KeyType {
-    /// Returns the common name suffix for this key type
-    pub fn cn_suffix(&self) -> &'static str {
+    /// Returns the common name suffix for this key type.
+    #[must_use]
+    pub(crate) fn cn_suffix(self) -> &'static str {
         match self {
             Self::Pk => "Platform Key",
             Self::Kek => "Key Exchange Key",
@@ -25,8 +26,9 @@ impl KeyType {
         }
     }
 
-    /// Returns the filename prefix for this key type
-    pub fn file_prefix(&self) -> &'static str {
+    /// Returns the filename prefix for this key type.
+    #[must_use]
+    pub(crate) fn file_prefix(self) -> &'static str {
         match self {
             Self::Pk => "pk",
             Self::Kek => "kek",
@@ -35,14 +37,14 @@ impl KeyType {
     }
 }
 
-/// A key pair consisting of a signer and its certificate
+/// A key pair consisting of a signer and its certificate.
 pub struct KeyPair {
     pub signer: Rsa2048Signer,
     pub certificate: Certificate,
     pub key_type: KeyType,
 }
 
-/// The complete Secure Boot key hierarchy
+/// The complete Secure Boot key hierarchy.
 pub struct KeyHierarchy {
     pub pk: KeyPair,
     pub kek: KeyPair,
@@ -51,12 +53,18 @@ pub struct KeyHierarchy {
 }
 
 impl KeyHierarchy {
-    /// Generate a new key hierarchy with the given organization name
+    /// Generate a new key hierarchy with the given organization name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any key, certificate, or owner GUID generation step
+    /// fails.
     pub fn generate(org_name: &str) -> Result<Self> {
-        let (pk_signer, pk_cert) = generate_pk_certificate(&format!("{org_name} Platform Key"))?;
+        let (pk_signer, pk_cert) =
+            generate_pk_certificate(&format!("{org_name} {}", KeyType::Pk.cn_suffix()))?;
 
         let (kek_signer, kek_cert) = generate_kek_certificate(
-            &format!("{org_name} Key Exchange Key"),
+            &format!("{org_name} {}", KeyType::Kek.cn_suffix()),
             &pk_signer,
             &pk_cert,
         )?;
@@ -86,16 +94,49 @@ impl KeyHierarchy {
         })
     }
 
-    /// Generate a random owner GUID
+    /// Generate a random owner GUID.
     fn generate_owner_guid() -> Result<uefi::Guid> {
         let rng = SystemRandom::new();
-        let mut bytes = [0u8; 16];
+        let mut bytes = [0_u8; 16];
         rng.fill(&mut bytes)
-            .map_err(|_| crate::Error::KeyGeneration("failed to generate GUID".into()))?;
+            .map_err(|_guid_error| crate::Error::KeyGeneration("failed to generate GUID".into()))?;
 
         bytes[6] = (bytes[6] & 0x0f) | 0x40;
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
         Ok(uefi::Guid::from_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_type_helpers_return_expected_strings() {
+        // ACT & ASSERT
+        assert_eq!(KeyType::Pk.cn_suffix(), "Platform Key");
+        assert_eq!(KeyType::Kek.cn_suffix(), "Key Exchange Key");
+        assert_eq!(KeyType::Db.cn_suffix(), "Signature Database Key");
+        assert_eq!(KeyType::Pk.file_prefix(), "pk");
+        assert_eq!(KeyType::Kek.file_prefix(), "kek");
+        assert_eq!(KeyType::Db.file_prefix(), "db");
+    }
+
+    #[test]
+    fn generate_builds_complete_hierarchy() -> Result<()> {
+        // ARRANGE
+        let org_name = "Muak Test";
+
+        // ACT
+        let hierarchy = KeyHierarchy::generate(org_name)?;
+
+        // ASSERT
+        assert_eq!(hierarchy.pk.key_type, KeyType::Pk);
+        assert_eq!(hierarchy.kek.key_type, KeyType::Kek);
+        assert_eq!(hierarchy.db.key_type, KeyType::Db);
+        assert_ne!(hierarchy.owner_guid, uefi::Guid::from_bytes([0_u8; 16]));
+
+        Ok(())
     }
 }

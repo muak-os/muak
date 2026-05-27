@@ -1,10 +1,10 @@
-//! Error types for sbolt operations
+//! Error types for `sbolt` operations.
 
 use thiserror::Error;
 
-/// Error type for sbolt operations
+/// Error type for `sbolt` operations.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum SboltError {
     #[error("key generation failed: {0}")]
     KeyGeneration(String),
 
@@ -36,5 +36,5 @@ pub enum Error {
     Spki(#[from] spki::Error),
 }
 
-/// Result type alias for sbolt operations
-pub type Result<T> = std::result::Result<T, Error>;
+/// Result type alias for `sbolt` operations.
+pub type Result<T> = core::result::Result<T, SboltError>;

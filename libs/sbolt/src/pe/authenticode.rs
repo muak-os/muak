@@ -1,6 +1,6 @@
-//! Authenticode hash calculation for PE files
+//! Authenticode hash calculation for PE files.
 
-use std::mem::{offset_of, size_of};
+use core::mem::{offset_of, size_of};
 
 use object::LittleEndian as LE;
 use object::pe::{
@@ -10,12 +10,30 @@ use object::pe::{
 use object::read::pe::PeFile64;
 use ring::digest::{Context, SHA256};
 
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
 
-/// Compute the Authenticode hash (SHA-256) of a PE file
+const PE_SIGNATURE_PREFIX_SIZE: usize = 4;
+const CERT_TABLE_ENTRY_SIZE: usize = 4;
+
+struct PeHashMetadata {
+    checksum_offset: usize,
+    cert_table_dd_offset: usize,
+    cert_table_addr: usize,
+    cert_table_size: usize,
+    headers_end: usize,
+    section_ranges: Vec<(usize, usize)>,
+}
+
+/// Compute the Authenticode hash (SHA-256) of a PE file.
+///
+/// # Errors
+///
+/// Returns an error if the PE file is malformed or if any hashed range falls
+/// outside the file bounds.
 pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     let pe = PeFile64::parse(pe_data)
-        .map_err(|_| Error::PeOperation("invalid or unsupported PE file".into()))?;
+        .map_err(|_parse_error| Error::PeOperation("invalid or unsupported PE file".into()))?;
 
     if pe.nt_headers().optional_header.magic.get(LE) != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
         return Err(Error::PeOperation(
@@ -24,36 +42,13 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     }
 
     let opt = &pe.nt_headers().optional_header;
-    let num_dd = opt.number_of_rva_and_sizes.get(LE) as usize;
+    let num_dd = read_directory_count(opt)?;
     if num_dd <= IMAGE_DIRECTORY_ENTRY_SECURITY {
         return Err(Error::PeOperation(
             "no certificate table data directory".into(),
         ));
     }
-
-    let pe_offset = pe.dos_header().nt_headers_offset() as usize;
-    let opt_offset = pe_offset + 4 + size_of::<ImageFileHeader>();
-
-    let checksum_offset = opt_offset + offset_of!(ImageOptionalHeader64, check_sum);
-    let cert_table_dd_offset = opt_offset
-        + size_of::<ImageOptionalHeader64>()
-        + IMAGE_DIRECTORY_ENTRY_SECURITY * size_of::<ImageDataDirectory>();
-
-    let cert_table_addr = read_u32_le(pe_data, cert_table_dd_offset)? as usize;
-    let cert_table_size = read_u32_le(pe_data, cert_table_dd_offset + 4)? as usize;
-
-    let headers_end = opt.size_of_headers.get(LE) as usize;
-
-    let sections = pe.section_table();
-    let mut section_ranges: Vec<(usize, usize)> = sections
-        .iter()
-        .filter_map(|s| {
-            let ptr = s.pointer_to_raw_data.get(LE) as usize;
-            let size = s.size_of_raw_data.get(LE) as usize;
-            (ptr > 0 && size > 0).then_some((ptr, size))
-        })
-        .collect();
-    section_ranges.sort_by_key(|s| s.0);
+    let metadata = build_hash_metadata(&pe, pe_data, opt)?;
 
     let mut ctx = Context::new(&SHA256);
 
@@ -61,15 +56,18 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
         &mut ctx,
         pe_data,
         0,
-        headers_end,
+        metadata.headers_end,
         &[
-            (checksum_offset, size_of::<u32>()),
-            (cert_table_dd_offset, size_of::<ImageDataDirectory>()),
+            (metadata.checksum_offset, size_of::<u32>()),
+            (
+                metadata.cert_table_dd_offset,
+                size_of::<ImageDataDirectory>(),
+            ),
         ],
     )?;
 
-    for (raw_ptr, raw_size) in &section_ranges {
-        let section_end = raw_ptr + raw_size;
+    for &(raw_ptr, raw_size) in &metadata.section_ranges {
+        let section_end = checked_add(raw_ptr, raw_size, "section end")?;
         if section_end > pe_data.len() {
             return Err(Error::PeOperation("section extends beyond file".into()));
         }
@@ -77,37 +75,126 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
         if hash_section_excluding_cert(
             &mut ctx,
             pe_data,
-            *raw_ptr,
+            raw_ptr,
             section_end,
-            cert_table_addr,
-            cert_table_size,
+            metadata.cert_table_addr,
+            metadata.cert_table_size,
         ) {
             continue;
         }
-        ctx.update(&pe_data[*raw_ptr..section_end]);
+        let section_bytes = pe_data
+            .get(raw_ptr..section_end)
+            .ok_or_else(|| Error::PeOperation("section extends beyond file".into()))?;
+        ctx.update(section_bytes);
     }
 
-    let sections_end = section_ranges
+    let sections_end = metadata
+        .section_ranges
         .iter()
-        .map(|(ptr, size)| ptr + size)
+        .map(|&(ptr, size)| checked_add(ptr, size, "sections end"))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
         .max()
-        .unwrap_or(headers_end);
+        .unwrap_or(metadata.headers_end);
 
-    let hash_end = if cert_table_addr > 0 && cert_table_size > 0 {
-        cert_table_addr.min(pe_data.len())
+    let hash_end = if metadata.cert_table_addr > 0 && metadata.cert_table_size > 0 {
+        metadata.cert_table_addr.min(pe_data.len())
     } else {
         pe_data.len()
     };
 
     if sections_end < hash_end {
-        ctx.update(&pe_data[sections_end..hash_end]);
+        let trailing_bytes = pe_data
+            .get(sections_end..hash_end)
+            .ok_or_else(|| Error::PeOperation("trailing hash range exceeds file".into()))?;
+        ctx.update(trailing_bytes);
     }
 
     let digest = ctx.finish();
-    let mut hash = [0u8; 32];
+    let mut hash = [0_u8; 32];
     hash.copy_from_slice(digest.as_ref());
 
     Ok(hash)
+}
+
+fn read_directory_count(opt: &ImageOptionalHeader64) -> Result<usize> {
+    usize::try_from(opt.number_of_rva_and_sizes.get(LE))
+        .map_err(|_directory_count_error| Error::PeOperation("invalid data directory count".into()))
+}
+
+fn build_hash_metadata(
+    pe: &PeFile64<'_>,
+    pe_data: &[u8],
+    opt: &ImageOptionalHeader64,
+) -> Result<PeHashMetadata> {
+    let pe_offset = usize::try_from(pe.dos_header().nt_headers_offset())
+        .map_err(|_offset_error| Error::PeOperation("PE header offset exceeds usize".into()))?;
+    let opt_offset = checked_add(
+        checked_add(
+            pe_offset,
+            PE_SIGNATURE_PREFIX_SIZE,
+            "optional header offset",
+        )?,
+        size_of::<ImageFileHeader>(),
+        "optional header offset",
+    )?;
+    let checksum_offset = checked_add(
+        opt_offset,
+        offset_of!(ImageOptionalHeader64, check_sum),
+        "checksum field offset",
+    )?;
+    let cert_table_dd_offset = checked_add(
+        opt_offset,
+        checked_add(
+            size_of::<ImageOptionalHeader64>(),
+            checked_mul(
+                IMAGE_DIRECTORY_ENTRY_SECURITY,
+                size_of::<ImageDataDirectory>(),
+                "certificate table directory offset",
+            )?,
+            "certificate table directory offset",
+        )?,
+        "certificate table offset",
+    )?;
+    let cert_table_addr = usize::try_from(read_u32_le(pe_data, cert_table_dd_offset)?).map_err(
+        |_cert_addr_error| Error::PeOperation("certificate table offset exceeds usize".into()),
+    )?;
+    let cert_table_size = usize::try_from(read_u32_le(
+        pe_data,
+        checked_add(
+            cert_table_dd_offset,
+            CERT_TABLE_ENTRY_SIZE,
+            "certificate table size offset",
+        )?,
+    )?)
+    .map_err(|_cert_size_error| {
+        Error::PeOperation("certificate table size exceeds usize".into())
+    })?;
+    let headers_end = usize::try_from(opt.size_of_headers.get(LE))
+        .map_err(|_headers_size_error| Error::PeOperation("header size exceeds usize".into()))?;
+
+    Ok(PeHashMetadata {
+        checksum_offset,
+        cert_table_dd_offset,
+        cert_table_addr,
+        cert_table_size,
+        headers_end,
+        section_ranges: collect_section_ranges(pe),
+    })
+}
+
+fn collect_section_ranges(pe: &PeFile64<'_>) -> Vec<(usize, usize)> {
+    let mut section_ranges: Vec<(usize, usize)> = pe
+        .section_table()
+        .iter()
+        .filter_map(|section| {
+            let ptr = usize::try_from(section.pointer_to_raw_data.get(LE)).ok()?;
+            let size = usize::try_from(section.size_of_raw_data.get(LE)).ok()?;
+            (ptr > 0 && size > 0).then_some((ptr, size))
+        })
+        .collect();
+    section_ranges.sort_by_key(|section_range| section_range.0);
+    section_ranges
 }
 
 /// Hash a section range, skipping the certificate table if it overlaps.
@@ -122,15 +209,23 @@ fn hash_section_excluding_cert(
     if cert_addr == 0 || cert_size == 0 {
         return false;
     }
-    let cert_end = cert_addr + cert_size;
+    let Some(cert_end) = cert_addr.checked_add(cert_size) else {
+        return false;
+    };
     if raw_ptr >= cert_end || section_end <= cert_addr {
         return false;
     }
     if raw_ptr < cert_addr {
-        ctx.update(&data[raw_ptr..cert_addr]);
+        let Some(prefix_bytes) = data.get(raw_ptr..cert_addr) else {
+            return false;
+        };
+        ctx.update(prefix_bytes);
     }
     if section_end > cert_end {
-        ctx.update(&data[cert_end..section_end]);
+        let Some(suffix_bytes) = data.get(cert_end..section_end) else {
+            return false;
+        };
+        ctx.update(suffix_bytes);
     }
     true
 }
@@ -145,31 +240,49 @@ fn hash_range_excluding(
 ) -> Result<()> {
     let mut exclusions: Vec<_> = exclusions
         .iter()
-        .filter(|(off, _)| *off >= start && *off < end)
+        .filter(|&&(off, _)| off >= start && off < end)
         .copied()
         .collect();
-    exclusions.sort_by_key(|(off, _)| *off);
+    exclusions.sort_by_key(|&(off, _)| off);
 
     let mut pos = start;
     for (excl_off, excl_len) in exclusions {
         if pos < excl_off {
-            ctx.update(&data[pos..excl_off]);
+            let range_bytes = data
+                .get(pos..excl_off)
+                .ok_or_else(|| Error::PeOperation("excluded range exceeds file".into()))?;
+            ctx.update(range_bytes);
         }
-        pos = excl_off + excl_len;
+        pos = checked_add(excl_off, excl_len, "excluded range end")?;
     }
 
     if pos < end {
-        ctx.update(&data[pos..end]);
+        let range_bytes = data
+            .get(pos..end)
+            .ok_or_else(|| Error::PeOperation("hashed range exceeds file".into()))?;
+        ctx.update(range_bytes);
     }
 
     Ok(())
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
-    data.get(offset..offset + 4)
-        .and_then(|b| b.try_into().ok())
+    let end = checked_add(offset, CERT_TABLE_ENTRY_SIZE, "read_u32 range end")?;
+
+    data.get(offset..end)
+        .and_then(|bytes| bytes.try_into().ok())
         .map(u32::from_le_bytes)
         .ok_or_else(|| Error::PeOperation("read beyond buffer".into()))
+}
+
+fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
+    lhs.checked_add(rhs)
+        .ok_or_else(|| Error::PeOperation(format!("{context} overflow")))
+}
+
+fn checked_mul(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
+    lhs.checked_mul(rhs)
+        .ok_or_else(|| Error::PeOperation(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -273,5 +386,88 @@ mod tests {
             hash_a, hash_b,
             "hashes must differ when SizeOfHeaders differs"
         );
+    }
+
+    #[test]
+    fn compute_hash_rejects_non_pe32_plus_images() {
+        // ARRANGE
+        let mut pe = build_test_pe(0x200, 0x200);
+        put_u16(&mut pe, 0x58, 0x10b);
+
+        // ACT
+        let result = compute_hash(&pe);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn compute_hash_rejects_missing_certificate_directory() {
+        // ARRANGE
+        let mut pe = build_test_pe(0x200, 0x200);
+        put_u32(&mut pe, 0x58 + 108, IMAGE_DIRECTORY_ENTRY_SECURITY as u32);
+
+        // ACT
+        let result = compute_hash(&pe);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn compute_hash_rejects_section_extending_beyond_file() {
+        // ARRANGE
+        let mut pe = build_test_pe(0x200, 0x200);
+        put_u32(&mut pe, 0x148 + 16, 0x1000);
+
+        // ACT
+        let result = compute_hash(&pe);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn hash_section_excluding_cert_hashes_prefix_and_suffix() {
+        // ARRANGE
+        let data = b"0123456789abcdef";
+        let mut ctx = Context::new(&SHA256);
+
+        // ACT
+        let overlapped = hash_section_excluding_cert(&mut ctx, data, 0, data.len(), 4, 4);
+        let digest = ctx.finish();
+
+        let mut expected = Context::new(&SHA256);
+        expected.update(&data[..4]);
+        expected.update(&data[8..]);
+
+        // ASSERT
+        assert!(overlapped);
+        assert_eq!(digest.as_ref(), expected.finish().as_ref());
+    }
+
+    #[test]
+    fn hash_range_excluding_rejects_overflowing_exclusion() {
+        // ARRANGE
+        let mut ctx = Context::new(&SHA256);
+
+        // ACT
+        let result = hash_range_excluding(&mut ctx, b"abc", 0, 3, &[(2, usize::MAX)]);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn helper_arithmetic_and_reads_validate_bounds() {
+        // ACT
+        let add_result = checked_add(usize::MAX, 1, "add");
+        let mul_result = checked_mul(usize::MAX, 2, "mul");
+        let read_result = read_u32_le(&[1_u8, 2, 3], 0);
+
+        // ASSERT
+        assert!(add_result.is_err());
+        assert!(mul_result.is_err());
+        assert!(read_result.is_err());
     }
 }
