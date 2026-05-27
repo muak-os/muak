@@ -1,10 +1,18 @@
 //! PKI error types.
 
+use core::result;
+
+use der::Error as DerError;
 use thiserror::Error;
+use x509_cert::builder::Error as CertificateBuilderError;
 
 /// PKI error types.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum PkiError {
     #[error("key generation failed")]
     KeyGeneration,
 
@@ -12,10 +20,10 @@ pub enum Error {
     InvalidKeyEncoding,
 
     #[error("certificate building failed: {0}")]
-    CertificateBuild(#[from] x509_cert::builder::Error),
+    CertificateBuild(#[from] CertificateBuilderError),
 
     #[error("DER encoding failed: {0}")]
-    DerEncode(#[from] der::Error),
+    DerEncode(#[from] DerError),
 
     #[error("SPKI error: {0}")]
     Spki(#[from] spki::Error),
@@ -37,4 +45,4 @@ pub enum Error {
 }
 
 /// Result type for PKI operations.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = result::Result<T, PkiError>;

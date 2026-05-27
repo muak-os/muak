@@ -185,7 +185,7 @@ impl ServerCertVerifier for TofuServerCertVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let fingerprint = pki::util::to_hex(
+        let fingerprint = pki::hex::encode_lower(
             ring::digest::digest(&ring::digest::SHA256, end_entity.as_ref()).as_ref(),
         );
 

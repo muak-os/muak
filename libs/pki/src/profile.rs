@@ -3,27 +3,25 @@
 extern crate alloc;
 
 use alloc::string::String;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::vec::{self, Vec};
 
-use x509_cert::{
-    certificate::TbsCertificate,
-    ext::{
-        Extension, ToExtension,
-        pkix::{
-            AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages,
-            SubjectAltName, SubjectKeyIdentifier, name::GeneralName,
-        },
-    },
-    name::Name,
+use const_oid::db::rfc5280::{ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH};
+use der::asn1::Ia5String;
+use x509_cert::builder::{Result as BuilderResult, profile::BuilderProfile};
+use x509_cert::certificate::TbsCertificate;
+use x509_cert::ext::pkix::{
+    AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages,
+    SubjectAltName, SubjectKeyIdentifier, name::GeneralName,
 };
+use x509_cert::ext::{Extension, ToExtension as _};
+use x509_cert::name::Name;
 
 /// Custom profile for Muak CA certificates.
-pub struct MuakCaProfile {
+pub struct MuakCa {
     pub subject: Name,
 }
 
-impl x509_cert::builder::profile::BuilderProfile for MuakCaProfile {
+impl BuilderProfile for MuakCa {
     fn get_issuer(&self, subject: &Name) -> Name {
         subject.clone()
     }
@@ -37,7 +35,7 @@ impl x509_cert::builder::profile::BuilderProfile for MuakCaProfile {
         spk: spki::SubjectPublicKeyInfoRef<'_>,
         _issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
         tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
+    ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
 
         let ski = SubjectKeyIdentifier::try_from(spk)?;
@@ -70,13 +68,13 @@ impl x509_cert::builder::profile::BuilderProfile for MuakCaProfile {
 }
 
 /// Custom profile for Muak server certificates with SAN support.
-pub struct MuakServerProfile {
+pub struct MuakServer {
     pub issuer: Name,
     pub subject: Name,
     pub dns_names: Vec<String>,
 }
 
-impl x509_cert::builder::profile::BuilderProfile for MuakServerProfile {
+impl BuilderProfile for MuakServer {
     fn get_issuer(&self, _subject: &Name) -> Name {
         self.issuer.clone()
     }
@@ -90,7 +88,7 @@ impl x509_cert::builder::profile::BuilderProfile for MuakServerProfile {
         spk: spki::SubjectPublicKeyInfoRef<'_>,
         issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
         tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
+    ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
 
         extensions.push(
@@ -115,38 +113,32 @@ impl x509_cert::builder::profile::BuilderProfile for MuakServerProfile {
         extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
 
         extensions.push(
-            ExtendedKeyUsage(vec![const_oid::db::rfc5280::ID_KP_SERVER_AUTH])
-                .to_extension(tbs.subject(), &extensions)?,
+            ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH]).to_extension(tbs.subject(), &extensions)?,
         );
 
-        // Add Subject Alternative Names
-        if !self.dns_names.is_empty() {
-            let san_names: Vec<GeneralName> = self
-                .dns_names
-                .iter()
-                .filter_map(|name| {
-                    der::asn1::Ia5String::new(name)
-                        .ok()
-                        .map(GeneralName::DnsName)
-                })
-                .collect();
-            if !san_names.is_empty() {
-                extensions
-                    .push(SubjectAltName(san_names).to_extension(tbs.subject(), &extensions)?);
-            }
+        let san_names = collect_dns_names(&self.dns_names);
+        if !san_names.is_empty() {
+            extensions.push(SubjectAltName(san_names).to_extension(tbs.subject(), &extensions)?);
         }
 
         Ok(extensions)
     }
 }
 
+fn collect_dns_names(dns_names: &[String]) -> Vec<GeneralName> {
+    dns_names
+        .iter()
+        .filter_map(|dns_name| Ia5String::new(dns_name).ok().map(GeneralName::DnsName))
+        .collect()
+}
+
 /// Custom profile for Muak client certificates.
-pub struct MuakClientProfile {
+pub struct MuakClient {
     pub issuer: Name,
     pub subject: Name,
 }
 
-impl x509_cert::builder::profile::BuilderProfile for MuakClientProfile {
+impl BuilderProfile for MuakClient {
     fn get_issuer(&self, _subject: &Name) -> Name {
         self.issuer.clone()
     }
@@ -160,7 +152,7 @@ impl x509_cert::builder::profile::BuilderProfile for MuakClientProfile {
         spk: spki::SubjectPublicKeyInfoRef<'_>,
         issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
         tbs: &TbsCertificate,
-    ) -> x509_cert::builder::Result<Vec<Extension>> {
+    ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
 
         extensions.push(
@@ -185,8 +177,7 @@ impl x509_cert::builder::profile::BuilderProfile for MuakClientProfile {
         extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
 
         extensions.push(
-            ExtendedKeyUsage(vec![const_oid::db::rfc5280::ID_KP_CLIENT_AUTH])
-                .to_extension(tbs.subject(), &extensions)?,
+            ExtendedKeyUsage(vec![ID_KP_CLIENT_AUTH]).to_extension(tbs.subject(), &extensions)?,
         );
 
         Ok(extensions)

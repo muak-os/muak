@@ -24,7 +24,7 @@ pub async fn handle(
 ) -> Result<()> {
     let mut client_config = ClientConfig::load()?;
 
-    let (key_pem, csr_pem) = pki::generate_csr("muak-admin")?;
+    let (key_pem, csr_pem) = pki::csr::generate("muak-admin")?;
 
     let config_raw = std::fs::read_to_string(&config_path).context(format!(
         "Failed to read config file '{}'",

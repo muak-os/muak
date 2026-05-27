@@ -65,10 +65,10 @@ pub fn load_tls_config_with_paths(
 /// Generates ephemeral TLS config in memory (used in maintenance mode).
 pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
     let (ca_signer, ca_cert) =
-        pki::generate_ca_certificate("Muak Ephemeral CA").context("Failed to generate CA")?;
+        pki::cert::generate_ca("Muak Ephemeral CA").context("Failed to generate CA")?;
 
     let (server_signer, server_cert) =
-        pki::generate_server_certificate("muak-server", &ca_signer, &ca_cert)
+        pki::cert::generate_server("muak-server", &ca_signer, &ca_cert)
             .context("Failed to generate server certificate")?;
 
     let ca_cert_der = ca_cert
@@ -108,7 +108,7 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 /// Extracts SHA256 fingerprint from a DER-encoded certificate.
 pub fn extract_fingerprint(cert_der: &[u8]) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, cert_der);
-    pki::util::to_hex(digest.as_ref())
+    pki::hex::encode_lower(digest.as_ref())
 }
 
 #[cfg(test)]
@@ -120,9 +120,8 @@ mod tests {
     use super::*;
 
     /// Generates a test CA certificate and returns `(signer, cert, cert_der)`.
-    fn make_test_ca() -> (pki::RingEcdsaSigner, Certificate, Vec<u8>) {
-        let (signer, cert) =
-            pki::generate_ca_certificate("Test CA").expect("Failed to generate test CA");
+    fn make_test_ca() -> (pki::key::Signer, Certificate, Vec<u8>) {
+        let (signer, cert) = pki::cert::generate_ca("Test CA").expect("Failed to generate test CA");
         let cert_der =
             x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
         (signer, cert, cert_der)
@@ -231,7 +230,7 @@ mod tests {
         // ACT
         let our_fingerprint = extract_fingerprint(&cert_der);
         let pki_fingerprint =
-            pki::compute_cert_fingerprint(&cert).expect("Failed to compute pki fingerprint");
+            pki::cert::compute_fingerprint(&cert).expect("Failed to compute pki fingerprint");
 
         // ASSERT
         assert_eq!(
@@ -258,7 +257,7 @@ mod tests {
         // ARRANGE
         let (ca_signer, ca_cert, _) = make_test_ca();
         let (server_signer, server_cert) =
-            pki::generate_server_certificate("test-server", &ca_signer, &ca_cert)
+            pki::cert::generate_server("test-server", &ca_signer, &ca_cert)
                 .expect("Failed to generate server cert");
 
         let ca_cert_der = ca_cert.to_der().expect("Failed to encode CA cert");
@@ -278,7 +277,7 @@ mod tests {
             .expect("Failed to convert server cert to PEM");
 
         let server_key_pem =
-            pki::util::pkcs8_to_pem(server_key_der).expect("Failed to convert server key to PEM");
+            pki::pem::encode_pkcs8(server_key_der).expect("Failed to convert server key to PEM");
 
         let mut ca_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
         let mut server_cert_file =

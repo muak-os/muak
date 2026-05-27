@@ -42,7 +42,7 @@ impl AuthService for AuthServiceImpl {
     ) -> Result<Response<SubmitCsrResponse>, Status> {
         let req = request.into_inner();
 
-        let fingerprint = pki::compute_csr_fingerprint(&req.csr_pem)
+        let fingerprint = pki::csr::compute_fingerprint(&req.csr_pem)
             .map_err(|e| Status::invalid_argument(format!("Invalid CSR: {}", e)))?;
 
         if is_user_authorized(&fingerprint) {
@@ -299,7 +299,7 @@ fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
         .map_err(|e| anyhow::anyhow!("CA cert not found: {}", e))?;
     let ca_cert = Certificate::from_pem(&ca_cert_pem)?;
 
-    let (cert, fingerprint) = pki::sign_csr(csr_pem, &ca_key_pem, &ca_cert)?;
+    let (cert, fingerprint) = pki::csr::sign(csr_pem, &ca_key_pem, &ca_cert)?;
     Ok((cert, fingerprint))
 }
 

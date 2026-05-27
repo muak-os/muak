@@ -3,34 +3,43 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::result;
 
+use const_oid::ObjectIdentifier;
+use const_oid::db::rfc5912::{ECDSA_WITH_SHA_256, SECP_256_R_1};
 use der::asn1::BitString;
-use ring::{
-    rand::SystemRandom,
-    signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as RingKeyPair},
-};
+use ring::rand::SystemRandom;
+use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
 use spki::AlgorithmIdentifierOwned;
 use zeroize::Zeroizing;
 
-use crate::error::{Error, Result};
-use crate::oid::{EC_PUBLIC_KEY_OID, ECDSA_WITH_SHA256_OID, SECP256R1_OID};
+use crate::error::{PkiError, Result};
 
-/// Wrapper around ring's EcdsaKeyPair that implements RustCrypto traits.
-pub struct RingEcdsaSigner {
+const ECDSA_WITH_SHA256_OID: ObjectIdentifier = ECDSA_WITH_SHA_256;
+const EC_PUBLIC_KEY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+const SECP256R1_OID: ObjectIdentifier = SECP_256_R_1;
+
+/// Wrapper around `ring`'s `EcdsaKeyPair` that implements `RustCrypto` traits.
+pub struct Signer {
     key_pair: EcdsaKeyPair,
     pkcs8_der: Zeroizing<Vec<u8>>,
     rng: SystemRandom,
 }
 
-impl RingEcdsaSigner {
+impl Signer {
     /// Creates a new ECDSA signer by generating a fresh P-256 key pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if PKCS#8 key generation or key parsing fails.
     pub fn generate() -> Result<Self> {
         let rng = SystemRandom::new();
         let pkcs8_doc = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
-            .map_err(|_| Error::KeyGeneration)?;
+            .map_err(|_generation_error| PkiError::KeyGeneration)?;
         let pkcs8_der = Zeroizing::new(pkcs8_doc.as_ref().to_vec());
         let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &pkcs8_der, &rng)
-            .map_err(|_| Error::InvalidKeyEncoding)?;
+            .map_err(|_key_error| PkiError::InvalidKeyEncoding)?;
+
         Ok(Self {
             key_pair,
             pkcs8_der,
@@ -39,10 +48,16 @@ impl RingEcdsaSigner {
     }
 
     /// Creates a signer from an existing PKCS#8 DER-encoded private key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided DER bytes do not encode a valid P-256
+    /// PKCS#8 private key.
     pub fn from_pkcs8_der(pkcs8_der: &[u8]) -> Result<Self> {
         let rng = SystemRandom::new();
         let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8_der, &rng)
-            .map_err(|_| Error::InvalidKeyEncoding)?;
+            .map_err(|_key_error| PkiError::InvalidKeyEncoding)?;
+
         Ok(Self {
             key_pair,
             pkcs8_der: Zeroizing::new(pkcs8_der.to_vec()),
@@ -51,51 +66,55 @@ impl RingEcdsaSigner {
     }
 
     /// Returns the PKCS#8 DER-encoded private key.
+    #[must_use]
     pub fn pkcs8_der(&self) -> &[u8] {
         &self.pkcs8_der
     }
 
     /// Returns the public key in uncompressed point format.
+    #[must_use]
     pub fn public_key_bytes(&self) -> &[u8] {
         self.key_pair.public_key().as_ref()
     }
 }
 
-/// Verifying key (public key) for the ring ECDSA signer.
+/// Public key wrapper for the ring ECDSA signer.
 #[derive(Clone)]
-pub struct RingEcdsaVerifyingKey {
+pub struct Verifier {
     public_key_bytes: Vec<u8>,
 }
 
-impl spki::EncodePublicKey for RingEcdsaVerifyingKey {
+impl spki::EncodePublicKey for Verifier {
     fn to_public_key_der(&self) -> spki::Result<spki::Document> {
-        use der::Encode;
+        use der::{Encode as _, asn1::Any};
 
         let algorithm = spki::AlgorithmIdentifier {
             oid: EC_PUBLIC_KEY_OID,
-            parameters: Some(der::asn1::Any::from(&SECP256R1_OID)),
+            parameters: Some(Any::from(&SECP256R1_OID)),
         };
         let spki = spki::SubjectPublicKeyInfo {
             algorithm,
             subject_public_key: BitString::from_bytes(&self.public_key_bytes)
-                .map_err(|_| spki::Error::KeyMalformed)?,
+                .map_err(|_bit_string_error| spki::Error::KeyMalformed)?,
         };
-        let der_bytes = spki.to_der().map_err(|_| spki::Error::KeyMalformed)?;
-        spki::Document::try_from(der_bytes).map_err(|_| spki::Error::KeyMalformed)
+        let der_bytes = spki
+            .to_der()
+            .map_err(|_der_error| spki::Error::KeyMalformed)?;
+        spki::Document::try_from(der_bytes).map_err(|_document_error| spki::Error::KeyMalformed)
     }
 }
 
-impl signature::Keypair for RingEcdsaSigner {
-    type VerifyingKey = RingEcdsaVerifyingKey;
+impl signature::Keypair for Signer {
+    type VerifyingKey = Verifier;
 
     fn verifying_key(&self) -> Self::VerifyingKey {
-        RingEcdsaVerifyingKey {
+        Verifier {
             public_key_bytes: self.public_key_bytes().to_vec(),
         }
     }
 }
 
-impl spki::DynSignatureAlgorithmIdentifier for RingEcdsaSigner {
+impl spki::DynSignatureAlgorithmIdentifier for Signer {
     fn signature_algorithm_identifier(&self) -> spki::Result<AlgorithmIdentifierOwned> {
         Ok(AlgorithmIdentifierOwned {
             oid: ECDSA_WITH_SHA256_OID,
@@ -105,20 +124,20 @@ impl spki::DynSignatureAlgorithmIdentifier for RingEcdsaSigner {
 }
 
 /// ECDSA signature wrapper for x509-cert.
-pub struct EcdsaSignature(pub Vec<u8>);
+pub struct Signature(pub Vec<u8>);
 
-impl spki::SignatureBitStringEncoding for EcdsaSignature {
+impl spki::SignatureBitStringEncoding for Signature {
     fn to_bitstring(&self) -> der::Result<BitString> {
         BitString::from_bytes(&self.0)
     }
 }
 
-impl signature::Signer<EcdsaSignature> for RingEcdsaSigner {
-    fn try_sign(&self, msg: &[u8]) -> std::result::Result<EcdsaSignature, signature::Error> {
+impl signature::Signer<Signature> for Signer {
+    fn try_sign(&self, msg: &[u8]) -> result::Result<Signature, signature::Error> {
         let sig = self
             .key_pair
             .sign(&self.rng, msg)
-            .map_err(|_| signature::Error::new())?;
-        Ok(EcdsaSignature(sig.as_ref().to_vec()))
+            .map_err(|_sign_error| signature::Error::new())?;
+        Ok(Signature(sig.as_ref().to_vec()))
     }
 }

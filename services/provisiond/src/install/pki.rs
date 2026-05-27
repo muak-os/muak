@@ -26,7 +26,7 @@ pub struct ServerPki {
 
 /// Intermediate CA materials shared across generation steps.
 pub struct CaMaterials {
-    pub signer: pki::RingEcdsaSigner,
+    pub signer: pki::key::Signer,
     pub cert: Certificate,
     pub pem: String,
     pub key_pem: String,
@@ -35,13 +35,13 @@ pub struct CaMaterials {
 /// Generates the CA key and certificate.
 pub fn generate_ca() -> Result<CaMaterials> {
     let (signer, cert) =
-        pki::generate_ca_certificate("Muak CA").context("Failed to generate CA certificate")?;
+        pki::cert::generate_ca("Muak CA").context("Failed to generate CA certificate")?;
 
     let pem = cert
         .to_pem(LineEnding::LF)
         .context("Failed to encode CA certificate")?;
 
-    let key_pem = pki::util::pkcs8_to_pem(signer.pkcs8_der()).context("Failed to encode CA key")?;
+    let key_pem = pki::pem::encode_pkcs8(signer.pkcs8_der()).context("Failed to encode CA key")?;
 
     Ok(CaMaterials {
         signer,
@@ -53,16 +53,15 @@ pub fn generate_ca() -> Result<CaMaterials> {
 
 /// Generates the server certificate signed by the given CA.
 pub fn generate_server_cert(ca: &CaMaterials) -> Result<ServerPki> {
-    let (server_key, server_cert) =
-        pki::generate_server_certificate("muak-server", &ca.signer, &ca.cert)
-            .context("Failed to generate server certificate")?;
+    let (server_key, server_cert) = pki::cert::generate_server("muak-server", &ca.signer, &ca.cert)
+        .context("Failed to generate server certificate")?;
 
     let server_cert_pem = server_cert
         .to_pem(LineEnding::LF)
         .context("Failed to encode server certificate")?;
 
     let server_key_pem =
-        pki::util::pkcs8_to_pem(server_key.pkcs8_der()).context("Failed to encode server key")?;
+        pki::pem::encode_pkcs8(server_key.pkcs8_der()).context("Failed to encode server key")?;
 
     Ok(ServerPki {
         ca_pem: ca.pem.clone(),
@@ -75,7 +74,7 @@ pub fn generate_server_cert(ca: &CaMaterials) -> Result<ServerPki> {
 /// Signs the admin CSR with the given CA, returning client materials and initial auth config.
 pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult, AuthConfig)> {
     let (admin_cert, admin_fingerprint) =
-        pki::sign_csr(csr_pem, &ca.key_pem, &ca.cert).context("Failed to sign admin CSR")?;
+        pki::csr::sign(csr_pem, &ca.key_pem, &ca.cert).context("Failed to sign admin CSR")?;
 
     let admin_cert_pem = admin_cert
         .to_pem(LineEnding::LF)
