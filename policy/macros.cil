@@ -19,7 +19,7 @@
 ; Read /dev: dir search + chr_file read/write.
 (macro allow_devtmpfs_read ((type domain))
     (allow domain devtmpfs_t (dir      (read search)))
-    (allow domain devtmpfs_t (chr_file (read write open getattr))))
+    (allow domain devtmpfs_t (chr_file (read write append open getattr))))
 
 ; Connect to a muak_run_t socket owned by another service.
 (macro allow_run_socket_rw ((type domain))

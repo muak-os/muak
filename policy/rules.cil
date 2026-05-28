@@ -40,9 +40,9 @@
 ; ── Baseline grants for all service domains ───────────────────────────────────
 
 ; Services write stdout/stderr to granola's pipe or directly to /dev.
-(allow service_t devtmpfs_t  (chr_file (write)))
-(allow service_t unlabeled_t (chr_file (write)))
-(allow service_t kernel_t    (chr_file (write)))
+(allow service_t devtmpfs_t  (chr_file (write append)))
+(allow service_t unlabeled_t (chr_file (write append)))
+(allow service_t kernel_t    (chr_file (write append)))
 (allow service_t granola_t   (fifo_file (write)))
 
 ; Services read /proc (for /proc/self and process introspection).

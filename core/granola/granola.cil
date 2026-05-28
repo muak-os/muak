@@ -25,10 +25,10 @@
 (allow granola_t kernel_t (fd (use)))
 
 ; SELinux null device (/sys/fs/selinux/null) for stdio redirect on transition.
-(allow granola_t unlabeled_t (chr_file (read write open getattr)))
+(allow granola_t unlabeled_t (chr_file (read write append open getattr)))
 
 ; /dev/console inherited from kernel_t (predates devtmpfs mount).
-(allow granola_t kernel_t (chr_file (read write open getattr)))
+(allow granola_t kernel_t (chr_file (read write append open getattr)))
 
 ; Supervisor capabilities.
 (allow granola_t self (systems (boot_caps)))
@@ -57,7 +57,7 @@
 ; create on blk_file is needed for mknodat(BlockDevice) in the LUKS open path.
 (allow granola_t devtmpfs_t (dir      (read write search add_name remove_name)))
 (allow granola_t devtmpfs_t (blk_file (create read write open getattr ioctl setattr unlink)))
-(allow granola_t devtmpfs_t (chr_file (read write open getattr)))
+(allow granola_t devtmpfs_t (chr_file (read write append open getattr)))
 (allow granola_t devtmpfs_t (files (load)))
 (allow granola_t devtmpfs_t (files (describe)))
 
