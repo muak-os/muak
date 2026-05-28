@@ -40,7 +40,7 @@ pub type Result<T> = core::result::Result<T, Failure>;
 
 const ETH_ALEN: usize = 6;
 const ETH_ALEN_U8: u8 = 6;
-const ETH_PROTOCOL_IP: u16 = 0x0800;
+const ETH_PROTOCOL_IP: u16 = 0x0800_u16.to_be();
 const SOCK_ADDR_LL_LEN: SocketAddrLen = 20;
 /// Standard link-layer broadcast address.
 pub const ETH_BROADCAST: [u8; ETH_ALEN] = [0xff; ETH_ALEN];
@@ -213,7 +213,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(addr.family, AddressFamily::PACKET.as_raw());
-        assert_eq!(addr.protocol, ETH_PROTOCOL_IP);
+        assert_eq!(addr.protocol.to_ne_bytes(), 0x0800_u16.to_be_bytes());
         assert_eq!(addr.if_index, 7);
         assert_eq!(addr.hardware_addr_len, ETH_ALEN_U8);
         assert_eq!(&addr.address[..ETH_ALEN], &mac);
