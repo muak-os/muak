@@ -254,42 +254,100 @@ mod tests {
     }
 
     #[test]
-    fn mount_efivarfs_returns_false_when_not_efi_boot() -> Result<()> {
+    fn mount_efivarfs_returns_false_when_not_efi_boot() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("mount-not-efi", false)?;
+        let context = LinuxBackendTestContext::new("mount-not-efi", false).expect("test context");
 
         // ACT
-        let mounted = context.backend.ensure_ready()?;
+        let mounted = context.backend.ensure_ready().expect("ensure ready");
 
         // ASSERT
         assert!(!mounted);
-
-        Ok(())
     }
 
     #[test]
-    fn mount_efivarfs_returns_true_when_already_available() -> Result<()> {
+    fn default_backend_uses_system_efi_paths() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("mount-existing", true)?;
-        fs::create_dir_all(&context.backend.efivarfs_path)?;
+        let backend = Efivarfs::new();
+        let default_backend = Efivarfs::default();
+
+        // ACT & ASSERT
+        assert_eq!(backend.efi_firmware_path, PathBuf::from(EFI_FIRMWARE_PATH));
+        assert_eq!(backend.efivarfs_path, PathBuf::from(EFIVARFS_PATH));
+        assert_eq!(default_backend.efi_firmware_path, backend.efi_firmware_path);
+        assert_eq!(default_backend.efivarfs_path, backend.efivarfs_path);
+    }
+
+    #[test]
+    fn availability_and_variable_existence_follow_test_paths() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("exists", true).expect("test context");
+
+        // ACT
+        let unavailable = context.backend.is_available();
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+        let available = context.backend.is_available();
+        let missing_variable = context.backend.variable_exists(&SECURE_BOOT);
+        write_var(&context.backend.efivarfs_path, &SECURE_BOOT, &[1]).expect("write variable");
+        let existing_variable = context.backend.variable_exists(&SECURE_BOOT);
+
+        // ASSERT
+        assert!(!unavailable);
+        assert!(available);
+        assert!(!missing_variable);
+        assert!(existing_variable);
+    }
+
+    #[test]
+    fn read_variable_returns_none_when_file_is_missing() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("missing-read", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+
+        // ACT
+        let payload = context
+            .backend
+            .read_variable(&SECURE_BOOT)
+            .expect("read missing variable");
+
+        // ASSERT
+        assert!(payload.is_none());
+    }
+
+    #[test]
+    fn variable_filename_formats_name_and_vendor_guid() {
+        // ARRANGE
+        let id = Id::new("PK", EFI_GLOBAL_VARIABLE);
+
+        // ACT
+        let filename = variable_filename(&id);
+
+        // ASSERT
+        assert_eq!(filename, format!("PK-{EFI_GLOBAL_VARIABLE}"));
+    }
+
+    #[test]
+    fn mount_efivarfs_returns_true_when_already_available() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("mount-existing", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
         fs::write(
             context.backend.efivarfs_path.join(SECURE_BOOT_MARKER),
             [0_u8; EFIVARFS_ATTRIBUTES_SIZE + 1],
-        )?;
+        )
+        .expect("write marker");
 
         // ACT
-        let mounted = context.backend.ensure_ready()?;
+        let mounted = context.backend.ensure_ready().expect("ensure ready");
 
         // ASSERT
         assert!(mounted);
-
-        Ok(())
     }
 
     #[test]
-    fn mount_efivarfs_creates_directory_before_mount_attempt() -> Result<()> {
+    fn mount_efivarfs_creates_directory_before_mount_attempt() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("mount-create", true)?;
+        let context = LinuxBackendTestContext::new("mount-create", true).expect("test context");
 
         // ACT
         let result = create_efivarfs_dir(&context.backend.efivarfs_path);
@@ -297,16 +355,15 @@ mod tests {
         // ASSERT
         assert!(context.backend.efivarfs_path.exists());
         assert!(result.is_ok());
-
-        Ok(())
     }
 
     #[test]
-    fn mount_efivarfs_surfaces_directory_creation_error() -> Result<()> {
+    fn mount_efivarfs_surfaces_directory_creation_error() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("mount-create-error", true)?;
+        let context =
+            LinuxBackendTestContext::new("mount-create-error", true).expect("test context");
         let blocker = context.root.path().join("blocker");
-        fs::write(&blocker, b"not-a-directory")?;
+        fs::write(&blocker, b"not-a-directory").expect("write blocker");
         let backend = Efivarfs {
             efi_firmware_path: context.backend.efi_firmware_path.clone(),
             efivarfs_path: blocker.join("efivars"),
@@ -317,61 +374,122 @@ mod tests {
 
         // ASSERT
         assert!(result.is_err());
-
-        Ok(())
     }
 
     #[test]
-    fn read_variable_strips_efivarfs_attributes_header() -> Result<()> {
+    fn mount_efivarfs_surfaces_mount_error() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("read", true)?;
-        fs::create_dir_all(&context.backend.efivarfs_path)?;
-        write_var(&context.backend.efivarfs_path, &SECURE_BOOT, &[1])?;
+        let context = LinuxBackendTestContext::new("mount-error", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+
+        // ACT
+        let result = context.backend.ensure_ready();
+
+        // ASSERT
+        assert!(result.is_err());
+        assert!(format!("{}", result.expect_err("mount should fail")).contains("failed to mount"));
+    }
+
+    #[test]
+    fn read_variable_strips_efivarfs_attributes_header() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("read", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+        write_var(&context.backend.efivarfs_path, &SECURE_BOOT, &[1]).expect("write variable");
 
         // ACT
         let payload = context
             .backend
-            .read_variable(&SECURE_BOOT)?
-            .ok_or_else(|| SboltError::EfiVar("missing SecureBoot test variable".into()))?;
+            .read_variable(&SECURE_BOOT)
+            .expect("read variable")
+            .expect("missing SecureBoot test variable");
 
         // ASSERT
         assert_eq!(payload, vec![1]);
-
-        Ok(())
     }
 
     #[test]
-    fn read_variable_returns_none_for_short_payload() -> Result<()> {
+    fn read_variable_returns_none_for_short_payload() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("short", true)?;
-        fs::create_dir_all(&context.backend.efivarfs_path)?;
-        fs::write(context.variable_path(&SECURE_BOOT), [1_u8, 2, 3])?;
+        let context = LinuxBackendTestContext::new("short", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+        fs::write(context.variable_path(&SECURE_BOOT), [1_u8, 2, 3]).expect("write variable");
 
         // ACT
-        let payload = context.backend.read_variable(&SECURE_BOOT)?;
+        let payload = context
+            .backend
+            .read_variable(&SECURE_BOOT)
+            .expect("read short variable");
 
         // ASSERT
         assert!(payload.is_none());
-
-        Ok(())
     }
 
     #[test]
-    fn write_variable_writes_payload_to_expected_path() -> Result<()> {
+    fn write_variable_writes_payload_to_expected_path() {
         // ARRANGE
-        let context = LinuxBackendTestContext::new("write", true)?;
-        fs::create_dir_all(&context.backend.efivarfs_path)?;
+        let context = LinuxBackendTestContext::new("write", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
         let payload = b"signed-payload";
 
         // ACT
         context
             .backend
-            .write_variable(Update::new(Id::new("PK", EFI_GLOBAL_VARIABLE), payload))?;
-        let stored = fs::read(context.variable_path(&Id::new("PK", EFI_GLOBAL_VARIABLE)))?;
+            .write_variable(Update::new(Id::new("PK", EFI_GLOBAL_VARIABLE), payload))
+            .expect("write variable");
+        let stored = fs::read(context.variable_path(&Id::new("PK", EFI_GLOBAL_VARIABLE)))
+            .expect("read variable");
 
         // ASSERT
         assert_eq!(stored, payload);
+    }
 
-        Ok(())
+    #[test]
+    fn write_variable_attempts_to_clear_existing_variable() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("write-existing", true).expect("test context");
+        fs::create_dir_all(&context.backend.efivarfs_path).expect("create efivarfs dir");
+        let id = Id::new("PK", EFI_GLOBAL_VARIABLE);
+        fs::write(context.variable_path(&id), b"existing").expect("write existing variable");
+
+        // ACT
+        let result = context
+            .backend
+            .write_variable(Update::new(id, b"replacement"));
+
+        // ASSERT
+        if let Err(error) = result {
+            assert!(format!("{error}").contains("ioctl GETFLAGS failed"));
+        }
+    }
+
+    #[test]
+    fn unset_immutable_surfaces_missing_file_error() {
+        // ARRANGE
+        let context =
+            LinuxBackendTestContext::new("immutable-missing", true).expect("test context");
+        let missing_path = context.root.path().join("missing");
+
+        // ACT
+        let result = unset_immutable(&missing_path);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unset_immutable_attempts_regular_file_ioctl() {
+        // ARRANGE
+        let context = LinuxBackendTestContext::new("immutable-file", true).expect("test context");
+        let path = context.root.path().join("variable");
+        fs::write(&path, b"payload").expect("write variable file");
+
+        // ACT
+        let result = unset_immutable(&path);
+
+        // ASSERT
+        if let Err(error) = result {
+            assert!(format!("{error}").contains("ioctl GETFLAGS failed"));
+        }
     }
 }

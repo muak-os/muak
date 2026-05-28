@@ -136,30 +136,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_pk_certificate_produces_self_signed_ca() -> Result<()> {
+    fn generate_pk_certificate_produces_self_signed_ca() {
         // ARRANGE
         let common_name = "Platform";
 
         // ACT
-        let (_signer, certificate) = generate_pk(common_name)?;
+        let (_signer, certificate) = generate_pk(common_name).expect("generate PK certificate");
 
         // ASSERT
         assert_eq!(
             certificate.tbs_certificate().issuer(),
             certificate.tbs_certificate().subject()
         );
-
-        Ok(())
     }
 
     #[test]
-    fn generate_kek_and_db_certificates_chain_subjects() -> Result<()> {
+    fn generate_kek_and_db_certificates_chain_subjects() {
         // ARRANGE
-        let (pk_signer, pk_cert) = generate_pk("PK")?;
+        let (pk_signer, pk_cert) = generate_pk("PK").expect("generate PK certificate");
 
         // ACT
-        let (_kek_signer, kek_cert) = generate_kek("KEK", &pk_signer, &pk_cert)?;
-        let (_db_signer, db_cert) = generate_db("DB", &pk_signer, &pk_cert)?;
+        let (_kek_signer, kek_cert) =
+            generate_kek("KEK", &pk_signer, &pk_cert).expect("generate KEK certificate");
+        let (_db_signer, db_cert) =
+            generate_db("DB", &pk_signer, &pk_cert).expect("generate db certificate");
 
         // ASSERT
         assert_eq!(
@@ -170,23 +170,33 @@ mod tests {
             db_cert.tbs_certificate().issuer(),
             pk_cert.tbs_certificate().subject()
         );
-
-        Ok(())
     }
 
     #[test]
-    fn generate_serial_and_spki_are_non_empty() -> Result<()> {
+    fn generate_serial_and_spki_are_non_empty() {
         // ARRANGE
-        let signer = rsa2048::Signer::generate()?;
+        let signer = rsa2048::Signer::generate().expect("generate RSA signer");
 
         // ACT
-        let serial = generate_serial()?;
-        let spki = get_spki_from_signer(&signer)?;
+        let serial = generate_serial().expect("generate serial");
+        let spki = get_spki_from_signer(&signer).expect("get SPKI");
 
         // ASSERT
         assert!(!serial.as_bytes().is_empty());
         assert!(!spki.subject_public_key.raw_bytes().is_empty());
+    }
 
-        Ok(())
+    #[test]
+    fn generated_certificates_include_common_names() {
+        // ARRANGE
+        let (pk_signer, pk_cert) = generate_pk("Platform Name").expect("generate PK certificate");
+
+        // ACT
+        let (_kek_signer, kek_cert) =
+            generate_kek("Exchange Name", &pk_signer, &pk_cert).expect("generate KEK certificate");
+
+        // ASSERT
+        assert!(format!("{}", pk_cert.tbs_certificate().subject()).contains("Platform Name"));
+        assert!(format!("{}", kek_cert.tbs_certificate().subject()).contains("Exchange Name"));
     }
 }

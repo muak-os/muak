@@ -8,16 +8,14 @@ pub mod status;
 pub mod time;
 pub mod variables;
 
+use crate::error::Result;
+use crate::keys::hierarchy;
 #[cfg(all(feature = "linux", target_os = "linux"))]
 use crate::platform::linux::Efivarfs as FirmwareVariables;
-
 #[cfg(not(all(feature = "linux", target_os = "linux")))]
 compile_error!(
     "sbolt EFI firmware variable APIs currently require the `linux` feature on a Linux target"
 );
-
-use crate::error::Result;
-use crate::keys::hierarchy;
 
 /// Check if running in EFI boot mode.
 #[must_use]

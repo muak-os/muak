@@ -166,62 +166,84 @@ impl signature::Signer<Signature> for Signer {
 mod tests {
     use rsa::traits::PublicKeyParts;
     use signature::{Keypair as _, Signer as _};
+    use spki::DynSignatureAlgorithmIdentifier as _;
     use spki::SignatureBitStringEncoding;
 
     use super::*;
 
     #[test]
-    fn signer_generates_serializes_and_reloads() -> Result<()> {
+    fn signer_generates_serializes_and_reloads() {
         // ARRANGE
-        let signer = Signer::generate()?;
+        let signer = Signer::generate().expect("generate signer");
 
         // ACT
-        let pkcs8 = signer.to_pkcs8_der()?;
-        let reloaded = Signer::from_pkcs8_der(&pkcs8)?;
+        let pkcs8 = signer.to_pkcs8_der().expect("encode PKCS#8");
+        let reloaded = Signer::from_pkcs8_der(&pkcs8).expect("reload PKCS#8");
 
         // ASSERT
         assert_eq!(signer.verifying_key().n(), reloaded.verifying_key().n());
         assert_eq!(signer.verifying_key().e(), reloaded.verifying_key().e());
-
-        Ok(())
     }
 
     #[test]
-    fn signer_produces_signature_and_bitstring() -> Result<()> {
+    fn signer_produces_signature_and_bitstring() {
         // ARRANGE
-        let signer = Signer::generate()?;
+        let signer = Signer::generate().expect("generate signer");
         let message = b"test message";
 
         // ACT
-        let signature = signer.sign_pkcs1v15_sha256(message)?;
+        let signature = signer.sign_pkcs1v15_sha256(message).expect("sign message");
         let wrapped = signer
             .try_sign(message)
-            .map_err(|e| SboltError::Signing(format!("try_sign: {e}")))?;
-        let bit_string = wrapped.to_bitstring()?;
+            .expect("signature trait signs message");
+        let bit_string = wrapped.to_bitstring().expect("encode bit string");
 
         // ASSERT
         assert!(!signature.is_empty());
         assert_eq!(signature, wrapped.0);
         assert_eq!(bit_string.raw_bytes(), signature.as_slice());
-
-        Ok(())
     }
 
     #[test]
-    fn ring_rng_generates_random_words() -> CoreResult<(), Unspecified> {
+    fn from_pkcs8_der_rejects_invalid_key() {
+        // ARRANGE
+        let invalid = b"not-a-private-key";
+
+        // ACT
+        let result = Signer::from_pkcs8_der(invalid);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn signature_algorithm_identifier_uses_sha256_rsa() {
+        // ARRANGE
+        let signer = Signer::generate().expect("generate signer");
+
+        // ACT
+        let identifier = signer
+            .signature_algorithm_identifier()
+            .expect("signature algorithm identifier");
+
+        // ASSERT
+        assert_eq!(identifier.oid, SHA_256_WITH_RSA_ENCRYPTION);
+        assert_eq!(identifier.parameters, Some(Any::null()));
+    }
+
+    #[test]
+    fn ring_rng_generates_random_words() {
         // ARRANGE
         let mut rng = RingRng(SystemRandom::new());
         let mut bytes = [0_u8; 16];
 
         // ACT
-        let word32 = rng.try_next_u32()?;
-        let word64 = rng.try_next_u64()?;
-        rng.try_fill_bytes(&mut bytes)?;
+        let word32 = rng.try_next_u32().expect("generate u32");
+        let word64 = rng.try_next_u64().expect("generate u64");
+        rng.try_fill_bytes(&mut bytes).expect("fill bytes");
 
         // ASSERT
         let any_bytes = bytes.iter().any(|byte| *byte != 0);
         assert!(word32 != 0 || word64 != 0 || any_bytes);
-
-        Ok(())
     }
 }

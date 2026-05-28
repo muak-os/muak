@@ -124,19 +124,17 @@ mod tests {
     }
 
     #[test]
-    fn generate_builds_complete_hierarchy() -> Result<()> {
+    fn generate_builds_complete_hierarchy() {
         // ARRANGE
         let org_name = "Muak Test";
 
         // ACT
-        let hierarchy = Bundle::generate(org_name)?;
+        let hierarchy = Bundle::generate(org_name).expect("generate hierarchy");
 
         // ASSERT
         assert_eq!(hierarchy.pk.key_type, KeyType::Pk);
         assert_eq!(hierarchy.kek.key_type, KeyType::Kek);
         assert_eq!(hierarchy.db.key_type, KeyType::Db);
         assert_ne!(hierarchy.owner_guid, uefi::Guid::from_bytes([0_u8; 16]));
-
-        Ok(())
     }
 }

@@ -334,58 +334,77 @@ mod tests {
     }
 
     #[test]
-    fn build_authenticode_signed_data_returns_signed_data_content_info() -> Result<()> {
+    fn build_authenticode_signed_data_returns_signed_data_content_info() {
         // ARRANGE
-        let (signer, cert) = signer_and_cert()?;
+        let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
         let hash = [0_u8; 32];
 
         // ACT
-        let der = build_authenticode_signed_data(ID_DATA, &content, &hash, &signer, &cert)?;
-        let content_info = ContentInfo::from_der(&der)?;
+        let der = build_authenticode_signed_data(ID_DATA, &content, &hash, &signer, &cert)
+            .expect("build Authenticode SignedData");
+        let content_info = ContentInfo::from_der(&der).expect("decode ContentInfo");
 
         // ASSERT
         assert_eq!(content_info.content_type, ID_SIGNED_DATA);
-
-        Ok(())
     }
 
     #[test]
-    fn build_detached_signed_data_omits_econtent() -> Result<()> {
+    fn build_authenticode_signed_data_embeds_content_and_signer_info() {
         // ARRANGE
-        let (signer, cert) = signer_and_cert()?;
+        let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
+        let content = [0x30_u8, 0x00];
+        let hash = [0x7b_u8; 32];
 
         // ACT
-        let der = build_detached_signed_data(b"payload", &signer, &cert)?;
-        let content_info = ContentInfo::from_der(&der)?;
+        let der = build_authenticode_signed_data(ID_DATA, &content, &hash, &signer, &cert)
+            .expect("build Authenticode SignedData");
+        let content_info = ContentInfo::from_der(&der).expect("decode ContentInfo");
+        let signed_data = content_info
+            .content
+            .decode_as::<SignedData>()
+            .expect("decode SignedData");
+
+        // ASSERT
+        assert!(signed_data.encap_content_info.econtent.is_some());
+        assert_eq!(signed_data.signer_infos.0.len(), 1);
+    }
+
+    #[test]
+    fn build_detached_signed_data_omits_econtent() {
+        // ARRANGE
+        let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
+
+        // ACT
+        let der = build_detached_signed_data(b"payload", &signer, &cert).expect("build SignedData");
+        let content_info = ContentInfo::from_der(&der).expect("decode ContentInfo");
         assert_eq!(content_info.content_type, ID_SIGNED_DATA);
-        let signed_data = content_info.content.decode_as::<SignedData>()?;
+        let signed_data = content_info
+            .content
+            .decode_as::<SignedData>()
+            .expect("decode SignedData");
 
         // ASSERT
         assert!(signed_data.encap_content_info.econtent.is_none());
         assert_eq!(signed_data.signer_infos.0.len(), 1);
-
-        Ok(())
     }
 
     #[test]
-    fn encode_der_length_supports_multiple_length_forms() -> Result<()> {
+    fn encode_der_length_supports_multiple_length_forms() {
         // ARRANGE
         let mut short = Vec::new();
         let mut medium = Vec::new();
         let mut long = Vec::new();
 
         // ACT
-        encode_der_length(&mut short, 0x7f)?;
-        encode_der_length(&mut medium, 0x80)?;
-        encode_der_length(&mut long, 0x1234)?;
+        encode_der_length(&mut short, 0x7f).expect("encode short length");
+        encode_der_length(&mut medium, 0x80).expect("encode medium length");
+        encode_der_length(&mut long, 0x1234).expect("encode long length");
 
         // ASSERT
         assert_eq!(short, vec![0x7f]);
         assert_eq!(medium, vec![0x81, 0x80]);
         assert_eq!(long, vec![0x82, 0x12, 0x34]);
-
-        Ok(())
     }
 
     #[test]
@@ -398,31 +417,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_sha256_digest_accepts_exact_length() -> Result<()> {
+    fn parse_sha256_digest_accepts_exact_length() {
         // ARRANGE
         let digest = [0x5a_u8; 32];
 
         // ACT
-        let parsed = parse_sha256_digest(&digest)?;
+        let parsed = parse_sha256_digest(&digest).expect("parse digest");
 
         // ASSERT
         assert_eq!(parsed, digest);
-
-        Ok(())
     }
 
     #[test]
-    fn encode_der_length_supports_three_byte_lengths() -> Result<()> {
+    fn encode_der_length_supports_three_byte_lengths() {
         // ARRANGE
         let mut encoded = Vec::new();
 
         // ACT
-        encode_der_length(&mut encoded, 0x01_0203)?;
+        encode_der_length(&mut encoded, 0x01_0203).expect("encode length");
 
         // ASSERT
         assert_eq!(encoded, vec![0x83, 0x01, 0x02, 0x03]);
-
-        Ok(())
     }
 
     #[test]
@@ -447,12 +462,25 @@ mod tests {
     }
 
     #[test]
-    fn build_signed_attributes_contains_expected_values() -> Result<()> {
+    fn push_u8_rejects_values_larger_than_byte() {
+        // ARRANGE
+        let mut encoded = Vec::new();
+
+        // ACT
+        let result = push_u8(&mut encoded, 0x100);
+
+        // ASSERT
+        assert!(result.is_err());
+        assert!(encoded.is_empty());
+    }
+
+    #[test]
+    fn build_signed_attributes_contains_expected_values() {
         // ARRANGE
         let digest = [0xA5_u8; 32];
 
         // ACT
-        let attrs = build_signed_attributes(ID_DATA, &digest)?;
+        let attrs = build_signed_attributes(ID_DATA, &digest).expect("build signed attributes");
 
         // ASSERT
         assert_eq!(attrs.len(), 3);
@@ -462,21 +490,23 @@ mod tests {
             .find(|attr| attr.oid == ID_MESSAGE_DIGEST)
             .expect("messageDigest attribute");
         let digest_value = digest_attr.values.iter().next().expect("digest value");
-        let digest_octets = digest_value.decode_as::<OctetString>()?;
+        let digest_octets = digest_value
+            .decode_as::<OctetString>()
+            .expect("decode messageDigest");
         assert_eq!(digest_octets.as_bytes(), digest);
-
-        Ok(())
     }
 
     #[test]
-    fn build_signer_info_uses_certificate_identity() -> Result<()> {
+    fn build_signer_info_uses_certificate_identity() {
         // ARRANGE
-        let (_signer, cert) = signer_and_cert()?;
+        let (_signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let signature = [0x11_u8; 16];
-        let attrs = build_signed_attributes(ID_DATA, &[0x22_u8; 32])?;
+        let attrs =
+            build_signed_attributes(ID_DATA, &[0x22_u8; 32]).expect("build signed attributes");
 
         // ACT
-        let signer_info = build_signer_info_cms(&signature, &cert, Some(attrs))?;
+        let signer_info =
+            build_signer_info_cms(&signature, &cert, Some(attrs)).expect("build signer info");
 
         // ASSERT
         match signer_info.sid {
@@ -492,25 +522,44 @@ mod tests {
             }
             _ => panic!("expected IssuerAndSerialNumber"),
         }
-
-        Ok(())
     }
 
     #[test]
-    fn build_signed_data_with_content_embeds_econtent() -> Result<()> {
+    fn build_signed_data_with_content_embeds_econtent() {
         // ARRANGE
-        let (_signer, cert) = signer_and_cert()?;
+        let (_signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
-        let attrs = build_signed_attributes(ID_DATA, &[0x33_u8; 32])?;
+        let attrs =
+            build_signed_attributes(ID_DATA, &[0x33_u8; 32]).expect("build signed attributes");
 
         // ACT
         let signed_data_der =
-            build_signed_data_with_cms(ID_DATA, Some(&content), &[0x44_u8; 8], &cert, Some(attrs))?;
-        let signed_data = SignedData::from_der(&signed_data_der)?;
+            build_signed_data_with_cms(ID_DATA, Some(&content), &[0x44_u8; 8], &cert, Some(attrs))
+                .expect("build SignedData");
+        let signed_data = SignedData::from_der(&signed_data_der).expect("decode SignedData");
 
         // ASSERT
         assert!(signed_data.encap_content_info.econtent.is_some());
+    }
 
-        Ok(())
+    #[test]
+    fn build_signed_data_without_attrs_keeps_signer_info_unsigned() {
+        // ARRANGE
+        let (_signer, cert) = signer_and_cert().expect("generate signer and certificate");
+
+        // ACT
+        let signed_data_der = build_signed_data_with_cms(ID_DATA, None, &[0x55_u8; 8], &cert, None)
+            .expect("build SignedData");
+        let signed_data = SignedData::from_der(&signed_data_der).expect("decode SignedData");
+        let signer_info = signed_data
+            .signer_infos
+            .0
+            .iter()
+            .next()
+            .expect("signer info");
+
+        // ASSERT
+        assert!(signed_data.encap_content_info.econtent.is_none());
+        assert!(signer_info.signed_attrs.is_none());
     }
 }

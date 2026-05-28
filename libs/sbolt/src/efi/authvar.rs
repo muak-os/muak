@@ -202,6 +202,48 @@ mod tests {
     }
 
     #[test]
+    fn build_win_certificate_accepts_empty_pkcs7() {
+        // ARRANGE
+        let pkcs7 = [];
+
+        // ACT
+        let certificate = build_win_certificate(&pkcs7).expect("build WIN_CERTIFICATE");
+
+        // ASSERT
+        assert_eq!(certificate.len(), WIN_CERT_UEFI_GUID_HEADER_SIZE);
+        assert_eq!(
+            u32::from_le_bytes(certificate[0..4].try_into().expect("length")),
+            WIN_CERT_UEFI_GUID_HEADER_SIZE as u32
+        );
+    }
+
+    #[test]
+    fn build_descriptor_handles_empty_name_and_content() {
+        // ARRANGE
+        let vendor = guid!("d719b2cb-3d3a-4596-a3bc-dad00e67656f");
+        let attrs = VariableAttributes::NON_VOLATILE;
+        let timestamp = uefi::runtime::Time::new(uefi::runtime::TimeParams {
+            year: 2025,
+            month: 1,
+            day: 15,
+            hour: 12,
+            minute: 0,
+            second: 0,
+            nanosecond: 0,
+            time_zone: Some(0),
+            daylight: uefi::runtime::Daylight::empty(),
+        })
+        .expect("valid time");
+
+        // ACT
+        let descriptor = build_descriptor("", &vendor, attrs, &timestamp, &[]);
+
+        // ASSERT
+        assert_eq!(descriptor.len(), 16 + 4 + 16);
+        assert_eq!(&descriptor[0..16], &vendor.to_bytes());
+    }
+
+    #[test]
     fn sign_efi_variable_structural_correctness() {
         // ARRANGE
         let (signer, cert) = signer_and_cert();

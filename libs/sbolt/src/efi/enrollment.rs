@@ -214,28 +214,31 @@ mod tests {
     }
 
     #[test]
-    fn enroll_keys_writes_db_kek_and_pk_in_order() -> Result<()> {
+    fn enroll_keys_writes_db_kek_and_pk_in_order() {
         // ARRANGE
         let backend = FakeFirmwareVariables::ready().with_variable(variables::SETUP_MODE, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Enroll Success")?;
+        let hierarchy = hierarchy::Bundle::generate("Enroll Success").expect("generate hierarchy");
         let db_sigdb = certificate_database(
             &hierarchy.owner_guid,
             &hierarchy.db.certificate,
             "encode db cert",
-        )?;
+        )
+        .expect("build db sigdb");
         let kek_sigdb = certificate_database(
             &hierarchy.owner_guid,
             &hierarchy.kek.certificate,
             "encode kek cert",
-        )?;
+        )
+        .expect("build KEK sigdb");
         let pk_sigdb = certificate_database(
             &hierarchy.owner_guid,
             &hierarchy.pk.certificate,
             "encode pk cert",
-        )?;
+        )
+        .expect("build PK sigdb");
 
         // ACT
-        enroll(&backend, &hierarchy)?;
+        enroll(&backend, &hierarchy).expect("enroll hierarchy");
         let writes = backend.writes();
 
         // ASSERT
@@ -267,18 +270,95 @@ mod tests {
                 .map(|(_id, payload)| payload.ends_with(&pk_sigdb.to_bytes()))
                 .unwrap_or(false)
         );
-
-        Ok(())
     }
 
     #[test]
-    fn enroll_keys_rejects_unavailable_backend() -> Result<()> {
+    fn certificate_database_builds_single_x509_list() {
+        // ARRANGE
+        let hierarchy =
+            hierarchy::Bundle::generate("Certificate Database").expect("generate hierarchy");
+
+        // ACT
+        let database = certificate_database(
+            &hierarchy.owner_guid,
+            &hierarchy.db.certificate,
+            "encode test cert",
+        )
+        .expect("build certificate database");
+
+        // ASSERT
+        assert_eq!(database.len(), 1);
+        assert!(!database.to_bytes().is_empty());
+    }
+
+    #[test]
+    fn write_signed_variable_writes_payload_for_each_authority() {
+        // ARRANGE
+        let backend = FakeFirmwareVariables::ready();
+        let hierarchy =
+            hierarchy::Bundle::generate("Write Signed Variable").expect("generate hierarchy");
+        let content = b"content";
+
+        // ACT
+        write_signed_variable(
+            &backend,
+            variables::PK,
+            content,
+            &hierarchy,
+            SigningAuthority::PlatformKey,
+        )
+        .expect("write PK signed variable");
+        write_signed_variable(
+            &backend,
+            variables::DB,
+            content,
+            &hierarchy,
+            SigningAuthority::KeyExchangeKey,
+        )
+        .expect("write db signed variable");
+        let writes = backend.writes();
+
+        // ASSERT
+        assert_eq!(writes.len(), 2);
+        assert_eq!(
+            writes.first().map(|(id, _payload)| *id),
+            Some(variables::PK)
+        );
+        assert_eq!(writes.get(1).map(|(id, _payload)| *id), Some(variables::DB));
+        assert!(
+            writes
+                .iter()
+                .all(|(_id, payload)| payload.ends_with(content))
+        );
+    }
+
+    #[test]
+    fn fake_backend_reports_status_and_variable_presence() {
+        // ARRANGE
+        let backend = FakeFirmwareVariables::ready().with_variable(variables::PK, Vec::new());
+
+        // ACT
+        let firmware_boot = backend.is_firmware_boot();
+        let available = backend.is_available();
+        let has_pk = backend.variable_exists(&variables::PK);
+        let has_db = backend.variable_exists(&variables::DB);
+
+        // ASSERT
+        assert!(firmware_boot);
+        assert!(available);
+        assert!(has_pk);
+        assert!(!has_db);
+    }
+
+    #[test]
+    fn enroll_keys_rejects_unavailable_backend() {
         // ARRANGE
         let backend = FakeFirmwareVariables {
             ready: false,
             ..FakeFirmwareVariables::ready()
         };
-        let hierarchy = hierarchy::Bundle::generate("Enroll Unavailable")?;
+        let hierarchy =
+            hierarchy::Bundle::generate("Enroll Unavailable").expect("generate hierarchy");
 
         // ACT
         let result = enroll(&backend, &hierarchy);
@@ -286,17 +366,15 @@ mod tests {
         // ASSERT
         assert!(result.is_err());
         assert!(backend.writes().is_empty());
-
-        Ok(())
     }
 
     #[test]
-    fn enroll_keys_rejects_non_setup_mode() -> Result<()> {
+    fn enroll_keys_rejects_non_setup_mode() {
         // ARRANGE
         let backend = FakeFirmwareVariables::ready()
             .with_variable(variables::SETUP_MODE, vec![0])
             .with_variable(variables::PK, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Enroll No Setup")?;
+        let hierarchy = hierarchy::Bundle::generate("Enroll No Setup").expect("generate hierarchy");
 
         // ACT
         let result = enroll(&backend, &hierarchy);
@@ -304,8 +382,6 @@ mod tests {
         // ASSERT
         assert!(result.is_err());
         assert!(backend.writes().is_empty());
-
-        Ok(())
     }
 
     #[test]

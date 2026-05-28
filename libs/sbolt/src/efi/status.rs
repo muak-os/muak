@@ -169,74 +169,117 @@ mod tests {
     }
 
     #[test]
-    fn readiness_methods_follow_backend_state() -> Result<()> {
+    fn readiness_methods_follow_backend_state() {
         // ARRANGE
         let backend = FakeFirmwareVariables::ready();
 
         // ACT & ASSERT
         assert!(is_boot(&backend));
         assert!(is_available(&backend));
-        assert!(mount(&backend)?);
-
-        Ok(())
+        assert!(mount(&backend).expect("mount fake backend"));
     }
 
     #[test]
-    fn get_secure_boot_and_setup_mode_follow_variable_contents() -> Result<()> {
+    fn get_secure_boot_and_setup_mode_follow_variable_contents() {
         // ARRANGE
         let backend = FakeFirmwareVariables::ready()
             .with_variable(variables::SECURE_BOOT, vec![1])
             .with_variable(variables::SETUP_MODE, vec![0]);
 
         // ACT
-        let secure_boot = secure_boot(&backend)?;
-        let setup_mode = setup_mode(&backend)?;
+        let secure_boot = secure_boot(&backend).expect("read SecureBoot");
+        let setup_mode = setup_mode(&backend).expect("read SetupMode");
 
         // ASSERT
         assert!(secure_boot);
         assert!(!setup_mode);
-
-        Ok(())
     }
 
     #[test]
-    fn get_setup_mode_falls_back_to_pk_presence() -> Result<()> {
+    fn secure_boot_returns_false_for_missing_and_empty_variables() {
+        // ARRANGE
+        let missing = FakeFirmwareVariables::ready();
+        let empty =
+            FakeFirmwareVariables::ready().with_variable(variables::SECURE_BOOT, Vec::new());
+
+        // ACT
+        let missing_secure_boot = secure_boot(&missing).expect("read missing SecureBoot");
+        let empty_secure_boot = secure_boot(&empty).expect("read empty SecureBoot");
+
+        // ASSERT
+        assert!(!missing_secure_boot);
+        assert!(!empty_secure_boot);
+    }
+
+    #[test]
+    fn get_setup_mode_falls_back_to_pk_presence() {
         // ARRANGE
         let with_pk = FakeFirmwareVariables::ready().with_variable(variables::PK, Vec::new());
         let without_pk = FakeFirmwareVariables::ready();
 
         // ACT
-        let setup_with_pk = setup_mode(&with_pk)?;
-        let setup_without_pk = setup_mode(&without_pk)?;
+        let setup_with_pk = setup_mode(&with_pk).expect("read SetupMode with PK");
+        let setup_without_pk = setup_mode(&without_pk).expect("read SetupMode without PK");
 
         // ASSERT
         assert!(!setup_with_pk);
         assert!(setup_without_pk);
-
-        Ok(())
     }
 
     #[test]
-    fn get_pk_kek_and_db_parse_signature_databases() -> Result<()> {
+    fn get_pk_kek_and_db_parse_signature_databases() {
         // ARRANGE
         let owner = guid!("12345678-1234-1234-1234-123456789abc");
-        let siglist = siglist::build_x509(&owner, b"cert-bytes")?;
+        let siglist = siglist::build_x509(&owner, b"cert-bytes").expect("build siglist");
         let backend = FakeFirmwareVariables::ready()
             .with_variable(variables::PK, siglist.clone())
             .with_variable(variables::KEK, siglist.clone())
             .with_variable(variables::DB, siglist);
 
         // ACT
-        let pk = pk(&backend)?;
-        let kek = kek(&backend)?;
-        let db = db(&backend)?;
+        let pk = pk(&backend).expect("read PK");
+        let kek = kek(&backend).expect("read KEK");
+        let db = db(&backend).expect("read db");
 
         // ASSERT
         assert_eq!(pk.map_or(0, |database| database.len()), 1);
         assert_eq!(kek.map_or(0, |database| database.len()), 1);
         assert_eq!(db.map_or(0, |database| database.len()), 1);
+    }
 
-        Ok(())
+    #[test]
+    fn get_pk_kek_and_db_return_none_for_missing_and_empty_variables() {
+        // ARRANGE
+        let missing = FakeFirmwareVariables::ready();
+        let empty = FakeFirmwareVariables::ready()
+            .with_variable(variables::PK, Vec::new())
+            .with_variable(variables::KEK, Vec::new())
+            .with_variable(variables::DB, Vec::new());
+
+        // ACT
+        let missing_pk = pk(&missing).expect("read missing PK");
+        let empty_pk = pk(&empty).expect("read empty PK");
+        let empty_kek = kek(&empty).expect("read empty KEK");
+        let empty_db = db(&empty).expect("read empty db");
+
+        // ASSERT
+        assert!(missing_pk.is_none());
+        assert!(empty_pk.is_none());
+        assert!(empty_kek.is_none());
+        assert!(empty_db.is_none());
+    }
+
+    #[test]
+    fn fake_backend_write_is_noop() {
+        // ARRANGE
+        let backend = FakeFirmwareVariables::ready();
+        let update = Update::new(variables::PK, b"payload");
+
+        // ACT
+        let result = backend.write_variable(update);
+
+        // ASSERT
+        assert!(result.is_ok());
     }
 
     #[test]

@@ -152,54 +152,48 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_key_hierarchy_round_trip() -> Result<()> {
+    fn save_and_load_key_hierarchy_round_trip() {
         // ARRANGE
-        let hierarchy = Bundle::generate("Storage Test")?;
+        let hierarchy = Bundle::generate("Storage Test").expect("generate hierarchy");
         let dir = test_dir("storage-roundtrip");
 
         // ACT
-        save_hierarchy(&hierarchy, &dir)?;
-        let loaded = load_hierarchy(&dir)?;
+        save_hierarchy(&hierarchy, &dir).expect("save hierarchy");
+        let loaded = load_hierarchy(&dir).expect("load hierarchy");
 
         // ASSERT
         assert_eq!(loaded.pk.key_type, KeyType::Pk);
         assert_eq!(loaded.kek.key_type, KeyType::Kek);
         assert_eq!(loaded.db.key_type, KeyType::Db);
         assert_eq!(loaded.owner_guid, hierarchy.owner_guid);
-
-        Ok(())
     }
 
     #[test]
-    fn save_key_hierarchy_writes_private_key_permissions() -> Result<()> {
+    fn save_key_hierarchy_writes_private_key_permissions() {
         // ARRANGE
-        let hierarchy = Bundle::generate("Storage Permissions")?;
+        let hierarchy = Bundle::generate("Storage Permissions").expect("generate hierarchy");
         let dir = test_dir("storage-permissions");
 
         // ACT
-        save_hierarchy(&hierarchy, &dir)?;
-        let metadata = std::fs::metadata(dir.join("pk.key"))?;
+        save_hierarchy(&hierarchy, &dir).expect("save hierarchy");
+        let metadata = std::fs::metadata(dir.join("pk.key")).expect("read metadata");
 
         // ASSERT
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-
-        Ok(())
     }
 
     #[test]
-    fn load_key_hierarchy_rejects_invalid_guid() -> Result<()> {
+    fn load_key_hierarchy_rejects_invalid_guid() {
         // ARRANGE
-        let hierarchy = Bundle::generate("Storage Invalid Guid")?;
+        let hierarchy = Bundle::generate("Storage Invalid Guid").expect("generate hierarchy");
         let dir = test_dir("storage-invalid-guid");
-        save_hierarchy(&hierarchy, &dir)?;
-        std::fs::write(dir.join("owner.guid"), "not-a-guid")?;
+        save_hierarchy(&hierarchy, &dir).expect("save hierarchy");
+        std::fs::write(dir.join("owner.guid"), "not-a-guid").expect("write invalid GUID");
 
         // ACT
         let result = load_hierarchy(&dir);
 
         // ASSERT
         assert!(result.is_err());
-
-        Ok(())
     }
 }

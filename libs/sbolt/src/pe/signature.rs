@@ -6,10 +6,8 @@ use core::mem::size_of;
 use const_oid::ObjectIdentifier;
 use der::Encode as _;
 use der::asn1::{Any, OctetString};
-use object::LittleEndian as LE;
 use object::pe::{
-    IMAGE_DIRECTORY_ENTRY_SECURITY, IMAGE_NT_OPTIONAL_HDR64_MAGIC, ImageDataDirectory,
-    ImageFileHeader, ImageOptionalHeader64,
+    IMAGE_DIRECTORY_ENTRY_SECURITY, ImageDataDirectory, ImageFileHeader, ImageOptionalHeader64,
 };
 use object::read::pe::PeFile64;
 use spki::AlgorithmIdentifierOwned;
@@ -177,9 +175,7 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
         pkcs7_der.len(),
         "WIN_CERTIFICATE size",
     )?;
-    let total_size_u32 = u32::try_from(total_size).map_err(|_size_error| {
-        SboltError::PeOperation("WIN_CERTIFICATE exceeds 32-bit size".into())
-    })?;
+    let total_size_u32 = usize_to_u32(total_size, "WIN_CERTIFICATE")?;
 
     let mut result = Vec::with_capacity(total_size);
 
@@ -196,30 +192,25 @@ fn embed_signature(pe_data: &[u8], win_cert: &[u8]) -> Result<Vec<u8>> {
     let pe = PeFile64::parse(pe_data)
         .map_err(|_parse_error| SboltError::PeOperation("invalid or unsupported PE file".into()))?;
 
-    if pe.nt_headers().optional_header.magic.get(LE) != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
-        return Err(SboltError::PeOperation("only PE32+ is supported".into()));
-    }
-
-    let pe_offset =
-        usize::try_from(pe.dos_header().nt_headers_offset()).map_err(|_offset_error| {
-            SboltError::PeOperation("PE header offset exceeds usize".into())
-        })?;
+    let pe_offset = u32_to_usize(pe.dos_header().nt_headers_offset(), "PE header offset")?;
     let opt_offset = checked_add(
-        checked_add(
-            pe_offset,
-            PE_SIGNATURE_PREFIX_SIZE,
-            "optional header offset",
-        )?,
+        pe_offset,
+        PE_SIGNATURE_PREFIX_SIZE,
+        "optional header offset",
+    )?;
+    let opt_offset = checked_add(
+        opt_offset,
         size_of::<ImageFileHeader>(),
         "optional header offset",
     )?;
+    let cert_table_index_offset = checked_mul(
+        IMAGE_DIRECTORY_ENTRY_SECURITY,
+        size_of::<ImageDataDirectory>(),
+        "certificate table directory offset",
+    )?;
     let cert_table_relative_offset = checked_add(
         size_of::<ImageOptionalHeader64>(),
-        checked_mul(
-            IMAGE_DIRECTORY_ENTRY_SECURITY,
-            size_of::<ImageDataDirectory>(),
-            "certificate table directory offset",
-        )?,
+        cert_table_index_offset,
         "certificate table directory offset",
     )?;
     let cert_table_dd_offset = checked_add(
@@ -249,23 +240,16 @@ fn embed_signature(pe_data: &[u8], win_cert: &[u8]) -> Result<Vec<u8>> {
     let padded_len = checked_add(result.len(), sig_padding, "signed PE padding")?;
     result.resize(padded_len, 0);
 
-    let aligned_size_u32 = u32::try_from(aligned_size).map_err(|_size_error| {
-        SboltError::PeOperation("aligned PE size exceeds 32-bit range".into())
-    })?;
-    let sig_aligned_size_u32 = u32::try_from(sig_aligned_size).map_err(|_size_error| {
-        SboltError::PeOperation("signature size exceeds 32-bit range".into())
-    })?;
+    let aligned_size_u32 = usize_to_u32(aligned_size, "aligned PE size")?;
+    let sig_aligned_size_u32 = usize_to_u32(sig_aligned_size, "signature size")?;
 
     write_u32_le(&mut result, cert_table_dd_offset, aligned_size_u32)?;
-    write_u32_le(
-        &mut result,
-        checked_add(
-            cert_table_dd_offset,
-            CERT_TABLE_ENTRY_SIZE,
-            "certificate table size field",
-        )?,
-        sig_aligned_size_u32,
+    let cert_table_size_offset = checked_add(
+        cert_table_dd_offset,
+        CERT_TABLE_ENTRY_SIZE,
+        "certificate table size field",
     )?;
+    write_u32_le(&mut result, cert_table_size_offset, sig_aligned_size_u32)?;
 
     let new_checksum = calculate_pe_checksum(&result, checksum_offset)?;
     write_u32_le(&mut result, checksum_offset, new_checksum)?;
@@ -310,9 +294,7 @@ fn calculate_pe_checksum(data: &[u8], checksum_offset: usize) -> Result<u32> {
 
     let sum_u32 = u32::try_from(sum)
         .map_err(|_sum_error| SboltError::PeOperation("checksum exceeds 32-bit range".into()))?;
-    let data_len_u32 = u32::try_from(data.len()).map_err(|_length_error| {
-        SboltError::PeOperation("PE length exceeds 32-bit range".into())
-    })?;
+    let data_len_u32 = usize_to_u32(data.len(), "PE length")?;
 
     sum_u32
         .checked_add(data_len_u32)
@@ -334,6 +316,16 @@ fn push_u8(buf: &mut Vec<u8>, value: usize) -> Result<()> {
     buf.push(byte);
 
     Ok(())
+}
+
+fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
+    u32::try_from(value)
+        .map_err(|_conversion_error| SboltError::PeOperation(format!("{context} exceeds u32")))
+}
+
+fn u32_to_usize(value: u32, context: &str) -> Result<usize> {
+    usize::try_from(value)
+        .map_err(|_conversion_error| SboltError::PeOperation(format!("{context} exceeds usize")))
 }
 
 fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
@@ -573,19 +565,8 @@ mod tests {
         assert_eq!(econtent_der[0], 0x30, "eContent must be a SEQUENCE");
 
         // ASSERT
-        assert_eq!(econtent_der[0], 0x30);
-        let (hdr_len, _content_len) = if econtent_der[1] < 0x80 {
-            (2, econtent_der[1] as usize)
-        } else if econtent_der[1] == 0x81 {
-            (3, econtent_der[2] as usize)
-        } else if econtent_der[1] == 0x82 {
-            (
-                4,
-                ((econtent_der[2] as usize) << 8) | econtent_der[3] as usize,
-            )
-        } else {
-            panic!("unexpected DER length encoding");
-        };
+        assert!(econtent_der[1] < 0x80);
+        let hdr_len = 2;
         let value_octets = &econtent_der[hdr_len..];
 
         let signer_info = sd.signer_infos.0.iter().next().expect("signer info");
@@ -615,31 +596,57 @@ mod tests {
     }
 
     #[test]
-    fn build_spc_indirect_data_contains_sha256_digest() -> Result<()> {
+    fn build_spc_indirect_data_contains_sha256_digest() {
         // ARRANGE
         let hash = [0x5c_u8; 32];
 
         // ACT
-        let spc = build_spc_indirect_data(&hash)?;
+        let spc = build_spc_indirect_data(&hash).expect("build SPC indirect data");
 
         // ASSERT
         assert!(spc.windows(hash.len()).any(|window| window == hash));
-
-        Ok(())
     }
 
     #[test]
-    fn encode_length_supports_three_byte_values() -> Result<()> {
+    fn sign_rejects_invalid_pe_bytes() {
+        // ARRANGE
+        let (signer, cert) = signer_and_cert();
+
+        // ACT
+        let result = sign(b"not-a-pe-file", &signer, &cert);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encode_length_supports_three_byte_values() {
         // ARRANGE
         let mut encoded = Vec::new();
 
         // ACT
-        encode_length(&mut encoded, 0x01_0203)?;
+        encode_length(&mut encoded, 0x01_0203).expect("encode length");
 
         // ASSERT
         assert_eq!(encoded, vec![0x83, 0x01, 0x02, 0x03]);
+    }
 
-        Ok(())
+    #[test]
+    fn encode_length_supports_short_and_two_byte_values() {
+        // ARRANGE
+        let mut short = Vec::new();
+        let mut one_byte = Vec::new();
+        let mut two_byte = Vec::new();
+
+        // ACT
+        encode_length(&mut short, 0x7f).expect("encode short length");
+        encode_length(&mut one_byte, 0x80).expect("encode one-byte length");
+        encode_length(&mut two_byte, 0x1234).expect("encode two-byte length");
+
+        // ASSERT
+        assert_eq!(short, vec![0x7f]);
+        assert_eq!(one_byte, vec![0x81, 0x80]);
+        assert_eq!(two_byte, vec![0x82, 0x12, 0x34]);
     }
 
     #[test]
@@ -655,12 +662,25 @@ mod tests {
     }
 
     #[test]
-    fn build_win_certificate_layout_matches_header() -> Result<()> {
+    fn push_u8_rejects_values_larger_than_byte() {
+        // ARRANGE
+        let mut encoded = Vec::new();
+
+        // ACT
+        let result = push_u8(&mut encoded, 0x100);
+
+        // ASSERT
+        assert!(result.is_err());
+        assert!(encoded.is_empty());
+    }
+
+    #[test]
+    fn build_win_certificate_layout_matches_header() {
         // ARRANGE
         let pkcs7 = b"pkcs7";
 
         // ACT
-        let cert = build_win_certificate(pkcs7)?;
+        let cert = build_win_certificate(pkcs7).expect("build WIN_CERTIFICATE");
 
         // ASSERT
         assert_eq!(
@@ -676,8 +696,6 @@ mod tests {
             0x0002
         );
         assert_eq!(&cert[8..], pkcs7);
-
-        Ok(())
     }
 
     #[test]
@@ -694,6 +712,91 @@ mod tests {
     }
 
     #[test]
+    fn embed_signature_rejects_invalid_pe_bytes() {
+        // ARRANGE
+        let pe = b"not-a-pe-file";
+
+        // ACT
+        let result = embed_signature(pe, b"cert");
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn embed_signature_aligns_input_and_certificate_sizes() {
+        // ARRANGE
+        let mut pe = build_signable_pe();
+        pe.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
+        let win_cert = build_win_certificate(b"abc").expect("build WIN_CERTIFICATE");
+        let aligned_pe_len = (pe.len() + 7) & !7;
+        let aligned_cert_len = (win_cert.len() + 7) & !7;
+
+        // ACT
+        let signed = embed_signature(&pe, &win_cert).expect("embed signature");
+
+        // ASSERT
+        assert_eq!(signed.len(), aligned_pe_len + aligned_cert_len);
+        assert_eq!(
+            &signed[aligned_pe_len..aligned_pe_len + win_cert.len()],
+            &win_cert
+        );
+    }
+
+    #[test]
+    fn embed_signature_preserves_original_section_payload() {
+        // ARRANGE
+        let pe = build_signable_pe();
+        let win_cert = build_win_certificate(b"certificate").expect("build WIN_CERTIFICATE");
+        let section_offset = 0x200;
+
+        // ACT
+        let signed = embed_signature(&pe, &win_cert).expect("embed signature");
+
+        // ASSERT
+        assert_eq!(&signed[section_offset..pe.len()], &pe[section_offset..]);
+    }
+
+    #[test]
+    fn helper_alignment_and_write_success_paths_work() {
+        // ARRANGE
+        let mut data = [0_u8; 8];
+
+        // ACT
+        let aligned = align_to(9, 8, "align").expect("align length");
+        write_u32_le(&mut data, 2, 0x1234_5678).expect("write u32");
+
+        // ASSERT
+        assert_eq!(aligned, 16);
+        assert_eq!(&data[2..6], &0x1234_5678_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn align_to_rejects_adjustment_overflow() {
+        // ARRANGE
+
+        // ACT
+        let result = align_to(usize::MAX, 8, "align");
+        let zero_result = align_to(0, 8, "align");
+
+        // ASSERT
+        assert!(result.is_err());
+        assert_eq!(zero_result.expect("align zero"), 0);
+    }
+
+    #[test]
+    fn calculate_pe_checksum_handles_odd_length_and_skip_offset() {
+        // ARRANGE
+        let data = [1_u8, 2, 3, 4, 5];
+
+        // ACT
+        let checksum = calculate_pe_checksum(&data, 2).expect("calculate checksum");
+
+        // ASSERT
+        assert_eq!(checksum, 0x0201 + data.len() as u32);
+    }
+
+    #[test]
     fn checksum_and_bounds_helpers_validate_inputs() {
         // ARRANGE
         let checksum = calculate_pe_checksum(&[1_u8, 2, 3], 10).expect("checksum");
@@ -701,6 +804,8 @@ mod tests {
         // ACT
         let write_result = write_u32_le(&mut [0_u8; 3], 0, 1);
         let pair_result = read_checksum_pair(&[1_u8]);
+        let conversion_result = usize_to_u32(u32::MAX as usize + 1, "too large");
+        let offset_result = u32_to_usize(0, "offset");
         let add_result = checked_add(usize::MAX, 1, "add");
         let mul_result = checked_mul(usize::MAX, 2, "mul");
         let align_result = align_to(5, 0, "align");
@@ -709,6 +814,8 @@ mod tests {
         assert!(checksum > 0);
         assert!(write_result.is_err());
         assert!(pair_result.is_err());
+        assert!(conversion_result.is_err());
+        assert_eq!(offset_result.expect("convert offset"), 0);
         assert!(add_result.is_err());
         assert!(mul_result.is_err());
         assert!(align_result.is_err());

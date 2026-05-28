@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn to_bytes_known_time() -> Result<()> {
+    fn to_bytes_known_time() {
         // ARRANGE
         let time = Time::new(TimeParams {
             year: 2024,
@@ -247,7 +247,7 @@ mod tests {
             time_zone: Some(60),
             daylight: Daylight::IN_DAYLIGHT,
         })
-        .map_err(|e| SboltError::EfiVar(format!("{e:?}")))?;
+        .expect("valid time");
 
         // ACT
         let bytes = to_bytes(&time);
@@ -269,11 +269,10 @@ mod tests {
         assert_eq!(i16::from_le_bytes([bytes[12], bytes[13]]), 60);
         assert_eq!(bytes[14], Daylight::IN_DAYLIGHT.bits());
         assert_eq!(bytes[15], 0);
-        Ok(())
     }
 
     #[test]
-    fn to_bytes_zero_timezone() -> Result<()> {
+    fn to_bytes_zero_timezone() {
         // ARRANGE
         let time = Time::new(TimeParams {
             year: 1970,
@@ -286,7 +285,7 @@ mod tests {
             time_zone: Some(0),
             daylight: Daylight::empty(),
         })
-        .map_err(|e| SboltError::EfiVar(format!("{e:?}")))?;
+        .expect("valid time");
 
         // ACT
         let bytes = to_bytes(&time);
@@ -300,13 +299,47 @@ mod tests {
         assert_eq!(&bytes[12..14], &[0, 0]);
         assert_eq!(bytes[14], 0);
         assert_eq!(bytes[15], 0);
-        Ok(())
     }
 
     #[test]
-    fn now_returns_valid_time() -> Result<()> {
+    fn to_bytes_defaults_missing_timezone_to_zero() {
+        // ARRANGE
+        let time = Time::new(TimeParams {
+            year: 2026,
+            month: 5,
+            day: 28,
+            hour: 1,
+            minute: 2,
+            second: 3,
+            nanosecond: 4,
+            time_zone: None,
+            daylight: Daylight::empty(),
+        })
+        .expect("valid time");
+
         // ACT
-        let time = now()?;
+        let bytes = to_bytes(&time);
+
+        // ASSERT
+        assert_eq!(&bytes[12..14], &[0, 0]);
+    }
+
+    #[test]
+    fn days_to_ymd_rejects_unrepresentable_future_year() {
+        // ARRANGE
+        let days = u64::MAX - CIVIL_FROM_UNIX_EPOCH_OFFSET + 1;
+
+        // ACT
+        let result = days_to_ymd(days);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn now_returns_valid_time() {
+        // ACT
+        let time = now().expect("current EFI time");
 
         // ASSERT
         assert!(time.year() >= 2024);
@@ -316,7 +349,5 @@ mod tests {
         assert!(time.minute() < 60);
         assert!(time.second() < 60);
         assert_eq!(time.time_zone(), Some(0));
-
-        Ok(())
     }
 }
