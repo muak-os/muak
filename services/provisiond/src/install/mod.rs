@@ -110,12 +110,12 @@ async fn validate_disks(
     Ok(())
 }
 
-fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::KeyHierarchy>> {
+fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::hierarchy::Bundle>> {
     if !config.host.secureboot {
         return Ok(None);
     }
 
-    let setup_mode = sbolt::efi::get_setup_mode().unwrap_or(false);
+    let setup_mode = sbolt::efi::setup_mode().unwrap_or(false);
     if !setup_mode {
         bail!(
             "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
@@ -123,18 +123,18 @@ fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::Ke
         );
     }
 
-    sbolt::keys::KeyHierarchy::generate("Muak")
+    sbolt::keys::hierarchy::Bundle::generate("Muak")
         .context("Failed to generate Secure Boot keys")
         .map(Some)
 }
 
 async fn enroll_secureboot_keys(
-    sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     if let Some(hierarchy) = sb_hierarchy {
         send_progress(progress, "Enrolling secureboot keys").await;
-        sbolt::efi::enroll_keys(hierarchy).context("Failed to enroll Secure Boot keys")?;
+        sbolt::efi::enroll(hierarchy).context("Failed to enroll Secure Boot keys")?;
     }
     Ok(())
 }
@@ -178,7 +178,7 @@ async fn prepare_uki(
     extensions: &[String],
     luks_key: &[u8],
     progress: &mpsc::Sender<InstallProgress>,
-    sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
 ) -> Result<PreparedUki> {
     send_progress(progress, &format!("Pulling installer image: {}", image)).await;
     let work_dir = Path::new(INSTALL_DIR);
@@ -351,7 +351,7 @@ async fn initialize_state(
     config: &SystemConfig,
     auth_config: &config::AuthConfig,
     server_pki: &pki::ServerPki,
-    sb_hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Initializing STATE partition").await;

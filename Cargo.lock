@@ -2017,6 +2017,7 @@ dependencies = [
  "rustix",
  "signature",
  "spki",
+ "tempfile",
  "thiserror 2.0.18",
  "uefi",
  "x509-cert",

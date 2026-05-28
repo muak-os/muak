@@ -56,12 +56,12 @@ fn make_rng() -> UnwrapErr<RingRng> {
     UnwrapErr(RingRng(SystemRandom::new()))
 }
 
-/// RSA-2048 signer for UEFI Secure Boot key operations.
-pub struct Rsa2048Signer {
+/// Signer for UEFI Secure Boot RSA-2048 key operations.
+pub struct Signer {
     private_key: RsaPrivateKey,
 }
 
-impl Rsa2048Signer {
+impl Signer {
     /// Generate a new RSA-2048 key pair.
     ///
     /// # Errors
@@ -128,7 +128,7 @@ impl Rsa2048Signer {
     }
 }
 
-impl signature::Keypair for Rsa2048Signer {
+impl signature::Keypair for Signer {
     type VerifyingKey = RsaPublicKey;
 
     fn verifying_key(&self) -> Self::VerifyingKey {
@@ -136,7 +136,7 @@ impl signature::Keypair for Rsa2048Signer {
     }
 }
 
-impl spki::DynSignatureAlgorithmIdentifier for Rsa2048Signer {
+impl spki::DynSignatureAlgorithmIdentifier for Signer {
     fn signature_algorithm_identifier(&self) -> spki::Result<AlgorithmIdentifierOwned> {
         Ok(AlgorithmIdentifierOwned {
             oid: SHA_256_WITH_RSA_ENCRYPTION,
@@ -145,19 +145,19 @@ impl spki::DynSignatureAlgorithmIdentifier for Rsa2048Signer {
     }
 }
 
-/// RSA-PKCS1-SHA256 signature wrapper for x509-cert compatibility.
-pub struct Rsa2048Signature(pub Vec<u8>);
+/// Signature wrapper for x509-cert RSA-PKCS1-SHA256 compatibility.
+pub struct Signature(pub Vec<u8>);
 
-impl spki::SignatureBitStringEncoding for Rsa2048Signature {
+impl spki::SignatureBitStringEncoding for Signature {
     fn to_bitstring(&self) -> der::Result<BitString> {
         BitString::from_bytes(&self.0)
     }
 }
 
-impl signature::Signer<Rsa2048Signature> for Rsa2048Signer {
-    fn try_sign(&self, msg: &[u8]) -> CoreResult<Rsa2048Signature, signature::Error> {
+impl signature::Signer<Signature> for Signer {
+    fn try_sign(&self, msg: &[u8]) -> CoreResult<Signature, signature::Error> {
         self.sign_pkcs1v15_sha256(msg)
-            .map(Rsa2048Signature)
+            .map(Signature)
             .map_err(|_signing_error| signature::Error::new())
     }
 }
@@ -173,11 +173,11 @@ mod tests {
     #[test]
     fn signer_generates_serializes_and_reloads() -> Result<()> {
         // ARRANGE
-        let signer = Rsa2048Signer::generate()?;
+        let signer = Signer::generate()?;
 
         // ACT
         let pkcs8 = signer.to_pkcs8_der()?;
-        let reloaded = Rsa2048Signer::from_pkcs8_der(&pkcs8)?;
+        let reloaded = Signer::from_pkcs8_der(&pkcs8)?;
 
         // ASSERT
         assert_eq!(signer.verifying_key().n(), reloaded.verifying_key().n());
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn signer_produces_signature_and_bitstring() -> Result<()> {
         // ARRANGE
-        let signer = Rsa2048Signer::generate()?;
+        let signer = Signer::generate()?;
         let message = b"test message";
 
         // ACT

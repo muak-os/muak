@@ -38,12 +38,11 @@ pub async fn apply() -> Result<()> {
     uki.build(&staged, sb_hierarchy.as_ref())?;
 
     if let Some(hier) = sb_hierarchy.as_ref() {
-        let pk_missing = sbolt::efi::get_pk()
+        let pk_missing = sbolt::efi::pk()
             .context("Failed to read PK from firmware")?
             .is_none();
         if pk_missing {
-            sbolt::efi::enroll_keys(hier)
-                .context("Failed to enroll Secure Boot keys into firmware")?;
+            sbolt::efi::enroll(hier).context("Failed to enroll Secure Boot keys into firmware")?;
         }
     }
 
@@ -59,14 +58,15 @@ pub async fn apply() -> Result<()> {
 }
 
 /// Returns the Secure Boot key hierarchy, generating and persisting it if not yet on disk.
-fn resolve_sb_hierarchy() -> Result<sbolt::keys::KeyHierarchy> {
+fn resolve_sb_hierarchy() -> Result<sbolt::keys::hierarchy::Bundle> {
     let dir = Path::new(SECRETS_DIR).join("secureboot");
     if dir.exists() {
-        sbolt::keys::load_key_hierarchy(&dir).context("Failed to load Secure Boot keys")
+        sbolt::keys::storage::load_hierarchy(&dir).context("Failed to load Secure Boot keys")
     } else {
-        let keys = sbolt::keys::KeyHierarchy::generate("Muak")
+        let keys = sbolt::keys::hierarchy::Bundle::generate("Muak")
             .context("Failed to generate Secure Boot keys")?;
-        sbolt::keys::save_key_hierarchy(&keys, &dir).context("Failed to save Secure Boot keys")?;
+        sbolt::keys::storage::save_hierarchy(&keys, &dir)
+            .context("Failed to save Secure Boot keys")?;
         Ok(keys)
     }
 }

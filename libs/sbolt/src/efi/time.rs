@@ -135,6 +135,7 @@ fn days_to_ymd(days: u64) -> Result<(u16, u8, u8)> {
 }
 
 /// Convert `Time` to raw bytes for authenticated variable signing.
+#[must_use]
 pub fn to_bytes(time: &Time) -> [u8; 16] {
     let mut bytes = [0_u8; 16];
 

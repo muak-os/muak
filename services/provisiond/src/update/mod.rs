@@ -74,8 +74,8 @@ pub async fn prepare(
     let staging_dir = create_staging_dir()?;
 
     if let Some(ref cfg) = new_config {
-        let secure_boot_active = sbolt::efi::get_secure_boot().unwrap_or(false);
-        let setup_mode = sbolt::efi::get_setup_mode().unwrap_or(false);
+        let secure_boot_active = sbolt::efi::secure_boot().unwrap_or(false);
+        let setup_mode = sbolt::efi::setup_mode().unwrap_or(false);
         if cfg.host.secureboot && !secure_boot_active && !setup_mode {
             bail!(
                 "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \

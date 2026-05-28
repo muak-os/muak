@@ -1,6 +1,6 @@
 [package]
 name = "sbolt"
-description = "Secure Boot key management library for Linux systems"
+description = "Secure Boot key management library for UEFI systems"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
@@ -8,6 +8,10 @@ repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
+
+[features]
+default = ["linux"]
+linux = ["dep:rustix"]
 
 [dependencies]
 # Cryptography
@@ -27,11 +31,14 @@ const-oid = { workspace = true }
 thiserror = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true }
+rustix = { workspace = true, optional = true }
 uefi = { workspace = true }
 
 # Utilities
 object = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

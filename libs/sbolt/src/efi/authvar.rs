@@ -6,8 +6,8 @@ use x509_cert::Certificate;
 
 use super::guid::EFI_CERT_TYPE_PKCS7_GUID;
 use super::time::{now, to_bytes as time_to_bytes};
-use crate::Result;
-use crate::keys::Rsa2048Signer;
+use crate::error::{Result, SboltError};
+use crate::keys::rsa2048;
 use crate::pkcs7::build_detached_signed_data;
 
 const AUTHVAR_ATTRIBUTE_SIZE: usize = 4;
@@ -21,12 +21,12 @@ const WIN_CERT_TYPE_EFI_GUID: u16 = 0x0EF1;
 /// # Errors
 ///
 /// Returns an error if timestamp generation or PKCS#7 construction fails.
-pub fn sign_efi_variable(
+pub fn sign(
     var_name: &str,
     vendor_guid: &Guid,
     attributes: VariableAttributes,
     content: &[u8],
-    signer: &Rsa2048Signer,
+    signer: &rsa2048::Signer,
     certificate: &Certificate,
 ) -> Result<Vec<u8>> {
     let timestamp = now()?;
@@ -85,7 +85,7 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
         "WIN_CERTIFICATE_UEFI_GUID size",
     )?;
     let total_size_u32 = u32::try_from(total_size)
-        .map_err(|_size_error| crate::Error::EfiVar("WIN_CERTIFICATE size exceeds u32".into()))?;
+        .map_err(|_size_error| SboltError::EfiVar("WIN_CERTIFICATE size exceeds u32".into()))?;
 
     let mut result = Vec::with_capacity(total_size);
 
@@ -100,7 +100,7 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
 
 fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
     lhs.checked_add(rhs)
-        .ok_or_else(|| crate::Error::EfiVar(format!("{context} overflow")))
+        .ok_or_else(|| SboltError::EfiVar(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -108,16 +108,15 @@ mod tests {
     use uefi::guid;
 
     use super::*;
-    use crate::keys::{
-        Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
-    };
+    use crate::keys::cert;
+    use crate::keys::rsa2048;
 
-    fn signer_and_cert() -> (Rsa2048Signer, Certificate) {
-        let (pk_signer, pk_cert) = generate_pk_certificate("Test PK").expect("generate PK cert");
+    fn signer_and_cert() -> (rsa2048::Signer, Certificate) {
+        let (pk_signer, pk_cert) = cert::generate_pk("Test PK").expect("generate PK cert");
         let (kek_signer, kek_cert) =
-            generate_kek_certificate("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
+            cert::generate_kek("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
         let (db_signer, db_cert) =
-            generate_db_certificate("Test DB", &kek_signer, &kek_cert).expect("generate DB cert");
+            cert::generate_db("Test DB", &kek_signer, &kek_cert).expect("generate DB cert");
         (db_signer, db_cert)
     }
 
@@ -215,7 +214,7 @@ mod tests {
         let content = b"test-siglist-data";
 
         // ACT
-        let payload = sign_efi_variable(var_name, &vendor, attrs, content, &signer, &cert)
+        let payload = sign(var_name, &vendor, attrs, content, &signer, &cert)
             .expect("sign_efi_variable should succeed");
 
         // ASSERT

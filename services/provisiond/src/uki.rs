@@ -60,7 +60,7 @@ impl Uki {
     pub fn build(
         &self,
         output: &Path,
-        hierarchy: Option<&sbolt::keys::KeyHierarchy>,
+        hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
     ) -> Result<()> {
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)
@@ -70,8 +70,12 @@ impl Uki {
         let buffer = yuki::build(self).context("Failed to build UKI")?;
 
         let final_buffer = if let Some(hierarchy) = hierarchy {
-            let signed = sbolt::pe::sign(&buffer, &hierarchy.db.signer, &hierarchy.db.certificate)
-                .context("Failed to sign UKI")?;
+            let signed = sbolt::pe::signature::sign(
+                &buffer,
+                &hierarchy.db.signer,
+                &hierarchy.db.certificate,
+            )
+            .context("Failed to sign UKI")?;
             kmsg::info!("UKI signed successfully");
             signed
         } else {

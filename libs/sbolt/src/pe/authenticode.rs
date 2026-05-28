@@ -10,8 +10,7 @@ use object::pe::{
 use object::read::pe::PeFile64;
 use ring::digest::{Context, SHA256};
 
-use crate::Error;
-use crate::Result;
+use crate::error::{Result, SboltError};
 
 const PE_SIGNATURE_PREFIX_SIZE: usize = 4;
 const CERT_TABLE_ENTRY_SIZE: usize = 4;
@@ -33,10 +32,10 @@ struct PeHashMetadata {
 /// outside the file bounds.
 pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     let pe = PeFile64::parse(pe_data)
-        .map_err(|_parse_error| Error::PeOperation("invalid or unsupported PE file".into()))?;
+        .map_err(|_parse_error| SboltError::PeOperation("invalid or unsupported PE file".into()))?;
 
     if pe.nt_headers().optional_header.magic.get(LE) != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
-        return Err(Error::PeOperation(
+        return Err(SboltError::PeOperation(
             "only PE32+ (64-bit) is supported".into(),
         ));
     }
@@ -44,7 +43,7 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     let opt = &pe.nt_headers().optional_header;
     let num_dd = read_directory_count(opt)?;
     if num_dd <= IMAGE_DIRECTORY_ENTRY_SECURITY {
-        return Err(Error::PeOperation(
+        return Err(SboltError::PeOperation(
             "no certificate table data directory".into(),
         ));
     }
@@ -69,7 +68,9 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     for &(raw_ptr, raw_size) in &metadata.section_ranges {
         let section_end = checked_add(raw_ptr, raw_size, "section end")?;
         if section_end > pe_data.len() {
-            return Err(Error::PeOperation("section extends beyond file".into()));
+            return Err(SboltError::PeOperation(
+                "section extends beyond file".into(),
+            ));
         }
 
         if hash_section_excluding_cert(
@@ -84,7 +85,7 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
         }
         let section_bytes = pe_data
             .get(raw_ptr..section_end)
-            .ok_or_else(|| Error::PeOperation("section extends beyond file".into()))?;
+            .ok_or_else(|| SboltError::PeOperation("section extends beyond file".into()))?;
         ctx.update(section_bytes);
     }
 
@@ -106,7 +107,7 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
     if sections_end < hash_end {
         let trailing_bytes = pe_data
             .get(sections_end..hash_end)
-            .ok_or_else(|| Error::PeOperation("trailing hash range exceeds file".into()))?;
+            .ok_or_else(|| SboltError::PeOperation("trailing hash range exceeds file".into()))?;
         ctx.update(trailing_bytes);
     }
 
@@ -118,8 +119,9 @@ pub fn compute_hash(pe_data: &[u8]) -> Result<[u8; 32]> {
 }
 
 fn read_directory_count(opt: &ImageOptionalHeader64) -> Result<usize> {
-    usize::try_from(opt.number_of_rva_and_sizes.get(LE))
-        .map_err(|_directory_count_error| Error::PeOperation("invalid data directory count".into()))
+    usize::try_from(opt.number_of_rva_and_sizes.get(LE)).map_err(|_directory_count_error| {
+        SboltError::PeOperation("invalid data directory count".into())
+    })
 }
 
 fn build_hash_metadata(
@@ -127,8 +129,10 @@ fn build_hash_metadata(
     pe_data: &[u8],
     opt: &ImageOptionalHeader64,
 ) -> Result<PeHashMetadata> {
-    let pe_offset = usize::try_from(pe.dos_header().nt_headers_offset())
-        .map_err(|_offset_error| Error::PeOperation("PE header offset exceeds usize".into()))?;
+    let pe_offset =
+        usize::try_from(pe.dos_header().nt_headers_offset()).map_err(|_offset_error| {
+            SboltError::PeOperation("PE header offset exceeds usize".into())
+        })?;
     let opt_offset = checked_add(
         checked_add(
             pe_offset,
@@ -157,7 +161,7 @@ fn build_hash_metadata(
         "certificate table offset",
     )?;
     let cert_table_addr = usize::try_from(read_u32_le(pe_data, cert_table_dd_offset)?).map_err(
-        |_cert_addr_error| Error::PeOperation("certificate table offset exceeds usize".into()),
+        |_cert_addr_error| SboltError::PeOperation("certificate table offset exceeds usize".into()),
     )?;
     let cert_table_size = usize::try_from(read_u32_le(
         pe_data,
@@ -168,10 +172,12 @@ fn build_hash_metadata(
         )?,
     )?)
     .map_err(|_cert_size_error| {
-        Error::PeOperation("certificate table size exceeds usize".into())
+        SboltError::PeOperation("certificate table size exceeds usize".into())
     })?;
-    let headers_end = usize::try_from(opt.size_of_headers.get(LE))
-        .map_err(|_headers_size_error| Error::PeOperation("header size exceeds usize".into()))?;
+    let headers_end =
+        usize::try_from(opt.size_of_headers.get(LE)).map_err(|_headers_size_error| {
+            SboltError::PeOperation("header size exceeds usize".into())
+        })?;
 
     Ok(PeHashMetadata {
         checksum_offset,
@@ -250,7 +256,7 @@ fn hash_range_excluding(
         if pos < excl_off {
             let range_bytes = data
                 .get(pos..excl_off)
-                .ok_or_else(|| Error::PeOperation("excluded range exceeds file".into()))?;
+                .ok_or_else(|| SboltError::PeOperation("excluded range exceeds file".into()))?;
             ctx.update(range_bytes);
         }
         pos = checked_add(excl_off, excl_len, "excluded range end")?;
@@ -259,7 +265,7 @@ fn hash_range_excluding(
     if pos < end {
         let range_bytes = data
             .get(pos..end)
-            .ok_or_else(|| Error::PeOperation("hashed range exceeds file".into()))?;
+            .ok_or_else(|| SboltError::PeOperation("hashed range exceeds file".into()))?;
         ctx.update(range_bytes);
     }
 
@@ -272,17 +278,17 @@ fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
     data.get(offset..end)
         .and_then(|bytes| bytes.try_into().ok())
         .map(u32::from_le_bytes)
-        .ok_or_else(|| Error::PeOperation("read beyond buffer".into()))
+        .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))
 }
 
 fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
     lhs.checked_add(rhs)
-        .ok_or_else(|| Error::PeOperation(format!("{context} overflow")))
+        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))
 }
 
 fn checked_mul(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
     lhs.checked_mul(rhs)
-        .ok_or_else(|| Error::PeOperation(format!("{context} overflow")))
+        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))
 }
 
 #[cfg(test)]

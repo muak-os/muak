@@ -19,13 +19,13 @@ impl SecurityService for SecurityServiceImpl {
         &self,
         _request: Request<GetSecurityStateRequest>,
     ) -> Result<Response<GetSecurityStateResponse>, Status> {
-        let enabled = sbolt::efi::get_secure_boot()
+        let enabled = sbolt::efi::secure_boot()
             .map_err(|e| Status::internal(format!("Failed to read Secure Boot state: {}", e)))?;
 
         let state = if enabled {
             SecureBootState::Enabled
         } else if config::host().secureboot
-            && sbolt::efi::get_pk()
+            && sbolt::efi::pk()
                 .map_err(|e| Status::internal(format!("Failed to read PK from firmware: {}", e)))?
                 .is_some()
         {
@@ -34,7 +34,7 @@ impl SecurityService for SecurityServiceImpl {
             SecureBootState::Disabled
         };
 
-        let setup_mode = sbolt::efi::get_setup_mode()
+        let setup_mode = sbolt::efi::setup_mode()
             .map_err(|e| Status::internal(format!("Failed to read Setup Mode state: {}", e)))?;
 
         Ok(Response::new(GetSecurityStateResponse {

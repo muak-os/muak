@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use config::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
-use sbolt::keys::{KeyHierarchy, save_key_hierarchy};
+use sbolt::keys::hierarchy;
 
 use super::pki::ServerPki;
 use crate::disk;
@@ -23,7 +23,7 @@ pub fn init(
     config: &SystemConfig,
     auth_config: &AuthConfig,
     server_pki: &ServerPki,
-    sb_hierarchy: Option<&KeyHierarchy>,
+    sb_hierarchy: Option<&hierarchy::Bundle>,
 ) -> Result<()> {
     std::fs::create_dir_all(MOUNT_POINT)
         .with_context(|| format!("Failed to create mount point {}", MOUNT_POINT))?;
@@ -71,8 +71,11 @@ pub fn init(
     .context("Failed to write server key")?;
 
     if let Some(hierarchy) = sb_hierarchy {
-        save_key_hierarchy(hierarchy, &Path::new(&secrets_dir).join("secureboot"))
-            .context("Failed to save Secure Boot keys")?;
+        sbolt::keys::storage::save_hierarchy(
+            hierarchy,
+            &Path::new(&secrets_dir).join("secureboot"),
+        )
+        .context("Failed to save Secure Boot keys")?;
     }
 
     if let Err(e) = history::record("install", "system", ChangeKind::Install, &config_bytes) {

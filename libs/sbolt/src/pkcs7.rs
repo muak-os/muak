@@ -15,7 +15,7 @@ use x509_cert::Certificate;
 use x509_cert::attr::{Attribute, AttributeValue};
 
 use crate::error::{Result, SboltError};
-use crate::keys::Rsa2048Signer;
+use crate::keys::rsa2048;
 
 const ID_CONTENT_TYPE: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.3");
 const ID_MESSAGE_DIGEST: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4");
@@ -37,7 +37,7 @@ pub(crate) fn build_authenticode_signed_data(
     content_type: ObjectIdentifier,
     content: &[u8],
     _hash: &[u8; 32],
-    signer: &Rsa2048Signer,
+    signer: &rsa2048::Signer,
     certificate: &Certificate,
 ) -> Result<Vec<u8>> {
     let mut ctx = Context::new(&SHA256);
@@ -67,7 +67,7 @@ pub(crate) fn build_authenticode_signed_data(
 /// Build PKCS#7 `SignedData` for EFI authenticated variable signing (detached).
 pub(crate) fn build_detached_signed_data(
     data: &[u8],
-    signer: &Rsa2048Signer,
+    signer: &rsa2048::Signer,
     certificate: &Certificate,
 ) -> Result<Vec<u8>> {
     let mut ctx = Context::new(&SHA256);
@@ -325,12 +325,12 @@ mod tests {
     use der::asn1::OctetString;
 
     use super::*;
-    use crate::keys::{generate_db_certificate, generate_kek_certificate, generate_pk_certificate};
+    use crate::keys::cert;
 
-    fn signer_and_cert() -> Result<(Rsa2048Signer, Certificate)> {
-        let (pk_signer, pk_cert) = generate_pk_certificate("PK")?;
-        let (kek_signer, kek_cert) = generate_kek_certificate("KEK", &pk_signer, &pk_cert)?;
-        generate_db_certificate("DB", &kek_signer, &kek_cert)
+    fn signer_and_cert() -> Result<(rsa2048::Signer, Certificate)> {
+        let (pk_signer, pk_cert) = cert::generate_pk("PK")?;
+        let (kek_signer, kek_cert) = cert::generate_kek("KEK", &pk_signer, &pk_cert)?;
+        cert::generate_db("DB", &kek_signer, &kek_cert)
     }
 
     #[test]

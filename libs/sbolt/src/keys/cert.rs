@@ -14,7 +14,7 @@ use x509_cert::serial_number::SerialNumber;
 use x509_cert::time::Validity;
 
 use super::profile::SecureBootProfile;
-use super::signer::{Rsa2048Signature, Rsa2048Signer};
+use super::rsa2048;
 use crate::error::{Result, SboltError};
 
 /// Certificate validity period (99 years).
@@ -26,8 +26,8 @@ pub const CERT_VALIDITY_SECS: u64 = 99 * 365 * 24 * 60 * 60;
 ///
 /// Returns an error if key generation, subject construction, or certificate
 /// building fails.
-pub fn generate_pk_certificate(cn: &str) -> Result<(Rsa2048Signer, Certificate)> {
-    let signer = Rsa2048Signer::generate()?;
+pub fn generate_pk(cn: &str) -> Result<(rsa2048::Signer, Certificate)> {
+    let signer = rsa2048::Signer::generate()?;
 
     let serial = generate_serial()?;
     let validity = Validity::from_now(Duration::from_secs(CERT_VALIDITY_SECS))
@@ -42,7 +42,7 @@ pub fn generate_pk_certificate(cn: &str) -> Result<(Rsa2048Signer, Certificate)>
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     let cert = builder
-        .build::<_, Rsa2048Signature>(&signer)
+        .build::<_, rsa2048::Signature>(&signer)
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     Ok((signer, cert))
@@ -54,12 +54,12 @@ pub fn generate_pk_certificate(cn: &str) -> Result<(Rsa2048Signer, Certificate)>
 ///
 /// Returns an error if key generation, subject construction, or certificate
 /// building fails.
-pub fn generate_kek_certificate(
+pub fn generate_kek(
     cn: &str,
-    pk_signer: &Rsa2048Signer,
+    pk_signer: &rsa2048::Signer,
     pk_cert: &Certificate,
-) -> Result<(Rsa2048Signer, Certificate)> {
-    let signer = Rsa2048Signer::generate()?;
+) -> Result<(rsa2048::Signer, Certificate)> {
+    let signer = rsa2048::Signer::generate()?;
 
     let serial = generate_serial()?;
     let validity = Validity::from_now(Duration::from_secs(CERT_VALIDITY_SECS))
@@ -75,7 +75,7 @@ pub fn generate_kek_certificate(
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     let cert = builder
-        .build::<_, Rsa2048Signature>(pk_signer)
+        .build::<_, rsa2048::Signature>(pk_signer)
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     Ok((signer, cert))
@@ -87,12 +87,12 @@ pub fn generate_kek_certificate(
 ///
 /// Returns an error if key generation, subject construction, or certificate
 /// building fails.
-pub fn generate_db_certificate(
+pub fn generate_db(
     cn: &str,
-    kek_signer: &Rsa2048Signer,
+    kek_signer: &rsa2048::Signer,
     kek_cert: &Certificate,
-) -> Result<(Rsa2048Signer, Certificate)> {
-    let signer = Rsa2048Signer::generate()?;
+) -> Result<(rsa2048::Signer, Certificate)> {
+    let signer = rsa2048::Signer::generate()?;
 
     let serial = generate_serial()?;
     let validity = Validity::from_now(Duration::from_secs(CERT_VALIDITY_SECS))
@@ -108,7 +108,7 @@ pub fn generate_db_certificate(
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     let cert = builder
-        .build::<_, Rsa2048Signature>(kek_signer)
+        .build::<_, rsa2048::Signature>(kek_signer)
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     Ok((signer, cert))
@@ -125,7 +125,7 @@ fn generate_serial() -> Result<SerialNumber> {
         .map_err(|e| SboltError::CertificateCreation(format!("invalid serial: {e}")))
 }
 
-fn get_spki_from_signer(signer: &Rsa2048Signer) -> Result<SubjectPublicKeyInfoOwned> {
+fn get_spki_from_signer(signer: &rsa2048::Signer) -> Result<SubjectPublicKeyInfoOwned> {
     let verifying_key = signer.verifying_key();
     let der = verifying_key.to_public_key_der()?;
     Ok(SubjectPublicKeyInfoOwned::from_der(der.as_bytes())?)
@@ -141,7 +141,7 @@ mod tests {
         let common_name = "Platform";
 
         // ACT
-        let (_signer, certificate) = generate_pk_certificate(common_name)?;
+        let (_signer, certificate) = generate_pk(common_name)?;
 
         // ASSERT
         assert_eq!(
@@ -155,11 +155,11 @@ mod tests {
     #[test]
     fn generate_kek_and_db_certificates_chain_subjects() -> Result<()> {
         // ARRANGE
-        let (pk_signer, pk_cert) = generate_pk_certificate("PK")?;
+        let (pk_signer, pk_cert) = generate_pk("PK")?;
 
         // ACT
-        let (_kek_signer, kek_cert) = generate_kek_certificate("KEK", &pk_signer, &pk_cert)?;
-        let (_db_signer, db_cert) = generate_db_certificate("DB", &pk_signer, &pk_cert)?;
+        let (_kek_signer, kek_cert) = generate_kek("KEK", &pk_signer, &pk_cert)?;
+        let (_db_signer, db_cert) = generate_db("DB", &pk_signer, &pk_cert)?;
 
         // ASSERT
         assert_eq!(
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn generate_serial_and_spki_are_non_empty() -> Result<()> {
         // ARRANGE
-        let signer = Rsa2048Signer::generate()?;
+        let signer = rsa2048::Signer::generate()?;
 
         // ACT
         let serial = generate_serial()?;

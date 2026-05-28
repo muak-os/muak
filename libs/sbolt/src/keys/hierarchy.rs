@@ -3,9 +3,9 @@
 use ring::rand::{SecureRandom as _, SystemRandom};
 use x509_cert::Certificate;
 
-use super::cert::{generate_db_certificate, generate_kek_certificate, generate_pk_certificate};
-use super::signer::Rsa2048Signer;
-use crate::error::Result;
+use super::cert;
+use super::rsa2048;
+use crate::error::{Result, SboltError};
 
 /// Type of Secure Boot key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,20 +39,20 @@ impl KeyType {
 
 /// A key pair consisting of a signer and its certificate.
 pub struct KeyPair {
-    pub signer: Rsa2048Signer,
+    pub signer: rsa2048::Signer,
     pub certificate: Certificate,
     pub key_type: KeyType,
 }
 
 /// The complete Secure Boot key hierarchy.
-pub struct KeyHierarchy {
+pub struct Bundle {
     pub pk: KeyPair,
     pub kek: KeyPair,
     pub db: KeyPair,
     pub owner_guid: uefi::Guid,
 }
 
-impl KeyHierarchy {
+impl Bundle {
     /// Generate a new key hierarchy with the given organization name.
     ///
     /// # Errors
@@ -61,16 +61,16 @@ impl KeyHierarchy {
     /// fails.
     pub fn generate(org_name: &str) -> Result<Self> {
         let (pk_signer, pk_cert) =
-            generate_pk_certificate(&format!("{org_name} {}", KeyType::Pk.cn_suffix()))?;
+            cert::generate_pk(&format!("{org_name} {}", KeyType::Pk.cn_suffix()))?;
 
-        let (kek_signer, kek_cert) = generate_kek_certificate(
+        let (kek_signer, kek_cert) = cert::generate_kek(
             &format!("{org_name} {}", KeyType::Kek.cn_suffix()),
             &pk_signer,
             &pk_cert,
         )?;
 
         let (db_signer, db_cert) =
-            generate_db_certificate(&format!("{org_name} Signing Key"), &kek_signer, &kek_cert)?;
+            cert::generate_db(&format!("{org_name} Signing Key"), &kek_signer, &kek_cert)?;
 
         let owner_guid = Self::generate_owner_guid()?;
 
@@ -99,7 +99,7 @@ impl KeyHierarchy {
         let rng = SystemRandom::new();
         let mut bytes = [0_u8; 16];
         rng.fill(&mut bytes)
-            .map_err(|_guid_error| crate::Error::KeyGeneration("failed to generate GUID".into()))?;
+            .map_err(|_guid_error| SboltError::KeyGeneration("failed to generate GUID".into()))?;
 
         bytes[6] = (bytes[6] & 0x0f) | 0x40;
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -129,7 +129,7 @@ mod tests {
         let org_name = "Muak Test";
 
         // ACT
-        let hierarchy = KeyHierarchy::generate(org_name)?;
+        let hierarchy = Bundle::generate(org_name)?;
 
         // ASSERT
         assert_eq!(hierarchy.pk.key_type, KeyType::Pk);

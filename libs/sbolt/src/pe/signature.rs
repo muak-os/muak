@@ -17,7 +17,7 @@ use x509_cert::Certificate;
 
 use super::authenticode::compute_hash;
 use crate::error::{Result, SboltError};
-use crate::keys::Rsa2048Signer;
+use crate::keys::rsa2048;
 use crate::pkcs7::build_authenticode_signed_data;
 
 const SPC_INDIRECT_DATA_OBJID: ObjectIdentifier =
@@ -40,7 +40,11 @@ const PE_ALIGNMENT: usize = 8;
 /// # Errors
 ///
 /// Returns an error if hashing, CMS construction, or PE mutation fails.
-pub fn sign(pe_data: &[u8], signer: &Rsa2048Signer, certificate: &Certificate) -> Result<Vec<u8>> {
+pub fn sign(
+    pe_data: &[u8],
+    signer: &rsa2048::Signer,
+    certificate: &Certificate,
+) -> Result<Vec<u8>> {
     let hash = compute_hash(pe_data)?;
 
     let spc_content = build_spc_indirect_data(&hash)?;
@@ -377,9 +381,8 @@ mod tests {
     use ring::digest::{Context, SHA256};
 
     use super::*;
-    use crate::keys::{
-        Rsa2048Signer, generate_db_certificate, generate_kek_certificate, generate_pk_certificate,
-    };
+    use crate::keys::cert;
+    use crate::keys::rsa2048;
 
     fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
         data.get(offset..offset + 4)
@@ -444,12 +447,12 @@ mod tests {
         pe
     }
 
-    fn signer_and_cert() -> (Rsa2048Signer, Certificate) {
-        let (pk_signer, pk_cert) = generate_pk_certificate("Test PK").expect("generate PK cert");
+    fn signer_and_cert() -> (rsa2048::Signer, Certificate) {
+        let (pk_signer, pk_cert) = cert::generate_pk("Test PK").expect("generate PK cert");
         let (kek_signer, kek_cert) =
-            generate_kek_certificate("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
+            cert::generate_kek("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
         let (db_signer, db_cert) =
-            generate_db_certificate("Test DB", &kek_signer, &kek_cert).expect("generate DB cert");
+            cert::generate_db("Test DB", &kek_signer, &kek_cert).expect("generate DB cert");
         (db_signer, db_cert)
     }
 

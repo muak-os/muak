@@ -2,7 +2,7 @@
 
 use uefi::Guid;
 
-use super::EFI_CERT_X509_GUID;
+use super::guid::EFI_CERT_X509_GUID;
 use crate::error::{Result, SboltError};
 
 pub const SIGNATURE_LIST_HEADER_SIZE: usize = 28;
@@ -39,7 +39,7 @@ impl SignatureDatabase {
     /// Returns an error if the serialized signature list would exceed `u32`
     /// size limits.
     pub fn add_x509(&mut self, owner: &Guid, cert_der: &[u8]) -> Result<()> {
-        self.lists.push(build_x509_siglist(owner, cert_der)?);
+        self.lists.push(build_x509(owner, cert_der)?);
 
         Ok(())
     }
@@ -92,7 +92,7 @@ fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
 /// # Errors
 ///
 /// Returns an error if the serialized list would exceed `u32` size limits.
-pub fn build_x509_siglist(owner_guid: &Guid, cert_der: &[u8]) -> Result<Vec<u8>> {
+pub fn build_x509(owner_guid: &Guid, cert_der: &[u8]) -> Result<Vec<u8>> {
     let signature_size = checked_add(
         SIGNATURE_DATA_HEADER_SIZE,
         cert_der.len(),
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn build_x509_siglist_layout() {
         // ACT
-        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT).expect("build siglist");
+        let siglist = build_x509(&TEST_OWNER, FAKE_CERT).expect("build siglist");
 
         // ASSERT
         let expected_sig_size = SIGNATURE_DATA_HEADER_SIZE + FAKE_CERT.len();
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn roundtrip_build_then_parse() {
         // ARRANGE
-        let siglist = build_x509_siglist(&TEST_OWNER, FAKE_CERT).expect("build siglist");
+        let siglist = build_x509(&TEST_OWNER, FAKE_CERT).expect("build siglist");
 
         // ACT
         let db = SignatureDatabase::from_bytes(&siglist).expect("parse siglist");

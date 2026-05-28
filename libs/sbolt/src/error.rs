@@ -3,6 +3,10 @@
 use thiserror::Error;
 
 /// Error type for `sbolt` operations.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 #[derive(Debug, Error)]
 pub enum SboltError {
     #[error("key generation failed: {0}")]
