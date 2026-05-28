@@ -219,7 +219,7 @@ mod tests {
                 .expect("parse");
 
         // ACT
-        let output = generate(name, func).expect("generate");
+        let output = generate(&name, func).expect("generate");
         let output_str = output.to_string();
 
         // ASSERT
@@ -238,7 +238,7 @@ mod tests {
                 .expect("parse");
 
         // ACT
-        let output = generate(name, func).expect("generate");
+        let output = generate(&name, func).expect("generate");
         let output_str = output.to_string();
 
         // ASSERT
@@ -255,7 +255,7 @@ mod tests {
             syn::parse_str("fn main(ctx: NotifyClient) -> Result<()> { Ok(()) }").expect("parse");
 
         // ACT
-        let output = generate(name, func).expect("generate");
+        let output = generate(&name, func).expect("generate");
         let output_str = output.to_string();
 
         // ASSERT
@@ -271,7 +271,7 @@ mod tests {
                 .expect("parse");
 
         // ACT
-        let output = generate(name, func).expect("generate");
+        let output = generate(&name, func).expect("generate");
         let output_str = output.to_string();
 
         // ASSERT
@@ -286,7 +286,7 @@ mod tests {
             syn::parse_str("fn main(n: NotifyClient) -> Result<()> { Ok(()) }").expect("parse");
 
         // ACT
-        let output = generate(name, func).expect("generate");
+        let output = generate(&name, func).expect("generate");
         let output_str = output.to_string();
 
         // ASSERT
