@@ -10,7 +10,7 @@ use rustix::ioctl::opcode::{read, write};
 use rustix::ioctl::{Getter, Setter, ioctl};
 use rustix::mount::{MountFlags, mount};
 
-use super::{FirmwareVariableBackend, FirmwareVariableId, FirmwareVariableUpdate};
+use crate::efi::variables::{Backend, Id, Update};
 use crate::error::{Result, SboltError};
 
 /// Linux EFI firmware directory path.
@@ -39,12 +39,12 @@ const FS_IMMUTABLE_FL: c_long = 0x0000_0010;
 
 /// Firmware variable backend using Linux `efivarfs`.
 #[derive(Debug, Clone)]
-pub(crate) struct LinuxFirmwareVariables {
+pub(crate) struct Efivarfs {
     efi_firmware_path: PathBuf,
     efivarfs_path: PathBuf,
 }
 
-impl LinuxFirmwareVariables {
+impl Efivarfs {
     /// Create the default Linux firmware variable backend.
     #[must_use]
     pub(crate) fn new() -> Self {
@@ -55,7 +55,7 @@ impl LinuxFirmwareVariables {
     }
 
     /// Return the filesystem path for a firmware variable.
-    fn variable_path(&self, id: &FirmwareVariableId) -> PathBuf {
+    fn variable_path(&self, id: &Id) -> PathBuf {
         self.efivarfs_path.join(variable_filename(id))
     }
 
@@ -86,14 +86,14 @@ impl LinuxFirmwareVariables {
     }
 }
 
-impl Default for LinuxFirmwareVariables {
+impl Default for Efivarfs {
     /// Create the default Linux firmware variable backend.
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FirmwareVariableBackend for LinuxFirmwareVariables {
+impl Backend for Efivarfs {
     /// Return whether the system was booted through EFI firmware.
     fn is_firmware_boot(&self) -> bool {
         self.efi_firmware_path.exists()
@@ -110,12 +110,12 @@ impl FirmwareVariableBackend for LinuxFirmwareVariables {
     }
 
     /// Return whether the `efivarfs` variable file exists.
-    fn variable_exists(&self, id: &FirmwareVariableId) -> bool {
+    fn variable_exists(&self, id: &Id) -> bool {
         self.variable_path(id).exists()
     }
 
     /// Read an `efivarfs` payload without the Linux attributes header.
-    fn read_variable(&self, id: &FirmwareVariableId) -> Result<Option<Vec<u8>>> {
+    fn read_variable(&self, id: &Id) -> Result<Option<Vec<u8>>> {
         let path = self.variable_path(id);
 
         if !path.exists() {
@@ -136,7 +136,7 @@ impl FirmwareVariableBackend for LinuxFirmwareVariables {
     }
 
     /// Write an authenticated payload to an `efivarfs` variable file.
-    fn write_variable(&self, update: FirmwareVariableUpdate<'_>) -> Result<()> {
+    fn write_variable(&self, update: Update<'_>) -> Result<()> {
         let path = self.variable_path(update.id());
 
         if path.exists() {
@@ -199,7 +199,7 @@ fn create_efivarfs_dir(path: &Path) -> Result<()> {
 }
 
 /// Return the Linux `efivarfs` filename for a firmware variable.
-fn variable_filename(id: &FirmwareVariableId) -> String {
+fn variable_filename(id: &Id) -> String {
     format!("{}-{}", id.name(), id.vendor_guid())
 }
 
@@ -207,12 +207,12 @@ fn variable_filename(id: &FirmwareVariableId) -> String {
 mod tests {
     use super::*;
     use crate::efi::guid::EFI_GLOBAL_VARIABLE;
-    use crate::platform::SECURE_BOOT_VARIABLE;
+    use crate::efi::variables::SECURE_BOOT;
 
     /// Test paths for the Linux backend.
     struct LinuxBackendTestContext {
         root: tempfile::TempDir,
-        backend: LinuxFirmwareVariables,
+        backend: Efivarfs,
     }
 
     impl LinuxBackendTestContext {
@@ -228,7 +228,7 @@ mod tests {
                 fs::create_dir_all(&efi_firmware_path)?;
             }
 
-            let backend = LinuxFirmwareVariables {
+            let backend = Efivarfs {
                 efi_firmware_path,
                 efivarfs_path,
             };
@@ -237,13 +237,13 @@ mod tests {
         }
 
         /// Return the path for a variable in the test backend.
-        fn variable_path(&self, id: &FirmwareVariableId) -> PathBuf {
+        fn variable_path(&self, id: &Id) -> PathBuf {
             self.backend.variable_path(id)
         }
     }
 
     /// Write an `efivarfs` test variable payload with a fake attributes header.
-    fn write_var(root: &Path, id: &FirmwareVariableId, payload: &[u8]) -> Result<()> {
+    fn write_var(root: &Path, id: &Id, payload: &[u8]) -> Result<()> {
         let path = root.join(variable_filename(id));
         let mut data = Vec::with_capacity(EFIVARFS_ATTRIBUTES_SIZE + payload.len());
         data.extend_from_slice(&[7_u8, 0, 0, 0]);
@@ -307,7 +307,7 @@ mod tests {
         let context = LinuxBackendTestContext::new("mount-create-error", true)?;
         let blocker = context.root.path().join("blocker");
         fs::write(&blocker, b"not-a-directory")?;
-        let backend = LinuxFirmwareVariables {
+        let backend = Efivarfs {
             efi_firmware_path: context.backend.efi_firmware_path.clone(),
             efivarfs_path: blocker.join("efivars"),
         };
@@ -326,12 +326,12 @@ mod tests {
         // ARRANGE
         let context = LinuxBackendTestContext::new("read", true)?;
         fs::create_dir_all(&context.backend.efivarfs_path)?;
-        write_var(&context.backend.efivarfs_path, &SECURE_BOOT_VARIABLE, &[1])?;
+        write_var(&context.backend.efivarfs_path, &SECURE_BOOT, &[1])?;
 
         // ACT
         let payload = context
             .backend
-            .read_variable(&SECURE_BOOT_VARIABLE)?
+            .read_variable(&SECURE_BOOT)?
             .ok_or_else(|| SboltError::EfiVar("missing SecureBoot test variable".into()))?;
 
         // ASSERT
@@ -345,10 +345,10 @@ mod tests {
         // ARRANGE
         let context = LinuxBackendTestContext::new("short", true)?;
         fs::create_dir_all(&context.backend.efivarfs_path)?;
-        fs::write(context.variable_path(&SECURE_BOOT_VARIABLE), [1_u8, 2, 3])?;
+        fs::write(context.variable_path(&SECURE_BOOT), [1_u8, 2, 3])?;
 
         // ACT
-        let payload = context.backend.read_variable(&SECURE_BOOT_VARIABLE)?;
+        let payload = context.backend.read_variable(&SECURE_BOOT)?;
 
         // ASSERT
         assert!(payload.is_none());
@@ -364,12 +364,10 @@ mod tests {
         let payload = b"signed-payload";
 
         // ACT
-        context.backend.write_variable(FirmwareVariableUpdate::new(
-            FirmwareVariableId::new("PK", EFI_GLOBAL_VARIABLE),
-            payload,
-        ))?;
-        let stored =
-            fs::read(context.variable_path(&FirmwareVariableId::new("PK", EFI_GLOBAL_VARIABLE)))?;
+        context
+            .backend
+            .write_variable(Update::new(Id::new("PK", EFI_GLOBAL_VARIABLE), payload))?;
+        let stored = fs::read(context.variable_path(&Id::new("PK", EFI_GLOBAL_VARIABLE)))?;
 
         // ASSERT
         assert_eq!(stored, payload);
