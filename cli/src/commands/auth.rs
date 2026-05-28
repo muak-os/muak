@@ -271,7 +271,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         } else {
             println!("Generating key pair...");
             let (key_pem, csr_pem) = pki::csr::generate("muak-client")?;
-            let fingerprint = pki::csr::compute_csr_fingerprint(&csr_pem)?;
+            let fingerprint = pki::csr::compute_fingerprint(&csr_pem)?;
 
             println!("Submitting certificate request...");
             let (channel, server_fp) = connect_tls_insecure(endpoint, 30).await?;
