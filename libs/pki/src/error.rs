@@ -3,15 +3,15 @@
 use core::result;
 
 use der::Error as DerError;
-use thiserror::Error;
+use thiserror::Error as ThisError;
 use x509_cert::builder::Error as CertificateBuilderError;
 
-/// PKI error types.
+/// Error type for custom errors in PKI operations.
 #[expect(
     clippy::module_name_repetitions,
     reason = "The public error type name intentionally includes the crate name"
 )]
-#[derive(Debug, Error)]
+#[derive(Debug, ThisError)]
 pub enum PkiError {
     #[error("key generation failed")]
     KeyGeneration,
@@ -22,17 +22,11 @@ pub enum PkiError {
     #[error("certificate building failed: {0}")]
     CertificateBuild(#[from] CertificateBuilderError),
 
-    #[error("DER encoding failed: {0}")]
-    DerEncode(#[from] DerError),
+    #[error("DER processing failed: {0}")]
+    Der(#[from] DerError),
 
     #[error("SPKI error: {0}")]
     Spki(#[from] spki::Error),
-
-    #[error("invalid name: {0}")]
-    InvalidName(String),
-
-    #[error("validity period error")]
-    Validity,
 
     #[error("serial number generation failed")]
     SerialNumber,
@@ -44,5 +38,5 @@ pub enum PkiError {
     CsrVerification,
 }
 
-/// Result type for PKI operations.
+/// Result type alias for PKI operations.
 pub type Result<T> = result::Result<T, PkiError>;

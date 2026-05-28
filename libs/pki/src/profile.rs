@@ -13,8 +13,17 @@ use x509_cert::ext::pkix::{
     AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages,
     SubjectAltName, SubjectKeyIdentifier, name::GeneralName,
 };
-use x509_cert::ext::{Extension, ToExtension as _};
+use x509_cert::ext::{Extension, ToExtension};
 use x509_cert::name::Name;
+
+enum ProfileExtension<'a> {
+    AuthorityKeyIdentifier(&'a AuthorityKeyIdentifier),
+    BasicConstraints(&'a BasicConstraints),
+    KeyUsage(&'a KeyUsage),
+    SubjectKeyIdentifier(&'a SubjectKeyIdentifier),
+    ExtendedKeyUsage(&'a ExtendedKeyUsage),
+    SubjectAltName(&'a SubjectAltName),
+}
 
 /// Custom profile for Muak CA certificates.
 pub struct MuakCa {
@@ -37,31 +46,24 @@ impl BuilderProfile for MuakCa {
         tbs: &TbsCertificate,
     ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
+        let ski = subject_key_identifier(spk)?;
+        let authority_key_identifier = AuthorityKeyIdentifier {
+            key_identifier: Some(ski.0.clone()),
+            ..Default::default()
+        };
+        let basic_constraints = BasicConstraints {
+            ca: true,
+            path_len_constraint: Some(0),
+        };
+        let key_usage = KeyUsage(KeyUsages::KeyCertSign | KeyUsages::CRLSign);
 
-        let ski = SubjectKeyIdentifier::try_from(spk)?;
-
-        extensions.push(
-            AuthorityKeyIdentifier {
-                key_identifier: Some(ski.0.clone()),
-                ..Default::default()
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            BasicConstraints {
-                ca: true,
-                path_len_constraint: Some(0),
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            KeyUsage(KeyUsages::KeyCertSign | KeyUsages::CRLSign)
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
+        let extension_specs = [
+            ProfileExtension::AuthorityKeyIdentifier(&authority_key_identifier),
+            ProfileExtension::BasicConstraints(&basic_constraints),
+            ProfileExtension::KeyUsage(&key_usage),
+            ProfileExtension::SubjectKeyIdentifier(&ski),
+        ];
+        push_extensions(&mut extensions, tbs.subject(), &extension_specs)?;
 
         Ok(extensions)
     }
@@ -90,36 +92,25 @@ impl BuilderProfile for MuakServer {
         tbs: &TbsCertificate,
     ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
-
-        extensions.push(
-            AuthorityKeyIdentifier::try_from(issuer_spk)?
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            BasicConstraints {
-                ca: false,
-                path_len_constraint: None,
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            KeyUsage(KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment)
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        let ski = SubjectKeyIdentifier::try_from(spk)?;
-        extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
-
-        extensions.push(
-            ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH]).to_extension(tbs.subject(), &extensions)?,
-        );
-
+        let authority_key_identifier = authority_key_identifier(issuer_spk)?;
+        let ski = subject_key_identifier(spk)?;
+        let basic_constraints = BasicConstraints {
+            ca: false,
+            path_len_constraint: None,
+        };
+        let key_usage = KeyUsage(KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment);
+        let extended_key_usage = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH]);
         let san_names = collect_dns_names(&self.dns_names);
-        if !san_names.is_empty() {
-            extensions.push(SubjectAltName(san_names).to_extension(tbs.subject(), &extensions)?);
-        }
+
+        let extension_specs = [
+            ProfileExtension::AuthorityKeyIdentifier(&authority_key_identifier),
+            ProfileExtension::BasicConstraints(&basic_constraints),
+            ProfileExtension::KeyUsage(&key_usage),
+            ProfileExtension::SubjectKeyIdentifier(&ski),
+            ProfileExtension::ExtendedKeyUsage(&extended_key_usage),
+        ];
+        push_extensions(&mut extensions, tbs.subject(), &extension_specs)?;
+        push_san_extensions(&mut extensions, san_names, tbs.subject())?;
 
         Ok(extensions)
     }
@@ -154,32 +145,86 @@ impl BuilderProfile for MuakClient {
         tbs: &TbsCertificate,
     ) -> BuilderResult<Vec<Extension>> {
         let mut extensions = vec::Vec::new();
+        let authority_key_identifier = authority_key_identifier(issuer_spk)?;
+        let ski = subject_key_identifier(spk)?;
+        let basic_constraints = BasicConstraints {
+            ca: false,
+            path_len_constraint: None,
+        };
+        let key_usage = KeyUsage(KeyUsages::DigitalSignature.into());
+        let extended_key_usage = ExtendedKeyUsage(vec![ID_KP_CLIENT_AUTH]);
 
-        extensions.push(
-            AuthorityKeyIdentifier::try_from(issuer_spk)?
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            BasicConstraints {
-                ca: false,
-                path_len_constraint: None,
-            }
-            .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        extensions.push(
-            KeyUsage(KeyUsages::DigitalSignature.into())
-                .to_extension(tbs.subject(), &extensions)?,
-        );
-
-        let ski = SubjectKeyIdentifier::try_from(spk)?;
-        extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
-
-        extensions.push(
-            ExtendedKeyUsage(vec![ID_KP_CLIENT_AUTH]).to_extension(tbs.subject(), &extensions)?,
-        );
+        let extension_specs = [
+            ProfileExtension::AuthorityKeyIdentifier(&authority_key_identifier),
+            ProfileExtension::BasicConstraints(&basic_constraints),
+            ProfileExtension::KeyUsage(&key_usage),
+            ProfileExtension::SubjectKeyIdentifier(&ski),
+            ProfileExtension::ExtendedKeyUsage(&extended_key_usage),
+        ];
+        push_extensions(&mut extensions, tbs.subject(), &extension_specs)?;
 
         Ok(extensions)
     }
+}
+
+fn authority_key_identifier(
+    issuer_spk: spki::SubjectPublicKeyInfoRef<'_>,
+) -> der::Result<AuthorityKeyIdentifier> {
+    AuthorityKeyIdentifier::try_from(issuer_spk)
+}
+
+fn subject_key_identifier(
+    spk: spki::SubjectPublicKeyInfoRef<'_>,
+) -> der::Result<SubjectKeyIdentifier> {
+    SubjectKeyIdentifier::try_from(spk)
+}
+
+fn extension<T>(value: T, subject: &Name, extensions: &[Extension]) -> BuilderResult<Extension>
+where
+    T: ToExtension<Error = der::Error>,
+{
+    value.to_extension(subject, extensions).map_err(Into::into)
+}
+
+fn profile_extension(
+    value: &ProfileExtension<'_>,
+    subject: &Name,
+    extensions: &[Extension],
+) -> BuilderResult<Extension> {
+    match *value {
+        ProfileExtension::AuthorityKeyIdentifier(value) => extension(value, subject, extensions),
+        ProfileExtension::BasicConstraints(value) => extension(value, subject, extensions),
+        ProfileExtension::KeyUsage(value) => extension(value, subject, extensions),
+        ProfileExtension::SubjectKeyIdentifier(value) => extension(value, subject, extensions),
+        ProfileExtension::ExtendedKeyUsage(value) => extension(value, subject, extensions),
+        ProfileExtension::SubjectAltName(value) => extension(value, subject, extensions),
+    }
+}
+
+fn push_extensions(
+    extensions: &mut Vec<Extension>,
+    subject: &Name,
+    values: &[ProfileExtension<'_>],
+) -> BuilderResult<()> {
+    values.iter().try_for_each(|value| {
+        profile_extension(value, subject, extensions).map(|extension| extensions.push(extension))
+    })
+}
+
+fn push_san_extensions(
+    extensions: &mut Vec<Extension>,
+    san_names: Vec<GeneralName>,
+    subject: &Name,
+) -> BuilderResult<()> {
+    if san_names.is_empty() {
+        return Ok(());
+    }
+
+    let subject_alt_name = SubjectAltName(san_names);
+
+    push_extensions(
+        extensions,
+        subject,
+        &[ProfileExtension::SubjectAltName(&subject_alt_name)],
+    )
 }

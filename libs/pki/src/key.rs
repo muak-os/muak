@@ -7,7 +7,7 @@ use core::result;
 
 use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912::{ECDSA_WITH_SHA_256, SECP_256_R_1};
-use der::asn1::BitString;
+use der::asn1::{Any, BitString};
 use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
 use spki::AlgorithmIdentifierOwned;
@@ -37,14 +37,14 @@ impl Signer {
         let pkcs8_doc = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
             .map_err(|_generation_error| PkiError::KeyGeneration)?;
         let pkcs8_der = Zeroizing::new(pkcs8_doc.as_ref().to_vec());
-        let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &pkcs8_der, &rng)
-            .map_err(|_key_error| PkiError::InvalidKeyEncoding)?;
 
-        Ok(Self {
-            key_pair,
-            pkcs8_der,
-            rng,
-        })
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &pkcs8_der, &rng)
+            .map_err(|_key_error| PkiError::InvalidKeyEncoding)
+            .map(|key_pair| Self {
+                key_pair,
+                pkcs8_der,
+                rng,
+            })
     }
 
     /// Creates a signer from an existing PKCS#8 DER-encoded private key.
@@ -55,14 +55,13 @@ impl Signer {
     /// PKCS#8 private key.
     pub fn from_pkcs8_der(pkcs8_der: &[u8]) -> Result<Self> {
         let rng = SystemRandom::new();
-        let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8_der, &rng)
-            .map_err(|_key_error| PkiError::InvalidKeyEncoding)?;
-
-        Ok(Self {
-            key_pair,
-            pkcs8_der: Zeroizing::new(pkcs8_der.to_vec()),
-            rng,
-        })
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8_der, &rng)
+            .map_err(|_key_error| PkiError::InvalidKeyEncoding)
+            .map(|key_pair| Self {
+                key_pair,
+                pkcs8_der: Zeroizing::new(pkcs8_der.to_vec()),
+                rng,
+            })
     }
 
     /// Returns the PKCS#8 DER-encoded private key.
@@ -84,23 +83,28 @@ pub struct Verifier {
     public_key_bytes: Vec<u8>,
 }
 
+impl Verifier {
+    pub(crate) fn subject_public_key_info(&self) -> der::Result<spki::SubjectPublicKeyInfoOwned> {
+        BitString::from_bytes(&self.public_key_bytes).map(|subject_public_key| {
+            spki::SubjectPublicKeyInfo {
+                algorithm: public_key_algorithm(),
+                subject_public_key,
+            }
+        })
+    }
+}
+
 impl spki::EncodePublicKey for Verifier {
     fn to_public_key_der(&self) -> spki::Result<spki::Document> {
-        use der::{Encode as _, asn1::Any};
+        let spki = self.subject_public_key_info()?;
+        spki::Document::try_from(&spki)
+    }
+}
 
-        let algorithm = spki::AlgorithmIdentifier {
-            oid: EC_PUBLIC_KEY_OID,
-            parameters: Some(Any::from(&SECP256R1_OID)),
-        };
-        let spki = spki::SubjectPublicKeyInfo {
-            algorithm,
-            subject_public_key: BitString::from_bytes(&self.public_key_bytes)
-                .map_err(|_bit_string_error| spki::Error::KeyMalformed)?,
-        };
-        let der_bytes = spki
-            .to_der()
-            .map_err(|_der_error| spki::Error::KeyMalformed)?;
-        spki::Document::try_from(der_bytes).map_err(|_document_error| spki::Error::KeyMalformed)
+fn public_key_algorithm() -> spki::AlgorithmIdentifier<Any> {
+    spki::AlgorithmIdentifier {
+        oid: EC_PUBLIC_KEY_OID,
+        parameters: Some(Any::from(&SECP256R1_OID)),
     }
 }
 
@@ -134,10 +138,9 @@ impl spki::SignatureBitStringEncoding for Signature {
 
 impl signature::Signer<Signature> for Signer {
     fn try_sign(&self, msg: &[u8]) -> result::Result<Signature, signature::Error> {
-        let sig = self
-            .key_pair
+        self.key_pair
             .sign(&self.rng, msg)
-            .map_err(|_sign_error| signature::Error::new())?;
-        Ok(Signature(sig.as_ref().to_vec()))
+            .map(|sig| Signature(sig.as_ref().to_vec()))
+            .map_err(|_sign_error| signature::Error::new())
     }
 }

@@ -1,6 +1,5 @@
 //! Serial and SPKI helpers for certificate construction.
 
-use der::Decode as _;
 use ring::rand::{SystemRandom, generate as generate_random};
 use signature::Keypair as _;
 use spki::SubjectPublicKeyInfoOwned;
@@ -13,14 +12,12 @@ use crate::key::Signer;
 ///
 /// # Errors
 ///
-/// Returns an error if the signer's verifying key cannot be encoded as SPKI.
+/// Returns an error if the signer's public key cannot be encoded as SPKI.
 pub fn signer_spki(signer: &Signer) -> Result<SubjectPublicKeyInfoOwned> {
-    use spki::EncodePublicKey as _;
-
-    let verifying_key = signer.verifying_key();
-    let der = verifying_key.to_public_key_der()?;
-
-    Ok(SubjectPublicKeyInfoOwned::from_der(der.as_bytes())?)
+    signer
+        .verifying_key()
+        .subject_public_key_info()
+        .map_err(PkiError::from)
 }
 
 /// Generates a random serial number.

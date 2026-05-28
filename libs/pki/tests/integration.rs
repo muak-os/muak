@@ -40,8 +40,7 @@ fn public_api_generate_ca_and_server_cert() -> Result<()> {
     let (ca_key_pem, ca_cert_pem, ca_signer, ca_cert) = make_test_ca()?;
 
     // ACT
-    let (server_key, server_cert) =
-        cert::generate_server("muak-server", &ca_signer, &ca_cert)?;
+    let (server_key, server_cert) = cert::generate_server("muak-server", &ca_signer, &ca_cert)?;
     let server_cert_pem = server_cert.to_pem(LineEnding::LF)?;
     let server_key_pem = pem::encode_pkcs8(server_key.pkcs8_der())?;
     let fingerprint = cert::compute_fingerprint(&server_cert)?;
@@ -247,7 +246,7 @@ fn csr_sign_rejects_invalid_ca_key_pem() -> Result<()> {
     // ASSERT
     assert!(matches!(
         result,
-        Err(PkiError::DerEncode(_)) | Err(PkiError::InvalidKeyEncoding)
+        Err(PkiError::Der(_)) | Err(PkiError::InvalidKeyEncoding)
     ));
 
     Ok(())
@@ -366,8 +365,7 @@ fn build_server_certificate(dns_names: Vec<String>) -> Result<Certificate> {
         dns_names,
     };
     let serial = serial::generate()?;
-    let validity = Validity::from_now(Duration::from_secs(cert::CERT_VALIDITY_SECS))
-        .map_err(|_validity_error| PkiError::Validity)?;
+    let validity = Validity::from_now(Duration::from_secs(cert::CERT_VALIDITY_SECS))?;
     let spki = serial::signer_spki(&server_signer)?;
     Ok(CertificateBuilder::new(profile, serial, validity, spki)?
         .build::<_, Signature>(&ca_signer)?)
@@ -451,8 +449,7 @@ fn profile_client_profile_builds_client_auth_extended_key_usage() -> Result<()> 
         subject: Name::from_str("CN=client-profile,O=Muak")?,
     };
     let serial = serial::generate()?;
-    let validity = Validity::from_now(Duration::from_secs(cert::CERT_VALIDITY_SECS))
-        .map_err(|_validity_error| PkiError::Validity)?;
+    let validity = Validity::from_now(Duration::from_secs(cert::CERT_VALIDITY_SECS))?;
     let spki = serial::signer_spki(&client_signer)?;
 
     // ACT
