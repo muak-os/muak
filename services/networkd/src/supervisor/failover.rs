@@ -1,24 +1,24 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
-use netlib::interface::InterfaceName;
-use netlib::ops::NetlinkOps;
+use netlib::interface::Name;
+use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
 use crate::interface::state::InterfaceState;
 use crate::supervisor::state::NetworkState;
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
-    pub(super) fn is_primary_interface(&self, name: &InterfaceName) -> bool {
+impl<N: Ops> NetworkSupervisor<N> {
+    pub(super) fn is_primary_interface(&self, name: &Name) -> bool {
         self.state.primary.as_ref() == Some(name)
     }
 
-    pub(super) fn is_interface_configured(&self, name: &InterfaceName) -> bool {
+    pub(super) fn is_interface_configured(&self, name: &Name) -> bool {
         self.interfaces
             .get(name)
             .is_some_and(|h| h.state_rx.borrow().state == InterfaceState::Configured)
     }
 
-    pub(super) fn handle_primary_recovery(&mut self, name: &InterfaceName) {
+    pub(super) fn handle_primary_recovery(&mut self, name: &Name) {
         kmsg::info!("Primary interface {} recovered", name);
         if let Err(e) = self.state.transition(NetworkState::Operational) {
             kmsg::warn!("Unexpected state during primary recovery: {}", e);
@@ -28,7 +28,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     }
 
     /// Restores a recovered backup as primary if it was previously the primary.
-    pub(super) fn handle_backup_recovery(&mut self, recovered: &InterfaceName) {
+    pub(super) fn handle_backup_recovery(&mut self, recovered: &Name) {
         let Some(current_primary) = self.state.primary.clone() else {
             return;
         };
@@ -50,7 +50,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    pub(super) fn handle_primary_failure(&mut self, name: &InterfaceName) {
+    pub(super) fn handle_primary_failure(&mut self, name: &Name) {
         kmsg::warn!("Primary interface {} failed", name);
         if let Err(e) = self.state.transition(NetworkState::Degraded) {
             kmsg::warn!("Unexpected state during primary failure: {}", e);
@@ -62,7 +62,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     }
 
     /// Promotes the first backup that is in `Configured` state to primary.
-    fn try_failover_to_backup(&mut self, failed: &InterfaceName) {
+    fn try_failover_to_backup(&mut self, failed: &Name) {
         let Some(new_primary) = self
             .state
             .backups
@@ -85,7 +85,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    pub(super) fn handle_primary_removed(&mut self, name: &InterfaceName) {
+    pub(super) fn handle_primary_removed(&mut self, name: &Name) {
         kmsg::info!("Primary interface {} removed", name);
 
         if let Some(new_primary) = self.state.backups.first().cloned() {

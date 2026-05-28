@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
-use netlib::ops::NetlinkOps;
+use netlib::netlink::Ops;
 
 use super::InterfaceActor;
 use crate::interface::commands::ApplyMode;
@@ -32,7 +32,7 @@ impl StaticRequest<'_> {
     }
 }
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Applies static IPv4 configuration in the selected mode.
     pub(super) async fn apply_static_ipv4(
         &mut self,

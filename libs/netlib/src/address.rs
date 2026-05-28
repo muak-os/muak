@@ -1,17 +1,17 @@
 //! IPv4 and IPv6 address management.
 
-use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::future::Future;
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use rtnetlink::Handle;
 use rtnetlink::packet_route::address::AddressAttribute;
 use thiserror::Error;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 
-use crate::ops::RtnetlinkOps;
+use crate::netlink::Rtnl;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("failed to add IPv4 address: {0}")]
     AddIpv4(#[source] rtnetlink::Error),
     #[error("failed to remove IPv4 address: {0}")]
@@ -24,7 +24,7 @@ pub enum Error {
     List(#[source] rtnetlink::Error),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
 /// IPv4 address configuration acquired via DHCP or static assignment.
 #[derive(Debug, Clone)]
@@ -45,7 +45,7 @@ pub struct Ipv6Config {
 }
 
 /// Trait covering all address-layer netlink operations.
-pub trait AddressOps: Clone + Send + Sync + 'static {
+pub trait Ops: Clone + Send + Sync + 'static {
     /// Adds or confirms an IPv4 address on an interface.
     fn ensure_ipv4(
         &self,
@@ -83,7 +83,7 @@ pub trait AddressOps: Clone + Send + Sync + 'static {
     fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> impl Future<Output = Result<()>> + Send;
 }
 
-impl AddressOps for RtnetlinkOps {
+impl Ops for Rtnl {
     async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
         ensure_ipv4(&self.handle, index, ip, prefix).await
     }
@@ -117,7 +117,7 @@ impl AddressOps for RtnetlinkOps {
 pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
     let mut addrs = handle.address().get().execute();
 
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+    while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
             continue;
         }
@@ -133,7 +133,7 @@ pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv
 pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     let mut addrs = handle.address().get().execute();
 
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+    while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
             continue;
         }
@@ -156,14 +156,14 @@ pub(crate) async fn add_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: 
         .add(index, ip.into(), prefix)
         .execute()
         .await
-        .map_err(Error::AddIpv4)
+        .map_err(Failure::AddIpv4)
 }
 
 /// Removes a specific IPv4 address from the given interface (no-op if absent).
 pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
 
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+    while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
             continue;
         }
@@ -177,7 +177,7 @@ pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Re
                 .del(addr)
                 .execute()
                 .await
-                .map_err(Error::RemoveIpv4)?;
+                .map_err(Failure::RemoveIpv4)?;
             return Ok(());
         }
     }
@@ -198,12 +198,12 @@ async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> R
         .add(index, ip.into(), prefix)
         .execute()
         .await
-        .map_err(Error::AddIpv4)
+        .map_err(Failure::AddIpv4)
 }
 
 async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
     let mut addrs = handle.address().get().execute();
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+    while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
             continue;
         }
@@ -220,12 +220,12 @@ async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> R
         .add(index, ip.into(), prefix)
         .execute()
         .await
-        .map_err(Error::AddIpv6)
+        .map_err(Failure::AddIpv6)
 }
 
 async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
-    while let Some(addr) = addrs.try_next().await.map_err(Error::List)? {
+    while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
             continue;
         }
@@ -239,7 +239,7 @@ async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
                 .del(addr)
                 .execute()
                 .await
-                .map_err(Error::RemoveIpv6)?;
+                .map_err(Failure::RemoveIpv6)?;
             return Ok(());
         }
     }
@@ -247,15 +247,84 @@ async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
 }
 
 fn find_v4_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv4Addr> {
-    attributes.iter().find_map(|attr| match attr {
-        AddressAttribute::Address(IpAddr::V4(v4)) => Some(*v4),
-        _ => None,
+    attributes.iter().find_map(|attr| {
+        if let &AddressAttribute::Address(IpAddr::V4(v4)) = attr {
+            Some(v4)
+        } else {
+            None
+        }
     })
 }
 
 fn find_v6_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv6Addr> {
-    attributes.iter().find_map(|attr| match attr {
-        AddressAttribute::Address(IpAddr::V6(v6)) => Some(*v6),
-        _ => None,
+    attributes.iter().find_map(|attr| {
+        if let &AddressAttribute::Address(IpAddr::V6(v6)) = attr {
+            Some(v6)
+        } else {
+            None
+        }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_v4_in_attributes_returns_first_ipv4_address() {
+        // ARRANGE
+        let attributes = vec![
+            AddressAttribute::Address(IpAddr::V6(Ipv6Addr::LOCALHOST)),
+            AddressAttribute::Address(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))),
+            AddressAttribute::Address(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 11))),
+        ];
+
+        // ACT
+        let address = find_v4_in_attributes(&attributes);
+
+        // ASSERT
+        assert_eq!(address, Some(Ipv4Addr::new(192, 0, 2, 10)));
+    }
+
+    #[test]
+    fn find_v6_in_attributes_returns_first_ipv6_address() {
+        // ARRANGE
+        let expected = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+        let attributes = vec![
+            AddressAttribute::Address(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))),
+            AddressAttribute::Address(IpAddr::V6(expected)),
+        ];
+
+        // ACT
+        let address = find_v6_in_attributes(&attributes);
+
+        // ASSERT
+        assert_eq!(address, Some(expected));
+    }
+
+    #[test]
+    fn find_v4_in_attributes_returns_none_without_ipv4() {
+        // ARRANGE
+        let attributes = vec![AddressAttribute::Address(IpAddr::V6(Ipv6Addr::LOCALHOST))];
+
+        // ACT
+        let address = find_v4_in_attributes(&attributes);
+
+        // ASSERT
+        assert!(address.is_none());
+    }
+
+    #[test]
+    fn find_v6_in_attributes_returns_none_without_ipv6() {
+        // ARRANGE
+        let attributes = vec![AddressAttribute::Address(IpAddr::V4(Ipv4Addr::new(
+            192, 0, 2, 10,
+        )))];
+
+        // ACT
+        let address = find_v6_in_attributes(&attributes);
+
+        // ASSERT
+        assert!(address.is_none());
+    }
 }

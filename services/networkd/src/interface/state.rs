@@ -41,23 +41,23 @@ impl std::fmt::Display for InterfaceState {
 
 #[cfg(test)]
 mod tests {
-    use netlib::interface::InterfaceName;
+    use netlib::interface::Name;
 
     use super::*;
     use crate::interface::snapshot::InterfaceSnapshot;
 
     fn make_snapshot(state: InterfaceState) -> InterfaceSnapshot {
         InterfaceSnapshot {
-            name: InterfaceName::new("eth0").expect("valid name"),
+            name: Name::new("eth0").expect("valid name"),
             state,
             index: 2,
             mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
-            link: netlib::link::LinkStateKind::Up,
+            link: netlib::link::State::Up,
             ip: None,
             lease: None,
             dhcp_state: None,
             ipv6: None,
-            l3_owner: InterfaceName::new("eth0").expect("valid name"),
+            l3_owner: Name::new("eth0").expect("valid name"),
         }
     }
 

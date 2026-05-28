@@ -1,8 +1,11 @@
 //! SLAAC IPv6 address generation from a MAC address and advertised prefix.
 
-use std::net::Ipv6Addr;
+use core::net::Ipv6Addr;
+
+const BITS_PER_PREFIX_BYTE: u8 = 8;
 
 /// Converts a 6-byte MAC address into an 8-byte EUI-64 interface identifier.
+#[must_use]
 pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
     [
         mac[0] ^ 0x02,
@@ -17,18 +20,24 @@ pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
 }
 
 /// Generates a SLAAC address by combining a network prefix with an EUI-64 host identifier.
+#[must_use]
 pub fn generate(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -> Option<Ipv6Addr> {
-    if prefix_len > 64 || !prefix_len.is_multiple_of(8) {
+    if prefix_len > 64 || !prefix_len.is_multiple_of(BITS_PER_PREFIX_BYTE) {
         return None;
     }
 
     let prefix_bytes = prefix.octets();
     let eui64 = mac_to_eui64(mac);
 
-    let prefix_bytes_count = (prefix_len / 8) as usize;
-    let mut addr = [0u8; 16];
+    let prefix_bytes_count = usize::from(prefix_len >> 3);
+    let mut addr = [0_u8; 16];
 
-    addr[..prefix_bytes_count].copy_from_slice(&prefix_bytes[..prefix_bytes_count]);
+    if let (Some(dst), Some(src)) = (
+        addr.get_mut(..prefix_bytes_count),
+        prefix_bytes.get(..prefix_bytes_count),
+    ) {
+        dst.copy_from_slice(src);
+    }
     addr[8..16].copy_from_slice(&eui64);
 
     Some(Ipv6Addr::from(addr))

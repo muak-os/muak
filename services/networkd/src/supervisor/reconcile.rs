@@ -2,8 +2,9 @@
 
 use anyhow::Result;
 use config::{BridgeConfig, InterfaceConfig, InterfaceKind};
-use netlib::interface::InterfaceName;
-use netlib::ops::NetlinkOps;
+use netlib::interface::Name;
+use netlib::link::State;
+use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
 use crate::interface::ApplyMode;
@@ -18,7 +19,7 @@ enum ReconcileDisposition {
     Skipped(String),
 }
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
+impl<N: Ops> NetworkSupervisor<N> {
     /// Reapplies declarative interface configuration to converge drifted state.
     pub(super) async fn reconcile(&mut self) {
         if !self.should_reconcile() {
@@ -87,7 +88,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
 
         println!("Reconciling ethernet interface: {}", iface_name);
-        let index = self.ops.ensure_link_up(iface_name.as_str()).await?;
+        let index = self.ops.ensure_up(iface_name.as_str()).await?;
 
         if let Some(ipv4) = iface_cfg.ipv4.as_ref() {
             self.reconcile_ipv4(&iface_name, index, ipv4).await?;
@@ -105,7 +106,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         &mut self,
         iface_cfg: &InterfaceConfig,
     ) -> Result<ReconcileDisposition> {
-        let bridge_name = InterfaceName::new(&iface_cfg.name)?;
+        let bridge_name = Name::new(iface_cfg.name.as_str())?;
         let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
         if self.interfaces.contains_key(&bridge_name) {
             kmsg::info!("Reconciling bridge interface: {}", bridge_name);
@@ -136,7 +137,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     /// Reapplies bridge configuration and returns the refreshed bridge snapshot.
     async fn reconcile_bridge_snapshot(
         &mut self,
-        bridge_name: &InterfaceName,
+        bridge_name: &Name,
         bridge_cfg: &BridgeConfig,
     ) -> Result<InterfaceSnapshot> {
         let bridge_handle = self
@@ -155,13 +156,13 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             )
             .await?;
 
-        let index = self.ops.get_link_index(bridge_name.as_str()).await?;
+        let index = self.ops.index(bridge_name.as_str()).await?;
         Ok(InterfaceSnapshot {
             name: bridge_name.clone(),
             state: InterfaceState::Configured,
             index,
             mac: bridge_snapshot.mac,
-            link: netlib::link::LinkStateKind::Up,
+            link: State::Up,
             ip: bridge_snapshot.ip.clone(),
             lease: bridge_snapshot.lease.clone(),
             dhcp_state: bridge_snapshot.dhcp_state.clone(),
@@ -173,7 +174,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     /// Reapplies IPv4 configuration for one interface.
     async fn reconcile_ipv4(
         &self,
-        iface_name: &netlib::interface::InterfaceName,
+        iface_name: &Name,
         index: u32,
         ipv4: &config::Ipv4InterfaceConfig,
     ) -> Result<()> {
@@ -215,7 +216,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     /// Reapplies IPv6 configuration for one interface.
     async fn reconcile_ipv6(
         &self,
-        iface_name: &netlib::interface::InterfaceName,
+        iface_name: &Name,
         index: u32,
         ipv6: &config::Ipv6InterfaceConfig,
     ) -> Result<()> {
@@ -261,7 +262,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     }
 
     /// Returns the bridge port name when the port is configured enough to reconcile the bridge.
-    fn ready_bridge_port(&self, bridge_cfg: &BridgeConfig) -> Result<Option<InterfaceName>> {
+    fn ready_bridge_port(&self, bridge_cfg: &BridgeConfig) -> Result<Option<Name>> {
         let (port_iface_name, state_rx) = match self.bridge_port_handle(bridge_cfg) {
             Ok(port) => port,
             Err(_) => return Ok(None),
@@ -282,9 +283,8 @@ mod tests {
     use std::time::Duration;
 
     use netlib::address::IpConfig;
-    use netlib::interface::InterfaceName;
-    use netlib::link::LinkOps;
-    use netlib::link::LinkStateKind;
+    use netlib::interface::Name;
+    use netlib::link::{Ops, State};
     use tokio::sync::watch;
 
     use super::*;
@@ -328,11 +328,11 @@ mod tests {
     /// Returns a bridge-owned snapshot with cached lease state.
     fn bridge_snapshot(index: u32) -> InterfaceSnapshot {
         InterfaceSnapshot {
-            name: InterfaceName::new("br0").expect("valid bridge name"),
+            name: Name::new("br0").expect("valid bridge name"),
             state: InterfaceState::Configured,
             index,
             mac: [0xAA; 6],
-            link: LinkStateKind::Up,
+            link: State::Up,
             ip: Some(IpConfig {
                 address: Ipv4Addr::new(192, 168, 10, 2),
                 prefix_len: 24,
@@ -352,23 +352,23 @@ mod tests {
             }),
             dhcp_state: Some(DhcpState::Bound),
             ipv6: None,
-            l3_owner: InterfaceName::new("br0").expect("valid bridge owner"),
+            l3_owner: Name::new("br0").expect("valid bridge owner"),
         }
     }
 
     /// Returns a port snapshot already owned by the bridge.
     fn port_snapshot(index: u32) -> InterfaceSnapshot {
         InterfaceSnapshot {
-            name: InterfaceName::new("eth0").expect("valid port name"),
+            name: Name::new("eth0").expect("valid port name"),
             state: InterfaceState::Discovered,
             index,
             mac: [0xAA; 6],
-            link: LinkStateKind::Up,
+            link: State::Up,
             ip: None,
             lease: None,
             dhcp_state: None,
             ipv6: None,
-            l3_owner: InterfaceName::new("br0").expect("valid bridge owner"),
+            l3_owner: Name::new("br0").expect("valid bridge owner"),
         }
     }
 
@@ -382,12 +382,10 @@ mod tests {
         let mut supervisor =
             NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, DnsState::default());
         supervisor.state.state = NetworkState::Ready;
-        supervisor.state.primary = Some(InterfaceName::new("eth0").expect("valid primary"));
+        supervisor.state.primary = Some(Name::new("eth0").expect("valid primary"));
         supervisor.spawn_interface_actor(port_snapshot(port_index));
         supervisor.spawn_interface_actor(bridge_snapshot(bridge_index));
-        ops.delete_link(bridge_index)
-            .await
-            .expect("delete bridge link");
+        ops.delete(bridge_index).await.expect("delete bridge link");
 
         // ACT
         let disposition = supervisor
@@ -397,10 +395,7 @@ mod tests {
 
         // ASSERT
         assert!(matches!(disposition, ReconcileDisposition::Applied));
-        let new_bridge_index = ops
-            .get_link_index("br0")
-            .await
-            .expect("bridge should be recreated");
+        let new_bridge_index = ops.index("br0").await.expect("bridge should be recreated");
         assert_ne!(new_bridge_index, bridge_index, "bridge should be refreshed");
         assert_eq!(
             master_index(&ops, "eth0"),

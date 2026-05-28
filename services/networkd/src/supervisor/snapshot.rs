@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use netlib::interface::InterfaceName;
+use netlib::interface::Name;
 
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::statemachine::StateMachine;
@@ -13,8 +13,8 @@ use crate::supervisor::state::NetworkState;
 #[derive(Debug, Clone)]
 pub struct NetworkSnapshot {
     pub state: NetworkState,
-    pub primary: Option<InterfaceName>,
-    pub backups: Vec<InterfaceName>,
+    pub primary: Option<Name>,
+    pub backups: Vec<Name>,
     pub interfaces: Vec<Arc<InterfaceSnapshot>>,
 }
 

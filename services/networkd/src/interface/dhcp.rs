@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use netlib::address::IpConfig;
-use netlib::ops::NetlinkOps;
+use netlib::netlink::Ops;
 use tokio::time::Sleep;
 
 use super::InterfaceActor;
@@ -50,7 +50,7 @@ impl LeaseTimers {
     }
 }
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Applies DHCP configuration in the selected mode.
     pub(super) async fn apply_dhcp<C: DhcpConnector>(&mut self, mode: ApplyMode, connector: &C) {
         match mode {

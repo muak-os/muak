@@ -1,74 +1,85 @@
 //! Ethernet interface enumeration and priority-based selection.
 
-use std::borrow::Borrow;
-use std::fmt;
-use std::future::Future;
-use std::str::FromStr;
+use alloc::string::String;
+use core::borrow::Borrow;
+use core::cmp::Ordering;
+use core::fmt;
+use core::future::Future;
+use core::str::FromStr;
 
 use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use thiserror::Error;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 
-use crate::link::LinkStateKind;
+use crate::link::State;
 use crate::mac::format;
-use crate::ops::RtnetlinkOps;
+use crate::netlink::Rtnl;
 
 /// A validated Linux network interface name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct InterfaceName(String);
+pub struct Name(String);
 
-impl InterfaceName {
+impl Name {
     const MAX_LEN: usize = 15;
 
-    /// Creates a new `InterfaceName`, validating length and content.
-    pub fn new(name: impl Into<String>) -> std::result::Result<Self, InvalidInterfaceName> {
-        let s = name.into();
-        if s.is_empty() || s.len() > Self::MAX_LEN || s.contains('\0') {
-            return Err(InvalidInterfaceName(s));
+    /// Creates a new [`Name`], validating length and content.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidName`] when the provided interface name is empty, too long, or contains
+    /// a NUL byte.
+    pub fn new<Source>(name: Source) -> core::result::Result<Self, InvalidName>
+    where
+        Source: Into<String>,
+    {
+        let name = name.into();
+        if name.is_empty() || name.len() > Self::MAX_LEN || name.contains('\0') {
+            return Err(InvalidName(name));
         }
-        Ok(Self(s))
+        Ok(Self(name))
     }
 
     /// Returns the name as a string slice.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-impl fmt::Display for InterfaceName {
+impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl AsRef<str> for InterfaceName {
+impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
-impl Borrow<str> for InterfaceName {
+impl Borrow<str> for Name {
     fn borrow(&self) -> &str {
         &self.0
     }
 }
 
-impl FromStr for InterfaceName {
-    type Err = InvalidInterfaceName;
+impl FromStr for Name {
+    type Err = InvalidName;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Self::new(s)
+    fn from_str(source: &str) -> core::result::Result<Self, Self::Err> {
+        Self::new(source.to_owned())
     }
 }
 
-impl PartialEq<str> for InterfaceName {
+impl PartialEq<str> for Name {
     fn eq(&self, other: &str) -> bool {
         self.0 == other
     }
 }
 
-impl PartialEq<&str> for InterfaceName {
+impl PartialEq<&str> for Name {
     fn eq(&self, other: &&str) -> bool {
         self.0 == *other
     }
@@ -76,34 +87,30 @@ impl PartialEq<&str> for InterfaceName {
 
 #[derive(Debug, Error)]
 #[error("invalid interface name: {0:?}")]
-pub struct InvalidInterfaceName(String);
+pub struct InvalidName(String);
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("failed to enumerate links: {0}")]
     List(#[source] rtnetlink::Error),
     #[error("kernel returned invalid interface name: {0}")]
-    InvalidName(#[from] InvalidInterfaceName),
+    InvalidName(#[from] InvalidName),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
 #[derive(Debug, Clone)]
-pub struct Interface {
-    pub name: InterfaceName,
+pub struct Ethernet {
+    pub name: Name,
     pub index: u32,
     pub mac_address: [u8; 6],
-    pub link_state: LinkStateKind,
+    pub link_state: State,
 }
 
-impl Interface {
+impl Ethernet {
     /// Constructs a new interface descriptor.
-    pub fn new(
-        name: InterfaceName,
-        index: u32,
-        mac_address: [u8; 6],
-        link_state: LinkStateKind,
-    ) -> Self {
+    #[must_use]
+    pub fn new(name: Name, index: u32, mac_address: [u8; 6], link_state: State) -> Self {
         Self {
             name,
             index,
@@ -113,43 +120,44 @@ impl Interface {
     }
 
     /// Returns true when the underlying link has an active carrier signal.
+    #[must_use]
     pub fn has_carrier(&self) -> bool {
         self.link_state.has_carrier()
     }
 }
 
 /// Trait covering interface enumeration netlink operations.
-pub trait InterfaceOps: Clone + Send + Sync + 'static {
-    /// Lists all ethernet interfaces on the system.
-    fn discover_ethernet(&self) -> impl Future<Output = Result<Vec<Interface>>> + Send;
+pub trait Ops: Clone + Send + Sync + 'static {
+    /// Lists all Ethernet interfaces on the system.
+    fn discover_ethernet(&self) -> impl Future<Output = Result<Vec<Ethernet>>> + Send;
 }
 
-impl InterfaceOps for RtnetlinkOps {
-    async fn discover_ethernet(&self) -> Result<Vec<Interface>> {
+impl Ops for Rtnl {
+    async fn discover_ethernet(&self) -> Result<Vec<Ethernet>> {
         discover_ethernet(&self.handle).await
     }
 }
 
-async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
+async fn discover_ethernet(handle: &Handle) -> Result<Vec<Ethernet>> {
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
 
-    while let Some(link_msg) = links.try_next().await.map_err(Error::List)? {
+    while let Some(link_msg) = links.try_next().await.map_err(Failure::List)? {
         let (raw_name, mac_address, is_virtual) = get_link_attributes(&link_msg.attributes);
 
         if raw_name.is_empty() || !is_ethernet(&raw_name) || is_virtual {
             continue;
         }
 
-        let name = InterfaceName::new(raw_name)?;
+        let name = Name::new(raw_name)?;
         let flags = link_msg.header.flags;
         let is_admin_up = flags.contains(LinkFlags::Up);
         let has_carrier = flags.contains(LinkFlags::LowerUp);
 
         let link_state = match (is_admin_up, has_carrier) {
-            (true, true) => LinkStateKind::Up,
-            (true, false) => LinkStateKind::NoCarrier,
-            (false, _) => LinkStateKind::Down,
+            (true, true) => State::Up,
+            (true, false) => State::NoCarrier,
+            (false, _) => State::Down,
         };
 
         println!(
@@ -160,7 +168,7 @@ async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
             link_state
         );
 
-        interfaces.push(Interface::new(
+        interfaces.push(Ethernet::new(
             name,
             link_msg.header.index,
             mac_address,
@@ -172,26 +180,32 @@ async fn discover_ethernet(handle: &Handle) -> Result<Vec<Interface>> {
 
 fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) {
     let mut name = String::new();
-    let mut mac_address = [0u8; 6];
+    let mut mac_address = [0_u8; 6];
     let mut is_virtual = false;
 
-    for attr in attributes {
-        match attr {
-            LinkAttribute::IfName(n) => name = n.clone(),
-            LinkAttribute::Address(addr) if addr.len() == 6 => {
-                mac_address.copy_from_slice(&addr[..6]);
-            }
-            LinkAttribute::LinkInfo(info) => {
-                is_virtual = info.iter().any(|attr| matches!(attr, LinkInfo::Kind(_)))
-            }
-            _ => {}
+    for attr in attributes.iter().cloned() {
+        if let LinkAttribute::IfName(if_name) = attr {
+            name = if_name;
+            continue;
+        }
+
+        if let LinkAttribute::Address(address) = attr {
+            mac_address = <[u8; 6]>::try_from(address.as_slice()).unwrap_or(mac_address);
+            continue;
+        }
+
+        if let LinkAttribute::LinkInfo(info) = attr {
+            is_virtual = info
+                .iter()
+                .any(|link_info| matches!(link_info, LinkInfo::Kind(_)));
         }
     }
 
     (name, mac_address, is_virtual)
 }
 
-/// Returns true if the name matches a physical ethernet naming convention.
+/// Returns true if the name matches a physical Ethernet naming convention.
+#[must_use]
 pub fn is_ethernet(name: &str) -> bool {
     if name == "lo" || name.starts_with("wlan") || name.starts_with("wlp") {
         return false;
@@ -203,69 +217,73 @@ pub fn is_ethernet(name: &str) -> bool {
         || name.starts_with("end")
 }
 
-pub struct InterfaceSelector;
+pub struct Selector;
 
-impl InterfaceSelector {
+impl Selector {
     /// Selects the highest-priority interface as the primary.
-    pub fn select_primary(interfaces: &[Interface]) -> Option<&Interface> {
+    #[must_use]
+    pub fn select_primary(interfaces: &[Ethernet]) -> Option<&Ethernet> {
         if interfaces.is_empty() {
             return None;
         }
 
         interfaces
             .iter()
-            .max_by(|a, b| Self::compare_interfaces(a, b))
+            .max_by(|left, right| Self::compare_interfaces(left, right))
     }
 
     /// Returns all non-primary interfaces sorted by descending priority.
+    #[must_use]
     pub fn select_backups<'a>(
-        interfaces: &'a [Interface],
-        primary_name: &InterfaceName,
-    ) -> Vec<&'a Interface> {
-        let mut backups: Vec<&Interface> = interfaces
+        interfaces: &'a [Ethernet],
+        primary_name: &Name,
+    ) -> Vec<&'a Ethernet> {
+        let mut backups: Vec<&Ethernet> = interfaces
             .iter()
-            .filter(|i| &i.name != primary_name)
+            .filter(|interface| &interface.name != primary_name)
             .collect();
 
-        backups.sort_by(|a, b| Self::compare_interfaces(a, b).reverse());
+        backups.sort_by(|left, right| Self::compare_interfaces(left, right).reverse());
 
         backups
     }
 
-    fn compare_interfaces(a: &Interface, b: &Interface) -> std::cmp::Ordering {
-        let score_a = Self::score_interface(a);
-        let score_b = Self::score_interface(b);
+    fn compare_interfaces(left: &Ethernet, right: &Ethernet) -> Ordering {
+        let score_left = Self::score_interface(left);
+        let score_right = Self::score_interface(right);
 
-        score_a.cmp(&score_b).then_with(|| b.index.cmp(&a.index))
+        score_left
+            .cmp(&score_right)
+            .then_with(|| right.index.cmp(&left.index))
     }
 
-    fn score_interface(interface: &Interface) -> u32 {
-        let mut score = 0u32;
+    fn score_interface(interface: &Ethernet) -> u32 {
+        let mut score = 0_u32;
 
         if interface.has_carrier() {
-            score += 2000;
+            score = score.saturating_add(2000);
         }
 
-        if interface.link_state != LinkStateKind::Down {
-            score += 1000;
+        if interface.link_state != State::Down {
+            score = score.saturating_add(1000);
         }
 
-        score += Self::score_naming(&interface.name);
+        score = score.saturating_add(Self::score_naming(&interface.name));
 
         score
     }
 
-    fn score_naming(name: &InterfaceName) -> u32 {
-        let s = name.as_str();
-        if s.starts_with("eno") {
+    fn score_naming(name: &Name) -> u32 {
+        let interface_name = name.as_str();
+        if interface_name.starts_with("eno") {
             500
-        } else if s.starts_with("ens") {
+        } else if interface_name.starts_with("ens") {
             400
-        } else if s.starts_with("enp") {
+        } else if interface_name.starts_with("enp") {
             300
-        } else if s.starts_with("end") {
+        } else if interface_name.starts_with("end") {
             200
-        } else if s.starts_with("eth") {
+        } else if interface_name.starts_with("eth") {
             100
         } else {
             50
@@ -276,6 +294,12 @@ impl InterfaceSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::link::State as LinkStateKind;
+
+    type Interface = Ethernet;
+    type InterfaceSelector = Selector;
+
+    use rtnetlink::packet_route::link::InfoKind;
 
     fn make_interface(name: &str, link_state: LinkStateKind) -> Interface {
         make_interface_with_index(name, 0, link_state)
@@ -283,7 +307,7 @@ mod tests {
 
     fn make_interface_with_index(name: &str, index: u32, link_state: LinkStateKind) -> Interface {
         Interface {
-            name: InterfaceName::new(name).unwrap(),
+            name: Name::new(name).unwrap(),
             index,
             mac_address: [0, 0, 0, 0, 0, 0],
             link_state,
@@ -293,37 +317,104 @@ mod tests {
     #[test]
     fn interface_name_rejects_empty() {
         // ACT / ASSERT
-        assert!(InterfaceName::new("").is_err());
+        assert!(Name::new("").is_err());
     }
 
     #[test]
     fn interface_name_rejects_too_long() {
         // ACT / ASSERT
-        assert!(InterfaceName::new("a".repeat(16)).is_err());
+        assert!(Name::new("a".repeat(16)).is_err());
     }
 
     #[test]
     fn interface_name_rejects_null_byte() {
         // ACT / ASSERT
-        assert!(InterfaceName::new("eth\0").is_err());
+        assert!(Name::new("eth\0").is_err());
     }
 
     #[test]
     fn interface_name_accepts_valid() {
         // ACT / ASSERT
-        assert!(InterfaceName::new("eth0").is_ok());
-        assert!(InterfaceName::new("enp3s0f0").is_ok());
-        assert!(InterfaceName::new("a".repeat(15)).is_ok());
+        assert!(Name::new("eth0").is_ok());
+        assert!(Name::new("enp3s0f0").is_ok());
+        assert!(Name::new("a".repeat(15)).is_ok());
     }
 
     #[test]
     fn interface_name_partial_eq_str() {
         // ARRANGE
-        let name = InterfaceName::new("eth0").unwrap();
+        let name = Name::new("eth0").unwrap();
 
         // ACT / ASSERT
         assert_eq!(name, "eth0");
         assert_ne!(name, "eth1");
+    }
+
+    #[test]
+    fn interface_name_display_as_ref_borrow_and_from_str() {
+        // ARRANGE
+        let name: Name = "eth0".parse().expect("valid name");
+
+        // ACT
+        let display = name.to_string();
+        let as_ref = name.as_ref();
+        let borrowed = core::borrow::Borrow::<str>::borrow(&name);
+
+        // ASSERT
+        assert_eq!(display, "eth0");
+        assert_eq!(as_ref, "eth0");
+        assert_eq!(borrowed, "eth0");
+    }
+
+    #[test]
+    fn ethernet_new_populates_fields() {
+        // ARRANGE
+        let name = Name::new("eth0").expect("valid name");
+        let mac = [1, 2, 3, 4, 5, 6];
+
+        // ACT
+        let interface = Interface::new(name.clone(), 7, mac, LinkStateKind::Up);
+
+        // ASSERT
+        assert_eq!(interface.name, name);
+        assert_eq!(interface.index, 7);
+        assert_eq!(interface.mac_address, mac);
+        assert_eq!(interface.link_state, LinkStateKind::Up);
+    }
+
+    #[test]
+    fn get_link_attributes_extracts_name_mac_and_virtual_flag() {
+        // ARRANGE
+        let attributes = vec![
+            LinkAttribute::IfName("eth0".to_owned()),
+            LinkAttribute::Address(vec![1, 2, 3, 4, 5, 6]),
+            LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Veth)]),
+        ];
+
+        // ACT
+        let (name, mac, is_virtual) = get_link_attributes(&attributes);
+
+        // ASSERT
+        assert_eq!(name, "eth0");
+        assert_eq!(mac, [1, 2, 3, 4, 5, 6]);
+        assert!(is_virtual);
+    }
+
+    #[test]
+    fn get_link_attributes_ignores_invalid_mac_length() {
+        // ARRANGE
+        let attributes = vec![
+            LinkAttribute::IfName("eth0".to_owned()),
+            LinkAttribute::Address(vec![1, 2, 3]),
+        ];
+
+        // ACT
+        let (name, mac, is_virtual) = get_link_attributes(&attributes);
+
+        // ASSERT
+        assert_eq!(name, "eth0");
+        assert_eq!(mac, [0; 6]);
+        assert!(!is_virtual);
     }
 
     #[test]
@@ -399,6 +490,39 @@ mod tests {
     }
 
     #[test]
+    fn select_primary_scores_end_above_eth() {
+        // ARRANGE
+        let interfaces = vec![
+            make_interface("eth0", LinkStateKind::Up),
+            make_interface("end0", LinkStateKind::Up),
+        ];
+
+        // ACT
+        let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
+        assert_eq!(primary.expect("should have primary").name, "end0");
+    }
+
+    #[test]
+    fn select_primary_handles_unknown_ethernet_like_name() {
+        // ARRANGE
+        let interfaces = vec![
+            make_interface("enx001122334455", LinkStateKind::Up),
+            make_interface("eth0", LinkStateKind::NoCarrier),
+        ];
+
+        // ACT
+        let primary = InterfaceSelector::select_primary(&interfaces);
+
+        // ASSERT
+        assert_eq!(
+            primary.expect("should have primary").name,
+            "enx001122334455"
+        );
+    }
+
+    #[test]
     fn carrier_overrides_naming() {
         // ARRANGE
         let interfaces = vec![
@@ -421,7 +545,7 @@ mod tests {
             make_interface("eth1", LinkStateKind::Up),
             make_interface("eth2", LinkStateKind::Down),
         ];
-        let primary_name = InterfaceName::new("eth0").unwrap();
+        let primary_name = Name::new("eth0").unwrap();
 
         // ACT
         let backups = InterfaceSelector::select_backups(&interfaces, &primary_name);
@@ -440,7 +564,7 @@ mod tests {
             make_interface("eno1", LinkStateKind::Up),
             make_interface("enp3s0", LinkStateKind::Up),
         ];
-        let primary_name = InterfaceName::new("eth0").unwrap();
+        let primary_name = Name::new("eth0").unwrap();
 
         // ACT
         let backups = InterfaceSelector::select_backups(&interfaces, &primary_name);

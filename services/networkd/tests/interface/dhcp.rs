@@ -66,7 +66,7 @@ async fn link_down_on_dhcp_configured_transitions_to_degraded() {
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
     assert_eq!(snap.state, InterfaceState::Degraded);
-    assert_eq!(snap.link, LinkStateKind::Down);
+    assert_eq!(snap.link, State::Down);
 }
 
 #[tokio::test]

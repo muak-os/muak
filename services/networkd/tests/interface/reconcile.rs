@@ -74,7 +74,7 @@ async fn reconcile_static_ipv4_reapplies_kernel_state() {
         .expect("send failed");
     wait_for_state(&handle, InterfaceState::Configured).await;
 
-    mock.remove_ipv4(idx, address.address)
+    netlib::address::Ops::remove_ipv4(&mock, idx, address.address)
         .await
         .expect("remove failed");
 
@@ -128,11 +128,11 @@ async fn reconcile_dhcp_with_cached_lease_reapplies_address() {
         dns_servers: vec![Ipv4Addr::new(1, 1, 1, 1)],
     };
     let snapshot = InterfaceSnapshot {
-        name: InterfaceName::new("eth1").expect("valid name"),
+        name: Name::new("eth1").expect("valid name"),
         state: InterfaceState::Configured,
         index: idx,
         mac: [0xBB; 6],
-        link: LinkStateKind::Up,
+        link: State::Up,
         ip: Some(netlib::address::IpConfig {
             address: lease.assigned_ip,
             prefix_len: lease.prefix_len,
@@ -142,11 +142,11 @@ async fn reconcile_dhcp_with_cached_lease_reapplies_address() {
         lease: Some(lease),
         dhcp_state: Some(networkd::dhcp::DhcpState::Bound),
         ipv6: None,
-        l3_owner: InterfaceName::new("eth1").expect("valid name"),
+        l3_owner: Name::new("eth1").expect("valid name"),
     };
 
     let reconciler = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
-    mock.remove_ipv4(idx, address.address)
+    netlib::address::Ops::remove_ipv4(&mock, idx, address.address)
         .await
         .expect("remove failed");
 
@@ -201,7 +201,7 @@ async fn reconcile_static_ipv6_reapplies_kernel_state() {
         .expect("send failed");
     wait_for_state(&handle, InterfaceState::Configured).await;
 
-    mock.remove_ipv6(idx, address.address)
+    netlib::address::Ops::remove_ipv6(&mock, idx, address.address)
         .await
         .expect("remove failed");
 

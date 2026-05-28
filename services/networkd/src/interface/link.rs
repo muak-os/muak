@@ -1,16 +1,16 @@
 //! Link-state event handlers for a per-interface actor.
 
-use netlib::link::LinkStateKind;
-use netlib::ops::NetlinkOps;
+use netlib::link::State;
+use netlib::netlink::Ops;
 
 use super::InterfaceActor;
 use crate::dhcp::DhcpConnector;
 use crate::interface::state::InterfaceState;
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Handles a link-up event on this interface.
     pub(super) async fn on_link_up<C: DhcpConnector>(&mut self, connector: &C) {
-        self.snapshot.link = LinkStateKind::Up;
+        self.snapshot.link = State::Up;
         if self.snapshot.state != InterfaceState::Degraded {
             return;
         }
@@ -28,7 +28,7 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
     /// Handles a link-down event on this interface.
     pub(super) fn on_link_down(&mut self) {
-        self.snapshot.link = LinkStateKind::Down;
+        self.snapshot.link = State::Down;
         self.dhcp = None;
         self.timers.disarm();
         if self.snapshot.state == InterfaceState::Configured

@@ -1,19 +1,25 @@
 //! Network link operations and link state types.
 
+use alloc::string::String;
+use core::fmt;
+use core::future::Future;
+use core::time::Duration;
 use std::collections::HashMap;
-use std::future::Future;
-use std::time::Duration;
 
 use rtnetlink::Handle;
 use rtnetlink::LinkUnspec;
+use rtnetlink::MulticastGroup;
+use rtnetlink::packet_core::NetlinkPayload;
+use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use thiserror::Error;
-use tokio_stream::StreamExt;
+use tokio::time::{Instant, timeout as timeout_after};
+use tokio_stream::StreamExt as _;
 
-use crate::ops::RtnetlinkOps;
+use crate::netlink::Rtnl;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("link '{0}' not found")]
     NotFound(String),
     #[error("failed to query link: {0}")]
@@ -28,115 +34,116 @@ pub enum Error {
     Delete(#[source] rtnetlink::Error),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Administrative and carrier state of a network link.
 #[derive(Debug, Clone, PartialEq)]
-pub enum LinkStateKind {
+pub enum State {
     Up,
     NoCarrier,
     Down,
 }
 
-impl LinkStateKind {
+impl State {
     /// Returns true when the link has an active carrier signal.
+    #[must_use]
     pub fn has_carrier(&self) -> bool {
-        *self == LinkStateKind::Up
+        *self == Self::Up
     }
 }
 
-impl std::fmt::Display for LinkStateKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LinkStateKind::Up => write!(f, "up"),
-            LinkStateKind::NoCarrier => write!(f, "no-carrier"),
-            LinkStateKind::Down => write!(f, "down"),
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Up => write!(f, "up"),
+            Self::NoCarrier => write!(f, "no-carrier"),
+            Self::Down => write!(f, "down"),
         }
     }
 }
 
 /// Trait covering all link-layer netlink operations.
-pub trait LinkOps: Clone + Send + Sync + 'static {
+pub trait Ops: Clone + Send + Sync + 'static {
     /// Returns whether a link with the given name exists.
-    fn link_exists(&self, name: &str) -> impl Future<Output = Result<bool>> + Send;
+    fn exists(&self, name: &str) -> impl Future<Output = Result<bool>> + Send;
 
     /// Returns the kernel interface index for a named link.
-    fn get_link_index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
+    fn index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
 
     /// Brings a named link up, returning its index.
-    fn ensure_link_up(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
+    fn ensure_up(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
 
     /// Brings a link up by its index.
-    fn bring_link_up(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+    fn bring_up(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
 
     /// Brings a link down by its index.
-    fn bring_link_down(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+    fn bring_down(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
 
     /// Attaches a slave interface to a master (bridge) interface.
-    fn set_link_master(
+    fn set_master(
         &self,
         slave_index: u32,
         master_index: u32,
     ) -> impl Future<Output = Result<()>> + Send;
 
     /// Deletes a link by its index.
-    fn delete_link(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+    fn delete(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
 
     /// Polls interfaces for carrier, returning a map of index to carrier-present.
-    fn probe_interfaces_for_carrier(
+    fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> impl Future<Output = HashMap<u32, bool>> + Send;
 }
 
-impl LinkOps for RtnetlinkOps {
-    async fn link_exists(&self, name: &str) -> Result<bool> {
-        link_exists(&self.handle, name).await
+impl Ops for Rtnl {
+    async fn exists(&self, name: &str) -> Result<bool> {
+        exists_by_name(&self.handle, name).await
     }
 
-    async fn get_link_index(&self, name: &str) -> Result<u32> {
+    async fn index(&self, name: &str) -> Result<u32> {
         Ok(find_by_name(&self.handle, name).await?.header.index)
     }
 
-    async fn ensure_link_up(&self, name: &str) -> Result<u32> {
-        ensure_link_up(&self.handle, name).await
+    async fn ensure_up(&self, name: &str) -> Result<u32> {
+        ensure_up_by_name(&self.handle, name).await
     }
 
-    async fn bring_link_up(&self, index: u32) -> Result<()> {
+    async fn bring_up(&self, index: u32) -> Result<()> {
         bring_up(&self.handle, index).await
     }
 
-    async fn bring_link_down(&self, index: u32) -> Result<()> {
+    async fn bring_down(&self, index: u32) -> Result<()> {
         bring_down(&self.handle, index).await
     }
 
-    async fn set_link_master(&self, slave_index: u32, master_index: u32) -> Result<()> {
+    async fn set_master(&self, slave_index: u32, master_index: u32) -> Result<()> {
         set_master(&self.handle, slave_index, master_index).await
     }
 
-    async fn delete_link(&self, index: u32) -> Result<()> {
+    async fn delete(&self, index: u32) -> Result<()> {
         delete(&self.handle, index).await
     }
 
-    async fn probe_interfaces_for_carrier(
+    async fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> HashMap<u32, bool> {
-        probe_interfaces_for_carrier(&self.handle, interfaces, timeout).await
+        probe_carriers_with_handle(&self.handle, interfaces, timeout).await
     }
 }
 
 /// Finds a link by name, returning its full message or an error if not found.
 pub(crate) async fn find_by_name(handle: &Handle, name: &str) -> Result<LinkMessage> {
-    let mut links = handle.link().get().match_name(name.to_string()).execute();
+    let mut links = handle.link().get().match_name(name.to_owned()).execute();
 
     links
         .try_next()
         .await
-        .map_err(Error::Query)?
-        .ok_or_else(|| Error::NotFound(name.to_string()))
+        .map_err(Failure::Query)?
+        .ok_or_else(|| Failure::NotFound(name.to_owned()))
 }
 
 /// Returns the kernel interface index for the named link.
@@ -147,38 +154,38 @@ pub(crate) async fn get_index(handle: &Handle, name: &str) -> Result<u32> {
 
 /// Checks whether a link with the given name exists.
 pub(crate) async fn exists(handle: &Handle, name: &str) -> Result<bool> {
-    let mut links = handle.link().get().match_name(name.to_string()).execute();
+    let mut links = handle.link().get().match_name(name.to_owned()).execute();
 
     match links.try_next().await {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
         Err(rtnetlink::Error::NetlinkError(ref msg))
-            if msg.code.is_some_and(|c| matches!(c.get(), -19 | -2)) =>
+            if msg.code.is_some_and(|code| matches!(code.get(), -19 | -2)) =>
         {
             Ok(false)
         }
-        Err(e) => Err(Error::Query(e)),
+        Err(error) => Err(Failure::Query(error)),
     }
 }
 
-/// Sets the IFF_UP flag on the link identified by index.
+/// Sets the `IFF_UP` flag on the link identified by index.
 pub(crate) async fn bring_up(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
         .set(LinkUnspec::new_with_index(index).up().build())
         .execute()
         .await
-        .map_err(Error::BringUp)
+        .map_err(Failure::BringUp)
 }
 
-/// Clears the IFF_UP flag on the link identified by index.
+/// Clears the `IFF_UP` flag on the link identified by index.
 pub(crate) async fn bring_down(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
         .set(LinkUnspec::new_with_index(index).down().build())
         .execute()
         .await
-        .map_err(Error::BringDown)
+        .map_err(Failure::BringDown)
 }
 
 /// Sets the master (bridge/bond) for a slave link.
@@ -192,7 +199,7 @@ pub(crate) async fn set_master(handle: &Handle, slave_index: u32, master_index: 
         )
         .execute()
         .await
-        .map_err(Error::SetMaster)
+        .map_err(Failure::SetMaster)
 }
 
 /// Deletes a network link by its index.
@@ -202,17 +209,15 @@ pub(crate) async fn delete(handle: &Handle, index: u32) -> Result<()> {
         .del(index)
         .execute()
         .await
-        .map_err(Error::Delete)
+        .map_err(Failure::Delete)
 }
 
 /// Extracts the 6-byte hardware address from a link message, if present.
 pub(crate) fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
-    for attr in &link.attributes {
-        if let LinkAttribute::Address(addr) = attr
-            && addr.len() == 6
+    for attr in link.attributes.iter().cloned() {
+        if let LinkAttribute::Address(address) = attr
+            && let Ok(mac) = <[u8; 6]>::try_from(address.as_slice())
         {
-            let mut mac = [0u8; 6];
-            mac.copy_from_slice(&addr[..6]);
             return Some(mac);
         }
     }
@@ -221,7 +226,7 @@ pub(crate) fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
 
 /// Extracts the interface name from a link message, if present.
 pub(crate) fn extract_name(link: &LinkMessage) -> Option<String> {
-    for attr in &link.attributes {
+    for attr in link.attributes.iter().cloned() {
         if let LinkAttribute::IfName(name) = attr {
             return Some(name.clone());
         }
@@ -229,25 +234,25 @@ pub(crate) fn extract_name(link: &LinkMessage) -> Option<String> {
     None
 }
 
-async fn link_exists(handle: &Handle, name: &str) -> Result<bool> {
-    let mut links = handle.link().get().match_name(name.to_string()).execute();
+async fn exists_by_name(handle: &Handle, name: &str) -> Result<bool> {
+    let mut links = handle.link().get().match_name(name.to_owned()).execute();
     match links.try_next().await {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
         Err(rtnetlink::Error::NetlinkError(ref msg))
-            if msg.code.is_some_and(|c| matches!(c.get(), -19 | -2)) =>
+            if msg.code.is_some_and(|code| matches!(code.get(), -19 | -2)) =>
         {
             Ok(false)
         }
-        Err(e) => Err(Error::Query(e)),
+        Err(error) => Err(Failure::Query(error)),
     }
 }
 
-async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
+async fn ensure_up_by_name(handle: &Handle, name: &str) -> Result<u32> {
     let link = find_by_name(handle, name).await?;
     let index = link.header.index;
     if !link.header.flags.contains(LinkFlags::Up) {
-        println!("Bringing up interface {} (index {})", name, index);
+        println!("Bringing up interface {name} (index {index})");
         bring_up(handle, index).await?;
     }
     Ok(index)
@@ -256,7 +261,7 @@ async fn ensure_link_up(handle: &Handle, name: &str) -> Result<u32> {
 async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool>> {
     let mut states = HashMap::new();
     let mut links = handle.link().get().execute();
-    while let Some(link) = links.try_next().await.map_err(Error::Query)? {
+    while let Some(link) = links.try_next().await.map_err(Failure::Query)? {
         states.insert(
             link.header.index,
             link.header.flags.contains(LinkFlags::LowerUp),
@@ -282,20 +287,20 @@ fn log_carrier_detections(
     states: &HashMap<u32, bool>,
     elapsed: Duration,
 ) {
-    for (idx, name) in interfaces {
-        if states.get(idx) == Some(&true) {
-            println!("Carrier detected on {} after {:?}", name, elapsed);
+    for &(index, name) in interfaces {
+        if states.get(&index) == Some(&true) {
+            println!("Carrier detected on {name} after {elapsed:?}");
         }
     }
 }
 
-async fn probe_interfaces_for_carrier(
+async fn probe_carriers_with_handle(
     handle: &Handle,
     interfaces: &[(u32, &str)],
     timeout: Duration,
 ) -> HashMap<u32, bool> {
-    let indices: Vec<u32> = interfaces.iter().map(|(idx, _)| *idx).collect();
-    let names: Vec<&str> = interfaces.iter().map(|(_, name)| *name).collect();
+    let indices: Vec<u32> = interfaces.iter().map(|&(index, _)| index).collect();
+    let names: Vec<&str> = interfaces.iter().map(|&(_, name)| name).collect();
 
     println!(
         "Probing {} interfaces for carrier (timeout: {:?}): {:?}",
@@ -305,17 +310,17 @@ async fn probe_interfaces_for_carrier(
     );
 
     let (conn, sub_handle, mut messages) =
-        match rtnetlink::new_multicast_connection(&[rtnetlink::MulticastGroup::Link]) {
-            Ok(t) => t,
-            Err(e) => {
-                println!("Failed to open netlink subscription: {}", e);
+        match rtnetlink::new_multicast_connection(&[MulticastGroup::Link]) {
+            Ok(connection_parts) => connection_parts,
+            Err(error) => {
+                println!("Failed to open netlink subscription: {error}");
                 return indices.iter().map(|idx| (*idx, false)).collect();
             }
         };
     tokio::spawn(conn);
 
     for &index in &indices {
-        let _ = bring_up(handle, index).await;
+        let _ignored_result: Result<()> = bring_up(handle, index).await;
     }
 
     let mut states: HashMap<u32, bool> = indices.iter().map(|&idx| (idx, false)).collect();
@@ -324,27 +329,27 @@ async fn probe_interfaces_for_carrier(
         seed_carrier_states(&mut states, &indices, &initial);
     }
 
-    if states.values().any(|&c| c) {
+    if states.values().any(|&carrier_present| carrier_present) {
         log_carrier_detections(interfaces, &states, Duration::ZERO);
         return states;
     }
 
-    let deadline = tokio::time::Instant::now() + timeout;
+    let Some(deadline) = Instant::now().checked_add(timeout) else {
+        return states;
+    };
 
     loop {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
 
-        let next = tokio::time::timeout(remaining, messages.next());
+        let next = timeout_after(remaining, messages.next());
         let Ok(Some((message, _))) = next.await else {
             break;
         };
 
-        let rtnetlink::packet_core::NetlinkPayload::InnerMessage(
-            rtnetlink::packet_route::RouteNetlinkMessage::NewLink(link_msg),
-        ) = message.payload
+        let NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(link_msg)) = message.payload
         else {
             continue;
         };
@@ -355,14 +360,14 @@ async fn probe_interfaces_for_carrier(
         }
 
         states.insert(idx, true);
-        log_carrier_detections(interfaces, &states, timeout - remaining);
-        if states.values().all(|&c| c) {
+        log_carrier_detections(interfaces, &states, timeout.saturating_sub(remaining));
+        if states.values().all(|&carrier_present| carrier_present) {
             return states;
         }
     }
 
-    if !states.values().any(|&c| c) {
-        println!("No carrier detected on any interface after {:?}", timeout);
+    if !states.values().any(|&carrier_present| carrier_present) {
+        println!("No carrier detected on any interface after {timeout:?}");
     }
 
     states
@@ -370,7 +375,21 @@ async fn probe_interfaces_for_carrier(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use rtnetlink::packet_route::link::{LinkAttribute, LinkMessage};
+
+    use super::{
+        State as LinkStateKind, extract_mac, extract_name, log_carrier_detections,
+        seed_carrier_states,
+    };
+
+    fn link_with_attributes(attributes: Vec<LinkAttribute>) -> LinkMessage {
+        let mut link = LinkMessage::default();
+        link.attributes = attributes;
+        link
+    }
 
     #[test]
     fn link_state_kind_has_carrier_up() {
@@ -414,5 +433,79 @@ mod tests {
         assert_eq!(LinkStateKind::Up, LinkStateKind::Up);
         assert_ne!(LinkStateKind::Up, LinkStateKind::Down);
         assert_ne!(LinkStateKind::NoCarrier, LinkStateKind::Down);
+    }
+
+    #[test]
+    fn extract_mac_returns_six_byte_address() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::Address(vec![1, 2, 3, 4, 5, 6])]);
+
+        // ACT
+        let mac = extract_mac(&link);
+
+        // ASSERT
+        assert_eq!(mac, Some([1, 2, 3, 4, 5, 6]));
+    }
+
+    #[test]
+    fn extract_mac_ignores_invalid_address_length() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::Address(vec![1, 2, 3])]);
+
+        // ACT
+        let mac = extract_mac(&link);
+
+        // ASSERT
+        assert!(mac.is_none());
+    }
+
+    #[test]
+    fn extract_name_returns_interface_name() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::IfName("eth0".to_owned())]);
+
+        // ACT
+        let name = extract_name(&link);
+
+        // ASSERT
+        assert_eq!(name.as_deref(), Some("eth0"));
+    }
+
+    #[test]
+    fn extract_name_returns_none_when_missing() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::Address(vec![1, 2, 3, 4, 5, 6])]);
+
+        // ACT
+        let name = extract_name(&link);
+
+        // ASSERT
+        assert!(name.is_none());
+    }
+
+    #[test]
+    fn seed_carrier_states_marks_only_requested_carriers() {
+        // ARRANGE
+        let mut states = HashMap::new();
+        let initial = HashMap::from([(1, true), (2, false), (3, true)]);
+
+        // ACT
+        seed_carrier_states(&mut states, &[1, 2], &initial);
+
+        // ASSERT
+        assert_eq!(states, HashMap::from([(1, true)]));
+    }
+
+    #[test]
+    fn log_carrier_detections_accepts_absent_states() {
+        // ARRANGE
+        let interfaces = [(1, "eth0"), (2, "eth1")];
+        let states = HashMap::from([(1, true)]);
+
+        // ACT
+        log_carrier_detections(&interfaces, &states, Duration::ZERO);
+
+        // ASSERT
+        assert_eq!(states.get(&1), Some(&true));
     }
 }

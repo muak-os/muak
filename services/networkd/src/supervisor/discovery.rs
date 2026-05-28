@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use netlib::interface::{Interface, InterfaceSelector};
-use netlib::link::LinkStateKind;
-use netlib::ops::NetlinkOps;
+use netlib::interface::{Ethernet, Selector};
+use netlib::link::State;
+use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
 use crate::interface::snapshot::InterfaceSnapshot;
@@ -15,7 +15,7 @@ use crate::supervisor::state::NetworkState;
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
+impl<N: Ops> NetworkSupervisor<N> {
     pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
         kmsg::info!("Discovering ethernet interfaces");
         self.state.transition(NetworkState::Initializing)?;
@@ -61,7 +61,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
     async fn probe_all_for_carrier(
         &self,
-        interfaces: &[Interface],
+        interfaces: &[Ethernet],
         timeout: Duration,
     ) -> std::collections::HashMap<u32, bool> {
         let pairs: Vec<(u32, &str)> = interfaces
@@ -69,10 +69,10 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             .map(|i| (i.index, i.name.as_str()))
             .collect();
 
-        self.ops.probe_interfaces_for_carrier(&pairs, timeout).await
+        self.ops.probe_carriers(&pairs, timeout).await
     }
 
-    fn spawn_interface_actors(&mut self, discovered: &[Interface]) {
+    fn spawn_interface_actors(&mut self, discovered: &[Ethernet]) {
         for iface in discovered {
             let snapshot = InterfaceSnapshot {
                 name: iface.name.clone(),
@@ -90,13 +90,13 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    fn select_primary_interface(&mut self, discovered: &[Interface]) -> Result<()> {
-        let primary = InterfaceSelector::select_primary(discovered)
+    fn select_primary_interface(&mut self, discovered: &[Ethernet]) -> Result<()> {
+        let primary = Selector::select_primary(discovered)
             .ok_or_else(|| anyhow::anyhow!("select_primary_interface called with empty list"))?;
 
         self.state.primary = Some(primary.name.clone());
 
-        let backups = InterfaceSelector::select_backups(discovered, &primary.name);
+        let backups = Selector::select_backups(discovered, &primary.name);
         self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
         kmsg::info!(
@@ -110,11 +110,11 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     }
 }
 
-fn carrier_link_state(has_carrier: Option<&bool>) -> LinkStateKind {
+fn carrier_link_state(has_carrier: Option<&bool>) -> State {
     if has_carrier == Some(&true) {
-        LinkStateKind::Up
+        State::Up
     } else {
-        LinkStateKind::NoCarrier
+        State::NoCarrier
     }
 }
 
@@ -125,18 +125,18 @@ mod tests {
     #[test]
     fn carrier_link_state_true_returns_up() {
         // ACT / ASSERT
-        assert_eq!(carrier_link_state(Some(&true)), LinkStateKind::Up);
+        assert_eq!(carrier_link_state(Some(&true)), State::Up);
     }
 
     #[test]
     fn carrier_link_state_false_returns_no_carrier() {
         // ACT / ASSERT
-        assert_eq!(carrier_link_state(Some(&false)), LinkStateKind::NoCarrier);
+        assert_eq!(carrier_link_state(Some(&false)), State::NoCarrier);
     }
 
     #[test]
     fn carrier_link_state_none_returns_no_carrier() {
         // ACT / ASSERT
-        assert_eq!(carrier_link_state(None), LinkStateKind::NoCarrier);
+        assert_eq!(carrier_link_state(None), State::NoCarrier);
     }
 }

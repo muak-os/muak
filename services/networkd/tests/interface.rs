@@ -1,19 +1,16 @@
 //! Integration tests for the per-interface actor.
 
-#[path = "interface/actor.rs"]
-mod actor;
-#[path = "interface/bridge.rs"]
-mod bridge;
-#[path = "interface/dhcp.rs"]
-mod dhcp;
-#[path = "interface/link.rs"]
-mod link;
-#[path = "interface/reconcile.rs"]
-mod reconcile;
-#[path = "interface/slaac.rs"]
-mod slaac;
-#[path = "interface/static.rs"]
-mod r#static;
+mod interface {
+    pub(super) use super::*;
+
+    mod actor;
+    mod bridge;
+    mod dhcp;
+    mod link;
+    mod reconcile;
+    mod slaac;
+    mod r#static;
+}
 
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -22,10 +19,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use anyhow::Result;
-use netlib::interface::{Interface, InterfaceName};
-use netlib::link::LinkStateKind;
-use netlib::ops::{AddressOps, BridgeOps, InterfaceOps, LinkOps, NetlinkOps, RouteOps};
-use netlib::packet::PacketSocket;
+use netlib::interface::{Ethernet, Name};
+use netlib::link::{Failure, State};
+use netlib::packet::Socket;
 use networkd::dhcp::DhcpConnector;
 use networkd::interface::snapshot::InterfaceSnapshot;
 use networkd::interface::state::InterfaceState;
@@ -35,14 +31,14 @@ use networkd::interface::{InterfaceActor, InterfaceCommand};
 struct MockDhcpConnector;
 
 impl DhcpConnector for MockDhcpConnector {
-    async fn create_raw(&self, _interface: &str) -> Result<PacketSocket> {
+    async fn create_raw(&self, _interface: &str) -> Result<Socket> {
         let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
         let std_udp = udp.into_std()?;
         std_udp.set_nonblocking(true)?;
         let raw = std_udp.into_raw_fd();
         // SAFETY: raw is an owned fd from std::net::UdpSocket
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-        Ok(PacketSocket::from_fd(fd, 0)?)
+        Ok(Socket::from_fd(fd, 0)?)
     }
 
     async fn create_unicast(
@@ -78,7 +74,7 @@ struct MockLink {
     master_index: Option<u32>,
 }
 
-/// In-memory implementation of `NetlinkOps` for deterministic testing.
+/// In-memory implementation of `netlib::netlink::Ops` for deterministic testing.
 #[derive(Clone, Debug)]
 pub struct MockNetlinkOps {
     state: Arc<Mutex<MockInner>>,
@@ -145,63 +141,55 @@ impl MockNetlinkOps {
     }
 }
 
-fn link_state_kind(up: bool) -> LinkStateKind {
-    if up {
-        LinkStateKind::Up
-    } else {
-        LinkStateKind::Down
-    }
+fn link_state_kind(up: bool) -> State {
+    if up { State::Up } else { State::Down }
 }
 
-impl LinkOps for MockNetlinkOps {
-    async fn link_exists(&self, name: &str) -> netlib::link::Result<bool> {
+impl netlib::link::Ops for MockNetlinkOps {
+    async fn exists(&self, name: &str) -> netlib::link::Result<bool> {
         Ok(self.lock().links.contains_key(name))
     }
 
-    async fn get_link_index(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn index(&self, name: &str) -> netlib::link::Result<u32> {
         self.lock()
             .links
             .get(name)
             .map(|l| l.index)
-            .ok_or_else(|| netlib::link::Error::NotFound(name.to_string()))
+            .ok_or_else(|| Failure::NotFound(name.to_string()))
     }
 
-    async fn ensure_link_up(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn ensure_up(&self, name: &str) -> netlib::link::Result<u32> {
         let mut s = self.lock();
         let link = s
             .links
             .get_mut(name)
-            .ok_or_else(|| netlib::link::Error::NotFound(name.to_string()))?;
+            .ok_or_else(|| Failure::NotFound(name.to_string()))?;
         link.up = true;
         Ok(link.index)
     }
 
-    async fn bring_link_up(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_up(&self, index: u32) -> netlib::link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = true;
         }
         Ok(())
     }
 
-    async fn bring_link_down(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_down(&self, index: u32) -> netlib::link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = false;
         }
         Ok(())
     }
 
-    async fn set_link_master(
-        &self,
-        slave_index: u32,
-        master_index: u32,
-    ) -> netlib::link::Result<()> {
+    async fn set_master(&self, slave_index: u32, master_index: u32) -> netlib::link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(slave_index) {
             link.master_index = Some(master_index);
         }
         Ok(())
     }
 
-    async fn delete_link(&self, index: u32) -> netlib::link::Result<()> {
+    async fn delete(&self, index: u32) -> netlib::link::Result<()> {
         let mut s = self.lock();
         s.links.retain(|_, l| l.index != index);
         s.ipv4_addrs.remove(&index);
@@ -209,7 +197,7 @@ impl LinkOps for MockNetlinkOps {
         Ok(())
     }
 
-    async fn probe_interfaces_for_carrier(
+    async fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         _timeout: Duration,
@@ -222,7 +210,7 @@ impl LinkOps for MockNetlinkOps {
     }
 }
 
-impl AddressOps for MockNetlinkOps {
+impl netlib::address::Ops for MockNetlinkOps {
     async fn ensure_ipv4(
         &self,
         index: u32,
@@ -286,7 +274,7 @@ impl AddressOps for MockNetlinkOps {
     }
 }
 
-impl RouteOps for MockNetlinkOps {
+impl netlib::route::Ops for MockNetlinkOps {
     async fn ensure_default_route(&self, gateway: Ipv4Addr) -> netlib::route::Result<()> {
         self.lock().default_routes_v4.insert(gateway);
         Ok(())
@@ -303,7 +291,7 @@ impl RouteOps for MockNetlinkOps {
     }
 }
 
-impl BridgeOps for MockNetlinkOps {
+impl netlib::bridge::Ops for MockNetlinkOps {
     async fn ensure_bridge(
         &self,
         bridge_name: &str,
@@ -344,13 +332,13 @@ impl BridgeOps for MockNetlinkOps {
     }
 }
 
-impl InterfaceOps for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Interface>> {
+impl netlib::interface::Ops for MockNetlinkOps {
+    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Ethernet>> {
         let s = self.lock();
         let mut out = Vec::with_capacity(s.links.len());
         for (name, link) in &s.links {
-            out.push(Interface::new(
-                InterfaceName::new(name.clone())?,
+            out.push(Ethernet::new(
+                Name::new(name.clone())?,
                 link.index,
                 link.mac,
                 link_state_kind(link.up),
@@ -360,7 +348,7 @@ impl InterfaceOps for MockNetlinkOps {
     }
 }
 
-impl NetlinkOps for MockNetlinkOps {}
+impl netlib::netlink::Ops for MockNetlinkOps {}
 
 fn make_config() -> Arc<config::NetworkConfig> {
     Arc::new(config::NetworkConfig::default())
@@ -368,16 +356,16 @@ fn make_config() -> Arc<config::NetworkConfig> {
 
 fn make_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSnapshot {
     InterfaceSnapshot {
-        name: InterfaceName::new(name).expect("valid name"),
+        name: Name::new(name).expect("valid name"),
         state: InterfaceState::Discovered,
         index,
         mac,
-        link: LinkStateKind::Up,
+        link: State::Up,
         ip: None,
         lease: None,
         dhcp_state: None,
         ipv6: None,
-        l3_owner: InterfaceName::new(name).expect("valid name"),
+        l3_owner: Name::new(name).expect("valid name"),
     }
 }
 

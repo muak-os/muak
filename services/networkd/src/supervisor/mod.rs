@@ -16,9 +16,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use commands::SupervisorCommand;
-use netlib::interface::InterfaceName;
-use netlib::monitor::{self, NetworkEvent};
-use netlib::ops::{NetlinkOps, RtnetlinkOps};
+use netlib::interface::Name;
+use netlib::monitor::{self, Event};
+use netlib::netlink::{Ops, Rtnl};
 use tokio::sync::{mpsc, oneshot, watch};
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
@@ -29,16 +29,16 @@ use crate::interface::{InterfaceActor, InterfaceActorHandle, InterfaceCommand};
 use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
-struct NetworkSupervisor<N: NetlinkOps> {
+struct NetworkSupervisor<N: Ops> {
     ops: N,
     config: Arc<config::NetworkConfig>,
     state: NetworkSnapshot,
-    interfaces: HashMap<InterfaceName, InterfaceActorHandle>,
+    interfaces: HashMap<Name, InterfaceActorHandle>,
     watch_tx: watch::Sender<NetworkSnapshot>,
     dns: DnsState,
 }
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
+impl<N: Ops> NetworkSupervisor<N> {
     fn new(
         ops: N,
         config: Arc<config::NetworkConfig>,
@@ -108,7 +108,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    fn get_primary_name(&self) -> Result<InterfaceName> {
+    fn get_primary_name(&self) -> Result<Name> {
         self.state
             .primary
             .clone()
@@ -122,7 +122,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         self.interfaces.insert(name, actor_handle);
     }
 
-    async fn send_to_interface(&self, name: &InterfaceName, cmd: InterfaceCommand) {
+    async fn send_to_interface(&self, name: &Name, cmd: InterfaceCommand) {
         if let Some(handle) = self.interfaces.get(name) {
             let _ = handle.cmd_tx.send(cmd).await;
         }
@@ -234,17 +234,17 @@ pub async fn start() -> Result<NetworkActorHandle> {
     let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
-    let ops = RtnetlinkOps::new(handle.clone());
-    let event_rx = start_events_monitor().await;
+    let ops = Rtnl::new(handle.clone());
+    let event_rx = start_events_monitor();
     let config = Arc::new(config::network().clone());
 
     start_with(ops, event_rx, config, DnsState::default())
 }
 
 /// Starts the supervisor with injected dependencies.
-pub fn start_with<N: NetlinkOps>(
+pub fn start_with<N: Ops>(
     ops: N,
-    event_rx: Option<mpsc::Receiver<NetworkEvent>>,
+    event_rx: Option<mpsc::Receiver<Event>>,
     config: Arc<config::NetworkConfig>,
     dns: DnsState,
 ) -> Result<NetworkActorHandle> {
@@ -256,9 +256,9 @@ pub fn start_with<N: NetlinkOps>(
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
 
-async fn start_events_monitor() -> Option<mpsc::Receiver<NetworkEvent>> {
-    let config = monitor::MonitorConfig::default();
-    match monitor::start(config).await {
+fn start_events_monitor() -> Option<mpsc::Receiver<Event>> {
+    let config = monitor::Config::default();
+    match monitor::start(config) {
         Ok(rx) => {
             println!("Network event monitoring enabled");
             Some(rx)
@@ -270,10 +270,10 @@ async fn start_events_monitor() -> Option<mpsc::Receiver<NetworkEvent>> {
     }
 }
 
-fn run<N: NetlinkOps>(
+fn run<N: Ops>(
     ops: N,
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
-    mut event_rx: Option<mpsc::Receiver<NetworkEvent>>,
+    mut event_rx: Option<mpsc::Receiver<Event>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<config::NetworkConfig>,
     dns: DnsState,

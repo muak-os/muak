@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use netlib::packet::PacketSocket;
+use netlib::packet::Socket;
 
 use super::DhcpLease;
 use super::client::{self, DhcpConnector};
@@ -13,7 +13,7 @@ const RETRY_MAX: Duration = Duration::from_secs(120);
 
 /// Drives the full DORA exchange with exponential-backoff retries until a lease is acquired.
 pub struct DhcpManager {
-    socket: PacketSocket,
+    socket: Socket,
     mac: [u8; 6],
     delay: Duration,
 }
@@ -34,7 +34,7 @@ impl DhcpManager {
     }
 
     /// Returns a reference to the underlying raw socket for reuse in rebind operations.
-    pub fn socket(&self) -> &PacketSocket {
+    pub fn socket(&self) -> &Socket {
         &self.socket
     }
 

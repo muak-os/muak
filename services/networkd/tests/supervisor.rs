@@ -1,25 +1,24 @@
 //! Integration tests for the network supervisor.
 
-#[path = "supervisor/discovery.rs"]
-mod discovery;
-#[path = "supervisor/dispatch.rs"]
-mod dispatch;
-#[path = "supervisor/dns.rs"]
-mod dns;
-#[path = "supervisor/failover.rs"]
-mod failover;
+mod supervisor {
+    pub(super) use networkd::supervisor;
+
+    pub(super) use super::*;
+
+    mod discovery;
+    mod dispatch;
+    mod dns;
+    mod failover;
+    mod lifecycle;
+    mod provision;
+    mod reconcile;
+}
+
 mod fixtures;
-#[path = "supervisor/lifecycle.rs"]
-mod lifecycle;
-#[path = "supervisor/provision.rs"]
-mod provision;
-#[path = "supervisor/reconcile.rs"]
-mod reconcile;
 
 use std::sync::Arc;
 
-use netlib::address::AddressOps;
-use networkd::supervisor;
+use netlib::address::Ops;
 
 use self::fixtures::netlink::MockNetlinkOps;
 

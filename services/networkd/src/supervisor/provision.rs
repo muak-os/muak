@@ -6,8 +6,8 @@ use anyhow::Result;
 use config::{
     BridgeConfig, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
 };
-use netlib::interface::InterfaceName;
-use netlib::ops::NetlinkOps;
+use netlib::interface::Name;
+use netlib::netlink::Ops;
 use tokio::sync::oneshot;
 
 use super::NetworkSupervisor;
@@ -16,7 +16,7 @@ use crate::interface::InterfaceCommand;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
+impl<N: Ops> NetworkSupervisor<N> {
     pub(super) async fn provision_interfaces(&mut self) {
         let interfaces = self.config.interfaces.clone();
         for iface_cfg in &interfaces {
@@ -50,12 +50,12 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
     }
 
     /// Resolves a configured interface name, expanding the `auto` alias.
-    pub(super) fn resolve_interface_name(&self, name: &str) -> Result<InterfaceName> {
+    pub(super) fn resolve_interface_name(&self, name: &str) -> Result<Name> {
         let primary = self.get_primary_name()?;
         if name == "auto" {
             Ok(primary)
         } else {
-            InterfaceName::new(name).map_err(Into::into)
+            Name::new(name).map_err(Into::into)
         }
     }
 
@@ -73,7 +73,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             .ok_or_else(|| anyhow::anyhow!("ethernet interface '{}' not found", iface_name))?;
 
         kmsg::info!("Configuring ethernet interface: {}", iface_name);
-        let index = self.ops.ensure_link_up(iface_name.as_str()).await?;
+        let index = self.ops.ensure_up(iface_name.as_str()).await?;
 
         match ipv4_cfg {
             Some(ipv4) if ipv4.dhcp => {
@@ -109,7 +109,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
 
     async fn provision_ipv6(
         &self,
-        iface_name: &InterfaceName,
+        iface_name: &Name,
         index: u32,
         ipv6: &Ipv6InterfaceConfig,
     ) -> Result<()> {
@@ -177,12 +177,12 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         &self,
         bridge_cfg: &BridgeConfig,
     ) -> Result<(
-        InterfaceName,
+        Name,
         tokio::sync::watch::Receiver<std::sync::Arc<InterfaceSnapshot>>,
     )> {
         let primary = self.get_primary_name()?;
         let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
-        let port_iface_name = InterfaceName::new(&*port_name)?;
+        let port_iface_name = Name::new(&*port_name)?;
         let actor_handle = self
             .interfaces
             .get(&port_iface_name)
@@ -214,7 +214,7 @@ async fn wait_for_configured(
     }
 }
 
-fn resolve_bridge_port<'a>(ports: &'a [String], primary: &'a InterfaceName) -> Cow<'a, str> {
+fn resolve_bridge_port<'a>(ports: &'a [String], primary: &'a Name) -> Cow<'a, str> {
     if ports.len() > 1 {
         kmsg::warn!(
             "bridge.port has {} entries; only the first is used \

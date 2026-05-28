@@ -1,7 +1,6 @@
-//! ICMPv6 packet construction and parsing for stateless address autoconfiguration (RFC 4861).
+//! `ICMPv6` packet construction and parsing for stateless address autoconfiguration (RFC 4861).
 
-use std::array::TryFromSliceError;
-use std::net::Ipv6Addr;
+use core::net::Ipv6Addr;
 
 use thiserror::Error;
 
@@ -11,6 +10,14 @@ pub const ICMPV6_ROUTER_ADVERTISEMENT: u8 = 134;
 const ND_OPT_SOURCE_LL_ADDR: u8 = 1;
 const ND_OPT_PREFIX_INFO: u8 = 3;
 const ND_OPT_RDNSS: u8 = 25;
+
+const RA_HEADER_LEN: usize = 16;
+const OPTION_HEADER_LEN: usize = 2;
+const OPTION_UNIT_LEN: usize = 8;
+const PREFIX_OPTION_LEN: usize = 32;
+const RDNSS_OPTION_MIN_LEN: usize = 24;
+const RDNSS_ADDRESS_OFFSET: usize = 8;
+const IPV6_ADDR_LEN: usize = 16;
 
 #[derive(Debug, Clone)]
 pub struct PrefixInfo {
@@ -34,18 +41,17 @@ pub struct RouterAdvertisement {
 }
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("RA too short: {0} bytes")]
     TooShort(usize),
     #[error("not a Router Advertisement: type={0}")]
     WrongType(u8),
-    #[error("malformed address field in RA option: {0}")]
-    MalformedAddress(#[from] TryFromSliceError),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
-/// Constructs an ICMPv6 Router Solicitation packet with a source link-layer address option.
+/// Constructs an `ICMPv6` Router Solicitation packet with a source link-layer address option.
+#[must_use]
 pub fn build_router_solicitation(mac: &[u8; 6]) -> Vec<u8> {
     let mut pkt = Vec::with_capacity(16);
 
@@ -62,21 +68,27 @@ pub fn build_router_solicitation(mac: &[u8; 6]) -> Vec<u8> {
     pkt
 }
 
-/// Parses a raw ICMPv6 Router Advertisement into structured prefix, DNS and flag data.
+/// Parses a raw `ICMPv6` Router Advertisement into structured prefix, DNS and flag data.
+///
+/// # Errors
+///
+/// Returns [`Failure::TooShort`] when the packet is shorter than the RA header and
+/// [`Failure::WrongType`] when the packet is not a Router Advertisement.
 pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<RouterAdvertisement> {
-    if data.len() < 16 {
-        return Err(Error::TooShort(data.len()));
+    if data.len() < RA_HEADER_LEN {
+        return Err(Failure::TooShort(data.len()));
     }
 
-    if data[0] != ICMPV6_ROUTER_ADVERTISEMENT {
-        return Err(Error::WrongType(data[0]));
+    let packet_type = read_u8(data, 0).ok_or(Failure::TooShort(data.len()))?;
+    if packet_type != ICMPV6_ROUTER_ADVERTISEMENT {
+        return Err(Failure::WrongType(packet_type));
     }
 
-    let hop_limit = data[4];
-    let flags = data[5];
+    let hop_limit = read_u8(data, 4).ok_or(Failure::TooShort(data.len()))?;
+    let flags = read_u8(data, 5).ok_or(Failure::TooShort(data.len()))?;
     let managed_flag = (flags & 0x80) != 0;
     let other_flag = (flags & 0x40) != 0;
-    let router_lifetime = u16::from_be_bytes([data[6], data[7]]);
+    let router_lifetime = read_u16(data, 6).ok_or(Failure::TooShort(data.len()))?;
 
     let mut ra = RouterAdvertisement {
         hop_limit,
@@ -89,77 +101,102 @@ pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<Route
         dns_lifetime: 0,
     };
 
-    let mut pos = 16;
-    while pos + 2 <= data.len() {
-        let opt_type = data[pos];
-        let opt_len_units = data[pos + 1] as usize;
-        if opt_len_units == 0 {
-            break;
-        }
-        let opt_len = opt_len_units * 8;
-        if pos + opt_len > data.len() {
-            break;
-        }
+    let Some(mut options) = data.get(RA_HEADER_LEN..) else {
+        return Ok(ra);
+    };
 
+    while let Some((opt_type, option, remaining)) = split_option(options) {
         match opt_type {
-            ND_OPT_PREFIX_INFO if opt_len >= 32 => {
-                let prefix_len = data[pos + 2];
-                let flags = data[pos + 3];
-                let autonomous = (flags & 0x40) != 0;
-                let valid_lifetime = u32::from_be_bytes([
-                    data[pos + 4],
-                    data[pos + 5],
-                    data[pos + 6],
-                    data[pos + 7],
-                ]);
-                let preferred_lifetime = u32::from_be_bytes([
-                    data[pos + 8],
-                    data[pos + 9],
-                    data[pos + 10],
-                    data[pos + 11],
-                ]);
-                let prefix_bytes: [u8; 16] = data[pos + 16..pos + 32].try_into()?;
-                let prefix = Ipv6Addr::from(prefix_bytes);
-
-                ra.prefixes.push(PrefixInfo {
-                    prefix,
-                    prefix_len,
-                    autonomous,
-                    valid_lifetime,
-                    preferred_lifetime,
-                });
+            ND_OPT_PREFIX_INFO => {
+                push_prefix_option(option, &mut ra.prefixes);
             }
-            ND_OPT_RDNSS if opt_len >= 24 => {
-                ra.dns_lifetime = u32::from_be_bytes([
-                    data[pos + 4],
-                    data[pos + 5],
-                    data[pos + 6],
-                    data[pos + 7],
-                ]);
-                parse_rdnss_addresses(data, pos, opt_len, &mut ra.dns_servers)?;
-            }
-            _ => {}
+            ND_OPT_RDNSS => parse_rdnss_option(option, &mut ra),
+            _other => {}
         }
 
-        pos += opt_len;
+        options = remaining;
     }
 
     Ok(ra)
 }
 
-fn parse_rdnss_addresses(
-    data: &[u8],
-    pos: usize,
-    opt_len: usize,
-    servers: &mut Vec<Ipv6Addr>,
-) -> Result<()> {
-    let addr_count = (opt_len - 8) / 16;
-    for i in 0..addr_count {
-        let start = pos + 8 + i * 16;
-        let addr_bytes: [u8; 16] = data[start..start + 16].try_into()?;
-        servers.push(Ipv6Addr::from(addr_bytes));
+fn split_option(data: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let header = data.get(..OPTION_HEADER_LEN)?;
+    let opt_type = read_u8(header, 0)?;
+    let opt_len_units = usize::from(read_u8(header, 1)?);
+    if opt_len_units == 0 {
+        return None;
     }
-    Ok(())
+
+    let opt_len = opt_len_units.checked_mul(OPTION_UNIT_LEN)?;
+    let option = data.get(..opt_len)?;
+    let remaining = data.get(opt_len..)?;
+
+    Some((opt_type, option, remaining))
+}
+
+fn parse_prefix_option(option: &[u8]) -> Option<PrefixInfo> {
+    if option.len() < PREFIX_OPTION_LEN {
+        return None;
+    }
+
+    let prefix_len = read_u8(option, 2)?;
+    let flags = read_u8(option, 3)?;
+    let prefix = Ipv6Addr::from(read_array::<IPV6_ADDR_LEN>(option, 16)?);
+
+    Some(PrefixInfo {
+        prefix,
+        prefix_len,
+        autonomous: (flags & 0x40) != 0,
+        valid_lifetime: read_u32(option, 4)?,
+        preferred_lifetime: read_u32(option, 8)?,
+    })
+}
+
+fn push_prefix_option(option: &[u8], prefixes: &mut Vec<PrefixInfo>) {
+    if let Some(prefix) = parse_prefix_option(option) {
+        prefixes.push(prefix);
+    }
+}
+
+fn parse_rdnss_option(option: &[u8], ra: &mut RouterAdvertisement) {
+    if option.len() < RDNSS_OPTION_MIN_LEN {
+        return;
+    }
+
+    let Some(lifetime) = read_u32(option, 4) else {
+        return;
+    };
+    let Some(addresses) = option.get(RDNSS_ADDRESS_OFFSET..) else {
+        return;
+    };
+
+    ra.dns_lifetime = lifetime;
+    for address in addresses.chunks_exact(IPV6_ADDR_LEN) {
+        let mut bytes = [0_u8; IPV6_ADDR_LEN];
+        bytes.copy_from_slice(address);
+        ra.dns_servers.push(Ipv6Addr::from(bytes));
+    }
+}
+
+fn read_u8(data: &[u8], offset: usize) -> Option<u8> {
+    data.get(offset).copied()
+}
+
+fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(read_array::<2>(data, offset)?))
+}
+
+fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(read_array::<4>(data, offset)?))
+}
+
+fn read_array<const N: usize>(data: &[u8], offset: usize) -> Option<[u8; N]> {
+    let end = offset.checked_add(N)?;
+    let slice = data.get(offset..end)?;
+    let mut bytes = [0_u8; N];
+    bytes.copy_from_slice(slice);
+    Some(bytes)
 }
 
 #[cfg(test)]

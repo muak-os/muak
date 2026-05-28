@@ -4,13 +4,13 @@ use std::net::Ipv6Addr;
 use std::sync::Arc;
 
 use netlib::address::Ipv6Config;
-use netlib::ops::NetlinkOps;
+use netlib::netlink::Ops;
 
 use super::InterfaceActor;
 use crate::interface::ApplyMode;
 use crate::slaac::{SlaacEvent, SlaacManager};
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Applies SLAAC configuration in the selected mode.
     pub(super) async fn apply_slaac(&mut self, mode: ApplyMode) {
         match mode {

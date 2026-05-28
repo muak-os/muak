@@ -1,32 +1,33 @@
 //! Abstraction over netlink operations.
 //!
-//! [`NetlinkOps`] is a supertrait composed of per-domain sub-traits defined
-//! alongside their respective modules. [`RtnetlinkOps`] is the production
+//! [`Ops`] is a supertrait composed of per-domain sub-traits defined
+//! alongside their respective modules. [`Rtnl`] is the production
 //! implementation backed by a live `rtnetlink::Handle`.
 
-pub use crate::address::AddressOps;
-pub use crate::bridge::BridgeOps;
-pub use crate::interface::InterfaceOps;
-pub use crate::link::LinkOps;
-pub use crate::route::RouteOps;
+use crate::address::Ops as AddressOps;
+use crate::bridge::Ops as BridgeOps;
+use crate::interface::Ops as InterfaceOps;
+use crate::link::Ops as LinkOps;
+use crate::route::Ops as RouteOps;
 
 /// Unified trait encapsulating all netlink I/O used by the network daemon.
-pub trait NetlinkOps:
+pub trait Ops:
     LinkOps + AddressOps + RouteOps + BridgeOps + InterfaceOps + Clone + Send + Sync + 'static
 {
 }
 
 /// Production implementation backed by `rtnetlink::Handle`.
 #[derive(Clone)]
-pub struct RtnetlinkOps {
+pub struct Rtnl {
     pub(crate) handle: rtnetlink::Handle,
 }
 
-impl RtnetlinkOps {
+impl Rtnl {
     /// Wraps an existing rtnetlink handle.
+    #[must_use]
     pub fn new(handle: rtnetlink::Handle) -> Self {
         Self { handle }
     }
 }
 
-impl NetlinkOps for RtnetlinkOps {}
+impl Ops for Rtnl {}

@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use netlib::interface::InterfaceName;
-use netlib::monitor::NetworkEvent;
+use netlib::interface::Name;
+use netlib::monitor::Event;
 
 use super::*;
 
@@ -28,9 +28,9 @@ async fn primary_link_down_triggers_failover_handling() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDown { name, index: idx0 })
+        .send(Event::Down { name, index: idx0 })
         .await
         .expect("send event failed");
 
@@ -60,11 +60,11 @@ async fn primary_link_down_then_up_triggers_recovery() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkDown {
+        .send(Event::Down {
             name: name.clone(),
             index: idx0,
         })
@@ -74,7 +74,7 @@ async fn primary_link_down_then_up_triggers_recovery() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     event_tx
-        .send(NetworkEvent::LinkUp { name, index: idx0 })
+        .send(Event::Up { name, index: idx0 })
         .await
         .expect("send event failed");
 
@@ -104,11 +104,11 @@ async fn backup_link_recovery_triggers_promotion() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let backup_name = InterfaceName::new("eth1").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkUp {
+        .send(Event::Up {
             name: backup_name,
             index: idx1,
         })
@@ -141,11 +141,11 @@ async fn primary_deleted_promotes_backup() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkDeleted { name, index: idx0 })
+        .send(Event::Deleted { name, index: idx0 })
         .await
         .expect("send event failed");
 
@@ -174,11 +174,11 @@ async fn single_interface_deleted_leaves_no_primary() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkDeleted { name, index: idx0 })
+        .send(Event::Deleted { name, index: idx0 })
         .await
         .expect("send event failed");
 
@@ -209,9 +209,9 @@ async fn all_interfaces_deleted_degrades_supervisor() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name0 = InterfaceName::new("eth0").expect("valid name");
+    let name0 = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDeleted {
+        .send(Event::Deleted {
             name: name0,
             index: idx0,
         })
@@ -220,9 +220,9 @@ async fn all_interfaces_deleted_degrades_supervisor() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let name1 = InterfaceName::new("eth1").expect("valid name");
+    let name1 = Name::new("eth1").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDeleted {
+        .send(Event::Deleted {
             name: name1,
             index: idx1,
         })
@@ -255,18 +255,18 @@ async fn rapid_primary_failover_and_recovery() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     for _ in 0..5 {
         let _ = event_tx
-            .send(NetworkEvent::LinkDown {
+            .send(Event::Down {
                 name: name.clone(),
                 index: idx0,
             })
             .await;
         let _ = event_tx
-            .send(NetworkEvent::LinkUp {
+            .send(Event::Up {
                 name: name.clone(),
                 index: idx0,
             })
@@ -298,11 +298,11 @@ async fn primary_link_up_when_ready_hits_recovery_warn() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkUp { name, index: idx0 })
+        .send(Event::Up { name, index: idx0 })
         .await
         .expect("send failed");
 
@@ -332,11 +332,11 @@ async fn backup_link_up_when_ready_hits_recovery_warn() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let backup_name = InterfaceName::new("eth1").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkUp {
+        .send(Event::Up {
             name: backup_name,
             index: idx1,
         })
@@ -368,11 +368,11 @@ async fn double_link_down_on_primary_hits_failure_warn() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkDown {
+        .send(Event::Down {
             name: name.clone(),
             index: idx0,
         })
@@ -382,7 +382,7 @@ async fn double_link_down_on_primary_hits_failure_warn() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     event_tx
-        .send(NetworkEvent::LinkDown {
+        .send(Event::Down {
             name: name.clone(),
             index: idx0,
         })
@@ -414,11 +414,11 @@ async fn delete_last_interface_when_already_degraded_hits_degrade_warn() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     event_tx
-        .send(NetworkEvent::LinkDown {
+        .send(Event::Down {
             name: name.clone(),
             index: idx0,
         })
@@ -428,7 +428,7 @@ async fn delete_last_interface_when_already_degraded_hits_degrade_warn() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     event_tx
-        .send(NetworkEvent::LinkDeleted {
+        .send(Event::Deleted {
             name: name.clone(),
             index: idx0,
         })

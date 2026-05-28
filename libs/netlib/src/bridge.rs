@@ -1,13 +1,13 @@
 //! Linux bridge management for virtual network switching.
 
-use std::future::Future;
-use std::net::Ipv4Addr;
+use core::future::Future;
+use core::net::Ipv4Addr;
 
 use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
 use thiserror::Error;
 
-use crate::ops::RtnetlinkOps;
+use crate::netlink::Rtnl;
 use crate::{address, link, retry, route};
 
 /// Number of attempts to check for bridge creation before giving up.
@@ -23,20 +23,20 @@ const ENSLAVE_RETRIES: u8 = 5;
 const ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("failed to create bridge: {0}")]
     Create(#[source] rtnetlink::Error),
     #[error(transparent)]
-    Link(#[from] link::Error),
+    Link(#[from] link::Failure),
     #[error(transparent)]
-    Address(#[from] address::Error),
+    Address(#[from] address::Failure),
     #[error(transparent)]
-    Route(#[from] route::Error),
+    Route(#[from] route::Failure),
     #[error(transparent)]
-    Retry(#[from] retry::Error),
+    Retry(#[from] retry::Failure),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
 async fn create_or_reconfigure_bridge(
     handle: &Handle,
@@ -64,7 +64,7 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
         .add(LinkBridge::new(bridge_name).stp_state(stp_state).build())
         .execute()
         .await
-        .map_err(Error::Create)?;
+        .map_err(Failure::Create)?;
 
     retry::wait_for_condition(
         || async {
@@ -78,10 +78,10 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
         },
         CREATE_RETRIES,
         CREATE_RETRY_DELAY_MS,
-        &format!("bridge '{}' creation timeout", bridge_name),
+        &format!("bridge '{bridge_name}' creation timeout"),
     )
     .await
-    .map_err(Error::Retry)
+    .map_err(Failure::Retry)
 }
 
 async fn enslave_interface_to_bridge(
@@ -91,20 +91,20 @@ async fn enslave_interface_to_bridge(
     physical_iface: &str,
     bridge_name: &str,
 ) -> Result<()> {
-    link::bring_down(handle, phys_index).await.ok();
+    let _ignored_result: link::Result<()> = link::bring_down(handle, phys_index).await;
 
     retry::run(
         || async { link::set_master(handle, phys_index, br_index).await },
         ENSLAVE_RETRIES,
         ENSLAVE_RETRY_DELAY_MS,
-        &format!("failed to enslave {} to {}", physical_iface, bridge_name),
+        &format!("failed to enslave {physical_iface} to {bridge_name}"),
     )
     .await
-    .map_err(Error::Retry)?;
+    .map_err(Failure::Retry)?;
 
-    link::bring_up(handle, phys_index).await.ok();
+    let _ignored_result: link::Result<()> = link::bring_up(handle, phys_index).await;
 
-    println!("Enslaved {} to bridge {}", physical_iface, bridge_name);
+    println!("Enslaved {physical_iface} to bridge {bridge_name}");
 
     Ok(())
 }
@@ -127,17 +127,17 @@ async fn transfer_ip_to_bridge(
 
         if let Some(gw) = gateway {
             route::add_default_route(handle, gw).await?;
-            println!("Restored default route via {}", gw);
+            println!("Restored default route via {gw}");
         }
 
-        println!("Transferred IP {}/{} to bridge {}", ip, prefix, bridge_name);
+        println!("Transferred IP {ip}/{prefix} to bridge {bridge_name}");
     }
 
     Ok(())
 }
 
 /// Trait covering bridge netlink operations.
-pub trait BridgeOps: Clone + Send + Sync + 'static {
+pub trait Ops: Clone + Send + Sync + 'static {
     /// Creates a bridge with the given configuration and attaches a physical interface.
     fn ensure_bridge(
         &self,
@@ -155,7 +155,7 @@ pub trait BridgeOps: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<()>> + Send;
 }
 
-impl BridgeOps for RtnetlinkOps {
+impl Ops for Rtnl {
     async fn ensure_bridge(
         &self,
         bridge_name: &str,
@@ -177,11 +177,11 @@ impl BridgeOps for RtnetlinkOps {
     }
 
     async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
-        println!("Attaching {} to bridge {}", iface_name, bridge_name);
+        println!("Attaching {iface_name} to bridge {bridge_name}");
         let iface_index = link::get_index(&self.handle, iface_name).await?;
         let bridge_index = link::get_index(&self.handle, bridge_name).await?;
         link::set_master(&self.handle, iface_index, bridge_index).await?;
-        println!("{} attached to bridge {}", iface_name, bridge_name);
+        println!("{iface_name} attached to bridge {bridge_name}");
         Ok(())
     }
 }

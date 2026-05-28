@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use netlib::interface::InterfaceName;
-use netlib::monitor::NetworkEvent;
+use netlib::interface::Name;
+use netlib::monitor::Event;
 
 use super::*;
 
@@ -27,9 +27,9 @@ async fn link_down_event_dispatched_to_interface() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDown { name, index: idx })
+        .send(Event::Down { name, index: idx })
         .await
         .expect("send event failed");
 
@@ -59,9 +59,9 @@ async fn link_up_event_dispatched_to_interface() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkUp { name, index: idx })
+        .send(Event::Up { name, index: idx })
         .await
         .expect("send event failed");
 
@@ -92,9 +92,9 @@ async fn link_added_event_spawns_new_actor() {
 
     // ACT
     mock.add_link("eth1", [0xBB; 6], true);
-    let name = InterfaceName::new("eth1").expect("valid name");
+    let name = Name::new("eth1").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkAdded {
+        .send(Event::Added {
             name,
             index: 2,
             mac: [0xBB; 6],
@@ -129,9 +129,9 @@ async fn link_deleted_event_removes_actor() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth1").expect("valid name");
+    let name = Name::new("eth1").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDeleted { name, index: 2 })
+        .send(Event::Deleted { name, index: 2 })
         .await
         .expect("send event failed");
 
@@ -161,9 +161,9 @@ async fn duplicate_link_added_event_is_ignored() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkAdded {
+        .send(Event::Added {
             name: name.clone(),
             index: idx,
             mac: [0xAA; 6],
@@ -197,9 +197,9 @@ async fn link_deleted_for_unknown_interface_is_safe() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = InterfaceName::new("eth99").expect("valid name");
+    let name = Name::new("eth99").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDeleted { name, index: 99 })
+        .send(Event::Deleted { name, index: 99 })
         .await
         .expect("send event failed");
 
@@ -228,18 +228,18 @@ async fn rapid_link_events_do_not_crash_supervisor() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = InterfaceName::new("eth0").expect("valid name");
+    let name = Name::new("eth0").expect("valid name");
 
     // ACT
     for _ in 0..10 {
         let _ = event_tx
-            .send(NetworkEvent::LinkDown {
+            .send(Event::Down {
                 name: name.clone(),
                 index: idx,
             })
             .await;
         let _ = event_tx
-            .send(NetworkEvent::LinkUp {
+            .send(Event::Up {
                 name: name.clone(),
                 index: idx,
             })
@@ -271,9 +271,9 @@ async fn link_added_when_no_primary_assigns_as_primary() {
     let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name0 = InterfaceName::new("eth0").expect("valid name");
+    let name0 = Name::new("eth0").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkDeleted {
+        .send(Event::Deleted {
             name: name0,
             index: idx0,
         })
@@ -284,9 +284,9 @@ async fn link_added_when_no_primary_assigns_as_primary() {
 
     // ACT
     mock.add_link("eth2", [0xCC; 6], true);
-    let name2 = InterfaceName::new("eth2").expect("valid name");
+    let name2 = Name::new("eth2").expect("valid name");
     event_tx
-        .send(NetworkEvent::LinkAdded {
+        .send(Event::Added {
             name: name2,
             index: 2,
             mac: [0xCC; 6],

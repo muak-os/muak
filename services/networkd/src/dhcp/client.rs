@@ -5,7 +5,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::Result;
-use netlib::packet::{ETH_BROADCAST, PacketSocket};
+use netlib::packet::{ETH_BROADCAST, Socket};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
@@ -20,7 +20,7 @@ use super::packet::{
 /// Abstracts DHCP socket creation for raw (broadcast) and unicast paths.
 pub trait DhcpConnector: Clone + Send + Sync + 'static {
     /// Creates a raw `AF_PACKET` socket for broadcast DORA / REBIND.
-    fn create_raw(&self, interface: &str) -> impl Future<Output = Result<PacketSocket>> + Send;
+    fn create_raw(&self, interface: &str) -> impl Future<Output = Result<Socket>> + Send;
 
     /// Creates a unicast UDP socket for RENEW.
     fn create_unicast(
@@ -35,8 +35,8 @@ pub trait DhcpConnector: Clone + Send + Sync + 'static {
 pub struct SystemDhcpConnector;
 
 impl DhcpConnector for SystemDhcpConnector {
-    async fn create_raw(&self, interface: &str) -> Result<PacketSocket> {
-        Ok(PacketSocket::open(interface)?)
+    async fn create_raw(&self, interface: &str) -> Result<Socket> {
+        Ok(Socket::open(interface)?)
     }
 
     async fn create_unicast(&self, interface: &str, src_ip: Ipv4Addr) -> Result<UdpSocket> {
@@ -47,7 +47,7 @@ impl DhcpConnector for SystemDhcpConnector {
 }
 
 /// Runs a full DHCPDISCOVER->OFFER->REQUEST->ACK exchange via a raw packet socket.
-pub async fn run(socket: &PacketSocket, mac: &[u8; 6]) -> Result<DhcpLease> {
+pub async fn run(socket: &Socket, mac: &[u8; 6]) -> Result<DhcpLease> {
     let xid = generate_xid()?;
 
     let mut discover = build_header(xid, mac);
@@ -111,7 +111,7 @@ pub async fn renew(
 
 /// Sends a broadcast DHCP REBIND per RFC 2131 via raw socket.
 pub async fn rebind(
-    socket: &PacketSocket,
+    socket: &Socket,
     mac: &[u8; 6],
     server_ip: Ipv4Addr,
     assigned_ip: Ipv4Addr,
@@ -131,7 +131,7 @@ pub async fn rebind(
 
 /// Sends a DHCP message wrapped in IPv4+UDP via the raw packet socket.
 async fn send_raw(
-    socket: &PacketSocket,
+    socket: &Socket,
     payload: &[u8],
     src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
@@ -143,7 +143,7 @@ async fn send_raw(
 
 /// Receives one DHCP message of the expected type with matching xid via the raw socket.
 async fn recv_raw_validated(
-    socket: &PacketSocket,
+    socket: &Socket,
     xid_val: u32,
     expected_type: u8,
 ) -> Result<(Vec<u8>, ParsedOptions, usize)> {

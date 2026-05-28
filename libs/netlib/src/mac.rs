@@ -1,13 +1,16 @@
-//! Deterministic MAC address generation
+//! Deterministic MAC address generation.
 
 use ring::digest;
 
 /// Generates a deterministic locally-administered unicast MAC from an identifier.
+#[must_use]
 pub fn generate(id: &str) -> [u8; 6] {
     let result = digest::digest(&digest::SHA256, id.as_bytes());
 
-    let mut mac = [0u8; 6];
-    mac.copy_from_slice(&result.as_ref()[0..6]);
+    let mut mac = [0_u8; 6];
+    for (dst, src) in mac.iter_mut().zip(result.as_ref()) {
+        *dst = *src;
+    }
 
     mac[0] = (mac[0] & 0xfe) | 0x02;
 
@@ -15,6 +18,7 @@ pub fn generate(id: &str) -> [u8; 6] {
 }
 
 /// Formats a 6-byte MAC address as colon-separated lowercase hex.
+#[must_use]
 pub fn format(mac: &[u8; 6]) -> String {
     format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",

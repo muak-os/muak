@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 pub use commands::{ApplyMode, InterfaceCommand};
 use dhcp::LeaseTimers;
-use netlib::ops::NetlinkOps;
+use netlib::netlink::Ops;
 use snapshot::InterfaceSnapshot;
 use state::InterfaceState;
 use tokio::sync::{mpsc, watch};
@@ -23,7 +23,7 @@ use tokio::time::Sleep;
 use crate::dhcp::{DhcpConnector, DhcpLease, DhcpManager, SystemDhcpConnector};
 use crate::slaac::{SlaacEvent, SlaacManager};
 
-pub struct InterfaceActor<N: NetlinkOps> {
+pub struct InterfaceActor<N: Ops> {
     snapshot: InterfaceSnapshot,
     ops: N,
     config: Arc<config::NetworkConfig>,
@@ -40,7 +40,7 @@ pub struct InterfaceActorHandle {
     pub state_rx: watch::Receiver<Arc<InterfaceSnapshot>>,
 }
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Spawns a new per-interface actor.
     pub fn spawn(
         snapshot: InterfaceSnapshot,

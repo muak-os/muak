@@ -1,12 +1,14 @@
 //! Networking primitives library.
 
+extern crate alloc;
+
 pub mod address;
 pub mod bridge;
 pub mod interface;
 pub mod link;
 pub mod mac;
 pub mod monitor;
-pub mod ops;
+pub mod netlink;
 pub mod packet;
 pub mod retry;
 pub mod route;

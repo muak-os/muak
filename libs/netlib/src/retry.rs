@@ -1,20 +1,27 @@
 //! Async helpers for retrying fallible operations and polling conditions with backoff.
 
-use std::future::Future;
+use core::fmt::Display;
+use core::future::Future;
+use core::time::Duration;
 
 use thiserror::Error;
+use tokio::time::sleep;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Failure {
     #[error("{0}")]
     Timeout(String),
     #[error("{0}: {1}")]
     TimeoutWithCause(String, String),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Polls an async check function until it returns `Some`, or fails after `max_retries`.
+///
+/// # Errors
+///
+/// Returns [`Failure::Timeout`] when the condition never becomes available.
 pub async fn wait_for_condition<F, Fut, T>(
     check_fn: F,
     max_retries: u8,
@@ -29,13 +36,17 @@ where
         if let Some(result) = check_fn().await {
             return Ok(result);
         }
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        sleep(Duration::from_millis(delay_ms)).await;
     }
 
-    Err(Error::Timeout(timeout_msg.to_string()))
+    Err(Failure::Timeout(timeout_msg.to_owned()))
 }
 
 /// Retries a fallible async operation up to `max_retries` times with a delay between attempts.
+///
+/// # Errors
+///
+/// Returns [`Failure::TimeoutWithCause`] with the last operation error when every attempt fails.
 pub async fn run<F, Fut, T, E>(
     operation: F,
     max_retries: u8,
@@ -44,27 +55,131 @@ pub async fn run<F, Fut, T, E>(
 ) -> Result<T>
 where
     F: Fn() -> Fut,
-    Fut: Future<Output = std::result::Result<T, E>>,
-    E: std::fmt::Display,
+    Fut: Future<Output = core::result::Result<T, E>>,
+    E: Display,
 {
     let mut last_error = None;
+    let last_attempt = max_retries.saturating_sub(1);
 
     for attempt in 0..max_retries {
         match operation().await {
             Ok(result) => return Ok(result),
             Err(e) => last_error = Some(e),
         }
-        if attempt < max_retries - 1 {
-            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        if attempt < last_attempt {
+            sleep(Duration::from_millis(delay_ms)).await;
         }
     }
 
     if let Some(err) = last_error {
-        Err(Error::TimeoutWithCause(
-            timeout_msg.to_string(),
+        Err(Failure::TimeoutWithCause(
+            timeout_msg.to_owned(),
             err.to_string(),
         ))
     } else {
-        Err(Error::Timeout(timeout_msg.to_string()))
+        Err(Failure::Timeout(timeout_msg.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn wait_for_condition_returns_value_before_timeout() {
+        // ARRANGE
+        let attempts = AtomicU8::new(0);
+
+        // ACT
+        let result = wait_for_condition(
+            || async {
+                let current = attempts.fetch_add(1, Ordering::Relaxed);
+                (current >= 2).then_some("ready")
+            },
+            5,
+            0,
+            "timed out",
+        )
+        .await;
+
+        // ASSERT
+        assert_eq!(result.expect("condition should succeed"), "ready");
+        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn wait_for_condition_times_out_when_value_never_arrives() {
+        // ARRANGE
+        let attempts = AtomicU8::new(0);
+
+        // ACT
+        let result = wait_for_condition(
+            || async {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                None::<()>
+            },
+            2,
+            0,
+            "timed out",
+        )
+        .await;
+
+        // ASSERT
+        assert!(matches!(result, Err(Failure::Timeout(message)) if message == "timed out"));
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn run_returns_first_successful_result() {
+        // ARRANGE
+        let attempts = AtomicU8::new(0);
+
+        // ACT
+        let result = run(
+            || async {
+                let current = attempts.fetch_add(1, Ordering::Relaxed);
+                if current == 0 {
+                    Err("not yet")
+                } else {
+                    Ok::<_, &str>(42)
+                }
+            },
+            3,
+            0,
+            "operation timed out",
+        )
+        .await;
+
+        // ASSERT
+        assert_eq!(result.expect("operation should succeed"), 42);
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn run_reports_last_error_after_exhausting_retries() {
+        // ARRANGE
+        let attempts = AtomicU8::new(0);
+
+        // ACT
+        let result = run(
+            || async {
+                let current = attempts.fetch_add(1, Ordering::Relaxed);
+                Err::<(), _>(format!("failure-{current}"))
+            },
+            3,
+            0,
+            "operation timed out",
+        )
+        .await;
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(Failure::TimeoutWithCause(message, cause))
+                if message == "operation timed out" && cause == "failure-2"
+        ));
+        assert_eq!(attempts.load(Ordering::Relaxed), 3);
     }
 }

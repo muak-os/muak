@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
-use netlib::interface::InterfaceName;
-use netlib::link::LinkStateKind;
+use netlib::interface::Name;
+use netlib::link::State;
 
 use crate::dhcp::{DhcpLease, DhcpState};
 use crate::interface::state::InterfaceState;
@@ -12,16 +12,16 @@ use crate::statemachine::StateMachine;
 /// Point-in-time view of one interface's configuration and link status.
 #[derive(Debug, Clone)]
 pub struct InterfaceSnapshot {
-    pub name: InterfaceName,
+    pub name: Name,
     pub state: InterfaceState,
     pub index: u32,
     pub mac: [u8; 6],
-    pub link: LinkStateKind,
+    pub link: State,
     pub ip: Option<IpConfig>,
     pub lease: Option<DhcpLease>,
     pub dhcp_state: Option<DhcpState>,
     pub ipv6: Option<Ipv6Config>,
-    pub l3_owner: InterfaceName,
+    pub l3_owner: Name,
 }
 
 impl InterfaceSnapshot {

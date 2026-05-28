@@ -43,7 +43,7 @@ async fn link_down_on_configured_transitions_to_degraded() {
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
     assert_eq!(snap.state, InterfaceState::Degraded);
-    assert_eq!(snap.link, LinkStateKind::Down);
+    assert_eq!(snap.link, State::Down);
 }
 
 #[tokio::test]
@@ -66,7 +66,7 @@ async fn link_down_on_discovered_stays_discovered() {
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
     assert_eq!(snap.state, InterfaceState::Discovered);
-    assert_eq!(snap.link, LinkStateKind::Down);
+    assert_eq!(snap.link, State::Down);
 }
 
 #[tokio::test]
@@ -75,7 +75,7 @@ async fn link_up_on_non_degraded_does_not_publish_snapshot() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth2", [0xCC; 6], false);
     let mut snapshot = make_snapshot("eth2", idx, [0xCC; 6]);
-    snapshot.link = LinkStateKind::Down;
+    snapshot.link = State::Down;
     let handle = InterfaceActor::spawn(snapshot, mock, make_config());
 
     // ACT
@@ -92,7 +92,7 @@ async fn link_up_on_non_degraded_does_not_publish_snapshot() {
     assert_eq!(snap.state, InterfaceState::Discovered);
     assert_eq!(
         snap.link,
-        LinkStateKind::Down,
+        State::Down,
         "link-up on non-degraded does not publish to watch"
     );
 }
@@ -131,7 +131,7 @@ async fn link_down_clears_dhcp_state() {
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
-    assert_eq!(snap.link, LinkStateKind::Down);
+    assert_eq!(snap.link, State::Down);
 }
 
 #[tokio::test]
@@ -221,5 +221,5 @@ async fn link_up_after_link_down_publishes_snapshot() {
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
-    assert_eq!(snap.link, LinkStateKind::Up);
+    assert_eq!(snap.link, State::Up);
 }

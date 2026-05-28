@@ -1,16 +1,16 @@
 //! Bridge provisioning logic for a per-interface actor.
 
 use anyhow::{Context, Result};
-use netlib::interface::InterfaceName;
-use netlib::link::LinkStateKind;
-use netlib::ops::NetlinkOps;
+use netlib::interface::Name;
+use netlib::link::State;
+use netlib::netlink::Ops;
 
 use super::InterfaceActor;
 use crate::dhcp::DhcpState;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 
-impl<N: NetlinkOps> InterfaceActor<N> {
+impl<N: Ops> InterfaceActor<N> {
     /// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.
     pub(super) async fn configure_bridge(
         &mut self,
@@ -41,9 +41,9 @@ impl<N: NetlinkOps> InterfaceActor<N> {
 
         self.timers.disarm();
 
-        let index = self.ops.get_link_index(bridge_name).await?;
+        let index = self.ops.index(bridge_name).await?;
         let ip = self.snapshot.ip.clone();
-        let br_iface_name = InterfaceName::new(bridge_name)
+        let br_iface_name = Name::new(bridge_name)
             .with_context(|| format!("invalid bridge name: {bridge_name}"))?;
 
         let bridge_snapshot = InterfaceSnapshot {
@@ -51,12 +51,12 @@ impl<N: NetlinkOps> InterfaceActor<N> {
             state: InterfaceState::Configured,
             index,
             mac,
-            link: LinkStateKind::Up,
+            link: State::Up,
             ip,
             lease: Some(lease),
             dhcp_state: Some(DhcpState::Bound),
             ipv6: None,
-            l3_owner: InterfaceName::new(bridge_name)
+            l3_owner: Name::new(bridge_name)
                 .with_context(|| format!("invalid bridge name: {bridge_name}"))?,
         };
 

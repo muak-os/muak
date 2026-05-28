@@ -4,9 +4,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use netlib::interface::{Interface, InterfaceName};
-use netlib::link::LinkStateKind;
-use netlib::ops::{AddressOps, BridgeOps, InterfaceOps, LinkOps, NetlinkOps, RouteOps};
+use netlib::interface::{Ethernet, Name};
+use netlib::link::{Failure, State};
 
 /// Holds in-memory link and route state for deterministic tests.
 #[derive(Debug, Default)]
@@ -28,7 +27,7 @@ pub(crate) struct MockLink {
     pub(crate) master_index: Option<u32>,
 }
 
-/// Implements `NetlinkOps` for deterministic tests.
+/// Implements `netlib::netlink::Ops` for deterministic tests.
 #[derive(Clone, Debug)]
 pub struct MockNetlinkOps {
     pub(crate) state: Arc<Mutex<MockInner>>,
@@ -63,32 +62,32 @@ impl MockNetlinkOps {
     }
 }
 
-impl LinkOps for MockNetlinkOps {
-    async fn link_exists(&self, name: &str) -> netlib::link::Result<bool> {
+impl netlib::link::Ops for MockNetlinkOps {
+    async fn exists(&self, name: &str) -> netlib::link::Result<bool> {
         Ok(self.state.lock().expect("lock").links.contains_key(name))
     }
 
-    async fn get_link_index(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn index(&self, name: &str) -> netlib::link::Result<u32> {
         self.state
             .lock()
             .expect("lock")
             .links
             .get(name)
             .map(|link| link.index)
-            .ok_or_else(|| netlib::link::Error::NotFound(name.to_string()))
+            .ok_or_else(|| Failure::NotFound(name.to_string()))
     }
 
-    async fn ensure_link_up(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn ensure_up(&self, name: &str) -> netlib::link::Result<u32> {
         let mut state = self.state.lock().expect("lock");
         let link = state
             .links
             .get_mut(name)
-            .ok_or_else(|| netlib::link::Error::NotFound(name.to_string()))?;
+            .ok_or_else(|| Failure::NotFound(name.to_string()))?;
         link.up = true;
         Ok(link.index)
     }
 
-    async fn bring_link_up(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_up(&self, index: u32) -> netlib::link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
@@ -102,7 +101,7 @@ impl LinkOps for MockNetlinkOps {
         Ok(())
     }
 
-    async fn bring_link_down(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_down(&self, index: u32) -> netlib::link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
@@ -116,7 +115,7 @@ impl LinkOps for MockNetlinkOps {
         Ok(())
     }
 
-    async fn set_link_master(&self, slave: u32, master: u32) -> netlib::link::Result<()> {
+    async fn set_master(&self, slave: u32, master: u32) -> netlib::link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
@@ -130,7 +129,7 @@ impl LinkOps for MockNetlinkOps {
         Ok(())
     }
 
-    async fn delete_link(&self, index: u32) -> netlib::link::Result<()> {
+    async fn delete(&self, index: u32) -> netlib::link::Result<()> {
         let mut state = self.state.lock().expect("lock");
         state.links.retain(|_, link| link.index != index);
         state.ipv4_addrs.remove(&index);
@@ -138,7 +137,7 @@ impl LinkOps for MockNetlinkOps {
         Ok(())
     }
 
-    async fn probe_interfaces_for_carrier(
+    async fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         _timeout: Duration,
@@ -151,7 +150,7 @@ impl LinkOps for MockNetlinkOps {
     }
 }
 
-impl AddressOps for MockNetlinkOps {
+impl netlib::address::Ops for MockNetlinkOps {
     async fn ensure_ipv4(
         &self,
         index: u32,
@@ -223,7 +222,7 @@ impl AddressOps for MockNetlinkOps {
     }
 }
 
-impl RouteOps for MockNetlinkOps {
+impl netlib::route::Ops for MockNetlinkOps {
     async fn ensure_default_route(&self, gateway: Ipv4Addr) -> netlib::route::Result<()> {
         self.state
             .lock()
@@ -252,7 +251,7 @@ impl RouteOps for MockNetlinkOps {
     }
 }
 
-impl BridgeOps for MockNetlinkOps {
+impl netlib::bridge::Ops for MockNetlinkOps {
     async fn ensure_bridge(
         &self,
         bridge_name: &str,
@@ -289,20 +288,24 @@ impl BridgeOps for MockNetlinkOps {
         iface_name: &str,
         bridge_name: &str,
     ) -> netlib::bridge::Result<()> {
-        let bridge_index = self.get_link_index(bridge_name).await?;
-        self.set_link_master(self.get_link_index(iface_name).await?, bridge_index)
-            .await?;
+        let bridge_index = netlib::link::Ops::index(self, bridge_name).await?;
+        netlib::link::Ops::set_master(
+            self,
+            netlib::link::Ops::index(self, iface_name).await?,
+            bridge_index,
+        )
+        .await?;
         Ok(())
     }
 }
 
-impl InterfaceOps for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Interface>> {
+impl netlib::interface::Ops for MockNetlinkOps {
+    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Ethernet>> {
         let state = self.state.lock().expect("lock");
         let mut interfaces = Vec::with_capacity(state.links.len());
         for (name, link) in &state.links {
-            interfaces.push(Interface::new(
-                InterfaceName::new(name.clone())?,
+            interfaces.push(Ethernet::new(
+                Name::new(name.clone())?,
                 link.index,
                 link.mac,
                 link_state_kind(link.up),
@@ -312,13 +315,9 @@ impl InterfaceOps for MockNetlinkOps {
     }
 }
 
-impl NetlinkOps for MockNetlinkOps {}
+impl netlib::netlink::Ops for MockNetlinkOps {}
 
 /// Returns the link state for the requested carrier flag.
-fn link_state_kind(up: bool) -> LinkStateKind {
-    if up {
-        LinkStateKind::Up
-    } else {
-        LinkStateKind::Down
-    }
+fn link_state_kind(up: bool) -> State {
+    if up { State::Up } else { State::Down }
 }

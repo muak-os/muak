@@ -1,28 +1,29 @@
 //! Netlink event consumer: dispatches received `NetworkEvent`s to supervisor state handlers.
 
-use netlib::interface::InterfaceName;
-use netlib::monitor::NetworkEvent;
-use netlib::ops::NetlinkOps;
+use netlib::interface::Name;
+use netlib::link::State;
+use netlib::monitor::Event;
+use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
 use crate::interface::InterfaceCommand;
 use crate::interface::snapshot::InterfaceSnapshot;
 use crate::interface::state::InterfaceState;
 
-impl<N: NetlinkOps> NetworkSupervisor<N> {
+impl<N: Ops> NetworkSupervisor<N> {
     /// Dispatches a netlink event to the appropriate handler.
-    pub(super) async fn handle_event(&mut self, event: NetworkEvent) {
+    pub(super) async fn handle_event(&mut self, event: Event) {
         match event {
-            NetworkEvent::LinkUp { name, index } => self.on_link_up(name, index).await,
-            NetworkEvent::LinkDown { name, index } => self.on_link_down(name, index).await,
-            NetworkEvent::LinkAdded { name, index, mac } => {
+            Event::Up { name, index } => self.on_link_up(name, index).await,
+            Event::Down { name, index } => self.on_link_down(name, index).await,
+            Event::Added { name, index, mac } => {
                 self.on_link_added(name, index, mac).await;
             }
-            NetworkEvent::LinkDeleted { name, index } => self.on_link_deleted(name, index).await,
+            Event::Deleted { name, index } => self.on_link_deleted(name, index).await,
         }
     }
 
-    async fn on_link_up(&mut self, name: InterfaceName, index: u32) {
+    async fn on_link_up(&mut self, name: Name, index: u32) {
         kmsg::info!("Event: Link up {} (index {})", name, index);
         self.send_to_interface(&name, InterfaceCommand::LinkUp)
             .await;
@@ -33,7 +34,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    async fn on_link_down(&mut self, name: InterfaceName, index: u32) {
+    async fn on_link_down(&mut self, name: Name, index: u32) {
         kmsg::info!("Event: Link down {} (index {})", name, index);
         self.send_to_interface(&name, InterfaceCommand::LinkDown)
             .await;
@@ -42,7 +43,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         }
     }
 
-    async fn on_link_added(&mut self, name: InterfaceName, index: u32, mac: [u8; 6]) {
+    async fn on_link_added(&mut self, name: Name, index: u32, mac: [u8; 6]) {
         kmsg::info!(
             "Event: Link added {} (index {}, MAC {})",
             name,
@@ -59,7 +60,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
             state: InterfaceState::Discovered,
             index,
             mac,
-            link: netlib::link::LinkStateKind::Up,
+            link: State::Up,
             ip: None,
             lease: None,
             dhcp_state: None,
@@ -77,7 +78,7 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         self.sync_and_publish();
     }
 
-    async fn on_link_deleted(&mut self, name: InterfaceName, index: u32) {
+    async fn on_link_deleted(&mut self, name: Name, index: u32) {
         kmsg::info!("Event: Link deleted {} (index {})", name, index);
 
         let Some(actor_handle) = self.interfaces.remove(&name) else {
@@ -94,12 +95,12 @@ impl<N: NetlinkOps> NetworkSupervisor<N> {
         self.sync_and_publish();
     }
 
-    pub(super) fn assign_as_primary(&mut self, name: InterfaceName) {
+    pub(super) fn assign_as_primary(&mut self, name: Name) {
         kmsg::info!("Assigning {} as primary interface", name);
         self.state.primary = Some(name);
     }
 
-    pub(super) fn add_to_backups(&mut self, name: InterfaceName) {
+    pub(super) fn add_to_backups(&mut self, name: Name) {
         kmsg::info!("Adding {} to backup interfaces", name);
         let pos = self
             .state
