@@ -10,14 +10,14 @@ pub fn service(attr: TokenStream, item: TokenStream) -> TokenStream {
     let name = parse_macro_input!(attr as LitStr);
     let input = parse_macro_input!(item as ItemFn);
 
-    match generate(name, input) {
+    match generate(&name, input) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.to_compile_error().into(),
     }
 }
 
 /// Generates the wrapper code for a service entry point.
-fn generate(name: LitStr, mut input: ItemFn) -> Result<proc_macro2::TokenStream, syn::Error> {
+fn generate(name: &LitStr, mut input: ItemFn) -> Result<proc_macro2::TokenStream, syn::Error> {
     let notifier_ident = extract_notifier_param(&mut input)?;
     validate_return_type(&input)?;
 
