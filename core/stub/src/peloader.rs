@@ -13,7 +13,7 @@ use uefi::boot::{AllocateType, MemoryType, ScopedProtocol};
 use uefi::{Guid, Handle, Status};
 
 use crate::pe::{self, KernelPe};
-use crate::util::strip_trailing_nuls;
+use crate::util::strip_trailing_cmdline_terminators;
 use crate::{info, warn};
 
 const MEMORY_ATTRIBUTE_GUID: Guid = Guid::parse_or_panic("f4560cf6-40ec-4b4a-a192-bf1d57d0b189");
@@ -207,7 +207,7 @@ fn apply_memory_protections(
 
 /// Converts an ASCII command line to a UCS-2 (UTF-16LE) buffer in pool memory
 fn encode_cmdline_ucs2(cmdline: &[u8]) -> Result<(*mut u8, u32)> {
-    let cmd = strip_trailing_nuls(cmdline);
+    let cmd = strip_trailing_cmdline_terminators(cmdline);
     if cmd.is_empty() {
         return Ok((ptr::null_mut(), 0));
     }

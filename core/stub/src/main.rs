@@ -21,7 +21,7 @@ use uefi::Handle;
 use uefi::proto::loaded_image::LoadedImage;
 
 use crate::pe::{KernelPe, UkiSections};
-use crate::util::strip_trailing_nuls;
+use crate::util::strip_trailing_cmdline_terminators;
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
@@ -112,7 +112,10 @@ fn main() -> Result<()> {
 
     let combined_cmdline: Vec<u8>;
     let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
-        let base_cmd = sections.cmdline.map(strip_trailing_nuls).unwrap_or(b"");
+        let base_cmd = sections
+            .cmdline
+            .map(strip_trailing_cmdline_terminators)
+            .unwrap_or(b"");
         let encoded_len = Base64Unpadded::encoded_len(luks_data);
 
         let total_len = base_cmd.len() + LUKS_KEY_PREFIX.len() + encoded_len;
