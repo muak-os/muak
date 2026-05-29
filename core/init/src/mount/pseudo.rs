@@ -3,12 +3,9 @@
 use std::ffi::CString;
 use std::path::Path;
 
-use anyhow::Result;
-use rustix::mount::MountFlags;
-
-use anyhow::Context as _;
+use anyhow::{Context as _, Result};
 use rustix::fs::{CWD, Mode, mkdirat};
-use rustix::mount::mount;
+use rustix::mount::{MountFlags, mount};
 
 /// Mount pseudo filesystems required for early boot.
 pub(crate) fn mount_pseudo() -> Result<()> {
