@@ -15,7 +15,7 @@ use std::process;
 
 use anyhow::Result;
 
-/// Mounted rootfs path used before switch_root.
+/// Mounted rootfs path used before `switch_root`.
 const NEWROOT: &str = "/newroot";
 
 /// Entry point that handles fatal errors.
@@ -61,7 +61,7 @@ fn run() -> Result<()> {
 
     match mount::mount_persistent() {
         Ok(true) => kmsg::info!("Persistent partitions mounted"),
-        Ok(false) => kmsg::info!("No persistent partitions found (maintenance mode)"),
+        Ok(false) => kmsg::info!("No valid persistent state found (maintenance mode)"),
         Err(e) => return Err(e),
     }
 
