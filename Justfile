@@ -146,7 +146,6 @@ sign image=(registry + "/installer:" + tag):
 [script]
 uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
     printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    { tr -d '\n' < core/kernel/cmdline-{{ oci_arch }}.txt; printf ' muak.mode=live'; } > {{ artifacts }}/cmdline.txt
     {{ container_runtime }} run --rm \
         -v "{{ artifacts }}:/out" \
         {{ tools }} \
@@ -154,7 +153,7 @@ uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_requ
             --stub /out/stub.efi \
             --linux /out/vmlinuz \
             --initrd /out/initramfs.img \
-            --cmdline /out/cmdline.txt \
+            --cmdline /out/cmdline \
             ${DTB:+--dtb "$DTB"} \
             --output /out/muak-{{ arch }}.efi
     printf "{{ green }}UKI built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.efi\n"
