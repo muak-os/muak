@@ -1,6 +1,6 @@
 //! Btrfs ioctl definitions and utilities.
 
-use std::mem::size_of;
+use core::mem::size_of;
 
 use rustix::ioctl::{Opcode, opcode};
 
@@ -201,6 +201,7 @@ pub struct BtrfsScrubProgress {
 
 impl BtrfsScrubProgress {
     /// Returns `true` if any errors were detected during the scrub.
+    #[must_use]
     pub fn has_errors(&self) -> bool {
         self.read_errors > 0
             || self.csum_errors > 0
@@ -211,18 +212,23 @@ impl BtrfsScrubProgress {
     }
 
     /// Total number of errors of all types.
+    #[must_use]
     pub fn total_errors(&self) -> u64 {
-        self.read_errors
-            + self.csum_errors
-            + self.verify_errors
-            + self.super_errors
-            + self.uncorrectable_errors
-            + self.unverified_errors
+        [
+            self.read_errors,
+            self.csum_errors,
+            self.verify_errors,
+            self.super_errors,
+            self.uncorrectable_errors,
+            self.unverified_errors,
+        ]
+        .into_iter()
+        .fold(0_u64, u64::saturating_add)
     }
 }
 
 /// Padding element count (109).
-const SCRUB_ARGS_UNUSED: usize = (1024 - 32 - size_of::<BtrfsScrubProgress>()) / 8;
+const SCRUB_ARGS_UNUSED: usize = 109;
 
 /// Arguments for the scrub ioctls.
 #[repr(C)]
@@ -282,5 +288,5 @@ pub struct BtrfsIoctlDevInfoArgs {
 // Block device ioctls
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// BLKGETSIZE64 opcode: `_IOR(0x12, 114, size_t)`
+/// BLKGETSIZE64 opcode: `_IOR(0x12, 114, size_t)`.
 pub const BLKGETSIZE64: Opcode = opcode::read::<u64>(0x12, 114);

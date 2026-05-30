@@ -1,12 +1,29 @@
-use super::constants::*;
+use core::mem::size_of;
+use core::ptr;
+use core::slice;
+
+/// Bytes reserved for a checksum in Btrfs headers.
+pub(super) const BTRFS_CSUM_SIZE: usize = 32;
+
+/// Maximum bytes stored for the filesystem label.
+pub(super) const BTRFS_LABEL_SIZE: usize = 256;
+
+/// Bytes stored for a UUID on disk.
+pub(super) const BTRFS_UUID_SIZE: usize = 16;
+
+/// Bytes stored for a filesystem UUID on disk.
+const BTRFS_FSID_SIZE: usize = 16;
+
+/// Serialized size of a Btrfs superblock.
+const BTRFS_SUPER_INFO_SIZE: usize = 4096;
+
+/// Bytes reserved for the superblock system chunk array.
+const BTRFS_SYSTEM_CHUNK_ARRAY_SIZE: usize = 2048;
 
 /// Safe byte serialization for `#[repr(C, packed)]` on-disk structures.
-///
-/// # Safety
-/// Only implement on types that are `#[repr(C, packed)]` with no padding.
 pub trait AsBytes: Sized {
     fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const Self as *const u8, size_of::<Self>()) }
+        as_bytes(self, size_of::<Self>())
     }
 
     fn to_vec(&self) -> Vec<u8> {
@@ -14,7 +31,15 @@ pub trait AsBytes: Sized {
     }
 }
 
-/// Disk key for btrfs items
+fn as_bytes<T>(value: &T, len: usize) -> &[u8] {
+    let ptr = ptr::from_ref(value).cast::<u8>();
+
+    // SAFETY: Callers only pass references to `repr(C, packed)` on-disk structures and a
+    // length that does not exceed the backing object size.
+    unsafe { slice::from_raw_parts(ptr, len) }
+}
+
+/// Disk key for btrfs items.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsDiskKey {
@@ -25,7 +50,7 @@ pub struct BtrfsDiskKey {
 
 impl AsBytes for BtrfsDiskKey {}
 
-/// Btrfs item header in leaf nodes
+/// Btrfs item header in leaf nodes.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsItem {
@@ -36,7 +61,7 @@ pub struct BtrfsItem {
 
 impl AsBytes for BtrfsItem {}
 
-/// Common header for all tree nodes
+/// Common header for all tree nodes.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsHeader {
@@ -52,6 +77,7 @@ pub struct BtrfsHeader {
 }
 
 impl BtrfsHeader {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],
@@ -75,7 +101,7 @@ impl Default for BtrfsHeader {
 
 impl AsBytes for BtrfsHeader {}
 
-/// Device item
+/// Device item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsDevItem {
@@ -96,6 +122,7 @@ pub struct BtrfsDevItem {
 }
 
 impl BtrfsDevItem {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             devid: [0; 8],
@@ -124,7 +151,7 @@ impl Default for BtrfsDevItem {
 
 impl AsBytes for BtrfsDevItem {}
 
-/// Stripe within a chunk
+/// Stripe within a chunk.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsStripe {
@@ -135,7 +162,7 @@ pub struct BtrfsStripe {
 
 impl AsBytes for BtrfsStripe {}
 
-/// Chunk item
+/// Chunk item.
 #[repr(C, packed)]
 #[derive(Debug)]
 pub struct BtrfsChunk {
@@ -152,7 +179,7 @@ pub struct BtrfsChunk {
 
 impl AsBytes for BtrfsChunk {}
 
-/// Block group item
+/// Block group item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsBlockGroupItem {
@@ -163,7 +190,7 @@ pub struct BtrfsBlockGroupItem {
 
 impl AsBytes for BtrfsBlockGroupItem {}
 
-/// Timespec
+/// Timespec.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsTimespec {
@@ -173,7 +200,7 @@ pub struct BtrfsTimespec {
 
 impl AsBytes for BtrfsTimespec {}
 
-/// Inode item
+/// Inode item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsInodeItem {
@@ -198,7 +225,7 @@ pub struct BtrfsInodeItem {
 
 impl AsBytes for BtrfsInodeItem {}
 
-/// Root item
+/// Root item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsRootItem {
@@ -231,7 +258,7 @@ pub struct BtrfsRootItem {
 
 impl AsBytes for BtrfsRootItem {}
 
-/// Inode reference
+/// Inode reference.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsInodeRef {
@@ -241,7 +268,7 @@ pub struct BtrfsInodeRef {
 
 impl AsBytes for BtrfsInodeRef {}
 
-/// Extent item
+/// Extent item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsExtentItem {
@@ -252,7 +279,7 @@ pub struct BtrfsExtentItem {
 
 impl AsBytes for BtrfsExtentItem {}
 
-/// Device extent
+/// Device extent.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsDevExtent {
@@ -265,7 +292,7 @@ pub struct BtrfsDevExtent {
 
 impl AsBytes for BtrfsDevExtent {}
 
-/// Free space info
+/// Free space info.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsFreeSpaceInfo {
@@ -275,7 +302,7 @@ pub struct BtrfsFreeSpaceInfo {
 
 impl AsBytes for BtrfsFreeSpaceInfo {}
 
-/// Device stats item
+/// Device stats item.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct BtrfsDevStatsItem {
@@ -297,7 +324,7 @@ pub struct BtrfsDirItem {
 
 impl AsBytes for BtrfsDirItem {}
 
-/// Superblock structure (4096 bytes)
+/// Superblock structure (4096 bytes).
 #[repr(C, packed)]
 pub struct BtrfsSuperBlock {
     pub csum: [u8; BTRFS_CSUM_SIZE],
@@ -340,6 +367,7 @@ pub struct BtrfsSuperBlock {
 }
 
 impl BtrfsSuperBlock {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],
@@ -385,9 +413,7 @@ impl BtrfsSuperBlock {
 
 impl AsBytes for BtrfsSuperBlock {
     fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self as *const Self as *const u8, BTRFS_SUPER_INFO_SIZE)
-        }
+        as_bytes(self, BTRFS_SUPER_INFO_SIZE)
     }
 }
 

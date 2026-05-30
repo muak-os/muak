@@ -137,7 +137,7 @@ impl From<DiskUsage> for ProtoDiskUsage {
         Self {
             used_bytes: usage.used_bytes,
             quota_bytes: usage.quota_bytes,
-            usage_percent: usage.usage_percent,
+            usage_percent: f32::from(usage.usage_percent),
         }
     }
 }
@@ -198,7 +198,7 @@ impl VmActor {
     }
 
     fn cleanup_orphaned_disks(vms: &HashMap<String, VmEntry>) {
-        disk::list_subvolumes(disk::DATA_DIR)
+        disk::list(disk::DATA_DIR)
             .unwrap_or_default()
             .into_iter()
             .filter(|vm_id| !vms.contains_key(vm_id))
@@ -282,8 +282,8 @@ impl VmActor {
         };
         let size_bytes = size_mb * 1024 * 1024;
 
-        disk::create_subvolume(&vm_id, disk::DATA_DIR)?;
-        disk::set_quota(&vm_id, size_bytes, disk::DATA_DIR)?;
+        disk::create(&vm_id, disk::DATA_DIR)?;
+        disk::set(&vm_id, size_bytes, disk::DATA_DIR)?;
         disk::create_raw_image(&vm_id, size_bytes)?;
 
         let now = SystemTime::now()
@@ -452,7 +452,7 @@ impl VmActor {
 
         println!("Deleting VM {}", vm_id);
 
-        if let Err(e) = disk::delete_subvolume(vm_id, disk::DATA_DIR) {
+        if let Err(e) = disk::delete(vm_id, disk::DATA_DIR) {
             eprintln!("Failed to delete disk subvolume: {}", e);
         }
 
@@ -554,7 +554,7 @@ async fn cleanup_tap_on_err(handle: &rtnetlink::Handle, tap_name: Option<String>
 
 fn delete_orphaned_disk(vm_id: String) {
     kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
-    if let Err(e) = disk::delete_subvolume(&vm_id, disk::DATA_DIR) {
+    if let Err(e) = disk::delete(&vm_id, disk::DATA_DIR) {
         kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
     }
 }

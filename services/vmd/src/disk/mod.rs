@@ -1,9 +1,8 @@
 mod image;
 pub mod scrub;
 
-pub use btrfs::{
-    DiskUsage, create_subvolume, delete_subvolume, get_usage, list_subvolumes, set_quota,
-};
+pub use btrfs::quota::{DiskUsage, get_usage, set};
+pub use btrfs::subvolume::{create, delete, list};
 pub use image::{create_raw_image, get_image_path};
 
 pub const DATA_DIR: &str = "/run/data";

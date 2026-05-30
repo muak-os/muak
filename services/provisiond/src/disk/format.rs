@@ -30,7 +30,7 @@ pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
     wait_for_device(device)?;
 
     let file = OpenOptions::new().read(true).write(true).open(device)?;
-    btrfs::format_btrfs(file, label).context("Failed to format partition as btrfs")?;
+    btrfs::format::format(file, label).context("Failed to format partition as btrfs")?;
 
     kmsg::info!("btrfs formatting complete");
 

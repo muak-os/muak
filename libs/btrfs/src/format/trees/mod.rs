@@ -5,14 +5,88 @@
 
 use uuid::Uuid;
 
-use super::accessors::*;
-use super::builders::*;
-use super::chunk::ChunkBuilder;
-use super::constants::*;
-use super::layout::{self, DiskLayout};
+use super::accessors::{write_u32, write_u64, write_uuid};
+use super::builders::{
+    InodeItemBuilder, RootItemBuilder, build_dev_extent, build_dir_item, build_inode_ref,
+};
+use super::chunk::{
+    BTRFS_BLOCK_GROUP_DATA, BTRFS_BLOCK_GROUP_DUP, BTRFS_BLOCK_GROUP_METADATA,
+    BTRFS_BLOCK_GROUP_SYSTEM, ChunkBuilder,
+};
+use super::layout::{
+    self, BTRFS_BLOCK_GROUP_TREE_OBJECTID, BTRFS_CHUNK_TREE_OBJECTID, BTRFS_CSUM_TREE_OBJECTID,
+    BTRFS_DATA_RELOC_TREE_OBJECTID, BTRFS_DEFAULT_NODESIZE_U64, BTRFS_DEFAULT_SECTORSIZE,
+    BTRFS_DEV_TREE_OBJECTID, BTRFS_EXTENT_TREE_OBJECTID, BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+    BTRFS_FREE_SPACE_TREE_OBJECTID, BTRFS_FS_TREE_OBJECTID, BTRFS_MKFS_DATA_GROUP_SIZE,
+    BTRFS_MKFS_METADATA_TREE_BLOCK_COUNT, BTRFS_MKFS_SYSTEM_DUP_SIZE, BTRFS_ROOT_TREE_OBJECTID,
+    BTRFS_UUID_TREE_OBJECTID, DiskLayout,
+};
 use super::node::LeafBuilder;
-use super::structures::*;
+use super::structures::{
+    AsBytes as _, BtrfsBlockGroupItem, BtrfsDevItem, BtrfsDevStatsItem, BtrfsExtentItem,
+    BtrfsFreeSpaceInfo, BtrfsItem,
+};
 use crate::error::Result;
+
+/// Object ID for device items in the chunk tree.
+const BTRFS_DEV_ITEMS_OBJECTID: u64 = 1;
+
+/// First object ID available for filesystem tree entries.
+const BTRFS_FIRST_FREE_OBJECTID: u64 = 256;
+
+/// Object ID of the root-tree directory.
+pub(super) const BTRFS_ROOT_TREE_DIR_OBJECTID: u64 = 6;
+
+/// Object ID used by device stats items.
+const BTRFS_DEV_STATS_OBJECTID: u64 = 0;
+
+/// Inode item key type.
+const BTRFS_INODE_ITEM_KEY: u8 = 1;
+
+/// Inode reference key type.
+const BTRFS_INODE_REF_KEY: u8 = 12;
+
+/// Directory item key type.
+const BTRFS_DIR_ITEM_KEY: u8 = 84;
+
+/// Root item key type.
+pub(super) const BTRFS_ROOT_ITEM_KEY: u8 = 132;
+
+/// Metadata item key type.
+const BTRFS_METADATA_ITEM_KEY: u8 = 169;
+
+/// Tree block reference key type.
+const BTRFS_TREE_BLOCK_REF_KEY: u8 = 176;
+
+/// Block-group item key type.
+const BTRFS_BLOCK_GROUP_ITEM_KEY: u8 = 192;
+
+/// Free-space info key type.
+const BTRFS_FREE_SPACE_INFO_KEY: u8 = 198;
+
+/// Free-space extent key type.
+const BTRFS_FREE_SPACE_EXTENT_KEY: u8 = 199;
+
+/// Device extent key type.
+const BTRFS_DEV_EXTENT_KEY: u8 = 204;
+
+/// Device item key type.
+const BTRFS_DEV_ITEM_KEY: u8 = 216;
+
+/// Chunk item key type.
+pub(super) const BTRFS_CHUNK_ITEM_KEY: u8 = 228;
+
+/// Persistent item key type.
+const BTRFS_PERSISTENT_ITEM_KEY: u8 = 249;
+
+/// UUID tree subvolume key type.
+const BTRFS_UUID_KEY_SUBVOL: u8 = 251;
+
+/// Extent item flag for tree blocks.
+const BTRFS_EXTENT_FLAG_TREE_BLOCK: u64 = 1 << 1;
+
+/// Root item inode initialization flag.
+const BTRFS_INODE_ROOT_ITEM_INIT: u64 = 1 << 31;
 
 /// Context for building trees.
 #[derive(Debug)]
@@ -28,6 +102,7 @@ pub struct TreeContext<'a> {
 
 impl<'a> TreeContext<'a> {
     /// Create a new tree context.
+    #[must_use]
     pub fn new(
         layout: &'a DiskLayout,
         fsid: &'a Uuid,
@@ -60,6 +135,7 @@ pub struct TreeResult {
 
 impl TreeResult {
     /// Create a new tree result.
+    #[must_use]
     pub fn new(logical_offset: u64, owner: u64, items: Vec<BtrfsItem>, data: Vec<u8>) -> Self {
         Self {
             logical_offset,
@@ -70,6 +146,7 @@ impl TreeResult {
     }
 
     /// Create an empty tree result.
+    #[must_use]
     pub fn empty(logical_offset: u64, owner: u64) -> Self {
         Self {
             logical_offset,
@@ -91,6 +168,7 @@ pub struct ChunkTreeBuilder;
 
 impl ChunkTreeBuilder {
     /// Create a new chunk tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -121,7 +199,7 @@ impl TreeBuilder for ChunkTreeBuilder {
             BTRFS_BLOCK_GROUP_DATA,
             ctx.layout.data_phys(),
         )
-        .build(ctx.dev_uuid);
+        .build(ctx.dev_uuid)?;
         builder.add_item(
             BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             BTRFS_CHUNK_ITEM_KEY,
@@ -136,7 +214,7 @@ impl TreeBuilder for ChunkTreeBuilder {
             ctx.layout.sys_phys_0(),
             ctx.layout.sys_phys_1(),
         )
-        .build(ctx.dev_uuid);
+        .build(ctx.dev_uuid)?;
         builder.add_item(
             BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             BTRFS_CHUNK_ITEM_KEY,
@@ -151,7 +229,7 @@ impl TreeBuilder for ChunkTreeBuilder {
             ctx.layout.meta_phys_0(),
             ctx.layout.meta_phys_1(),
         )
-        .build(ctx.dev_uuid);
+        .build(ctx.dev_uuid)?;
         builder.add_item(
             BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             BTRFS_CHUNK_ITEM_KEY,
@@ -159,7 +237,7 @@ impl TreeBuilder for ChunkTreeBuilder {
             meta_chunk,
         );
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.chunk_tree_logical(),
             BTRFS_CHUNK_TREE_OBJECTID,
@@ -169,7 +247,7 @@ impl TreeBuilder for ChunkTreeBuilder {
     }
 }
 
-/// Build a BtrfsDevItem.
+/// Build a `BtrfsDevItem`.
 fn build_dev_item(ctx: &TreeContext) -> BtrfsDevItem {
     let mut dev = BtrfsDevItem::new();
     write_u64(&mut dev.devid, 1);
@@ -188,6 +266,7 @@ pub struct DevTreeBuilder;
 
 impl DevTreeBuilder {
     /// Create a new dev tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -248,7 +327,7 @@ impl TreeBuilder for DevTreeBuilder {
             builder.add_item(1, BTRFS_DEV_EXTENT_KEY, phys, extent);
         }
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_DEV),
             BTRFS_DEV_TREE_OBJECTID,
@@ -263,6 +342,7 @@ pub struct ExtentTreeBuilder;
 
 impl ExtentTreeBuilder {
     /// Create a new extent tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -283,7 +363,7 @@ impl TreeBuilder for ExtentTreeBuilder {
             add_extent_item(&mut builder, blk_offset, owner, ctx.generation);
         }
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_EXTENT),
             BTRFS_EXTENT_TREE_OBJECTID,
@@ -293,7 +373,7 @@ impl TreeBuilder for ExtentTreeBuilder {
     }
 }
 
-/// Add an inline extent item with TREE_BLOCK_REF.
+/// Add an inline extent item with `TREE_BLOCK_REF`.
 fn add_extent_item(builder: &mut LeafBuilder, blk_offset: u64, owner: u64, generation: u64) {
     let mut extent = BtrfsExtentItem {
         refs: [0; 8],
@@ -316,6 +396,7 @@ pub struct BlockGroupTreeBuilder;
 
 impl BlockGroupTreeBuilder {
     /// Create a new block group tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -345,7 +426,7 @@ impl TreeBuilder for BlockGroupTreeBuilder {
             &mut builder,
             ctx.layout.sys_logical(),
             BTRFS_MKFS_SYSTEM_DUP_SIZE,
-            BTRFS_DEFAULT_NODESIZE as u64,
+            BTRFS_DEFAULT_NODESIZE_U64,
             BTRFS_BLOCK_GROUP_SYSTEM | BTRFS_BLOCK_GROUP_DUP,
         );
 
@@ -354,11 +435,11 @@ impl TreeBuilder for BlockGroupTreeBuilder {
             &mut builder,
             ctx.layout.meta_logical(),
             ctx.layout.meta_stripe_size(),
-            ctx.layout.meta_bytes_used(),
+            DiskLayout::meta_bytes_used(),
             BTRFS_BLOCK_GROUP_METADATA | BTRFS_BLOCK_GROUP_DUP,
         );
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_BLOCK_GROUP),
             BTRFS_BLOCK_GROUP_TREE_OBJECTID,
@@ -397,6 +478,7 @@ pub struct FreeSpaceTreeBuilder;
 
 impl FreeSpaceTreeBuilder {
     /// Create a new free space tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -411,7 +493,7 @@ impl Default for FreeSpaceTreeBuilder {
 impl TreeBuilder for FreeSpaceTreeBuilder {
     fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
-        let nodesize = BTRFS_DEFAULT_NODESIZE as u64;
+        let nodesize = BTRFS_DEFAULT_NODESIZE_U64;
 
         // Data block group: completely free
         add_free_space_info(
@@ -429,13 +511,17 @@ impl TreeBuilder for FreeSpaceTreeBuilder {
 
         // System DUP block group: chunk tree at sys_logical + nodesize, rest free
         let chunk_tree_start = ctx.layout.chunk_tree_logical();
-        let chunk_tree_end = chunk_tree_start + nodesize;
-        let sys_end = ctx.layout.sys_logical() + BTRFS_MKFS_SYSTEM_DUP_SIZE;
+        let chunk_tree_end = chunk_tree_start.saturating_add(nodesize);
+        let sys_end = ctx
+            .layout
+            .sys_logical()
+            .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE);
 
-        let sys_free_before = chunk_tree_start - ctx.layout.sys_logical();
-        let sys_free_after = sys_end - chunk_tree_end;
+        let sys_free_before = chunk_tree_start.saturating_sub(ctx.layout.sys_logical());
+        let sys_free_after = sys_end.saturating_sub(chunk_tree_end);
 
-        let sys_extent_count = (sys_free_before > 0) as u32 + (sys_free_after > 0) as u32;
+        let sys_extent_count =
+            u32::from(sys_free_before > 0).saturating_add(u32::from(sys_free_after > 0));
 
         add_free_space_info(
             &mut builder,
@@ -461,11 +547,17 @@ impl TreeBuilder for FreeSpaceTreeBuilder {
         }
 
         // Metadata DUP block group: 9 tree blocks at start, rest free
-        let meta_used_end = ctx.layout.meta_logical() + 9 * nodesize;
-        let meta_end = ctx.layout.meta_logical() + ctx.layout.meta_stripe_size();
-        let meta_free = meta_end - meta_used_end;
+        let meta_used_end = ctx
+            .layout
+            .meta_logical()
+            .saturating_add(BTRFS_MKFS_METADATA_TREE_BLOCK_COUNT.saturating_mul(nodesize));
+        let meta_end = ctx
+            .layout
+            .meta_logical()
+            .saturating_add(ctx.layout.meta_stripe_size());
+        let meta_free = meta_end.saturating_sub(meta_used_end);
 
-        let meta_extent_count = if meta_free > 0 { 1 } else { 0 };
+        let meta_extent_count = u32::from(meta_free > 0);
         add_free_space_info(
             &mut builder,
             ctx.layout.meta_logical(),
@@ -481,7 +573,7 @@ impl TreeBuilder for FreeSpaceTreeBuilder {
             );
         }
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_FREE_SPACE),
             BTRFS_FREE_SPACE_TREE_OBJECTID,
@@ -518,6 +610,7 @@ pub struct FsTreeBuilder {
 
 impl FsTreeBuilder {
     /// Create a new FS tree builder.
+    #[must_use]
     pub fn new(now: u64) -> Self {
         Self { now }
     }
@@ -541,10 +634,10 @@ impl TreeBuilder for FsTreeBuilder {
             BTRFS_FIRST_FREE_OBJECTID,
             BTRFS_INODE_REF_KEY,
             BTRFS_FIRST_FREE_OBJECTID,
-            build_inode_ref(b".."),
+            build_inode_ref(b"..")?,
         );
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_FS),
             BTRFS_FS_TREE_OBJECTID,
@@ -561,6 +654,7 @@ pub struct DataRelocTreeBuilder {
 
 impl DataRelocTreeBuilder {
     /// Create a new data reloc tree builder.
+    #[must_use]
     pub fn new(now: u64) -> Self {
         Self { now }
     }
@@ -584,10 +678,10 @@ impl TreeBuilder for DataRelocTreeBuilder {
             BTRFS_FIRST_FREE_OBJECTID,
             BTRFS_INODE_REF_KEY,
             BTRFS_FIRST_FREE_OBJECTID,
-            build_inode_ref(b".."),
+            build_inode_ref(b"..")?,
         );
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_DATA_RELOC),
             BTRFS_DATA_RELOC_TREE_OBJECTID,
@@ -602,6 +696,7 @@ pub struct UuidTreeBuilder;
 
 impl UuidTreeBuilder {
     /// Create a new UUID tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -618,10 +713,14 @@ impl TreeBuilder for UuidTreeBuilder {
         let mut builder = LeafBuilder::new();
 
         let uuid_bytes = ctx.fs_uuid.as_bytes();
-        let mut objectid_buf = [0u8; 8];
-        let mut offset_buf = [0u8; 8];
-        objectid_buf.copy_from_slice(&uuid_bytes[..8]);
-        offset_buf.copy_from_slice(&uuid_bytes[8..16]);
+        let mut objectid_buf = [0_u8; 8];
+        let mut offset_buf = [0_u8; 8];
+        if let Some(bytes) = uuid_bytes.get(..8) {
+            objectid_buf.copy_from_slice(bytes);
+        }
+        if let Some(bytes) = uuid_bytes.get(8..16) {
+            offset_buf.copy_from_slice(bytes);
+        }
         let key_objectid = u64::from_le_bytes(objectid_buf);
         let key_offset = u64::from_le_bytes(offset_buf);
 
@@ -632,7 +731,7 @@ impl TreeBuilder for UuidTreeBuilder {
             BTRFS_FS_TREE_OBJECTID.to_le_bytes().to_vec(),
         );
 
-        let (items, data) = builder.build();
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_UUID),
             BTRFS_UUID_TREE_OBJECTID,
@@ -647,6 +746,7 @@ pub struct CsumTreeBuilder;
 
 impl CsumTreeBuilder {
     /// Create a new CSUM tree builder.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -674,140 +774,42 @@ pub struct RootTreeBuilder {
 
 impl RootTreeBuilder {
     /// Create a new root tree builder.
+    #[must_use]
     pub fn new(now: u64) -> Self {
         Self { now }
     }
-}
 
-impl TreeBuilder for RootTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
-        let mut builder = LeafBuilder::new();
-
-        // EXTENT_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_EXTENT))
-            .build();
-        builder.add_item(
+    fn add_system_roots(builder: &mut LeafBuilder, ctx: &TreeContext) {
+        add_root_item(
+            builder,
             BTRFS_EXTENT_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            0,
-            ri.to_vec(),
+            ctx.layout.meta_block(layout::BLK_EXTENT),
         );
-
-        // DEV_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_DEV))
-            .build();
-        builder.add_item(BTRFS_DEV_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
-
-        // FS_TREE INODE_REF (objectid=5, type=INODE_REF, offset=6)
-        let iref_data = build_inode_ref(b"default");
-        builder.add_item(
-            BTRFS_FS_TREE_OBJECTID,
-            BTRFS_INODE_REF_KEY,
-            BTRFS_ROOT_TREE_DIR_OBJECTID,
-            iref_data,
+        add_root_item(
+            builder,
+            BTRFS_DEV_TREE_OBJECTID,
+            ctx.layout.meta_block(layout::BLK_DEV),
         );
-
-        // FS_TREE root item (subvolume)
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_FS))
-            .root_dirid(BTRFS_FIRST_FREE_OBJECTID)
-            .uuid(ctx.fs_uuid)
-            .flags(BTRFS_INODE_ROOT_ITEM_INIT)
-            .ctime(self.now)
-            .otime(self.now)
-            .build();
-        builder.add_item(BTRFS_FS_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
-
-        // ROOT_TREE_DIR inode item (objectid=6)
-        let dir_inode = InodeItemBuilder::new()
-            .generation(ctx.generation)
-            .timestamps(self.now)
-            .build();
-        builder.add_item(
-            BTRFS_ROOT_TREE_DIR_OBJECTID,
-            BTRFS_INODE_ITEM_KEY,
-            0,
-            dir_inode.to_vec(),
-        );
-
-        // ROOT_TREE_DIR inode ref ".."
-        builder.add_item(
-            BTRFS_ROOT_TREE_DIR_OBJECTID,
-            BTRFS_INODE_REF_KEY,
-            BTRFS_ROOT_TREE_DIR_OBJECTID,
-            build_inode_ref(b".."),
-        );
-
-        // ROOT_TREE_DIR DIR_ITEM "default" -> FS tree
-        let name = b"default";
-        let name_hash = super::checksum::btrfs_name_hash(name);
-        let dir_item_data = build_dir_item(
-            BTRFS_FS_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            name,
-            ctx.generation,
-        );
-        builder.add_item(
-            BTRFS_ROOT_TREE_DIR_OBJECTID,
-            BTRFS_DIR_ITEM_KEY,
-            name_hash,
-            dir_item_data,
-        );
-
-        // CSUM_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_CSUM))
-            .build();
-        builder.add_item(
+        add_root_item(
+            builder,
             BTRFS_CSUM_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            0,
-            ri.to_vec(),
+            ctx.layout.meta_block(layout::BLK_CSUM),
         );
-
-        // UUID_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_UUID))
-            .build();
-        builder.add_item(
+        add_root_item(
+            builder,
             BTRFS_UUID_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            0,
-            ri.to_vec(),
+            ctx.layout.meta_block(layout::BLK_UUID),
         );
-
-        // FREE_SPACE_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_FREE_SPACE))
-            .build();
-        builder.add_item(
+        add_root_item(
+            builder,
             BTRFS_FREE_SPACE_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            0,
-            ri.to_vec(),
+            ctx.layout.meta_block(layout::BLK_FREE_SPACE),
         );
-
-        // BLOCK_GROUP_TREE root item
-        let ri = RootItemBuilder::new()
-            .generation(ctx.generation)
-            .bytenr(ctx.layout.meta_block(layout::BLK_BLOCK_GROUP))
-            .build();
-        builder.add_item(
+        add_root_item(
+            builder,
             BTRFS_BLOCK_GROUP_TREE_OBJECTID,
-            BTRFS_ROOT_ITEM_KEY,
-            0,
-            ri.to_vec(),
+            ctx.layout.meta_block(layout::BLK_BLOCK_GROUP),
         );
-
-        // DATA_RELOC_TREE root item
         let ri = RootItemBuilder::new()
             .generation(ctx.generation)
             .bytenr(ctx.layout.meta_block(layout::BLK_DATA_RELOC))
@@ -819,8 +821,78 @@ impl TreeBuilder for RootTreeBuilder {
             0,
             ri.to_vec(),
         );
+    }
 
-        let (items, data) = builder.build();
+    fn add_fs_root(&self, builder: &mut LeafBuilder, ctx: &TreeContext) -> Result<()> {
+        builder.add_item(
+            BTRFS_FS_TREE_OBJECTID,
+            BTRFS_INODE_REF_KEY,
+            BTRFS_ROOT_TREE_DIR_OBJECTID,
+            build_inode_ref(b"default")?,
+        );
+
+        let ri = RootItemBuilder::new()
+            .generation(ctx.generation)
+            .bytenr(ctx.layout.meta_block(layout::BLK_FS))
+            .root_dirid(BTRFS_FIRST_FREE_OBJECTID)
+            .uuid(ctx.fs_uuid)
+            .flags(BTRFS_INODE_ROOT_ITEM_INIT)
+            .ctime(self.now)
+            .otime(self.now)
+            .build();
+        builder.add_item(BTRFS_FS_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
+        Ok(())
+    }
+
+    fn add_root_dir(&self, builder: &mut LeafBuilder, ctx: &TreeContext) -> Result<()> {
+        let dir_inode = InodeItemBuilder::new()
+            .generation(ctx.generation)
+            .timestamps(self.now)
+            .build();
+        builder.add_item(
+            BTRFS_ROOT_TREE_DIR_OBJECTID,
+            BTRFS_INODE_ITEM_KEY,
+            0,
+            dir_inode.to_vec(),
+        );
+
+        builder.add_item(
+            BTRFS_ROOT_TREE_DIR_OBJECTID,
+            BTRFS_INODE_REF_KEY,
+            BTRFS_ROOT_TREE_DIR_OBJECTID,
+            build_inode_ref(b"..")?,
+        );
+
+        let name = b"default";
+        builder.add_item(
+            BTRFS_ROOT_TREE_DIR_OBJECTID,
+            BTRFS_DIR_ITEM_KEY,
+            super::checksum::btrfs_name_hash(name),
+            build_dir_item(
+                BTRFS_FS_TREE_OBJECTID,
+                BTRFS_ROOT_ITEM_KEY,
+                name,
+                ctx.generation,
+            )?,
+        );
+        Ok(())
+    }
+}
+
+fn add_root_item(builder: &mut LeafBuilder, objectid: u64, bytenr: u64) {
+    let ri = RootItemBuilder::new().bytenr(bytenr).build();
+    builder.add_item(objectid, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
+}
+
+impl TreeBuilder for RootTreeBuilder {
+    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+        let mut builder = LeafBuilder::new();
+
+        Self::add_system_roots(&mut builder, ctx);
+        self.add_fs_root(&mut builder, ctx)?;
+        self.add_root_dir(&mut builder, ctx)?;
+
+        let (items, data) = builder.build()?;
         Ok(TreeResult::new(
             ctx.layout.meta_block(layout::BLK_ROOT),
             BTRFS_ROOT_TREE_OBJECTID,

@@ -1,8 +1,9 @@
 //! Quota management for Btrfs subvolumes.
 
-use std::mem::size_of;
+use core::mem::size_of;
 use std::path::{Path, PathBuf};
 
+use rustix::fd::OwnedFd;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Setter, Updater, ioctl};
 
@@ -15,16 +16,24 @@ use crate::ioctl::{
     QgroupLimitItem, QuotaCtlArgs, SearchArgs, SearchHeader, SearchKey,
 };
 
+const SEARCH_HEADER_TYPE_OFFSET: usize = 24;
+const SEARCH_HEADER_LEN_OFFSET: usize = 28;
+const QGROUP_RFER_OFFSET: usize = 8;
+const QGROUP_MAX_RFER_OFFSET: usize = 8;
+
 /// Disk usage information for a subvolume.
 #[derive(Debug, Clone, Default)]
 pub struct DiskUsage {
     pub used_bytes: u64,
     pub quota_bytes: u64,
-    pub usage_percent: f32,
+    pub usage_percent: u16,
 }
 
 /// Enable Btrfs quota on a mounted partition.
-pub fn enable_quota(mount_point: &str) -> Result<()> {
+///
+/// # Errors
+/// Returns an error if the mount point cannot be opened or the quota ioctl fails.
+pub fn enable(mount_point: &str) -> Result<()> {
     let file = open(
         mount_point,
         OFlags::RDONLY | OFlags::DIRECTORY,
@@ -36,15 +45,12 @@ pub fn enable_quota(mount_point: &str) -> Result<()> {
         status: 0,
     };
 
-    // SAFETY: ioctl is inherently unsafe, but Updater ensures proper argument passing
-    unsafe {
-        ioctl(
-            &file,
-            Updater::<BTRFS_IOC_QUOTA_CTL, QuotaCtlArgs>::new(&mut args),
-        )
-    }
-    .map_err(|source| BtrfsError::QuotaEnable {
-        mount_point: mount_point.to_string(),
+    // SAFETY: `BTRFS_IOC_QUOTA_CTL` updates `QuotaCtlArgs` in place.
+    let updater = unsafe { Updater::<BTRFS_IOC_QUOTA_CTL, QuotaCtlArgs>::new(&mut args) };
+
+    // SAFETY: The directory file descriptor is valid and the ioctl argument type matches.
+    unsafe { ioctl(&file, updater) }.map_err(|source| BtrfsError::QuotaEnable {
+        mount_point: mount_point.to_owned(),
         source,
     })?;
 
@@ -52,7 +58,10 @@ pub fn enable_quota(mount_point: &str) -> Result<()> {
 }
 
 /// Set a quota limit on a subvolume.
-pub fn set_quota(vm_id: &str, size_bytes: u64, data_dir: &str) -> Result<()> {
+///
+/// # Errors
+/// Returns an error if the subvolume cannot be opened or the quota ioctl fails.
+pub fn set(vm_id: &str, size_bytes: u64, data_dir: &str) -> Result<()> {
     let path = PathBuf::from(data_dir).join(vm_id);
 
     let file = open(&path, OFlags::RDONLY | OFlags::DIRECTORY, Mode::empty())?;
@@ -68,14 +77,11 @@ pub fn set_quota(vm_id: &str, size_bytes: u64, data_dir: &str) -> Result<()> {
         },
     };
 
-    // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing.
-    unsafe {
-        ioctl(
-            &file,
-            Setter::<BTRFS_IOC_QGROUP_LIMIT, QgroupLimitArgs>::new(args),
-        )
-    }
-    .map_err(|source| BtrfsError::QuotaLimit {
+    // SAFETY: `BTRFS_IOC_QGROUP_LIMIT` expects `QgroupLimitArgs` by value.
+    let setter = unsafe { Setter::<BTRFS_IOC_QGROUP_LIMIT, QgroupLimitArgs>::new(args) };
+
+    // SAFETY: The directory file descriptor is valid and the ioctl argument type matches.
+    unsafe { ioctl(&file, setter) }.map_err(|source| BtrfsError::QuotaLimit {
         path: path.clone(),
         source,
     })?;
@@ -113,49 +119,49 @@ pub fn get_usage(vm_id: &str, data_dir: &str) -> Result<DiskUsage> {
             unused3: 0,
             unused4: 0,
         },
-        buf: [0u8; BTRFS_SEARCH_ARGS_BUFSIZE],
+        buf: [0_u8; BTRFS_SEARCH_ARGS_BUFSIZE],
     };
 
-    // SAFETY: ioctl is inherently unsafe, but Updater ensures proper argument passing
-    unsafe {
-        ioctl(
-            &file,
-            Updater::<BTRFS_IOC_TREE_SEARCH, SearchArgs>::new(&mut args),
-        )
-    }
-    .map_err(|source| BtrfsError::QuotaLookup {
+    // SAFETY: `BTRFS_IOC_TREE_SEARCH` updates `SearchArgs` in place.
+    let updater = unsafe { Updater::<BTRFS_IOC_TREE_SEARCH, SearchArgs>::new(&mut args) };
+
+    // SAFETY: The directory file descriptor is valid and the ioctl argument type matches.
+    unsafe { ioctl(&file, updater) }.map_err(|source| BtrfsError::QuotaLookup {
         path: path.clone(),
         source,
     })?;
 
-    let mut used_bytes = 0u64;
-    let mut quota_bytes = 0u64;
-    let mut offset = 0usize;
+    let mut used_bytes = 0_u64;
+    let mut quota_bytes = 0_u64;
+    let mut offset = 0_usize;
 
     for _ in 0..args.key.nr_items {
-        if offset + size_of::<SearchHeader>() > BTRFS_SEARCH_ARGS_BUFSIZE {
+        let Some(header_end) = offset.checked_add(size_of::<SearchHeader>()) else {
             break;
-        }
+        };
 
-        // SAFETY: We verified bounds above and SearchHeader is repr(C).
-        let header = unsafe { &*(args.buf.as_ptr().add(offset).cast::<SearchHeader>()) };
-        offset += size_of::<SearchHeader>();
+        let Some(header) = parse_search_header(&args.buf, offset) else {
+            break;
+        };
+        offset = header_end;
 
-        let data_end = offset + header.len as usize;
+        let Some(data_end) = offset.checked_add(header.len) else {
+            break;
+        };
         if data_end > BTRFS_SEARCH_ARGS_BUFSIZE {
             break;
         }
 
+        let Some(data) = args.buf.get(offset..data_end) else {
+            break;
+        };
+
         match header.type_ {
-            BTRFS_QGROUP_INFO_KEY if header.len as usize >= size_of::<QgroupInfoItem>() => {
-                // SAFETY: Bounds checked, QgroupInfoItem is repr(C).
-                let info = unsafe { &*(args.buf.as_ptr().add(offset).cast::<QgroupInfoItem>()) };
-                used_bytes = info.rfer;
+            BTRFS_QGROUP_INFO_KEY if header.len >= size_of::<QgroupInfoItem>() => {
+                used_bytes = read_u64_le(data, QGROUP_RFER_OFFSET).unwrap_or(used_bytes);
             }
-            BTRFS_QGROUP_LIMIT_KEY if header.len as usize >= size_of::<QgroupLimitItem>() => {
-                // SAFETY: Bounds checked, QgroupLimitItem is repr(C).
-                let limit = unsafe { &*(args.buf.as_ptr().add(offset).cast::<QgroupLimitItem>()) };
-                quota_bytes = limit.max_rfer;
+            BTRFS_QGROUP_LIMIT_KEY if header.len >= size_of::<QgroupLimitItem>() => {
+                quota_bytes = read_u64_le(data, QGROUP_MAX_RFER_OFFSET).unwrap_or(quota_bytes);
             }
             _ => {}
         }
@@ -173,21 +179,18 @@ pub fn get_usage(vm_id: &str, data_dir: &str) -> Result<DiskUsage> {
 }
 
 /// Obtain the subvolume ID for an open directory fd via `BTRFS_IOC_INO_LOOKUP`.
-fn get_subvolume_id(file: &rustix::fd::OwnedFd, path: &Path) -> Result<u64> {
+fn get_subvolume_id(file: &OwnedFd, path: &Path) -> Result<u64> {
     let mut args = InoLookupArgs {
         treeid: 0,
         objectid: BTRFS_FIRST_FREE_OBJECTID,
-        name: [0u8; 4080],
+        name: [0_u8; 4080],
     };
 
-    // SAFETY: ioctl is inherently unsafe, but Updater ensures proper argument passing
-    unsafe {
-        ioctl(
-            file,
-            Updater::<BTRFS_IOC_INO_LOOKUP, InoLookupArgs>::new(&mut args),
-        )
-    }
-    .map_err(|source| BtrfsError::QuotaLookup {
+    // SAFETY: `BTRFS_IOC_INO_LOOKUP` updates `InoLookupArgs` in place.
+    let updater = unsafe { Updater::<BTRFS_IOC_INO_LOOKUP, InoLookupArgs>::new(&mut args) };
+
+    // SAFETY: The directory file descriptor is valid and the ioctl argument type matches.
+    unsafe { ioctl(file, updater) }.map_err(|source| BtrfsError::QuotaLookup {
         path: path.to_path_buf(),
         source,
     })?;
@@ -195,10 +198,33 @@ fn get_subvolume_id(file: &rustix::fd::OwnedFd, path: &Path) -> Result<u64> {
     Ok(args.treeid)
 }
 
-fn calculate_usage_percent(used: u64, quota: u64) -> f32 {
-    if quota > 0 {
-        (used as f64 / quota as f64 * 100.0) as f32
-    } else {
-        0.0
-    }
+fn calculate_usage_percent(used: u64, quota: u64) -> u16 {
+    let Some(percent) = used.saturating_mul(100).checked_div(quota) else {
+        return 0;
+    };
+
+    u16::try_from(percent).unwrap_or(u16::MAX)
+}
+
+struct ParsedSearchHeader {
+    type_: u32,
+    len: usize,
+}
+
+fn parse_search_header(buf: &[u8], offset: usize) -> Option<ParsedSearchHeader> {
+    let header = buf.get(offset..offset.checked_add(size_of::<SearchHeader>())?)?;
+    let type_ = read_u32_le(header, SEARCH_HEADER_TYPE_OFFSET)?;
+    let len = usize::try_from(read_u32_le(header, SEARCH_HEADER_LEN_OFFSET)?).ok()?;
+
+    Some(ParsedSearchHeader { type_, len })
+}
+
+fn read_u32_le(buf: &[u8], offset: usize) -> Option<u32> {
+    let bytes = buf.get(offset..offset.checked_add(size_of::<u32>())?)?;
+    Some(u32::from_le_bytes(bytes.try_into().ok()?))
+}
+
+fn read_u64_le(buf: &[u8], offset: usize) -> Option<u64> {
+    let bytes = buf.get(offset..offset.checked_add(size_of::<u64>())?)?;
+    Some(u64::from_le_bytes(bytes.try_into().ok()?))
 }

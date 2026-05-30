@@ -71,7 +71,7 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
             .with_context(|| format!("Failed to mount DATA partition: {data_dev}"))?;
 
         kmsg::info!("Mounted DATA partition at /run/data");
-        btrfs::enable_quota(DATA_MOUNT)?;
+        btrfs::quota::enable(DATA_MOUNT)?;
     }
 
     Ok(())

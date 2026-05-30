@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use btrfs::BtrfsScrubProgress;
+use btrfs::ioctl::BtrfsScrubProgress;
 
 use super::DATA_DIR;
 
@@ -19,7 +19,7 @@ enum ScrubOutcome {
 
 /// Run a read-only scrub across every device on `DATA_DIR`.
 fn run() -> ScrubOutcome {
-    let device_ids = match btrfs::get_fs_info(DATA_DIR) {
+    let device_ids = match btrfs::scrub::get_fs_info(DATA_DIR) {
         Ok(ids) => ids,
         Err(e) => return ScrubOutcome::Error(format!("Failed to enumerate devices: {}", e)),
     };
@@ -31,7 +31,7 @@ fn run() -> ScrubOutcome {
     let mut results = Vec::with_capacity(device_ids.len());
 
     for devid in &device_ids {
-        match btrfs::scrub(DATA_DIR, *devid, true) {
+        match btrfs::scrub::scrub(DATA_DIR, *devid, true) {
             Ok(progress) => results.push(DeviceResult { progress }),
             Err(e) => {
                 return ScrubOutcome::Error(format!("Scrub failed on device {}: {}", devid, e));
