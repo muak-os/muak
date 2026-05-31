@@ -463,7 +463,14 @@ mod tests {
     use crate::error::MisoError;
 
     fn minimal_efi_image() -> Vec<u8> {
-        vec![0xEFu8; 4 * SECTOR_SIZE]
+        vec![0xEF_u8; 4 * SECTOR_SIZE]
+    }
+
+    fn sector_start(lba: u32) -> usize {
+        usize::try_from(lba)
+            .expect("LBA must fit in usize")
+            .checked_mul(SECTOR_SIZE)
+            .expect("sector offset must fit in usize")
     }
 
     #[test]
@@ -477,9 +484,9 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let offset = LBA_PVD as usize * SECTOR_SIZE + 1;
+        let offset = sector_start(LBA_PVD) + 1;
         assert_eq!(
-            &data[offset..offset + 5],
+            data.get(offset..offset + 5).expect("PVD magic must exist"),
             b"CD001",
             "PVD must have CD001 magic"
         );
@@ -496,8 +503,12 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let pvd_start = LBA_PVD as usize * SECTOR_SIZE;
-        assert_eq!(data[pvd_start], 1, "PVD type byte must be 1");
+        let pvd_start = sector_start(LBA_PVD);
+        assert_eq!(
+            data.get(pvd_start).copied().expect("PVD type must exist"),
+            1,
+            "PVD type byte must be 1"
+        );
     }
 
     #[test]
@@ -511,8 +522,14 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let brvd_start = LBA_BOOT_RECORD as usize * SECTOR_SIZE;
-        assert_eq!(data[brvd_start], 0, "Boot Record VD type byte must be 0");
+        let brvd_start = sector_start(LBA_BOOT_RECORD);
+        assert_eq!(
+            data.get(brvd_start)
+                .copied()
+                .expect("Boot Record VD type must exist"),
+            0,
+            "Boot Record VD type byte must be 0"
+        );
     }
 
     #[test]
@@ -526,8 +543,14 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let term_start = LBA_VD_TERMINATOR as usize * SECTOR_SIZE;
-        assert_eq!(data[term_start], 255, "VD terminator type byte must be 255");
+        let term_start = sector_start(LBA_VD_TERMINATOR);
+        assert_eq!(
+            data.get(term_start)
+                .copied()
+                .expect("VD terminator type must exist"),
+            255,
+            "VD terminator type byte must be 255"
+        );
     }
 
     #[test]
@@ -541,9 +564,10 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let brvd_start = LBA_BOOT_RECORD as usize * SECTOR_SIZE;
+        let brvd_start = sector_start(LBA_BOOT_RECORD);
         assert_eq!(
-            &data[brvd_start + 7..brvd_start + 39],
+            data.get(brvd_start + 7..brvd_start + 39)
+                .expect("El Torito identifier must exist"),
             b"EL TORITO SPECIFICATION         ",
             "Boot Record VD must contain El Torito identifier"
         );
@@ -560,14 +584,17 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let brvd_start = LBA_BOOT_RECORD as usize * SECTOR_SIZE;
+        let brvd_start = sector_start(LBA_BOOT_RECORD);
         let catalog_lba = u32::from_le_bytes(
-            data[brvd_start + BOOT_RECORD_CATALOG_OFFSET
-                ..brvd_start + BOOT_RECORD_CATALOG_OFFSET + 4]
-                .try_into()
-                .expect("4-byte slice for catalog LBA"),
+            data.get(
+                brvd_start + BOOT_RECORD_CATALOG_OFFSET
+                    ..brvd_start + BOOT_RECORD_CATALOG_OFFSET + 4,
+            )
+            .expect("catalog LBA bytes must exist")
+            .try_into()
+            .expect("4-byte slice for catalog LBA"),
         );
-        assert_eq!(catalog_lba, LBA_BOOT_CATALOG as u32);
+        assert_eq!(catalog_lba, LBA_BOOT_CATALOG);
     }
 
     #[test]
@@ -581,14 +608,16 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let cat_start = LBA_BOOT_CATALOG as usize * SECTOR_SIZE;
-        let validation = &data[cat_start..cat_start + 32];
+        let cat_start = sector_start(LBA_BOOT_CATALOG);
+        let validation = data
+            .get(cat_start..cat_start + 32)
+            .expect("validation entry must exist");
         let sum: u32 = validation
-            .chunks(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]) as u32)
+            .chunks_exact(2)
+            .map(|chunk| u32::from(checksum_word(chunk).expect("checksum word must build")))
             .sum();
         assert_eq!(
-            sum % 0x10000,
+            sum.rem_euclid(0x10000),
             0,
             "boot catalog validation checksum must be zero mod 0x10000"
         );
@@ -605,15 +634,25 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let cat_start = LBA_BOOT_CATALOG as usize * SECTOR_SIZE;
-        assert_eq!(data[cat_start + 30], 0x55);
-        assert_eq!(data[cat_start + 31], 0xAA);
+        let cat_start = sector_start(LBA_BOOT_CATALOG);
+        assert_eq!(
+            data.get(cat_start + 30)
+                .copied()
+                .expect("first catalog key byte must exist"),
+            0x55
+        );
+        assert_eq!(
+            data.get(cat_start + 31)
+                .copied()
+                .expect("second catalog key byte must exist"),
+            0xAA
+        );
     }
 
     #[test]
     fn write_iso_file_data_written_at_lba_file_data() {
         // ARRANGE
-        let efi = vec![0xBEu8; SECTOR_SIZE];
+        let efi = vec![0xBE_u8; SECTOR_SIZE];
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
@@ -621,14 +660,18 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let offset = LBA_FILE_DATA as usize * SECTOR_SIZE;
-        assert_eq!(&data[offset..offset + SECTOR_SIZE], efi.as_slice());
+        let offset = sector_start(LBA_FILE_DATA);
+        assert_eq!(
+            data.get(offset..offset + SECTOR_SIZE)
+                .expect("file data sector must exist"),
+            efi.as_slice()
+        );
     }
 
     #[test]
     fn write_iso_output_size_is_sector_aligned() {
         // ARRANGE
-        let efi = vec![0u8; 3 * SECTOR_SIZE + 100];
+        let efi = vec![0_u8; 3 * SECTOR_SIZE + 100];
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
@@ -636,7 +679,11 @@ mod tests {
 
         // ASSERT
         let len = buf.into_inner().len();
-        assert_eq!(len % SECTOR_SIZE, 0, "ISO size must be sector-aligned");
+        assert_eq!(
+            len.rem_euclid(SECTOR_SIZE),
+            0,
+            "ISO size must be sector-aligned"
+        );
     }
 
     #[test]
@@ -650,8 +697,16 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        assert_eq!(data[510], 0x55, "MBR byte 510 must be 0x55");
-        assert_eq!(data[511], 0xAA, "MBR byte 511 must be 0xAA");
+        assert_eq!(
+            data.get(510).copied().expect("MBR byte 510 must exist"),
+            0x55,
+            "MBR byte 510 must be 0x55"
+        );
+        assert_eq!(
+            data.get(511).copied().expect("MBR byte 511 must exist"),
+            0xAA,
+            "MBR byte 511 must be 0xAA"
+        );
     }
 
     #[test]
@@ -666,7 +721,13 @@ mod tests {
         // ASSERT
         let data = buf.into_inner();
         // MBR partition type byte is at offset 446 + 4
-        assert_eq!(data[450], 0xEF, "MBR partition type must be 0xEF (EFI)");
+        assert_eq!(
+            data.get(450)
+                .copied()
+                .expect("MBR partition type byte must exist"),
+            0xEF,
+            "MBR partition type must be 0xEF (EFI)"
+        );
     }
 
     #[test]
@@ -681,13 +742,38 @@ mod tests {
         let expected_base = 33 + name.len();
         let expected_len = expected_base + 1;
         assert_eq!(
-            rec[0] as usize, expected_len,
+            usize::from(
+                rec.first()
+                    .copied()
+                    .expect("directory record length byte must exist"),
+            ),
+            expected_len,
             "record length field must match"
         );
-        assert_eq!(&rec[33..33 + name.len()], name);
-        assert_eq!(rec[25], 0x00, "file flag must be 0 for a file");
-        assert_eq!(rec.len() % 2, 0, "directory record length must be even");
-        assert_eq!(rec[expected_len - 1], 0, "padding byte must be zero-filled");
+        assert_eq!(
+            rec.get(33..33 + name.len())
+                .expect("directory record name must exist"),
+            name
+        );
+        assert_eq!(
+            rec.get(25)
+                .copied()
+                .expect("directory record file flag must exist"),
+            0x00,
+            "file flag must be 0 for a file"
+        );
+        assert_eq!(
+            rec.len().rem_euclid(2),
+            0,
+            "directory record length must be even"
+        );
+        assert_eq!(
+            rec.get(expected_len - 1)
+                .copied()
+                .expect("directory record padding byte must exist"),
+            0,
+            "padding byte must be zero-filled"
+        );
     }
 
     #[test]
@@ -696,16 +782,22 @@ mod tests {
         let rec = directory_record(&[0x00], 22, 2048, true).expect("directory record must build");
 
         // ASSERT
-        assert_eq!(rec[25], 0x02, "directory flag must be 0x02");
+        assert_eq!(
+            rec.get(25)
+                .copied()
+                .expect("directory record flag must exist"),
+            0x02,
+            "directory flag must be 0x02"
+        );
     }
 
     #[test]
     fn zero_date_has_correct_length() {
         // ARRANGE / ACT
-        let d = zero_date();
+        let date = zero_date();
 
         // ASSERT
-        assert_eq!(d.len(), 17);
+        assert_eq!(date.len(), 17);
     }
 
     #[test]

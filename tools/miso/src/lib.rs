@@ -93,21 +93,22 @@ mod tests {
     #[test]
     fn with_uki_places_uki_first_at_efi_boot_path() {
         // ARRANGE
-        let uki = vec![0xABu8; 64];
+        let uki = vec![0xAB_u8; 64];
 
         // ACT
         let spec = EspSpec::with_uki(Arch::X86_64, uki.clone(), vec![]);
 
         // ASSERT
         assert_eq!(spec.files.len(), 1);
-        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTX64.EFI");
-        assert_eq!(spec.files[0].data, uki);
+        let boot_file = spec.files.first().expect("boot file must exist");
+        assert_eq!(boot_file.path, "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(boot_file.data, uki);
     }
 
     #[test]
     fn with_uki_appends_extra_files_after_uki() {
         // ARRANGE
-        let uki = vec![0u8; 32];
+        let uki = vec![0_u8; 32];
         let extra = EspFile {
             path: "config.txt".to_owned(),
             data: b"arm_64bit=1".to_vec(),
@@ -118,14 +119,16 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files.len(), 2);
-        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTAA64.EFI");
-        assert_eq!(spec.files[1], extra);
+        let boot_file = spec.files.first().expect("boot file must exist");
+        let extra_file = spec.files.get(1).expect("extra file must exist");
+        assert_eq!(boot_file.path, "EFI/BOOT/BOOTAA64.EFI");
+        assert_eq!(extra_file, &extra);
     }
 
     #[test]
     fn build_iso_returns_nonempty_image() {
         // ARRANGE
-        let spec = EspSpec::with_uki(Arch::X86_64, vec![0xABu8; 1024], vec![]);
+        let spec = EspSpec::with_uki(Arch::X86_64, vec![0xAB_u8; 1024], vec![]);
 
         // ACT
         let iso = build_iso_bytes(&spec);
@@ -137,33 +140,41 @@ mod tests {
     #[test]
     fn build_iso_output_has_cd001_magic() {
         // ARRANGE
-        let spec = EspSpec::with_uki(Arch::X86_64, vec![0u8; 512], vec![]);
+        let spec = EspSpec::with_uki(Arch::X86_64, vec![0_u8; 512], vec![]);
 
         // ACT
         let iso = build_iso_bytes(&spec);
 
         // ASSERT
         let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
-        assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
+        assert_eq!(
+            iso.get(pvd_offset..pvd_offset + 5)
+                .expect("PVD magic must exist"),
+            b"CD001"
+        );
     }
 
     #[test]
     fn build_iso_aarch64_produces_valid_iso() {
         // ARRANGE
-        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xCCu8; 512], vec![]);
+        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xCC_u8; 512], vec![]);
 
         // ACT
         let iso = build_iso_bytes(&spec);
 
         // ASSERT
         let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
-        assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
+        assert_eq!(
+            iso.get(pvd_offset..pvd_offset + 5)
+                .expect("PVD magic must exist"),
+            b"CD001"
+        );
     }
 
     #[test]
     fn build_raw_rejects_invalid_compression_level() {
         // ARRANGE
-        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xABu8; 1024], vec![]);
+        let spec = EspSpec::with_uki(Arch::Aarch64, vec![0xAB_u8; 1024], vec![]);
         let mut out = Cursor::new(Vec::new());
 
         // ACT
@@ -181,7 +192,7 @@ mod tests {
         // ARRANGE
         let spec = EspSpec::with_uki(
             Arch::X86_64,
-            vec![0u8; 512],
+            vec![0_u8; 512],
             vec![EspFile {
                 path: "overlays/rpi/config.txt".to_owned(),
                 data: b"arm_64bit=1".to_vec(),
@@ -193,6 +204,10 @@ mod tests {
 
         // ASSERT
         let pvd_offset = iso::SECTOR_SIZE * 16 + 1;
-        assert_eq!(&iso[pvd_offset..pvd_offset + 5], b"CD001");
+        assert_eq!(
+            iso.get(pvd_offset..pvd_offset + 5)
+                .expect("PVD magic must exist"),
+            b"CD001"
+        );
     }
 }

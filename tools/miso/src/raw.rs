@@ -208,10 +208,19 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        assert_eq!(data[510], 0x55);
-        assert_eq!(data[511], 0xAA);
         assert_eq!(
-            data[450], MBR_PROTECTIVE_GPT_TYPE,
+            data.get(510).copied().expect("MBR byte 510 must exist"),
+            0x55
+        );
+        assert_eq!(
+            data.get(511).copied().expect("MBR byte 511 must exist"),
+            0xAA
+        );
+        assert_eq!(
+            data.get(450)
+                .copied()
+                .expect("protective MBR type byte must exist"),
+            MBR_PROTECTIVE_GPT_TYPE,
             "protective MBR type must be 0xEE"
         );
     }
@@ -253,7 +262,9 @@ mod tests {
                 .expect("partition offset must fit in u64"),
         )
         .expect("partition offset must fit in usize");
-        let esp_data = &data[offset..offset + esp.len()];
+        let esp_data = data
+            .get(offset..offset + esp.len())
+            .expect("ESP data range must exist");
         assert_eq!(esp_data, esp.as_slice());
     }
 
@@ -271,7 +282,7 @@ mod tests {
         let gpt = Table::read(&mut cursor).expect("GPT must be valid");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(
-            part.starting_lba % ALIGN_1_MIB_SECTORS,
+            part.starting_lba.rem_euclid(ALIGN_1_MIB_SECTORS),
             0,
             "ESP start must be aligned to 1 MiB"
         );
@@ -289,7 +300,9 @@ mod tests {
         // ASSERT
         let data = buf.into_inner();
         assert_eq!(
-            data.len() as u64 % SECTOR_SIZE,
+            u64::try_from(data.len())
+                .expect("disk image length must fit in u64")
+                .rem_euclid(SECTOR_SIZE),
             0,
             "disk image must be sector-aligned"
         );
@@ -329,7 +342,7 @@ mod tests {
         );
         successful_attempt.expect("returned disk size must fit the ESP");
         assert!(disk_sectors > ALIGN_1_MIB_SECTORS * 2);
-        assert_eq!(disk_sectors % ALIGN_1_MIB_SECTORS, 0);
+        assert_eq!(disk_sectors.rem_euclid(ALIGN_1_MIB_SECTORS), 0);
     }
 
     #[test]

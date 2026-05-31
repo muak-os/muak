@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn parse_arch_unknown_returns_error() {
         // ARRANGE / ACT / ASSERT
-        assert!(parse_arch("riscv64").is_err());
+        parse_arch("riscv64").unwrap_err();
     }
 
     #[test]
@@ -234,19 +234,19 @@ mod tests {
     #[test]
     fn parse_file_spec_missing_colon_returns_error() {
         // ARRANGE / ACT / ASSERT
-        assert!(parse_file_spec("nodivider").is_err());
+        parse_file_spec("nodivider").unwrap_err();
     }
 
     #[test]
     fn parse_file_spec_empty_src_returns_error() {
         // ARRANGE / ACT / ASSERT
-        assert!(parse_file_spec(":dst").is_err());
+        parse_file_spec(":dst").unwrap_err();
     }
 
     #[test]
     fn parse_file_spec_empty_dst_returns_error() {
         // ARRANGE / ACT / ASSERT
-        assert!(parse_file_spec("src:").is_err());
+        parse_file_spec("src:").unwrap_err();
     }
 
     #[test]
@@ -267,14 +267,15 @@ mod tests {
 
         // ASSERT
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "dest/file.txt");
-        assert_eq!(entries[0].data, b"hello");
+        let entry = entries.first().expect("file entry must exist");
+        assert_eq!(entry.path, "dest/file.txt");
+        assert_eq!(entry.data, b"hello");
     }
 
     #[test]
     fn load_file_entries_missing_file_returns_error() {
         // ARRANGE / ACT / ASSERT
-        assert!(load_file_entries(&["/nonexistent/file.bin:dst".to_owned()]).is_err());
+        load_file_entries(&["/nonexistent/file.bin:dst".to_owned()]).unwrap_err();
     }
 
     #[test]
@@ -304,8 +305,8 @@ mod tests {
                 arch,
                 files,
                 compression_level,
-            } if uki == std::path::PathBuf::from("input.efi")
-                && output == std::path::PathBuf::from("output.raw.zst")
+            } if uki.as_path() == std::path::Path::new("input.efi")
+                && output.as_path() == std::path::Path::new("output.raw.zst")
                 && arch == "aarch64"
                 && files.is_empty()
                 && compression_level == Some(3)
@@ -363,8 +364,8 @@ mod tests {
                 output,
                 arch,
                 files,
-            } if uki == std::path::PathBuf::from("input.efi")
-                && output == std::path::PathBuf::from("output.iso")
+            } if uki.as_path() == std::path::Path::new("input.efi")
+                && output.as_path() == std::path::Path::new("output.iso")
                 && arch == "x86_64"
                 && files.is_empty()
         ));
@@ -374,9 +375,7 @@ mod tests {
     fn clap_command_factory_registers_both_subcommands() {
         // ARRANGE / ACT
         let command = Args::command();
-        let subcommands = command
-            .get_subcommands()
-            .map(|subcommand| subcommand.get_name());
+        let subcommands = command.get_subcommands().map(clap::Command::get_name);
 
         // ASSERT
         assert_eq!(subcommands.collect::<Vec<_>>(), vec!["iso", "raw"]);
