@@ -136,7 +136,7 @@ fn ensure_dev_node(name: &str, dev: u64) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn test_params<'a>(sector_size: u32, volume_key: &'a [u8]) -> CryptParams<'a> {
+    fn test_params(sector_size: u32, volume_key: &[u8]) -> CryptParams<'_> {
         CryptParams {
             name: "crypt-test",
             dm_uuid: "CRYPT-LUKS2-deadbeef",
@@ -203,6 +203,6 @@ mod tests {
         let result = ensure_dev_node("", 0);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

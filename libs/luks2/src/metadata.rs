@@ -246,7 +246,7 @@ impl Metadata {
 
 #[cfg(test)]
 mod tests {
-    use base64ct::Encoding;
+    use base64ct::Encoding as _;
 
     use super::*;
 
@@ -277,7 +277,7 @@ mod tests {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
-        let kdf_salt = [0x42u8; 64];
+        let kdf_salt = [0x42_u8; 64];
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
@@ -304,8 +304,8 @@ mod tests {
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
 
-        let salt1 = [0x01u8; 64];
-        let salt2 = [0x02u8; 64];
+        let salt1 = [0x01_u8; 64];
+        let salt2 = [0x02_u8; 64];
 
         // ACT
         meta.add_keyslot("0", &salt1);
@@ -322,10 +322,10 @@ mod tests {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
-        let kdf_salt = [0x42u8; 64];
+        let kdf_salt = [0x42_u8; 64];
         meta.add_keyslot("0", &kdf_salt);
 
-        let json_size = 4096u64;
+        let json_size = 4096_u64;
 
         // ACT
         let serialized = meta.to_json_buffer(json_size).unwrap();
@@ -352,13 +352,13 @@ mod tests {
         // ARRANGE
         let json = r#"{"keyslots":{},"tokens":{},"segments":{"0":{"type":"crypt","offset":"16777216","iv_tweak":"0","size":"dynamic","encryption":"aes-xts-plain64","sector_size":4096}},"digests":{},"config":{"json_size":"12288","keyslots_size":"16744448"}}"#;
         let mut data = json.as_bytes().to_vec();
-        data.extend(vec![0u8; 100]);
+        data.extend(vec![0_u8; 100]);
 
         // ACT
         let result = Metadata::from_json_buffer(&data);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -367,22 +367,19 @@ mod tests {
         let sector_size = 4096;
         let meta = Metadata::new(sector_size);
 
-        let json_size = 4096u64;
+        let json_size = 4096_u64;
 
         // ACT
         let serialized = meta.to_json_buffer(json_size).unwrap();
 
         // ASSERT
-        let mut json_end = serialized.len();
-        for i in 0..serialized.len() {
-            if serialized[i] == 0 {
-                json_end = i;
-                break;
-            }
-        }
+        let json_end = serialized
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(serialized.len());
 
-        for i in json_end..serialized.len() {
-            assert_eq!(serialized[i], 0, "Byte at position {} should be null", i);
+        for (index, byte) in serialized.iter().enumerate().skip(json_end) {
+            assert_eq!(*byte, 0, "Byte at position {index} should be null");
         }
     }
 
@@ -409,7 +406,7 @@ mod tests {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
-        let kdf_salt = [0x42u8; 64];
+        let kdf_salt = [0x42_u8; 64];
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
@@ -426,7 +423,7 @@ mod tests {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
-        let kdf_salt = [0x42u8; 64];
+        let kdf_salt = [0x42_u8; 64];
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
@@ -445,7 +442,7 @@ mod tests {
         // ARRANGE
         let sector_size = 4096;
         let mut meta = Metadata::new(sector_size);
-        let kdf_salt = [0x42u8; 64];
+        let kdf_salt = [0x42_u8; 64];
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
@@ -466,7 +463,7 @@ mod tests {
         let result = Metadata::from_json_buffer(&data);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -486,14 +483,14 @@ mod tests {
         let meta = Metadata::new(sector_size);
 
         // ACT
-        let small_size = 256u64;
+        let small_size = 256_u64;
         let result = meta.to_json_buffer(small_size);
-        let large_size = 4096u64;
+        let large_size = 4096_u64;
         let serialized = meta.to_json_buffer(large_size).unwrap();
 
         // ASSERT
-        assert!(result.is_err());
-        assert_eq!(serialized.len(), large_size as usize);
+        result.unwrap_err();
+        assert_eq!(serialized.len(), usize::try_from(large_size).unwrap());
     }
 
     #[test]

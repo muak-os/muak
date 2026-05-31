@@ -264,18 +264,18 @@ mod tests {
 
     fn create_test_metadata() -> Metadata {
         let mut meta = Metadata::new(4096);
-        meta.add_keyslot("0", &[0x42u8; 64]);
+        meta.add_keyslot("0", &[0x42_u8; 64]);
         meta
     }
 
     #[test]
     fn verify_candidate_correct_key() {
         // ARRANGE
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
         let mut meta = create_test_metadata();
 
         let digest = create_test_digest(&volume_key);
-        meta.digests.insert("0".to_string(), digest);
+        meta.digests.insert("0".to_owned(), digest);
 
         // ACT
         let result = verify_candidate(&volume_key, "0", &meta);
@@ -287,12 +287,12 @@ mod tests {
     #[test]
     fn verify_candidate_wrong_key() {
         // ARRANGE
-        let correct_key = vec![0xABu8; 64];
-        let wrong_key = vec![0xCDu8; 64];
+        let correct_key = vec![0xAB_u8; 64];
+        let wrong_key = vec![0xCD_u8; 64];
         let mut meta = create_test_metadata();
 
         let digest = create_test_digest(&correct_key);
-        meta.digests.insert("0".to_string(), digest);
+        meta.digests.insert("0".to_owned(), digest);
 
         // ACT
         let result = verify_candidate(&wrong_key, "0", &meta);
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn verify_candidate_no_matching_digest() {
         // ARRANGE
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
         let meta = create_test_metadata();
 
         // ACT
@@ -317,11 +317,11 @@ mod tests {
     #[test]
     fn verify_candidate_wrong_keyslot() {
         // ARRANGE
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
         let mut meta = create_test_metadata();
 
         let digest = create_test_digest(&volume_key);
-        meta.digests.insert("0".to_string(), digest);
+        meta.digests.insert("0".to_owned(), digest);
 
         // ACT
         let result = verify_candidate(&volume_key, "2", &meta);
@@ -333,16 +333,16 @@ mod tests {
     #[test]
     fn verify_candidate_multiple_digests_one_matches() {
         // ARRANGE
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
         let mut meta = create_test_metadata();
-        meta.add_keyslot("1", &[0x43u8; 64]);
+        meta.add_keyslot("1", &[0x43_u8; 64]);
 
         let digest0 = create_test_digest(&volume_key);
-        meta.digests.insert("0".to_string(), digest0);
+        meta.digests.insert("0".to_owned(), digest0);
 
-        let other_key = vec![0xCDu8; 64];
+        let other_key = vec![0xCD_u8; 64];
         let digest1 = create_test_digest(&other_key);
-        meta.digests.insert("1".to_string(), digest1);
+        meta.digests.insert("1".to_owned(), digest1);
 
         // ACT
         let result = verify_candidate(&volume_key, "0", &meta);
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn error_from_json() {
         // ARRANGE
-        let result: std::result::Result<serde_json::Value, _> = serde_json::from_str("invalid");
+        let result: core::result::Result<serde_json::Value, _> = serde_json::from_str("invalid");
         let json_err = result.unwrap_err();
 
         // ACT
@@ -381,12 +381,12 @@ mod tests {
     #[test]
     fn device_size_regular_file() {
         // ARRANGE
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        let data = vec![0u8; 4096];
-        std::io::Write::write_all(&mut f, &data).unwrap();
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let data = vec![0_u8; 4096];
+        std::io::Write::write_all(&mut file, &data).unwrap();
 
         // ACT
-        let size = device_size(f.path().to_str().unwrap()).unwrap();
+        let size = device_size(file.path().to_str().unwrap()).unwrap();
 
         // ASSERT
         assert_eq!(size, 4096);
@@ -396,7 +396,7 @@ mod tests {
     fn device_size_nonexistent_returns_error() {
         // ACT & ASSERT
         let result = device_size("/nonexistent/dev/not_real");
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]

@@ -118,7 +118,7 @@ mod tests {
 
     use super::*;
 
-    fn test_params<'a>(sector_size: u32, volume_key: &'a [u8]) -> CryptParams<'a> {
+    fn test_params(sector_size: u32, volume_key: &[u8]) -> CryptParams<'_> {
         CryptParams {
             name: "crypt-test",
             dm_uuid: "CRYPT-LUKS2-deadbeef",
@@ -189,11 +189,14 @@ mod tests {
         let params_end = params_offset + expected_params.len();
 
         assert_eq!(
-            &buffer[params_offset..params_end],
+            buffer.get(params_offset..params_end).unwrap(),
             expected_params.as_bytes()
         );
-        assert_eq!(buffer[params_end], 0);
-        assert_eq!(&buffer[header_size + 24..header_size + 29], TARGET_TYPE);
+        assert_eq!(*buffer.get(params_end).unwrap(), 0);
+        assert_eq!(
+            buffer.get(header_size + 24..header_size + 29).unwrap(),
+            TARGET_TYPE
+        );
     }
 
     #[test]

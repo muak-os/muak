@@ -71,7 +71,7 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use base64ct::Encoding;
+    use base64ct::Encoding as _;
 
     use super::*;
     use crate::metadata::Digest;
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn create_verify_roundtrip() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
@@ -94,8 +94,8 @@ mod tests {
     #[test]
     fn verify_wrong_key() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
-        let wrong_key = vec![0x43u8; 64];
+        let volume_key = vec![0x42_u8; 64];
+        let wrong_key = vec![0x43_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
@@ -111,14 +111,14 @@ mod tests {
     #[test]
     fn verify_modified_key() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
         let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
         let mut modified_key = volume_key.clone();
-        modified_key[0] ^= 0x01;
+        *modified_key.get_mut(0).unwrap() ^= 0x01;
 
         // ACT
         let result = verify(&modified_key, &digest).unwrap();
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn create_different_salts() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn digest_structure() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0", "1"];
         let segment_ids = &["0", "1", "2"];
 
@@ -159,10 +159,10 @@ mod tests {
         assert_eq!(digest.r#type, "pbkdf2");
         assert_eq!(digest.hash, "sha256");
         assert_eq!(digest.iterations, DIGEST_ITERATIONS);
-        assert_eq!(digest.keyslots, vec!["0".to_string(), "1".to_string()]);
+        assert_eq!(digest.keyslots, vec!["0".to_owned(), "1".to_owned()]);
         assert_eq!(
             digest.segments,
-            vec!["0".to_string(), "1".to_string(), "2".to_string()]
+            vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]
         );
 
         assert!(!digest.salt.is_empty());
@@ -172,43 +172,43 @@ mod tests {
     #[test]
     fn verify_unsupported_digest_type() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let digest = Digest {
-            r#type: "argon2".to_string(),
-            keyslots: vec!["0".to_string()],
-            segments: vec!["0".to_string()],
-            hash: "sha256".to_string(),
+            r#type: "argon2".to_owned(),
+            keyslots: vec!["0".to_owned()],
+            segments: vec!["0".to_owned()],
+            hash: "sha256".to_owned(),
             iterations: 1000,
-            salt: base64ct::Base64::encode_string(&[0x42u8; 32]),
-            value: base64ct::Base64::encode_string(&[0x42u8; 32]),
+            salt: base64ct::Base64::encode_string(&[0x42_u8; 32]),
+            value: base64ct::Base64::encode_string(&[0x42_u8; 32]),
         };
 
         // ACT
         let result = verify(&volume_key, &digest);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
     fn verify_zero_iterations() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let digest = Digest {
-            r#type: "pbkdf2".to_string(),
-            keyslots: vec!["0".to_string()],
-            segments: vec!["0".to_string()],
-            hash: "sha256".to_string(),
+            r#type: "pbkdf2".to_owned(),
+            keyslots: vec!["0".to_owned()],
+            segments: vec!["0".to_owned()],
+            hash: "sha256".to_owned(),
             iterations: 0,
-            salt: base64ct::Base64::encode_string(&[0x42u8; 32]),
-            value: base64ct::Base64::encode_string(&[0x42u8; 32]),
+            salt: base64ct::Base64::encode_string(&[0x42_u8; 32]),
+            value: base64ct::Base64::encode_string(&[0x42_u8; 32]),
         };
 
         // ACT
         let result = verify(&volume_key, &digest);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -231,28 +231,28 @@ mod tests {
     fn verify_different_key_sizes() {
         // ARRANGE & ACT & ASSERT
         for size in [16, 32, 64, 128] {
-            let volume_key = vec![0x42u8; size];
+            let volume_key = vec![0x42_u8; size];
             let keyslot_ids = &["0"];
             let segment_ids = &["0"];
 
             let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
             let result = verify(&volume_key, &digest).unwrap();
-            assert!(result, "Failed for key size {}", size);
+            assert!(result, "Failed for key size {size}");
         }
     }
 
     #[test]
     fn verify_corrupted_digest() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
         let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
         let mut decoded = base64ct::Base64::decode_vec(&digest.value).unwrap();
-        decoded[0] ^= 0xFF;
+        *decoded.get_mut(0).unwrap() ^= 0xFF;
         digest.value = base64ct::Base64::encode_string(&decoded);
 
         // ACT
@@ -265,14 +265,14 @@ mod tests {
     #[test]
     fn verify_corrupted_salt() {
         // ARRANGE
-        let volume_key = vec![0x42u8; 64];
+        let volume_key = vec![0x42_u8; 64];
         let keyslot_ids = &["0"];
         let segment_ids = &["0"];
 
         let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
         let mut decoded = base64ct::Base64::decode_vec(&digest.salt).unwrap();
-        decoded[0] ^= 0xFF;
+        *decoded.get_mut(0).unwrap() ^= 0xFF;
         digest.salt = base64ct::Base64::encode_string(&decoded);
 
         // ACT
@@ -299,6 +299,6 @@ mod tests {
         let result = verify(b"key", &digest);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

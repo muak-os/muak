@@ -196,7 +196,7 @@ mod tests {
         // ASSERT
         assert_eq!(opcode, DM_TABLE_LOAD);
         assert_eq!(raw_ptr, ptr::from_mut(&mut byte).cast::<c_void>());
-        assert!(DmTableLoadIoctl::IS_MUTATING);
+        const { assert!(DmTableLoadIoctl::IS_MUTATING) };
     }
 
     #[test]

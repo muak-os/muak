@@ -91,7 +91,7 @@ mod tests {
         let result = read_at(path, 0, 16);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
         let result = write_at("/nonexistent/luks2-device", 0, b"data");
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
         let result = read_at("/nonexistent/luks2-device", 0, 4);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]

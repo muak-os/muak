@@ -118,14 +118,14 @@ mod tests {
     #[test]
     fn encrypt_decrypt_roundtrip() {
         // ARRANGE
-        let key = [0x42u8; 64];
-        let tweak = [0x01u8; 16];
+        let key = [0x42_u8; 64];
+        let tweak = [0x01_u8; 16];
         let original_data = b"Hello, World!!!!";
-        let mut data = original_data.clone();
+        let mut data = *original_data;
 
         // ACT
         encrypt(&key, &tweak, &mut data).unwrap();
-        let encrypted = data.clone();
+        let encrypted = data;
 
         // ASSERT
         assert_ne!(encrypted.as_slice(), original_data.as_slice());
@@ -140,10 +140,10 @@ mod tests {
     #[test]
     fn encrypt_decrypt_multiple_blocks() {
         // ARRANGE
-        let key = [0xABu8; 64];
-        let tweak = [0x00u8; 16];
+        let key = [0xAB_u8; 64];
+        let tweak = [0x00_u8; 16];
         let original_data = b"This is a 64 byte string for testing multiple blocks!!!";
-        let mut data = original_data.clone();
+        let mut data = *original_data;
 
         // ACT
         encrypt(&key, &tweak, &mut data).unwrap();
@@ -156,13 +156,13 @@ mod tests {
     #[test]
     fn different_tweaks_produce_different_ciphertexts() {
         // ARRANGE
-        let key = [0x42u8; 64];
-        let tweak1 = [0x01u8; 16];
-        let tweak2 = [0x02u8; 16];
+        let key = [0x42_u8; 64];
+        let tweak1 = [0x01_u8; 16];
+        let tweak2 = [0x02_u8; 16];
         let original_data = b"Same data here!!";
 
-        let mut data1 = original_data.clone();
-        let mut data2 = original_data.clone();
+        let mut data1 = *original_data;
+        let mut data2 = *original_data;
 
         // ACT
         encrypt(&key, &tweak1, &mut data1).unwrap();
@@ -175,12 +175,12 @@ mod tests {
     #[test]
     fn same_tweak_produces_same_ciphertext() {
         // ARRANGE
-        let key = [0x42u8; 64];
-        let tweak = [0x01u8; 16];
+        let key = [0x42_u8; 64];
+        let tweak = [0x01_u8; 16];
         let original_data = b"Same data here!!";
 
-        let mut data1 = original_data.clone();
-        let mut data2 = original_data.clone();
+        let mut data1 = *original_data;
+        let mut data2 = *original_data;
 
         // ACT
         encrypt(&key, &tweak, &mut data1).unwrap();
@@ -193,15 +193,15 @@ mod tests {
     #[test]
     fn wrong_key_fails_decryption() {
         // ARRANGE
-        let key1 = [0x42u8; 64];
-        let key2 = [0x43u8; 64];
-        let tweak = [0x01u8; 16];
+        let key1 = [0x42_u8; 64];
+        let key2 = [0x43_u8; 64];
+        let tweak = [0x01_u8; 16];
         let original_data = b"Secret message!!";
 
-        let mut data = original_data.clone();
+        let mut data = *original_data;
         encrypt(&key1, &tweak, &mut data).unwrap();
 
-        let mut decrypted = data.clone();
+        let mut decrypted = data;
 
         // ACT
         decrypt(&key2, &tweak, &mut decrypted).unwrap();
@@ -213,8 +213,8 @@ mod tests {
     #[test]
     fn invalid_key_size() {
         // ARRANGE
-        let key = [0x42u8; 32];
-        let tweak = [0x01u8; 16];
+        let key = [0x42_u8; 32];
+        let tweak = [0x01_u8; 16];
         let mut data = b"Test data here!!".to_vec();
 
         // ACT
@@ -227,8 +227,8 @@ mod tests {
     #[test]
     fn data_too_short() {
         // ARRANGE
-        let key = [0x42u8; 64];
-        let tweak = [0x01u8; 16];
+        let key = [0x42_u8; 64];
+        let tweak = [0x01_u8; 16];
         let mut data = b"Too short".to_vec();
 
         // ACT
@@ -241,34 +241,34 @@ mod tests {
     #[test]
     fn xor_block_flips_bits() {
         // ARRANGE
-        let mut block = [0xFFu8; 16];
-        let tweak = [0x0Fu8; 16];
+        let mut block = [0xFF_u8; 16];
+        let tweak = [0x0F_u8; 16];
 
         // ACT
         xor_block(&mut block, &tweak);
 
         // ASSERT
-        let expected = [0xF0u8; 16];
+        let expected = [0xF0_u8; 16];
         assert_eq!(block, expected);
     }
 
     #[test]
     fn xor_block_zero_tweak_unchanged() {
         // ARRANGE
-        let mut block = [0xABu8; 16];
-        let tweak = [0x00u8; 16];
+        let mut block = [0xAB_u8; 16];
+        let tweak = [0x00_u8; 16];
 
         // ACT
         xor_block(&mut block, &tweak);
 
         // ASSERT
-        assert_eq!(block, [0xABu8; 16]);
+        assert_eq!(block, [0xAB_u8; 16]);
     }
 
     #[test]
     fn gf128_mul_x_simple() {
         // ARRANGE
-        let mut tweak = [0x00u8; 16];
+        let mut tweak = [0x00_u8; 16];
         tweak[15] = 0x02;
 
         // ACT
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn gf128_mul_x_with_carry() {
         // ARRANGE
-        let mut tweak = [0x00u8; 16];
+        let mut tweak = [0x00_u8; 16];
         tweak[15] = 0x80;
         tweak[14] = 0x01;
 
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn gf128_mul_x_reduction() {
         // ARRANGE
-        let mut tweak = [0x80u8; 16];
+        let mut tweak = [0x80_u8; 16];
 
         // ACT
         gf128_mul_x(&mut tweak);
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn gf128_mul_x_full_reduction() {
         // ARRANGE
-        let mut tweak = [0xFFu8; 16];
+        let mut tweak = [0xFF_u8; 16];
 
         // ACT
         gf128_mul_x(&mut tweak);
@@ -320,14 +320,14 @@ mod tests {
     #[test]
     fn tweak_affects_encryption() {
         // ARRANGE
-        let key = [0x42u8; 64];
-        let tweak1 = [0x00u8; 16];
-        let mut tweak2 = [0x00u8; 16];
+        let key = [0x42_u8; 64];
+        let tweak1 = [0x00_u8; 16];
+        let mut tweak2 = [0x00_u8; 16];
         tweak2[15] = 0x01;
 
         let original_data = b"This is a 64 byte test string for verifying tweak behavior!!";
-        let mut data1 = original_data.clone();
-        let mut data2 = original_data.clone();
+        let mut data1 = *original_data;
+        let mut data2 = *original_data;
 
         // ACT
         encrypt(&key, &tweak1, &mut data1).unwrap();
@@ -348,6 +348,6 @@ mod tests {
         let result = decrypt(&key, &tweak, &mut data);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

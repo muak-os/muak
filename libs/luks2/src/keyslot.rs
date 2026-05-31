@@ -188,25 +188,25 @@ mod tests {
 
     fn create_test_keyslot() -> Keyslot {
         Keyslot {
-            r#type: "luks2".to_string(),
+            r#type: "luks2".to_owned(),
             key_size: 64,
             kdf: Kdf {
-                r#type: "argon2id".to_string(),
-                salt: base64ct::Base64::encode_string(&[0x42u8; 64]),
+                r#type: "argon2id".to_owned(),
+                salt: base64ct::Base64::encode_string(&[0x42_u8; 64]),
                 time: Some(1),
                 memory: Some(65536),
                 cpus: Some(4),
             },
             af: AntiForensic {
-                r#type: "luks1".to_string(),
+                r#type: "luks1".to_owned(),
                 stripes: 4000,
-                hash: "sha256".to_string(),
+                hash: "sha256".to_owned(),
             },
             area: KeyslotArea {
-                r#type: "raw".to_string(),
-                offset: "32768".to_string(),
-                size: "262144000".to_string(),
-                encryption: "aes-xts-plain64".to_string(),
+                r#type: "raw".to_owned(),
+                offset: "32768".to_owned(),
+                size: "262144000".to_owned(),
+                encryption: "aes-xts-plain64".to_owned(),
                 key_size: 64,
             },
         }
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn af_split_merge_roundtrip() {
         // ARRANGE
-        let key = vec![0xABu8; 64];
+        let key = vec![0xAB_u8; 64];
         let stripes = 100;
 
         // ACT
@@ -229,12 +229,12 @@ mod tests {
     #[test]
     fn af_split_different_stripes() {
         // ARRANGE
-        let key = vec![0x42u8; 32];
+        let key = vec![0x42_u8; 32];
 
         // ACT & ASSERT
         for stripes in [1, 10, 100, 4000] {
             let split = af_split(&key, stripes).unwrap();
-            assert_eq!(split.len(), key.len() * stripes as usize);
+            assert_eq!(split.len(), key.len() * usize::try_from(stripes).unwrap());
 
             let merged = af_merge(&split, key.len(), stripes).unwrap();
             assert_eq!(key, merged);
@@ -244,19 +244,19 @@ mod tests {
     #[test]
     fn af_merge_wrong_size() {
         // ARRANGE
-        let data = vec![0x42u8; 100];
+        let data = vec![0x42_u8; 100];
 
         // ACT
         let result = af_merge(&data, 64, 4000);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
     fn af_split_changes_with_same_key() {
         // ARRANGE
-        let key = vec![0x42u8; 64];
+        let key = vec![0x42_u8; 64];
         let stripes = 100;
 
         // ACT
@@ -277,13 +277,13 @@ mod tests {
     fn derive_key_unsupported_kdf() {
         // ARRANGE
         let mut keyslot = create_test_keyslot();
-        keyslot.kdf.r#type = "pbkdf2".to_string();
+        keyslot.kdf.r#type = "pbkdf2".to_owned();
 
         // ACT
         let result = derive_key(b"password", &keyslot);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -323,13 +323,13 @@ mod tests {
         let derived = derive_key(passphrase, &keyslot).unwrap();
 
         // ASSERT
-        assert_eq!(derived.len(), keyslot.key_size as usize);
+        assert_eq!(derived.len(), usize::try_from(keyslot.key_size).unwrap());
     }
 
     #[test]
     fn af_diffuse_deterministic() {
         // ARRANGE
-        let mut data1 = vec![0x42u8; 64];
+        let mut data1 = vec![0x42_u8; 64];
         let mut data2 = data1.clone();
 
         // ACT
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn af_diffuse_changes_data() {
         // ARRANGE
-        let original = vec![0x42u8; 64];
+        let original = vec![0x42_u8; 64];
         let mut data = original.clone();
 
         // ACT
@@ -358,7 +358,7 @@ mod tests {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
 
         // ACT
         let encrypted = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
@@ -374,7 +374,7 @@ mod tests {
         let keyslot = create_test_keyslot();
         let correct_passphrase = b"correct_password";
         let wrong_passphrase = b"wrong_password";
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
 
         let encrypted = encrypt_keyslot(correct_passphrase, &volume_key, &keyslot).unwrap();
 
@@ -404,7 +404,7 @@ mod tests {
         // ARRANGE
         let keyslot = create_test_keyslot();
         let passphrase = b"test_password";
-        let volume_key = vec![0xABu8; 64];
+        let volume_key = vec![0xAB_u8; 64];
 
         // ACT
         let encrypted1 = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn af_split_minimum_stripes() {
         // ARRANGE
-        let key = vec![0x42u8; 64];
+        let key = vec![0x42_u8; 64];
         let stripes = 1;
 
         // ACT
@@ -433,12 +433,12 @@ mod tests {
     #[test]
     fn af_merge_with_corrupted_data() {
         // ARRANGE
-        let key = vec![0x42u8; 64];
+        let key = vec![0x42_u8; 64];
         let stripes = 100;
 
         let mut split = af_split(&key, stripes).unwrap();
-        split[0] ^= 0xFF;
-        split[10] ^= 0xFF;
+        *split.get_mut(0).unwrap() ^= 0xFF;
+        *split.get_mut(10).unwrap() ^= 0xFF;
 
         // ACT
         let merged = af_merge(&split, key.len(), stripes).unwrap();
@@ -457,25 +457,21 @@ mod tests {
         let result = derive_key(passphrase, &keyslot);
 
         // ASSERT
-        assert!(result.is_ok());
-
         let derived = result.unwrap();
-        assert_eq!(derived.len(), keyslot.key_size as usize);
+        assert_eq!(derived.len(), usize::try_from(keyslot.key_size).unwrap());
     }
 
     #[test]
     fn derive_key_long_passphrase() {
         // ARRANGE
         let keyslot = create_test_keyslot();
-        let passphrase = vec![0x42u8; 1000];
+        let passphrase = vec![0x42_u8; 1000];
 
         // ACT
         let result = derive_key(&passphrase, &keyslot);
 
         // ASSERT
-        assert!(result.is_ok());
-
         let derived = result.unwrap();
-        assert_eq!(derived.len(), keyslot.key_size as usize);
+        assert_eq!(derived.len(), usize::try_from(keyslot.key_size).unwrap());
     }
 }
