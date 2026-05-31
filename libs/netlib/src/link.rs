@@ -375,8 +375,8 @@ async fn probe_carriers_with_handle(
 
 #[cfg(test)]
 mod tests {
+    use core::time::Duration;
     use std::collections::HashMap;
-    use std::time::Duration;
 
     use rtnetlink::packet_route::link::{LinkAttribute, LinkMessage};
 

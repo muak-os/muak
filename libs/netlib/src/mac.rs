@@ -51,21 +51,21 @@ mod tests {
     #[test]
     fn generate_mac_is_deterministic() {
         // ACT
-        let a = generate("same-id");
-        let b = generate("same-id");
+        let first_mac = generate("same-id");
+        let second_mac = generate("same-id");
 
         // ASSERT
-        assert_eq!(a, b);
+        assert_eq!(first_mac, second_mac);
     }
 
     #[test]
     fn generate_mac_differs_for_different_ids() {
         // ACT
-        let a = generate("alpha");
-        let b = generate("beta");
+        let first_mac = generate("alpha");
+        let second_mac = generate("beta");
 
         // ASSERT
-        assert_ne!(a, b);
+        assert_ne!(first_mac, second_mac);
     }
 
     #[test]

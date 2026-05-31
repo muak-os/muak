@@ -204,12 +204,10 @@ mod tests {
     use super::*;
 
     fn make_ra_base(hop_limit: u8, flags: u8, router_lifetime: u16) -> Vec<u8> {
-        let mut data = vec![0u8; 16];
-        data[0] = ICMPV6_ROUTER_ADVERTISEMENT;
-        data[1] = 0;
-        data[4] = hop_limit;
-        data[5] = flags;
-        data[6..8].copy_from_slice(&router_lifetime.to_be_bytes());
+        let mut data = Vec::with_capacity(RA_HEADER_LEN);
+        data.extend([ICMPV6_ROUTER_ADVERTISEMENT, 0, 0, 0, hop_limit, flags]);
+        data.extend(router_lifetime.to_be_bytes());
+        data.extend([0_u8; 8]);
         data
     }
 
@@ -221,28 +219,29 @@ mod tests {
         preferred: u32,
         prefix: Ipv6Addr,
     ) {
-        let start = data.len();
-        data.resize(start + 32, 0);
-        data[start] = ND_OPT_PREFIX_INFO;
-        data[start + 1] = 4;
-        data[start + 2] = prefix_len;
-        data[start + 3] = if autonomous { 0x40 } else { 0x00 };
-        data[start + 4..start + 8].copy_from_slice(&valid.to_be_bytes());
-        data[start + 8..start + 12].copy_from_slice(&preferred.to_be_bytes());
-        data[start + 16..start + 32].copy_from_slice(&prefix.octets());
+        let flags = if autonomous { 0x40 } else { 0x00 };
+
+        data.extend([ND_OPT_PREFIX_INFO, 4, prefix_len, flags]);
+        data.extend(valid.to_be_bytes());
+        data.extend(preferred.to_be_bytes());
+        data.extend([0_u8; 4]);
+        data.extend(prefix.octets());
     }
 
     fn append_rdnss_option(data: &mut Vec<u8>, lifetime: u32, servers: &[Ipv6Addr]) {
-        let opt_len_units = (1 + servers.len() * 2) as u8;
-        let start = data.len();
-        let byte_len = opt_len_units as usize * 8;
-        data.resize(start + byte_len, 0);
-        data[start] = ND_OPT_RDNSS;
-        data[start + 1] = opt_len_units;
-        data[start + 4..start + 8].copy_from_slice(&lifetime.to_be_bytes());
-        for (i, server) in servers.iter().enumerate() {
-            let off = start + 8 + i * 16;
-            data[off..off + 16].copy_from_slice(&server.octets());
+        let server_units = servers
+            .len()
+            .checked_mul(2)
+            .expect("RDNSS server count should fit");
+        let opt_len_units = 1_usize
+            .checked_add(server_units)
+            .expect("RDNSS option length should fit");
+        let opt_len_units = u8::try_from(opt_len_units).expect("RDNSS option length should fit");
+
+        data.extend([ND_OPT_RDNSS, opt_len_units, 0, 0]);
+        data.extend(lifetime.to_be_bytes());
+        for server in servers {
+            data.extend(server.octets());
         }
     }
 
@@ -255,11 +254,25 @@ mod tests {
         let pkt = build_router_solicitation(&mac);
 
         // ASSERT
-        assert_eq!(pkt[0], ICMPV6_ROUTER_SOLICITATION);
-        assert_eq!(pkt[1], 0);
-        assert_eq!(pkt[8], ND_OPT_SOURCE_LL_ADDR);
-        assert_eq!(pkt[9], 1);
-        assert_eq!(&pkt[10..16], &mac);
+        let expected = [
+            ICMPV6_ROUTER_SOLICITATION,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            ND_OPT_SOURCE_LL_ADDR,
+            1,
+            0xaa,
+            0xbb,
+            0xcc,
+            0xdd,
+            0xee,
+            0xff,
+        ];
+        assert_eq!(pkt.as_slice(), expected.as_slice());
     }
 
     #[test]
@@ -342,18 +355,18 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
-        assert!(parse_router_advertisement(&data, source).is_err());
+        parse_router_advertisement(&data, source).unwrap_err();
     }
 
     #[test]
     fn parse_ra_wrong_type() {
         // ARRANGE
         let mut data = make_ra_base(0, 0, 0);
-        data[0] = ICMPV6_ROUTER_SOLICITATION;
+        *data.first_mut().expect("RA header should have type") = ICMPV6_ROUTER_SOLICITATION;
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
-        assert!(parse_router_advertisement(&data, source).is_err());
+        parse_router_advertisement(&data, source).unwrap_err();
     }
 
     #[test]
@@ -369,11 +382,12 @@ mod tests {
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
-        assert_eq!(ra.prefixes[0].prefix, prefix);
-        assert_eq!(ra.prefixes[0].prefix_len, 64);
-        assert!(ra.prefixes[0].autonomous);
-        assert_eq!(ra.prefixes[0].valid_lifetime, 7200);
-        assert_eq!(ra.prefixes[0].preferred_lifetime, 3600);
+        let parsed_prefix = ra.prefixes.first().expect("prefix should parse");
+        assert_eq!(parsed_prefix.prefix, prefix);
+        assert_eq!(parsed_prefix.prefix_len, 64);
+        assert!(parsed_prefix.autonomous);
+        assert_eq!(parsed_prefix.valid_lifetime, 7200);
+        assert_eq!(parsed_prefix.preferred_lifetime, 3600);
     }
 
     #[test]
@@ -389,8 +403,9 @@ mod tests {
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
-        assert!(!ra.prefixes[0].autonomous);
-        assert_eq!(ra.prefixes[0].prefix_len, 48);
+        let parsed_prefix = ra.prefixes.first().expect("prefix should parse");
+        assert!(!parsed_prefix.autonomous);
+        assert_eq!(parsed_prefix.prefix_len, 48);
     }
 
     #[test]
@@ -435,9 +450,7 @@ mod tests {
         let ra = parse_router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
-        assert_eq!(ra.dns_servers.len(), 2);
-        assert_eq!(ra.dns_servers[0], dns1);
-        assert_eq!(ra.dns_servers[1], dns2);
+        assert_eq!(ra.dns_servers.as_slice(), &[dns1, dns2]);
         assert_eq!(ra.dns_lifetime, 3600);
     }
 
@@ -472,7 +485,7 @@ mod tests {
         let mut data = make_ra_base(64, 0, 1800);
         data.push(ND_OPT_PREFIX_INFO);
         data.push(0);
-        data.extend([0u8; 30]);
+        data.extend([0_u8; 30]);
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
@@ -488,7 +501,7 @@ mod tests {
         let mut data = make_ra_base(64, 0, 1800);
         data.push(99);
         data.push(1);
-        data.extend([0u8; 6]);
+        data.extend([0_u8; 6]);
         append_prefix_option(
             &mut data,
             64,

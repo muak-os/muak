@@ -346,7 +346,7 @@ mod tests {
             .expect("event should handle");
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
         assert_eq!(states.get(&2), Some(&("eth0".to_owned(), false)));
     }
 
@@ -365,7 +365,7 @@ mod tests {
             .expect("event should handle");
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
         assert!(states.is_empty());
     }
 
@@ -382,7 +382,7 @@ mod tests {
             .expect("event should handle");
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
         assert_eq!(states.get(&2), Some(&("eth0".to_owned(), true)));
     }
 
@@ -421,7 +421,7 @@ mod tests {
             .expect("event should handle");
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
         assert!(states.contains_key(&1));
     }
 
@@ -446,7 +446,7 @@ mod tests {
         .expect("event should handle");
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
         assert_eq!(states.get(&2), Some(&("eth0".to_owned(), false)));
     }
 
@@ -484,7 +484,7 @@ mod tests {
         process_message(message, &tx, &config(), &mut states).await;
 
         // ASSERT
-        assert!(rx.try_recv().is_err());
+        rx.try_recv().unwrap_err();
     }
 
     #[test]

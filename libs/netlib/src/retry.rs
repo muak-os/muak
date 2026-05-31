@@ -83,96 +83,64 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::sync::atomic::{AtomicU8, Ordering};
+    use core::future::ready;
+    use core::sync::atomic::{AtomicU8, Ordering::Relaxed};
 
     use super::*;
 
     #[tokio::test]
     async fn wait_for_condition_returns_value_before_timeout() {
         // ARRANGE
-        let attempts = AtomicU8::new(0);
+        let tries = AtomicU8::new(0);
+        let check = || ready((tries.fetch_add(1, Relaxed) >= 2).then_some("ready"));
 
         // ACT
-        let result = wait_for_condition(
-            || async {
-                let current = attempts.fetch_add(1, Ordering::Relaxed);
-                (current >= 2).then_some("ready")
-            },
-            5,
-            0,
-            "timed out",
-        )
-        .await;
+        let result = wait_for_condition(check, 5, 0, "timed out").await;
 
         // ASSERT
         assert_eq!(result.expect("condition should succeed"), "ready");
-        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+        assert_eq!(tries.load(Relaxed), 3);
     }
 
     #[tokio::test]
     async fn wait_for_condition_times_out_when_value_never_arrives() {
         // ARRANGE
-        let attempts = AtomicU8::new(0);
+        let tries = AtomicU8::new(0);
+        let check = || ready((tries.fetch_add(1, Relaxed) == u8::MAX).then_some(()));
 
         // ACT
-        let result = wait_for_condition(
-            || async {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                None::<()>
-            },
-            2,
-            0,
-            "timed out",
-        )
-        .await;
+        let result = wait_for_condition(check, 2, 0, "timed out").await;
 
         // ASSERT
         assert!(matches!(result, Err(Failure::Timeout(message)) if message == "timed out"));
-        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+        assert_eq!(tries.load(Relaxed), 2);
     }
 
     #[tokio::test]
     async fn run_returns_first_successful_result() {
         // ARRANGE
-        let attempts = AtomicU8::new(0);
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let operation = || ready((next_try() > 0).then_some(42).ok_or("not yet"));
 
         // ACT
-        let result = run(
-            || async {
-                let current = attempts.fetch_add(1, Ordering::Relaxed);
-                if current == 0 {
-                    Err("not yet")
-                } else {
-                    Ok::<_, &str>(42)
-                }
-            },
-            3,
-            0,
-            "operation timed out",
-        )
-        .await;
+        let result = run(operation, 3, 0, "operation timed out").await;
 
         // ASSERT
         assert_eq!(result.expect("operation should succeed"), 42);
-        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+        assert_eq!(tries.load(Relaxed), 2);
     }
 
     #[tokio::test]
     async fn run_reports_last_error_after_exhausting_retries() {
         // ARRANGE
-        let attempts = AtomicU8::new(0);
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let failure = |try_count| format!("failure-{try_count}");
+        let operation = || ready(Err::<(), _>(failure(next_try())));
 
         // ACT
-        let result = run(
-            || async {
-                let current = attempts.fetch_add(1, Ordering::Relaxed);
-                Err::<(), _>(format!("failure-{current}"))
-            },
-            3,
-            0,
-            "operation timed out",
-        )
-        .await;
+        let result = run(operation, 3, 0, "operation timed out").await;
 
         // ASSERT
         assert!(matches!(
@@ -180,6 +148,6 @@ mod tests {
             Err(Failure::TimeoutWithCause(message, cause))
                 if message == "operation timed out" && cause == "failure-2"
         ));
-        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+        assert_eq!(tries.load(Relaxed), 3);
     }
 }

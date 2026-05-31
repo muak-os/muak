@@ -317,27 +317,27 @@ mod tests {
     #[test]
     fn interface_name_rejects_empty() {
         // ACT / ASSERT
-        assert!(Name::new("").is_err());
+        Name::new("").unwrap_err();
     }
 
     #[test]
     fn interface_name_rejects_too_long() {
         // ACT / ASSERT
-        assert!(Name::new("a".repeat(16)).is_err());
+        Name::new("a".repeat(16)).unwrap_err();
     }
 
     #[test]
     fn interface_name_rejects_null_byte() {
         // ACT / ASSERT
-        assert!(Name::new("eth\0").is_err());
+        Name::new("eth\0").unwrap_err();
     }
 
     #[test]
     fn interface_name_accepts_valid() {
         // ACT / ASSERT
-        assert!(Name::new("eth0").is_ok());
-        assert!(Name::new("enp3s0f0").is_ok());
-        assert!(Name::new("a".repeat(15)).is_ok());
+        Name::new("eth0").unwrap();
+        Name::new("enp3s0f0").unwrap();
+        Name::new("a".repeat(15)).unwrap();
     }
 
     #[test]
@@ -568,11 +568,13 @@ mod tests {
 
         // ACT
         let backups = InterfaceSelector::select_backups(&interfaces, &primary_name);
+        let backup_names: Vec<_> = backups
+            .iter()
+            .map(|interface| interface.name.as_str())
+            .collect();
 
         // ASSERT
-        assert_eq!(backups[0].name, "eno1");
-        assert_eq!(backups[1].name, "enp3s0");
-        assert_eq!(backups[2].name, "eth1");
+        assert_eq!(backup_names.as_slice(), ["eno1", "enp3s0", "eth1"]);
     }
 
     #[test]
@@ -621,8 +623,8 @@ mod tests {
         let primary = InterfaceSelector::select_primary(&interfaces);
 
         // ASSERT
-        let p = primary.expect("should have primary");
-        assert_eq!(p.name, "eth0");
-        assert_eq!(p.index, 8);
+        let primary_interface = primary.expect("should have primary");
+        assert_eq!(primary_interface.name, "eth0");
+        assert_eq!(primary_interface.index, 8);
     }
 }

@@ -213,7 +213,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(addr.family, AddressFamily::PACKET.as_raw());
-        assert_eq!(addr.protocol.to_ne_bytes(), 0x0800_u16.to_be_bytes());
+        assert_eq!(addr.protocol, ETH_PROTOCOL_IP);
         assert_eq!(addr.if_index, 7);
         assert_eq!(addr.hardware_addr_len, ETH_ALEN_U8);
         assert_eq!(&addr.address[..ETH_ALEN], &mac);
