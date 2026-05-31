@@ -61,12 +61,14 @@ mod tests {
     use super::write_header;
     use crate::SLOT_SIZE;
     use crate::compress;
+    use crate::dir::EROFS_FT_REG_FILE;
     use crate::error::ErofsError;
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN,
     };
     use crate::layout::{self, InodeLayout};
     use crate::testutil::{compress_config, test_config};
+    use crate::writer::write_image;
 
     #[test]
     fn compact_inode_at_correct_offset() {
@@ -76,11 +78,13 @@ mod tests {
         let cfg = test_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
-            image[root_offset..root_offset + 2]
+            image
+                .get(root_offset..root_offset + 2)
+                .expect("root i_format bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
@@ -97,14 +101,20 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
-        let slot_off = file.nid as usize * SLOT_SIZE;
-        let i_format = u16::from_le_bytes(image[slot_off..slot_off + 2].try_into().expect("2b"));
+        let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
+        let i_format = u16::from_le_bytes(
+            image
+                .get(slot_off..slot_off + 2)
+                .expect("i_format bytes")
+                .try_into()
+                .expect("2b"),
+        );
         let datalayout = (i_format >> 1) & 0x07;
         // ACT
         // ASSERT
@@ -119,15 +129,17 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
-        let slot_off = file.nid as usize * SLOT_SIZE;
+        let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
         let i_u = u32::from_le_bytes(
-            image[slot_off + 0x10..slot_off + 0x14]
+            image
+                .get(slot_off + 0x10..slot_off + 0x14)
+                .expect("i_u bytes")
                 .try_into()
                 .expect("4b"),
         );
@@ -142,10 +154,10 @@ mod tests {
         // ARRANGE
         let inode = InodeLayout {
             path: std::path::PathBuf::new(),
-            rel_path: "/dev/null".to_string(),
+            rel_path: "/dev/null".to_owned(),
             nid: 36,
             ino: 0,
-            mode: 0o020666,
+            mode: 0o020_666,
             uid: 0,
             gid: 0,
             mtime: 0,
@@ -165,12 +177,14 @@ mod tests {
             compressed: None,
         };
         let mut image = vec![0_u8; 8192];
-        let slot_offset = inode.nid as usize * SLOT_SIZE;
+        let slot_offset = usize::try_from(inode.nid).expect("nid fits usize") * SLOT_SIZE;
 
         write_header(&mut image, &inode, slot_offset).expect("inode header");
 
         let stored = u32::from_le_bytes(
-            image[slot_offset + 0x10..slot_offset + 0x14]
+            image
+                .get(slot_offset + 0x10..slot_offset + 0x14)
+                .expect("rdev bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -193,7 +207,7 @@ mod tests {
             mtime: 0,
             mtime_nsec: 0,
             nlink: 1,
-            file_type: crate::dir::EROFS_FT_REG_FILE,
+            file_type: EROFS_FT_REG_FILE,
             size: 1,
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: vec![1, 2, 3, 4],

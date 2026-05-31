@@ -84,11 +84,11 @@ mod tests {
     #[test]
     fn compact_inode_serialization() {
         // ARRANGE
-        let mut buf = [0u8; 32];
+        let mut buf = [0_u8; 32];
         let params = CompactInodeParams {
             datalayout: EROFS_INODE_FLAT_INLINE,
             xattr_icount: 0,
-            mode: 0o100644,
+            mode: 0o100_644,
             nlink: 1,
             size: 42,
             startblk_or_rdev: u32::MAX,
@@ -106,7 +106,7 @@ mod tests {
         assert_eq!(fmt & 0x01, 0);
         assert_eq!((fmt >> 1) & 0x07, EROFS_INODE_FLAT_INLINE);
         let mode = u16::from_le_bytes(buf[4..6].try_into().expect("2 bytes"));
-        assert_eq!(mode, 0o100644);
+        assert_eq!(mode, 0o100_644);
         let size = u32::from_le_bytes(buf[8..12].try_into().expect("4 bytes"));
         assert_eq!(size, 42);
     }

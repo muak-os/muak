@@ -182,8 +182,7 @@ pub(super) fn fitblk_step_from_error_name(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use zstd::bulk::decompress;
 
     use super::{
         FitblkState, FitblkStep, compress_file, destsize_compress_all, destsize_compress_one,
@@ -339,10 +338,11 @@ mod tests {
         let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
         let mut offset = 0;
         for pcluster in &cf.pclusters {
-            let expected = &data[offset..offset + pcluster.input_len];
+            let expected = data
+                .get(offset..offset + pcluster.input_len)
+                .expect("pcluster input range");
             let decompressed =
-                zstd::bulk::decompress(&pcluster.compressed_data, pcluster.input_len)
-                    .expect("decompress");
+                decompress(&pcluster.compressed_data, pcluster.input_len).expect("decompress");
             // ACT
             // ASSERT
             assert_eq!(decompressed, expected);
@@ -353,22 +353,14 @@ mod tests {
     #[test]
     fn mixed_data_produces_multiple_pclusters() {
         // ARRANGE
-        let mut data = Vec::new();
-        for outer in 0_u64..64 {
-            if outer % 3 == 0 {
-                data.extend_from_slice(&[0_u8; 4096]);
-            } else {
-                let mut chunk = Vec::with_capacity(4096);
-                for inner in 0_u64..256 {
-                    let mut hasher = DefaultHasher::new();
-                    (outer, inner).hash(&mut hasher);
-                    chunk.extend_from_slice(&hasher.finish().to_le_bytes());
-                    chunk.extend_from_slice(&hasher.finish().to_le_bytes());
-                }
-                chunk.truncate(4096);
-                data.extend_from_slice(&chunk);
-            }
-        }
+        let data: Vec<u8> = (0_u32..64)
+            .flat_map(|outer| {
+                xorshift32_bytes(
+                    outer.saturating_mul(u32::from(u8::from(!outer.is_multiple_of(3)))),
+                    4096,
+                )
+            })
+            .collect();
 
         let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
         // ACT
@@ -381,22 +373,14 @@ mod tests {
     #[test]
     fn debug_compat_pcluster_boundaries() {
         // ARRANGE
-        let mut data = Vec::with_capacity(256 * 1024);
-        for outer in 0_u64..64 {
-            if outer % 3 == 0 {
-                data.extend_from_slice(&[0_u8; 4096]);
-            } else {
-                let mut chunk = [0_u8; 4096];
-                for (index, byte) in chunk.iter_mut().enumerate() {
-                    *byte = ((outer
-                        .wrapping_mul(251)
-                        .wrapping_add(index as u64)
-                        .wrapping_mul(167))
-                        & 0xFF) as u8;
-                }
-                data.extend_from_slice(&chunk);
-            }
-        }
+        let data: Vec<u8> = (0_u32..64)
+            .flat_map(|outer| {
+                xorshift32_bytes(
+                    outer.saturating_mul(u32::from(u8::from(!outer.is_multiple_of(3)))),
+                    4096,
+                )
+            })
+            .collect();
 
         let pclusters = destsize_compress_all(&data, 3).expect("compress");
         // ACT
@@ -466,6 +450,6 @@ mod tests {
         // ASSERT
         assert!(matches!(shrink, Ok(FitblkStep::Shrink)));
         assert!(matches!(done, Ok(FitblkStep::DoneShrink)));
-        assert!(matches!(fatal, Err(ErofsError::Compression { detail }) if detail.contains("7")));
+        assert!(matches!(fatal, Err(ErofsError::Compression { detail }) if detail.contains('7')));
     }
 }

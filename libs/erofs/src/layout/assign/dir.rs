@@ -121,7 +121,8 @@ mod tests {
     use crate::Compression;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::InodeLayout;
+    use crate::layout::{InodeLayout, plan};
+    use crate::testutil::test_config;
 
     #[test]
     fn layout_dir_inline_single_block() {
@@ -131,9 +132,8 @@ mod tests {
             std::fs::write(dir.path().join(format!("f{index}")), [index]).expect("write");
         }
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
-        let root = &inodes[0];
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
@@ -150,9 +150,8 @@ mod tests {
             std::fs::write(dir.path().join(&name), [index]).expect("write");
         }
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
-        let root = &inodes[0];
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
@@ -165,12 +164,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         for index in 0_u16..339 {
             let name = format!("file_{index:03}.txt");
-            std::fs::write(dir.path().join(&name), [index as u8]).expect("write");
+            std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
         }
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
-        let root = &inodes[0];
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
@@ -182,9 +180,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
-        let root = &inodes[0];
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
@@ -266,6 +263,6 @@ mod tests {
         // ACT
         // ASSERT
         assert_eq!(advance, 0);
-        let _ = Compression::None;
+        let _: Compression = Compression::None;
     }
 }

@@ -97,7 +97,7 @@ mod tests {
         let result = mkfs(nonexistent, &test_config(0));
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % 4096, 0);
+        assert!(image.len().is_multiple_of(4096));
     }
 
     #[test]
@@ -142,34 +142,44 @@ mod tests {
     fn mkfs_compressed_produces_valid_image() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
+        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
         let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs should succeed");
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % 4096, 0);
+        assert!(image.len().is_multiple_of(4096));
     }
 
     #[test]
     fn mkfs_compressed_superblock_has_compr_flags() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0u8; 8192]).expect("write");
+        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
         let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs");
 
         // ASSERT
-        let sb_off = 1024usize;
-        let extslots = image[sb_off + 0x0D];
+        let sb_off = 1024_usize;
+        let extslots = *image.get(sb_off + 0x0D).expect("sb_extslots byte");
         assert_eq!(extslots, 0, "sb_extslots must be 0");
-        let feature_incompat =
-            u32::from_le_bytes(image[sb_off + 0x50..sb_off + 0x54].try_into().expect("4b"));
+        let feature_incompat = u32::from_le_bytes(
+            image
+                .get(sb_off + 0x50..sb_off + 0x54)
+                .expect("feature incompat bytes")
+                .try_into()
+                .expect("4b"),
+        );
         assert_eq!(feature_incompat & 0x02, 0x02, "COMPR_CFGS flag set");
-        let avail_algs =
-            u16::from_le_bytes(image[sb_off + 0x54..sb_off + 0x56].try_into().expect("2b"));
+        let avail_algs = u16::from_le_bytes(
+            image
+                .get(sb_off + 0x54..sb_off + 0x56)
+                .expect("available algorithms bytes")
+                .try_into()
+                .expect("2b"),
+        );
         assert_eq!(avail_algs & (1 << 3), 1 << 3, "zstd bit set");
     }
 
@@ -177,9 +187,9 @@ mod tests {
     fn mkfs_compressed_reproducible() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("data"), vec![0u8; 16384]).expect("write");
+        std::fs::write(dir.path().join("data"), vec![0_u8; 16384]).expect("write");
         let config = MkfsConfig {
-            uuid: [2u8; 16],
+            uuid: [2_u8; 16],
             ..compress_config(1000)
         };
 
@@ -202,7 +212,7 @@ mod tests {
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % 4096, 0);
+        assert!(image.len().is_multiple_of(4096));
     }
 
     #[test]
@@ -245,7 +255,7 @@ mod tests {
         let result = layout::plan(file_path, &test_config(0));
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -263,7 +273,7 @@ mod tests {
         std::fs::write(dir.path().join("hello"), b"hello world").expect("write");
         let config = MkfsConfig {
             source_date_epoch: 42,
-            uuid: [0xAAu8; 16],
+            uuid: [0xAA_u8; 16],
             ..test_config(0)
         };
 
@@ -272,6 +282,10 @@ mod tests {
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % BLOCK_SIZE as usize, 0);
+        assert!(
+            image
+                .len()
+                .is_multiple_of(usize::try_from(BLOCK_SIZE).expect("block size fits usize"))
+        );
     }
 }

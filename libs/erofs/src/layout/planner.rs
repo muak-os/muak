@@ -45,14 +45,14 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
     fn readdir_order_nested_directories() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        stdfs::create_dir(dir.path().join("a")).expect("mkdir");
+        stdfs::create_dir_all(dir.path().join("a")).expect("mkdir");
         stdfs::write(dir.path().join("a").join("b"), b"x").expect("write");
 
         let inodes = plan(dir.path(), &test_config(0)).expect("plan");

@@ -38,6 +38,8 @@ pub(super) fn error_name(code: usize) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use zstd::bulk::decompress;
+
     use super::{compress_whole_input, new_cctx};
     use crate::error::ErofsError;
 
@@ -59,7 +61,7 @@ mod tests {
         let data = vec![0_u8; 8192];
 
         let compressed = compress_whole_input(&mut cctx, &data).expect("compress");
-        let decompressed = zstd::bulk::decompress(&compressed, data.len()).expect("decompress");
+        let decompressed = decompress(&compressed, data.len()).expect("decompress");
 
         // ACT
         // ASSERT

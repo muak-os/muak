@@ -111,6 +111,9 @@ pub fn write_checksum(buf: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inode::Z_EROFS_COMPRESSION_ZSTD;
+
+    const TEST_BLOCK_SIZE: usize = 4096;
 
     fn test_params() -> SuperblockParams {
         SuperblockParams {
@@ -118,7 +121,7 @@ mod tests {
             inos: 1,
             epoch: 0,
             blocks: 1,
-            uuid: [0; 16],
+            uuid: [0_u8; 16],
             has_compression: false,
         }
     }
@@ -126,14 +129,15 @@ mod tests {
     #[test]
     fn magic_at_correct_offset() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
 
         // ACT
         write(&mut buf, &test_params());
 
         // ASSERT
         let magic = u32::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4]
+            buf.get(EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4)
+                .expect("magic bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -143,26 +147,30 @@ mod tests {
     #[test]
     fn blkszbits_is_12() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
 
         // ACT
         write(&mut buf, &test_params());
 
         // ASSERT
-        assert_eq!(buf[EROFS_SUPER_OFFSET + 0x0C], 12);
+        assert_eq!(
+            *buf.get(EROFS_SUPER_OFFSET + 0x0C).expect("blkszbits byte"),
+            12
+        );
     }
 
     #[test]
     fn meta_blkaddr_is_zero() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
 
         // ACT
         write(&mut buf, &test_params());
 
         // ASSERT
         let meta = u32::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x28..EROFS_SUPER_OFFSET + 0x2C]
+            buf.get(EROFS_SUPER_OFFSET + 0x28..EROFS_SUPER_OFFSET + 0x2C)
+                .expect("meta block address bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -172,7 +180,7 @@ mod tests {
     #[test]
     fn checksum_roundtrip() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
         write(&mut buf, &test_params());
 
         // ACT
@@ -180,30 +188,39 @@ mod tests {
 
         // ASSERT
         let stored = u32::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 4..EROFS_SUPER_OFFSET + 8]
+            buf.get(EROFS_SUPER_OFFSET + 4..EROFS_SUPER_OFFSET + 8)
+                .expect("checksum bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
         assert_ne!(stored, 0);
         let mut verify = buf.clone();
-        verify[EROFS_SUPER_OFFSET + 4..EROFS_SUPER_OFFSET + 8].fill(0);
-        let recomputed = !crc32c::crc32c(&verify[EROFS_SUPER_OFFSET..BLOCK_SIZE as usize]);
+        verify
+            .get_mut(EROFS_SUPER_OFFSET + 4..EROFS_SUPER_OFFSET + 8)
+            .expect("checksum bytes")
+            .fill(0);
+        let recomputed = !crc32c::crc32c(
+            verify
+                .get(EROFS_SUPER_OFFSET..TEST_BLOCK_SIZE)
+                .expect("superblock bytes"),
+        );
         assert_eq!(stored, recomputed);
     }
 
     #[test]
     fn epoch_stored_correctly() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
-        let mut p = test_params();
-        p.epoch = 1_700_000_000;
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
+        let mut params = test_params();
+        params.epoch = 1_700_000_000;
 
         // ACT
-        write(&mut buf, &p);
+        write(&mut buf, &params);
 
         // ASSERT
         let stored = u64::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x18..EROFS_SUPER_OFFSET + 0x20]
+            buf.get(EROFS_SUPER_OFFSET + 0x18..EROFS_SUPER_OFFSET + 0x20)
+                .expect("epoch bytes")
                 .try_into()
                 .expect("8 bytes"),
         );
@@ -213,16 +230,17 @@ mod tests {
     #[test]
     fn rootnid_stored() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
-        let mut p = test_params();
-        p.root_nid = 42;
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
+        let mut params = test_params();
+        params.root_nid = 42;
 
         // ACT
-        write(&mut buf, &p);
+        write(&mut buf, &params);
 
         // ASSERT
         let nid = u16::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10]
+            buf.get(EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10)
+                .expect("root nid bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
@@ -232,22 +250,23 @@ mod tests {
     #[test]
     fn compression_flags_written_when_enabled() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
-        let p = SuperblockParams {
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
+        let params = SuperblockParams {
             root_nid: 0,
             inos: 1,
             epoch: 0,
             blocks: 1,
-            uuid: [0; 16],
+            uuid: [0_u8; 16],
             has_compression: true,
         };
 
         // ACT
-        write(&mut buf, &p);
+        write(&mut buf, &params);
 
         // ASSERT
         let feature_incompat = u32::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x50..EROFS_SUPER_OFFSET + 0x54]
+            buf.get(EROFS_SUPER_OFFSET + 0x50..EROFS_SUPER_OFFSET + 0x54)
+                .expect("feature incompat bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -256,49 +275,63 @@ mod tests {
             EROFS_FEATURE_INCOMPAT_ZERO_PADDING | EROFS_FEATURE_INCOMPAT_COMPR_CFGS
         );
         let avail = u16::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x54..EROFS_SUPER_OFFSET + 0x56]
+            buf.get(EROFS_SUPER_OFFSET + 0x54..EROFS_SUPER_OFFSET + 0x56)
+                .expect("available compressors bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
-        assert_eq!(avail, 1 << crate::inode::Z_EROFS_COMPRESSION_ZSTD);
+        assert_eq!(avail, 1 << Z_EROFS_COMPRESSION_ZSTD);
     }
 
     #[test]
     fn compr_cfgs_written_correctly() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
-        let p = SuperblockParams {
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
+        let params = SuperblockParams {
             root_nid: 0,
             inos: 1,
             epoch: 0,
             blocks: 1,
-            uuid: [0; 16],
+            uuid: [0_u8; 16],
             has_compression: true,
         };
 
         // ACT
-        write(&mut buf, &p);
+        write(&mut buf, &params);
 
         // ASSERT
         let cfg_offset = EROFS_SUPER_OFFSET + 128;
-        let cfg_size =
-            u16::from_le_bytes(buf[cfg_offset..cfg_offset + 2].try_into().expect("2 bytes"));
+        let cfg_size = u16::from_le_bytes(
+            buf.get(cfg_offset..cfg_offset + 2)
+                .expect("compression config size bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
         assert_eq!(cfg_size, 6);
-        assert_eq!(buf[cfg_offset + 2], 0, "format byte");
-        assert_eq!(buf[cfg_offset + 3], 5, "windowlog byte");
+        assert_eq!(
+            *buf.get(cfg_offset + 2).expect("format byte"),
+            0,
+            "format byte"
+        );
+        assert_eq!(
+            *buf.get(cfg_offset + 3).expect("windowlog byte"),
+            5,
+            "windowlog byte"
+        );
     }
 
     #[test]
     fn no_compression_flags_when_disabled() {
         // ARRANGE
-        let mut buf = vec![0u8; BLOCK_SIZE as usize];
+        let mut buf = vec![0_u8; TEST_BLOCK_SIZE];
 
         // ACT
         write(&mut buf, &test_params());
 
         // ASSERT
         let feature_incompat = u32::from_le_bytes(
-            buf[EROFS_SUPER_OFFSET + 0x50..EROFS_SUPER_OFFSET + 0x54]
+            buf.get(EROFS_SUPER_OFFSET + 0x50..EROFS_SUPER_OFFSET + 0x54)
+                .expect("feature incompat bytes")
                 .try_into()
                 .expect("4 bytes"),
         );

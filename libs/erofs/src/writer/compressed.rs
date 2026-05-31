@@ -436,6 +436,8 @@ pub(super) fn sixteen_entry_pack(
 
 #[cfg(test)]
 mod tests {
+    use zstd::bulk::decompress;
+
     use super::{
         CompactWriteState, LegacyIndexEntry, Z_EROFS_LCLUSTER_TYPE_HEAD1,
         Z_EROFS_LCLUSTER_TYPE_NONHEAD, Z_EROFS_LCLUSTER_TYPE_PLAIN, Z_EROFS_LI_D0_CBLKCNT,
@@ -448,6 +450,7 @@ mod tests {
     use crate::inode::COMPACT_INODE_SIZE;
     use crate::layout;
     use crate::testutil::compress_config;
+    use crate::writer::write_image;
 
     fn compressed_file(data_len: usize) -> CompressedFile {
         let data = vec![0_u8; data_len];
@@ -464,19 +467,19 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
-        let slot_off = file.nid as usize * SLOT_SIZE;
+        let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
         let xattr_size = file.xattr_payload.len();
         let map_off = super::align8(slot_off + COMPACT_INODE_SIZE + xattr_size);
         // ACT
         // ASSERT
-        assert_eq!(image[map_off + 6], 3);
-        assert_eq!(image[map_off + 7], 0);
+        assert_eq!(*image.get(map_off + 6).expect("algorithm byte"), 3);
+        assert_eq!(*image.get(map_off + 7).expect("clusterbits byte"), 0);
     }
 
     #[test]
@@ -487,20 +490,22 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
         let cf = file.compressed.as_ref().expect("compressed");
-        let mut blk_off = file.data_blkaddr as usize * 4096;
+        let mut blk_off = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
         for pcluster in &cf.pclusters {
             let write_start = blk_off + 4096 - pcluster.compressed_data.len();
             // ACT
             // ASSERT
             assert_eq!(
-                &image[write_start..write_start + pcluster.compressed_data.len()],
+                image
+                    .get(write_start..write_start + pcluster.compressed_data.len())
+                    .expect("compressed data bytes"),
                 pcluster.compressed_data.as_slice()
             );
             blk_off += 4096;
@@ -515,21 +520,27 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
         let cf = file.compressed.as_ref().expect("compressed");
-        let slot_off = file.nid as usize * SLOT_SIZE;
+        let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
         let map_off = super::align8(slot_off + COMPACT_INODE_SIZE + file.xattr_payload.len());
-        let h_advise = u16::from_le_bytes(image[map_off + 4..map_off + 6].try_into().expect("2b"));
+        let h_advise = u16::from_le_bytes(
+            image
+                .get(map_off + 4..map_off + 6)
+                .expect("header advice bytes")
+                .try_into()
+                .expect("2b"),
+        );
         // ACT
         // ASSERT
         assert_eq!(h_advise, 0x0007);
         let ebase = map_off + 8;
-        let totalidx = compress::lcluster_count(cf) as usize;
+        let totalidx = usize::try_from(compress::lcluster_count(cf)).expect("totalidx fits usize");
         let (c4i, c2b, c4e) = layout::index_layout(totalidx, ebase);
         assert_eq!(c4i + c2b + c4e, totalidx);
     }
@@ -544,22 +555,25 @@ mod tests {
         // ACT
         // ASSERT
         assert_eq!(entries.len(), 5);
-        assert_eq!(entries[0].clustertype, Z_EROFS_LCLUSTER_TYPE_HEAD1);
-        assert_eq!(entries[0].clusterofs, 0);
-        assert_eq!(entries[0].blkaddr, 123);
-        assert!(entries[1..entries.len() - 1].iter().all(|entry| {
+        let first = entries.first().expect("first entry");
+        assert_eq!(first.clustertype, Z_EROFS_LCLUSTER_TYPE_HEAD1);
+        assert_eq!(first.clusterofs, 0);
+        assert_eq!(first.blkaddr, 123);
+        let middle = entries.get(1..entries.len() - 1).expect("middle entries");
+        assert!(middle.iter().all(|entry| {
             matches!(
                 entry.clustertype,
                 Z_EROFS_LCLUSTER_TYPE_HEAD1 | Z_EROFS_LCLUSTER_TYPE_NONHEAD
             )
         }));
         assert!(
-            entries[1..entries.len() - 1]
+            middle
                 .iter()
                 .any(|entry| entry.clustertype == Z_EROFS_LCLUSTER_TYPE_NONHEAD)
         );
-        assert_eq!(entries[4].clustertype, Z_EROFS_LCLUSTER_TYPE_PLAIN);
-        assert_eq!(entries[4].clusterofs, 616);
+        let last = entries.get(4).expect("last entry");
+        assert_eq!(last.clustertype, Z_EROFS_LCLUSTER_TYPE_PLAIN);
+        assert_eq!(last.clusterofs, 616);
     }
 
     #[test]
@@ -577,13 +591,25 @@ mod tests {
 
         write_pack(&mut image, &mut state, &pack, 4, true, true).expect("pack");
 
-        let encoded_first = u16::from_le_bytes(image[512..514].try_into().expect("2b"));
-        let expected = ((Z_EROFS_LCLUSTER_TYPE_HEAD1 as u16) << 12) | 904;
+        let encoded_first = u16::from_le_bytes(
+            image
+                .get(512..514)
+                .expect("first entry bytes")
+                .try_into()
+                .expect("2b"),
+        );
+        let expected = (u16::from(Z_EROFS_LCLUSTER_TYPE_HEAD1) << 12) | 0x0388;
         // ACT
         // ASSERT
         assert_eq!(encoded_first, expected);
 
-        let trailer_blkaddr = u32::from_le_bytes(image[516..520].try_into().expect("4b"));
+        let trailer_blkaddr = u32::from_le_bytes(
+            image
+                .get(516..520)
+                .expect("trailer block address bytes")
+                .try_into()
+                .expect("4b"),
+        );
         assert_eq!(trailer_blkaddr, 200);
         assert_eq!(state.blkaddr_ret, 201);
     }
@@ -597,25 +623,28 @@ mod tests {
         let cfg = compress_config(0);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
         let cf = file.compressed.as_ref().expect("compressed");
-        let mut blk_off = file.data_blkaddr as usize * 4096;
+        let mut blk_off = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
         let mut input_off = 0_usize;
         for pcluster in &cf.pclusters {
             let write_start = blk_off + 4096 - pcluster.compressed_data.len();
-            let compressed_data = &image[write_start..write_start + pcluster.compressed_data.len()];
-            let decompressed =
-                zstd::bulk::decompress(compressed_data, pcluster.input_len).expect("decompress");
+            let compressed_data = image
+                .get(write_start..write_start + pcluster.compressed_data.len())
+                .expect("compressed data bytes");
+            let decompressed = decompress(compressed_data, pcluster.input_len).expect("decompress");
             // ACT
             // ASSERT
             assert_eq!(
                 decompressed,
-                &original[input_off..input_off + pcluster.input_len]
+                original
+                    .get(input_off..input_off + pcluster.input_len)
+                    .expect("original input bytes")
             );
             input_off += pcluster.input_len;
             blk_off += 4096;
@@ -661,7 +690,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert!(write_result.is_ok());
+        write_result.expect("write indexes");
         assert_eq!(tail_offset, Z_EROFS_LI_D0_CBLKCNT - 1);
     }
 
@@ -721,7 +750,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert!(write_indexes.is_ok());
+        write_indexes.expect("write indexes");
         assert!(entries.len() >= 18);
         assert!(matches!(
             write_error,

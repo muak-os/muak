@@ -90,7 +90,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|(abs, rel)| abs.is_symlink() && *rel == "/link")
+                .any(|entry| entry.0.is_symlink() && entry.1 == "/link")
         );
     }
 

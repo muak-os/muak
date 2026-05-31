@@ -89,8 +89,14 @@ mod tests {
         let payload = payload(b"system_u:object_r:file_t:s0");
         // ACT
         // ASSERT
-        assert_eq!(payload.len() % 4, 0);
-        let filter = u32::from_le_bytes(payload[0..4].try_into().expect("4 bytes"));
+        assert!(payload.len().is_multiple_of(4));
+        let filter = u32::from_le_bytes(
+            payload
+                .get(0..4)
+                .expect("filter bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
         assert_ne!(filter, u32::MAX);
     }
 
@@ -101,14 +107,21 @@ mod tests {
         let payload = payload(label);
         // ACT
         // ASSERT
-        assert_eq!(payload[XATTR_HEADER_SIZE], 7);
-        assert_eq!(payload[XATTR_HEADER_SIZE + 1], EROFS_XATTR_INDEX_SECURITY);
+        assert_eq!(*payload.get(XATTR_HEADER_SIZE).expect("name size byte"), 7);
+        assert_eq!(
+            *payload
+                .get(XATTR_HEADER_SIZE + 1)
+                .expect("xattr index byte"),
+            EROFS_XATTR_INDEX_SECURITY
+        );
         let val_size = u16::from_le_bytes(
-            payload[XATTR_HEADER_SIZE + 2..XATTR_HEADER_SIZE + 4]
+            payload
+                .get(XATTR_HEADER_SIZE + 2..XATTR_HEADER_SIZE + 4)
+                .expect("value size bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
-        assert_eq!(val_size as usize, label.len());
+        assert_eq!(usize::from(val_size), label.len());
     }
 
     #[test]
@@ -120,7 +133,7 @@ mod tests {
         let payload = payload(b"system_u:object_r:file_t:s0");
         let count = icount(payload.len());
         assert!(count > 0);
-        let ibody_size = XATTR_HEADER_SIZE + (count as usize - 1) * 4;
+        let ibody_size = XATTR_HEADER_SIZE + (usize::from(count) - 1) * 4;
         assert!(ibody_size >= payload.len());
     }
 
@@ -131,8 +144,8 @@ mod tests {
         let second_payload = payload(b"xx");
         // ACT
         // ASSERT
-        assert_eq!(first_payload.len() % 4, 0);
-        assert_eq!(second_payload.len() % 4, 0);
+        assert!(first_payload.len().is_multiple_of(4));
+        assert!(second_payload.len().is_multiple_of(4));
     }
 
     #[test]
@@ -170,7 +183,7 @@ mod tests {
         // ACT
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 4);
-        assert_eq!(payload.len() % 4, 0);
+        assert!(payload.len().is_multiple_of(4));
     }
 
     #[test]
@@ -180,7 +193,7 @@ mod tests {
         // ACT
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 8);
-        assert_eq!(payload.len() % 4, 0);
+        assert!(payload.len().is_multiple_of(4));
     }
 
     #[test]
@@ -190,7 +203,7 @@ mod tests {
         // ACT
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 8);
-        assert_eq!(payload.len() % 4, 0);
+        assert!(payload.len().is_multiple_of(4));
     }
 
     #[test]
@@ -200,7 +213,7 @@ mod tests {
         // ACT
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 12);
-        assert_eq!(payload.len() % 4, 0);
+        assert!(payload.len().is_multiple_of(4));
     }
 
     #[test]

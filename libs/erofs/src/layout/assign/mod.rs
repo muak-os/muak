@@ -91,12 +91,13 @@ mod tests {
     use crate::SLOT_SIZE;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::InodeLayout;
+    use crate::layout::{InodeLayout, plan};
+    use crate::testutil::{compress_config, test_config};
 
     fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
         InodeLayout {
             path: std::path::PathBuf::new(),
-            rel_path: rel_path.to_string(),
+            rel_path: rel_path.to_owned(),
             nid: 0,
             ino: 0,
             mode: 0,
@@ -120,7 +121,7 @@ mod tests {
         }
     }
 
-    const FIRST_NID: u64 = (META_START / SLOT_SIZE) as u64;
+    const FIRST_NID: usize = META_START.div_euclid(SLOT_SIZE);
 
     #[test]
     fn first_nid_is_36() {
@@ -135,12 +136,11 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
 
         // ACT
         // ASSERT
-        assert_eq!(inodes[0].nid, 36);
+        assert_eq!(inodes.first().expect("root inode").nid, 36);
     }
 
     #[test]
@@ -150,14 +150,16 @@ mod tests {
         std::fs::write(dir.path().join("a"), b"aaa").expect("write");
         std::fs::write(dir.path().join("b"), b"bbb").expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
 
         // ACT
         // ASSERT
-        assert_eq!(inodes[0].nid, 36);
-        assert!(inodes[1].nid > inodes[0].nid);
-        assert!(inodes[2].nid > inodes[1].nid);
+        let root = inodes.first().expect("root inode");
+        let first_child = inodes.get(1).expect("first child inode");
+        let second_child = inodes.get(2).expect("second child inode");
+        assert_eq!(root.nid, 36);
+        assert!(first_child.nid > root.nid);
+        assert!(second_child.nid > first_child.nid);
     }
 
     #[test]
@@ -166,16 +168,16 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("hello.txt"), b"world").expect("write");
         std::os::unix::fs::symlink("/target", dir.path().join("link")).expect("symlink");
-        std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/world.txt"), b"hello").expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(0)).expect("plan");
 
         // ACT
         // ASSERT
-        assert_eq!(inodes[0].nid, 36);
-        assert_eq!(inodes[0].file_type, EROFS_FT_DIR);
+        let root = inodes.first().expect("root inode");
+        assert_eq!(root.nid, 36);
+        assert_eq!(root.file_type, EROFS_FT_DIR);
         assert_eq!(
             inodes
                 .iter()
@@ -216,14 +218,15 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 4096]).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
 
-        let expected_nid = (meta_start(true) / SLOT_SIZE) as u64;
+        let expected_nid =
+            u64::try_from(meta_start(true).div_euclid(SLOT_SIZE)).expect("expected nid fits u64");
         // ACT
         // ASSERT
-        assert_eq!(inodes[0].nid, expected_nid);
-        assert!(inodes[0].nid > FIRST_NID);
+        let root = inodes.first().expect("root inode");
+        assert_eq!(root.nid, expected_nid);
+        assert!(root.nid > u64::try_from(FIRST_NID).expect("first nid fits u64"));
     }
 
     #[test]
@@ -233,7 +236,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert_eq!(start % crate::SLOT_SIZE, 0);
+        assert!(start.is_multiple_of(crate::SLOT_SIZE));
         assert_eq!(
             start,
             META_START.div_ceil(crate::SLOT_SIZE) * crate::SLOT_SIZE
@@ -249,27 +252,28 @@ mod tests {
         // ACT
         // ASSERT
         assert!(with > without);
-        assert_eq!(with % crate::SLOT_SIZE, 0);
+        assert!(with.is_multiple_of(crate::SLOT_SIZE));
     }
 
     #[test]
     fn assign_nids_special_file_gets_flat_plain() {
         // ARRANGE
         let mut root = flat_plain_inode("/", EROFS_FT_DIR);
-        root.children = vec!["/dev".to_string()];
+        root.children = vec!["/dev".to_owned()];
         let mut special = flat_plain_inode("/dev", 3);
         special.rdev = 0x0501;
 
         let mut inodes = vec![root, special];
         let mut path_to_idx = BTreeMap::new();
-        path_to_idx.insert("/".to_string(), 0);
-        path_to_idx.insert("/dev".to_string(), 1);
+        path_to_idx.insert("/".to_owned(), 0);
+        path_to_idx.insert("/dev".to_owned(), 1);
 
         nids_and_layouts(&mut inodes, &path_to_idx, Compression::None);
 
         // ACT
         // ASSERT
-        assert_eq!(inodes[1].datalayout, EROFS_INODE_FLAT_PLAIN);
-        assert_ne!(inodes[1].nid, 0);
+        let special = inodes.get(1).expect("special inode");
+        assert_eq!(special.datalayout, EROFS_INODE_FLAT_PLAIN);
+        assert_ne!(special.nid, 0);
     }
 }

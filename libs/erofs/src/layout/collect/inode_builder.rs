@@ -169,7 +169,7 @@ mod tests {
         symlink_metadata_with_context, truncate_u32_to_u16, truncate_u64_to_u32,
     };
     use crate::MkfsConfig;
-    use crate::dir;
+    use crate::dir::{self, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::error::ErofsError;
     use crate::testutil::test_config;
 
@@ -299,7 +299,7 @@ mod tests {
         // ACT
         // ASSERT
         assert_eq!(inodes.len(), 1);
-        assert!(inodes[0].rdev > 0);
+        assert!(inodes.first().expect("device inode").rdev > 0);
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert_eq!(classify_file_type(&metadata), crate::dir::EROFS_FT_SYMLINK);
+        assert_eq!(classify_file_type(&metadata), EROFS_FT_SYMLINK);
     }
 
     #[test]
@@ -398,6 +398,6 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert_eq!(classify_file_type(&metadata), crate::dir::EROFS_FT_REG_FILE);
+        assert_eq!(classify_file_type(&metadata), EROFS_FT_REG_FILE);
     }
 }

@@ -150,6 +150,7 @@ mod tests {
     use super::*;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::collect::{entries, initial_inodes};
     use crate::testutil::test_config;
 
     #[test]
@@ -157,10 +158,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
-        std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
-        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
-        let inodes =
-            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
+        let entries = entries(dir.path()).expect("entries");
+        let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
         let idx = build(&entries, &inodes);
@@ -175,10 +175,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
-        std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
-        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
-        let mut inodes =
-            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
+        let entries = entries(dir.path()).expect("entries");
+        let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let idx = build(&entries, &inodes);
 
         // ACT
@@ -208,7 +207,7 @@ mod tests {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
             path: std::path::PathBuf::from("/"),
-            rel_path: "/".to_string(),
+            rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
             mode: 0o40755,
@@ -230,14 +229,14 @@ mod tests {
             rdev: 0,
             compressed: None,
         }];
-        let path_to_idx: BTreeMap<String, usize> = [("/".to_string(), 0)].into_iter().collect();
-        let nlink_map: BTreeMap<String, u16> = [("/".to_string(), 2)].into_iter().collect();
+        let path_to_idx: BTreeMap<String, usize> = [("/".to_owned(), 0)].into_iter().collect();
+        let nlink_map: BTreeMap<String, u16> = [("/".to_owned(), 2)].into_iter().collect();
 
         // ACT
         apply_nlinks(&mut inodes, &nlink_map, &path_to_idx);
 
         // ASSERT
-        assert_eq!(inodes[0].nlink, 2);
+        assert_eq!(inodes.first().expect("root inode").nlink, 2);
     }
 
     #[test]
@@ -245,7 +244,7 @@ mod tests {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
             path: std::path::PathBuf::from("/"),
-            rel_path: "/".to_string(),
+            rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
             mode: 0o40755,
@@ -267,9 +266,9 @@ mod tests {
             rdev: 0,
             compressed: None,
         }];
-        let path_to_idx: BTreeMap<String, usize> = [("/".to_string(), 0)].into_iter().collect();
+        let path_to_idx: BTreeMap<String, usize> = [("/".to_owned(), 0)].into_iter().collect();
         let dir_children: BTreeMap<String, Vec<String>> =
-            [("/".to_string(), vec!["/child".to_string()])]
+            [("/".to_owned(), vec!["/child".to_owned()])]
                 .into_iter()
                 .collect();
 
@@ -277,8 +276,9 @@ mod tests {
         apply_children(&mut inodes, &dir_children, &path_to_idx);
 
         // ASSERT
-        assert_eq!(inodes[0].children.len(), 1);
-        assert_eq!(inodes[0].children[0], "/child");
+        let root = inodes.first().expect("root inode");
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children.first().expect("child path"), "/child");
     }
 
     #[test]
@@ -287,9 +287,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("a/b/c")).expect("mkdir");
         std::fs::write(dir.path().join("a/b/c/file"), b"x").expect("write");
-        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
-        let mut inodes =
-            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        let entries = entries(dir.path()).expect("entries");
+        let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let idx = build(&entries, &inodes);
 
         // ACT
@@ -305,11 +304,10 @@ mod tests {
     fn build_indices_creates_nlink_map() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/file"), b"x").expect("write");
-        let entries = crate::layout::collect::entries(dir.path()).expect("entries");
-        let inodes =
-            crate::layout::collect::initial_inodes(&entries, &test_config(0)).expect("inodes");
+        let entries = entries(dir.path()).expect("entries");
+        let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
         let idx = build(&entries, &inodes);
@@ -395,7 +393,8 @@ mod tests {
         apply_nlinks(&mut inodes, &nlink_map, &path_to_idx);
 
         // ASSERT
-        assert!(inodes[0].children.is_empty());
-        assert_eq!(inodes[0].nlink, 1);
+        let root = inodes.first().expect("root inode");
+        assert!(root.children.is_empty());
+        assert_eq!(root.nlink, 1);
     }
 }

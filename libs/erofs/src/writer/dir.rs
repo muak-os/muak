@@ -81,7 +81,7 @@ pub(super) fn sorted_entries(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use alloc::collections::BTreeMap;
 
     use super::{find_parent_nid, sorted_entries};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
@@ -96,7 +96,7 @@ mod tests {
         let cfg = test_config(1);
 
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let root = &inodes[0];
+        let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
@@ -107,7 +107,7 @@ mod tests {
     fn find_parent_nid_for_nested_file() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join("subdir")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/file.txt"), b"content").expect("write");
         let cfg = test_config(1);
 
@@ -146,17 +146,17 @@ mod tests {
             .enumerate()
             .map(|(index, inode)| (inode.rel_path.clone(), index))
             .collect();
-        let root = &inodes[0];
+        let root = inodes.first().expect("root inode");
         let entries = sorted_entries(root, &inodes, &path_to_idx, root.nid);
 
         // ACT
         // ASSERT
         assert_eq!(entries.len(), 5);
-        assert_eq!(entries[0].name, b".");
-        assert_eq!(entries[1].name, b"..");
-        assert_eq!(entries[2].name, b"a");
-        assert_eq!(entries[3].name, b"m");
-        assert_eq!(entries[4].name, b"z");
+        assert_eq!(entries.first().expect("dot entry").name, b".");
+        assert_eq!(entries.get(1).expect("dotdot entry").name, b"..");
+        assert_eq!(entries.get(2).expect("a entry").name, b"a");
+        assert_eq!(entries.get(3).expect("m entry").name, b"m");
+        assert_eq!(entries.get(4).expect("z entry").name, b"z");
     }
 
     #[test]

@@ -135,10 +135,12 @@ pub(super) fn file(
 mod tests {
     use super::{file, inline, plain};
     use crate::SLOT_SIZE;
+    use crate::dir::EROFS_FT_REG_FILE;
     use crate::error::ErofsError;
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::{self, InodeLayout};
     use crate::testutil::test_config;
+    use crate::writer::write_image;
 
     #[test]
     fn write_image_with_inline_file() {
@@ -149,7 +151,7 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let file_inode = inodes
@@ -171,10 +173,10 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
-        let root = &inodes[0];
+        let root = inodes.first().expect("root inode");
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert!(image.len() >= 4096);
     }
@@ -185,7 +187,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         for index in 0_u16..339 {
             let name = format!("file_{index:03}.txt");
-            std::fs::write(dir.path().join(&name), [index as u8]).expect("write");
+            std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
         }
         let cfg = test_config(1);
 
@@ -193,7 +195,7 @@ mod tests {
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
 
         // ASSERT
-        let root = &inodes[0];
+        let root = inodes.first().expect("root inode");
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_PLAIN);
         assert!(root.data_blocks > 0);
     }
@@ -207,7 +209,7 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let link = inodes
@@ -222,13 +224,13 @@ mod tests {
     fn write_symlink_data_plain() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        let long_target = "/".to_string() + &"x".repeat(4080);
+        let long_target = "/".to_owned() + &"x".repeat(4080);
         std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
         let cfg = test_config(1);
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let _image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let link = inodes
@@ -249,7 +251,7 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let _image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let file = inodes
@@ -269,7 +271,7 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let _image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let file = inodes
@@ -289,7 +291,7 @@ mod tests {
 
         // ACT
         let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = crate::writer::write_image(&inodes, &cfg).expect("write");
+        let image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
         let file = inodes
@@ -297,8 +299,13 @@ mod tests {
             .find(|inode| inode.rel_path == "/full")
             .expect("found");
         assert_eq!(file.datalayout, EROFS_INODE_FLAT_PLAIN);
-        let data_start = file.data_blkaddr as usize * 4096;
-        assert_eq!(&image[data_start..data_start + 4096], data.as_slice());
+        let data_start = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
+        assert_eq!(
+            image
+                .get(data_start..data_start + 4096)
+                .expect("plain data bytes"),
+            data.as_slice()
+        );
     }
 
     #[test]
@@ -350,7 +357,7 @@ mod tests {
             mtime: 0,
             mtime_nsec: 0,
             nlink: 1,
-            file_type: crate::dir::EROFS_FT_REG_FILE,
+            file_type: EROFS_FT_REG_FILE,
             size: 0,
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),

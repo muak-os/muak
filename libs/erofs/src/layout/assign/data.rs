@@ -61,7 +61,8 @@ mod tests {
     use crate::BLOCK_SIZE;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::InodeLayout;
+    use crate::layout::{InodeLayout, plan};
+    use crate::testutil::compress_config;
 
     #[test]
     fn compressed_data_blkaddr_assigned() {
@@ -69,8 +70,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
@@ -116,7 +116,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert_eq!(inodes[0].data_blkaddr, 0);
-        assert!(total_size >= BLOCK_SIZE as usize);
+        assert_eq!(inodes.first().expect("root inode").data_blkaddr, 0);
+        assert!(total_size >= usize::try_from(BLOCK_SIZE).expect("block size fits usize"));
     }
 }

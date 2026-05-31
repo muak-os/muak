@@ -305,7 +305,7 @@ mod tests {
         let result = FileContexts::from_reader(input.as_bytes());
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]

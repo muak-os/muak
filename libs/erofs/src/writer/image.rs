@@ -112,9 +112,11 @@ mod tests {
             .iter()
             .find(|inode| inode.rel_path == "/empty")
             .expect("found");
-        let slot_offset = empty.nid as usize * SLOT_SIZE;
+        let slot_offset = usize::try_from(empty.nid).expect("nid fits usize") * SLOT_SIZE;
         let startblk = u32::from_le_bytes(
-            image[slot_offset + 0x10..slot_offset + 0x14]
+            image
+                .get(slot_offset + 0x10..slot_offset + 0x14)
+                .expect("start block bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -133,7 +135,9 @@ mod tests {
 
         // ASSERT
         let magic = u32::from_le_bytes(
-            image[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4]
+            image
+                .get(EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4)
+                .expect("magic bytes")
                 .try_into()
                 .expect("4 bytes"),
         );
@@ -152,11 +156,17 @@ mod tests {
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
-            image[EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10]
+            image
+                .get(EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10)
+                .expect("root nid bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
-        assert_eq!(root_nid, inodes[0].nid as u16);
+        let root = inodes.first().expect("root inode");
+        assert_eq!(
+            root_nid,
+            u16::try_from(root.nid).expect("root nid fits u16")
+        );
     }
 
     #[test]
@@ -171,7 +181,9 @@ mod tests {
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
-            image[EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10]
+            image
+                .get(EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10)
+                .expect("root nid bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
@@ -236,7 +248,7 @@ mod tests {
         let image = write_image(&inodes, &cfg).expect("write");
 
         // ASSERT
-        assert_eq!(image.len() % 4096, 0);
+        assert!(image.len().is_multiple_of(4096));
         assert!(image.len() >= 4096);
     }
 
@@ -253,9 +265,15 @@ mod tests {
 
         // ASSERT
         let cfg_off = EROFS_SUPER_OFFSET + 128;
-        let cfg_size = u16::from_le_bytes(image[cfg_off..cfg_off + 2].try_into().expect("2b"));
+        let cfg_size = u16::from_le_bytes(
+            image
+                .get(cfg_off..cfg_off + 2)
+                .expect("compression config size bytes")
+                .try_into()
+                .expect("2b"),
+        );
         assert_eq!(cfg_size, 6);
-        assert_eq!(image[cfg_off + 2], 0);
-        assert_eq!(image[cfg_off + 3], 5);
+        assert_eq!(*image.get(cfg_off + 2).expect("format byte"), 0);
+        assert_eq!(*image.get(cfg_off + 3).expect("windowlog byte"), 5);
     }
 }

@@ -143,16 +143,19 @@ pub(super) fn special(
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use core::iter::repeat_with;
+    use std::os::unix::fs::PermissionsExt as _;
 
     use super::{regular, special, symlink};
     use crate::Compression;
-    use crate::dir::EROFS_FT_REG_FILE;
+    use crate::compress::pcluster_blocks;
+    use crate::dir::{EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE,
         EROFS_INODE_FLAT_PLAIN,
     };
-    use crate::layout::InodeLayout;
+    use crate::layout::{InodeLayout, plan};
+    use crate::testutil::{compress_config, test_config};
 
     #[test]
     fn flat_inline_for_small_files() {
@@ -165,8 +168,7 @@ mod tests {
         )
         .expect("chmod");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let file_inode = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
@@ -185,8 +187,7 @@ mod tests {
         let data = vec![0_u8; 8192];
         std::fs::write(dir.path().join("large"), &data).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let file_inode = inodes
             .iter()
             .find(|inode| inode.rel_path == "/large")
@@ -204,8 +205,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/target", dir.path().join("link")).expect("symlink");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let sym = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
@@ -214,7 +214,7 @@ mod tests {
         // ACT
         // ASSERT
         assert_eq!(sym.datalayout, EROFS_INODE_FLAT_INLINE);
-        assert_eq!(sym.file_type, crate::dir::EROFS_FT_SYMLINK);
+        assert_eq!(sym.file_type, EROFS_FT_SYMLINK);
     }
 
     #[test]
@@ -223,8 +223,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/short", dir.path().join("link")).expect("symlink");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
@@ -240,11 +239,10 @@ mod tests {
     fn layout_symlink_flat_plain() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        let long_target = "/".to_string() + &"x".repeat(4080);
+        let long_target = "/".to_owned() + &"x".repeat(4080);
         std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/longlink")
@@ -262,8 +260,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let empty = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
@@ -282,8 +279,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("tiny"), b"hi").expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let tiny = inodes
             .iter()
             .find(|inode| inode.rel_path == "/tiny")
@@ -302,8 +298,7 @@ mod tests {
         let data = vec![0_u8; 4100];
         std::fs::write(dir.path().join("partial"), &data).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::test_config(1)).expect("plan");
+        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
         let partial = inodes
             .iter()
             .find(|inode| inode.rel_path == "/partial")
@@ -321,8 +316,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
@@ -340,18 +334,17 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         let mut state = 0xDEAD_BEEF_u32;
-        let random_data: Vec<u8> = (0..8192)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                state as u8
-            })
-            .collect();
+        let random_data: Vec<u8> = repeat_with(|| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            u8::try_from(state & 0xFF).expect("masked byte fits u8")
+        })
+        .take(8192)
+        .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/random")
@@ -369,8 +362,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
@@ -388,8 +380,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("small"), vec![0_u8; 100]).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
@@ -407,15 +398,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
 
         let cf = file.compressed.as_ref().expect("compressed");
-        let pclusters = crate::compress::pcluster_blocks(cf);
+        let pclusters = pcluster_blocks(cf);
         // ACT
         // ASSERT
         assert_eq!(file.data_blocks, pclusters);
@@ -427,18 +417,17 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("compressible"), vec![0_u8; 8192]).expect("write");
         let mut state = 0xCAFE_BABE_u32;
-        let random_data: Vec<u8> = (0..8192)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                state as u8
-            })
-            .collect();
+        let random_data: Vec<u8> = repeat_with(|| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            u8::try_from(state & 0xFF).expect("masked byte fits u8")
+        })
+        .take(8192)
+        .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let inodes =
-            crate::layout::plan(dir.path(), &crate::testutil::compress_config(0)).expect("plan");
+        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
         let comp = inodes
             .iter()
             .find(|inode| inode.rel_path == "/compressible")

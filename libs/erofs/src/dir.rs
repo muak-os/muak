@@ -149,7 +149,7 @@ mod tests {
                 file_type: EROFS_FT_DIR,
             },
         ];
-        entries.extend((0..400u16).map(|i| DirEntry {
+        entries.extend((0..400_u16).map(|i| DirEntry {
             name: format!("file_{i:03}.txt").into_bytes(),
             nid: u64::from(i) + 40,
             file_type: EROFS_FT_REG_FILE,
@@ -162,7 +162,7 @@ mod tests {
 
         // ASSERT
         assert!(size > packed);
-        assert!(size > crate::BLOCK_SIZE as usize);
+        assert!(size > usize::try_from(crate::BLOCK_SIZE).expect("block size fits usize"));
     }
 
     #[test]
@@ -192,10 +192,15 @@ mod tests {
         // ASSERT
         assert_eq!(data.len(), 3 * 12 + 1 + 2 + 5);
 
-        let nameoff0 = u16::from_le_bytes(data[8..10].try_into().expect("2 bytes"));
-        assert_eq!(nameoff0 as usize, 3 * DIRENT_SIZE);
+        let nameoff0 = u16::from_le_bytes(
+            data.get(8..10)
+                .expect("name offset bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
+        assert_eq!(usize::from(nameoff0), 3 * DIRENT_SIZE);
 
-        assert_eq!(data[10], EROFS_FT_DIR);
+        assert_eq!(*data.get(10).expect("file type byte"), EROFS_FT_DIR);
     }
 
     #[test]
@@ -213,7 +218,7 @@ mod tests {
                 file_type: EROFS_FT_DIR,
             },
         ];
-        entries.extend((0..400u16).map(|i| DirEntry {
+        entries.extend((0..400_u16).map(|i| DirEntry {
             name: format!("file_{i:03}.txt").into_bytes(),
             nid: u64::from(i) + 40,
             file_type: EROFS_FT_REG_FILE,
@@ -223,20 +228,21 @@ mod tests {
         let data = serialize_entries(&entries);
 
         // ASSERT
-        let second_block = crate::BLOCK_SIZE as usize;
+        let second_block = usize::try_from(crate::BLOCK_SIZE).expect("block size fits usize");
         let nameoff = u16::from_le_bytes(
-            data[second_block + 8..second_block + 10]
+            data.get(second_block + 8..second_block + 10)
+                .expect("second block name offset bytes")
                 .try_into()
                 .expect("2 bytes"),
         );
         assert!(data.len() > second_block);
-        assert!(usize::from(nameoff) < crate::BLOCK_SIZE as usize);
+        assert!(usize::from(nameoff) < second_block);
     }
 
     #[test]
     fn lexicographic_sort_required() {
         // ARRANGE
-        let mut entries = vec![
+        let mut entries = [
             DirEntry {
                 name: b"..".to_vec(),
                 nid: 0,
@@ -260,12 +266,12 @@ mod tests {
         ];
 
         // ACT
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        entries.sort_by(|left, right| left.name.cmp(&right.name));
 
         // ASSERT
-        assert_eq!(entries[0].name, b".");
-        assert_eq!(entries[1].name, b"..");
-        assert_eq!(entries[2].name, b"a");
-        assert_eq!(entries[3].name, b"b");
+        assert_eq!(entries.first().expect("dot entry").name, b".");
+        assert_eq!(entries.get(1).expect("dotdot entry").name, b"..");
+        assert_eq!(entries.get(2).expect("a entry").name, b"a");
+        assert_eq!(entries.get(3).expect("b entry").name, b"b");
     }
 }
