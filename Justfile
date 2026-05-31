@@ -196,11 +196,15 @@ oci *pkgs:
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Run rustfmt
+format:
+    @printf "{{ cyan }}Running formatting{{ reset }}\n"
+    cargo +nightly fmt
+
 # Run clippy and rustfmt (e.g., just lint or just lint yuki koci)
 [script]
-lint *pkgs:
+lint *pkgs: format
     printf "{{ cyan }}Running lints{{ reset }}\n"
-    cargo +nightly fmt
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
             if [ "$pkg" = "stub" ]; then
