@@ -260,16 +260,11 @@ mod tests {
 
     impl Drop for KmsgPathGuard {
         fn drop(&mut self) {
-            if let Some(previous) = &self.previous {
+            match self.previous.as_deref() {
                 // SAFETY: tests serialize env mutation with `ENV_LOCK`.
-                unsafe {
-                    std::env::set_var(KMSG_PATH_ENV, previous);
-                }
-            } else {
+                Some(previous) => unsafe { std::env::set_var(KMSG_PATH_ENV, previous) },
                 // SAFETY: tests serialize env mutation with `ENV_LOCK`.
-                unsafe {
-                    std::env::remove_var(KMSG_PATH_ENV);
-                }
+                None => unsafe { std::env::remove_var(KMSG_PATH_ENV) },
             }
         }
     }
@@ -282,7 +277,7 @@ mod tests {
 
     fn prepare_output_file(name: &str) -> PathBuf {
         let path = temp_kmsg_file(name);
-        let _ = fs::remove_file(&path);
+        drop(fs::remove_file(&path));
         fs::write(&path, b"").expect("temporary kmsg file must be creatable");
         path
     }
@@ -344,7 +339,11 @@ mod tests {
         // ACT & ASSERT
         for (level, digit) in cases {
             let out = format_log(level, "t", "m");
-            assert_eq!(out.as_bytes()[1], digit, "wrong priority for {level:?}");
+            assert_eq!(
+                out.as_bytes().get(1),
+                Some(&digit),
+                "wrong priority for {level:?}"
+            );
         }
     }
 
@@ -499,7 +498,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            format!("{:?}", err).contains("AlreadyInitialized"),
+            format!("{err:?}").contains("AlreadyInitialized"),
             "debug output must include the variant name"
         );
         assert!(
