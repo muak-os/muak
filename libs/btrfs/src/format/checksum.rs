@@ -21,6 +21,6 @@ mod tests {
         let hash = btrfs_name_hash(name);
 
         // ASSERT
-        assert_eq!(hash, 0x8dbfc2d2);
+        assert_eq!(hash, 0x8dbf_c2d2);
     }
 }
