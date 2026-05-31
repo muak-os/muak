@@ -85,7 +85,7 @@ fn run(args: Cli) -> Result<String> {
     ))
 }
 
-#[cfg(all(test, feature = "cli"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

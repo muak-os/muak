@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn handle_result_success_returns_zero() {
         // ARRANGE & ACT & ASSERT
-        assert_eq!(handle_result(Ok("created".to_string())), 0);
+        assert_eq!(handle_result(Ok("created".to_owned())), 0);
     }
 
     #[test]

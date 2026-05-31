@@ -136,14 +136,14 @@ mod tests {
         let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(value, 0x12345678);
+        assert_eq!(value, 0x1234_5678);
     }
 
     #[test]
     fn read_u32_different_offsets() {
         // ARRANGE
         let buf = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
-        let test_cases = vec![(0, 0x33221100), (1, 0x44332211), (4, 0x77665544)];
+        let test_cases = vec![(0, 0x3322_1100), (1, 0x4433_2211), (4, 0x7766_5544)];
 
         // ACT
         for (offset, expected) in test_cases {
@@ -185,16 +185,16 @@ mod tests {
         let value = read_u32(&buf, 0).unwrap_or_default();
 
         // ASSERT
-        assert_eq!(value, 0x04030201);
+        assert_eq!(value, 0x0403_0201);
     }
 
     #[test]
     fn write_u32_basic() {
         // ARRANGE
-        let mut buf = [0u8; 4];
+        let mut buf = [0_u8; 4];
 
         // ACT
-        write_u32(&mut buf, 0, 0x12345678).unwrap_or_default();
+        write_u32(&mut buf, 0, 0x1234_5678).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0x78, 0x56, 0x34, 0x12]);
@@ -203,11 +203,11 @@ mod tests {
     #[test]
     fn write_u32_different_offsets() {
         // ARRANGE
-        let mut buf = [0u8; 8];
+        let mut buf = [0_u8; 8];
 
         // ACT
-        write_u32(&mut buf, 0, 0x11223344).unwrap_or_default();
-        write_u32(&mut buf, 4, 0x55667788).unwrap_or_default();
+        write_u32(&mut buf, 0, 0x1122_3344).unwrap_or_default();
+        write_u32(&mut buf, 4, 0x5566_7788).unwrap_or_default();
 
         // ASSERT
         assert_eq!(buf, [0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55]);
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn write_u32_max_value() {
         // ARRANGE
-        let mut buf = [0u8; 4];
+        let mut buf = [0_u8; 4];
 
         // ACT
         write_u32(&mut buf, 0, 0xFFFF_FFFF).unwrap_or_default();
@@ -256,8 +256,14 @@ mod tests {
     #[test]
     fn read_write_u32_roundtrip() {
         // ARRANGE
-        let mut buf = [0u8; 4];
-        let test_values = [0x00000000, 0x12345678, 0xDEADBEEF, 0xFFFFFFFF, 0x00000001];
+        let mut buf = [0_u8; 4];
+        let test_values = [
+            0x0000_0000,
+            0x1234_5678,
+            0xDEAD_BEEF,
+            0xFFFF_FFFF,
+            0x0000_0001,
+        ];
 
         // ACT
         for value in test_values {
@@ -289,7 +295,7 @@ mod tests {
     #[test]
     fn write_u16_basic() {
         // ARRANGE
-        let mut buf = [0u8; 2];
+        let mut buf = [0_u8; 2];
 
         // ACT
         write_u16(&mut buf, 0, 0x1234).unwrap_or_default();
@@ -300,7 +306,7 @@ mod tests {
     #[test]
     fn write_u16_rejects_out_of_bounds() {
         // ARRANGE
-        let mut buf = [0u8; 1];
+        let mut buf = [0_u8; 1];
 
         // ACT
         let result = write_u16(&mut buf, 0, 0x1234);
@@ -312,19 +318,19 @@ mod tests {
     #[test]
     fn read_u32_rejects_out_of_bounds() {
         // ARRANGE
-        let buf = [0u8; 3];
+        let buf = [0_u8; 3];
 
         // ACT
         let result = read_u32(&buf, 0);
 
         // ASSERT
-        assert!(result.is_err());
+        assert!(result.is_err(), "out of bounds read should fail");
     }
 
     #[test]
     fn write_u32_rejects_out_of_bounds() {
         // ARRANGE
-        let mut buf = [0u8; 3];
+        let mut buf = [0_u8; 3];
 
         // ACT
         let result = write_u32(&mut buf, 0, 1);
