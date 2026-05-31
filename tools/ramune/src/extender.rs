@@ -146,10 +146,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use tokio::io::AsyncWrite;
 
     use super::*;
+    use crate::cpio::write_archive;
 
     struct CountingFailingWriter {
         fail_on_call: usize,
@@ -162,13 +165,11 @@ mod tests {
 
     impl Write for CountingFailingWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.calls += 1;
-            let should_fail = self.calls == self.fail_on_call;
+            self.calls = self.calls.saturating_add(1);
 
-            match should_fail {
-                true => Err(std::io::Error::other("write failed")),
-                false => Ok(buf.len()),
-            }
+            (self.calls != self.fail_on_call)
+                .then_some(buf.len())
+                .ok_or_else(|| std::io::Error::other("write failed"))
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
@@ -176,7 +177,7 @@ mod tests {
         }
     }
 
-    impl tokio::io::AsyncWrite for AsyncWriteWriteFailingWriter {
+    impl AsyncWrite for AsyncWriteWriteFailingWriter {
         fn poll_write(
             self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
@@ -194,7 +195,7 @@ mod tests {
         }
     }
 
-    impl tokio::io::AsyncWrite for AsyncWriteFlushFailingWriter {
+    impl AsyncWrite for AsyncWriteFlushFailingWriter {
         fn poll_write(
             self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
@@ -231,7 +232,7 @@ mod tests {
     where
         W: Write,
     {
-        Err(RamuneError::CpioError("cpio failed".to_string()))
+        Err(RamuneError::CpioError("cpio failed".to_owned()))
     }
 
     #[test]
@@ -296,7 +297,7 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_string(), ext_dir.path().to_path_buf())];
+        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
         let config = ExtendConfig {
             base: base.path(),
             extensions: &extensions,
@@ -322,7 +323,7 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_string(), ext_dir.path().to_path_buf())];
+        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
         let config = ExtendConfig {
             base: base.path(),
             extensions: &extensions,
@@ -365,7 +366,7 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_string(), ext_dir.path().to_path_buf())];
+        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
         let config = ExtendConfig {
             base: file.path(),
             extensions: &extensions,
@@ -409,7 +410,7 @@ mod tests {
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         let extensions = [(
-            "missing".to_string(),
+            "missing".to_owned(),
             std::path::PathBuf::from("/nonexistent/extension-dir"),
         )];
         let config = ExtendConfig {
@@ -437,7 +438,7 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_string(), ext_dir.path().to_path_buf())];
+        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
         let config = ExtendConfig {
             base: base.path(),
             extensions: &extensions,
@@ -456,12 +457,14 @@ mod tests {
 
     #[tokio::test]
     async fn append_to_file_writes_data() {
-        let f = tempfile::NamedTempFile::new().expect("tempfile");
-        std::fs::write(f.path(), b"hello").expect("write");
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(file.path(), b"hello").expect("write");
 
-        append_to_file(f.path(), b" world").await.expect("append");
+        append_to_file(file.path(), b" world")
+            .await
+            .expect("append");
 
-        assert_eq!(std::fs::read(f.path()).expect("read"), b"hello world");
+        assert_eq!(std::fs::read(file.path()).expect("read"), b"hello world");
     }
 
     #[tokio::test]
@@ -557,8 +560,8 @@ mod tests {
             19,
         )
         .expect("encoder");
-        crate::cpio::write_archive(&mut encoder, &entries).expect("write archive");
-        let fail_on_call = encoder.get_ref().calls + 1;
+        write_archive(&mut encoder, &entries).expect("write archive");
+        let fail_on_call = encoder.get_ref().calls.saturating_add(1);
 
         let result = write_compressed_extensions_archive(
             CountingFailingWriter {

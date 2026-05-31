@@ -1,3 +1,4 @@
+use core::str;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,7 +38,7 @@ impl TestEnv {
 
     pub fn write(&self, name: &str, data: &[u8]) -> PathBuf {
         let path = self.path(name);
-        fs::write(&path, data).unwrap_or_else(|e| panic!("failed to write {name}: {e}"));
+        fs::write(&path, data).expect("failed to write fixture file");
         path
     }
 
@@ -56,39 +57,62 @@ impl TestEnv {
     }
 }
 
-fn align4(offset: usize) -> usize {
-    (offset + 3) & !3
-}
-
 fn parse_hex(field: &[u8]) -> u32 {
-    let field = std::str::from_utf8(field).expect("cpio header field should be utf8");
+    let field = str::from_utf8(field).expect("cpio header field should be utf8");
     u32::from_str_radix(field, 16).expect("cpio header field should be hex")
 }
 
 pub fn parse_newc_archive(bytes: &[u8]) -> Vec<ArchiveEntry> {
-    let mut offset = 0;
+    let mut offset = 0_usize;
     let mut entries = Vec::new();
 
     loop {
-        assert!(offset + HEADER_LEN <= bytes.len(), "cpio header truncated");
+        let header_end = offset
+            .checked_add(HEADER_LEN)
+            .expect("cpio header offset should not overflow");
+        assert!(header_end <= bytes.len(), "cpio header truncated");
 
-        let header = &bytes[offset..offset + HEADER_LEN];
-        assert_eq!(&header[..6], MAGIC, "cpio archive should use newc format");
+        let header = bytes.get(offset..header_end).expect("cpio header exists");
+        assert_eq!(
+            header.get(..MAGIC.len()).expect("cpio magic exists"),
+            MAGIC,
+            "cpio archive should use newc format"
+        );
 
-        let mode = parse_hex(&header[14..22]);
-        let filesize = parse_hex(&header[54..62]) as usize;
-        let namesize = parse_hex(&header[94..102]) as usize;
+        let mode = parse_hex(header.get(14..22).expect("cpio mode field exists"));
+        let filesize = usize::try_from(parse_hex(
+            header.get(54..62).expect("cpio filesize field exists"),
+        ))
+        .expect("cpio filesize should fit usize");
+        let namesize = usize::try_from(parse_hex(
+            header.get(94..102).expect("cpio namesize field exists"),
+        ))
+        .expect("cpio namesize should fit usize");
 
-        let name_start = offset + HEADER_LEN;
-        let name_end = name_start + namesize;
-        let name = std::str::from_utf8(&bytes[name_start..name_end - 1])
-            .expect("cpio filename should be utf8")
-            .to_string();
+        let name_start = header_end;
+        let name_end = name_start
+            .checked_add(namesize)
+            .expect("cpio filename end should not overflow");
+        let name_without_nul = name_end
+            .checked_sub(1)
+            .expect("cpio filename should include trailing nul");
+        let name = str::from_utf8(
+            bytes
+                .get(name_start..name_without_nul)
+                .expect("cpio filename exists"),
+        )
+        .expect("cpio filename should be utf8")
+        .to_owned();
 
-        let data_start = align4(name_end);
-        let data_end = data_start + filesize;
-        let data = bytes[data_start..data_end].to_vec();
-        offset = align4(data_end);
+        let data_start = name_end.next_multiple_of(4);
+        let data_end = data_start
+            .checked_add(filesize)
+            .expect("cpio data end should not overflow");
+        let data = bytes
+            .get(data_start..data_end)
+            .expect("cpio file data exists")
+            .to_vec();
+        offset = data_end.next_multiple_of(4);
 
         if name == TRAILER {
             break;
@@ -102,7 +126,7 @@ pub fn parse_newc_archive(bytes: &[u8]) -> Vec<ArchiveEntry> {
 
 pub fn decode_initramfs(path: &Path) -> Vec<ArchiveEntry> {
     let compressed = fs::read(path).expect("failed to read initramfs");
-    let archive = zstd::decode_all(&compressed[..]).expect("failed to decode initramfs");
+    let archive = zstd::decode_all(compressed.as_slice()).expect("failed to decode initramfs");
     parse_newc_archive(&archive)
 }
 
@@ -112,6 +136,11 @@ pub fn decode_extension_archive(path: &Path, base_len: usize) -> Vec<ArchiveEntr
         image.len() > base_len,
         "extended image should contain appended archive"
     );
-    let archive = zstd::decode_all(&image[base_len..]).expect("failed to decode extension archive");
+    let archive = zstd::decode_all(
+        image
+            .get(base_len..)
+            .expect("extended image should contain extension archive"),
+    )
+    .expect("failed to decode extension archive");
     parse_newc_archive(&archive)
 }

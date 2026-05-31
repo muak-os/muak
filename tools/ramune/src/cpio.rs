@@ -162,7 +162,7 @@ mod tests {
             mode: 0o040_755,
             data: &[],
         });
-        entries.extend(files.iter().map(|(path, data)| CpioEntry {
+        entries.extend(files.iter().map(|&(path, data)| CpioEntry {
             path,
             mode: 0o100_644,
             data,
@@ -177,13 +177,11 @@ mod tests {
 
     impl Write for FailingWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.calls += 1;
-            let should_fail = self.calls == self.fail_on_call;
+            self.calls = self.calls.saturating_add(1);
 
-            match should_fail {
-                true => Err(std::io::Error::other("boom")),
-                false => Ok(buf.len()),
-            }
+            (self.calls != self.fail_on_call)
+                .then_some(buf.len())
+                .ok_or_else(|| std::io::Error::other("boom"))
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
@@ -305,17 +303,17 @@ mod tests {
         let entries = vec![
             CpioEntry {
                 path: "lib",
-                mode: 0o040755,
+                mode: 0o040_755,
                 data: &[],
             },
             CpioEntry {
                 path: "lib/modules",
-                mode: 0o040755,
+                mode: 0o040_755,
                 data: &[],
             },
             CpioEntry {
                 path: "lib/modules/test.ko",
-                mode: 0o100644,
+                mode: 0o100_644,
                 data: b"module data",
             },
         ];
@@ -348,7 +346,10 @@ mod tests {
     #[test]
     fn usize_to_u32_rejects_name_larger_than_cpio_limit() {
         // ARRANGE / ACT
-        let result = usize_to_u32((u32::MAX as usize).saturating_add(1), "filename length");
+        let too_large = usize::try_from(u32::MAX)
+            .expect("u32 max should fit usize")
+            .saturating_add(1);
+        let result = usize_to_u32(too_large, "filename length");
 
         // ASSERT
         assert!(
@@ -361,7 +362,10 @@ mod tests {
     #[test]
     fn usize_to_u32_rejects_data_larger_than_cpio_limit() {
         // ARRANGE / ACT
-        let result = usize_to_u32((u32::MAX as usize).saturating_add(1), "file size");
+        let too_large = usize::try_from(u32::MAX)
+            .expect("u32 max should fit usize")
+            .saturating_add(1);
+        let result = usize_to_u32(too_large, "file size");
 
         // ASSERT
         assert!(
@@ -376,7 +380,7 @@ mod tests {
         // ARRANGE
         let entry = CpioEntry {
             path: "init",
-            mode: 0o100755,
+            mode: 0o100_755,
             data: b"data",
         };
         let mut writer = FailingWriter {
@@ -400,7 +404,7 @@ mod tests {
         // ARRANGE
         let entries = [CpioEntry {
             path: "init",
-            mode: 0o100755,
+            mode: 0o100_755,
             data: b"data",
         }];
         let mut writer = Vec::new();
@@ -421,7 +425,7 @@ mod tests {
         // ARRANGE
         let entry = CpioEntry {
             path: "init",
-            mode: 0o100755,
+            mode: 0o100_755,
             data: b"data",
         };
 
@@ -476,7 +480,7 @@ mod tests {
         };
 
         // ACT
-        let result = write_entry(&mut writer, 1, "init", 0o100755, b"abc");
+        let result = write_entry(&mut writer, 1, "init", 0o100_755, b"abc");
 
         // ASSERT
         let message = result

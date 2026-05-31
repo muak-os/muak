@@ -194,7 +194,7 @@ mod tests {
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"#!/bin/sh\nexec /sbin/init").expect("write init");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         setup_rootfs_dir(&rootfs);
 
         // ACT
@@ -213,7 +213,7 @@ mod tests {
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
         let config = make_config(&init_file, &rootfs);
 
@@ -233,7 +233,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir");
+        std::fs::create_dir_all(&rootfs).expect("mkdir");
 
         // ACT
         let output = tmp.path().join("initramfs.img");
@@ -292,7 +292,7 @@ mod tests {
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
         let fc =
             ::erofs::FileContexts::from_reader("/.*    system_u:object_r:file_t:s0\n".as_bytes())
@@ -324,7 +324,7 @@ mod tests {
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
@@ -355,7 +355,7 @@ mod tests {
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir rootfs");
+        std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
@@ -384,7 +384,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir");
+        std::fs::create_dir_all(&rootfs).expect("mkdir");
 
         // ACT
         let staging = prepare_rootfs(&rootfs).expect("prepare_rootfs");
@@ -400,7 +400,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir");
+        std::fs::create_dir_all(&rootfs).expect("mkdir");
 
         // ACT
         let staging = prepare_rootfs(&rootfs).expect("prepare_rootfs");
@@ -592,7 +592,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let src = tmp.path().join("src");
-        std::fs::create_dir(&src).expect("mkdir src");
+        std::fs::create_dir_all(&src).expect("mkdir src");
         let blocked = tmp.path().join("blocked");
         std::fs::write(&blocked, b"not a directory").expect("write blocked");
         let dst = blocked.join("dst");
@@ -649,7 +649,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir(&rootfs).expect("mkdir");
+        std::fs::create_dir_all(&rootfs).expect("mkdir");
         std::fs::write(rootfs.join("etc"), b"not a directory").expect("write");
 
         // ACT

@@ -45,7 +45,7 @@ mod tests {
         let result = encoder(Vec::new(), crate::DEFAULT_ZSTD_COMPRESSION_LEVEL);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("encoder creation should succeed");
     }
 
     #[test]

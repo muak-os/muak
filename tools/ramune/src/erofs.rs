@@ -29,7 +29,7 @@ pub(crate) fn create(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::NamedTempFile;
 
@@ -45,15 +45,15 @@ mod tests {
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % 4096, 0);
+        assert_eq!(image.len().rem_euclid(4096), 0);
     }
 
     #[test]
     fn create_with_file() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut f = NamedTempFile::new_in(dir.path()).expect("tempfile");
-        f.write_all(b"hello world").expect("write");
+        let mut file = NamedTempFile::new_in(dir.path()).expect("tempfile");
+        file.write_all(b"hello world").expect("write");
 
         // ACT
         let image = create(dir.path(), None, 3).expect("create");
@@ -66,7 +66,7 @@ mod tests {
     fn create_with_subdir() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join("sub")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join("sub")).expect("mkdir");
         std::fs::write(dir.path().join("sub").join("file.txt"), b"data").expect("write");
 
         // ACT
@@ -103,7 +103,7 @@ mod tests {
 
         // ASSERT
         assert!(!image.is_empty());
-        assert_eq!(image.len() % 4096, 0);
+        assert_eq!(image.len().rem_euclid(4096), 0);
     }
 
     #[test]
