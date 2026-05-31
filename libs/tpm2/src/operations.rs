@@ -132,35 +132,43 @@ fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
     use std::io::{Read, Result as IoResult, Write};
 
     use super::*;
-    use crate::commands::TpmCommand;
+    use crate::commands::TpmCommand as _;
     const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
     const TPM2_CAP_HANDLES: u32 = 0x0000_0001;
 
     #[derive(Default)]
     struct MockDevice {
-        responses: VecDeque<Vec<u8>>,
+        responses: Vec<Vec<u8>>,
+        next_response: usize,
     }
 
     impl MockDevice {
         fn new(responses: Vec<Vec<u8>>) -> Self {
             Self {
-                responses: responses.into(),
+                responses,
+                next_response: 0,
             }
         }
     }
 
     impl Read for MockDevice {
         fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-            let Some(response) = self.responses.pop_front() else {
-                return Ok(0);
-            };
+            let response = self
+                .responses
+                .get(self.next_response)
+                .map_or(&[][..], Vec::as_slice);
+            self.next_response = self
+                .next_response
+                .checked_add(1)
+                .expect("response index should fit usize");
 
             let read_len = response.len();
-            buf[..read_len].copy_from_slice(&response);
+            buf.get_mut(..read_len)
+                .expect("target slice should contain response")
+                .copy_from_slice(response);
             Ok(read_len)
         }
     }
@@ -178,7 +186,9 @@ mod tests {
     impl TpmDevice for MockDevice {}
 
     fn body_response(body: &[u8]) -> Vec<u8> {
-        let size = 10_usize + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut out = Vec::with_capacity(size);
         out.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
         out.extend_from_slice(&u32::try_from(size).ok().unwrap_or(0).to_be_bytes());
@@ -201,7 +211,10 @@ mod tests {
     }
 
     fn sized(data: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(2 + data.len());
+        let capacity = 2_usize
+            .checked_add(data.len())
+            .expect("sized buffer capacity should fit usize");
+        let mut out = Vec::with_capacity(capacity);
         out.extend_from_slice(&u16::try_from(data.len()).ok().unwrap_or(0).to_be_bytes());
         out.extend_from_slice(data);
 

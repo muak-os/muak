@@ -49,10 +49,8 @@ mod tests {
         // ARRANGE
         let sections = [(".linux", &[1_u8, 2][..])];
         let pcr = [0x42_u8; 32];
-        let blob = match SealedBlob::try_new(Vec::new(), Vec::new()) {
-            Ok(blob) => blob,
-            Err(_) => panic!("empty sealed blob should be valid"),
-        };
+        let blob =
+            SealedBlob::try_new(Vec::new(), Vec::new()).expect("empty sealed blob should be valid");
 
         // ACT
         let predicted = pcr::predict_pcr11(&sections);

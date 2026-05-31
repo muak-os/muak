@@ -89,23 +89,15 @@ mod tests {
     #[test]
     fn sealed_blob_roundtrip() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1, 2, 3, 4, 5], vec![10, 20, 30]);
-        assert!(blob.is_ok(), "blob should be valid");
-        let blob = match blob {
-            Ok(blob) => blob,
-            Err(_) => panic!("blob should be valid"),
-        };
+        let blob = SealedBlob::try_new(vec![1, 2, 3, 4, 5], vec![10, 20, 30])
+            .expect("blob should be valid");
 
         // ACT
         let serialized = blob.serialize();
         let deserialized = SealedBlob::deserialize(&serialized);
 
         // ASSERT
-        assert!(deserialized.is_ok(), "blob should deserialize");
-        let deserialized = match deserialized {
-            Ok(blob) => blob,
-            Err(_) => panic!("blob should deserialize"),
-        };
+        let deserialized = deserialized.expect("blob should deserialize");
         assert_eq!(
             deserialized.public(),
             &[1, 2, 3, 4, 5],
@@ -121,23 +113,14 @@ mod tests {
     #[test]
     fn sealed_blob_empty() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![], vec![]);
-        assert!(blob.is_ok(), "empty blob should be valid");
-        let blob = match blob {
-            Ok(blob) => blob,
-            Err(_) => panic!("empty blob should be valid"),
-        };
+        let blob = SealedBlob::try_new(vec![], vec![]).expect("empty blob should be valid");
 
         // ACT
         let serialized = blob.serialize();
         let deserialized = SealedBlob::deserialize(&serialized);
 
         // ASSERT
-        assert!(deserialized.is_ok(), "empty blob should deserialize");
-        let deserialized = match deserialized {
-            Ok(blob) => blob,
-            Err(_) => panic!("blob should deserialize"),
-        };
+        let deserialized = deserialized.expect("blob should deserialize");
         assert!(
             deserialized.public().is_empty(),
             "public data should be empty"
@@ -151,10 +134,7 @@ mod tests {
     #[test]
     fn accessors_return_original_slices() {
         // ARRANGE
-        let blob = match SealedBlob::try_new(vec![1, 2], vec![3, 4]) {
-            Ok(blob) => blob,
-            Err(_) => panic!("small blob should be valid"),
-        };
+        let blob = SealedBlob::try_new(vec![1, 2], vec![3, 4]).expect("small blob should be valid");
 
         // ACT
         let public = blob.public();
@@ -236,11 +216,7 @@ mod tests {
         let result = SealedBlob::deserialize(&data);
 
         // ASSERT
-        assert!(result.is_ok(), "trailing data should be ignored");
-        let blob = match result {
-            Ok(blob) => blob,
-            Err(_) => panic!("blob should deserialize"),
-        };
+        let blob = result.expect("blob should deserialize");
         assert_eq!(blob.public(), &[0xAA], "public data should match");
         assert_eq!(blob.private(), &[0xBB], "private data should match");
     }

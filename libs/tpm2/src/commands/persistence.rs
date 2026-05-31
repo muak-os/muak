@@ -74,17 +74,16 @@ mod tests {
     use super::*;
 
     fn response_body(tag: u16, body: &[u8]) -> ResponseBody<'_> {
-        let size = 10 + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut response = Vec::with_capacity(size);
         response.extend_from_slice(&tag.to_be_bytes());
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         response.extend_from_slice(&0_u32.to_be_bytes());
         response.extend_from_slice(body);
         let leaked = Box::leak(response.into_boxed_slice());
-        match ResponseBody::from_response(leaked) {
-            Ok(body) => body,
-            Err(_) => panic!("response should parse"),
-        }
+        ResponseBody::from_response(leaked).expect("response should parse")
     }
 
     #[test]

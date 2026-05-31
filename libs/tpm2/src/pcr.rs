@@ -79,32 +79,38 @@ mod tests {
     #[test]
     fn predict_pcr11_deterministic() {
         // ARRANGE
-        let sections = [
-            (".cmdline", b"console=ttyS0" as &[u8]),
+        let sections: [(&str, &[u8]); 3] = [
+            (".cmdline", b"console=ttyS0"),
             (".linux", &[0xDE, 0xAD]),
             (".initrd", &[0xBE, 0xEF]),
         ];
 
         // ACT
-        let a = predict_pcr11(&sections);
-        let b = predict_pcr11(&sections);
+        let first_prediction = predict_pcr11(&sections);
+        let second_prediction = predict_pcr11(&sections);
 
         // ASSERT
-        assert_eq!(a, b, "PCR prediction should be deterministic");
+        assert_eq!(
+            first_prediction, second_prediction,
+            "PCR prediction should be deterministic"
+        );
     }
 
     #[test]
     fn predict_pcr11_order_matters() {
         // ARRANGE
-        let s1 = [(".cmdline", b"a" as &[u8]), (".linux", b"b" as &[u8])];
-        let s2 = [(".linux", b"b" as &[u8]), (".cmdline", b"a" as &[u8])];
+        let ordered_sections: [(&str, &[u8]); 2] = [(".cmdline", b"a"), (".linux", b"b")];
+        let reordered_sections: [(&str, &[u8]); 2] = [(".linux", b"b"), (".cmdline", b"a")];
 
         // ACT
-        let a = predict_pcr11(&s1);
-        let b = predict_pcr11(&s2);
+        let ordered_prediction = predict_pcr11(&ordered_sections);
+        let reordered_prediction = predict_pcr11(&reordered_sections);
 
         // ASSERT
-        assert_ne!(a, b, "PCR prediction should be order-sensitive");
+        assert_ne!(
+            ordered_prediction, reordered_prediction,
+            "PCR prediction should be order-sensitive"
+        );
     }
 
     #[test]
@@ -113,11 +119,14 @@ mod tests {
         let pcr = [0x42_u8; SHA256_DIGEST_SIZE];
 
         // ACT
-        let a = compute_policy_digest(&pcr);
-        let b = compute_policy_digest(&pcr);
+        let first_digest = compute_policy_digest(&pcr);
+        let second_digest = compute_policy_digest(&pcr);
 
         // ASSERT
-        assert_eq!(a, b, "policy digest should be deterministic");
+        assert_eq!(
+            first_digest, second_digest,
+            "policy digest should be deterministic"
+        );
     }
 
     #[test]
@@ -127,10 +136,13 @@ mod tests {
         let pcr_b = [0x02_u8; SHA256_DIGEST_SIZE];
 
         // ACT
-        let a = compute_policy_digest(&pcr_a);
-        let b = compute_policy_digest(&pcr_b);
+        let first_digest = compute_policy_digest(&pcr_a);
+        let second_digest = compute_policy_digest(&pcr_b);
 
         // ASSERT
-        assert_ne!(a, b, "policy digest should depend on PCR value");
+        assert_ne!(
+            first_digest, second_digest,
+            "policy digest should depend on PCR value"
+        );
     }
 }

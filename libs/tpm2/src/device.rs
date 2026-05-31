@@ -88,7 +88,6 @@ fn validate_response(response: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
     use std::io::{Error as IoError, ErrorKind, Result as IoResult};
     use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -97,7 +96,7 @@ mod tests {
 
     #[derive(Default)]
     struct MockIo {
-        response: VecDeque<u8>,
+        response: Vec<u8>,
         written: Vec<u8>,
         fail_write: bool,
     }
@@ -105,7 +104,7 @@ mod tests {
     impl MockIo {
         fn new(response: Vec<u8>) -> Self {
             Self {
-                response: response.into(),
+                response,
                 written: Vec::new(),
                 fail_write: false,
             }
@@ -115,22 +114,19 @@ mod tests {
     impl Read for MockIo {
         fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
             let read_len = buf.len().min(self.response.len());
-            for byte in buf.iter_mut().take(read_len) {
-                let value = match self.response.pop_front() {
-                    Some(value) => value,
-                    None => panic!("response should contain enough bytes"),
-                };
-                *byte = value;
-            }
+            let response: Vec<u8> = self.response.drain(..read_len).collect();
+            buf.iter_mut()
+                .zip(response)
+                .for_each(|(target, value)| *target = value);
             Ok(read_len)
         }
     }
 
     impl Write for MockIo {
         fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-            if self.fail_write {
-                return Err(IoError::new(ErrorKind::BrokenPipe, "write failed"));
-            }
+            (!self.fail_write)
+                .then_some(())
+                .ok_or_else(|| IoError::new(ErrorKind::BrokenPipe, "write failed"))?;
             self.written.extend_from_slice(buf);
             Ok(buf.len())
         }
@@ -143,7 +139,9 @@ mod tests {
     impl TpmDevice for MockIo {}
 
     fn response(tag: u16, rc: u32, body: &[u8]) -> Vec<u8> {
-        let size = 10_usize + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut out = Vec::with_capacity(size);
         out.extend_from_slice(&tag.to_be_bytes());
         let size = u32::try_from(size).ok().unwrap_or(0);
@@ -239,10 +237,7 @@ mod tests {
             .write(true)
             .open(&path);
         assert!(file_result.is_ok(), "temporary file should be created");
-        let mut device = match open(Some(&path)) {
-            Ok(device) => device,
-            Err(_) => panic!("file should open"),
-        };
+        let mut device = open(Some(&path)).expect("file should open");
 
         // ACT
         let write_result = device.write_all(&[1, 2, 3]);

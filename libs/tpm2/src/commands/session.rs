@@ -98,17 +98,16 @@ mod tests {
     use crate::handles::TransientHandle;
 
     fn response_body(body: &[u8]) -> ResponseBody<'_> {
-        let size = 10 + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut response = Vec::with_capacity(size);
         response.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         response.extend_from_slice(&0_u32.to_be_bytes());
         response.extend_from_slice(body);
         let leaked = Box::leak(response.into_boxed_slice());
-        match ResponseBody::from_response(leaked) {
-            Ok(body) => body,
-            Err(_) => panic!("response should parse"),
-        }
+        ResponseBody::from_response(leaked).expect("response should parse")
     }
 
     #[test]
@@ -142,7 +141,7 @@ mod tests {
         );
         assert_eq!(
             finalized.get(36..41),
-            Some(&[0x00, 0x00, TPM2_SE_POLICY, 0x00, TPM2_ALG_NULL as u8][..]),
+            Some(&[0x00, 0x00, TPM2_SE_POLICY, 0x00, 0x10][..]),
             "session parameters should match expected tail bytes"
         );
         assert_eq!(

@@ -126,7 +126,9 @@ mod tests {
     use super::*;
 
     fn response_body(body: &[u8]) -> ResponseBody<'_> {
-        let size = 10 + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut response = Vec::with_capacity(size);
         response.extend_from_slice(&TPM2_ST_SESSIONS.to_be_bytes());
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());

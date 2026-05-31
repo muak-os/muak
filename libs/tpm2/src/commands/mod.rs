@@ -41,7 +41,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Result as IoResult, Write};
+    use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
 
     use super::*;
     use crate::error::Tpm2Error;
@@ -55,7 +55,14 @@ mod tests {
     impl Read for MockDevice {
         fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
             let read_len = buf.len().min(self.response.len());
-            buf[..read_len].copy_from_slice(&self.response[..read_len]);
+            let target = buf
+                .get_mut(..read_len)
+                .ok_or_else(|| IoError::new(ErrorKind::UnexpectedEof, "short read buffer"))?;
+            let source = self
+                .response
+                .get(..read_len)
+                .ok_or_else(|| IoError::new(ErrorKind::UnexpectedEof, "short mock response"))?;
+            target.copy_from_slice(source);
             self.response.drain(..read_len);
             Ok(read_len)
         }
@@ -110,7 +117,9 @@ mod tests {
     }
 
     fn response(body: &[u8]) -> Vec<u8> {
-        let size = 10 + body.len();
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
         let mut out = Vec::with_capacity(size);
         out.extend_from_slice(&0x8001_u16.to_be_bytes());
         out.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
@@ -123,7 +132,7 @@ mod tests {
     fn execute_encodes_transacts_and_decodes() {
         // ARRANGE
         let mut dev = MockDevice {
-            response: response(&0xDEAD_BEEFu32.to_be_bytes()),
+            response: response(&0xDEAD_BEEF_u32.to_be_bytes()),
             written: Vec::new(),
         };
 
@@ -163,12 +172,10 @@ mod tests {
     #[test]
     fn failing_command_decode_is_reachable() {
         // ARRANGE
-        let mut body = match ResponseBody::from_response(&[
+        let mut body = ResponseBody::from_response(&[
             0x80, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00,
-        ]) {
-            Ok(body) => body,
-            Err(_) => panic!("response should parse"),
-        };
+        ])
+        .expect("response should parse");
 
         // ACT
         let result = FailingCommand.decode(&mut body);
