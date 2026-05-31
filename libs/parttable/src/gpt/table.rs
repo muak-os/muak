@@ -409,7 +409,7 @@ mod tests {
         // ACT / ASSERT
         for lba in cases {
             let result = align_up_lba(lba, ALIGN_1_MIB_SECTORS);
-            assert_eq!(result % ALIGN_1_MIB_SECTORS, 0);
+            assert!(result.is_multiple_of(ALIGN_1_MIB_SECTORS));
             assert!(result >= lba);
         }
     }
@@ -482,8 +482,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(used.len(), 2);
-        assert_eq!(used[0].0, 1);
-        assert_eq!(used[1].0, 2);
+        assert!(matches!(used.first(), Some(&(1, _))));
+        assert!(matches!(used.get(1), Some(&(2, _))));
     }
 
     #[test]
@@ -553,7 +553,12 @@ mod tests {
 
         // ASSERT
         assert_eq!(placement.number, 1);
-        assert_eq!(placement.partition.starting_lba % ALIGN_1_MIB_SECTORS, 0);
+        assert!(
+            placement
+                .partition
+                .starting_lba
+                .is_multiple_of(ALIGN_1_MIB_SECTORS)
+        );
     }
 
     #[test]
@@ -590,7 +595,12 @@ mod tests {
 
         // ASSERT
         assert!(second.partition.starting_lba > first.partition.ending_lba);
-        assert_eq!(second.partition.starting_lba % ALIGN_1_MIB_SECTORS, 0);
+        assert!(
+            second
+                .partition
+                .starting_lba
+                .is_multiple_of(ALIGN_1_MIB_SECTORS)
+        );
     }
 
     #[test]

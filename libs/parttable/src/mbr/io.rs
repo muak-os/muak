@@ -103,6 +103,16 @@ mod tests {
         protective_size_lba, write_entry, write_protective, write_signature,
     };
 
+    fn le_u32_at(data: &[u8], offset: usize) -> u32 {
+        let end = offset
+            .checked_add(4)
+            .expect("test field offset must not overflow");
+        let bytes = data
+            .get(offset..end)
+            .expect("test data must contain field bytes");
+        u32::from_le_bytes(bytes.try_into().expect("field must be four bytes"))
+    }
+
     #[test]
     fn protective_size_lba_uses_all_remaining_sectors() {
         // ARRANGE
@@ -118,7 +128,7 @@ mod tests {
     #[test]
     fn protective_size_lba_clamps_large_disks() {
         // ARRANGE
-        let disk_size = (u32::MAX as u64 + 100) * 512;
+        let disk_size = (u64::from(u32::MAX) + 100) * 512;
 
         // ACT
         let size = protective_size_lba(disk_size, 512);
@@ -155,15 +165,9 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        assert_eq!(data[450], MBR_EFI_SYSTEM_TYPE);
-        assert_eq!(
-            u32::from_le_bytes(data[454..458].try_into().expect("slice")),
-            123
-        );
-        assert_eq!(
-            u32::from_le_bytes(data[458..462].try_into().expect("slice")),
-            456
-        );
+        assert_eq!(data.get(450), Some(&MBR_EFI_SYSTEM_TYPE));
+        assert_eq!(le_u32_at(&data, 454), 123);
+        assert_eq!(le_u32_at(&data, 458), 456);
     }
 
     #[test]
@@ -182,7 +186,7 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        assert_eq!(data[446], 0x80);
+        assert_eq!(data.get(446), Some(&0x80));
     }
 
     #[test]
@@ -213,7 +217,7 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        assert_eq!(data[510..512], MBR_BOOT_SIGNATURE);
+        assert_eq!(data.get(510..512), Some(MBR_BOOT_SIGNATURE.as_slice()));
     }
 
     #[test]
@@ -226,8 +230,8 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        assert_eq!(data[450], MBR_PROTECTIVE_GPT_TYPE);
-        assert_eq!(data[510..512], MBR_BOOT_SIGNATURE);
+        assert_eq!(data.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
+        assert_eq!(data.get(510..512), Some(MBR_BOOT_SIGNATURE.as_slice()));
     }
 
     #[test]
@@ -240,11 +244,10 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        let offset = MBR_PARTITION_ENTRY_OFFSET as usize + 8;
-        assert_eq!(
-            u32::from_le_bytes(data[offset..offset + 4].try_into().expect("slice")),
-            1
-        );
+        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
+            .expect("MBR partition entry offset must fit usize")
+            + 8;
+        assert_eq!(le_u32_at(&data, offset), 1);
     }
 
     #[test]
@@ -257,10 +260,9 @@ mod tests {
 
         // ASSERT
         let data = cursor.into_inner();
-        let offset = MBR_PARTITION_ENTRY_OFFSET as usize + 12;
-        assert_eq!(
-            u32::from_le_bytes(data[offset..offset + 4].try_into().expect("slice")),
-            7
-        );
+        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
+            .expect("MBR partition entry offset must fit usize")
+            + 12;
+        assert_eq!(le_u32_at(&data, offset), 7);
     }
 }
