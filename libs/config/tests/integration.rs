@@ -32,8 +32,8 @@ auto_restart = false
 
     // ASSERT
     assert_eq!(config.disk.system, "test_disk");
-    assert_eq!(config.network.ipv6, true);
-    assert_eq!(config.vm.auto_restart, false);
+    assert!(config.network.ipv6);
+    assert!(!config.vm.auto_restart);
 }
 
 #[test]

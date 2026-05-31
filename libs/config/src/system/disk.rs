@@ -58,8 +58,10 @@ mod tests {
     #[test]
     fn data_disk_fallback() {
         // ARRANGE
-        let mut disk = DiskConfig::default();
-        disk.system = "/dev/sda".to_string();
+        let disk = crate::system::disk::DiskConfig {
+            system: "/dev/sda".to_string(),
+            ..Default::default()
+        };
 
         // ACT & ASSERT
         assert_eq!(disk.data_disk(), "/dev/sda");
