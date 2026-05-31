@@ -150,7 +150,7 @@ mod tests {
         fn variable_exists(&self, id: &Id) -> bool {
             self.variables
                 .iter()
-                .any(|(stored_id, _payload)| stored_id == id)
+                .any(|&(stored_id, ref _payload)| stored_id == *id)
         }
 
         /// Read a fake firmware variable.
@@ -158,8 +158,8 @@ mod tests {
             Ok(self
                 .variables
                 .iter()
-                .find(|(stored_id, _payload)| stored_id == id)
-                .map(|(_stored_id, payload)| payload.clone()))
+                .find(|&&(stored_id, ref _payload)| stored_id == *id)
+                .map(|&(_stored_id, ref payload)| payload.clone()))
         }
 
         /// Ignore fake firmware variable writes.
@@ -279,7 +279,7 @@ mod tests {
         let result = backend.write_variable(update);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("fake write succeeds");
     }
 
     #[test]

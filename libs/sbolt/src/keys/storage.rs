@@ -134,7 +134,7 @@ fn pem_to_cert(pem: &str) -> Result<Certificate> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::PermissionsExt as _;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
@@ -194,6 +194,6 @@ mod tests {
         let result = load_hierarchy(&dir);
 
         // ASSERT
-        assert!(result.is_err());
+        result.err().expect("invalid GUID should fail");
     }
 }

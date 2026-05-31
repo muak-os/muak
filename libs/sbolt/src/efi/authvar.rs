@@ -106,6 +106,7 @@ fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use uefi::guid;
+    use uefi::runtime::{Daylight, Time, TimeParams};
 
     use super::*;
     use crate::keys::cert;
@@ -130,7 +131,7 @@ mod tests {
             | VariableAttributes::RUNTIME_ACCESS
             | VariableAttributes::TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
 
-        let timestamp = uefi::runtime::Time::new(uefi::runtime::TimeParams {
+        let timestamp = Time::new(TimeParams {
             year: 2025,
             month: 1,
             day: 15,
@@ -139,7 +140,7 @@ mod tests {
             second: 0,
             nanosecond: 0,
             time_zone: Some(0),
-            daylight: uefi::runtime::Daylight::empty(),
+            daylight: Daylight::empty(),
         })
         .expect("valid time");
 
@@ -149,30 +150,51 @@ mod tests {
         let desc = build_descriptor(var_name, &vendor, attrs, &timestamp, content);
 
         // ASSERT
-        let mut offset = 0;
+        let mut offset = 0_usize;
 
         let name_utf16: Vec<u16> = var_name.encode_utf16().collect();
-        let name_len_bytes = name_utf16.len() * 2;
-        for ch in &name_utf16 {
-            let got = u16::from_le_bytes([desc[offset], desc[offset + 1]]);
-            assert_eq!(got, *ch, "UTF-16LE mismatch at offset {offset}");
-            offset += 2;
+        let name_len_bytes = name_utf16.len().checked_mul(2).expect("name byte length");
+        for character in &name_utf16 {
+            let end = offset.checked_add(2).expect("UTF-16 end offset");
+            let got = u16::from_le_bytes(
+                desc.get(offset..end)
+                    .expect("UTF-16 bytes")
+                    .try_into()
+                    .expect("2 bytes"),
+            );
+            assert_eq!(got, *character, "UTF-16LE mismatch at offset {offset}");
+            offset = end;
         }
 
-        assert_eq!(&desc[offset..offset + 16], &vendor.to_bytes());
-        offset += 16;
+        let vendor_end = offset.checked_add(16).expect("vendor end offset");
+        assert_eq!(
+            desc.get(offset..vendor_end).expect("vendor bytes"),
+            &vendor.to_bytes()
+        );
+        offset = vendor_end;
 
-        let got_attrs = u32::from_le_bytes(desc[offset..offset + 4].try_into().expect("4 bytes"));
+        let attrs_end = offset.checked_add(4).expect("attrs end offset");
+        let got_attrs = u32::from_le_bytes(
+            desc.get(offset..attrs_end)
+                .expect("attribute bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
         assert_eq!(got_attrs, attrs.bits());
-        offset += 4;
+        offset = attrs_end;
 
         let time_bytes = super::time_to_bytes(&timestamp);
-        assert_eq!(&desc[offset..offset + 16], &time_bytes);
-        offset += 16;
+        let time_end = offset.checked_add(16).expect("time end offset");
+        assert_eq!(desc.get(offset..time_end).expect("time bytes"), &time_bytes);
+        offset = time_end;
 
-        assert_eq!(&desc[offset..], content);
+        assert_eq!(desc.get(offset..).expect("content bytes"), content);
 
-        assert_eq!(desc.len(), name_len_bytes + 16 + 4 + 16 + content.len());
+        let expected_len = [name_len_bytes, 16, 4, 16, content.len()]
+            .into_iter()
+            .try_fold(0_usize, usize::checked_add)
+            .expect("descriptor length");
+        assert_eq!(desc.len(), expected_len);
     }
 
     #[test]
@@ -187,18 +209,39 @@ mod tests {
         let expected_total = 24 + fake_pkcs7.len();
         assert_eq!(wc.len(), expected_total);
 
-        let total_size = u32::from_le_bytes(wc[0..4].try_into().expect("4 bytes"));
-        assert_eq!(total_size as usize, expected_total);
+        let total_size = u32::from_le_bytes(
+            wc.get(0..4)
+                .expect("total size bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
+        assert_eq!(
+            usize::try_from(total_size).expect("total size fits usize"),
+            expected_total
+        );
 
-        let revision = u16::from_le_bytes(wc[4..6].try_into().expect("2 bytes"));
+        let revision = u16::from_le_bytes(
+            wc.get(4..6)
+                .expect("revision bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
         assert_eq!(revision, 0x0200);
 
-        let cert_type = u16::from_le_bytes(wc[6..8].try_into().expect("2 bytes"));
+        let cert_type = u16::from_le_bytes(
+            wc.get(6..8)
+                .expect("certificate type bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
         assert_eq!(cert_type, 0x0EF1);
 
-        assert_eq!(&wc[8..24], &EFI_CERT_TYPE_PKCS7_GUID.to_bytes());
+        assert_eq!(
+            wc.get(8..24).expect("certificate GUID bytes"),
+            &EFI_CERT_TYPE_PKCS7_GUID.to_bytes()
+        );
 
-        assert_eq!(&wc[24..], fake_pkcs7);
+        assert_eq!(wc.get(24..).expect("PKCS#7 bytes"), fake_pkcs7);
     }
 
     #[test]
@@ -212,8 +255,14 @@ mod tests {
         // ASSERT
         assert_eq!(certificate.len(), WIN_CERT_UEFI_GUID_HEADER_SIZE);
         assert_eq!(
-            u32::from_le_bytes(certificate[0..4].try_into().expect("length")),
-            WIN_CERT_UEFI_GUID_HEADER_SIZE as u32
+            u32::from_le_bytes(
+                certificate
+                    .get(0..4)
+                    .expect("length bytes")
+                    .try_into()
+                    .expect("4 bytes")
+            ),
+            u32::try_from(WIN_CERT_UEFI_GUID_HEADER_SIZE).expect("header size fits u32")
         );
     }
 
@@ -222,7 +271,7 @@ mod tests {
         // ARRANGE
         let vendor = guid!("d719b2cb-3d3a-4596-a3bc-dad00e67656f");
         let attrs = VariableAttributes::NON_VOLATILE;
-        let timestamp = uefi::runtime::Time::new(uefi::runtime::TimeParams {
+        let timestamp = Time::new(TimeParams {
             year: 2025,
             month: 1,
             day: 15,
@@ -231,7 +280,7 @@ mod tests {
             second: 0,
             nanosecond: 0,
             time_zone: Some(0),
-            daylight: uefi::runtime::Daylight::empty(),
+            daylight: Daylight::empty(),
         })
         .expect("valid time");
 
@@ -240,7 +289,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(descriptor.len(), 16 + 4 + 16);
-        assert_eq!(&descriptor[0..16], &vendor.to_bytes());
+        assert_eq!(
+            descriptor.get(0..16).expect("vendor bytes"),
+            &vendor.to_bytes()
+        );
     }
 
     #[test]
@@ -260,36 +312,77 @@ mod tests {
             .expect("sign_efi_variable should succeed");
 
         // ASSERT
-        let got_attrs = u32::from_le_bytes(payload[0..4].try_into().expect("4 bytes"));
+        let got_attrs = u32::from_le_bytes(
+            payload
+                .get(0..4)
+                .expect("attribute bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
         assert_eq!(got_attrs, attrs.bits());
 
-        let timestamp_bytes = &payload[4..20];
+        let timestamp_bytes = payload.get(4..20).expect("timestamp bytes");
         assert!(
-            timestamp_bytes.iter().any(|&b| b != 0),
+            timestamp_bytes.iter().any(|&byte| byte != 0),
             "timestamp should not be all zeros"
         );
-        let year = u16::from_le_bytes([timestamp_bytes[0], timestamp_bytes[1]]);
-        assert!(year >= 2024 && year <= 2100, "year {year} out of range");
+        let year = u16::from_le_bytes(
+            timestamp_bytes
+                .get(0..2)
+                .expect("year bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
+        assert!((2024..=2100).contains(&year), "year {year} out of range");
 
-        let win_cert_size =
-            u32::from_le_bytes(payload[20..24].try_into().expect("4 bytes")) as usize;
+        let win_cert_size = usize::try_from(u32::from_le_bytes(
+            payload
+                .get(20..24)
+                .expect("certificate size bytes")
+                .try_into()
+                .expect("4 bytes"),
+        ))
+        .expect("cert size fits usize");
         assert!(win_cert_size >= 24, "WIN_CERT must be at least 24 bytes");
 
-        let revision = u16::from_le_bytes(payload[24..26].try_into().expect("2 bytes"));
+        let revision = u16::from_le_bytes(
+            payload
+                .get(24..26)
+                .expect("revision bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
         assert_eq!(revision, 0x0200);
 
-        let cert_type = u16::from_le_bytes(payload[26..28].try_into().expect("2 bytes"));
+        let cert_type = u16::from_le_bytes(
+            payload
+                .get(26..28)
+                .expect("certificate type bytes")
+                .try_into()
+                .expect("2 bytes"),
+        );
         assert_eq!(cert_type, 0x0EF1);
 
-        assert_eq!(&payload[28..44], &EFI_CERT_TYPE_PKCS7_GUID.to_bytes());
-
         assert_eq!(
-            &payload[payload.len() - content.len()..],
+            payload.get(28..44).expect("certificate GUID bytes"),
+            &EFI_CERT_TYPE_PKCS7_GUID.to_bytes()
+        );
+
+        let content_offset = payload
+            .len()
+            .checked_sub(content.len())
+            .expect("payload contains content");
+        assert_eq!(
+            payload.get(content_offset..).expect("content bytes"),
             content,
             "payload must end with the content bytes"
         );
 
-        assert_eq!(payload.len(), 4 + 16 + win_cert_size + content.len());
+        let expected_len = [4, 16, win_cert_size, content.len()]
+            .into_iter()
+            .try_fold(0_usize, usize::checked_add)
+            .expect("payload length");
+        assert_eq!(payload.len(), expected_len);
     }
 
     #[test]
@@ -298,6 +391,6 @@ mod tests {
         let result = checked_add(usize::MAX, 1, "authvar");
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("overflow should fail");
     }
 }

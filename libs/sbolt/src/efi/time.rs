@@ -243,7 +243,7 @@ mod tests {
             hour: 10,
             minute: 30,
             second: 45,
-            nanosecond: 123456789,
+            nanosecond: 123_456_789,
             time_zone: Some(60),
             daylight: Daylight::IN_DAYLIGHT,
         })
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(bytes[7], 0);
         assert_eq!(
             u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-            123456789
+            123_456_789
         );
         assert_eq!(i16::from_le_bytes([bytes[12], bytes[13]]), 60);
         assert_eq!(bytes[14], Daylight::IN_DAYLIGHT.bits());
@@ -333,7 +333,7 @@ mod tests {
         let result = days_to_ymd(days);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("future year should be unrepresentable");
     }
 
     #[test]

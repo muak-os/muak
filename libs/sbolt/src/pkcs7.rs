@@ -413,7 +413,7 @@ mod tests {
         let result = parse_sha256_digest(&[0_u8; 31]);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("wrong digest length should fail");
     }
 
     #[test]
@@ -446,7 +446,7 @@ mod tests {
         let result = wrap_signed_data_content_info(&[0_u8; 1]);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("invalid DER should fail");
     }
 
     #[test]
@@ -458,7 +458,7 @@ mod tests {
         let result = encode_der_length(&mut encoded, 0x01_000000);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("four-byte length should fail");
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
         let result = push_u8(&mut encoded, 0x100);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("large byte value should fail");
         assert!(encoded.is_empty());
     }
 
@@ -520,7 +520,7 @@ mod tests {
                     cert.tbs_certificate().serial_number().clone()
                 );
             }
-            _ => panic!("expected IssuerAndSerialNumber"),
+            SignerIdentifier::SubjectKeyIdentifier(_) => panic!("expected IssuerAndSerialNumber"),
         }
     }
 

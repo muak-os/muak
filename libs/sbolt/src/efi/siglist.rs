@@ -154,20 +154,50 @@ mod tests {
         let expected_list_size = SIGNATURE_LIST_HEADER_SIZE + expected_sig_size;
         assert_eq!(siglist.len(), expected_list_size);
 
-        assert_eq!(&siglist[0..16], &EFI_CERT_X509_GUID.to_bytes());
+        assert_eq!(
+            siglist.get(0..16).expect("signature type GUID bytes"),
+            &EFI_CERT_X509_GUID.to_bytes()
+        );
 
-        let list_size = u32::from_le_bytes(siglist[16..20].try_into().expect("4 bytes"));
-        assert_eq!(list_size as usize, expected_list_size);
+        let list_size = u32::from_le_bytes(
+            siglist
+                .get(16..20)
+                .expect("list size bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
+        assert_eq!(
+            usize::try_from(list_size).expect("list size fits usize"),
+            expected_list_size
+        );
 
-        let header_size = u32::from_le_bytes(siglist[20..24].try_into().expect("4 bytes"));
+        let header_size = u32::from_le_bytes(
+            siglist
+                .get(20..24)
+                .expect("header size bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
         assert_eq!(header_size, 0);
 
-        let sig_size = u32::from_le_bytes(siglist[24..28].try_into().expect("4 bytes"));
-        assert_eq!(sig_size as usize, expected_sig_size);
+        let sig_size = u32::from_le_bytes(
+            siglist
+                .get(24..28)
+                .expect("signature size bytes")
+                .try_into()
+                .expect("4 bytes"),
+        );
+        assert_eq!(
+            usize::try_from(sig_size).expect("sig size fits usize"),
+            expected_sig_size
+        );
 
-        assert_eq!(&siglist[28..44], &TEST_OWNER.to_bytes());
+        assert_eq!(
+            siglist.get(28..44).expect("owner GUID bytes"),
+            &TEST_OWNER.to_bytes()
+        );
 
-        assert_eq!(&siglist[44..], FAKE_CERT);
+        assert_eq!(siglist.get(44..).expect("certificate bytes"), FAKE_CERT);
     }
 
     #[test]
@@ -236,7 +266,7 @@ mod tests {
     #[test]
     fn from_bytes_rejects_truncated_header() {
         // ARRANGE
-        let short = vec![0u8; SIGNATURE_LIST_HEADER_SIZE - 1];
+        let short = vec![0_u8; SIGNATURE_LIST_HEADER_SIZE - 1];
 
         // ACT
         let db = SignatureDatabase::from_bytes(&short).expect("parse short data");
@@ -248,29 +278,33 @@ mod tests {
     #[test]
     fn from_bytes_rejects_invalid_list_size_too_small() {
         // ARRANGE
-        let mut data = vec![0u8; SIGNATURE_LIST_HEADER_SIZE];
-        let bad_size = (SIGNATURE_LIST_HEADER_SIZE - 1) as u32;
-        data[16..20].copy_from_slice(&bad_size.to_le_bytes());
+        let mut data = vec![0_u8; SIGNATURE_LIST_HEADER_SIZE];
+        let bad_size = u32::try_from(SIGNATURE_LIST_HEADER_SIZE - 1).expect("size fits u32");
+        data.get_mut(16..20)
+            .expect("list size bytes")
+            .copy_from_slice(&bad_size.to_le_bytes());
 
         // ACT
         let result = SignatureDatabase::from_bytes(&data);
 
         // ASSERT
-        assert!(result.is_err());
+        result.err().expect("small list size should fail");
     }
 
     #[test]
     fn from_bytes_rejects_list_size_exceeding_data() {
         // ARRANGE
-        let mut data = vec![0u8; SIGNATURE_LIST_HEADER_SIZE];
-        let bad_size = (SIGNATURE_LIST_HEADER_SIZE + 100) as u32;
-        data[16..20].copy_from_slice(&bad_size.to_le_bytes());
+        let mut data = vec![0_u8; SIGNATURE_LIST_HEADER_SIZE];
+        let bad_size = u32::try_from(SIGNATURE_LIST_HEADER_SIZE + 100).expect("size fits u32");
+        data.get_mut(16..20)
+            .expect("list size bytes")
+            .copy_from_slice(&bad_size.to_le_bytes());
 
         // ACT
         let result = SignatureDatabase::from_bytes(&data);
 
         // ASSERT
-        assert!(result.is_err());
+        result.err().expect("oversized list should fail");
     }
 
     #[test]
@@ -280,7 +314,7 @@ mod tests {
         let add_result = checked_add(usize::MAX, 1, "siglist");
 
         // ASSERT
-        assert!(read_result.is_err());
-        assert!(add_result.is_err());
+        read_result.expect_err("short u32 read should fail");
+        add_result.expect_err("overflow should fail");
     }
 }

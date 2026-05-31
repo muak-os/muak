@@ -224,9 +224,9 @@ mod tests {
             let efi_firmware_path = root.path().join("efi");
             let efivarfs_path = efi_firmware_path.join("efivars");
 
-            if efi_boot {
-                fs::create_dir_all(&efi_firmware_path)?;
-            }
+            efi_boot
+                .then(|| fs::create_dir_all(&efi_firmware_path))
+                .transpose()?;
 
             let backend = Efivarfs {
                 efi_firmware_path,
@@ -245,7 +245,10 @@ mod tests {
     /// Write an `efivarfs` test variable payload with a fake attributes header.
     fn write_var(root: &Path, id: &Id, payload: &[u8]) -> Result<()> {
         let path = root.join(variable_filename(id));
-        let mut data = Vec::with_capacity(EFIVARFS_ATTRIBUTES_SIZE + payload.len());
+        let capacity = EFIVARFS_ATTRIBUTES_SIZE
+            .checked_add(payload.len())
+            .expect("test variable size overflow");
+        let mut data = Vec::with_capacity(capacity);
         data.extend_from_slice(&[7_u8, 0, 0, 0]);
         data.extend_from_slice(payload);
         fs::write(path, data)?;
@@ -354,7 +357,7 @@ mod tests {
 
         // ASSERT
         assert!(context.backend.efivarfs_path.exists());
-        assert!(result.is_ok());
+        result.expect("create efivarfs dir should succeed");
     }
 
     #[test]
@@ -373,7 +376,7 @@ mod tests {
         let result = backend.ensure_ready();
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("directory creation should fail");
     }
 
     #[test]
@@ -386,8 +389,8 @@ mod tests {
         let result = context.backend.ensure_ready();
 
         // ASSERT
-        assert!(result.is_err());
-        assert!(format!("{}", result.expect_err("mount should fail")).contains("failed to mount"));
+        let error = result.expect_err("mount should fail");
+        assert!(format!("{error}").contains("failed to mount"));
     }
 
     #[test]
@@ -474,7 +477,7 @@ mod tests {
         let result = unset_immutable(&missing_path);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("missing file should fail");
     }
 
     #[test]

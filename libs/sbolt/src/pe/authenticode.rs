@@ -289,12 +289,18 @@ mod tests {
 
     use super::*;
 
-    fn put_u16(buf: &mut Vec<u8>, offset: usize, val: u16) {
-        buf[offset..offset + 2].copy_from_slice(&val.to_le_bytes());
+    fn put_u16(buf: &mut [u8], offset: usize, val: u16) {
+        let end = offset.checked_add(2).expect("u16 write end");
+        buf.get_mut(offset..end)
+            .expect("u16 write bytes")
+            .copy_from_slice(&val.to_le_bytes());
     }
 
-    fn put_u32(buf: &mut Vec<u8>, offset: usize, val: u32) {
-        buf[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+    fn put_u32(buf: &mut [u8], offset: usize, val: u32) {
+        let end = offset.checked_add(4).expect("u32 write end");
+        buf.get_mut(offset..end)
+            .expect("u32 write bytes")
+            .copy_from_slice(&val.to_le_bytes());
     }
 
     struct TestPeConfig {
@@ -328,85 +334,101 @@ mod tests {
     }
 
     fn build_test_pe_with_config(config: &TestPeConfig) -> Vec<u8> {
-        let pe_offset: u32 = 0x40;
-
-        // Layout:
-        //   0x00  DOS header (64 bytes), PE offset at 0x3C
-        //   0x40  PE signature (4 bytes)
-        //   0x44  COFF header (20 bytes)
-        //   0x58  Optional header: PE32+ (240 bytes = 112 + 16*8)
-        let coff_offset = pe_offset as usize + 4;
-        let opt_offset = coff_offset + 20;
-        let opt_header_size: u16 = 240; // 112 fixed + 16 data dirs * 8
-        let num_sections: u16 = config
-            .section_raw_offsets
-            .len()
-            .try_into()
-            .expect("test section count fits u16");
-        let sections_offset = opt_offset + opt_header_size as usize;
-        let headers_raw_end = sections_offset + 40 * usize::from(num_sections);
-
-        // SizeOfHeaders = headers_raw_end rounded up to file_alignment
-        let size_of_headers = ((headers_raw_end as u32 + config.file_alignment - 1)
-            / config.file_alignment)
-            * config.file_alignment;
-
-        // Section data
+        let pe_offset = 0x40_u32;
+        let pe_offset_usize = 0x40_usize;
+        let coff_offset = 0x44_usize;
+        let opt_offset = 0x58_usize;
+        let opt_header_size = 240_u16;
+        let num_sections =
+            u16::try_from(config.section_raw_offsets.len()).expect("test section count fits u16");
+        let sections_offset = 0x148_usize;
+        let section_headers_size = 40_usize
+            .checked_mul(usize::from(num_sections))
+            .expect("section headers size");
+        let headers_raw_end = sections_offset
+            .checked_add(section_headers_size)
+            .expect("headers raw end");
+        let size_of_headers = u32::try_from(headers_raw_end)
+            .expect("headers size fits u32")
+            .div_ceil(config.file_alignment)
+            .checked_mul(config.file_alignment)
+            .expect("headers size overflow");
         let section_size = config.section_size;
-
+        let section_size_usize = usize::try_from(section_size).expect("section size fits usize");
         let sections_end = config
             .section_raw_offsets
             .iter()
-            .map(|offset| *offset as usize + section_size as usize)
+            .map(|offset| {
+                usize::try_from(*offset)
+                    .expect("section offset fits usize")
+                    .checked_add(section_size_usize)
+                    .expect("section end")
+            })
             .max()
-            .unwrap_or(size_of_headers as usize);
-        let cert_end = config.cert_table_addr as usize + config.cert_table_size as usize;
-        let total_size = sections_end.max(cert_end) + config.trailing_size;
-        let mut pe = vec![0u8; total_size];
+            .unwrap_or_else(|| usize::try_from(size_of_headers).expect("headers fit usize"));
+        let cert_start =
+            usize::try_from(config.cert_table_addr).expect("cert table address fits usize");
+        let cert_size =
+            usize::try_from(config.cert_table_size).expect("cert table size fits usize");
+        let cert_end = cert_start.checked_add(cert_size).expect("cert table end");
+        let total_size = sections_end
+            .max(cert_end)
+            .checked_add(config.trailing_size)
+            .expect("total PE size");
+        let mut pe = vec![0_u8; total_size];
 
-        // -- DOS header --
-        pe[0] = 0x4d; // 'M'
-        pe[1] = 0x5a; // 'Z'
+        *pe.get_mut(0).expect("DOS magic byte") = 0x4d; // 'M'
+        *pe.get_mut(1).expect("DOS magic byte") = 0x5a; // 'Z'
         put_u32(&mut pe, 0x3c, pe_offset);
 
-        // -- PE signature --
-        pe[pe_offset as usize..pe_offset as usize + 4].copy_from_slice(&[0x50, 0x45, 0x00, 0x00]);
+        pe.get_mut(pe_offset_usize..coff_offset)
+            .expect("PE signature bytes")
+            .copy_from_slice(&[0x50, 0x45, 0x00, 0x00]);
 
-        // -- COFF header --
         put_u16(&mut pe, coff_offset, 0x8664); // Machine: x86-64
-        put_u16(&mut pe, coff_offset + 2, num_sections);
-        put_u16(&mut pe, coff_offset + 16, opt_header_size);
+        put_u16(&mut pe, 0x46, num_sections);
+        put_u16(&mut pe, 0x54, opt_header_size);
 
-        // -- Optional header (PE32+) --
         put_u16(&mut pe, opt_offset, IMAGE_NT_OPTIONAL_HDR64_MAGIC);
-        put_u32(&mut pe, opt_offset + 60, size_of_headers);
-        put_u32(&mut pe, opt_offset + 108, 16); // NumberOfRvaAndSizes
-        put_u32(
-            &mut pe,
-            opt_offset + 112 + IMAGE_DIRECTORY_ENTRY_SECURITY * 8,
-            config.cert_table_addr,
-        );
-        put_u32(
-            &mut pe,
-            opt_offset + 112 + IMAGE_DIRECTORY_ENTRY_SECURITY * 8 + 4,
-            config.cert_table_size,
-        );
+        put_u32(&mut pe, 0x94, size_of_headers);
+        put_u32(&mut pe, 0xc4, 16); // NumberOfRvaAndSizes
+        let cert_directory_offset = 0xe8_usize;
+        put_u32(&mut pe, cert_directory_offset, config.cert_table_addr);
+        put_u32(&mut pe, 0xec, config.cert_table_size);
 
         for (index, section_raw_offset) in config.section_raw_offsets.iter().enumerate() {
-            let section_offset = sections_offset + index * 40;
-            pe[section_offset..section_offset + 6].copy_from_slice(b".text\0");
-            put_u32(&mut pe, section_offset + 16, section_size);
-            put_u32(&mut pe, section_offset + 20, *section_raw_offset);
+            let section_offset = sections_offset
+                .checked_add(index.checked_mul(40).expect("section header offset"))
+                .expect("section offset");
+            pe.get_mut(section_offset..section_offset.checked_add(6).expect("section name end"))
+                .expect("section name bytes")
+                .copy_from_slice(b".text\0");
+            put_u32(
+                &mut pe,
+                section_offset.checked_add(16).expect("section size offset"),
+                section_size,
+            );
+            put_u32(
+                &mut pe,
+                section_offset.checked_add(20).expect("section raw offset"),
+                *section_raw_offset,
+            );
 
-            let data_start = *section_raw_offset as usize;
-            let data_end = data_start + section_size as usize;
-            pe[data_start..data_end].fill(0xde_u8.wrapping_add(index as u8));
+            let data_start =
+                usize::try_from(*section_raw_offset).expect("section offset fits usize");
+            let data_end = data_start
+                .checked_add(section_size_usize)
+                .expect("section data end");
+            pe.get_mut(data_start..data_end)
+                .expect("section data bytes")
+                .fill(0xde_u8.wrapping_add(u8::try_from(index).expect("section index fits u8")));
         }
 
         if config.cert_table_size > 0 {
-            let cert_start = config.cert_table_addr as usize;
-            let cert_end = cert_start + config.cert_table_size as usize;
-            pe[cert_start..cert_end].fill(0x5a);
+            let cert_end = cert_start.checked_add(cert_size).expect("cert end");
+            pe.get_mut(cert_start..cert_end)
+                .expect("certificate table bytes")
+                .fill(0x5a);
         }
 
         pe
@@ -454,33 +476,41 @@ mod tests {
         let result = compute_hash(&pe);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("non-PE32+ image should fail");
     }
 
     #[test]
     fn compute_hash_rejects_missing_certificate_directory() {
         // ARRANGE
         let mut pe = build_test_pe(0x200, 0x200);
-        put_u32(&mut pe, 0x58 + 108, IMAGE_DIRECTORY_ENTRY_SECURITY as u32);
+        put_u32(
+            &mut pe,
+            0x58_usize.checked_add(108).expect("directory count offset"),
+            u32::try_from(IMAGE_DIRECTORY_ENTRY_SECURITY).expect("directory index fits u32"),
+        );
 
         // ACT
         let result = compute_hash(&pe);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("missing certificate directory should fail");
     }
 
     #[test]
     fn compute_hash_rejects_section_extending_beyond_file() {
         // ARRANGE
         let mut pe = build_test_pe(0x200, 0x200);
-        put_u32(&mut pe, 0x148 + 16, 0x1000);
+        put_u32(
+            &mut pe,
+            0x148_usize.checked_add(16).expect("section size offset"),
+            0x1000,
+        );
 
         // ACT
         let result = compute_hash(&pe);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("section beyond file should fail");
     }
 
     #[test]
@@ -494,9 +524,9 @@ mod tests {
             cert_table_size: 16,
             trailing_size: 0,
         });
-        pe[0x220..0x230].fill(0xa5);
+        pe.get_mut(0x220..0x230).expect("trailing bytes").fill(0xa5);
         let mut changed = pe.clone();
-        changed[0x220] ^= 0xff;
+        *changed.get_mut(0x220).expect("changed byte") ^= 0xff;
 
         // ACT
         let original_hash = compute_hash(&pe).expect("hash original");
@@ -518,7 +548,7 @@ mod tests {
             trailing_size: 0,
         });
         let mut changed = pe.clone();
-        changed[0x220] ^= 0xff;
+        *changed.get_mut(0x220).expect("changed byte") ^= 0xff;
 
         // ACT
         let original_hash = compute_hash(&pe).expect("hash original");
@@ -553,7 +583,7 @@ mod tests {
             trailing_size: 0,
         });
         let mut changed = pe.clone();
-        changed[0x208] ^= 0xff;
+        *changed.get_mut(0x208).expect("changed byte") ^= 0xff;
 
         // ACT
         let original_hash = compute_hash(&pe).expect("hash original");
@@ -594,13 +624,29 @@ mod tests {
         let pe_data = build_test_pe(0x200, 0x200);
         let pe = PeFile64::parse(pe_data.as_slice()).expect("parse test PE");
         let opt = &pe.nt_headers().optional_header;
-        let truncated_len = 0x58 + 112 + IMAGE_DIRECTORY_ENTRY_SECURITY * 8 + 4;
+        let truncated_len = 0x58_usize
+            .checked_add(112)
+            .expect("directory table offset")
+            .checked_add(
+                IMAGE_DIRECTORY_ENTRY_SECURITY
+                    .checked_mul(8)
+                    .expect("security directory offset"),
+            )
+            .expect("certificate directory offset")
+            .checked_add(4)
+            .expect("certificate size offset");
 
         // ACT
-        let result = build_hash_metadata(&pe, &pe_data[..truncated_len], opt);
+        let result = build_hash_metadata(
+            &pe,
+            pe_data.get(..truncated_len).expect("truncated PE bytes"),
+            opt,
+        );
 
         // ASSERT
-        assert!(result.is_err());
+        result
+            .err()
+            .expect("truncated certificate directory should fail");
     }
 
     #[test]
@@ -624,7 +670,7 @@ mod tests {
         let result = compute_hash(data);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("invalid PE should fail");
     }
 
     #[test]
@@ -638,8 +684,8 @@ mod tests {
         let digest = ctx.finish();
 
         let mut expected = Context::new(&SHA256);
-        expected.update(&data[..4]);
-        expected.update(&data[8..]);
+        expected.update(data.get(0..4).expect("prefix bytes"));
+        expected.update(data.get(8..).expect("suffix in range"));
 
         // ASSERT
         assert!(overlapped);
@@ -694,9 +740,9 @@ mod tests {
         let data = b"0123456789abcdef";
         let mut actual = Context::new(&SHA256);
         let mut expected = Context::new(&SHA256);
-        expected.update(&data[0..2]);
-        expected.update(&data[4..8]);
-        expected.update(&data[10..data.len()]);
+        expected.update(data.get(0..2).expect("prefix bytes"));
+        expected.update(data.get(4..8).expect("middle bytes"));
+        expected.update(data.get(10..).expect("suffix in range"));
 
         // ACT
         hash_range_excluding(&mut actual, data, 0, data.len(), &[(8, 2), (2, 2)])
@@ -715,7 +761,7 @@ mod tests {
         let result = hash_range_excluding(&mut ctx, b"abc", 0, 4, &[]);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("range beyond file should fail");
     }
 
     #[test]
@@ -727,7 +773,7 @@ mod tests {
         let result = hash_range_excluding(&mut ctx, b"abc", 0, 3, &[(2, usize::MAX)]);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("overflowing exclusion should fail");
     }
 
     #[test]
@@ -739,9 +785,9 @@ mod tests {
         let read_result = read_u32_le(&[1_u8, 2, 3], 0);
 
         // ASSERT
-        assert!(add_result.is_err());
-        assert!(mul_result.is_err());
+        add_result.expect_err("addition overflow should fail");
+        mul_result.expect_err("multiplication overflow should fail");
         assert_eq!(conversion_result.expect("convert u32"), 0);
-        assert!(read_result.is_err());
+        read_result.expect_err("short u32 read should fail");
     }
 }

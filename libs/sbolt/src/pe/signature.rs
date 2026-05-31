@@ -369,7 +369,7 @@ mod tests {
     use cms::content_info::ContentInfo;
     use cms::signed_data::SignedData;
     use der::asn1::OctetString;
-    use der::{Decode, Encode};
+    use der::{Decode as _, Encode as _};
     use ring::digest::{Context, SHA256};
 
     use super::*;
@@ -377,63 +377,125 @@ mod tests {
     use crate::keys::rsa2048;
 
     fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
-        data.get(offset..offset + 4)
-            .and_then(|b| b.try_into().ok())
+        let end = offset
+            .checked_add(4)
+            .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))?;
+
+        data.get(offset..end)
+            .and_then(|bytes| bytes.try_into().ok())
             .map(u32::from_le_bytes)
             .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))
     }
 
     fn read_u16_le(data: &[u8], offset: usize) -> Result<u16> {
-        data.get(offset..offset + 2)
-            .and_then(|b| b.try_into().ok())
+        let end = offset
+            .checked_add(2)
+            .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))?;
+
+        data.get(offset..end)
+            .and_then(|bytes| bytes.try_into().ok())
             .map(u16::from_le_bytes)
             .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))
     }
 
-    fn put_u16(buf: &mut Vec<u8>, offset: usize, val: u16) {
-        buf[offset..offset + 2].copy_from_slice(&val.to_le_bytes());
+    fn put_u16(buf: &mut [u8], offset: usize, val: u16) {
+        let end = offset.checked_add(2).expect("u16 write end");
+        buf.get_mut(offset..end)
+            .expect("u16 write bytes")
+            .copy_from_slice(&val.to_le_bytes());
     }
 
-    fn put_u32(buf: &mut Vec<u8>, offset: usize, val: u32) {
-        buf[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+    fn put_u32(buf: &mut [u8], offset: usize, val: u32) {
+        let end = offset.checked_add(4).expect("u32 write end");
+        buf.get_mut(offset..end)
+            .expect("u32 write bytes")
+            .copy_from_slice(&val.to_le_bytes());
     }
 
     /// Build a minimal PE32+ binary suitable for signing tests.
     fn build_signable_pe() -> Vec<u8> {
         let pe_offset: u32 = 0x40;
-        let coff_offset = pe_offset as usize + 4;
-        let opt_offset = coff_offset + 20;
+        let pe_offset_usize = usize::try_from(pe_offset).expect("PE offset fits usize");
+        let coff_offset = pe_offset_usize.checked_add(4).expect("COFF offset");
+        let opt_offset = coff_offset.checked_add(20).expect("optional header offset");
         let opt_header_size: u16 = 240;
-        let sections_offset = opt_offset + opt_header_size as usize;
-        let headers_raw_end = sections_offset + 40;
+        let sections_offset = opt_offset
+            .checked_add(usize::from(opt_header_size))
+            .expect("sections offset");
+        let headers_raw_end = sections_offset.checked_add(40).expect("headers raw end");
         let file_alignment: u32 = 0x200;
-        let size_of_headers =
-            ((headers_raw_end as u32 + file_alignment - 1) / file_alignment) * file_alignment;
+        let size_of_headers = u32::try_from(headers_raw_end)
+            .expect("headers size fits u32")
+            .div_ceil(file_alignment)
+            .checked_mul(file_alignment)
+            .expect("headers size overflow");
 
         let section_data: [u8; 512] = [0xCC; 512];
         let section_raw_offset = size_of_headers;
-        let total_size = section_raw_offset as usize + section_data.len();
-        let mut pe = vec![0u8; total_size];
+        let section_raw_offset_usize =
+            usize::try_from(section_raw_offset).expect("section offset fits usize");
+        let total_size = section_raw_offset_usize
+            .checked_add(section_data.len())
+            .expect("total PE size");
+        let mut pe = vec![0_u8; total_size];
 
-        pe[0] = 0x4d;
-        pe[1] = 0x5a;
+        *pe.get_mut(0).expect("DOS magic byte") = 0x4d;
+        *pe.get_mut(1).expect("DOS magic byte") = 0x5a;
         put_u32(&mut pe, 0x3c, pe_offset);
 
-        pe[pe_offset as usize..pe_offset as usize + 4].copy_from_slice(&[0x50, 0x45, 0x00, 0x00]);
+        let pe_signature_end = pe_offset_usize.checked_add(4).expect("PE signature end");
+        pe.get_mut(pe_offset_usize..pe_signature_end)
+            .expect("PE signature bytes")
+            .copy_from_slice(&[0x50, 0x45, 0x00, 0x00]);
 
         put_u16(&mut pe, coff_offset, 0x8664);
-        put_u16(&mut pe, coff_offset + 2, 1);
-        put_u16(&mut pe, coff_offset + 16, opt_header_size);
+        put_u16(
+            &mut pe,
+            coff_offset.checked_add(2).expect("section count offset"),
+            1,
+        );
+        put_u16(
+            &mut pe,
+            coff_offset
+                .checked_add(16)
+                .expect("optional header size offset"),
+            opt_header_size,
+        );
 
         put_u16(&mut pe, opt_offset, 0x20b);
-        put_u32(&mut pe, opt_offset + 60, size_of_headers);
-        put_u32(&mut pe, opt_offset + 108, 16);
+        put_u32(
+            &mut pe,
+            opt_offset.checked_add(60).expect("headers size offset"),
+            size_of_headers,
+        );
+        put_u32(
+            &mut pe,
+            opt_offset.checked_add(108).expect("directory count offset"),
+            16,
+        );
 
-        pe[sections_offset..sections_offset + 6].copy_from_slice(b".text\0");
-        put_u32(&mut pe, sections_offset + 16, section_data.len() as u32);
-        put_u32(&mut pe, sections_offset + 20, section_raw_offset);
+        let section_name_end = sections_offset.checked_add(6).expect("section name end");
+        pe.get_mut(sections_offset..section_name_end)
+            .expect("section name bytes")
+            .copy_from_slice(b".text\0");
+        put_u32(
+            &mut pe,
+            sections_offset
+                .checked_add(16)
+                .expect("section size offset"),
+            u32::try_from(section_data.len()).expect("section size fits u32"),
+        );
+        put_u32(
+            &mut pe,
+            sections_offset.checked_add(20).expect("section raw offset"),
+            section_raw_offset,
+        );
 
-        pe[section_raw_offset as usize..section_raw_offset as usize + section_data.len()]
+        let section_data_end = section_raw_offset_usize
+            .checked_add(section_data.len())
+            .expect("section data end");
+        pe.get_mut(section_raw_offset_usize..section_data_end)
+            .expect("section data bytes")
             .copy_from_slice(&section_data);
 
         pe
@@ -455,26 +517,58 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
+        let signed_pe = sign(&pe, &signer, &cert).expect("sign should succeed");
 
         // ASSERT
-        assert!(signed.len() > pe.len());
+        assert!(signed_pe.len() > pe.len());
 
-        let pe_offset = read_u32_le(&signed, 0x3c).unwrap() as usize;
-        let opt_offset = pe_offset + 4 + 20;
-        let dd_offset = opt_offset + 112;
-        let cert_dd_offset = dd_offset + 4 * 8;
+        let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
+            .expect("PE offset fits usize");
+        let opt_offset = pe_offset
+            .checked_add(4)
+            .expect("optional header signature offset")
+            .checked_add(20)
+            .expect("optional header offset");
+        let dd_offset = opt_offset.checked_add(112).expect("data directory offset");
+        let cert_dd_offset = dd_offset
+            .checked_add(
+                4_usize
+                    .checked_mul(8)
+                    .expect("certificate directory offset"),
+            )
+            .expect("certificate directory offset");
 
-        let cert_addr = read_u32_le(&signed, cert_dd_offset).unwrap() as usize;
-        let cert_size = read_u32_le(&signed, cert_dd_offset + 4).unwrap() as usize;
+        let cert_addr =
+            usize::try_from(read_u32_le(&signed_pe, cert_dd_offset).expect("read cert address"))
+                .expect("cert address fits usize");
+        let cert_size = usize::try_from(
+            read_u32_le(
+                &signed_pe,
+                cert_dd_offset.checked_add(4).expect("cert size offset"),
+            )
+            .expect("read cert size"),
+        )
+        .expect("cert size fits usize");
         assert!(cert_addr > 0, "cert table address must be set");
         assert!(cert_size > 8, "cert table must contain data");
 
-        let dw_length = read_u32_le(&signed, cert_addr).unwrap();
-        let w_revision = read_u16_le(&signed, cert_addr + 4).unwrap();
-        let w_cert_type = read_u16_le(&signed, cert_addr + 6).unwrap();
+        let dw_length = read_u32_le(&signed_pe, cert_addr).expect("read cert length");
+        let w_revision = read_u16_le(
+            &signed_pe,
+            cert_addr.checked_add(4).expect("revision offset"),
+        )
+        .expect("read revision");
+        let w_cert_type = read_u16_le(
+            &signed_pe,
+            cert_addr.checked_add(6).expect("cert type offset"),
+        )
+        .expect("read cert type");
 
-        let aligned_dw_length = ((dw_length as usize) + 7) & !7;
+        let aligned_dw_length = usize::try_from(dw_length)
+            .expect("cert length fits usize")
+            .checked_add(7)
+            .expect("aligned cert length")
+            & !7;
         assert_eq!(
             aligned_dw_length, cert_size,
             "dwLength (aligned) must match DD size"
@@ -496,20 +590,42 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed = sign(&pe, &signer, &cert).expect("sign should succeed");
+        let signed_pe = sign(&pe, &signer, &cert).expect("sign should succeed");
 
         // ASSERT
-        let pe_offset = read_u32_le(&signed, 0x3c).unwrap() as usize;
-        let opt_offset = pe_offset + 4 + 20;
-        let cert_dd_offset = opt_offset + 112 + 4 * 8;
+        let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
+            .expect("PE offset fits usize");
+        let opt_offset = pe_offset
+            .checked_add(4)
+            .expect("optional header signature offset")
+            .checked_add(20)
+            .expect("optional header offset");
+        let cert_dd_offset = opt_offset
+            .checked_add(112)
+            .expect("data directory offset")
+            .checked_add(
+                4_usize
+                    .checked_mul(8)
+                    .expect("certificate directory offset"),
+            )
+            .expect("certificate directory offset");
 
-        let cert_addr = read_u32_le(&signed, cert_dd_offset).unwrap() as usize;
-        let cert_size = read_u32_le(&signed, cert_dd_offset + 4).unwrap() as usize;
+        let cert_addr =
+            usize::try_from(read_u32_le(&signed_pe, cert_dd_offset).expect("read cert address"))
+                .expect("cert address fits usize");
+        let cert_size = usize::try_from(
+            read_u32_le(
+                &signed_pe,
+                cert_dd_offset.checked_add(4).expect("cert size offset"),
+            )
+            .expect("read cert size"),
+        )
+        .expect("cert size fits usize");
 
-        assert_eq!(cert_addr % 8, 0, "cert table must be 8-byte aligned");
+        assert_eq!(cert_addr & 7, 0, "cert table must be 8-byte aligned");
 
         assert!(
-            cert_addr + cert_size <= signed.len(),
+            cert_addr.checked_add(cert_size).expect("cert table end") <= signed_pe.len(),
             "cert table must be within file bounds"
         );
     }
@@ -522,8 +638,8 @@ mod tests {
         let hash_unsigned = compute_hash(&pe).expect("hash unsigned");
 
         // ACT
-        let signed = sign(&pe, &signer, &cert).expect("sign");
-        let hash_signed = compute_hash(&signed).expect("hash signed");
+        let signed_pe = sign(&pe, &signer, &cert).expect("sign");
+        let hash_signed = compute_hash(&signed_pe).expect("hash signed");
 
         // ASSERT
         assert_eq!(
@@ -539,15 +655,37 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed = sign(&pe, &signer, &cert).expect("sign");
+        let signed_pe = sign(&pe, &signer, &cert).expect("sign");
 
         // Extract the PKCS#7 ContentInfo from the WIN_CERTIFICATE
-        let pe_off = read_u32_le(&signed, 0x3c).unwrap() as usize;
-        let opt_off = pe_off + 4 + 20;
-        let cert_dd_off = opt_off + 112 + 4 * 8;
-        let cert_addr = read_u32_le(&signed, cert_dd_off).unwrap() as usize;
-        let dw_length = read_u32_le(&signed, cert_addr).unwrap() as usize;
-        let pkcs7_bytes = &signed[cert_addr + 8..cert_addr + dw_length];
+        let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
+            .expect("PE offset fits usize");
+        let opt_offset = pe_offset
+            .checked_add(4)
+            .expect("optional header signature offset")
+            .checked_add(20)
+            .expect("optional header offset");
+        let cert_directory_offset = opt_offset
+            .checked_add(112)
+            .expect("data directory offset")
+            .checked_add(
+                4_usize
+                    .checked_mul(8)
+                    .expect("certificate directory offset"),
+            )
+            .expect("certificate directory offset");
+        let cert_addr = usize::try_from(
+            read_u32_le(&signed_pe, cert_directory_offset).expect("read cert address"),
+        )
+        .expect("cert address fits usize");
+        let cert_length =
+            usize::try_from(read_u32_le(&signed_pe, cert_addr).expect("read cert length"))
+                .expect("cert length fits usize");
+        let pkcs7_offset = cert_addr.checked_add(8).expect("PKCS#7 offset");
+        let pkcs7_end = cert_addr.checked_add(cert_length).expect("PKCS#7 end");
+        let pkcs7_bytes = signed_pe
+            .get(pkcs7_offset..pkcs7_end)
+            .expect("PKCS#7 bytes");
 
         let ci = ContentInfo::from_der(pkcs7_bytes).expect("parse ContentInfo");
         let sd = ci
@@ -562,12 +700,16 @@ mod tests {
             .expect("eContent must be present");
 
         let econtent_der = econtent_any.to_der().expect("econtent to der");
-        assert_eq!(econtent_der[0], 0x30, "eContent must be a SEQUENCE");
+        assert_eq!(
+            econtent_der.first(),
+            Some(&0x30),
+            "eContent must be a SEQUENCE"
+        );
 
         // ASSERT
-        assert!(econtent_der[1] < 0x80);
+        assert!(econtent_der.get(1).expect("length octet") < &0x80);
         let hdr_len = 2;
-        let value_octets = &econtent_der[hdr_len..];
+        let value_octets = econtent_der.get(hdr_len..).expect("eContent value octets");
 
         let signer_info = sd.signer_infos.0.iter().next().expect("signer info");
         let signed_attrs = signer_info.signed_attrs.as_ref().expect("signed attrs");
@@ -575,7 +717,7 @@ mod tests {
         let md_oid = const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4");
         let md_attr = signed_attrs
             .iter()
-            .find(|a| a.oid == md_oid)
+            .find(|attribute| attribute.oid == md_oid)
             .expect("messageDigest attribute must exist");
         let md_value = md_attr.values.iter().next().expect("md value");
         let md_octet = md_value
@@ -616,7 +758,7 @@ mod tests {
         let result = sign(b"not-a-pe-file", &signer, &cert);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("invalid PE should fail");
     }
 
     #[test]
@@ -658,7 +800,7 @@ mod tests {
         let result = encode_length(&mut encoded, 0x01_000000);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("four-byte length should fail");
     }
 
     #[test]
@@ -670,7 +812,7 @@ mod tests {
         let result = push_u8(&mut encoded, 0x100);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("large byte value should fail");
         assert!(encoded.is_empty());
     }
 
@@ -684,18 +826,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(
-            u32::from_le_bytes(cert[0..4].try_into().expect("length")) as usize,
+            usize::try_from(read_u32_le(&cert, 0).expect("read length"))
+                .expect("certificate length fits usize"),
             cert.len()
         );
-        assert_eq!(
-            u16::from_le_bytes(cert[4..6].try_into().expect("revision")),
-            0x0200
-        );
-        assert_eq!(
-            u16::from_le_bytes(cert[6..8].try_into().expect("type")),
-            0x0002
-        );
-        assert_eq!(&cert[8..], pkcs7);
+        assert_eq!(read_u16_le(&cert, 4).expect("read revision"), 0x0200);
+        assert_eq!(read_u16_le(&cert, 6).expect("read type"), 0x0002);
+        assert_eq!(cert.get(8..).expect("PKCS#7 bytes"), pkcs7);
     }
 
     #[test]
@@ -708,7 +845,7 @@ mod tests {
         let result = embed_signature(&pe, b"cert");
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("non-PE32+ image should fail");
     }
 
     #[test]
@@ -720,7 +857,7 @@ mod tests {
         let result = embed_signature(pe, b"cert");
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("invalid PE should fail");
     }
 
     #[test]
@@ -729,16 +866,30 @@ mod tests {
         let mut pe = build_signable_pe();
         pe.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
         let win_cert = build_win_certificate(b"abc").expect("build WIN_CERTIFICATE");
-        let aligned_pe_len = (pe.len() + 7) & !7;
-        let aligned_cert_len = (win_cert.len() + 7) & !7;
+        let aligned_pe_len = pe.len().checked_add(7).expect("aligned PE length") & !7;
+        let aligned_cert_len = win_cert
+            .len()
+            .checked_add(7)
+            .expect("aligned certificate length")
+            & !7;
 
         // ACT
         let signed = embed_signature(&pe, &win_cert).expect("embed signature");
 
         // ASSERT
-        assert_eq!(signed.len(), aligned_pe_len + aligned_cert_len);
         assert_eq!(
-            &signed[aligned_pe_len..aligned_pe_len + win_cert.len()],
+            signed.len(),
+            aligned_pe_len
+                .checked_add(aligned_cert_len)
+                .expect("signed PE length")
+        );
+        let embedded_cert_end = aligned_pe_len
+            .checked_add(win_cert.len())
+            .expect("embedded cert end");
+        assert_eq!(
+            signed
+                .get(aligned_pe_len..embedded_cert_end)
+                .expect("embedded certificate bytes"),
             &win_cert
         );
     }
@@ -754,7 +905,12 @@ mod tests {
         let signed = embed_signature(&pe, &win_cert).expect("embed signature");
 
         // ASSERT
-        assert_eq!(&signed[section_offset..pe.len()], &pe[section_offset..]);
+        assert_eq!(
+            signed
+                .get(section_offset..pe.len())
+                .expect("signed section bytes"),
+            pe.get(section_offset..).expect("original section bytes")
+        );
     }
 
     #[test]
@@ -768,7 +924,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(aligned, 16);
-        assert_eq!(&data[2..6], &0x1234_5678_u32.to_le_bytes());
+        assert_eq!(
+            data.get(2..6).expect("u32 bytes"),
+            &0x1234_5678_u32.to_le_bytes()
+        );
     }
 
     #[test]
@@ -780,7 +939,7 @@ mod tests {
         let zero_result = align_to(0, 8, "align");
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("alignment overflow should fail");
         assert_eq!(zero_result.expect("align zero"), 0);
     }
 
@@ -793,7 +952,10 @@ mod tests {
         let checksum = calculate_pe_checksum(&data, 2).expect("calculate checksum");
 
         // ASSERT
-        assert_eq!(checksum, 0x0201 + data.len() as u32);
+        assert_eq!(
+            checksum,
+            0x0201 + u32::try_from(data.len()).expect("data length fits u32")
+        );
     }
 
     #[test]
@@ -804,7 +966,11 @@ mod tests {
         // ACT
         let write_result = write_u32_le(&mut [0_u8; 3], 0, 1);
         let pair_result = read_checksum_pair(&[1_u8]);
-        let conversion_result = usize_to_u32(u32::MAX as usize + 1, "too large");
+        let too_large = usize::try_from(u32::MAX)
+            .expect("u32 max fits usize")
+            .checked_add(1)
+            .expect("oversized usize");
+        let conversion_result = usize_to_u32(too_large, "too large");
         let offset_result = u32_to_usize(0, "offset");
         let add_result = checked_add(usize::MAX, 1, "add");
         let mul_result = checked_mul(usize::MAX, 2, "mul");
@@ -812,13 +978,13 @@ mod tests {
 
         // ASSERT
         assert!(checksum > 0);
-        assert!(write_result.is_err());
-        assert!(pair_result.is_err());
-        assert!(conversion_result.is_err());
+        write_result.expect_err("short u32 write should fail");
+        pair_result.expect_err("short checksum pair should fail");
+        conversion_result.expect_err("large usize conversion should fail");
         assert_eq!(offset_result.expect("convert offset"), 0);
-        assert!(add_result.is_err());
-        assert!(mul_result.is_err());
-        assert!(align_result.is_err());
+        add_result.expect_err("addition overflow should fail");
+        mul_result.expect_err("multiplication overflow should fail");
+        align_result.expect_err("zero alignment should fail");
         assert_eq!(fold_checksum(0x12345), 0x2346);
     }
 }

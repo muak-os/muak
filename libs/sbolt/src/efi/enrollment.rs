@@ -137,7 +137,7 @@ fn authenticated_variable_attributes() -> VariableAttributes {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use core::cell::RefCell;
 
     use super::*;
 
@@ -191,7 +191,7 @@ mod tests {
         fn variable_exists(&self, id: &Id) -> bool {
             self.variables
                 .iter()
-                .any(|(stored_id, _payload)| stored_id == id)
+                .any(|&(stored_id, ref _payload)| stored_id == *id)
         }
 
         /// Read a fake firmware variable.
@@ -199,8 +199,8 @@ mod tests {
             Ok(self
                 .variables
                 .iter()
-                .find(|(stored_id, _payload)| stored_id == id)
-                .map(|(_stored_id, payload)| payload.clone()))
+                .find(|&&(stored_id, ref _payload)| stored_id == *id)
+                .map(|&(_stored_id, ref payload)| payload.clone()))
         }
 
         /// Record a fake firmware variable write.
@@ -244,31 +244,31 @@ mod tests {
         // ASSERT
         assert_eq!(writes.len(), 3);
         assert_eq!(
-            writes.first().map(|(id, _payload)| *id),
+            writes.first().map(|&(id, ref _payload)| id),
             Some(variables::DB)
         );
         assert_eq!(
-            writes.get(1).map(|(id, _payload)| *id),
+            writes.get(1).map(|&(id, ref _payload)| id),
             Some(variables::KEK)
         );
-        assert_eq!(writes.get(2).map(|(id, _payload)| *id), Some(variables::PK));
+        assert_eq!(
+            writes.get(2).map(|&(id, ref _payload)| id),
+            Some(variables::PK)
+        );
         assert!(
             writes
                 .first()
-                .map(|(_id, payload)| payload.ends_with(&db_sigdb.to_bytes()))
-                .unwrap_or(false)
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb.to_bytes()))
         );
         assert!(
             writes
                 .get(1)
-                .map(|(_id, payload)| payload.ends_with(&kek_sigdb.to_bytes()))
-                .unwrap_or(false)
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&kek_sigdb.to_bytes()))
         );
         assert!(
             writes
                 .get(2)
-                .map(|(_id, payload)| payload.ends_with(&pk_sigdb.to_bytes()))
-                .unwrap_or(false)
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb.to_bytes()))
         );
     }
 
@@ -321,14 +321,17 @@ mod tests {
         // ASSERT
         assert_eq!(writes.len(), 2);
         assert_eq!(
-            writes.first().map(|(id, _payload)| *id),
+            writes.first().map(|&(id, ref _payload)| id),
             Some(variables::PK)
         );
-        assert_eq!(writes.get(1).map(|(id, _payload)| *id), Some(variables::DB));
+        assert_eq!(
+            writes.get(1).map(|&(id, ref _payload)| id),
+            Some(variables::DB)
+        );
         assert!(
             writes
                 .iter()
-                .all(|(_id, payload)| payload.ends_with(content))
+                .all(|&(_id, ref payload)| payload.ends_with(content))
         );
     }
 
@@ -364,7 +367,7 @@ mod tests {
         let result = enroll(&backend, &hierarchy);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("unavailable backend should fail");
         assert!(backend.writes().is_empty());
     }
 
@@ -380,7 +383,7 @@ mod tests {
         let result = enroll(&backend, &hierarchy);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("non-setup mode should fail");
         assert!(backend.writes().is_empty());
     }
 

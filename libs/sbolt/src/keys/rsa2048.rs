@@ -164,10 +164,10 @@ impl signature::Signer<Signature> for Signer {
 
 #[cfg(test)]
 mod tests {
-    use rsa::traits::PublicKeyParts;
+    use rsa::traits::PublicKeyParts as _;
     use signature::{Keypair as _, Signer as _};
     use spki::DynSignatureAlgorithmIdentifier as _;
-    use spki::SignatureBitStringEncoding;
+    use spki::SignatureBitStringEncoding as _;
 
     use super::*;
 
@@ -213,7 +213,7 @@ mod tests {
         let result = Signer::from_pkcs8_der(invalid);
 
         // ASSERT
-        assert!(result.is_err());
+        result.err().expect("invalid key should fail");
     }
 
     #[test]
