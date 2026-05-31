@@ -180,9 +180,11 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files.len(), 2);
-        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTAA64.EFI");
-        assert_eq!(spec.files[0].data, b"uki");
-        assert_eq!(spec.files[1], extra_file);
+        let boot_file = spec.files.first().expect("boot file must exist");
+        let config_file = spec.files.get(1).expect("config file must exist");
+        assert_eq!(boot_file.path, "EFI/BOOT/BOOTAA64.EFI");
+        assert_eq!(boot_file.data, b"uki");
+        assert_eq!(config_file, &extra_file);
     }
 
     #[test]
@@ -222,8 +224,9 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files.len(), 1);
-        assert_eq!(spec.files[0].path, "EFI/BOOT/BOOTX64.EFI");
-        assert_eq!(spec.files[0].data, b"uki");
+        let boot_file = spec.files.first().expect("boot file must exist");
+        assert_eq!(boot_file.path, "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(boot_file.data, b"uki");
     }
 
     #[test]
@@ -262,7 +265,8 @@ mod tests {
             .expect("spec must build");
 
         // ASSERT
-        assert_eq!(spec.files[0].path, "nested/file.txt");
+        let file = spec.files.first().expect("file must exist");
+        assert_eq!(file.path, "nested/file.txt");
     }
 
     #[test]
@@ -288,7 +292,9 @@ mod tests {
 
         // ASSERT
         assert_eq!(spec.files.len(), 2);
-        assert_eq!(spec.files[0].path, "first.txt");
-        assert_eq!(spec.files[1].path, "second.txt");
+        let first = spec.files.first().expect("first file must exist");
+        let second = spec.files.get(1).expect("second file must exist");
+        assert_eq!(first.path, "first.txt");
+        assert_eq!(second.path, "second.txt");
     }
 }

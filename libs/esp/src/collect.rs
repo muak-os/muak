@@ -78,10 +78,12 @@ mod tests {
 
         // ASSERT
         assert_eq!(files.len(), 2);
-        assert_eq!(files[0].path, "firmware/boot/config.txt");
-        assert_eq!(files[0].data, b"arm_64bit=1");
-        assert_eq!(files[1].path, "start4.elf");
-        assert_eq!(files[1].data, b"gpu-fw");
+        let config = files.first().expect("config file must be collected");
+        let firmware = files.get(1).expect("firmware file must be collected");
+        assert_eq!(config.path, "firmware/boot/config.txt");
+        assert_eq!(config.data, b"arm_64bit=1");
+        assert_eq!(firmware.path, "start4.elf");
+        assert_eq!(firmware.data, b"gpu-fw");
     }
 
     #[test]

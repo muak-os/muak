@@ -109,12 +109,12 @@ mod tests {
     fn broken_io_methods_fail_consistently() {
         // ARRANGE
         let mut io = BrokenIo;
-        let mut buffer = [0u8; 4];
+        let mut buffer = [0_u8; 4];
 
         // ACT / ASSERT
-        assert!(io.read(&mut buffer).is_err());
-        assert!(io.write(b"data").is_err());
-        assert!(io.flush().is_ok());
-        assert!(io.seek(SeekFrom::Start(0)).is_err());
+        io.read(&mut buffer).expect_err("read must fail");
+        io.write(b"data").expect_err("write must fail");
+        io.flush().expect("flush must succeed");
+        io.seek(SeekFrom::Start(0)).expect_err("seek must fail");
     }
 }

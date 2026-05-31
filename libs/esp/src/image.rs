@@ -142,7 +142,7 @@ mod tests {
 
     /// Creates a formatted FAT root directory for helper tests.
     fn with_root<F: FnOnce(fatfs::Dir<'_, &mut Cursor<Vec<u8>>>)>(size: usize, test: F) {
-        let mut cursor = Cursor::new(vec![0u8; size]);
+        let mut cursor = Cursor::new(vec![0_u8; size]);
         format(&mut cursor).expect("FAT format must succeed");
         let fs = FileSystem::new(&mut cursor, FsOptions::new()).expect("FAT open must succeed");
         test(fs.root_dir());
@@ -205,7 +205,7 @@ mod tests {
         let image = build(&spec).expect("ESP build must succeed");
 
         // ASSERT
-        assert_eq!(image.len() % 512, 0);
+        assert!(image.len().is_multiple_of(512));
         assert!(image.len() >= FAT_MIN_IMAGE_BYTES);
     }
 
@@ -303,7 +303,7 @@ mod tests {
             let result = write_file_at_path(&root, "flat.txt", b"hello");
 
             // ASSERT
-            assert!(result.is_ok());
+            result.expect("file must be written");
             let mut file = root.open_file("flat.txt").expect("file must exist");
             let mut content = Vec::new();
             file.read_to_end(&mut content).expect("file must read");
@@ -319,7 +319,7 @@ mod tests {
             let result = write_file_at_path(&root, "nested/tree/file.txt", b"hello");
 
             // ASSERT
-            assert!(result.is_ok());
+            result.expect("file must be written");
             let mut file = root
                 .open_dir("nested")
                 .expect("nested dir must exist")
