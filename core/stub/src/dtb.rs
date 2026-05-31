@@ -1,34 +1,36 @@
 //! Device Tree Blob (DTB) installation for ARM64 platforms.
 
-use anyhow::{Context, Result, bail};
+use core::ptr;
+
+use anyhow::{Context as _, Result, bail};
 use uefi::Guid;
-use uefi::boot::MemoryType;
+use uefi::boot::{MemoryType, allocate_pool, install_configuration_table};
 
 use crate::info;
 
 const EFI_DTB_TABLE_GUID: Guid = Guid::parse_or_panic("b1b621d5-f19c-41a5-830b-d9152c69aae0");
 
-const DTB_MAGIC: u32 = 0xd00dfeed;
+const DTB_MAGIC: u32 = 0xd00d_feed;
 
-/// Validates a Device Tree Blob header
+/// Validates a Device Tree Blob header.
 fn validate_dtb(data: &[u8]) -> Result<()> {
-    if data.len() < 4 {
-        bail!("DTB too small (minimum 4 bytes for magic)");
-    }
-
-    let magic = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+    let magic_bytes = data
+        .get(..4)
+        .ok_or_else(|| anyhow::anyhow!("DTB too small (minimum 4 bytes for magic)"))?;
+    let magic_bytes = <[u8; 4]>::try_from(magic_bytes).context("invalid DTB magic length")?;
+    let magic = u32::from_be_bytes(magic_bytes);
     if magic != DTB_MAGIC {
-        bail!(
-            "Invalid DTB magic: expected 0x{:08x}, got 0x{:08x}",
-            DTB_MAGIC,
-            magic
-        );
+        bail!("Invalid DTB magic: expected 0x{DTB_MAGIC:08x}, got 0x{magic:08x}");
     }
 
     Ok(())
 }
 
-/// Installs a Device Tree Blob into the UEFI System Configuration Table
+/// Installs a Device Tree Blob into the UEFI System Configuration Table.
+///
+/// # Errors
+///
+/// Returns an error if the DTB is invalid or UEFI allocation/table installation fails.
 pub fn install(data: &[u8]) -> Result<()> {
     validate_dtb(data)?;
 
@@ -37,18 +39,18 @@ pub fn install(data: &[u8]) -> Result<()> {
         data.len()
     );
 
-    let dtb_ptr = uefi::boot::allocate_pool(MemoryType::ACPI_RECLAIM, data.len())
+    let dtb_ptr = allocate_pool(MemoryType::ACPI_RECLAIM, data.len())
         .context("Failed to allocate memory for DTB")?
         .as_ptr();
 
-    // SAFETY: dtb_ptr is freshly allocated with sufficient size
+    // SAFETY: dtb_ptr is freshly allocated with sufficient size.
     unsafe {
-        std::ptr::copy_nonoverlapping(data.as_ptr(), dtb_ptr, data.len());
+        ptr::copy_nonoverlapping(data.as_ptr(), dtb_ptr, data.len());
     }
 
-    // SAFETY: dtb_ptr is valid and points to a valid DTB
+    // SAFETY: dtb_ptr is valid and points to a valid DTB.
     unsafe {
-        uefi::boot::install_configuration_table(&EFI_DTB_TABLE_GUID, dtb_ptr.cast())
+        install_configuration_table(&EFI_DTB_TABLE_GUID, dtb_ptr.cast())
             .context("Failed to install DTB configuration table")?;
     }
 
@@ -110,11 +112,9 @@ mod tests {
     fn validate_dtb_correct_magic_larger_blob() {
         // ARRANGE
 
-        let mut blob = vec![0u8; 64];
-        blob[0] = 0xd0;
-        blob[1] = 0x0d;
-        blob[2] = 0xfe;
-        blob[3] = 0xed;
+        let mut blob = vec![0_u8; 64];
+        let magic = blob.get_mut(..4).expect("test blob has magic bytes");
+        magic.copy_from_slice(&[0xd0, 0x0d, 0xfe, 0xed]);
 
         // ACT + ASSERT
         validate_dtb(&blob).expect("valid DTB should pass");

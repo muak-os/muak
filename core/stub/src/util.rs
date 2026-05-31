@@ -1,12 +1,13 @@
-//! Shared utility helpers
+//! Shared utility helpers.
 
 /// Strips trailing NUL and ASCII whitespace bytes from a command line.
+#[must_use]
 pub fn strip_trailing_cmdline_terminators(data: &[u8]) -> &[u8] {
     let end = data
         .iter()
         .rposition(|byte| *byte != 0 && !byte.is_ascii_whitespace())
-        .map_or(0, |index| index + 1);
-    &data[..end]
+        .map_or(0, |index| index.saturating_add(1));
+    data.get(..end).unwrap_or(data)
 }
 
 #[cfg(test)]
@@ -41,7 +42,7 @@ mod tests {
     fn trailing_nuls_stripped() {
         // ARRANGE
         let input = b"hello\0\0";
-        // ACT + Assert
+        // ACT + ASSERT
         assert_eq!(strip_trailing_cmdline_terminators(input), b"hello");
     }
 
@@ -49,7 +50,7 @@ mod tests {
     fn trailing_newline_stripped() {
         // ARRANGE
         let input = b"console=ttyS0\n";
-        // ACT + Assert
+        // ACT + ASSERT
         assert_eq!(strip_trailing_cmdline_terminators(input), b"console=ttyS0");
     }
 

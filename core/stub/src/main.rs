@@ -1,4 +1,4 @@
-//! UEFI stub for Muak - Loads and starts the Linux kernel from a Unified Kernel Image
+//! UEFI stub for Muak - Loads and starts the Linux kernel from a Unified Kernel Image.
 
 #![feature(uefi_std)]
 
@@ -7,52 +7,57 @@ mod dtb;
 mod loadfile2;
 mod log;
 mod pe;
-mod peloader;
 mod security;
 mod tpm2;
 mod util;
 
+use core::slice;
 use std::os::uefi as uefi_std;
 
-use anyhow::{Context, Result};
-use base64ct::{Base64Unpadded, Encoding};
+use anyhow::{Context as _, Result, anyhow};
+use base64ct::{Base64Unpadded, Encoding as _};
 use uefi::Guid;
 use uefi::Handle;
+use uefi::boot::{image_handle, open_protocol_exclusive, set_image_handle};
 use uefi::proto::loaded_image::LoadedImage;
+use uefi::table::set_system_table;
 
-use crate::pe::{KernelPe, UkiSections};
 use crate::util::strip_trailing_cmdline_terminators;
 
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
 
 const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
 
-/// Initializes the UEFI crate with system table and image handle
+/// Initializes the UEFI crate with system table and image handle.
 fn setup_uefi_crate() -> Result<()> {
     let st = uefi_std::env::system_table();
     let ih = uefi_std::env::image_handle();
 
-    // SAFETY: UEFI firmware provides valid system table and image handle pointers
-    // during the boot services phase. This is required setup for the `uefi` crate.
+    // SAFETY: UEFI firmware provides a valid system table pointer during boot services phase.
     unsafe {
-        uefi::table::set_system_table(st.as_ptr().cast());
-
-        let ih =
-            Handle::from_ptr(ih.as_ptr().cast()).context("UEFI image handle pointer is null")?;
-        uefi::boot::set_image_handle(ih);
+        set_system_table(st.as_ptr().cast());
     }
+
+    // SAFETY: UEFI firmware provides a valid image handle pointer during boot services phase.
+    let ih = unsafe { Handle::from_ptr(ih.as_ptr().cast()) }
+        .context("UEFI image handle pointer is null")?;
+    // SAFETY: the image handle came from UEFI firmware and is valid during boot services phase.
+    unsafe {
+        set_image_handle(ih);
+    }
+
     Ok(())
 }
 
-/// Entry point for the UEFI stub
+/// Entry point for the UEFI stub.
 fn main() -> Result<()> {
     setup_uefi_crate()?;
 
     info!("Muak stub v{} starting...", env!("CARGO_PKG_VERSION"));
 
-    let image_handle = uefi::boot::image_handle();
+    let image_handle = image_handle();
 
-    let loaded_image = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle)
+    let loaded_image = open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
     info!(
@@ -75,12 +80,12 @@ fn main() -> Result<()> {
     let (base_addr, image_size) = loaded_image.info();
     info!("Base address: {:p}, size: {}", base_addr, image_size);
 
-    let image_data =
-        // SAFETY: base_addr and image_size come from UEFI's LoadedImage protocol,
-        // which guarantees the image is valid and loaded in memory for the entire
-        // boot services phase. The slice is used only for reading PE section data.
-        unsafe { std::slice::from_raw_parts(base_addr as *const u8, image_size as usize) };
-    let sections = UkiSections::parse(image_data)?;
+    let image_size = usize::try_from(image_size).context("loaded image size exceeds usize")?;
+    // SAFETY: base_addr and image_size come from UEFI's LoadedImage protocol, which guarantees the
+    // image is valid and loaded in memory for the entire boot services phase. The slice is used
+    // only for reading PE section data.
+    let image_data = unsafe { slice::from_raw_parts(base_addr.cast::<u8>(), image_size) };
+    let sections = pe::uki::Sections::parse(image_data)?;
 
     for (name, data) in sections.iter_sections() {
         match tpm2::measure_section(name, data) {
@@ -95,10 +100,10 @@ fn main() -> Result<()> {
         sections.linux.as_ptr()
     );
 
-    let kernel = KernelPe::parse(sections.linux)?;
+    let kernel = pe::kernel::Image::parse(sections.linux)?;
     info!(
         "Kernel PE: entry=0x{:x}, base=0x{:x}, size=0x{:x}",
-        kernel.entry_point_rva, kernel.image_base, kernel.size_of_image
+        kernel.entry_point_rva, kernel.base_address, kernel.size
     );
 
     if let Some(initrd_bytes) = sections.initrd {
@@ -112,21 +117,26 @@ fn main() -> Result<()> {
 
     let combined_cmdline: Vec<u8>;
     let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
-        let base_cmd = sections
+        let base_cmd: &[u8] = sections
             .cmdline
-            .map(strip_trailing_cmdline_terminators)
-            .unwrap_or(b"");
+            .map_or(&[], strip_trailing_cmdline_terminators);
         let encoded_len = Base64Unpadded::encoded_len(luks_data);
 
-        let total_len = base_cmd.len() + LUKS_KEY_PREFIX.len() + encoded_len;
+        let total_len = base_cmd
+            .len()
+            .checked_add(LUKS_KEY_PREFIX.len())
+            .and_then(|len| len.checked_add(encoded_len))
+            .context("combined command line length overflow")?;
         let mut cmd = Vec::with_capacity(total_len);
         cmd.extend_from_slice(base_cmd);
         cmd.extend_from_slice(LUKS_KEY_PREFIX);
 
         let start = cmd.len();
         cmd.resize(total_len, 0);
-        Base64Unpadded::encode(luks_data, &mut cmd[start..])
-            .context("Failed to encode LUKS key")?;
+        let encoded = cmd
+            .get_mut(start..)
+            .context("LUKS key destination range unavailable")?;
+        Base64Unpadded::encode(luks_data, encoded).context("Failed to encode LUKS key")?;
 
         combined_cmdline = cmd;
         info!("LUKS key embedded ({} bytes)", luks_data.len());
@@ -135,7 +145,9 @@ fn main() -> Result<()> {
         sections.cmdline
     };
 
-    peloader::start(&kernel, cmdline, loaded_image, image_handle)?;
+    pe::loader::start(&kernel, cmdline, loaded_image, image_handle)?;
 
-    unreachable!("Kernel entry point returned, which should never happen");
+    Err(anyhow!(
+        "Kernel entry point returned, which should never happen"
+    ))
 }
