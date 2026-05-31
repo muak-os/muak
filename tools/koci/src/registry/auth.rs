@@ -61,7 +61,7 @@ fn parse_token_response(body: &[u8]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::thread;
 
@@ -80,23 +80,10 @@ mod tests {
                 .local_addr()
                 .expect("get test server address")
                 .to_string();
-            let status = status.to_string();
+            let status = status.to_owned();
             let body = body.to_vec();
 
-            let handle = thread::spawn(move || {
-                let (mut stream, _) = listener.accept().expect("accept test client");
-                let mut request = [0_u8; 1024];
-                let _ = stream.read(&mut request).expect("read test request");
-
-                let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
-                    body.len()
-                );
-                stream
-                    .write_all(response.as_bytes())
-                    .expect("write test response headers");
-                stream.write_all(&body).expect("write test response body");
-            });
+            let handle = thread::spawn(move || serve_auth(&listener, &status, &body));
 
             Self {
                 address,
@@ -109,12 +96,32 @@ mod tests {
         }
     }
 
+    fn serve_auth(listener: &TcpListener, status: &str, body: &[u8]) {
+        let (mut stream, _) = listener.accept().expect("accept test client");
+        let mut request = [0_u8; 1024];
+        let _: usize = stream.read(&mut request).expect("read test request");
+
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write test response headers");
+        stream.write_all(body).expect("write test response body");
+    }
+
     impl Drop for TestServer {
         fn drop(&mut self) {
-            if let Some(handle) = self.handle.take() {
-                handle.join().expect("join test server thread");
-            }
+            join_test_server(self.handle.take());
         }
+    }
+
+    fn join_test_server(handle: Option<thread::JoinHandle<()>>) {
+        let Some(handle) = handle else {
+            return;
+        };
+        handle.join().expect("join test server thread");
     }
 
     #[test]
@@ -122,13 +129,13 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(
             get_token_url("ghcr.io", "org/image"),
-            Some("https://ghcr.io/token?scope=repository:org/image:pull".to_string())
+            Some("https://ghcr.io/token?scope=repository:org/image:pull".to_owned())
         );
         assert_eq!(
             get_token_url("registry-1.docker.io", "library/alpine"),
             Some(
                 "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/alpine:pull"
-                    .to_string()
+                    .to_owned()
             )
         );
         assert_eq!(get_token_url("127.0.0.1:5000", "repo"), None);
@@ -193,7 +200,7 @@ mod tests {
             fetch_auth_token_from_url(&client, &server.url())
                 .await
                 .expect("fetch auth token"),
-            Some("abc123".to_string())
+            Some("abc123".to_owned())
         );
     }
 

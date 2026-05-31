@@ -209,7 +209,7 @@ fn layer_extract_error(error: &std::io::Error) -> KociError {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
+    use core::error::Error;
 
     use flate2::Compression;
     use flate2::write::GzEncoder;
@@ -218,16 +218,16 @@ mod tests {
 
     use super::*;
 
-    fn archive_bytes(entries: &[(&str, &[u8])]) -> std::result::Result<Vec<u8>, Box<dyn Error>> {
+    fn archive_bytes(entries: &[(&str, &[u8])]) -> core::result::Result<Vec<u8>, Box<dyn Error>> {
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
         let mut archive = Builder::new(encoder);
 
-        for (path, bytes) in entries {
+        for &(path, bytes) in entries {
             let mut header = Header::new_gnu();
-            header.set_size(bytes.len() as u64);
+            header.set_size(u64::try_from(bytes.len())?);
             header.set_mode(0o644);
             header.set_cksum();
-            archive.append_data(&mut header, path, *bytes)?;
+            archive.append_data(&mut header, path, bytes)?;
         }
 
         let encoder = archive.into_inner()?;
@@ -239,13 +239,13 @@ mod tests {
         entry_type: EntryType,
         bytes: &[u8],
         link_name: Option<&str>,
-    ) -> std::result::Result<Vec<u8>, Box<dyn Error>> {
+    ) -> core::result::Result<Vec<u8>, Box<dyn Error>> {
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
         let mut archive = Builder::new(encoder);
         let mut header = Header::new_gnu();
 
         header.set_entry_type(entry_type);
-        header.set_size(bytes.len() as u64);
+        header.set_size(u64::try_from(bytes.len())?);
         header.set_mode(0o644);
         if let Some(link_name) = link_name {
             header.set_link_name(link_name)?;
@@ -259,15 +259,15 @@ mod tests {
 
     fn raw_archive_bytes(
         entries: &[(&str, &[u8])],
-    ) -> std::result::Result<Vec<u8>, Box<dyn Error>> {
+    ) -> core::result::Result<Vec<u8>, Box<dyn Error>> {
         let mut archive = Builder::new(Vec::new());
 
-        for (path, bytes) in entries {
+        for &(path, bytes) in entries {
             let mut header = Header::new_gnu();
-            header.set_size(bytes.len() as u64);
+            header.set_size(u64::try_from(bytes.len())?);
             header.set_mode(0o644);
             header.set_cksum();
-            archive.append_data(&mut header, path, *bytes)?;
+            archive.append_data(&mut header, path, bytes)?;
         }
 
         Ok(archive.into_inner()?)
@@ -310,7 +310,7 @@ mod tests {
         let result = ensure_within_root(output.path(), &candidate);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("path should be inside root");
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
         #[cfg(unix)]
         let path = {
             use std::ffi::OsString;
-            use std::os::unix::ffi::OsStringExt;
+            use std::os::unix::ffi::OsStringExt as _;
 
             PathBuf::from(OsString::from_vec(vec![0xff]))
         };

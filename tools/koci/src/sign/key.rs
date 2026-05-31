@@ -103,7 +103,7 @@ fn pem_body(pem: &str, begin_marker: &str, end_marker: &str) -> String {
 #[cfg(test)]
 mod tests {
     use base64ct::Base64;
-    use ring::signature::KeyPair;
+    use ring::signature::KeyPair as _;
 
     use super::*;
 
@@ -127,7 +127,11 @@ mod tests {
 
         // ASSERT
         assert_eq!(bytes.len(), 65, "expected 65-byte uncompressed point");
-        assert_eq!(bytes[0], 0x04, "expected uncompressed point prefix 0x04");
+        assert_eq!(
+            bytes.first(),
+            Some(&0x04),
+            "expected uncompressed point prefix 0x04"
+        );
     }
 
     #[test]
@@ -136,7 +140,7 @@ mod tests {
         let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
 
         // ACT & ASSERT
-        assert!(parse_pem_public_key(pem).is_err());
+        parse_pem_public_key(pem).expect_err("public key parsing should fail");
     }
 
     #[test]
@@ -148,7 +152,7 @@ mod tests {
         let result = parse_pem_public_key(input);
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("public key parsing should fail");
     }
 
     #[test]
@@ -208,8 +212,10 @@ mod tests {
     #[test]
     fn parse_pem_public_key_rejects_compressed_point() {
         // ARRANGE
-        let mut spki = vec![0u8; 26 + 65];
-        spki[26] = 0x02;
+        let mut spki = vec![0_u8; 26 + 65];
+        *spki
+            .get_mut(26)
+            .expect("SPKI test fixture has point prefix") = 0x02;
         let pem = format!(
             "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
             base64ct::Base64::encode_string(&spki)

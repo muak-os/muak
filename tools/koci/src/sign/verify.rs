@@ -61,7 +61,7 @@ pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> 
 mod tests {
     use base64ct::Encoding as _;
     use ring::rand::SystemRandom;
-    use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+    use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
 
     use super::*;
 
@@ -81,20 +81,29 @@ mod tests {
         base64ct::Base64Url::encode_string(sig.as_ref())
     }
 
-    /// Builds a minimal SubjectPublicKeyInfo DER wrapping a raw P-256 uncompressed public key.
+    /// Builds a minimal `SubjectPublicKeyInfo` DER wrapping a raw P-256 uncompressed public key.
     fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
         let algorithm: &[u8] = &[
             0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
             0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
         ];
-        let bit_string_len = 1 + pub_raw.len();
-        let content_len = algorithm.len() + 2 + bit_string_len;
+        let bit_string_len = pub_raw
+            .len()
+            .checked_add(1)
+            .expect("test public key length must fit DER bit string length");
+        let content_len = algorithm
+            .len()
+            .checked_add(2)
+            .and_then(|length| length.checked_add(bit_string_len))
+            .expect("test public key length must fit DER content length");
         let mut der = Vec::new();
         der.push(0x30);
-        der.push(content_len as u8);
+        der.push(u8::try_from(content_len).expect("test DER content length must fit one byte"));
         der.extend_from_slice(algorithm);
         der.push(0x03);
-        der.push(bit_string_len as u8);
+        der.push(
+            u8::try_from(bit_string_len).expect("test DER bit string length must fit one byte"),
+        );
         der.push(0x00);
         der.extend_from_slice(pub_raw);
         der
@@ -123,7 +132,13 @@ mod tests {
         let sig_b64 = sign_test_digest(&key_pair, &rng, &digest);
 
         let mut manifest_signed = manifest_bare.clone();
-        manifest_signed["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
+        manifest_signed
+            .as_object_mut()
+            .expect("test manifest is an object")
+            .insert(
+                "annotations".to_owned(),
+                serde_json::json!({ SIG_ANNOTATION: sig_b64 }),
+            );
         let manifest_signed_json =
             serde_json::to_string(&manifest_signed).expect("serialize signed manifest");
 
@@ -155,8 +170,17 @@ mod tests {
         let sig_b64 = sign_test_digest(&key_pair, &rng, &digest);
 
         let mut tampered = manifest_bare.clone();
-        tampered["layers"] = serde_json::json!([{"digest":"sha256:evil","size":999}]);
-        tampered["annotations"] = serde_json::json!({ SIG_ANNOTATION: sig_b64 });
+        let tampered_object = tampered
+            .as_object_mut()
+            .expect("test manifest is an object");
+        tampered_object.insert(
+            "layers".to_owned(),
+            serde_json::json!([{"digest":"sha256:evil","size":999}]),
+        );
+        tampered_object.insert(
+            "annotations".to_owned(),
+            serde_json::json!({ SIG_ANNOTATION: sig_b64 }),
+        );
         let tampered_json = serde_json::to_string(&tampered).expect("serialize tampered manifest");
 
         let pub_raw = key_pair.public_key().as_ref();
@@ -185,7 +209,7 @@ mod tests {
         let result = check_signature(manifest_json, None);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("verification should be skipped without a public key");
     }
 
     #[tokio::test]

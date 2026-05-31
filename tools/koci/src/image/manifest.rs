@@ -57,7 +57,7 @@ pub(crate) fn select_platform<'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::thread;
 
@@ -77,23 +77,10 @@ mod tests {
                 .local_addr()
                 .expect("get test server address")
                 .to_string();
-            let status = status.to_string();
+            let status = status.to_owned();
             let body = body.to_vec();
 
-            let handle = thread::spawn(move || {
-                let (mut stream, _) = listener.accept().expect("accept test client");
-                let mut request = [0_u8; 1024];
-                let _ = stream.read(&mut request).expect("read test request");
-
-                let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/vnd.oci.image.manifest.v1+json\r\nConnection: close\r\n\r\n",
-                    body.len()
-                );
-                stream
-                    .write_all(response.as_bytes())
-                    .expect("write test response headers");
-                stream.write_all(&body).expect("write test response body");
-            });
+            let handle = thread::spawn(move || serve_manifest(&listener, &status, &body));
 
             Self {
                 address,
@@ -106,21 +93,41 @@ mod tests {
         }
     }
 
+    fn serve_manifest(listener: &TcpListener, status: &str, body: &[u8]) {
+        let (mut stream, _) = listener.accept().expect("accept test client");
+        let mut request = [0_u8; 1024];
+        let _: usize = stream.read(&mut request).expect("read test request");
+
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/vnd.oci.image.manifest.v1+json\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write test response headers");
+        stream.write_all(body).expect("write test response body");
+    }
+
     impl Drop for TestServer {
         fn drop(&mut self) {
-            if let Some(handle) = self.handle.take() {
-                handle.join().expect("join test server thread");
-            }
+            join_test_server(self.handle.take());
         }
+    }
+
+    fn join_test_server(handle: Option<thread::JoinHandle<()>>) {
+        let Some(handle) = handle else {
+            return;
+        };
+        handle.join().expect("join test server thread");
     }
 
     fn descriptor(digest: &str, architecture: Option<&str>, os: Option<&str>) -> OciDescriptor {
         OciDescriptor {
             media_type: None,
-            digest: digest.to_string(),
+            digest: digest.to_owned(),
             platform: Some(Platform {
-                architecture: architecture.map(str::to_string),
-                os: os.map(str::to_string),
+                architecture: architecture.map(str::to_owned),
+                os: os.map(str::to_owned),
             }),
         }
     }
@@ -129,9 +136,9 @@ mod tests {
     fn build_url_uses_registry_scheme_and_reference() {
         // ARRANGE
         let image_ref = ImageReference {
-            registry: "127.0.0.1:5000".to_string(),
-            name: "repo/name".to_string(),
-            manifest_ref: "test".to_string(),
+            registry: "127.0.0.1:5000".to_owned(),
+            name: "repo/name".to_owned(),
+            manifest_ref: "test".to_owned(),
         };
 
         // ACT / ASSERT
@@ -174,12 +181,18 @@ mod tests {
         // ASSERT
         assert_eq!(manifest.layers.len(), 1);
         assert_eq!(
-            manifest.layers[0].media_type.as_deref(),
+            manifest
+                .layers
+                .first()
+                .and_then(|layer| layer.media_type.as_deref()),
             Some("application/vnd.oci.image.layer.v1.tar")
         );
         assert_eq!(manifest.manifests.len(), 1);
         assert_eq!(
-            manifest.manifests[0]
+            manifest
+                .manifests
+                .first()
+                .expect("manifest should include a platform descriptor")
                 .platform
                 .as_ref()
                 .and_then(|platform| platform.architecture.as_deref()),
@@ -238,7 +251,7 @@ mod tests {
         let manifests = vec![
             OciDescriptor {
                 media_type: None,
-                digest: "sha256:no-platform".to_string(),
+                digest: "sha256:no-platform".to_owned(),
                 platform: None,
             },
             descriptor("sha256:match", Some("amd64"), Some("linux")),

@@ -189,8 +189,11 @@ async fn push_manifest(
 
 #[cfg(test)]
 mod tests {
+    use core::str;
+
     use ring::signature::{
-        ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair, UnparsedPublicKey,
+        ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _,
+        UnparsedPublicKey,
     };
 
     use super::*;
@@ -208,7 +211,7 @@ mod tests {
     }
 
     fn decode_utf8(bytes: &[u8]) -> &str {
-        std::str::from_utf8(bytes).expect("decode UTF-8 test value")
+        str::from_utf8(bytes).expect("decode UTF-8 test value")
     }
 
     #[test]
@@ -258,16 +261,16 @@ mod tests {
             build_signed_manifest(manifest_json, &key_pair, &rng).expect("build signed manifest");
         let signed_value: serde_json::Value =
             serde_json::from_slice(&signed_bytes).expect("parse signed manifest");
-        let sig_b64 = signed_value["annotations"][SIG_ANNOTATION]
-            .as_str()
+        let sig_b64 = signed_value
+            .get("annotations")
+            .and_then(|annotations| annotations.get(SIG_ANNOTATION))
+            .and_then(serde_json::Value::as_str)
             .expect("signed manifest must include the signature annotation");
         let sig_bytes = decode_base64url(sig_b64);
         let (digest, _) =
             manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
-        let pub_key = UnparsedPublicKey::new(
-            &ring::signature::ECDSA_P256_SHA256_ASN1,
-            key_pair.public_key().as_ref(),
-        );
+        let pub_key =
+            UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, key_pair.public_key().as_ref());
 
         // ASSERT
         assert!(
@@ -292,8 +295,8 @@ mod tests {
             .as_object_mut()
             .expect("manifest annotations must be a JSON object");
         annotations.insert(
-            SIG_ANNOTATION.to_string(),
-            serde_json::Value::String("somesig".to_string()),
+            SIG_ANNOTATION.to_owned(),
+            serde_json::Value::String("somesig".to_owned()),
         );
         let signed_json = serde_json::to_string(&value).expect("serialize signed manifest");
 

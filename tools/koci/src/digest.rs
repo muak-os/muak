@@ -79,7 +79,7 @@ mod tests {
         let result = verify_blob_digest(data, digest);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("digest should verify");
     }
 
     #[test]

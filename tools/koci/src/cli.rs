@@ -120,7 +120,7 @@ pub fn run() -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::Path;
 
     use clap::Parser as _;
     use tempfile::TempDir;
@@ -157,8 +157,8 @@ mod tests {
                 pub_key,
             } if image == "repo:test"
                 && arch.as_deref() == Some("arm64")
-                && output == PathBuf::from("out")
-                && pub_key == Some(PathBuf::from("koci.pub"))
+                && output == Path::new("out")
+                && pub_key.as_deref() == Some(Path::new("koci.pub"))
         ));
     }
 
@@ -175,7 +175,7 @@ mod tests {
         // ASSERT
         assert!(matches!(
             command,
-            Command::Sign { image, key } if image == "repo:test" && key == PathBuf::from("koci.key")
+            Command::Sign { image, key } if image == "repo:test" && key == Path::new("koci.key")
         ));
     }
 

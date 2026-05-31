@@ -1,31 +1,35 @@
+extern crate alloc;
+
+use alloc::sync::Arc;
+use core::mem;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::time::Duration;
 use std::collections::HashMap;
-use std::io::{Error as IoError, ErrorKind, Read, Write};
+use std::io::{Error as IoError, ErrorKind, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
 
 type RouteKey = (String, String);
 
 #[derive(Clone, Debug)]
-pub struct RecordedRequest {
-    pub method: String,
-    pub path: String,
-    pub headers: HashMap<String, String>,
-    pub body: Vec<u8>,
+pub(crate) struct RecordedRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: HashMap<String, String>,
+    pub(crate) body: Vec<u8>,
 }
 
-pub struct MockRegistry {
+pub(crate) struct MockRegistry {
     address: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: Arc<AtomicBool>,
+    connections: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
 impl MockRegistry {
-    pub fn start(routes: HashMap<RouteKey, HttpResponse>) -> Result<Self, IoError> {
+    pub(crate) fn start(routes: HashMap<RouteKey, HttpResponse>) -> Result<Self, IoError> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
 
@@ -33,37 +37,52 @@ impl MockRegistry {
         let routes = Arc::new(routes);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
+        let connections = Arc::new(Mutex::new(Vec::new()));
 
         let thread_routes = Arc::clone(&routes);
         let thread_requests = Arc::clone(&requests);
         let thread_shutdown = Arc::clone(&shutdown);
+        let thread_connections = Arc::clone(&connections);
 
         let handle = thread::spawn(move || {
-            run_registry_server(listener, thread_routes, thread_requests, thread_shutdown)
+            run_registry_server(
+                &listener,
+                &thread_routes,
+                &thread_requests,
+                &thread_shutdown,
+                &thread_connections,
+            );
         });
 
         Ok(Self {
             address,
             requests,
             shutdown,
+            connections,
             handle: Some(handle),
         })
     }
 
-    pub fn reference(&self, repository: &str, tag: &str) -> String {
+    #[must_use]
+    pub(crate) fn reference(&self, repository: &str, tag: &str) -> String {
         format!("{}/{repository}:{tag}", self.address)
     }
 
-    pub fn digest_reference(&self, repository: &str, digest: &str) -> String {
+    #[must_use]
+    pub(crate) fn digest_reference(&self, repository: &str, digest: &str) -> String {
         format!("{}/{repository}@{digest}", self.address)
     }
 
-    pub fn request(&self, method: &str, path: &str) -> Result<Option<RecordedRequest>, IoError> {
+    pub(crate) fn request(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Result<Option<RecordedRequest>, IoError> {
         let method = method.to_ascii_uppercase();
         let requests = self
             .requests
             .lock()
-            .map_err(|_| IoError::other("request log mutex poisoned"))?;
+            .map_err(|_error| IoError::other("request log mutex poisoned"))?;
         Ok(requests
             .iter()
             .find(|request| request.method == method && request.path == path)
@@ -75,78 +94,111 @@ impl Drop for MockRegistry {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            drop(handle.join());
+        }
+        let connection_handles = mem::take(
+            &mut *self
+                .connections
+                .lock()
+                .expect("lock mock registry connection handles"),
+        );
+        for handle in connection_handles {
+            drop(handle.join());
         }
     }
 }
 
 #[derive(Clone)]
-pub struct HttpResponse {
+pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
+    delay: Duration,
 }
 
 impl HttpResponse {
-    pub fn json(body: Vec<u8>) -> Self {
+    #[must_use]
+    pub(crate) fn json(body: Vec<u8>) -> Self {
         Self {
             status: 200,
             content_type: "application/vnd.oci.image.manifest.v1+json",
             body,
+            delay: Duration::ZERO,
         }
     }
 
-    pub fn index(body: Vec<u8>) -> Self {
+    #[must_use]
+    pub(crate) fn index(body: Vec<u8>) -> Self {
         Self {
             status: 200,
             content_type: "application/vnd.oci.image.index.v1+json",
             body,
+            delay: Duration::ZERO,
         }
     }
 
-    pub fn octet_stream(body: Vec<u8>) -> Self {
+    #[must_use]
+    pub(crate) fn octet_stream(body: Vec<u8>) -> Self {
         Self {
             status: 200,
             content_type: "application/octet-stream",
             body,
+            delay: Duration::ZERO,
         }
     }
 
-    pub fn ok() -> Self {
+    #[must_use]
+    pub(crate) fn ok() -> Self {
         Self {
             status: 200,
             content_type: "text/plain",
             body: Vec::new(),
+            delay: Duration::ZERO,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
     }
 }
 
-pub fn get(path: impl Into<String>, response: HttpResponse) -> (RouteKey, HttpResponse) {
-    (("GET".to_string(), path.into()), response)
+pub(crate) fn get<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
+    (("GET".to_owned(), path.into()), response)
 }
 
-pub fn put(path: impl Into<String>, response: HttpResponse) -> (RouteKey, HttpResponse) {
-    (("PUT".to_string(), path.into()), response)
+pub(crate) fn put<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
+    (("PUT".to_owned(), path.into()), response)
 }
 
 fn run_registry_server(
-    listener: TcpListener,
-    routes: Arc<HashMap<RouteKey, HttpResponse>>,
-    requests: Arc<Mutex<Vec<RecordedRequest>>>,
-    shutdown: Arc<AtomicBool>,
+    listener: &TcpListener,
+    routes: &Arc<HashMap<RouteKey, HttpResponse>>,
+    requests: &Arc<Mutex<Vec<RecordedRequest>>>,
+    shutdown: &AtomicBool,
+    connections: &Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
 ) {
     loop {
         if shutdown.load(Ordering::SeqCst) {
             break;
         }
 
-        let stream = match accept_connection(&listener) {
+        let stream = match accept_connection(listener) {
             Ok(Some(stream)) => stream,
             Ok(None) => continue,
             Err(_) => break,
         };
 
-        let _ = handle_connection(stream, &routes, &requests);
+        let routes = Arc::clone(routes);
+        let requests = Arc::clone(requests);
+        let connection_handle = thread::spawn(move || {
+            drop(handle_connection(stream, &routes, &requests));
+        });
+        connections
+            .lock()
+            .expect("lock mock registry connection handles")
+            .push(connection_handle);
     }
 }
 
@@ -164,7 +216,7 @@ fn accept_connection(listener: &TcpListener) -> Result<Option<TcpStream>, IoErro
 fn handle_connection(
     mut stream: TcpStream,
     routes: &HashMap<RouteKey, HttpResponse>,
-    requests: &Arc<Mutex<Vec<RecordedRequest>>>,
+    requests: &Mutex<Vec<RecordedRequest>>,
 ) -> Result<(), IoError> {
     let request = read_request(&mut stream)?;
     let response = routes
@@ -174,7 +226,7 @@ fn handle_connection(
 
     requests
         .lock()
-        .map_err(|_| IoError::other("request log mutex poisoned"))?
+        .map_err(|_error| IoError::other("request log mutex poisoned"))?
         .push(request);
 
     write_response(&mut stream, &response)
@@ -192,7 +244,10 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
                 "connection closed before headers completed",
             ));
         }
-        buffer.extend_from_slice(&chunk[..read]);
+        let bytes = chunk
+            .get(..read)
+            .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "invalid request read size"))?;
+        buffer.extend_from_slice(bytes);
 
         if let Some(header_end) = find_header_end(&buffer) {
             break header_end;
@@ -206,8 +261,10 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
         }
     };
 
-    let header_bytes = &buffer[..header_end];
-    let header_text = std::str::from_utf8(header_bytes)
+    let header_bytes = buffer
+        .get(..header_end)
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "invalid request header size"))?;
+    let header_text = core::str::from_utf8(header_bytes)
         .map_err(|error| IoError::new(ErrorKind::InvalidData, error))?;
 
     let mut lines = header_text.split("\r\n");
@@ -218,11 +275,11 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
     let method = request_parts
         .next()
         .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "missing request method"))?
-        .to_string();
+        .to_owned();
     let path = request_parts
         .next()
         .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "missing request path"))?
-        .to_string();
+        .to_owned();
 
     let mut headers = HashMap::new();
     for line in lines {
@@ -236,7 +293,7 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
                 format!("malformed request header: {line}"),
             )
         })?;
-        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
     }
 
     let content_length = headers
@@ -246,7 +303,13 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
         .map_err(|error| IoError::new(ErrorKind::InvalidData, error))?
         .unwrap_or(0);
 
-    let mut body = buffer[header_end + 4..].to_vec();
+    let body_start = header_end
+        .checked_add(4)
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "invalid request header size"))?;
+    let mut body = buffer
+        .get(body_start..)
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "invalid request body offset"))?
+        .to_vec();
     while body.len() < content_length {
         let read = stream.read(&mut chunk)?;
         if read == 0 {
@@ -255,7 +318,10 @@ fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
                 "connection closed before request body completed",
             ));
         }
-        body.extend_from_slice(&chunk[..read]);
+        let bytes = chunk
+            .get(..read)
+            .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "invalid request read size"))?;
+        body.extend_from_slice(bytes);
     }
     body.truncate(content_length);
 
@@ -272,6 +338,10 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
 }
 
 fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> Result<(), IoError> {
+    if !response.delay.is_zero() {
+        thread::sleep(response.delay);
+    }
+
     let reason = match response.status {
         200 => "OK",
         404 => "Not Found",
@@ -296,5 +366,6 @@ fn not_found_response() -> HttpResponse {
         status: 404,
         content_type: "text/plain",
         body: b"not found".to_vec(),
+        delay: Duration::ZERO,
     }
 }
