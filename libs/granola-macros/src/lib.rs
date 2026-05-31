@@ -170,7 +170,7 @@ mod tests {
         let err = extract_notifier_param(&mut func);
 
         // ASSERT
-        assert!(err.is_err());
+        err.unwrap_err();
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
         let err = extract_notifier_param(&mut func);
 
         // ASSERT
-        assert!(err.is_err());
+        err.unwrap_err();
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         let result = validate_return_type(&func);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
