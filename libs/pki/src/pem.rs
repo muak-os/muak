@@ -53,7 +53,7 @@ mod tests {
         let loaded = load_signer(invalid_pem);
 
         // ASSERT
-        assert!(decoded.is_err());
-        assert!(loaded.is_err());
+        let _decoded_error = decoded.unwrap_err();
+        let _loaded_error = loaded.map(|_| ()).unwrap_err();
     }
 }
