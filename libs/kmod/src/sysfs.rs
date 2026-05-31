@@ -56,7 +56,7 @@ fn read_modalias(device_path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::TempDir;
 
@@ -81,7 +81,7 @@ mod tests {
         let result = read_modalias(dir.path());
 
         // ASSERT
-        assert_eq!(result, Some("pci:v00008086d00001234".to_string()));
+        assert_eq!(result, Some("pci:v00008086d00001234".to_owned()));
     }
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
         let result = read_modalias(dir.path());
 
         // ASSERT
-        assert_eq!(result, Some("usb:v1234p5678".to_string()));
+        assert_eq!(result, Some("usb:v1234p5678".to_owned()));
     }
 
     #[test]
@@ -133,23 +133,34 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    fn create_mock_sysfs(base: &Path, buses: &[(&str, &[(&str, Option<&str>)])]) {
-        for (bus_name, devices) in buses {
-            let bus_dir = base.join(bus_name);
-            let devices_dir = bus_dir.join("devices");
-            std::fs::create_dir_all(&devices_dir).expect("create bus devices dir");
+    type MockDevices<'a> = &'a [(&'a str, Option<&'a str>)];
 
-            for (device_name, modalias) in *devices {
-                let device_dir = devices_dir.join(device_name);
-                std::fs::create_dir_all(&device_dir).expect("create device dir");
-
-                if let Some(alias) = modalias {
-                    let modalias_path = device_dir.join("modalias");
-                    let mut file = std::fs::File::create(&modalias_path).expect("create modalias");
-                    writeln!(file, "{alias}").expect("write modalias");
-                }
-            }
+    fn create_mock_sysfs(base: &Path, buses: &[(&str, MockDevices<'_>)]) {
+        for &(bus_name, devices) in buses {
+            create_mock_bus(base, bus_name, devices);
         }
+    }
+
+    fn create_mock_bus(base: &Path, bus_name: &str, devices: MockDevices<'_>) {
+        let bus_devices_dir = base.join(bus_name).join("devices");
+        std::fs::create_dir_all(&bus_devices_dir).expect("create bus devices dir");
+
+        for &(device_name, modalias) in devices {
+            create_mock_device(&bus_devices_dir, device_name, modalias);
+        }
+    }
+
+    fn create_mock_device(devices_dir: &Path, device_name: &str, modalias: Option<&str>) {
+        let mock_device_dir = devices_dir.join(device_name);
+        std::fs::create_dir_all(&mock_device_dir).expect("create device dir");
+
+        let Some(alias) = modalias else {
+            return;
+        };
+
+        let modalias_path = mock_device_dir.join("modalias");
+        let mut file = std::fs::File::create(&modalias_path).expect("create modalias");
+        writeln!(file, "{alias}").expect("write modalias");
     }
 
     #[test]
@@ -209,9 +220,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(collected.len(), 3);
-        assert!(collected.contains(&"pci:v00008086d00001234".to_string()));
-        assert!(collected.contains(&"usb:v046DpC52B".to_string()));
-        assert!(collected.contains(&"acpi:ACPI0003:".to_string()));
+        assert!(
+            collected
+                .iter()
+                .any(|alias| alias == "pci:v00008086d00001234")
+        );
+        assert!(collected.iter().any(|alias| alias == "usb:v046DpC52B"));
+        assert!(collected.iter().any(|alias| alias == "acpi:ACPI0003:"));
     }
 
     #[test]
@@ -257,7 +272,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(collected.len(), 1);
-        assert_eq!(collected[0], "pci:v00008086d00001234");
+        assert_eq!(
+            collected.first().expect("first modalias"),
+            "pci:v00008086d00001234"
+        );
     }
 
     #[test]
@@ -272,7 +290,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(collected.len(), 1);
-        assert_eq!(collected[0], "usb:v1234p5678");
+        assert_eq!(collected.first().expect("first modalias"), "usb:v1234p5678");
     }
 
     #[test]
@@ -316,6 +334,6 @@ mod tests {
         });
 
         // ASSERT
-        assert!(result.is_ok());
+        result.expect("live sysfs scan should not fail");
     }
 }

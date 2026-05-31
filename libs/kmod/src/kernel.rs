@@ -80,11 +80,13 @@ impl ModuleLoader {
     }
 
     #[cfg(test)]
+    #[must_use]
     pub fn is_loaded(&self, module_name: &str) -> bool {
         self.loaded.contains(module_name)
     }
 
     #[cfg(test)]
+    #[must_use]
     pub fn loaded_count(&self) -> usize {
         self.loaded.len()
     }
@@ -146,7 +148,7 @@ fn map_init_module_result(result: Result<(), Errno>) -> Result<(), LoadError> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::TempDir;
 
@@ -168,7 +170,7 @@ mod tests {
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
         // ACT
-        loader.loaded.insert("test_module".to_string());
+        loader.loaded.insert("test_module".to_owned());
 
         // ASSERT
         assert!(loader.is_loaded("test_module"));
@@ -246,7 +248,7 @@ mod tests {
         let dir = TempDir::new().expect("Failed to create temp dir");
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
 
-        loader.loaded.insert("already_loaded".to_string());
+        loader.loaded.insert("already_loaded".to_owned());
 
         // ACT
         let result = loader.load_by_path("kernel/already_loaded.ko");
@@ -389,9 +391,9 @@ mod tests {
 
         let dep_path = dir.path().join("modules.dep");
         {
-            let mut f = std::fs::File::create(&dep_path).expect("create failed");
-            writeln!(f, "kernel/a.ko: kernel/b.ko").expect("write failed");
-            writeln!(f, "kernel/b.ko:").expect("write failed");
+            let mut file = std::fs::File::create(&dep_path).expect("create failed");
+            writeln!(file, "kernel/a.ko: kernel/b.ko").expect("write failed");
+            writeln!(file, "kernel/b.ko:").expect("write failed");
         }
 
         let dep_db = deps::DepDb::load(&dep_path).expect("load dep db");

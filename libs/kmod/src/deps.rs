@@ -125,7 +125,7 @@ pub(crate) fn get_module_name(path: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::NamedTempFile;
 
@@ -140,7 +140,7 @@ mod tests {
         let result = get_module_name(path);
 
         // ASSERT
-        assert_eq!(result, Some("igc".to_string()));
+        assert_eq!(result, Some("igc".to_owned()));
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         let result = get_module_name(path);
 
         // ASSERT
-        assert_eq!(result, Some("virtio".to_string()));
+        assert_eq!(result, Some("virtio".to_owned()));
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         let result = DepDb::load(Path::new("/nonexistent/modules.dep"));
 
         // ASSERT
-        assert!(result.is_err());
+        result.expect_err("load should fail for nonexistent file");
     }
 
     #[test]
@@ -497,9 +497,14 @@ mod tests {
         // ASSERT
         assert_eq!(db.len(), 6);
         assert_eq!(igc_order.len(), 3);
-        assert!(igc_order[0].contains("pps_core"));
-        assert!(igc_order[1].contains("ptp"));
-        assert!(igc_order[2].contains("igc"));
+        assert!(
+            igc_order
+                .first()
+                .expect("first module")
+                .contains("pps_core")
+        );
+        assert!(igc_order.get(1).expect("second module").contains("ptp"));
+        assert!(igc_order.get(2).expect("third module").contains("igc"));
 
         assert_eq!(vnet_order.len(), 3);
         let vnet_pos = vnet_order

@@ -115,7 +115,7 @@ fn parse_alias_line(line: &str) -> Option<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::NamedTempFile;
 
@@ -359,7 +359,7 @@ mod tests {
         let result = parse_alias_line("alias pci:v00008086d* igb");
         assert_eq!(
             result,
-            Some(("pci:v00008086d*".to_string(), "igb".to_string()))
+            Some(("pci:v00008086d*".to_owned(), "igb".to_owned()))
         );
     }
 
@@ -369,7 +369,7 @@ mod tests {
         let result = parse_alias_line("  alias   pci:pattern   module_name  ");
         assert_eq!(
             result,
-            Some(("pci:pattern".to_string(), "module_name".to_string()))
+            Some(("pci:pattern".to_owned(), "module_name".to_owned()))
         );
     }
 
@@ -407,8 +407,8 @@ mod tests {
         assert_eq!(
             result,
             Some((
-                "pci:v00008086d0000125Csv*sd*bc*sc*i*".to_string(),
-                "igc".to_string()
+                "pci:v00008086d0000125Csv*sd*bc*sc*i*".to_owned(),
+                "igc".to_owned()
             ))
         );
     }
@@ -448,7 +448,7 @@ mod tests {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(file, "# Comment line").expect("write failed");
-        writeln!(file, "").expect("write failed");
+        writeln!(file).expect("write failed");
         writeln!(file, "alias pattern1 module1").expect("write failed");
         writeln!(file, "  # Another comment").expect("write failed");
         writeln!(file, "alias pattern2 module2").expect("write failed");
@@ -502,7 +502,7 @@ mod tests {
     fn alias_db_load_nonexistent_file() {
         // ACT & ASSERT
         let result = AliasDb::load(Path::new("/nonexistent/path/modules.alias"));
-        assert!(result.is_err());
+        result.expect_err("load should fail for nonexistent file");
     }
 
     #[test]
