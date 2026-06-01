@@ -8,34 +8,37 @@ use anyhow::{Context, Result, bail};
 const SIGNATURE_PUB: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../signature.pub"));
 
-/// Wrapper around yuki::Components to provide additional functionality for UKI management.
-pub struct Uki(yuki::Components);
-
-impl std::ops::Deref for Uki {
-    type Target = yuki::Components;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+/// Owned bytes for every UKI component, loaded from the filesystem.
+struct LoadedComponents {
+    stub: Vec<u8>,
+    kernel: Vec<u8>,
+    initramfs: Vec<u8>,
+    cmdline: Vec<u8>,
+    dtb: Option<Vec<u8>>,
 }
 
-impl std::ops::DerefMut for Uki {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+/// Path-based UKI component.
+pub struct Uki {
+    pub stub: PathBuf,
+    pub kernel: PathBuf,
+    pub initramfs: PathBuf,
+    pub cmdline: PathBuf,
+    pub dtb: Option<PathBuf>,
+    pub luks_key: Option<Vec<u8>>,
 }
 
 impl Uki {
     /// Creates a Uki instance by locating components in a base directory.
     pub fn from_dir(base_dir: &Path) -> Self {
         let arch_dir = base_dir.join(std::env::consts::ARCH);
-        Self(yuki::Components {
+        Self {
             stub: arch_dir.join("stub.efi"),
             kernel: arch_dir.join("vmlinuz"),
             initramfs: arch_dir.join("initramfs.img"),
             cmdline: arch_dir.join("cmdline"),
             dtb: None,
             luks_key: None,
-        })
+        }
     }
 
     /// Prepares UKI components from an installer image and extensions.
@@ -56,6 +59,21 @@ impl Uki {
         Ok(uki)
     }
 
+    /// Reads all component files into memory.
+    fn load_components(&self) -> Result<LoadedComponents> {
+        let read_path = |path: &Path| -> Result<Vec<u8>> {
+            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
+        };
+
+        Ok(LoadedComponents {
+            stub: read_path(&self.stub)?,
+            kernel: read_path(&self.kernel)?,
+            initramfs: read_path(&self.initramfs)?,
+            cmdline: read_path(&self.cmdline)?,
+            dtb: self.dtb.as_ref().map(|p| read_path(p)).transpose()?,
+        })
+    }
+
     /// Builds the UKI binary and optionally signs it for Secure Boot.
     pub fn build(
         &self,
@@ -67,7 +85,17 @@ impl Uki {
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
         }
 
-        let buffer = yuki::build(self).context("Failed to build UKI")?;
+        let loaded = self.load_components()?;
+
+        let buffer = yuki::build(&yuki::BuildInput {
+            stub: &loaded.stub,
+            kernel: &loaded.kernel,
+            initramfs: &loaded.initramfs,
+            cmdline: &loaded.cmdline,
+            dtb: loaded.dtb.as_deref(),
+            luks_key: self.luks_key.as_deref(),
+        })
+        .context("Failed to build UKI")?;
 
         let final_buffer = if let Some(hierarchy) = hierarchy {
             let signed = sbolt::pe::signature::sign(
@@ -90,17 +118,12 @@ impl Uki {
 
     /// Reads the UKI component files and returns section data for PCR prediction.
     pub fn read_section_data(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let linux = std::fs::read(&self.kernel)
-            .with_context(|| format!("Failed to read {}", self.kernel.display()))?;
-        let cmdline = std::fs::read(&self.cmdline)
-            .with_context(|| format!("Failed to read {}", self.cmdline.display()))?;
-        let initrd = std::fs::read(&self.initramfs)
-            .with_context(|| format!("Failed to read {}", self.initramfs.display()))?;
+        let loaded = self.load_components()?;
 
         Ok(vec![
-            (".linux".to_string(), linux),
-            (".cmdline".to_string(), cmdline),
-            (".initrd".to_string(), initrd),
+            (".linux".to_string(), loaded.kernel),
+            (".cmdline".to_string(), loaded.cmdline),
+            (".initrd".to_string(), loaded.initramfs),
         ])
     }
 }

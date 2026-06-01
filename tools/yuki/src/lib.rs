@@ -7,66 +7,31 @@ pub mod error;
 mod pe;
 mod section;
 
-use std::fs;
-use std::path::PathBuf;
-
 use error::{Result, YukiError};
 
-/// Paths to the components required to build a Unified Kernel Image.
-pub struct Components {
-    pub stub: PathBuf,
-    pub kernel: PathBuf,
-    pub initramfs: PathBuf,
-    pub cmdline: PathBuf,
-    pub dtb: Option<PathBuf>,
-    pub luks_key: Option<Vec<u8>>,
+/// Borrowed component data required to build a Unified Kernel Image.
+pub struct BuildInput<'a> {
+    pub stub: &'a [u8],
+    pub kernel: &'a [u8],
+    pub initramfs: &'a [u8],
+    pub cmdline: &'a [u8],
+    pub dtb: Option<&'a [u8]>,
+    pub luks_key: Option<&'a [u8]>,
 }
 
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
 ///
 /// # Errors
 ///
-/// Returns an error if any input component cannot be read, the EFI stub is not a
-/// valid PE image, or the resulting image would exceed PE section limits.
-pub fn build(components: &Components) -> Result<Vec<u8>> {
-    let mut stub = fs::read(&components.stub).map_err(|e| YukiError::ReadError {
-        file: components.stub.display().to_string(),
-        source: e,
-    })?;
-
-    let linux = fs::read(&components.kernel).map_err(|e| YukiError::ReadError {
-        file: components.kernel.display().to_string(),
-        source: e,
-    })?;
-
-    let initrd = fs::read(&components.initramfs).map_err(|e| YukiError::ReadError {
-        file: components.initramfs.display().to_string(),
-        source: e,
-    })?;
-
-    let cmdline = fs::read(&components.cmdline).map_err(|e| YukiError::ReadError {
-        file: components.cmdline.display().to_string(),
-        source: e,
-    })?;
-
-    let dtb = components
-        .dtb
-        .as_ref()
-        .map(|path| {
-            fs::read(path).map_err(|e| YukiError::ReadError {
-                file: path.display().to_string(),
-                source: e,
-            })
-        })
-        .transpose()?;
-
-    let luks_data = components.luks_key.as_deref();
-
+/// Returns an error if the EFI stub is not a valid PE image or the resulting
+/// image would exceed PE section limits.
+pub fn build(input: &BuildInput<'_>) -> Result<Vec<u8>> {
+    let mut stub = input.stub.to_vec();
     let metadata = pe::extract_metadata(&stub)?;
 
     let section_count = 3_u16
-        .saturating_add(u16::from(dtb.is_some()))
-        .saturating_add(u16::from(luks_data.is_some()));
+        .saturating_add(u16::from(input.dtb.is_some()))
+        .saturating_add(u16::from(input.luks_key.is_some()));
     if usize::from(metadata.current_section_count).saturating_add(usize::from(section_count))
         > usize::from(u16::MAX)
     {
@@ -74,11 +39,11 @@ pub fn build(components: &Components) -> Result<Vec<u8>> {
     }
 
     let data = section::SectionData {
-        linux: &linux,
-        initrd: &initrd,
-        cmdline: &cmdline,
-        dtb: dtb.as_deref(),
-        luks: luks_data,
+        linux: input.kernel,
+        initrd: input.initramfs,
+        cmdline: input.cmdline,
+        dtb: input.dtb,
+        luks: input.luks_key,
     };
 
     let sections = section::build_section_list(&data);

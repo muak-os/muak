@@ -52,10 +52,26 @@ where
     T: Into<OsString> + Clone,
 {
     let args = Cli::try_parse_from(args)?;
-    run(args)
+    run(&args)
 }
 
-fn run(args: Cli) -> Result<String> {
+fn run(args: &Cli) -> Result<String> {
+    let stub = std::fs::read(&args.stub)
+        .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?;
+    let kernel = std::fs::read(&args.linux)
+        .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?;
+    let initramfs = std::fs::read(&args.initrd)
+        .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?;
+    let cmdline = std::fs::read(&args.cmdline)
+        .with_context(|| format!("Failed to read cmdline from {}", args.cmdline.display()))?;
+    let dtb = args
+        .dtb
+        .as_ref()
+        .map(|path| {
+            std::fs::read(path)
+                .with_context(|| format!("Failed to read DTB from {}", path.display()))
+        })
+        .transpose()?;
     let luks_data = args
         .luks
         .as_ref()
@@ -65,13 +81,13 @@ fn run(args: Cli) -> Result<String> {
         })
         .transpose()?;
 
-    let buffer = crate::build(&crate::Components {
-        stub: args.stub,
-        kernel: args.linux,
-        initramfs: args.initrd,
-        cmdline: args.cmdline,
-        dtb: args.dtb,
-        luks_key: luks_data,
+    let buffer = crate::build(&crate::BuildInput {
+        stub: &stub,
+        kernel: &kernel,
+        initramfs: &initramfs,
+        cmdline: &cmdline,
+        dtb: dtb.as_deref(),
+        luks_key: luks_data.as_deref(),
     })
     .context("Failed to create UKI")?;
 

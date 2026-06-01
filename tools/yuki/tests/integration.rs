@@ -5,36 +5,14 @@ mod fixtures;
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
-    use tempfile::TempDir;
     use yuki::error::YukiError;
-    use yuki::{Components, build};
+    use yuki::{BuildInput, build};
 
     use super::fixtures::components::{fake_dtb, fake_initrd, fake_kernel, sample_cmdline};
     use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count};
-
-    struct TestEnv {
-        temp: TempDir,
-    }
-
-    impl TestEnv {
-        fn new() -> Self {
-            Self {
-                temp: TempDir::new().expect("failed to create temp dir"),
-            }
-        }
-
-        fn write_file(&self, name: &str, data: &[u8]) -> PathBuf {
-            let path = self.temp.path().join(name);
-            fs::write(&path, data).unwrap_or_else(|e| panic!("failed to write {name}: {e}"));
-            path
-        }
-    }
 
     fn write_bytes(bytes: &mut [u8], offset: usize, data: &[u8]) {
         let end = offset.saturating_add(data.len());
@@ -50,18 +28,17 @@ mod tests {
     #[test]
     fn build_creates_valid_uki() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(4096));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(8192));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(4096);
+        let initrd = fake_initrd(8192);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -99,20 +76,19 @@ mod tests {
     #[test]
     fn build_with_dtb() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(4096));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(8192));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
-        let dtb_path = env.write_file("device.dtb", &fake_dtb(1024));
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(4096);
+        let initrd = fake_initrd(8192);
+        let cmdline = sample_cmdline();
+        let dtb = fake_dtb(1024);
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
-            dtb: Some(dtb_path),
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
+            dtb: Some(&dtb),
             luks_key: None,
         })
         .expect("build with DTB should succeed");
@@ -132,17 +108,15 @@ mod tests {
     }
 
     fn build_result_with_stub(stub: &[u8]) -> Result<Vec<u8>, YukiError> {
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", stub);
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
-        build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        build(&BuildInput {
+            stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -228,22 +202,19 @@ mod tests {
     #[test]
     fn build_preserves_original_sections() {
         // ARRANGE
-        let env = TestEnv::new();
         let stub = generate_minimal_stub();
         let original_pe = PeFile64::parse(&*stub).expect("generated stub should be valid PE");
         let original_section_count = original_pe.section_table().len();
-
-        let stub_path = env.write_file("stub.efi", &stub);
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -261,18 +232,17 @@ mod tests {
     #[test]
     fn build_with_large_files() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024 * 1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(2 * 1024 * 1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024 * 1024);
+        let initrd = fake_initrd(2 * 1024 * 1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -287,18 +257,16 @@ mod tests {
     #[test]
     fn build_handles_empty_cmdline() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", b"");
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: b"",
             dtb: None,
             luks_key: None,
         })
@@ -309,45 +277,18 @@ mod tests {
     }
 
     #[test]
-    fn build_rejects_missing_stub() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
-
-        // ACT
-        let result = build(&Components {
-            stub: env.temp.path().join("nonexistent.efi"),
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
-            dtb: None,
-            luks_key: None,
-        });
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::ReadError { .. })),
-            "should fail with ReadError for missing stub, got: {result:?}"
-        );
-    }
-
-    #[test]
     fn build_rejects_invalid_pe_stub() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", b"this is not a PE file at all");
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let result = build(&BuildInput {
+            stub: b"this is not a PE file at all",
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         });
@@ -360,125 +301,19 @@ mod tests {
     }
 
     #[test]
-    fn build_rejects_missing_kernel() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
-
-        // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: env.temp.path().join("nonexistent"),
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
-            dtb: None,
-            luks_key: None,
-        });
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::ReadError { .. })),
-            "should fail with ReadError for missing kernel"
-        );
-    }
-
-    #[test]
-    fn build_rejects_missing_initrd() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
-
-        // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: env.temp.path().join("nonexistent"),
-            cmdline: cmdline_path,
-            dtb: None,
-            luks_key: None,
-        });
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::ReadError { .. })),
-            "should fail with ReadError for missing initrd"
-        );
-    }
-
-    #[test]
-    fn build_rejects_missing_cmdline() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-
-        // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: env.temp.path().join("nonexistent"),
-            dtb: None,
-            luks_key: None,
-        });
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::ReadError { .. })),
-            "should fail with ReadError for missing cmdline"
-        );
-    }
-
-    #[test]
-    fn build_rejects_missing_dtb_when_specified() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
-
-        // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
-            dtb: Some(env.temp.path().join("nonexistent.dtb")),
-            luks_key: None,
-        });
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::ReadError { .. })),
-            "should fail with ReadError for missing DTB"
-        );
-    }
-
-    #[test]
     fn sections_contain_correct_data() {
         // ARRANGE
-        let env = TestEnv::new();
+        let stub = generate_minimal_stub();
         let kernel_data = fake_kernel(1024);
         let initrd_data = fake_initrd(2048);
         let cmdline_data = sample_cmdline();
 
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &kernel_data);
-        let initrd_path = env.write_file("initrd.img", &initrd_data);
-        let cmdline_path = env.write_file("cmdline.txt", &cmdline_data);
-
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel_data,
+            initramfs: &initrd_data,
+            cmdline: &cmdline_data,
             dtb: None,
             luks_key: None,
         })
@@ -517,18 +352,17 @@ mod tests {
     #[test]
     fn linux_section_is_executable() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -558,18 +392,17 @@ mod tests {
     #[test]
     fn data_sections_are_not_executable() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -595,18 +428,17 @@ mod tests {
     #[test]
     fn output_is_efi_application() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_minimal_stub());
-        let kernel_path = env.write_file("vmlinuz", &fake_kernel(1024));
-        let initrd_path = env.write_file("initrd.img", &fake_initrd(1024));
-        let cmdline_path = env.write_file("cmdline.txt", &sample_cmdline());
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let uki = build(&BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initrd,
+            cmdline: &cmdline,
             dtb: None,
             luks_key: None,
         })
@@ -650,18 +482,14 @@ mod tests {
     #[test]
     fn build_rejects_too_many_sections() {
         // ARRANGE
-        let env = TestEnv::new();
-        let stub_path = env.write_file("stub.efi", &generate_stub_with_section_count(u16::MAX - 2));
-        let kernel_path = env.write_file("vmlinuz", b"kernel");
-        let initrd_path = env.write_file("initrd.img", b"initrd");
-        let cmdline_path = env.write_file("cmdline.txt", b"quiet");
+        let stub = generate_stub_with_section_count(u16::MAX - 2);
 
         // ACT
-        let result = build(&Components {
-            stub: stub_path,
-            kernel: kernel_path,
-            initramfs: initrd_path,
-            cmdline: cmdline_path,
+        let result = build(&BuildInput {
+            stub: &stub,
+            kernel: b"kernel",
+            initramfs: b"initrd",
+            cmdline: b"quiet",
             dtb: None,
             luks_key: None,
         });

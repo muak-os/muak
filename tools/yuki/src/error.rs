@@ -9,12 +9,6 @@ use thiserror::Error;
 )]
 #[derive(Error, Debug)]
 pub enum YukiError {
-    #[error("Failed to read {file}: {source}")]
-    ReadError {
-        file: String,
-        source: std::io::Error,
-    },
-
     #[error("Failed to parse PE file: {0}")]
     PeParseError(String),
 
