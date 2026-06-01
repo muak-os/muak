@@ -208,14 +208,14 @@ lint *pkgs: format
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
             if [ "$pkg" = "stub" ]; then
-                cargo +nightly clippy --target {{ arch }}-unknown-uefi --features uefi -p stub
+                cargo +nightly clippy --all-targets --features uefi -p stub
             else
-                cargo clippy --target {{ arch }}-unknown-linux-musl -p "$pkg"
+                cargo clippy --all-targets -p "$pkg"
             fi
         done
     else
-        cargo clippy --target {{ arch }}-unknown-linux-musl
-        cargo +nightly clippy --target {{ arch }}-unknown-uefi --features uefi -p stub
+        cargo clippy --all-targets
+        cargo +nightly clippy --all-targets --features uefi -p stub
     fi
 
 # Run tests (e.g., just test or just test yuki koci)
