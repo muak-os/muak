@@ -268,6 +268,7 @@ start: (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
 [arg("missing", long="missing", value="--show-missing-lines")]
 [script]
 coverage missing="" *pkgs:
+    cargo llvm-cov clean --workspace
     just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
 
 # Check kernel config, cmdline & sysctl against KSPP security hardening recommendations
