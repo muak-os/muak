@@ -193,7 +193,63 @@ oci *pkgs:
         exit 1
     fi
     for pkg in $pkgs; do
-        just _oci-build "$pkg"
+        case "$pkg" in
+            kernel)
+                printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
+                just kernel
+                ;;
+            installer)
+                printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
+                just installer --prod
+                ;;
+            cli)
+                printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
+                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
+                    --tag {{ registry }}/muakctl:{{ tag }} \
+                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
+                    --file cli/Dockerfile \
+                    .
+                {{ push_cmd }} "{{ registry }}/muakctl:{{ tag }}"
+                if [ "{{ latest }}" = "true" ]; then
+                    {{ push_cmd }} "{{ registry }}/muakctl:latest"
+                fi
+                ;;
+            tools)
+                printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
+                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
+                    --tag {{ registry }}/tools:{{ tag }} \
+                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
+                    --file tools/Dockerfile \
+                    .
+                {{ push_cmd }} "{{ registry }}/tools:{{ tag }}"
+                if [ "{{ latest }}" = "true" ]; then
+                    {{ push_cmd }} "{{ registry }}/tools:latest"
+                fi
+                ;;
+            *)
+                dockerfile=""
+                for dir in core services tools pkgs; do
+                    if [ -f "$dir/$pkg/Dockerfile" ]; then
+                        dockerfile="$dir/$pkg/Dockerfile"
+                        break
+                    fi
+                done
+                if [ -z "$dockerfile" ]; then
+                    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in core/, services/, tools/, or pkgs/\n"
+                    exit 1
+                fi
+                printf "{{ cyan }}Building OCI:{{ reset }} $pkg (push={{ push }}, latest={{ latest }})\n"
+                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
+                    --tag {{ registry }}/pkgs/$pkg:{{ tag }} \
+                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/$pkg:latest" || echo "") \
+                    --file "$dockerfile" \
+                    .
+                {{ push_cmd }} "{{ registry }}/pkgs/$pkg:{{ tag }}"
+                if [ "{{ latest }}" = "true" ]; then
+                    {{ push_cmd }} "{{ registry }}/pkgs/$pkg:latest"
+                fi
+                ;;
+        esac
     done
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -362,63 +418,3 @@ _test-run runner label *pkgs:
         {{ runner }} -E 'not package(e2e)'
     fi
 
-[private]
-[script]
-_oci-build pkg:
-    case "{{ pkg }}" in
-        kernel)
-            printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            just kernel
-            ;;
-        installer)
-            printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            just installer --prod
-            ;;
-        cli)
-            printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                --tag {{ registry }}/muakctl:{{ tag }} \
-                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
-                --file cli/Dockerfile \
-                .
-            {{ push_cmd }} "{{ registry }}/muakctl:{{ tag }}"
-            if [ "{{ latest }}" = "true" ]; then
-                {{ push_cmd }} "{{ registry }}/muakctl:latest"
-            fi
-            ;;
-        tools)
-            printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                --tag {{ registry }}/tools:{{ tag }} \
-                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
-                --file tools/Dockerfile \
-                .
-            {{ push_cmd }} "{{ registry }}/tools:{{ tag }}"
-            if [ "{{ latest }}" = "true" ]; then
-                {{ push_cmd }} "{{ registry }}/tools:latest"
-            fi
-            ;;
-        *)
-            dockerfile=""
-            for dir in core services tools pkgs; do
-                if [ -f "$dir/{{ pkg }}/Dockerfile" ]; then
-                    dockerfile="$dir/{{ pkg }}/Dockerfile"
-                    break
-                fi
-            done
-            if [ -z "$dockerfile" ]; then
-                printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for {{ pkg }} not found in core/, services/, tools/, or pkgs/\n"
-                exit 1
-            fi
-            printf "{{ cyan }}Building OCI:{{ reset }} {{ pkg }} (push={{ push }}, latest={{ latest }})\n"
-            {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
-                $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/{{ pkg }}:latest" || echo "") \
-                --file "$dockerfile" \
-                .
-            {{ push_cmd }} "{{ registry }}/pkgs/{{ pkg }}:{{ tag }}"
-            if [ "{{ latest }}" = "true" ]; then
-                {{ push_cmd }} "{{ registry }}/pkgs/{{ pkg }}:latest"
-            fi
-            ;;
-    esac
