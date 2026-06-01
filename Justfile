@@ -38,7 +38,11 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
-push_arg := if container_runtime == "podman" { "" } else { "--push=" + push }
+push_cmd := if push == "true" {
+    if container_runtime == "podman" { "podman push --tls-verify=false" } else { "docker push" }
+} else {
+    "true"
+}
 platform := "linux/" + oci_arch
 progress := env_var_or_default("PROGRESS", "auto")
 source_date_epoch := env_var_or_default("SOURCE_DATE_EPOCH", "0")
@@ -66,9 +70,9 @@ kernel:
     @printf "{{ cyan }}Building kernel{{ reset }}\n"
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
         --tag {{ registry }}/kernel:{{ tag }} \
-        {{ push_arg }} \
         --file core/kernel/Dockerfile \
         .
+    {{ push_cmd }} "{{ registry }}/kernel:{{ tag }}"
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
 [arg("release", long="release", value="--release")]
@@ -112,14 +116,14 @@ installer prod="false":
             pkg_args+=(--build-arg "pkg-$pkg={{ registry }}/pkgs/$pkg:{{ tag }}")
         done
     fi
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} {{ push_arg }} \
+    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
         --build-context services=. \
         --build-arg TOOLS={{ tools }} \
         "${pkg_args[@]}" \
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
         .
-    just _podman-push "{{ registry }}/installer:{{ tag }}"
+    {{ push_cmd }} "{{ registry }}/installer:{{ tag }}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Extract an OCI image filesystem to local artifacts
@@ -360,13 +364,6 @@ _test-run runner label *pkgs:
 
 [private]
 [script]
-_podman-push image:
-    if [ "{{ push }}" = "true" ] && [ "{{ container_runtime }}" = "podman" ]; then
-        podman push "{{ image }}" --tls-verify=false
-    fi
-
-[private]
-[script]
 _oci-build pkg:
     case "{{ pkg }}" in
         kernel)
@@ -382,12 +379,11 @@ _oci-build pkg:
             {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/muakctl:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
-                {{ push_arg }} \
                 --file cli/Dockerfile \
                 .
-            just _podman-push "{{ registry }}/muakctl:{{ tag }}"
+            {{ push_cmd }} "{{ registry }}/muakctl:{{ tag }}"
             if [ "{{ latest }}" = "true" ]; then
-                just _podman-push "{{ registry }}/muakctl:latest"
+                {{ push_cmd }} "{{ registry }}/muakctl:latest"
             fi
             ;;
         tools)
@@ -395,12 +391,11 @@ _oci-build pkg:
             {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/tools:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
-                {{ push_arg }} \
                 --file tools/Dockerfile \
                 .
-            just _podman-push "{{ registry }}/tools:{{ tag }}"
+            {{ push_cmd }} "{{ registry }}/tools:{{ tag }}"
             if [ "{{ latest }}" = "true" ]; then
-                just _podman-push "{{ registry }}/tools:latest"
+                {{ push_cmd }} "{{ registry }}/tools:latest"
             fi
             ;;
         *)
@@ -419,12 +414,11 @@ _oci-build pkg:
             {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
                 --tag {{ registry }}/pkgs/{{ pkg }}:{{ tag }} \
                 $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/{{ pkg }}:latest" || echo "") \
-                {{ push_arg }} \
                 --file "$dockerfile" \
                 .
-            just _podman-push "{{ registry }}/pkgs/{{ pkg }}:{{ tag }}"
+            {{ push_cmd }} "{{ registry }}/pkgs/{{ pkg }}:{{ tag }}"
             if [ "{{ latest }}" = "true" ]; then
-                just _podman-push "{{ registry }}/pkgs/{{ pkg }}:latest"
+                {{ push_cmd }} "{{ registry }}/pkgs/{{ pkg }}:latest"
             fi
             ;;
     esac
