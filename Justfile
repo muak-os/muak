@@ -277,7 +277,7 @@ kspp:
     config="config-{{ oci_arch }}"
     cmdline="cmdline-{{ oci_arch }}.txt"
     sysctl="sysctl-{{ oci_arch }}.conf"
-    printf "{{ cyan }}Checking kernel confgi, cmdline & sysctl against KSPP recommendations{{ reset }}\n"
+    printf "{{ cyan }}Checking kernel config, cmdline & sysctl against KSPP recommendations{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
         -v {{ justfile_directory() }}/core/kernel/$cmdline:/cmdline:ro \
