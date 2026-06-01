@@ -43,11 +43,8 @@ push_cmd := if push == "true" {
 } else {
     "true"
 }
-platform := "linux/" + oci_arch
-progress := env_var_or_default("PROGRESS", "auto")
-source_date_epoch := env_var_or_default("SOURCE_DATE_EPOCH", "0")
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=" + platform + " --progress=" + progress + " --build-arg SOURCE_DATE_EPOCH=" + source_date_epoch + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
+common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
 # Colors
 
