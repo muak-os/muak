@@ -1,9 +1,13 @@
+//! Command-line interface for koci.
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use tokio::runtime::Builder;
+
+use crate::arch::Arch;
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -22,7 +26,7 @@ enum Command {
         image: String,
 
         #[arg(long)]
-        arch: Option<String>,
+        arch: Option<Arch>,
 
         #[arg(short, long)]
         output: PathBuf,
@@ -57,7 +61,7 @@ async fn run_command(command: Command) -> Result<()> {
                 .map(|path| read_key_file(path))
                 .transpose()?;
 
-            if let Some(target_arch) = arch.as_deref() {
+            if let Some(ref target_arch) = arch {
                 crate::pull_arch(&image, target_arch, &output, key_contents.as_deref())
                     .await
                     .context("Failed to pull image with specified architecture")?;
@@ -126,6 +130,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{Args, Command, read_key_file, run_from, run_with};
+    use crate::arch::Arch;
 
     #[test]
     fn pull_subcommand_parses_optional_arch_and_pubkey() {
@@ -156,7 +161,7 @@ mod tests {
                 output,
                 pub_key,
             } if image == "repo:test"
-                && arch.as_deref() == Some("arm64")
+                && matches!(arch, Some(Arch::Arm64))
                 && output == Path::new("out")
                 && pub_key.as_deref() == Some(Path::new("koci.pub"))
         ));

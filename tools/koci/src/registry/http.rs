@@ -1,6 +1,7 @@
 //! Shared HTTP/HTTPS client and low-level request helpers for OCI registry communication.
 
 use core::result::Result as CoreResult;
+use core::time::Duration;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
@@ -12,7 +13,7 @@ use hyper_util::rt::TokioExecutor;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::time::timeout;
 
-const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
 
 use crate::error::{KociError, Result};
 use crate::registry::USER_AGENT;
@@ -95,9 +96,9 @@ async fn send(
         req.map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))?;
     let resp = timeout(HTTP_TIMEOUT, client.request(req))
         .await
-        .map_err(|_| {
+        .map_err(|error| {
             KociError::NetworkError(format!(
-                "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}"
+                "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}: {error}"
             ))
         })?
         .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))?;
@@ -116,9 +117,9 @@ async fn send(
 pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
     timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
-        .map_err(|_| {
+        .map_err(|error| {
             KociError::NetworkError(format!(
-                "HTTP response body timed out after {HTTP_TIMEOUT:?}"
+                "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
             ))
         })?
         .map(http_body_util::Collected::to_bytes)

@@ -12,6 +12,7 @@ mod tests {
     use std::process::Command;
     use std::time::Instant;
 
+    use koci::arch::Arch;
     use koci::error::KociError;
     use serde_json::Value;
     use tempfile::TempDir;
@@ -152,7 +153,7 @@ mod tests {
         // ACT
         koci::pull_arch(
             &registry.reference("repo", "test"),
-            "arm64",
+            &Arch::Arm64,
             output.path(),
             None,
         )
@@ -186,7 +187,7 @@ mod tests {
         // ACT
         let error = koci::pull_arch(
             &registry.reference("repo", "test"),
-            "arm64",
+            &Arch::Arm64,
             output.path(),
             None,
         )

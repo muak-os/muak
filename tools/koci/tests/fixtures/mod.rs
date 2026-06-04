@@ -5,6 +5,7 @@ use std::io::{Error as IoError, ErrorKind};
 use base64ct::{Base64, Base64Url, Encoding as _};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use koci::arch;
 use ring::digest;
 use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
@@ -104,7 +105,7 @@ pub(crate) fn index_json(manifest_digests: &[&str]) -> Result<Vec<u8>, serde_jso
             json!({
                 "digest": digest,
                 "platform": {
-                    "architecture": koci::host_oci_arch(),
+                    "architecture": arch::host().as_str(),
                     "os": "linux",
                 }
             })

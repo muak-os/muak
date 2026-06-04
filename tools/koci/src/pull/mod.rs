@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::arch::Arch;
 use crate::error::Result;
 use crate::image::ImageReference;
 use crate::image::manifest;
@@ -15,13 +16,13 @@ pub(crate) mod layer;
 /// Pull an OCI image and extract all layers to `dest`.
 pub(crate) async fn pull_to_dir(
     reference: &str,
-    arch: &str,
+    arch: &Arch,
     dest: &Path,
     signature_key: Option<&str>,
 ) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = build_client();
-    let target_arch = arch.to_owned();
+    let target_arch = arch.as_str().to_owned();
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
     let manifest_url = manifest::build_url(&image_ref, &image_ref.manifest_ref);

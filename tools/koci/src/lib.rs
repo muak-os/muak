@@ -1,5 +1,6 @@
 //! OCI image pulling and manifest signing.
 
+pub mod arch;
 #[cfg(feature = "cli")]
 pub mod cli;
 mod digest;
@@ -13,27 +14,13 @@ use std::path::Path;
 
 use tokio::fs::create_dir_all;
 
-/// Return the OCI architecture string for the current host.
-#[must_use]
-pub fn host_oci_arch() -> &'static str {
-    normalize_host_arch(std::env::consts::ARCH)
-}
-
-fn normalize_host_arch(arch: &str) -> &str {
-    match arch {
-        "aarch64" => "arm64",
-        "x86_64" => "amd64",
-        other => other,
-    }
-}
-
 /// Pull an OCI image and extract it to a directory.
 ///
 /// # Errors
 ///
 /// Returns an error if the image cannot be fetched, verified, or extracted.
 pub async fn pull(reference: &str, output: &Path, pubkey_pem: Option<&str>) -> error::Result<()> {
-    pull_arch(reference, host_oci_arch(), output, pubkey_pem).await
+    pull_arch(reference, &arch::host(), output, pubkey_pem).await
 }
 
 /// Pull an OCI image for a specific architecture and extract it to a directory.
@@ -43,7 +30,7 @@ pub async fn pull(reference: &str, output: &Path, pubkey_pem: Option<&str>) -> e
 /// Returns an error if the output directory cannot be prepared or the image pull fails.
 pub async fn pull_arch(
     reference: &str,
-    arch: &str,
+    arch: &arch::Arch,
     output: &Path,
     pubkey_pem: Option<&str>,
 ) -> error::Result<()> {
@@ -74,31 +61,17 @@ mod tests {
         let output = workspace.path().join("nested/output");
 
         // ACT
-        let error = pull_arch("http://127.0.0.1:9/repo:test", "amd64", &output, None)
-            .await
-            .expect_err("pull should fail");
+        let error = pull_arch(
+            "http://127.0.0.1:9/repo:test",
+            &arch::Arch::Amd64,
+            &output,
+            None,
+        )
+        .await
+        .expect_err("pull should fail");
 
         // ASSERT
         assert!(output.is_dir());
         assert!(matches!(error, KociError::NetworkError(_)));
-    }
-
-    #[test]
-    fn normalize_host_arch_maps_known_architectures() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(normalize_host_arch("x86_64"), "amd64");
-        assert_eq!(normalize_host_arch("aarch64"), "arm64");
-    }
-
-    #[test]
-    fn normalize_host_arch_preserves_unknown_architectures() {
-        // ARRANGE
-        let arch = "riscv64";
-
-        // ACT
-        let normalized = normalize_host_arch(arch);
-
-        // ASSERT
-        assert_eq!(normalized, arch);
     }
 }

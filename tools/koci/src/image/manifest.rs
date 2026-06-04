@@ -62,6 +62,7 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::arch;
     use crate::image::{ImageReference, Platform};
     use crate::registry::http::build_client;
 
@@ -282,16 +283,16 @@ mod tests {
         let manifests = vec![
             descriptor(
                 "sha256:wrong-os",
-                Some(crate::host_oci_arch()),
+                Some(arch::host().as_str()),
                 Some("windows"),
             ),
-            descriptor("sha256:match", Some(crate::host_oci_arch()), Some("linux")),
+            descriptor("sha256:match", Some(arch::host().as_str()), Some("linux")),
             descriptor("sha256:wrong-arch", Some("arm64"), Some("linux")),
         ];
 
         // ACT
         let selected =
-            select_platform(&manifests, crate::host_oci_arch()).expect("select matching manifest");
+            select_platform(&manifests, arch::host().as_str()).expect("select matching manifest");
 
         // ASSERT
         assert_eq!(selected.digest, "sha256:match");
