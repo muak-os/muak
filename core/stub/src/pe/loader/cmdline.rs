@@ -36,5 +36,23 @@ pub(super) fn encode_ucs2(cmdline: &[u8]) -> Result<(*mut u8, u32)> {
         chunk.copy_from_slice(&[byte, 0]);
     }
 
+    let terminator = bytes
+        .get_mut(byte_size - size_of::<u16>()..byte_size)
+        .context("command line terminator slice out of bounds")?;
+    terminator.copy_from_slice(&0u16.to_le_bytes());
+
     Ok((ptr, load_options_size))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn encode_ucs2_accounts_for_utf16_nul_terminator_size() {
+        // ARRANGE
+        let cmdline = b"abc";
+        let byte_size = (cmdline.len() + 1) * size_of::<u16>();
+
+        // ACT & ASSERT
+        assert_eq!(byte_size, 8);
+    }
 }

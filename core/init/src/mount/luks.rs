@@ -126,4 +126,15 @@ mod tests {
             Some(key1.as_ref())
         );
     }
+
+    #[test]
+    fn parse_luks_key_from_cmdline_rejects_garbled_suffix() {
+        // ARRANGE
+        let key = b"secret-key-data";
+        let encoded = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key);
+        let cmdline = format!("quiet luks.key={}garbled splash", encoded);
+
+        // ACT & ASSERT
+        assert!(parse_luks_key_from_cmdline(&cmdline).is_none());
+    }
 }

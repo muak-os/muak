@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
@@ -39,33 +39,29 @@ pub(crate) fn mount_persistent() -> Result<bool> {
 }
 
 fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> Result<()> {
-    let luks_key = resolve_key(state_dev).or_else(|error| bail_maintenance(error.to_string()))?;
+    let luks_key = resolve_key(state_dev)?;
 
-    let state_device = if let Some(key) = luks_key.as_ref() {
-        luks2::open(state_dev, DM_STATE, key)
-            .with_context(|| format!("Failed to open LUKS device: {state_dev}"))?;
-        format!("/dev/mapper/{DM_STATE}")
-    } else {
-        state_dev.to_string()
+    let Some(key) = luks_key else {
+        bail!("No LUKS key available for installed STATE partition {state_dev}; TPM2 recovery unavailable and cmdline fallback missing or invalid");
     };
+
+    luks2::open(state_dev, DM_STATE, &key)
+        .with_context(|| format!("Failed to open LUKS device: {state_dev}"))?;
+    let state_device = format!("/dev/mapper/{DM_STATE}");
 
     mount_btrfs(&state_device, STATE_MOUNT)
         .with_context(|| format!("Failed to mount STATE partition: {state_dev}"))?;
 
     if !Path::new(STATE_CONFIG).exists() {
-        bail_maintenance("STATE partition is missing config.toml")?;
+        bail!("STATE partition is missing config.toml");
     }
 
     kmsg::info!("Mounted STATE partition at /run/state");
 
     if let Some(data_dev) = data_devices.first() {
-        let data_device = if let Some(key) = luks_key.as_ref() {
-            luks2::open(data_dev, DM_DATA, key)
-                .with_context(|| format!("Failed to open LUKS device: {data_dev}"))?;
-            format!("/dev/mapper/{DM_DATA}")
-        } else {
-            data_dev.to_string()
-        };
+        luks2::open(data_dev, DM_DATA, &key)
+            .with_context(|| format!("Failed to open LUKS device: {data_dev}"))?;
+        let data_device = format!("/dev/mapper/{DM_DATA}");
 
         mount_btrfs(&data_device, DATA_MOUNT)
             .with_context(|| format!("Failed to mount DATA partition: {data_dev}"))?;
@@ -106,10 +102,6 @@ fn try_unmount(target: &str) {
         Ok(()) | Err(rustix::io::Errno::NOENT | rustix::io::Errno::INVAL) => {}
         Err(error) => kmsg::warn!("Failed to unmount {}: {}", target, error),
     }
-}
-
-fn bail_maintenance<T>(message: impl Into<String>) -> Result<T> {
-    Err(anyhow::anyhow!(message.into()))
 }
 
 #[cfg(test)]
