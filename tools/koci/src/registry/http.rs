@@ -10,6 +10,9 @@ use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rustls::{ClientConfig, RootCertStore};
+use tokio::time::timeout;
+
+const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 use crate::error::{KociError, Result};
 use crate::registry::USER_AGENT;
@@ -90,9 +93,13 @@ async fn send(
 ) -> Result<Response<Incoming>> {
     let req =
         req.map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))?;
-    let resp = client
-        .request(req)
+    let resp = timeout(HTTP_TIMEOUT, client.request(req))
         .await
+        .map_err(|_| {
+            KociError::NetworkError(format!(
+                "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}"
+            ))
+        })?
         .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))?;
     if resp.status().is_success() {
         Ok(resp)
@@ -107,9 +114,13 @@ async fn send(
 
 /// Fully collect an HTTP response body into [`Bytes`].
 pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
-    resp.into_body()
-        .collect()
+    timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
+        .map_err(|_| {
+            KociError::NetworkError(format!(
+                "HTTP response body timed out after {HTTP_TIMEOUT:?}"
+            ))
+        })?
         .map(http_body_util::Collected::to_bytes)
         .map_err(|error| KociError::NetworkError(format!("Failed to read response body: {error}")))
 }
