@@ -1,0 +1,39 @@
+[package]
+name = "imager"
+description = "Deterministic image build pipeline"
+edition.workspace = true
+version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "imager"
+required-features = ["cli"]
+
+[dependencies]
+# Asynchronous
+tokio = { workspace = true, optional = true }
+
+# Cryptography
+ring = { workspace = true }
+
+# CLI
+clap = { workspace = true, optional = true }
+
+# Encoding
+serde = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
+
+[lints]
+workspace = true

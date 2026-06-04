@@ -15,6 +15,7 @@ members = [
     "services/timed",
     "services/vmd",
 
+    "tools/imager",
     "tools/koci",
     "tools/miso",
     "tools/ramune",
@@ -48,6 +49,7 @@ categories = ["os"]
 [workspace.dependencies]
 # Internal crates
 
+imager = { path = "tools/imager", default-features = false }
 koci = { path = "tools/koci", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
@@ -244,6 +246,8 @@ unused_trait_names = "warn"
 unwrap_used = "deny"
 verbose_file_reads = "warn"
 wildcard_enum_match_arm = "warn"
+
+multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencies
 
 [workspace.lints.rust]
 non_ascii_idents = "deny"
