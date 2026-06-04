@@ -22,6 +22,25 @@ mod tests {
         }
     }
 
+    fn extra_file<'a>(name: &str, path: &'a Path, compress: bool) -> ramune::ExtraFile<'a> {
+        ramune::ExtraFile {
+            name: name.to_owned(),
+            path,
+            compress,
+        }
+    }
+
+    fn extend_config<'a>(
+        base: &'a Path,
+        extra_files: &'a [ramune::ExtraFile<'a>],
+    ) -> ramune::ExtendConfig<'a> {
+        ramune::ExtendConfig {
+            base,
+            extra_files,
+            compression_level: 19,
+        }
+    }
+
     #[test]
     fn create_writes_expected_archive_entries() {
         // ARRANGE
@@ -101,31 +120,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extend_without_extensions_copies_base_image() {
+    async fn extend_without_extra_files_copies_base_image() {
         // ARRANGE
         let env = TestEnv::new();
         let base = env.write("base.img", b"base-initramfs");
         let output = env.path("copy.img");
 
-        // ACT
-        let extensions: [(String, std::path::PathBuf); 0] = [];
-        let config = ramune::ExtendConfig {
-            base: base.as_path(),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        };
+        let config = extend_config(base.as_path(), &[]);
 
+        // ACT
         ramune::extend(&config, output.as_path())
             .await
-            .expect("extend should succeed without extensions");
+            .expect("extend should succeed without extra files");
 
         // ASSERT
         assert_eq!(fs::read(&output).expect("read output"), b"base-initramfs");
     }
 
     #[tokio::test]
-    async fn extend_with_extensions_appends_named_archive() {
+    async fn extend_with_compress_dir_appends_named_archive() {
         // ARRANGE
         let env = TestEnv::new();
         let base_bytes = b"base-initramfs";
@@ -133,15 +146,14 @@ mod tests {
         let output = env.path("extended.img");
         let extension = env.write_extension("test-ext", b"hello extension");
 
-        // ACT
-        let extensions = [("test-ext".to_owned(), extension.clone())];
-        let config = ramune::ExtendConfig {
-            base: base.as_path(),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        };
+        let extras = [extra_file(
+            "extensions/test-ext.erofs",
+            extension.as_path(),
+            true,
+        )];
+        let config = extend_config(base.as_path(), &extras);
 
+        // ACT
         ramune::extend(&config, output.as_path())
             .await
             .expect("extend should succeed with extensions");
@@ -152,7 +164,7 @@ mod tests {
 
         let entries = decode_extension_archive(&output, base_bytes.len());
         let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
-        assert_eq!(names, ["extensions", "extensions/test-ext.erofs"]);
+        assert_eq!(names, ["extensions/test-ext.erofs"]);
 
         let extension_entry = entries
             .iter()
@@ -178,15 +190,14 @@ mod tests {
         let image = env.write("base.img", base_bytes);
         let extension = env.write_extension("in-place-ext", b"payload");
 
-        // ACT
-        let extensions = [("in-place-ext".to_owned(), extension)];
-        let config = ramune::ExtendConfig {
-            base: image.as_path(),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        };
+        let extras = [extra_file(
+            "extensions/in-place-ext.erofs",
+            extension.as_path(),
+            true,
+        )];
+        let config = extend_config(image.as_path(), &extras);
 
+        // ACT
         ramune::extend(&config, image.as_path())
             .await
             .expect("in-place extend should succeed");
@@ -209,15 +220,9 @@ mod tests {
         let env = TestEnv::new();
         let output = env.path("extended.img");
 
-        // ACT
-        let extensions: [(String, std::path::PathBuf); 0] = [];
-        let config = ramune::ExtendConfig {
-            base: Path::new("/nonexistent/base.img"),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        };
+        let config = extend_config(Path::new("/nonexistent/base.img"), &[]);
 
+        // ACT
         let result = ramune::extend(&config, output.as_path()).await;
 
         // ASSERT

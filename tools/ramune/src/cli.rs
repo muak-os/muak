@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
-use crate::{CreateConfig, ExtendConfig};
+use crate::{CreateConfig, ExtendConfig, ExtraFile};
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -42,18 +42,41 @@ enum Command {
         #[arg(short, long)]
         base: PathBuf,
 
-        #[arg(short, long)]
-        extension: Vec<PathBuf>,
+        #[arg(
+            short = 'e',
+            long = "extra",
+            value_name = "SRC:DEST[:COMPRESS]",
+            value_parser = parse_extra
+        )]
+        extra: Vec<(PathBuf, String, bool)>,
 
         #[arg(short, long)]
         output: PathBuf,
 
         #[arg(long, default_value_t = crate::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
         compression_level: i32,
-
-        #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
-        extension_compression_level: i32,
     },
+}
+
+fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, String, bool), String> {
+    let mut parts = raw.split(':');
+    let src = parts.next().ok_or("missing source path")?;
+    let dest = parts
+        .next()
+        .ok_or_else(|| format!("expected SRC:DEST[:COMPRESS], got: {raw}"))?;
+    let compress = match parts.next() {
+        None | Some("") => false,
+        Some(flag) => matches!(flag, "true" | "1" | "yes" | "compress"),
+    };
+
+    if src.is_empty() {
+        return Err("source path must not be empty".to_owned());
+    }
+    if dest.is_empty() {
+        return Err("destination name must not be empty".to_owned());
+    }
+
+    Ok((PathBuf::from(src), dest.to_owned(), compress))
 }
 
 /// Runs the CLI from a caller-provided argument iterator.
@@ -70,6 +93,7 @@ where
     run_command(args.command).await
 }
 
+/// Like `run_from` but returns an exit code (0 for success, 1 for error).
 pub async fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
@@ -84,22 +108,10 @@ where
     }
 }
 
+/// Runs the CLI from the process's `std::env::args_os`.
 #[must_use]
 pub async fn run() -> i32 {
     run_with(std::env::args_os()).await
-}
-
-fn initramfs_size(output: &std::path::Path) -> Result<u64> {
-    Ok(std::fs::metadata(output)
-        .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
-        .len())
-}
-
-fn extension_name(path: &std::path::Path) -> String {
-    match path.file_name() {
-        Some(name) => name.to_string_lossy().into_owned(),
-        None => path.display().to_string(),
-    }
 }
 
 async fn run_command(command: Command) -> Result<()> {
@@ -145,21 +157,23 @@ async fn run_command(command: Command) -> Result<()> {
         }
         Command::Extend {
             base,
-            extension,
+            extra,
             output,
             compression_level,
-            extension_compression_level,
         } => {
-            let extensions: Vec<(String, PathBuf)> = extension
+            let entries: Vec<ExtraFile<'_>> = extra
                 .iter()
-                .map(|path| (extension_name(path), path.clone()))
+                .map(|entry| ExtraFile {
+                    name: entry.1.clone(),
+                    path: &entry.0,
+                    compress: entry.2,
+                })
                 .collect();
 
             let config = ExtendConfig {
                 base: &base,
-                extensions: &extensions,
+                extra_files: &entries,
                 compression_level,
-                extension_compression_level,
             };
 
             crate::extend(&config, &output)
@@ -171,6 +185,12 @@ async fn run_command(command: Command) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn initramfs_size(output: &std::path::Path) -> Result<u64> {
+    Ok(std::fs::metadata(output)
+        .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
+        .len())
 }
 
 #[cfg(test)]
@@ -193,5 +213,93 @@ mod tests {
                 .to_string()
                 .contains("Failed to read initramfs metadata: /nonexistent/initramfs.img")
         );
+    }
+
+    #[test]
+    fn parse_extra_plain_file() {
+        // ARRANGE
+        let input = "/tmp/profile.toml:profile.toml";
+
+        // ACT
+        let (path, name, compress) = parse_extra(input).expect("parse");
+
+        // ASSERT
+        assert_eq!(path, PathBuf::from("/tmp/profile.toml"));
+        assert_eq!(name, "profile.toml");
+        assert!(!compress);
+    }
+
+    #[test]
+    fn parse_extra_compress() {
+        // ARRANGE
+        let input = "/tmp/ext-dir:extensions/qemu.erofs:true";
+
+        // ACT
+        let (path, name, compress) = parse_extra(input).expect("parse");
+
+        // ASSERT
+        assert_eq!(path, PathBuf::from("/tmp/ext-dir"));
+        assert_eq!(name, "extensions/qemu.erofs");
+        assert!(compress);
+    }
+
+    #[test]
+    fn parse_extra_compress_with_1() {
+        // ARRANGE
+        let input = "/tmp/dir:ext.erofs:1";
+
+        // ACT
+        let (_, _, compress) = parse_extra(input).expect("parse");
+
+        // ASSERT
+        assert!(compress);
+    }
+
+    #[test]
+    fn parse_extra_no_compress_flag() {
+        // ARRANGE
+        let input = "/tmp/data:data.txt";
+
+        // ACT
+        let (_, _, compress) = parse_extra(input).expect("parse");
+
+        // ASSERT
+        assert!(!compress);
+    }
+
+    #[test]
+    fn parse_extra_missing_dest() {
+        // ARRANGE
+        let input = "/tmp/file";
+
+        // ACT
+        let err = parse_extra(input).expect_err("should fail");
+
+        // ASSERT
+        assert!(err.contains("expected SRC:DEST"));
+    }
+
+    #[test]
+    fn parse_extra_empty_src() {
+        // ARRANGE
+        let input = ":dest";
+
+        // ACT
+        let err = parse_extra(input).expect_err("should fail");
+
+        // ASSERT
+        assert!(err.contains("source path must not be empty"));
+    }
+
+    #[test]
+    fn parse_extra_empty_dest() {
+        // ARRANGE
+        let input = "/tmp/src:";
+
+        // ACT
+        let err = parse_extra(input).expect_err("should fail");
+
+        // ASSERT
+        assert!(err.contains("destination name must not be empty"));
     }
 }

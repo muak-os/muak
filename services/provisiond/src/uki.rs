@@ -165,16 +165,19 @@ async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) 
     }
 
     let ext_dirs = pull_extensions(extensions).await?;
-    let ext_pairs: Vec<(String, PathBuf)> = ext_dirs
+    let extra_files: Vec<ramune::ExtraFile<'_>> = ext_dirs
         .iter()
-        .map(|(name, d)| (name.clone(), d.path().to_path_buf()))
+        .map(|(name, d)| ramune::ExtraFile {
+            name: format!("extensions/{name}.erofs"),
+            path: d.path(),
+            compress: true,
+        })
         .collect();
 
     let config = ramune::ExtendConfig {
         base: &base_initramfs,
-        extensions: &ext_pairs,
+        extra_files: &extra_files,
         compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        extension_compression_level: ramune::EROFS_DEFAULT_ZSTD_COMPRESSION_LEVEL,
     };
 
     ramune::extend(&config, output)

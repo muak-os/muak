@@ -31,8 +31,8 @@ pub enum RamuneError {
     #[error("Invalid compression level {level}; expected 0 or {min}..={max}")]
     InvalidCompressionLevel { level: i32, min: i32, max: i32 },
 
-    #[error("Extension worker task failed: {0}")]
-    ExtensionTaskError(#[source] JoinError),
+    #[error("Worker task failed: {0}")]
+    TaskError(#[source] JoinError),
 
     #[error("Failed to create EROFS image: {0}")]
     ErofsError(String),

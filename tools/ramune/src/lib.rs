@@ -1,4 +1,4 @@
-//! Ramune: initramfs builder for creating base images and appending extensions.
+//! Ramune: initramfs builder for creating base images and appending extra files.
 
 pub mod builder;
 #[cfg(feature = "cli")]
@@ -8,14 +8,14 @@ mod cpio;
 mod erofs;
 pub mod error;
 pub mod extender;
-mod extension;
+mod extra;
 
 pub type CreateConfig<'a> = builder::CreateConfig<'a>;
 pub type RamuneError = error::RamuneError;
 pub type ExtendConfig<'a> = extender::ExtendConfig<'a>;
+pub type ExtraFile<'a> = extender::ExtraFile<'a>;
 
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
-pub const EROFS_DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL;
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
 ///
@@ -27,12 +27,12 @@ pub fn create(config: &CreateConfig<'_>, output: &std::path::Path) -> error::Res
     builder::create(config, output)
 }
 
-/// Extends an initramfs image with an appended compressed EROFS extensions archive.
+/// Extends an initramfs image by appending a compressed archive of extra files.
 ///
 /// # Errors
 ///
-/// Returns an error when reading the base image, processing extensions, compressing the
-/// appended archive, or writing the output image fails.
+/// Returns an error when validation fails, reading the base image or extra files fails,
+/// compressing the appended archive fails, or writing the output image fails.
 pub async fn extend(config: &ExtendConfig<'_>, output: &std::path::Path) -> error::Result<()> {
     extender::extend(config, output).await
 }

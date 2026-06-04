@@ -258,8 +258,11 @@ mod tests {
                 "extend",
                 "--base",
                 base.to_str().expect("base path"),
-                "--extension",
-                extension.to_str().expect("extension path"),
+                "--extra",
+                &format!(
+                    "{}:extensions/cli-ext.erofs:true",
+                    extension.to_str().expect("extension path")
+                ),
                 "--output",
                 output.to_str().expect("output path"),
             ])
@@ -291,16 +294,13 @@ mod tests {
     }
 
     #[test]
-    fn cli_extend_uses_display_name_when_extension_has_no_file_name() {
+    fn cli_extend_plain_file() {
         // ARRANGE
         let env = TestEnv::new();
         let base_bytes = b"base-initramfs";
         let base = env.write("base.img", base_bytes);
-        let extension = env.path("parent").join("child").join("..");
+        let profile = env.write("profile.toml", b"[overlay]\nname = \"test\"\n");
         let output = env.path("extended.img");
-
-        std::fs::create_dir_all(env.path("parent").join("child")).expect("create extension dir");
-        std::fs::write(env.path("parent").join("payload.txt"), b"payload").expect("write payload");
 
         // ACT
         let process_output = Command::new(ramune_bin())
@@ -308,8 +308,8 @@ mod tests {
                 "extend",
                 "--base",
                 base.to_str().expect("base path"),
-                "--extension",
-                extension.to_str().expect("extension path"),
+                "--extra",
+                &format!("{}:profile.toml", profile.to_str().expect("profile path")),
                 "--output",
                 output.to_str().expect("output path"),
             ])
@@ -319,18 +319,21 @@ mod tests {
         // ASSERT
         assert!(
             process_output.status.success(),
-            "ramune extend should exit successfully when extension has no file name"
+            "ramune extend with plain file should exit successfully"
         );
+        let image = fs::read(&output).expect("read output");
+        assert!(image.starts_with(base_bytes));
+
         let entries = decode_extension_archive(&output, base_bytes.len());
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.name == format!("extensions/{}.erofs", extension.display()))
-        );
+        let entry = entries
+            .iter()
+            .find(|entry| entry.name == "profile.toml")
+            .expect("missing profile entry");
+        assert_eq!(entry.data, b"[overlay]\nname = \"test\"\n");
     }
 
     #[test]
-    fn cli_extend_accepts_separate_extension_compression_level() {
+    fn cli_extend_invalid_compression_level_exits_with_error() {
         // ARRANGE
         let env = TestEnv::new();
         let base = env.write("base.img", b"base-initramfs");
@@ -343,24 +346,27 @@ mod tests {
                 "extend",
                 "--base",
                 base.to_str().expect("base path"),
-                "--extension",
-                extension.to_str().expect("extension path"),
+                "--extra",
+                &format!(
+                    "{}:extensions/cli-ext.erofs:true",
+                    extension.to_str().expect("extension path")
+                ),
                 "--compression-level",
-                "19",
-                "--extension-compression-level",
-                "7",
+                &i32::MAX.to_string(),
                 "--output",
                 output.to_str().expect("output path"),
             ])
             .output()
-            .expect("failed to run ramune extend with separate compression levels");
+            .expect("failed to run ramune extend with invalid compression level");
 
         // ASSERT
         assert!(
-            process_output.status.success(),
-            "ramune extend should accept separate extension compression level"
+            !process_output.status.success(),
+            "ramune extend should fail for invalid compression level"
         );
-        assert!(output.exists(), "output image should exist");
+        assert!(
+            String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level")
+        );
     }
 
     #[test]
@@ -392,11 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn cli_extend_invalid_extension_compression_level_exits_with_error() {
+    fn cli_extend_malformed_extra_file_errors() {
         // ARRANGE
         let env = TestEnv::new();
         let base = env.write("base.img", b"base-initramfs");
-        let extension = env.write_extension("cli-ext", b"payload");
         let output = env.path("extended.img");
 
         // ACT
@@ -405,23 +410,18 @@ mod tests {
                 "extend",
                 "--base",
                 base.to_str().expect("base path"),
-                "--extension",
-                extension.to_str().expect("extension path"),
-                "--extension-compression-level",
-                &i32::MAX.to_string(),
+                "--extra",
+                "/tmp/src",
                 "--output",
                 output.to_str().expect("output path"),
             ])
             .output()
-            .expect("failed to run ramune extend with invalid extension compression level");
+            .expect("failed to run ramune extend");
 
         // ASSERT
         assert!(
             !process_output.status.success(),
-            "ramune extend should fail for invalid extension compression level"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level")
+            "ramune extend should fail for malformed extra file"
         );
     }
 
@@ -579,36 +579,11 @@ mod tests {
             "extend",
             "--base",
             base.to_str().expect("base path"),
-            "--extension",
-            extension.to_str().expect("extension path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .await
-        .expect("run_from extend");
-
-        // ASSERT
-        assert!(output.exists());
-    }
-
-    #[tokio::test]
-    async fn run_with_extend_accepts_extension_compression_level() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let base = env.write("base.img", b"base");
-        let extension = env.write_extension("run-with-ext", b"payload");
-        let output = env.path("run-with-extended.img");
-
-        // ACT
-        cli::run_from([
-            "ramune",
-            "extend",
-            "--base",
-            base.to_str().expect("base path"),
-            "--extension",
-            extension.to_str().expect("extension path"),
-            "--extension-compression-level",
-            "7",
+            "--extra",
+            &format!(
+                "{}:extensions/run-with-ext.erofs:true",
+                extension.to_str().expect("extension path")
+            ),
             "--output",
             output.to_str().expect("output path"),
         ])

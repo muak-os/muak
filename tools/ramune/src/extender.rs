@@ -1,4 +1,4 @@
-//! Initramfs extension by appending a compressed archive of EROFS images.
+//! Initramfs extension by appending a compressed archive of extra files.
 
 use std::io::Write;
 use std::path::Path;
@@ -9,30 +9,41 @@ use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use crate::compress;
 use crate::cpio::{CpioEntry, write_archive as write_cpio_archive};
 use crate::error::{RamuneError, Result};
-use crate::extension::process_all;
+use crate::extra::process_extra_files;
 
-/// Settings for appending extension archives to an initramfs image.
+/// Settings for appending a compressed extrafile archive to an initramfs image.
 pub struct ExtendConfig<'a> {
     /// Path to the base initramfs image to extend.
     pub base: &'a Path,
-
-    /// List of (extension name, extension directory) pairs to include in the appended archive.
-    pub extensions: &'a [(String, std::path::PathBuf)],
-
-    /// Zstd compression level for the outer appended extensions archive.
+    /// Entries to include in the appended archive.
+    pub extra_files: &'a [ExtraFile<'a>],
+    /// Zstd compression level for the appended archive and any EROFS conversion.
     pub compression_level: i32,
-
-    /// Zstd compression level for each generated extension EROFS image.
-    pub extension_compression_level: i32,
 }
 
-/// Builds an initramfs by appending a zstd-compressed EROFS extension archive to a base image.
+/// A single entry to append to the initramfs.
+pub struct ExtraFile<'a> {
+    /// Destination path inside the appended CPIO archive.
+    pub name: String,
+    /// Source path on disk.
+    pub path: &'a Path,
+    /// When true, convert the source to a zstd-compressed EROFS blob before packing.
+    pub compress: bool,
+}
+
+/// Builds an initramfs by appending a zstd-compressed archive of extra files to a base image.
 ///
 /// # Errors
 ///
-/// Returns an error when reading the base image, processing extensions, compressing the
-/// appended archive, or writing the output image fails.
+/// Returns an error when validation of extra files fails, the base image cannot be read,
+/// extra files cannot be processed, compression fails, or the output cannot be written.
 pub async fn extend(config: &ExtendConfig<'_>, output: &Path) -> Result<()> {
+    let mut sorted: Vec<&ExtraFile<'_>> = config.extra_files.iter().collect();
+    sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    let sorted = sorted.as_slice();
+
+    validate_extra_files(sorted)?;
+
     let same_file = is_same_file(config.base, output).await;
 
     if !same_file {
@@ -44,12 +55,51 @@ pub async fn extend(config: &ExtendConfig<'_>, output: &Path) -> Result<()> {
             })?;
     }
 
-    if config.extensions.is_empty() {
+    if sorted.is_empty() {
         return Ok(());
     }
 
-    let archive = build_extensions_archive(config).await?;
+    let archive = build_extra_archive(sorted, config.compression_level).await?;
     append_to_file(output, &archive).await
+}
+
+fn validate_extra_files(extra_files: &[&ExtraFile<'_>]) -> Result<()> {
+    let mut prev: Option<&str> = None;
+
+    for entry in extra_files {
+        if entry.name.is_empty() {
+            return Err(RamuneError::CpioError(
+                "extra file name must not be empty".to_owned(),
+            ));
+        }
+
+        if entry.name.starts_with('/') {
+            return Err(RamuneError::CpioError(format!(
+                "extra file name must not be absolute: {}",
+                entry.name
+            )));
+        }
+
+        if entry.name.contains("..") {
+            return Err(RamuneError::CpioError(format!(
+                "extra file name must not contain ..: {}",
+                entry.name
+            )));
+        }
+
+        if let Some(previous_name) = prev
+            && entry.name.as_str() == previous_name
+        {
+            return Err(RamuneError::CpioError(format!(
+                "duplicate extra file name: {}",
+                entry.name
+            )));
+        }
+
+        prev = Some(&entry.name);
+    }
+
+    Ok(())
 }
 
 async fn is_same_file(first: &Path, second: &Path) -> bool {
@@ -59,18 +109,21 @@ async fn is_same_file(first: &Path, second: &Path) -> bool {
     }
 }
 
-async fn build_extensions_archive(config: &ExtendConfig<'_>) -> Result<Vec<u8>> {
-    let files = process_all(config.extensions, config.extension_compression_level).await?;
-    let entries = extension_archive_entries(&files);
-    write_compressed_extensions_archive(Vec::new(), &entries, config.compression_level)
+async fn build_extra_archive(
+    extra_files: &[&ExtraFile<'_>],
+    compression_level: i32,
+) -> Result<Vec<u8>> {
+    let files = process_extra_files(extra_files, compression_level).await?;
+    let entries = extra_archive_entries(&files);
+    write_compressed_extra_archive(Vec::new(), &entries, compression_level)
 }
 
-fn write_compressed_extensions_archive<W: Write>(
+fn write_compressed_extra_archive<W: Write>(
     writer: W,
     entries: &[CpioEntry<'_>],
     compression_level: i32,
 ) -> Result<W> {
-    write_compressed_extensions_archive_with(
+    write_compressed_extra_archive_with(
         writer,
         entries,
         compression_level,
@@ -78,7 +131,7 @@ fn write_compressed_extensions_archive<W: Write>(
     )
 }
 
-fn write_compressed_extensions_archive_with<W, WriteArchive>(
+fn write_compressed_extra_archive_with<W, WriteArchive>(
     writer: W,
     entries: &[CpioEntry<'_>],
     compression_level: i32,
@@ -96,19 +149,15 @@ where
     }
 }
 
-fn extension_archive_entries(files: &[(String, Vec<u8>)]) -> Vec<CpioEntry<'_>> {
-    let mut entries = Vec::with_capacity(files.len().saturating_add(1));
-    entries.push(CpioEntry {
-        path: "extensions",
-        mode: 0o040_755,
-        data: &[],
-    });
-    entries.extend(files.iter().map(|file| CpioEntry {
-        path: file.0.as_str(),
-        mode: 0o100_644,
-        data: file.1.as_slice(),
-    }));
-    entries
+fn extra_archive_entries(files: &[(String, Vec<u8>)]) -> Vec<CpioEntry<'_>> {
+    files
+        .iter()
+        .map(|entry| CpioEntry {
+            path: entry.0.as_str(),
+            mode: 0o100_644,
+            data: &entry.1,
+        })
+        .collect()
 }
 
 async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
@@ -213,19 +262,20 @@ mod tests {
         }
     }
 
-    fn extension_entries() -> Vec<CpioEntry<'static>> {
-        vec![
-            CpioEntry {
-                path: "extensions",
-                mode: 0o040_755,
-                data: &[],
-            },
-            CpioEntry {
-                path: "extensions/test-ext.erofs",
-                mode: 0o100_644,
-                data: b"payload",
-            },
-        ]
+    fn extra_entries() -> Vec<CpioEntry<'static>> {
+        vec![CpioEntry {
+            path: "extensions/test-ext.erofs",
+            mode: 0o100_644,
+            data: b"payload",
+        }]
+    }
+
+    fn extra<'a>(name: &str, path: &'a Path, compress: bool) -> ExtraFile<'a> {
+        ExtraFile {
+            name: name.to_owned(),
+            path,
+            compress,
+        }
     }
 
     fn fail_cpio_archive<W>(_: &mut zstd::Encoder<'static, W>, _: &[CpioEntry<'_>]) -> Result<()>
@@ -239,12 +289,15 @@ mod tests {
     fn counting_failing_writer_success_paths() {
         use std::io::Write as _;
 
+        // ARRANGE
         let mut writer = CountingFailingWriter {
             fail_on_call: usize::MAX,
             calls: 0,
         };
 
+        // ACT
         assert_eq!(writer.write(b"x").expect("write"), 1);
+        // ASSERT
         writer.flush().expect("flush");
     }
 
@@ -252,9 +305,12 @@ mod tests {
     async fn async_write_write_failing_writer_supports_flush_and_shutdown() {
         use tokio::io::AsyncWriteExt as _;
 
+        // ARRANGE
         let mut writer = AsyncWriteWriteFailingWriter;
 
+        // ACT
         writer.flush().await.expect("flush");
+        // ASSERT
         writer.shutdown().await.expect("shutdown");
     }
 
@@ -262,34 +318,37 @@ mod tests {
     async fn async_write_flush_failing_writer_supports_shutdown() {
         use tokio::io::AsyncWriteExt as _;
 
+        // ARRANGE
         let mut writer = AsyncWriteFlushFailingWriter;
 
+        // ACT
         writer.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]
-    async fn extend_initramfs_no_extensions() {
+    async fn extend_no_extra_files() {
+        // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         let config = ExtendConfig {
             base: base.path(),
-            extensions: &[],
+            extra_files: &[],
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
-        extend(&config, output.path())
-            .await
-            .expect("extend_initramfs");
+        // ACT
+        extend(&config, output.path()).await.expect("extend");
 
+        // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
         assert_eq!(content, b"base-initramfs-content");
     }
 
     #[tokio::test]
-    async fn extend_initramfs_with_extensions() {
+    async fn extend_with_compress_dir() {
+        // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base").expect("write base");
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
@@ -297,105 +356,108 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
+        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
         let config = ExtendConfig {
             base: base.path(),
-            extensions: &extensions,
+            extra_files: &extras,
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
-        extend(&config, output.path())
-            .await
-            .expect("extend_initramfs");
-
-        let content = std::fs::read(output.path()).expect("read output");
-        assert!(content.len() > 4);
-        assert!(content.starts_with(b"base"));
-    }
-
-    #[tokio::test]
-    async fn extend_accepts_separate_extension_compression_level() {
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let ext_dir = tempfile::TempDir::new().expect("ext dir");
-        std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
-
-        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
-        let config = ExtendConfig {
-            base: base.path(),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: 7,
-        };
-
+        // ACT
         extend(&config, output.path()).await.expect("extend");
 
+        // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
         assert!(content.len() > 4);
         assert!(content.starts_with(b"base"));
     }
 
     #[tokio::test]
-    async fn extend_initramfs_same_file_no_extensions() {
+    async fn extend_with_plain_file() {
+        // ARRANGE
+        let base = tempfile::NamedTempFile::new().expect("base tempfile");
+        std::fs::write(base.path(), b"base").expect("write base");
+        let output = tempfile::NamedTempFile::new().expect("output tempfile");
+
+        let file = tempfile::NamedTempFile::new().expect("extra file");
+        std::fs::write(file.path(), b"profile content").expect("write extra");
+
+        let extras = [extra("profile.toml", file.path(), false)];
+        let config = ExtendConfig {
+            base: base.path(),
+            extra_files: &extras,
+            compression_level: 19,
+        };
+
+        // ACT
+        extend(&config, output.path()).await.expect("extend");
+
+        // ASSERT
+        let content = std::fs::read(output.path()).expect("read output");
+        assert!(content.len() > 4);
+        assert!(content.starts_with(b"base"));
+    }
+
+    #[tokio::test]
+    async fn extend_same_file_no_extra_files() {
+        // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         std::fs::write(file.path(), b"initramfs-content").expect("write");
 
         let config = ExtendConfig {
             base: file.path(),
-            extensions: &[],
+            extra_files: &[],
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
-        extend(&config, file.path())
-            .await
-            .expect("extend_initramfs");
+        // ACT
+        extend(&config, file.path()).await.expect("extend");
 
+        // ASSERT
         let content = std::fs::read(file.path()).expect("read");
         assert_eq!(content, b"initramfs-content");
     }
 
     #[tokio::test]
-    async fn extend_initramfs_same_file_with_extensions() {
+    async fn extend_same_file_with_compress_dir() {
+        // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         std::fs::write(file.path(), b"base").expect("write");
 
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
+        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
         let config = ExtendConfig {
             base: file.path(),
-            extensions: &extensions,
+            extra_files: &extras,
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
-        extend(&config, file.path())
-            .await
-            .expect("extend_initramfs");
+        // ACT
+        extend(&config, file.path()).await.expect("extend");
 
+        // ASSERT
         let content = std::fs::read(file.path()).expect("read");
         assert!(content.len() > 4);
         assert!(content.starts_with(b"base"));
     }
 
     #[tokio::test]
-    async fn extend_initramfs_missing_base() {
+    async fn extend_missing_base() {
+        // ARRANGE
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         let config = ExtendConfig {
             base: Path::new("/nonexistent/base.img"),
-            extensions: &[],
+            extra_files: &[],
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
+        // ACT
         let result = extend(&config, output.path()).await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -404,24 +466,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extend_initramfs_missing_extension_errors() {
+    async fn extend_missing_compress_source_errors() {
+        // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
-        let extensions = [(
-            "missing".to_owned(),
-            std::path::PathBuf::from("/nonexistent/extension-dir"),
+        let extras = [extra(
+            "missing.erofs",
+            Path::new("/nonexistent/extra-source"),
+            true,
         )];
         let config = ExtendConfig {
             base: base.path(),
-            extensions: &extensions,
+            extra_files: &extras,
             compression_level: 19,
-            extension_compression_level: ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         };
 
+        // ACT
         let result = extend(&config, output.path()).await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -430,7 +495,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extend_invalid_extension_compression_level_errors() {
+    async fn extend_missing_plain_source_errors() {
+        // ARRANGE
+        let base = tempfile::NamedTempFile::new().expect("base tempfile");
+        std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
+        let output = tempfile::NamedTempFile::new().expect("output tempfile");
+
+        let extras = [extra(
+            "profile.toml",
+            Path::new("/nonexistent/extra-source"),
+            false,
+        )];
+        let config = ExtendConfig {
+            base: base.path(),
+            extra_files: &extras,
+            compression_level: 19,
+        };
+
+        // ACT
+        let result = extend(&config, output.path()).await;
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn extend_invalid_compression_level_errors() {
+        // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
@@ -438,16 +533,17 @@ mod tests {
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
-        let extensions = [("test-ext".to_owned(), ext_dir.path().to_path_buf())];
+        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
         let config = ExtendConfig {
             base: base.path(),
-            extensions: &extensions,
-            compression_level: 19,
-            extension_compression_level: i32::MAX,
+            extra_files: &extras,
+            compression_level: i32::MAX,
         };
 
+        // ACT
         let result = extend(&config, output.path()).await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -455,22 +551,163 @@ mod tests {
         );
     }
 
+    #[test]
+    fn validate_rejects_empty_name() {
+        // ARRANGE
+        let entry = ExtraFile {
+            name: String::new(),
+            path: Path::new("/tmp/x"),
+            compress: false,
+        };
+        let extras = [&entry];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("must not be empty"))
+        );
+    }
+
+    #[test]
+    fn validate_rejects_absolute_name() {
+        // ARRANGE
+        let entry = ExtraFile {
+            name: "/absolute/path".to_owned(),
+            path: Path::new("/tmp/x"),
+            compress: false,
+        };
+        let extras = [&entry];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("must not be absolute"))
+        );
+    }
+
+    #[test]
+    fn validate_rejects_dotdot() {
+        // ARRANGE
+        let entry = ExtraFile {
+            name: "foo/../bar".to_owned(),
+            path: Path::new("/tmp/x"),
+            compress: false,
+        };
+        let extras = [&entry];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("must not contain .."))
+        );
+    }
+
+    #[test]
+    fn validate_rejects_duplicates() {
+        // ARRANGE
+        let e1 = ExtraFile {
+            name: "a.txt".to_owned(),
+            path: Path::new("/tmp/a"),
+            compress: false,
+        };
+        let e2 = ExtraFile {
+            name: "a.txt".to_owned(),
+            path: Path::new("/tmp/b"),
+            compress: false,
+        };
+        let extras = [&e1, &e2];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("duplicate"))
+        );
+    }
+
+    #[test]
+    fn validate_accepts_valid_entries() {
+        // ARRANGE
+        let e1 = ExtraFile {
+            name: "a.txt".to_owned(),
+            path: Path::new("/tmp/a"),
+            compress: false,
+        };
+        let e2 = ExtraFile {
+            name: "b.txt".to_owned(),
+            path: Path::new("/tmp/b"),
+            compress: true,
+        };
+        let extras = [&e1, &e2];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        result.unwrap();
+    }
+
+    #[test]
+    fn validate_accepts_extensions_path() {
+        // ARRANGE
+        let e1 = ExtraFile {
+            name: "extensions/test.erofs".to_owned(),
+            path: Path::new("/tmp/ext"),
+            compress: true,
+        };
+        let e2 = ExtraFile {
+            name: "profile.toml".to_owned(),
+            path: Path::new("/tmp/profile"),
+            compress: false,
+        };
+        let extras = [&e1, &e2];
+
+        // ACT
+        let result = validate_extra_files(&extras);
+
+        // ASSERT
+        result.unwrap();
+    }
+
     #[tokio::test]
     async fn append_to_file_writes_data() {
+        // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         std::fs::write(file.path(), b"hello").expect("write");
 
+        // ACT
         append_to_file(file.path(), b" world")
             .await
             .expect("append");
 
+        // ASSERT
         assert_eq!(std::fs::read(file.path()).expect("read"), b"hello world");
     }
 
     #[tokio::test]
     async fn append_to_file_nonexistent_path_errors() {
-        let result = append_to_file(Path::new("/nonexistent/file"), b"data").await;
+        // ARRANGE
+        let path = Path::new("/nonexistent/file");
 
+        // ACT
+        let result = append_to_file(path, b"data").await;
+
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -480,10 +717,13 @@ mod tests {
 
     #[tokio::test]
     async fn append_to_writer_errors_on_write() {
+        // ARRANGE
         let mut writer = AsyncWriteWriteFailingWriter;
 
+        // ACT
         let result = append_to_writer(Path::new("/virtual/output"), &mut writer, b"data").await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -493,10 +733,13 @@ mod tests {
 
     #[tokio::test]
     async fn append_to_writer_errors_on_flush() {
+        // ARRANGE
         let mut writer = AsyncWriteFlushFailingWriter;
 
+        // ACT
         let result = append_to_writer(Path::new("/virtual/output"), &mut writer, b"data").await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -506,14 +749,17 @@ mod tests {
 
     #[tokio::test]
     async fn append_to_file_read_only_file_errors_on_open() {
+        // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let metadata = std::fs::metadata(file.path()).expect("metadata");
         let mut permissions = metadata.permissions();
         permissions.set_readonly(true);
         std::fs::set_permissions(file.path(), permissions).expect("set readonly");
 
+        // ACT
         let result = append_to_file(file.path(), b"data").await;
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -522,10 +768,14 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_extensions_archive_invalid_level_errors() {
-        let result =
-            write_compressed_extensions_archive(Vec::new(), &extension_entries(), i32::MAX);
+    fn write_compressed_extra_archive_invalid_level_errors() {
+        // ARRANGE
+        let entries = extra_entries();
 
+        // ACT
+        let result = write_compressed_extra_archive(Vec::new(), &entries, i32::MAX);
+
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -534,14 +784,19 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_extensions_archive_cpio_errors() {
-        let result = write_compressed_extensions_archive_with(
+    fn write_compressed_extra_archive_cpio_errors() {
+        // ARRANGE
+        let entries = extra_entries();
+
+        // ACT
+        let result = write_compressed_extra_archive_with(
             Vec::new(),
-            &extension_entries(),
+            &entries,
             19,
             fail_cpio_archive::<Vec<u8>>,
         );
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
@@ -550,8 +805,9 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_extensions_archive_finish_errors() {
-        let entries = extension_entries();
+    fn write_compressed_extra_archive_finish_errors() {
+        // ARRANGE
+        let entries = extra_entries();
         let mut encoder = zstd::Encoder::new(
             CountingFailingWriter {
                 fail_on_call: usize::MAX,
@@ -563,7 +819,8 @@ mod tests {
         write_archive(&mut encoder, &entries).expect("write archive");
         let fail_on_call = encoder.get_ref().calls.saturating_add(1);
 
-        let result = write_compressed_extensions_archive(
+        // ACT
+        let result = write_compressed_extra_archive(
             CountingFailingWriter {
                 fail_on_call,
                 calls: 0,
@@ -572,10 +829,35 @@ mod tests {
             19,
         );
 
+        // ASSERT
         assert!(
             result
                 .as_ref()
                 .is_err_and(|error| matches!(error, RamuneError::CompressionError(_)))
         );
+    }
+
+    #[test]
+    fn extra_archive_entries_converts_files() {
+        // ARRANGE
+        let files = [
+            ("profile.toml".to_owned(), b"profile".to_vec()),
+            ("extensions/test.erofs".to_owned(), b"erofs".to_vec()),
+        ];
+
+        // ACT
+        let entries = extra_archive_entries(&files);
+
+        // ASSERT
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.first().expect("entry 0").path, "profile.toml");
+        assert_eq!(entries.first().expect("entry 0").mode, 0o100_644);
+        assert_eq!(entries.first().expect("entry 0").data, b"profile");
+        assert_eq!(
+            entries.get(1).expect("entry 1").path,
+            "extensions/test.erofs"
+        );
+        assert_eq!(entries.get(1).expect("entry 1").mode, 0o100_644);
+        assert_eq!(entries.get(1).expect("entry 1").data, b"erofs");
     }
 }
