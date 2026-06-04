@@ -287,8 +287,14 @@ e2e: (build "--release" "muakctl") _ensure-fw
     MUAK_ARTIFACTS={{ artifacts }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
 
 # Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
+[arg("reset", long="reset", value="true")]
 [script]
-start: (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
+start reset="false": (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
+    if [ "{{ reset }}" = "true" ]; then
+        printf "{{ cyan }}Resetting VM state{{ reset }}\n"
+        rm -f "/tmp/nvme-disk.img" "/tmp/OVMF_VARS.fd"
+    fi
+
     if [ ! -f "/tmp/nvme-disk.img" ]; then
         printf "{{ cyan }}Creating persistent NVMe disk{{ reset }}\n"
         qemu-img create -f raw "/tmp/nvme-disk.img" 5G >/dev/null
