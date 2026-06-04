@@ -1056,6 +1056,7 @@ version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
+ "koci",
  "ring",
  "serde",
  "thiserror 2.0.18",
