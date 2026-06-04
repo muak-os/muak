@@ -1,10 +1,10 @@
 //! Switch the running root from the initramfs ramfs to the EROFS-backed root.
 
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
@@ -21,10 +21,10 @@ pub fn switch_root(newroot: &str) -> Result<()> {
 /// Moves pseudo-filesystem mounts from the initramfs into the new root.
 fn move_pseudo_mounts(newroot: &str) -> Result<()> {
     for mnt in &["/dev", "/proc", "/sys", "/run"] {
-        let target = format!("{}{}", newroot, mnt);
+        let target = format!("{newroot}{mnt}");
 
         mount_move(*mnt, target.as_str())
-            .with_context(|| format!("Failed to move mount {} to {}", mnt, target))?;
+            .with_context(|| format!("Failed to move mount {mnt} to {target}"))?;
     }
 
     Ok(())
@@ -44,9 +44,9 @@ fn free_ramfs_at(root: &Path) -> Result<()> {
         }
 
         if path.is_dir() {
-            let _ = std::fs::remove_dir_all(&path);
+            drop(std::fs::remove_dir_all(&path));
         } else {
-            let _ = std::fs::remove_file(&path);
+            drop(std::fs::remove_file(&path));
         }
     }
 
@@ -76,10 +76,7 @@ fn find_init(root: &Path) -> Result<std::path::PathBuf> {
         }
     }
 
-    bail!(
-        "No init binary found in new root. Checked: {:?}",
-        checked_paths
-    );
+    bail!("No init binary found in new root. Checked: {checked_paths:?}");
 }
 
 #[cfg(test)]

@@ -2,32 +2,30 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use kmod::aliases::AliasDb;
 use kmod::deps::DepDb;
 use kmod::kernel::{ModuleLoader, load_module};
 use kmod::sysfs::for_each_modalias;
+use rustix::system::uname;
 
 /// Loads kernel modules from `root` based on the current system's modaliases.
 pub fn load(root: &Path) -> Result<usize> {
-    let krel = rustix::system::uname()
-        .release()
-        .to_string_lossy()
-        .into_owned();
+    let krel = uname().release().to_string_lossy().into_owned();
     let mod_dir = module_dir(root, &krel);
 
     let alias_db =
         AliasDb::load(&mod_dir.join("modules.alias")).context("Failed to load modules.alias")?;
     let dep_db = DepDb::load(&mod_dir.join("modules.dep")).context("Failed to load modules.dep")?;
     let mut loader = ModuleLoader::new(mod_dir);
-    let mut total_loaded = 0;
+    let mut total_loaded: usize = 0;
 
     for_each_modalias(|modalias| {
         let Some(module_name) = alias_db.find_module(modalias) else {
             return;
         };
         match load_module(module_name, &dep_db, &mut loader) {
-            Ok(count) => total_loaded += count,
+            Ok(count) => total_loaded = total_loaded.saturating_add(count),
             Err(e) => kmsg::warn!("Failed to load {}: {}", module_name, e),
         }
     })

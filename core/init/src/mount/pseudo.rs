@@ -1,6 +1,6 @@
 //! Mount pseudo filesystems.
 
-use std::ffi::CString;
+use alloc::ffi::CString;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};

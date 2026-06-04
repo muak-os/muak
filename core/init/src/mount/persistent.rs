@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
+use btrfs::quota;
 use rustix::fs::{CWD, Mode, mkdirat};
+use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
 use super::luks::resolve_key;
@@ -14,16 +16,16 @@ const DATA_MOUNT: &str = "/run/data";
 const STATE_CONFIG: &str = "/run/state/config.toml";
 
 /// Mount persistent STATE and DATA partitions if the system is installed.
-pub(crate) fn mount_persistent() -> Result<bool> {
+pub(crate) fn mount_persistent() -> bool {
     let state_devices = find_partitions_by_partname("STATE");
     if state_devices.is_empty() {
-        return Ok(false);
+        return false;
     }
 
     let data_devices = find_partitions_by_partname("DATA");
     for state_dev in state_devices {
         match try_mount_persistent_candidate(&state_dev, &data_devices) {
-            Ok(()) => return Ok(true),
+            Ok(()) => return true,
             Err(error) => {
                 kmsg::warn!(
                     "Ignoring invalid STATE candidate {}: {:#}",
@@ -35,14 +37,16 @@ pub(crate) fn mount_persistent() -> Result<bool> {
         }
     }
 
-    Ok(false)
+    false
 }
 
 fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> Result<()> {
     let luks_key = resolve_key(state_dev)?;
 
     let Some(key) = luks_key else {
-        bail!("No LUKS key available for installed STATE partition {state_dev}; TPM2 recovery unavailable and cmdline fallback missing or invalid");
+        bail!(
+            "No LUKS key available for installed STATE partition {state_dev}; TPM2 recovery unavailable and cmdline fallback missing or invalid"
+        );
     };
 
     luks2::open(state_dev, DM_STATE, &key)
@@ -67,7 +71,7 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
             .with_context(|| format!("Failed to mount DATA partition: {data_dev}"))?;
 
         kmsg::info!("Mounted DATA partition at /run/data");
-        btrfs::quota::enable(DATA_MOUNT)?;
+        quota::enable(DATA_MOUNT)?;
     }
 
     Ok(())
@@ -99,7 +103,7 @@ fn cleanup_persistent_mounts() {
 
 fn try_unmount(target: &str) {
     match unmount(target, UnmountFlags::empty()) {
-        Ok(()) | Err(rustix::io::Errno::NOENT | rustix::io::Errno::INVAL) => {}
+        Ok(()) | Err(Errno::NOENT | Errno::INVAL) => {}
         Err(error) => kmsg::warn!("Failed to unmount {}: {}", target, error),
     }
 }

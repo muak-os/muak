@@ -47,7 +47,7 @@ fn find_partitions_by_partname_in(sysfs_dir: &Path, dev_dir: &Path, partname: &s
 
 /// Returns true if `uevent_content` contains a `PARTNAME=<partname>` line.
 fn matches_partname(uevent_content: &str, partname: &str) -> bool {
-    let target = format!("PARTNAME={}", partname);
+    let target = format!("PARTNAME={partname}");
 
     uevent_content.lines().any(|line| line.trim() == target)
 }

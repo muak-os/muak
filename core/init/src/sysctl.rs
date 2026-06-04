@@ -4,7 +4,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 /// Procfs directory containing sysctl files.
 const PROC_SYS_DIR: &str = "/proc/sys";
@@ -69,9 +69,9 @@ fn apply_in(proc_sys_dir: &Path, settings: &[Sysctl]) -> Result<ApplySummary> {
     let mut summary = ApplySummary::default();
     for setting in settings {
         match apply_one(proc_sys_dir, setting)? {
-            ApplyOutcome::Applied => summary.applied += 1,
-            ApplyOutcome::Unchanged => summary.unchanged += 1,
-            ApplyOutcome::Skipped => summary.skipped += 1,
+            ApplyOutcome::Applied => summary.applied = summary.applied.saturating_add(1),
+            ApplyOutcome::Unchanged => summary.unchanged = summary.unchanged.saturating_add(1),
+            ApplyOutcome::Skipped => summary.skipped = summary.skipped.saturating_add(1),
         }
     }
 
@@ -109,13 +109,21 @@ fn parse(config: &str) -> Result<Vec<Sysctl>> {
         }
 
         let Some((key, value)) = line.split_once('=') else {
-            bail!("Invalid sysctl config line {}: {}", index + 1, raw_line);
+            bail!(
+                "Invalid sysctl config line {}: {}",
+                index.saturating_add(1),
+                raw_line
+            );
         };
 
         let key = key.trim();
         let value = value.trim();
         if key.is_empty() || value.is_empty() {
-            bail!("Invalid sysctl config line {}: {}", index + 1, raw_line);
+            bail!(
+                "Invalid sysctl config line {}: {}",
+                index.saturating_add(1),
+                raw_line
+            );
         }
 
         settings.push(Sysctl::new(key.to_owned(), value.to_owned()));
@@ -173,10 +181,22 @@ mod tests {
 
         // ASSERT
         assert_eq!(settings.len(), 2);
-        assert_eq!(settings[0].key, "kernel.kptr_restrict");
-        assert_eq!(settings[0].value, "2");
-        assert_eq!(settings[1].key, "fs.suid_dumpable");
-        assert_eq!(settings[1].value, "0");
+        assert_eq!(
+            settings.first().map(|setting| setting.key.as_str()),
+            Some("kernel.kptr_restrict")
+        );
+        assert_eq!(
+            settings.first().map(|setting| setting.value.as_str()),
+            Some("2")
+        );
+        assert_eq!(
+            settings.get(1).map(|setting| setting.key.as_str()),
+            Some("fs.suid_dumpable")
+        );
+        assert_eq!(
+            settings.get(1).map(|setting| setting.value.as_str()),
+            Some("0")
+        );
     }
 
     #[test]

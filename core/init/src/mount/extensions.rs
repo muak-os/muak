@@ -21,7 +21,7 @@ pub fn discover_extensions_in(extensions_dir: &Path) -> Vec<String> {
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
-            let is_erofs = path.extension().and_then(|s| s.to_str()) == Some("erofs");
+            let is_erofs = path.extension().and_then(|ext| ext.to_str()) == Some("erofs");
             is_erofs.then(|| path.to_str().map(String::from)).flatten()
         })
         .collect();
@@ -57,7 +57,7 @@ mod tests {
         assert!(extensions.iter().any(|e| e.ends_with("tools.erofs")));
         let names: Vec<&str> = extensions
             .iter()
-            .map(|p| p.rsplit('/').next().unwrap())
+            .map(|path| path.rsplit('/').next().unwrap())
             .collect();
         assert_eq!(
             names,
@@ -121,7 +121,7 @@ mod tests {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        std::fs::create_dir(temp.path().join("subdir")).unwrap();
+        std::fs::create_dir_all(temp.path().join("subdir")).unwrap();
         std::fs::write(temp.path().join("root.erofs"), b"").unwrap();
         std::fs::write(temp.path().join("subdir/nested.erofs"), b"").unwrap();
 
@@ -135,7 +135,9 @@ mod tests {
             "Should only find .erofs files in root, not subdirectories"
         );
         assert!(
-            extensions[0].ends_with("root.erofs"),
+            extensions
+                .first()
+                .is_some_and(|e| e.ends_with("root.erofs")),
             "Should find root.erofs"
         );
     }
@@ -153,11 +155,15 @@ mod tests {
         // ASSERT
         assert_eq!(extensions.len(), 1);
         assert!(
-            extensions[0].starts_with(temp.path().to_str().unwrap()),
+            extensions
+                .first()
+                .is_some_and(|e| e.starts_with(temp.path().to_str().unwrap())),
             "Should return full path, not just filename"
         );
         assert!(
-            extensions[0].ends_with("test.erofs"),
+            extensions
+                .first()
+                .is_some_and(|e| e.ends_with("test.erofs")),
             "Path should end with test.erofs"
         );
     }
@@ -180,6 +186,10 @@ mod tests {
             1,
             "Should only match lowercase .erofs extension"
         );
-        assert!(extensions[0].ends_with("lowercase.erofs"));
+        assert!(
+            extensions
+                .first()
+                .is_some_and(|e| e.ends_with("lowercase.erofs"))
+        );
     }
 }

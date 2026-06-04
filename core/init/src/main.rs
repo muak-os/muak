@@ -1,8 +1,10 @@
 //! Muak init - phase 1 initialization process.
 //!
 //! This is the first process started by the kernel. It mounts pseudo filesystems,
-//! loads kernel modules, mounts the root filesystem, loads the SELinux policy,
+//! loads kernel modules, mounts the root filesystem, loads the `SELinux` policy,
 //! switches to the new root and executes the PID 1 process.
+
+extern crate alloc;
 
 mod modules;
 mod mount;
@@ -59,14 +61,14 @@ fn run() -> Result<()> {
     };
     kmsg::info!("SELinux policy loaded ({})", mode);
 
-    match mount::mount_persistent() {
-        Ok(true) => kmsg::info!("Persistent partitions mounted"),
-        Ok(false) => kmsg::info!("No valid persistent state found (maintenance mode)"),
-        Err(e) => return Err(e),
+    if mount::mount_persistent() {
+        kmsg::info!("Persistent partitions mounted");
+    } else {
+        kmsg::info!("No valid persistent state found (maintenance mode)");
     }
 
     kmsg::info!("Switching to new root");
     switchroot::switch_root(NEWROOT)?;
 
-    unreachable!("switch_root should never return");
+    Ok(())
 }

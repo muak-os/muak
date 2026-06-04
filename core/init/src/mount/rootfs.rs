@@ -1,7 +1,7 @@
-use std::ffi::CString;
+use alloc::ffi::CString;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::mount::{
     FsMountFlags, FsOpenFlags, MountAttrFlags, MountFlags, MoveMountFlags, fsconfig_create,
@@ -30,7 +30,7 @@ pub(crate) fn mount_rootfs() -> Result<()> {
         .to_str()
         .context("base mount path contains invalid UTF-8")?;
     mount_erofs_file("/rootfs.erofs", base_mount_str).context("Failed to mount base rootfs")?;
-    lower_dirs.push(base_mount_str.to_string());
+    lower_dirs.push(base_mount_str.to_owned());
 
     let extensions = extensions::discover_extensions();
 
@@ -52,30 +52,33 @@ pub(crate) fn mount_rootfs() -> Result<()> {
             .to_str()
             .context("extension mount path contains invalid UTF-8")?;
         mount_erofs_file(ext_path, ext_mount_str).context("Failed to mount extension rootfs")?;
-        lower_dirs.push(ext_mount_str.to_string());
+        lower_dirs.push(ext_mount_str.to_owned());
     }
 
-    if lower_dirs.len() == 1 {
-        mount(
-            lower_dirs[0].as_str(),
-            "/newroot",
-            "",
-            MountFlags::BIND | MountFlags::RDONLY | MountFlags::NODEV,
-            None,
-        )
-        .context("Failed to bind mount rootfs")?;
-    } else {
-        let options = format!("lowerdir={}", lower_dirs.join(":"));
-        let options_cstr = CString::new(options.as_str()).context("CString conversion failed")?;
+    if let Some((base, rest)) = lower_dirs.split_first() {
+        if rest.is_empty() {
+            mount(
+                base.as_str(),
+                "/newroot",
+                "",
+                MountFlags::BIND | MountFlags::RDONLY | MountFlags::NODEV,
+                None,
+            )
+            .context("Failed to bind mount rootfs")?;
+        } else {
+            let options = format!("lowerdir={}", lower_dirs.join(":"));
+            let options_cstr =
+                CString::new(options.as_str()).context("CString conversion failed")?;
 
-        mount(
-            "overlay",
-            "/newroot",
-            "overlay",
-            MountFlags::RDONLY | MountFlags::NODEV,
-            Some(options_cstr.as_c_str()),
-        )
-        .context("Failed to mount overlay rootfs")?;
+            mount(
+                "overlay",
+                "/newroot",
+                "overlay",
+                MountFlags::RDONLY | MountFlags::NODEV,
+                Some(options_cstr.as_c_str()),
+            )
+            .context("Failed to mount overlay rootfs")?;
+        }
     }
 
     Ok(())

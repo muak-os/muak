@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use zeroize::Zeroizing;
 
 /// Resolve the LUKS key for the given device, first trying TPM2 unseal and falling back to cmdline parsing.
@@ -15,9 +15,8 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
         return Ok(None);
     }
 
-    let token = match luks2::read_tpm2_token(device) {
-        Ok(token) => token,
-        Err(_) => return Ok(None),
+    let Ok(token) = luks2::read_tpm2_token(device) else {
+        return Ok(None);
     };
 
     let blob_bytes = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob)
@@ -32,7 +31,7 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
         }
         Err(error) => {
             kmsg::error!("TPM2 unseal failed: {}", error);
-            Err(anyhow::anyhow!("TPM2 unseal failed: {}", error))
+            Err(anyhow::anyhow!("TPM2 unseal failed: {error}"))
         }
     }
 }
@@ -64,7 +63,7 @@ mod tests {
         // ARRANGE
         let key = b"secret-key-data";
         let encoded = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key);
-        let cmdline = format!("quiet luks.key={} splash", encoded);
+        let cmdline = format!("quiet luks.key={encoded} splash");
 
         // ACT
         let result = parse_luks_key_from_cmdline(&cmdline);
@@ -115,7 +114,7 @@ mod tests {
         let key2 = b"second";
         let enc1 = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key1);
         let enc2 = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key2);
-        let cmdline = format!("luks.key={} luks.key={}", enc1, enc2);
+        let cmdline = format!("luks.key={enc1} luks.key={enc2}");
 
         // ACT
         let result = parse_luks_key_from_cmdline(&cmdline);
@@ -132,7 +131,7 @@ mod tests {
         // ARRANGE
         let key = b"secret-key-data";
         let encoded = <base64ct::Base64Unpadded as base64ct::Encoding>::encode_string(key);
-        let cmdline = format!("quiet luks.key={}garbled splash", encoded);
+        let cmdline = format!("quiet luks.key={encoded}garbled splash");
 
         // ACT & ASSERT
         assert!(parse_luks_key_from_cmdline(&cmdline).is_none());
