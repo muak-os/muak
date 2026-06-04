@@ -60,6 +60,14 @@ impl MockNetlinkOps {
         );
         index
     }
+
+    /// Sets the master bridge index for a named link.
+    pub fn set_master(&self, name: &str, master_index: u32) {
+        let mut state = self.state.lock().expect("mock lock poisoned");
+        if let Some(link) = state.links.get_mut(name) {
+            link.master_index = Some(master_index);
+        }
+    }
 }
 
 impl netlib::link::Ops for MockNetlinkOps {

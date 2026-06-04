@@ -212,6 +212,23 @@ pub(crate) async fn delete(handle: &Handle, index: u32) -> Result<()> {
         .map_err(Failure::Delete)
 }
 
+/// Returns the master (bridge/bond) interface index for a link, if any.
+pub(crate) async fn master_index(handle: &Handle, index: u32) -> Result<Option<u32>> {
+    let mut links = handle.link().get().match_index(index).execute();
+    let link = links
+        .try_next()
+        .await
+        .map_err(Failure::Query)?
+        .ok_or_else(|| Failure::NotFound(format!("index {index}")))?;
+    for attr in &link.attributes {
+        if let &LinkAttribute::Controller(master) = attr {
+            return Ok(Some(master));
+        }
+    }
+
+    Ok(None)
+}
+
 /// Extracts the 6-byte hardware address from a link message, if present.
 pub(crate) fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
     for attr in link.attributes.iter().cloned() {
@@ -320,7 +337,7 @@ async fn probe_carriers_with_handle(
     tokio::spawn(conn);
 
     for &index in &indices {
-        let _ignored_result: Result<()> = bring_up(handle, index).await;
+        let _ = bring_up(handle, index).await;
     }
 
     let mut states: HashMap<u32, bool> = indices.iter().map(|&idx| (idx, false)).collect();

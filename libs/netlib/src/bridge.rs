@@ -91,7 +91,17 @@ async fn enslave_interface_to_bridge(
     physical_iface: &str,
     bridge_name: &str,
 ) -> Result<()> {
-    let _ignored_result: link::Result<()> = link::bring_down(handle, phys_index).await;
+    let already_enslaved = match link::master_index(handle, phys_index).await {
+        Ok(Some(master)) => master == br_index,
+        _ => false,
+    };
+
+    if already_enslaved {
+        let _ = link::bring_up(handle, phys_index).await;
+        return Ok(());
+    }
+
+    let _ = link::bring_down(handle, phys_index).await;
 
     retry::run(
         || async { link::set_master(handle, phys_index, br_index).await },
@@ -102,7 +112,7 @@ async fn enslave_interface_to_bridge(
     .await
     .map_err(Failure::Retry)?;
 
-    let _ignored_result: link::Result<()> = link::bring_up(handle, phys_index).await;
+    let _ = link::bring_up(handle, phys_index).await;
 
     println!("Enslaved {physical_iface} to bridge {bridge_name}");
 

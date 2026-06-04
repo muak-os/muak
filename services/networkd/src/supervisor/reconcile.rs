@@ -108,6 +108,18 @@ impl<N: Ops> NetworkSupervisor<N> {
     ) -> Result<ReconcileDisposition> {
         let bridge_name = Name::new(iface_cfg.name.as_str())?;
         let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
+
+        let is_configured = self
+            .interfaces
+            .get(&bridge_name)
+            .is_some_and(|h| h.state_rx.borrow().state == InterfaceState::Configured);
+
+        if is_configured {
+            return Ok(ReconcileDisposition::Skipped(
+                "bridge is already configured".to_string(),
+            ));
+        }
+
         if self.interfaces.contains_key(&bridge_name) {
             kmsg::info!("Reconciling bridge interface: {}", bridge_name);
             let bridge_snapshot = self
@@ -325,11 +337,11 @@ mod tests {
         Arc::new(cfg)
     }
 
-    /// Returns a bridge-owned snapshot with cached lease state.
-    fn bridge_snapshot(index: u32) -> InterfaceSnapshot {
+    /// Returns a bridge-owned snapshot with cached lease state and the given interface state.
+    fn bridge_snapshot(index: u32, state: InterfaceState) -> InterfaceSnapshot {
         InterfaceSnapshot {
             name: Name::new("br0").expect("valid bridge name"),
-            state: InterfaceState::Configured,
+            state,
             index,
             mac: [0xAA; 6],
             link: State::Up,
@@ -373,7 +385,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconcile_bridge_refreshes_bridge_actor_state() {
+    async fn reconcile_bridge_skips_when_already_configured() {
         // ARRANGE
         let ops = MockNetlinkOps::new();
         let port_index = ops.add_link("eth0", [0xAA; 6], true);
@@ -384,8 +396,10 @@ mod tests {
         supervisor.state.state = NetworkState::Ready;
         supervisor.state.primary = Some(Name::new("eth0").expect("valid primary"));
         supervisor.spawn_interface_actor(port_snapshot(port_index));
-        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index));
-        ops.delete(bridge_index).await.expect("delete bridge link");
+        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, InterfaceState::Configured));
+
+        let original_bridge_index = ops.index("br0").await.expect("bridge should exist");
+        ops.set_master("eth0", original_bridge_index);
 
         // ACT
         let disposition = supervisor
@@ -394,12 +408,51 @@ mod tests {
             .expect("bridge reconcile should succeed");
 
         // ASSERT
-        assert!(matches!(disposition, ReconcileDisposition::Applied));
-        let new_bridge_index = ops.index("br0").await.expect("bridge should be recreated");
-        assert_ne!(new_bridge_index, bridge_index, "bridge should be refreshed");
+        assert!(
+            matches!(disposition, ReconcileDisposition::Skipped(_)),
+            "configured bridge should be skipped"
+        );
+        assert_eq!(
+            ops.index("br0").await.expect("bridge should exist"),
+            original_bridge_index,
+            "bridge index should be unchanged"
+        );
         assert_eq!(
             master_index(&ops, "eth0"),
-            Some(new_bridge_index),
+            Some(original_bridge_index),
+            "port should remain attached to bridge"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_bridge_refreshes_degraded_actor() {
+        // ARRANGE
+        let ops = MockNetlinkOps::new();
+        let port_index = ops.add_link("eth0", [0xAA; 6], true);
+        let bridge_index = ops.add_link("br0", [0xBB; 6], true);
+        let (watch_tx, _) = watch::channel(crate::supervisor::snapshot::NetworkSnapshot::empty());
+        let mut supervisor =
+            NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, DnsState::default());
+        supervisor.state.state = NetworkState::Ready;
+        supervisor.state.primary = Some(Name::new("eth0").expect("valid primary"));
+        supervisor.spawn_interface_actor(port_snapshot(port_index));
+        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, InterfaceState::Degraded));
+        ops.set_master("eth0", bridge_index);
+
+        // ACT
+        let disposition = supervisor
+            .reconcile_interface(&bridge_config().interfaces[0])
+            .await
+            .expect("bridge reconcile should succeed");
+
+        // ASSERT
+        assert!(
+            matches!(disposition, ReconcileDisposition::Applied),
+            "degraded bridge should be reconciled"
+        );
+        assert_eq!(
+            master_index(&ops, "eth0"),
+            Some(bridge_index),
             "port should remain attached to the refreshed bridge"
         );
     }
