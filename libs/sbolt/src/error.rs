@@ -9,33 +9,43 @@ use thiserror::Error;
 )]
 #[derive(Debug, Error)]
 pub enum SboltError {
+    /// Key generation failed.
     #[error("key generation failed: {0}")]
     KeyGeneration(String),
 
+    /// Certificate creation failed.
     #[error("certificate creation failed: {0}")]
     CertificateCreation(String),
 
+    /// Signing operation failed.
     #[error("signing failed: {0}")]
     Signing(String),
 
+    /// PE operation failed.
     #[error("PE operation failed: {0}")]
     PeOperation(String),
 
+    /// Authenticode hash computation failed.
     #[error("authenticode hash failed: {0}")]
     AuthenticodeHash(String),
 
+    /// EFI variable operation failed.
     #[error("efivar operation failed: {0}")]
     EfiVar(String),
 
+    /// Key storage operation failed.
     #[error("key storage failed: {0}")]
     KeyStorage(String),
 
+    /// I/O error occurred.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// DER encoding or decoding error.
     #[error("DER error: {0}")]
     Der(#[from] der::Error),
 
+    /// SPKI (`SubjectPublicKeyInfo`) error.
     #[error("SPKI error: {0}")]
     Spki(#[from] spki::Error),
 }

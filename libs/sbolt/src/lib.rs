@@ -6,6 +6,8 @@
 //! - Managing EFI variables via a platform backend
 //! - Enrolling keys to UEFI firmware
 
+#![warn(missing_docs)]
+
 pub mod efi;
 pub mod error;
 pub mod keys;

@@ -5,7 +5,9 @@ use uefi::Guid;
 use super::guid::EFI_CERT_X509_GUID;
 use crate::error::{Result, SboltError};
 
+/// Size of an EFI signature list header in bytes.
 pub const SIGNATURE_LIST_HEADER_SIZE: usize = 28;
+/// Size of an EFI signature data header in bytes.
 pub const SIGNATURE_DATA_HEADER_SIZE: usize = 16;
 
 /// A signature database containing multiple signature lists.

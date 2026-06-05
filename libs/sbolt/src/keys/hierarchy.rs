@@ -10,8 +10,11 @@ use crate::error::{Result, SboltError};
 /// Type of Secure Boot key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyType {
+    /// Platform Key.
     Pk,
+    /// Key Exchange Key.
     Kek,
+    /// Signature Database Key.
     Db,
 }
 
@@ -39,16 +42,23 @@ impl KeyType {
 
 /// A key pair consisting of a signer and its certificate.
 pub struct KeyPair {
+    /// RSA-2048 signer for this key.
     pub signer: rsa2048::Signer,
+    /// X.509 certificate for this key.
     pub certificate: Certificate,
+    /// Type of Secure Boot key.
     pub key_type: KeyType,
 }
 
 /// The complete Secure Boot key hierarchy.
 pub struct Bundle {
+    /// Platform Key pair.
     pub pk: KeyPair,
+    /// Key Exchange Key pair.
     pub kek: KeyPair,
+    /// Signature Database Key pair.
     pub db: KeyPair,
+    /// Owner GUID for all keys.
     pub owner_guid: uefi::Guid,
 }
 
