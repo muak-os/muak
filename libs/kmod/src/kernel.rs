@@ -13,18 +13,23 @@ use crate::deps;
 /// Errors returned while loading kernel modules.
 #[derive(Error, Debug)]
 pub enum LoadError {
+    /// The module file was not found at the given path.
     #[error("module not found: {0}")]
     NotFound(PathBuf),
 
+    /// I/O error while reading the module file.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Failed to decompress a compressed module.
     #[error("decompression error: {0}")]
     Decompress(String),
 
+    /// Kernel syscall rejected the module.
     #[error("syscall error: {0}")]
     Syscall(#[from] Errno),
 
+    /// Module path is syntactically invalid.
     #[error("invalid module path: {0}")]
     InvalidPath(String),
 }
@@ -79,12 +84,14 @@ impl ModuleLoader {
         Ok(true)
     }
 
+    /// Returns true if the module has already been loaded.
     #[cfg(test)]
     #[must_use]
     pub fn is_loaded(&self, module_name: &str) -> bool {
         self.loaded.contains(module_name)
     }
 
+    /// Returns the number of uniquely loaded modules.
     #[cfg(test)]
     #[must_use]
     pub fn loaded_count(&self) -> usize {
