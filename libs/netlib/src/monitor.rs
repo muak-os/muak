@@ -14,41 +14,60 @@ use crate::interface::{Name, is_ethernet};
 use crate::link;
 use crate::mac;
 
+/// Monitor operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to create netlink connection.
     #[error("failed to create netlink connection: {0}")]
     Connection(#[source] io::Error),
+    /// Failed to enumerate links.
     #[error("failed to enumerate links: {0}")]
     List(#[source] rtnetlink::Error),
 }
 
+/// Monitor operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// An event emitted by the network monitor when a link changes state.
 #[derive(Debug, Clone)]
 pub enum Event {
+    /// Interface carrier detected.
     Up {
+        /// Interface name.
         name: Name,
+        /// Kernel interface index.
         index: u32,
     },
+    /// Interface carrier lost.
     Down {
+        /// Interface name.
         name: Name,
+        /// Kernel interface index.
         index: u32,
     },
+    /// New interface added.
     Added {
+        /// Interface name.
         name: Name,
+        /// Kernel interface index.
         index: u32,
+        /// MAC address.
         mac: [u8; 6],
     },
+    /// Interface removed.
     Deleted {
+        /// Interface name.
         name: Name,
+        /// Kernel interface index.
         index: u32,
     },
 }
 
 /// Controls which categories of events the monitor emits.
 pub struct Config {
+    /// Whether to monitor link state changes.
     pub monitor_link_state: bool,
+    /// Whether to monitor link additions and removals.
     pub monitor_link_changes: bool,
 }
 

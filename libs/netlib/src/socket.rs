@@ -7,16 +7,26 @@ use std::os::fd::{AsFd, AsRawFd as _};
 
 use thiserror::Error;
 
+/// Socket operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Device name contains an interior null byte.
     #[error("device name contains an interior null byte: {0}")]
     InvalidDeviceName(#[from] NulError),
+    /// Device name is too long for `setsockopt`.
     #[error("device name is too long for `setsockopt`: {0}")]
     InvalidDeviceNameLength(usize),
+    /// Failed to bind socket to device.
     #[error("failed to bind socket to device {device}: {source}")]
-    BindFailed { device: String, source: io::Error },
+    BindFailed {
+        /// Device name.
+        device: String,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
 }
 
+/// Socket operation result type.
 pub type Result<T> = CoreResult<T, Failure>;
 
 /// Binds a socket to a specific network device via `SO_BINDTODEVICE`.

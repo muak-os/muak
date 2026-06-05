@@ -1,5 +1,7 @@
 //! Networking primitives library.
 
+#![warn(missing_docs)]
+
 extern crate alloc;
 
 pub mod address;

@@ -10,18 +10,24 @@ use tokio_stream::StreamExt as _;
 
 use crate::netlink::Rtnl;
 
+/// Route operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to add default route.
     #[error("failed to add default route: {0}")]
     AddDefaultRoute(#[source] rtnetlink::Error),
+    /// Failed to add IPv6 default route.
     #[error("failed to add IPv6 default route: {0}")]
     AddDefaultRouteV6(#[source] rtnetlink::Error),
+    /// Failed to remove IPv6 default route.
     #[error("failed to remove IPv6 default route: {0}")]
     RemoveDefaultRouteV6(#[source] rtnetlink::Error),
+    /// Failed to enumerate routes.
     #[error("failed to enumerate routes: {0}")]
     List(#[source] rtnetlink::Error),
 }
 
+/// Route operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Trait covering all route-layer netlink operations.

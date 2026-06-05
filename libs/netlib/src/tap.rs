@@ -23,18 +23,24 @@ struct IfReq {
     _padding: [u8; 22],
 }
 
+/// TAP device operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to open tun device.
     #[error("failed to open tun device: {0}")]
     OpenTun(#[source] Errno),
+    /// Failed to create TAP device.
     #[error("failed to create TAP device: {0}")]
     IoctlSetIff(#[source] Errno),
+    /// Failed to make TAP device persistent.
     #[error("failed to make TAP device persistent: {0}")]
     IoctlSetPersist(#[source] Errno),
+    /// Link operation error.
     #[error(transparent)]
     Link(#[from] link::Failure),
 }
 
+/// TAP device operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 fn build_ifreq_name(tap_name: &str) -> [u8; 16] {

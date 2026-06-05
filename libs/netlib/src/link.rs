@@ -18,29 +18,40 @@ use tokio_stream::StreamExt as _;
 
 use crate::netlink::Rtnl;
 
+/// Link operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Link not found.
     #[error("link '{0}' not found")]
     NotFound(String),
+    /// Failed to query link.
     #[error("failed to query link: {0}")]
     Query(#[source] rtnetlink::Error),
+    /// Failed to bring link up.
     #[error("failed to bring link up: {0}")]
     BringUp(#[source] rtnetlink::Error),
+    /// Failed to bring link down.
     #[error("failed to bring link down: {0}")]
     BringDown(#[source] rtnetlink::Error),
+    /// Failed to set link master.
     #[error("failed to set link master: {0}")]
     SetMaster(#[source] rtnetlink::Error),
+    /// Failed to delete link.
     #[error("failed to delete link: {0}")]
     Delete(#[source] rtnetlink::Error),
 }
 
+/// Link operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Administrative and carrier state of a network link.
 #[derive(Debug, Clone, PartialEq)]
 pub enum State {
+    /// Link is administratively up with carrier detected.
     Up,
+    /// Link is administratively up but no carrier detected.
     NoCarrier,
+    /// Link is administratively down.
     Down,
 }
 
@@ -337,7 +348,7 @@ async fn probe_carriers_with_handle(
     tokio::spawn(conn);
 
     for &index in &indices {
-        let _ = bring_up(handle, index).await;
+        let _result = bring_up(handle, index).await;
     }
 
     let mut states: HashMap<u32, bool> = indices.iter().map(|&idx| (idx, false)).collect();

@@ -14,28 +14,39 @@ use tokio::io::unix::AsyncFd;
 
 use crate::socket::{Failure as SocketFailure, bind_device};
 
+/// Packet socket operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to create `AF_PACKET` socket.
     #[error("failed to create AF_PACKET socket: {0}")]
     Create(#[source] io::Error),
+    /// Failed to bind `AF_PACKET` socket to interface.
     #[error("failed to bind AF_PACKET socket to interface {device}: {source}")]
     BindIface {
+        /// Device name.
         device: String,
+        /// Underlying I/O error.
         #[source]
         source: io::Error,
     },
+    /// Failed to bind `AF_PACKET` socket via `SO_BINDTODEVICE`.
     #[error("failed to bind AF_PACKET socket via SO_BINDTODEVICE: {0}")]
     BindDevice(#[from] SocketFailure),
+    /// Failed to look up interface index.
     #[error("failed to look up interface index for {device}: {source}")]
     Index {
+        /// Device name.
         device: String,
+        /// Underlying I/O error.
         #[source]
         source: io::Error,
     },
+    /// I/O error on packet socket.
     #[error("I/O error on packet socket: {0}")]
     Io(#[from] io::Error),
 }
 
+/// Packet socket result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 const ETH_ALEN: usize = 6;
@@ -73,7 +84,9 @@ unsafe impl SocketAddrArg for SockAddrLl {
 
 /// Async DHCP raw socket bound to a specific interface, filtered to `ETH_P_IP`.
 pub struct Socket {
+    /// Async file descriptor for the socket.
     fd: AsyncFd<OwnedFd>,
+    /// Kernel interface index.
     if_index: i32,
 }
 

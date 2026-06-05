@@ -7,14 +7,18 @@ use core::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
 
+/// Retry operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Operation timed out.
     #[error("{0}")]
     Timeout(String),
+    /// Operation timed out with a cause.
     #[error("{0}: {1}")]
     TimeoutWithCause(String, String),
 }
 
+/// Retry operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Polls an async check function until it returns `Some`, or fails after `max_retries`.

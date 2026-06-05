@@ -10,37 +10,52 @@ use tokio_stream::StreamExt as _;
 
 use crate::netlink::Rtnl;
 
+/// Address management failure conditions.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to add IPv4 address.
     #[error("failed to add IPv4 address: {0}")]
     AddIpv4(#[source] rtnetlink::Error),
+    /// Failed to remove IPv4 address.
     #[error("failed to remove IPv4 address: {0}")]
     RemoveIpv4(#[source] rtnetlink::Error),
+    /// Failed to add IPv6 address.
     #[error("failed to add IPv6 address: {0}")]
     AddIpv6(#[source] rtnetlink::Error),
+    /// Failed to remove IPv6 address.
     #[error("failed to remove IPv6 address: {0}")]
     RemoveIpv6(#[source] rtnetlink::Error),
+    /// Failed to enumerate addresses.
     #[error("failed to enumerate addresses: {0}")]
     List(#[source] rtnetlink::Error),
 }
 
+/// Address management result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// IPv4 address configuration acquired via DHCP or static assignment.
 #[derive(Debug, Clone)]
 pub struct IpConfig {
+    /// IPv4 address.
     pub address: Ipv4Addr,
+    /// Prefix length in bits.
     pub prefix_len: u8,
+    /// Optional default gateway.
     pub gateway: Option<Ipv4Addr>,
+    /// DNS server addresses.
     pub dns: Vec<Ipv4Addr>,
 }
 
 /// IPv6 address configuration acquired via SLAAC or static assignment.
 #[derive(Debug, Clone)]
 pub struct Ipv6Config {
+    /// IPv6 address.
     pub address: Ipv6Addr,
+    /// Prefix length in bits.
     pub prefix_len: u8,
+    /// Optional default gateway.
     pub gateway: Option<Ipv6Addr>,
+    /// DNS server addresses.
     pub dns: Vec<Ipv6Addr>,
 }
 

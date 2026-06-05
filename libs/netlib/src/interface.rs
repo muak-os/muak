@@ -85,25 +85,35 @@ impl PartialEq<&str> for Name {
     }
 }
 
+/// An invalid network interface name.
 #[derive(Debug, Error)]
 #[error("invalid interface name: {0:?}")]
 pub struct InvalidName(String);
 
+/// Interface enumeration failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to enumerate links.
     #[error("failed to enumerate links: {0}")]
     List(#[source] rtnetlink::Error),
+    /// Kernel returned invalid interface name.
     #[error("kernel returned invalid interface name: {0}")]
     InvalidName(#[from] InvalidName),
 }
 
+/// Interface enumeration result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
+/// A physical Ethernet interface descriptor.
 #[derive(Debug, Clone)]
 pub struct Ethernet {
+    /// Interface name.
     pub name: Name,
+    /// Kernel interface index.
     pub index: u32,
+    /// MAC address.
     pub mac_address: [u8; 6],
+    /// Current link state.
     pub link_state: State,
 }
 
@@ -217,6 +227,7 @@ pub fn is_ethernet(name: &str) -> bool {
         || name.starts_with("end")
 }
 
+/// Interface selection logic for choosing the best primary and backup interfaces.
 pub struct Selector;
 
 impl Selector {

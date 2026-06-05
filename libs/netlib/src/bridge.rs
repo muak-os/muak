@@ -22,20 +22,27 @@ const ENSLAVE_RETRIES: u8 = 5;
 /// Delay between attempts to enslave an interface to the bridge.
 const ENSLAVE_RETRY_DELAY_MS: u64 = 100;
 
+/// Bridge operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
+    /// Failed to create bridge.
     #[error("failed to create bridge: {0}")]
     Create(#[source] rtnetlink::Error),
+    /// Link operation error.
     #[error(transparent)]
     Link(#[from] link::Failure),
+    /// Address operation error.
     #[error(transparent)]
     Address(#[from] address::Failure),
+    /// Route operation error.
     #[error(transparent)]
     Route(#[from] route::Failure),
+    /// Retry operation error.
     #[error(transparent)]
     Retry(#[from] retry::Failure),
 }
 
+/// Bridge operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
 async fn create_or_reconfigure_bridge(
@@ -97,11 +104,11 @@ async fn enslave_interface_to_bridge(
     };
 
     if already_enslaved {
-        let _ = link::bring_up(handle, phys_index).await;
+        let _result = link::bring_up(handle, phys_index).await;
         return Ok(());
     }
 
-    let _ = link::bring_down(handle, phys_index).await;
+    let _result = link::bring_down(handle, phys_index).await;
 
     retry::run(
         || async { link::set_master(handle, phys_index, br_index).await },
@@ -112,7 +119,7 @@ async fn enslave_interface_to_bridge(
     .await
     .map_err(Failure::Retry)?;
 
-    let _ = link::bring_up(handle, phys_index).await;
+    let _result = link::bring_up(handle, phys_index).await;
 
     println!("Enslaved {physical_iface} to bridge {bridge_name}");
 
