@@ -10,10 +10,11 @@ use miso::error::MisoError;
 use tokio::fs;
 use tokio::task::spawn_blocking;
 
+use crate::artifact::Artifact;
+use crate::catalog::extension_archive_name;
 use crate::error::{ImagerError, Result};
-use crate::request::Artifact;
-use crate::source::model::ResolvedBuildProfile;
-use crate::stage::InstallerAssets;
+use crate::source::ResolvedBuildProfile;
+use crate::stage::{self, InstallerAssets};
 
 /// Builds the merged initramfs artifact from base image and extra files.
 ///
@@ -160,13 +161,6 @@ pub async fn build_raw(
     Ok(raw_path)
 }
 
-fn esp_arch(arch: Arch) -> EspArch {
-    match arch {
-        Arch::Amd64 => EspArch::X86_64,
-        Arch::Arm64 => EspArch::Aarch64,
-    }
-}
-
 /// Builds the requested artifact from a resolved build profile.
 ///
 /// # Errors
@@ -178,12 +172,12 @@ pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -
         .await
         .map_err(|e| ImagerError::BuildError(format!("create work dir: {e}")))?;
 
-    let installer_dir = &work.join("installer");
-    crate::stage::pull_installer(resolved_profile, &installer_dir, None)
+    let installer_dir = work.join("installer");
+    stage::pull_installer(resolved_profile, &installer_dir, None)
         .await
         .map_err(|e| ImagerError::BuildError(format!("pull installer: {e}")))?;
 
-    let assets = crate::stage::load_installer_assets(&installer_dir)?;
+    let assets = stage::load_installer_assets(&installer_dir)?;
 
     copy_asset_to_output(&assets.kernel, output_dir, Artifact::Kernel).await?;
     copy_asset_to_output(&assets.cmdline, output_dir, Artifact::Cmdline).await?;
@@ -191,7 +185,7 @@ pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -
     let pulled_dirs = if resolved_profile.extensions().is_empty() {
         vec![]
     } else {
-        crate::stage::pull_extensions(
+        stage::pull_extensions(
             resolved_profile.extensions(),
             &resolved_profile.arch(),
             &work,
@@ -203,12 +197,9 @@ pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -
 
     let extra_files: Vec<ramune::ExtraFile<'_>> = pulled_dirs
         .iter()
-        .map(|(name, dir)| ramune::ExtraFile {
-            name: format!(
-                "extensions/{}.erofs",
-                crate::catalog::extension_archive_name(name)
-            ),
-            path: dir.as_path(),
+        .map(|entry| ramune::ExtraFile {
+            name: format!("extensions/{}.erofs", extension_archive_name(&entry.0)),
+            path: entry.1.as_path(),
             compress: true,
         })
         .collect();
@@ -219,7 +210,7 @@ pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -
 
     if let Some(overlay) = resolved_profile.overlay() {
         let arch = resolved_profile.arch();
-        let overlay_dir = crate::stage::pull_overlay(overlay, &arch, &work, None)
+        let overlay_dir = stage::pull_overlay(overlay, &arch, &work, None)
             .await
             .map_err(|e| ImagerError::BuildError(format!("pull overlay: {e}")))?;
         build_iso(resolved_profile, output_dir, &uki_path).await?;
@@ -243,6 +234,13 @@ async fn copy_asset_to_output(source: &Path, output_dir: &Path, artifact: Artifa
         .await
         .map_err(|e| ImagerError::BuildError(format!("copy {}: {e}", dest.display())))?;
     Ok(())
+}
+
+fn esp_arch(arch: Arch) -> EspArch {
+    match arch {
+        Arch::Amd64 => EspArch::X86_64,
+        Arch::Arm64 => EspArch::Aarch64,
+    }
 }
 
 #[cfg(test)]

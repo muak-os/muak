@@ -7,7 +7,7 @@ use tokio::fs;
 use tokio::task::spawn_blocking;
 
 use crate::error::{ImagerError, Result};
-use crate::source::model::{ResolvedBuildProfile, ResolvedExtension, ResolvedOverlay};
+use crate::source::{ResolvedBuildProfile, ResolvedExtension, ResolvedOverlay};
 
 /// Installer asset paths extracted from the source OCI image.
 #[derive(Debug, Clone, PartialEq, Eq)]

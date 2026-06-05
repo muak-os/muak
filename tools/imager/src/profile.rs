@@ -1,5 +1,7 @@
 //! Version-neutral, content-addressed customization document.
 
+use core::fmt;
+
 use ring::digest;
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +29,24 @@ pub struct CustomizationSpec {
 pub struct Profile {
     pub overlay: Option<OverlaySpec>,
     pub customization: CustomizationSpec,
+}
+
+/// Stable content-addressed profile identifier.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Id(String);
+
+impl Id {
+    /// Returns the profile ID as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -98,11 +118,11 @@ impl Profile {
     /// # Errors
     ///
     /// Returns an error when canonical serialization fails.
-    pub fn profile_id(&self) -> Result<String> {
+    pub fn id(&self) -> Result<Id> {
         let bytes = self.canonical_bytes()?;
         let digest = digest::digest(&digest::SHA256, &bytes);
 
-        Ok(hex_encode(digest.as_ref()))
+        Ok(Id(hex_encode(digest.as_ref())))
     }
 }
 
@@ -165,12 +185,12 @@ extensions = ["muak-os/qemu"]
         let spec = Profile::from_toml(minimal_toml().as_bytes()).expect("parse");
 
         // ACT
-        let id1 = spec.profile_id().expect("id");
-        let id2 = spec.profile_id().expect("id");
+        let id1 = spec.id().expect("id");
+        let id2 = spec.id().expect("id");
 
         // ASSERT
         assert_eq!(id1, id2);
-        assert_eq!(id1.len(), 64);
+        assert_eq!(id1.as_str().len(), 64);
     }
 
     #[test]
@@ -184,10 +204,7 @@ extensions = ["muak-os/qemu"]
                 .expect("parse");
 
         // ACT / ASSERT
-        assert_eq!(
-            first.profile_id().expect("id"),
-            second.profile_id().expect("id")
-        );
+        assert_eq!(first.id().expect("id"), second.id().expect("id"));
     }
 
     #[test]
