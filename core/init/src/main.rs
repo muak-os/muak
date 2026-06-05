@@ -68,7 +68,7 @@ fn run() -> Result<()> {
     }
 
     kmsg::info!("Switching to new root");
-    switchroot::switch_root(NEWROOT)?;
+    switchroot::new_root(NEWROOT)?;
 
     Ok(())
 }

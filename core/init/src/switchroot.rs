@@ -9,7 +9,7 @@ use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
 /// Switches to the new root filesystem and executes the init process.
-pub fn switch_root(newroot: &str) -> Result<()> {
+pub fn new_root(newroot: &str) -> Result<()> {
     move_pseudo_mounts(newroot).context("moving pseudo mounts failed")?;
     chdir(newroot).context("chdir newroot failed")?;
     chroot(".").context("chroot failed")?;
