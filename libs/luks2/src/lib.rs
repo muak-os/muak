@@ -3,6 +3,8 @@
 //! Using AES-256-XTS-plain64 with Argon2id key derivation and PBKDF2-SHA256
 //! digest verification.
 
+#![warn(missing_docs)]
+
 mod digest;
 mod dm;
 mod error;
@@ -14,9 +16,11 @@ mod xts;
 use error::{Luks2Error as Error, Result};
 use header::Header;
 use metadata::Metadata;
-pub type Tpm2Token = metadata::Tpm2Token;
 use ring::rand::{SecureRandom as _, SystemRandom};
 use zeroize::Zeroize as _;
+
+/// Represents a TPM2 token stored in the LUKS2 JSON metadata.
+pub type Tpm2Token = metadata::Tpm2Token;
 
 const BINARY_HEADER_SIZE: usize = 4096;
 const BINARY_HEADER_SIZE_U64: u64 = 4096;
