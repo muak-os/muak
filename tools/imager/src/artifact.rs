@@ -5,7 +5,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Concrete output artifact produced by the build pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Artifact {
     /// Linux kernel image.

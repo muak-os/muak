@@ -262,7 +262,7 @@ async fn run_build(
         version,
         platform,
         arch,
-        artifact,
+        artifacts: vec![artifact],
     };
 
     let config = Config {
@@ -273,19 +273,15 @@ async fn run_build(
         workspace_root: output.clone(),
     };
 
-    build::artifacts(&request, &spec, &config, &output)
+    let results = build::artifacts(&request, &spec, &config, &output)
         .await
-        .context(format!(
-            "build {} to {}",
-            request.artifact,
-            output.display()
-        ))?;
+        .context(format!("build {} to {}", artifact, output.display()))?;
 
-    println!(
-        "Successfully built {} at {}",
-        request.artifact,
-        output.display()
-    );
+    let path = results
+        .get(&artifact)
+        .context("built artifact not found in results")?;
+
+    println!("Successfully built {} at {}", artifact, path.display());
 
     Ok(())
 }

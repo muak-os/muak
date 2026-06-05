@@ -49,7 +49,7 @@ pub struct Resolve {
     pub arch: Arch,
 }
 
-/// Request to build a specific artifact from a profile.
+/// Request to build one or more artifacts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Build {
     /// Version to build.
@@ -58,8 +58,8 @@ pub struct Build {
     pub platform: Platform,
     /// Target CPU architecture.
     pub arch: Arch,
-    /// Artifact type to build.
-    pub artifact: Artifact,
+    /// Artifact types to build.
+    pub artifacts: Vec<Artifact>,
 }
 
 /// Request to prepare install assets from a profile.

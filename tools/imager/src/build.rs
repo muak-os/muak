@@ -1,23 +1,26 @@
 //! Public artifact build API.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::artifact::Artifact;
 use crate::error::Result;
 use crate::profile::Profile;
 use crate::render;
 use crate::request::{Build, Resolve};
 use crate::resolve::{self, Sources};
+use crate::workspace;
 
 /// Build pipeline configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
     /// OCI image registry and installer repository.
     pub sources: Sources,
-    /// Root directory for workspace and output artifacts.
+    /// Root directory for output artifacts.
     pub workspace_root: PathBuf,
 }
 
-/// Builds the requested artifact and its dependencies from a profile.
+/// Builds the requested artifacts sharing a single resolution and workspace.
 ///
 /// # Errors
 ///
@@ -27,12 +30,22 @@ pub async fn artifacts(
     profile: &Profile,
     config: &Config,
     output_dir: &Path,
-) -> Result<()> {
+) -> Result<HashMap<Artifact, PathBuf>> {
     let resolve_request = Resolve {
         version: request.version.clone(),
         platform: request.platform,
         arch: request.arch,
     };
     let resolved = resolve::profile(&resolve_request, profile, &config.sources)?;
-    render::build(&resolved, output_dir).await
+    let profile_bytes = profile.canonical_bytes()?;
+    let workspace = workspace::unique(&config.workspace_root);
+
+    render::artifacts(
+        &resolved,
+        &request.artifacts,
+        &profile_bytes,
+        output_dir,
+        &workspace,
+    )
+    .await
 }
