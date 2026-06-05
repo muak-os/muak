@@ -3,6 +3,8 @@
 //! This library provides direct access to `/dev/kmsg` for logging from early
 //! boot processes and system daemons, with automatic fallback to stderr.
 
+#![warn(missing_docs)]
+
 extern crate alloc;
 
 use alloc::borrow::Cow;
@@ -22,10 +24,15 @@ const KMSG_PATH_ENV: &str = "MUAK_KMSG_PATH";
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
+/// Kernel log severity levels.
 pub enum Level {
+    /// Error message (kernel log level 3).
     Error = 3,
+    /// Warning message (kernel log level 4).
     Warn = 4,
+    /// Informational message (kernel log level 6).
     Info = 6,
+    /// Debug message (kernel log level 7).
     Debug = 7,
 }
 
@@ -106,8 +113,10 @@ pub fn init(component: &str) -> Result<(), InitError> {
         .map_err(|_already_initialized| InitError::AlreadyInitialized)
 }
 
+/// Error type for logger initialization.
 #[derive(Debug, Error)]
 pub enum InitError {
+    /// The kmsg logger has already been initialized.
     #[error("logger already initialized")]
     AlreadyInitialized,
 }
@@ -120,6 +129,7 @@ fn format_log(level: Level, component: &str, message: &str) -> String {
     }
 }
 
+/// Writes a formatted log message to kmsg (or stderr as fallback).
 pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     let comp = component
         .or_else(|| DEFAULT_COMPONENT.get().map(String::as_str))
@@ -128,6 +138,7 @@ pub fn write_log(level: Level, component: Option<&str>, message: &str) {
     write_to_kmsg_or_stderr(format_log(level, comp, message).as_bytes());
 }
 
+/// Writes a plain message to kmsg with a trailing newline.
 pub fn print(message: &str) {
     let formatted = format!("{message}\n");
     write_to_kmsg_or_stderr(formatted.as_bytes());
@@ -221,6 +232,7 @@ macro_rules! debug {
     };
 }
 
+/// Log a debug message when the `debug` feature is enabled; compiles away otherwise.
 #[cfg(not(feature = "debug"))]
 #[macro_export]
 macro_rules! debug {
