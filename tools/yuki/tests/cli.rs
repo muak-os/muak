@@ -8,6 +8,7 @@ mod tests {
     use std::path::PathBuf;
 
     use tempfile::TempDir;
+    use yuki::cli;
 
     use super::fixtures::components::{fake_dtb, fake_initrd, fake_kernel, sample_cmdline};
     use super::fixtures::pe::generate_minimal_stub;
@@ -49,7 +50,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let result = yuki::cli::run_with([
+        let result = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -82,7 +83,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        yuki::cli::run_with([
+        cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -115,7 +116,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             env.path("missing.efi").to_str().expect("stub path"),
@@ -144,7 +145,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -173,7 +174,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -202,7 +203,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -232,7 +233,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -264,7 +265,7 @@ mod tests {
         let output = env.path("output.efi");
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
@@ -295,7 +296,7 @@ mod tests {
         let cmdline = env.write("cmdline.txt", &sample_cmdline());
 
         // ACT
-        let error = yuki::cli::run_with([
+        let error = cli::run_with([
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),

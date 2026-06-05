@@ -9,12 +9,15 @@ use thiserror::Error;
 )]
 #[derive(Error, Debug)]
 pub enum YukiError {
+    /// PE parsing failed with a system-level error.
     #[error("Failed to parse PE file: {0}")]
     PeParseError(String),
 
+    /// PE structure is malformed or violates invariants.
     #[error("Invalid PE structure: {0}")]
     InvalidPeStructure(String),
 
+    /// PE section count would exceed the maximum.
     #[error("Too many sections: cannot add more sections to PE file")]
     TooManySections,
 }

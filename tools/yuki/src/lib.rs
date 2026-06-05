@@ -1,5 +1,7 @@
 //! Yuki - A library to create Unified Kernel Images (UKI) for Linux on UEFI systems.
 
+#![warn(missing_docs)]
+
 mod binary;
 #[cfg(feature = "cli")]
 pub mod cli;
@@ -11,11 +13,17 @@ use error::{Result, YukiError};
 
 /// Borrowed component data required to build a Unified Kernel Image.
 pub struct BuildInput<'a> {
+    /// EFI stub PE binary to embed components into.
     pub stub: &'a [u8],
+    /// Kernel image.
     pub kernel: &'a [u8],
+    /// Initial RAM filesystem image.
     pub initramfs: &'a [u8],
+    /// Kernel command-line string.
     pub cmdline: &'a [u8],
+    /// Optional device-tree blob.
     pub dtb: Option<&'a [u8]>,
+    /// Optional LUKS key file.
     pub luks_key: Option<&'a [u8]>,
 }
 
