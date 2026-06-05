@@ -51,6 +51,7 @@ categories = ["os"]
 
 imager = { path = "tools/imager", default-features = false }
 koci = { path = "tools/koci", default-features = false }
+miso = { path = "tools/miso", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 

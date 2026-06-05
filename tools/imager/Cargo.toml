@@ -32,11 +32,15 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
+esp = { workspace = true }
 koci = { workspace = true, default-features = false }
+miso = { workspace = true, default-features = false }
+ramune = { workspace = true, default-features = false }
+yuki = { workspace = true, default-features = false }
 
 [features]
 default = ["cli"]
-cli = ["clap", "anyhow"]
+cli = ["anyhow", "clap"]
 
 [lints]
 workspace = true

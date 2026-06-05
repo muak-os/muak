@@ -1,10 +1,10 @@
-//! Resolved source model types used by the build pipeline.
+//! Resolved source model types.
 
 use koci::arch::Arch;
 
 use crate::request::Platform;
 
-/// Resolved extension source with stable naming for `ramune`.
+/// Resolved extension source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedExtension {
     name: String,
@@ -188,9 +188,6 @@ mod tests {
         assert_eq!(bp.arch(), Arch::Amd64);
         assert_eq!(bp.extensions().len(), 1);
         assert!(bp.overlay().is_none());
-        assert_eq!(
-            bp.installer(),
-            "ghcr.io/muak-os/installer:v1.0.0-beta"
-        );
+        assert_eq!(bp.installer(), "ghcr.io/muak-os/installer:v1.0.0-beta");
     }
 }

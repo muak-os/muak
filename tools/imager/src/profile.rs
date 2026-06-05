@@ -1,6 +1,5 @@
 //! Version-neutral, content-addressed customization document.
 
-use anyhow::Context as _;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +52,9 @@ impl Profile {
         let spec: Self = toml::from_str(core::str::from_utf8(bytes).map_err(|_error| {
             ImagerError::ProfileValidation("profile is not valid UTF-8".into())
         })?)
-        .context("failed to parse profile TOML")?;
+        .map_err(|e| {
+            ImagerError::ProfileValidation(format!("failed to parse profile TOML: {e}"))
+        })?;
         spec.validate()?;
 
         Ok(spec)
@@ -86,7 +87,9 @@ impl Profile {
         normalized.customization.extensions.sort();
 
         Ok(toml::to_string(&normalized)
-            .context("failed to serialize profile to TOML")?
+            .map_err(|e| {
+                ImagerError::ProfileValidation(format!("failed to serialize profile to TOML: {e}"))
+            })?
             .into_bytes())
     }
 
@@ -196,7 +199,7 @@ extensions = ["muak-os/qemu"]
         let err = Profile::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::Other(_)));
+        assert!(matches!(err, ImagerError::ProfileValidation(_)));
     }
 
     #[test]

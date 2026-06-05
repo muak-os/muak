@@ -12,8 +12,14 @@ pub enum ImagerError {
     #[error("profile validation: {0}")]
     ProfileValidation(String),
 
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    #[error("source resolution: {0}")]
+    SourceResolution(String),
+
+    #[error("installer is missing required file: {0}")]
+    MissingInstallerFile(String),
+
+    #[error("build failure: {0}")]
+    BuildError(String),
 }
 
 /// Result type alias for imager operations.
