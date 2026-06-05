@@ -11,7 +11,9 @@ use crate::error::{ImagerError, Result};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OverlaySpec {
+    /// Overlay name (e.g. board variant).
     pub name: String,
+    /// OCI image reference containing the overlay files.
     pub image: String,
 }
 
@@ -19,6 +21,7 @@ pub struct OverlaySpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomizationSpec {
+    /// List of OCI extension references to include.
     #[serde(default)]
     pub extensions: Vec<String>,
 }
@@ -27,7 +30,9 @@ pub struct CustomizationSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
+    /// Optional board-specific overlay.
     pub overlay: Option<OverlaySpec>,
+    /// Extension and customization settings.
     pub customization: CustomizationSpec,
 }
 

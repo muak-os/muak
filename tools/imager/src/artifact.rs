@@ -8,11 +8,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Artifact {
+    /// Linux kernel image.
     Kernel,
+    /// Initial RAM filesystem image.
     Initramfs,
+    /// Kernel command-line file.
     Cmdline,
+    /// Unified kernel image (UKI) EFI binary.
     Uki,
+    /// ISO 9660 bootable image.
     Iso,
+    /// Raw disk image (compressed via zstd).
     Raw,
 }
 

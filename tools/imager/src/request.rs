@@ -11,8 +11,11 @@ use crate::artifact::Artifact;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Platform {
+    /// Bare-metal installation.
     Metal,
+    /// Amazon Web Services.
     Aws,
+    /// Google Cloud Platform.
     Gcp,
 }
 
@@ -38,25 +41,35 @@ impl fmt::Display for Platform {
 /// Request to resolve a profile into versioned OCI references.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolve {
+    /// Version to resolve.
     pub version: String,
+    /// Target deployment platform.
     pub platform: Platform,
+    /// Target CPU architecture.
     pub arch: Arch,
 }
 
 /// Request to build a specific artifact from a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Build {
+    /// Version to build.
     pub version: String,
+    /// Target deployment platform.
     pub platform: Platform,
+    /// Target CPU architecture.
     pub arch: Arch,
+    /// Artifact type to build.
     pub artifact: Artifact,
 }
 
 /// Request to prepare install assets from a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Install {
+    /// Version to install.
     pub version: String,
+    /// Target deployment platform.
     pub platform: Platform,
+    /// Target CPU architecture.
     pub arch: Arch,
 }
 

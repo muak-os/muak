@@ -1,5 +1,7 @@
 //! Imager: shared deterministic image build pipeline.
 
+#![warn(missing_docs)]
+
 pub mod artifact;
 pub mod build;
 #[cfg(feature = "cli")]

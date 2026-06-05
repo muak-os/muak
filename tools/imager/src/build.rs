@@ -12,7 +12,9 @@ use crate::source::Sources;
 /// Build pipeline configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// OCI image registry and installer repository.
     pub sources: Sources,
+    /// Root directory for workspace and output artifacts.
     pub workspace_root: PathBuf,
 }
 
