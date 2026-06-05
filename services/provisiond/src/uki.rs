@@ -2,20 +2,13 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+use imager::catalog::extension_archive_name;
+use imager::source::model::{ResolvedBuildProfile, ResolvedExtension};
 
 /// Public key for installer image verification.
 const SIGNATURE_PUB: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../signature.pub"));
-
-/// Owned bytes for every UKI component, loaded from the filesystem.
-struct LoadedComponents {
-    stub: Vec<u8>,
-    kernel: Vec<u8>,
-    initramfs: Vec<u8>,
-    cmdline: Vec<u8>,
-    dtb: Option<Vec<u8>>,
-}
 
 /// Path-based UKI component.
 pub struct Uki {
@@ -41,7 +34,7 @@ impl Uki {
         }
     }
 
-    /// Prepares UKI components from an installer image and extensions.
+    /// Pulls the installer, builds the merged initramfs via imager, and returns a Uki.
     pub async fn prepare(
         installer_image: &str,
         extensions: &[String],
@@ -53,29 +46,55 @@ impl Uki {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create work dir for {}", work_dir.display()))?;
 
-        pull_installer(installer_image, parent).await?;
-        build_initramfs(parent, &uki.initramfs, extensions).await?;
+        let arch = koci::arch::host();
+        let resolved = ResolvedBuildProfile::new(
+            imager::request::Platform::Metal,
+            String::new(),
+            arch,
+            resolve_extensions(extensions),
+            None,
+            installer_image.to_owned(),
+        );
+
+        let installer_dir = work_dir.join("installer");
+        imager::stage::pull_installer(&resolved, &installer_dir, Some(SIGNATURE_PUB))
+            .await
+            .context("Failed to pull installer")?;
+
+        let assets = imager::stage::load_installer_assets(&installer_dir)
+            .context("Failed to load installer assets")?;
+
+        let pulled = if extensions.is_empty() {
+            vec![]
+        } else {
+            imager::stage::pull_extensions(resolved.extensions(), &arch, work_dir, None)
+                .await
+                .context("Failed to pull extensions")?
+        };
+        let extra_files = build_extension_entries(&pulled);
+
+        let built = imager::pipeline::build_merged_initramfs(&assets, &extra_files, parent)
+            .await
+            .context("Failed to build initramfs")?;
+
+        std::fs::copy(&assets.kernel, &uki.kernel)
+            .with_context(|| format!("copy kernel to {}", uki.kernel.display()))?;
+        std::fs::copy(&assets.cmdline, &uki.cmdline)
+            .with_context(|| format!("copy cmdline to {}", uki.cmdline.display()))?;
+        std::fs::copy(&assets.stub, &uki.stub)
+            .with_context(|| format!("copy stub to {}", uki.stub.display()))?;
+        if built != uki.initramfs {
+            std::fs::copy(&built, &uki.initramfs)
+                .with_context(|| format!("copy initramfs to {}", uki.initramfs.display()))?;
+        }
+
+        kmsg::info!("Successfully prepared UKI components");
 
         Ok(uki)
     }
 
-    /// Reads all component files into memory.
-    fn load_components(&self) -> Result<LoadedComponents> {
-        let read_path = |path: &Path| -> Result<Vec<u8>> {
-            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
-        };
-
-        Ok(LoadedComponents {
-            stub: read_path(&self.stub)?,
-            kernel: read_path(&self.kernel)?,
-            initramfs: read_path(&self.initramfs)?,
-            cmdline: read_path(&self.cmdline)?,
-            dtb: self.dtb.as_ref().map(|p| read_path(p)).transpose()?,
-        })
-    }
-
-    /// Builds the UKI binary and optionally signs it for Secure Boot.
-    pub fn build(
+    /// Builds the UKI binary via imager and optionally signs it for Secure Boot.
+    pub async fn build(
         &self,
         output: &Path,
         hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
@@ -85,32 +104,37 @@ impl Uki {
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
         }
 
-        let loaded = self.load_components()?;
+        let assets = imager::stage::InstallerAssets {
+            kernel: self.kernel.clone(),
+            initramfs: self.initramfs.clone(),
+            stub: self.stub.clone(),
+            cmdline: self.cmdline.clone(),
+        };
 
-        let buffer = yuki::build(&yuki::BuildInput {
-            stub: &loaded.stub,
-            kernel: &loaded.kernel,
-            initramfs: &loaded.initramfs,
-            cmdline: &loaded.cmdline,
-            dtb: loaded.dtb.as_deref(),
-            luks_key: self.luks_key.as_deref(),
-        })
-        .context("Failed to build UKI")?;
+        let output_dir = output.parent().context("output has no parent")?;
+        let uki_path = imager::pipeline::build_uki(&assets, &self.initramfs, output_dir)
+            .await
+            .context("Failed to build UKI")?;
 
-        let final_buffer = if let Some(hierarchy) = hierarchy {
+        if uki_path != output {
+            std::fs::copy(&uki_path, output)
+                .with_context(|| format!("copy UKI to {}", output.display()))?;
+        }
+
+        if let Some(hierarchy) = hierarchy {
+            let buffer =
+                std::fs::read(output).with_context(|| format!("read UKI {}", output.display()))?;
             let signed = sbolt::pe::signature::sign(
                 &buffer,
                 &hierarchy.db.signer,
                 &hierarchy.db.certificate,
             )
             .context("Failed to sign UKI")?;
+            std::fs::write(output, &signed)
+                .with_context(|| format!("write signed UKI {}", output.display()))?;
             kmsg::info!("UKI signed successfully");
-            signed
-        } else {
-            buffer
-        };
+        }
 
-        std::fs::write(output, &final_buffer).context("Failed to write the UKI")?;
         kmsg::info!("Successfully built UKI at {}", output.display());
 
         Ok(())
@@ -118,116 +142,41 @@ impl Uki {
 
     /// Reads the UKI component files and returns section data for PCR prediction.
     pub fn read_section_data(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let loaded = self.load_components()?;
-
+        let read = |path: &Path| -> Result<Vec<u8>> {
+            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
+        };
         Ok(vec![
-            (".linux".to_string(), loaded.kernel),
-            (".cmdline".to_string(), loaded.cmdline),
-            (".initrd".to_string(), loaded.initramfs),
+            (".linux".to_string(), read(&self.kernel)?),
+            (".cmdline".to_string(), read(&self.cmdline)?),
+            (".initrd".to_string(), read(&self.initramfs)?),
         ])
     }
 }
 
-/// Pulls the installer image and extracts components.
-async fn pull_installer(image: &str, dest_dir: &Path) -> Result<()> {
-    kmsg::info!("Pulling installer image: {}", image);
-
-    koci::pull(image, dest_dir, Some(SIGNATURE_PUB))
-        .await
-        .context("Failed to pull installer image")?;
-
-    verify_installer_files(dest_dir)?;
-
-    kmsg::info!("Successfully pulled and extracted installer");
-    Ok(())
+/// Resolves extension OCI refs into `ResolvedExtension` entries.
+fn resolve_extensions(refs: &[String]) -> Vec<ResolvedExtension> {
+    refs.iter()
+        .map(|r| {
+            let name = r
+                .split('/')
+                .last()
+                .unwrap_or(r)
+                .split(':')
+                .next()
+                .unwrap_or(r)
+                .to_owned();
+            ResolvedExtension::new(name, r.clone())
+        })
+        .collect()
 }
 
-/// Verifies required installer files are present.
-fn verify_installer_files(base_dir: &Path) -> Result<()> {
-    let required_files = ["vmlinuz", "stub.efi", "initramfs.img", "cmdline"];
-
-    for file in &required_files {
-        let path = base_dir.join(file);
-        if !path.exists() {
-            bail!("Required installer file missing: {}", file);
-        }
-    }
-
-    Ok(())
-}
-
-/// Pulls each OCI extension to a temporary directory and builds the initramfs.
-async fn build_initramfs(base_dir: &Path, output: &Path, extensions: &[String]) -> Result<()> {
-    let base_initramfs = base_dir.join("initramfs.img");
-
-    if !base_initramfs.exists() {
-        bail!("Base initramfs not found at {}", base_initramfs.display());
-    }
-
-    let ext_dirs = pull_extensions(extensions).await?;
-    let extra_files: Vec<ramune::ExtraFile<'_>> = ext_dirs
-        .iter()
-        .map(|(name, d)| ramune::ExtraFile {
-            name: format!("extensions/{name}.erofs"),
-            path: d.path(),
+/// Builds `ExtraFile` entries from pulled extension directories.
+fn build_extension_entries(dirs: &[(String, PathBuf)]) -> Vec<ramune::ExtraFile<'_>> {
+    dirs.iter()
+        .map(|(name, dir)| ramune::ExtraFile {
+            name: format!("extensions/{}.erofs", extension_archive_name(name)),
+            path: dir.as_path(),
             compress: true,
         })
-        .collect();
-
-    let config = ramune::ExtendConfig {
-        base: &base_initramfs,
-        extra_files: &extra_files,
-        compression_level: ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-    };
-
-    ramune::extend(&config, output)
-        .await
-        .context("Failed to build initramfs")?;
-
-    if !output.exists() {
-        bail!(
-            "ramune build completed but output file not found: {}",
-            output.display()
-        );
-    }
-
-    kmsg::info!(
-        "Successfully built initramfs with {} extensions",
-        extensions.len()
-    );
-    Ok(())
-}
-
-/// Pulls each OCI extension image to its own temporary directory.
-async fn pull_extensions(extensions: &[String]) -> Result<Vec<(String, tempfile::TempDir)>> {
-    let mut dirs = Vec::with_capacity(extensions.len());
-    for ext in extensions {
-        let tmp =
-            tempfile::TempDir::new_in("/run").context("Failed to create temp dir for extension")?;
-        koci::pull(ext, tmp.path(), None)
-            .await
-            .with_context(|| format!("Failed to pull extension: {ext}"))?;
-        dirs.push((oci_ref_to_logical_name(ext), tmp));
-    }
-    Ok(dirs)
-}
-
-/// Derives a stable logical name from an OCI reference by stripping the registry prefix, tag, and digest.
-fn oci_ref_to_logical_name(oci_ref: &str) -> String {
-    let without_digest = oci_ref.split('@').next().unwrap_or(oci_ref);
-    let without_tag = without_digest.split(':').next().unwrap_or(without_digest);
-    let repo = if without_tag.contains('/') {
-        let first_component = without_tag.split('/').next().unwrap_or("");
-        if first_component.contains('.') || first_component.contains(':') {
-            without_tag
-                .split_once('/')
-                .map(|x| x.1)
-                .unwrap_or(without_tag)
-        } else {
-            without_tag
-        }
-    } else {
-        without_tag
-    };
-    repo.replace('/', "-")
+        .collect()
 }

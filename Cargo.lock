@@ -1823,6 +1823,7 @@ dependencies = [
  "config",
  "esp",
  "granola",
+ "imager",
  "kmsg",
  "koci",
  "libc",
@@ -1846,7 +1847,6 @@ dependencies = [
  "tpm2",
  "uuid",
  "x509-cert",
- "yuki",
  "zeroize",
 ]
 

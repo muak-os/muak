@@ -10,9 +10,6 @@ use crate::efi;
 use crate::secrets;
 use crate::uki::Uki;
 
-/// Subdirectory for extracted board firmware files during update.
-const FIRMWARE_DIR: &str = "/run/update/firmware";
-
 /// Applies a staged update by building the UKI, enrolling Secure Boot keys if needed, and deploying.
 pub async fn apply() -> Result<()> {
     kmsg::info!("Validation succeeded, committing update");
@@ -35,7 +32,7 @@ pub async fn apply() -> Result<()> {
         None
     };
 
-    uki.build(&staged, sb_hierarchy.as_ref())?;
+    uki.build(&staged, sb_hierarchy.as_ref()).await?;
 
     if let Some(hier) = sb_hierarchy.as_ref() {
         let pk_missing = sbolt::efi::pk()
@@ -46,9 +43,7 @@ pub async fn apply() -> Result<()> {
         }
     }
 
-    let firmware_dir = efi::resolve_firmware(config::host(), Path::new(FIRMWARE_DIR)).await?;
-
-    efi::deploy(&efi_device, &staged, firmware_dir.as_deref())?;
+    efi::deploy(&efi_device, &staged)?;
 
     if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
         eprintln!("Failed to cleanup update work dir: {}", e);

@@ -575,44 +575,4 @@ ntp = "pool.ntp.org"
         assert_eq!(restored.host.ntp, "pool.ntp.org");
         assert!(restored.host.secureboot);
     }
-
-    #[test]
-    fn firmware_fields_round_trip() {
-        // ARRANGE
-        let mut config = SystemConfig::default();
-        config.host.firmware = Some("ghcr.io/muak-os/pkgs/sbc-raspberrypi:v1".to_string());
-        config.host.firmware_variant = Some("rpi_generic".to_string());
-
-        // ACT
-        let s = serialize(&config).unwrap();
-        let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
-
-        // ASSERT
-        assert_eq!(
-            restored.host.firmware.as_deref(),
-            Some("ghcr.io/muak-os/pkgs/sbc-raspberrypi:v1")
-        );
-        assert_eq!(
-            restored.host.firmware_variant.as_deref(),
-            Some("rpi_generic")
-        );
-    }
-
-    #[test]
-    fn firmware_fields_default_to_none() {
-        // ARRANGE
-        let toml_str = r#"
-[host]
-name = "muak"
-port = 50051
-ntp = "pool.ntp.org"
-"#;
-
-        // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-
-        // ASSERT
-        assert!(config.host.firmware.is_none());
-        assert!(config.host.firmware_variant.is_none());
-    }
 }

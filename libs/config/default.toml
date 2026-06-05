@@ -11,8 +11,6 @@ extensions = []
 secureboot = true
 port = 50051
 ntp = "pool.ntp.org"
-# firmware = "ghcr.io/muak-os/sbc-raspberrypi:latest"
-# firmware_variant = "rpi-5"
 
 [disk]
 system = ""

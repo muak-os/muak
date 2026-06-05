@@ -24,6 +24,7 @@ prost = { workspace = true }
 ring = { workspace = true }
 x509-cert = { workspace = true }
 uuid = { workspace = true }
+zeroize = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -38,6 +39,7 @@ tonic-prost = { workspace = true }
 # Internal
 btrfs = { workspace = true }
 esp = { workspace = true }
+imager = { workspace = true }
 parttable = { workspace = true }
 granola = { workspace = true }
 koci = { workspace = true }
@@ -48,8 +50,6 @@ config = { workspace = true }
 ramune = { workspace = true }
 sbolt = { workspace = true }
 tpm2 = { workspace = true }
-yuki = { workspace = true }
-zeroize = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net"] }
