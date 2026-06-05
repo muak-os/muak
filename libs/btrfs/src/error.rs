@@ -24,26 +24,49 @@ pub enum BtrfsError {
     /// Subvolume operation failed.
     #[error("Failed to {operation} subvolume {path}: {source}")]
     Subvolume {
+        /// Operation being performed.
         operation: &'static str,
+        /// Path to the subvolume.
         path: PathBuf,
+        /// Underlying system error.
         source: Errno,
     },
 
     /// Quota enable failed.
     #[error("Failed to enable btrfs quota on {mount_point}: {source}")]
-    QuotaEnable { mount_point: String, source: Errno },
+    QuotaEnable {
+        /// Mount point path.
+        mount_point: String,
+        /// Underlying system error.
+        source: Errno,
+    },
 
     /// Quota limit failed.
     #[error("Failed to set quota limit on {path}: {source}")]
-    QuotaLimit { path: PathBuf, source: Errno },
+    QuotaLimit {
+        /// Path to the subvolume.
+        path: PathBuf,
+        /// Underlying system error.
+        source: Errno,
+    },
 
     /// Quota usage lookup failed.
     #[error("Failed to read quota usage for {path}: {source}")]
-    QuotaLookup { path: PathBuf, source: Errno },
+    QuotaLookup {
+        /// Path to the subvolume.
+        path: PathBuf,
+        /// Underlying system error.
+        source: Errno,
+    },
 
     /// Scrub operation failed.
     #[error("Failed to scrub {mount_point}: {source}")]
-    Scrub { mount_point: String, source: Errno },
+    Scrub {
+        /// Mount point path.
+        mount_point: String,
+        /// Underlying system error.
+        source: Errno,
+    },
 
     /// Filesystem creation failed.
     #[error("Failed to create btrfs filesystem: {0}")]
@@ -51,7 +74,12 @@ pub enum BtrfsError {
 
     /// Device too small.
     #[error("Device too small for btrfs: need at least {min_size} bytes, have {actual_size}")]
-    DeviceTooSmall { min_size: u64, actual_size: u64 },
+    DeviceTooSmall {
+        /// Minimum required size in bytes.
+        min_size: u64,
+        /// Actual device size in bytes.
+        actual_size: u64,
+    },
 
     /// Invalid argument or state.
     #[error("{0}")]

@@ -24,8 +24,11 @@ const QGROUP_MAX_RFER_OFFSET: usize = 8;
 /// Disk usage information for a subvolume.
 #[derive(Debug, Clone, Default)]
 pub struct DiskUsage {
+    /// Bytes currently used.
     pub used_bytes: u64,
+    /// Quota limit in bytes.
     pub quota_bytes: u64,
+    /// Usage as a percentage.
     pub usage_percent: u16,
 }
 

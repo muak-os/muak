@@ -6,6 +6,8 @@
 //! - Managing quotas (enable, set limits, get usage)
 //! - Scrubbing filesystems for integrity verification
 
+#![warn(missing_docs)]
+
 pub mod error;
 pub mod format;
 pub mod ioctl;
