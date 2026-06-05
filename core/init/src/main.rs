@@ -30,7 +30,7 @@ fn main() {
 
 /// Run the initialization sequence.
 fn run() -> Result<()> {
-    mount::mount_pseudo()?;
+    mount::pseudo()?;
 
     kmsg::init("init")?;
 
@@ -45,7 +45,7 @@ fn run() -> Result<()> {
     );
 
     kmsg::info!("Mounting rootfs");
-    mount::mount_rootfs()?;
+    mount::rootfs()?;
     kmsg::info!("Rootfs mounted successfully");
 
     match modules::load(Path::new(NEWROOT)) {
@@ -61,7 +61,7 @@ fn run() -> Result<()> {
     };
     kmsg::info!("SELinux policy loaded ({})", mode);
 
-    if mount::mount_persistent() {
+    if mount::persistent() {
         kmsg::info!("Persistent partitions mounted");
     } else {
         kmsg::info!("No valid persistent state found (maintenance mode)");

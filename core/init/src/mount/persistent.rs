@@ -16,7 +16,7 @@ const DATA_MOUNT: &str = "/run/data";
 const STATE_CONFIG: &str = "/run/state/config.toml";
 
 /// Mount persistent STATE and DATA partitions if the system is installed.
-pub(crate) fn mount_persistent() -> bool {
+pub(crate) fn persistent() -> bool {
     let state_devices = find_partitions_by_partname("STATE");
     if state_devices.is_empty() {
         return false;

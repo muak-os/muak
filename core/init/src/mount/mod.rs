@@ -7,6 +7,6 @@ mod persistent;
 mod pseudo;
 mod rootfs;
 
-pub(crate) use persistent::mount_persistent;
-pub(crate) use pseudo::mount_pseudo;
-pub(crate) use rootfs::mount_rootfs;
+pub(crate) use persistent::persistent;
+pub(crate) use pseudo::pseudo;
+pub(crate) use rootfs::rootfs;

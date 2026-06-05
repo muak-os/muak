@@ -11,7 +11,7 @@ use rustix::mount::{
 use super::extensions;
 
 /// Mount the root filesystem with extensions as overlays.
-pub(crate) fn mount_rootfs() -> Result<()> {
+pub(crate) fn rootfs() -> Result<()> {
     let newroot = Path::new("/newroot");
     if !newroot.exists() {
         mkdirat(CWD, newroot, Mode::from_bits_truncate(0o755))

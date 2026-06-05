@@ -8,7 +8,7 @@ use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::mount::{MountFlags, mount};
 
 /// Mount pseudo filesystems required for early boot.
-pub(crate) fn mount_pseudo() -> Result<()> {
+pub(crate) fn pseudo() -> Result<()> {
     create_and_mount(
         "/dev",
         "devtmpfs",
