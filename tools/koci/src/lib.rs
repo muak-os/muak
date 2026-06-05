@@ -1,5 +1,7 @@
 //! OCI image pulling and manifest signing.
 
+#![warn(missing_docs)]
+
 pub mod arch;
 #[cfg(feature = "cli")]
 pub mod cli;

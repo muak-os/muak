@@ -103,6 +103,7 @@ where
         .block_on(run_command(args.command))
 }
 
+/// Runs the CLI with the given arguments and returns an exit code.
 pub fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
@@ -117,6 +118,7 @@ where
     }
 }
 
+/// Runs the CLI with `std::env::args_os()` and returns an exit code.
 #[must_use]
 pub fn run() -> i32 {
     run_with(std::env::args_os())

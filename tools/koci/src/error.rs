@@ -9,52 +9,72 @@ use thiserror::Error;
     reason = "The public error type name intentionally includes the crate name"
 )]
 pub enum KociError {
+    /// Failed to read a file from disk.
     #[error("Failed to read {file}: {source}")]
     ReadError {
+        /// Path to the file that could not be read.
         file: String,
+        /// Underlying I/O error.
         source: std::io::Error,
     },
 
+    /// Failed to write a file to disk.
     #[error("Failed to write {file}: {source}")]
     WriteError {
+        /// Path to the file that could not be written.
         file: String,
+        /// Underlying I/O error.
         source: std::io::Error,
     },
 
+    /// Failed to download an OCI image.
     #[error("Failed to download image: {0}")]
     DownloadError(String),
 
+    /// OCI manifest or config is malformed.
     #[error("Invalid OCI format: {0}")]
     InvalidOciFormat(String),
 
+    /// Failed to parse an OCI descriptor or manifest.
     #[error("OCI parsing error: {0}")]
     OciParseError(String),
 
+    /// Failed to extract an OCI layer blob.
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),
 
+    /// Layer media type is not supported.
     #[error("Unsupported OCI layer media type: {0}")]
     UnsupportedLayerMediaType(String),
 
+    /// A network request failed.
     #[error("Network error: {0}")]
     NetworkError(String),
 
+    /// Failed to create or use a temporary directory.
     #[error("Temporary directory error: {0}")]
     TempDirError(String),
 
+    /// An I/O error occurred.
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
+    /// JSON serialization or deserialization failed.
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
+    /// Content digest does not match the expected value.
     #[error("Digest mismatch for {resource}: expected {expected}, got {actual}")]
     DigestMismatch {
+        /// Name of the resource with the mismatch.
         resource: String,
+        /// Expected digest.
         expected: String,
+        /// Actual digest.
         actual: String,
     },
 
+    /// Cryptographic signature verification failed.
     #[error("Signature verification failed: {0}")]
     SignatureVerificationFailed(String),
 }

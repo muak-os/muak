@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
+    /// 64-bit x86 architecture.
     Amd64,
+    /// 64-bit ARM architecture.
     Arm64,
 }
 
