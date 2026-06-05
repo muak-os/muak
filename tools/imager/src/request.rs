@@ -93,11 +93,34 @@ mod tests {
     }
 
     #[test]
+    fn all_artifact_filenames() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(Artifact::Kernel.filename(), "kernel");
+        assert_eq!(Artifact::Initramfs.filename(), "initramfs.img");
+        assert_eq!(Artifact::Cmdline.filename(), "cmdline");
+        assert_eq!(Artifact::Uki.filename(), "uki.efi");
+        assert_eq!(Artifact::Iso.filename(), "muak.iso");
+        assert_eq!(Artifact::Raw.filename(), "muak.raw.zst");
+    }
+
+    #[test]
+    fn all_artifact_media_types() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(Artifact::Cmdline.media_type(), "text/plain; charset=utf-8");
+        assert_eq!(Artifact::Iso.media_type(), "application/x-iso9660-image");
+        assert_eq!(Artifact::Kernel.media_type(), "application/octet-stream");
+        assert_eq!(Artifact::Initramfs.media_type(), "application/octet-stream");
+        assert_eq!(Artifact::Uki.media_type(), "application/octet-stream");
+        assert_eq!(Artifact::Raw.media_type(), "application/octet-stream");
+    }
+
+    #[test]
     fn arch_conversions() {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Arch::Amd64.as_str(), "amd64");
         assert_eq!(Arch::Arm64.as_str(), "arm64");
         assert_eq!(format!("{}", Arch::Amd64), "amd64");
+        assert_eq!(format!("{}", Arch::Arm64), "arm64");
         assert_eq!(format!("{}", Platform::Metal), "metal");
     }
 

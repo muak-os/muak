@@ -214,4 +214,37 @@ extensions = ["muak-os/qemu"]
         // ASSERT
         assert!(matches!(err, ImagerError::ProfileValidation(_)));
     }
+
+    #[test]
+    fn rejects_overlay_with_empty_image() {
+        // ARRANGE
+        let raw = b"[overlay]\nname = \"rpi\"\nimage = \"\"\n[customization]\nextensions = []";
+
+        // ACT
+        let err = Profile::from_toml(raw).expect_err("should fail");
+
+        // ASSERT
+        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+    }
+
+    #[test]
+    fn rejects_empty_extension_name() {
+        // ARRANGE
+        let raw = b"[customization]\nextensions = [\"\"]";
+
+        // ACT
+        let err = Profile::from_toml(raw).expect_err("should fail");
+
+        // ASSERT
+        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+    }
+
+    #[test]
+    fn parses_empty_extensions() {
+        // ARRANGE / ACT
+        let spec = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
+
+        // ASSERT
+        assert!(spec.customization.extensions.is_empty());
+    }
 }

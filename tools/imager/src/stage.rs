@@ -123,3 +123,52 @@ fn installer_file(installer_dir: &Path, name: &str) -> Result<PathBuf> {
         Err(ImagerError::MissingInstallerFile(name.to_owned()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_installer_assets_with_all_files() {
+        // ARRANGE
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        for name in &["vmlinuz", "initramfs.img", "stub.efi", "cmdline"] {
+            std::fs::write(dir.path().join(name), b"data").expect("write");
+        }
+
+        // ACT
+        let assets = load_installer_assets(dir.path()).expect("load");
+
+        // ASSERT
+        assert!(assets.kernel.is_file());
+        assert!(assets.initramfs.is_file());
+        assert!(assets.stub.is_file());
+        assert!(assets.cmdline.is_file());
+    }
+
+    #[test]
+    fn load_installer_assets_missing_file() {
+        // ARRANGE
+        let dir = tempfile::TempDir::new().expect("tempdir");
+
+        // ACT
+        let result = load_installer_assets(dir.path());
+
+        // ASSERT
+        let err = result.unwrap_err();
+        assert!(matches!(err, ImagerError::MissingInstallerFile(_)));
+    }
+
+    #[test]
+    fn load_installer_assets_partial() {
+        // ARRANGE
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        std::fs::write(dir.path().join("vmlinuz"), b"data").expect("write");
+
+        // ACT
+        let result = load_installer_assets(dir.path());
+
+        // ASSERT
+        let _err = result.unwrap_err();
+    }
+}

@@ -42,5 +42,8 @@ yuki = { workspace = true, default-features = false }
 default = ["cli"]
 cli = ["anyhow", "clap"]
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

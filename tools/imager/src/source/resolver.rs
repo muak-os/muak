@@ -170,4 +170,51 @@ mod tests {
                 .is_err_and(|e| e.to_string().contains("unknown official extension"))
         );
     }
+
+    #[test]
+    fn resolve_with_overlay() {
+        // ARRANGE
+        let request = Request {
+            profile_id: "abc".into(),
+            version: "v1.0.0-beta".into(),
+            artifact: Artifact::Iso,
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile = Profile::from_toml(
+            b"[overlay]\nname = \"rpi\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
+
+        // ACT
+        let bp = resolver().resolve(&request, &profile).expect("resolve");
+
+        // ASSERT
+        assert!(bp.overlay().is_some());
+        let ov = bp.overlay().expect("overlay");
+        assert_eq!(ov.name(), "rpi");
+        assert_eq!(ov.image(), "muak-os/sbc");
+        assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc:v1.0.0-beta");
+    }
+
+    #[test]
+    fn resolve_aliases_extension_name() {
+        // ARRANGE
+        let request = Request {
+            profile_id: "abc".into(),
+            version: "v1.0.0".into(),
+            artifact: Artifact::Uki,
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile =
+            Profile::from_toml(b"[customization]\nextensions = [\"qemu\"]").expect("parse");
+
+        // ACT
+        let bp = resolver().resolve(&request, &profile).expect("resolve");
+
+        // ASSERT
+        assert_eq!(bp.extensions().len(), 1);
+        assert_eq!(bp.extensions().first().expect("ext").name(), "muak-os/qemu");
+    }
 }
