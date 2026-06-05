@@ -45,6 +45,12 @@ pub enum Artifact {
     Raw,
 }
 
+impl fmt::Display for Artifact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.filename())
+    }
+}
+
 impl Artifact {
     /// Returns the canonical on-disk filename for this artifact.
     #[must_use]

@@ -167,6 +167,84 @@ fn esp_arch(arch: Arch) -> EspArch {
     }
 }
 
+/// Builds the requested artifact from a resolved build profile.
+///
+/// # Errors
+///
+/// Returns an error when pulling, staging, or building any artifact fails.
+pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -> Result<()> {
+    let work = output_dir.join(".work");
+    fs::create_dir_all(&work)
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("create work dir: {e}")))?;
+
+    let installer_dir = &work.join("installer");
+    crate::stage::pull_installer(resolved_profile, &installer_dir, None)
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("pull installer: {e}")))?;
+
+    let assets = crate::stage::load_installer_assets(&installer_dir)?;
+
+    copy_asset_to_output(&assets.kernel, output_dir, Artifact::Kernel).await?;
+    copy_asset_to_output(&assets.cmdline, output_dir, Artifact::Cmdline).await?;
+
+    let pulled_dirs = if resolved_profile.extensions().is_empty() {
+        vec![]
+    } else {
+        crate::stage::pull_extensions(
+            resolved_profile.extensions(),
+            &resolved_profile.arch(),
+            &work,
+            None,
+        )
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("pull extensions: {e}")))?
+    };
+
+    let extra_files: Vec<ramune::ExtraFile<'_>> = pulled_dirs
+        .iter()
+        .map(|(name, dir)| ramune::ExtraFile {
+            name: format!(
+                "extensions/{}.erofs",
+                crate::catalog::extension_archive_name(name)
+            ),
+            path: dir.as_path(),
+            compress: true,
+        })
+        .collect();
+
+    let initramfs_path = build_merged_initramfs(&assets, &extra_files, output_dir).await?;
+
+    let uki_path = build_uki(&assets, &initramfs_path, output_dir).await?;
+
+    if let Some(overlay) = resolved_profile.overlay() {
+        let arch = resolved_profile.arch();
+        let overlay_dir = crate::stage::pull_overlay(overlay, &arch, &work, None)
+            .await
+            .map_err(|e| ImagerError::BuildError(format!("pull overlay: {e}")))?;
+        build_iso(resolved_profile, output_dir, &uki_path).await?;
+        build_raw(resolved_profile, &overlay_dir, output_dir, &uki_path).await?;
+    } else {
+        build_iso(resolved_profile, output_dir, &uki_path).await?;
+        build_raw(resolved_profile, &[], output_dir, &uki_path).await?;
+    }
+
+    Ok(())
+}
+
+async fn copy_asset_to_output(source: &Path, output_dir: &Path, artifact: Artifact) -> Result<()> {
+    let dest = output_dir.join(artifact.filename());
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| ImagerError::BuildError(format!("create dir: {e}")))?;
+    }
+    fs::copy(source, &dest)
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("copy {}: {e}", dest.display())))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
