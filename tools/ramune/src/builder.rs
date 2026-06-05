@@ -19,10 +19,15 @@ const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "e
 
 /// Configuration for base initramfs creation.
 pub struct CreateConfig<'a> {
+    /// Path to the init binary.
     pub init: &'a Path,
+    /// Path to the rootfs directory to embed.
     pub rootfs_dir: &'a Path,
+    /// Optional `SELinux` file contexts.
     pub file_contexts: Option<&'a ::erofs::FileContexts>,
+    /// Zstd compression level for the output initramfs.
     pub compression_level: i32,
+    /// Zstd compression level for the embedded rootfs.
     pub rootfs_compression_level: i32,
 }
 

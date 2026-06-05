@@ -1,5 +1,7 @@
 //! Ramune: initramfs builder for creating base images and appending extra files.
 
+#![warn(missing_docs)]
+
 pub mod builder;
 #[cfg(feature = "cli")]
 pub mod cli;
@@ -10,11 +12,14 @@ pub mod error;
 pub mod extender;
 mod extra;
 
+/// Configuration for creating a base initramfs.
 pub type CreateConfig<'a> = builder::CreateConfig<'a>;
-pub type RamuneError = error::RamuneError;
+/// Configuration for extending an existing initramfs.
 pub type ExtendConfig<'a> = extender::ExtendConfig<'a>;
+/// An extra file to append to an initramfs archive.
 pub type ExtraFile<'a> = extender::ExtraFile<'a>;
 
+/// Default zstd compression level.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
 
 /// Creates a base initramfs image from an init binary and rootfs directory.
