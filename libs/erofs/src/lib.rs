@@ -1,5 +1,7 @@
 //! Pure-Rust EROFS image writer (mkfs.erofs equivalent).
 
+#![warn(missing_docs)]
+
 extern crate alloc;
 
 mod checked;
@@ -15,12 +17,18 @@ mod xattr;
 
 use std::path::Path;
 
+/// EROFS compression algorithm and level.
 pub type Compression = compress::Compression;
+/// Error type for EROFS operations.
 pub type ErofsError = error::ErofsError;
+/// `SELinux` file context rules for labeling EROFS inodes.
 pub type FileContexts = filecontexts::FileContexts;
+/// Planned inode layout for the EROFS image.
 pub type InodeLayout = layout::InodeLayout;
 
+/// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+/// Result type alias for EROFS operations.
 pub type Result<T> = error::Result<T>;
 
 /// Block size used throughout EROFS images (4 KiB).
@@ -31,11 +39,17 @@ pub const SLOT_SIZE: usize = 32;
 
 /// Configuration for EROFS image creation.
 pub struct MkfsConfig<'a> {
+    /// Timestamp for reproducible builds (seconds since epoch).
     pub source_date_epoch: u64,
+    /// Optional `SELinux` file context rules.
     pub file_contexts: Option<&'a FileContexts>,
+    /// Filesystem UUID.
     pub uuid: [u8; 16],
+    /// Override UID for all inodes.
     pub force_uid: Option<u16>,
+    /// Override GID for all inodes.
     pub force_gid: Option<u16>,
+    /// Compression algorithm and level.
     pub compression: Compression,
 }
 
