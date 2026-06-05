@@ -17,9 +17,12 @@ pub type Credentials = (Vec<u8>, Vec<u8>, Vec<u8>);
 /// Client configuration storing multiple server contexts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientConfig {
+    /// Name of the currently active context.
     pub context: Option<String>,
+    /// Map of named server contexts.
     #[serde(default)]
     pub contexts: HashMap<String, ServerContext>,
+    /// Map of pending enrollments by endpoint.
     #[serde(default)]
     pub pending: HashMap<String, PendingEnrollment>,
 }
@@ -27,17 +30,24 @@ pub struct ClientConfig {
 /// A server context containing endpoint and credentials.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerContext {
+    /// Server endpoint address (host:port).
     pub endpoint: String,
+    /// Base64-encoded CA certificate.
     pub ca: Option<String>,
+    /// Base64-encoded client certificate.
     pub crt: Option<String>,
+    /// Base64-encoded client private key.
     pub key: Option<String>,
 }
 
 /// A pending enrollment waiting for admin approval.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingEnrollment {
+    /// Client certificate fingerprint for this enrollment.
     pub fingerprint: String,
+    /// Base64-encoded client key pair.
     pub key: String,
+    /// Server certificate fingerprint from the initial connection.
     pub server_fingerprint: String,
 }
 

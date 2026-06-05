@@ -6,7 +6,9 @@ use crate::error::{ConfigError, Result};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct DiskConfig {
+    /// Path to the system disk device (e.g. `/dev/sda`).
     pub system: String,
+    /// Optional path to a separate data disk device.
     pub data: Option<String>,
 }
 

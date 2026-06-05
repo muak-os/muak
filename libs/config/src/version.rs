@@ -2,10 +2,12 @@
 
 use crate::error::{ConfigError, Result};
 
-/// Parsed representation of a version
+/// Parsed representation of a version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Version {
+    /// The `latest` tag, always considered newer than any semver.
     Latest,
+    /// A semantic version with optional pre-release tag.
     Semver(u64, u64, u64, Option<String>),
 }
 
@@ -151,9 +153,18 @@ pub fn check_no_downgrade(new_image: &str, current_image: &str) -> Result<()> {
 /// Result of comparing CLI and server versions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompatibilityStatus {
+    /// Versions are fully compatible.
     Compatible,
-    MinorDrift { cli_newer: bool },
-    MajorMismatch { cli_newer: bool },
+    /// Versions differ only in minor/patch, still compatible.
+    MinorDrift {
+        /// Whether the CLI version is newer than the server version.
+        cli_newer: bool,
+    },
+    /// Major version mismatch, may be incompatible.
+    MajorMismatch {
+        /// Whether the CLI version is newer than the server version.
+        cli_newer: bool,
+    },
 }
 
 /// Compares CLI and server versions.

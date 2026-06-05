@@ -4,11 +4,15 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+/// Network configuration covering DNS, IPv6 toggle, and interfaces.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
+    /// Whether IPv6 networking is enabled.
     pub ipv6: bool,
+    /// DNS server addresses for name resolution.
     pub dns: Vec<IpAddr>,
+    /// Declarative list of network interfaces.
     pub interfaces: Vec<InterfaceConfig>,
 }
 
@@ -34,13 +38,18 @@ impl NetworkConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InterfaceConfig {
+    /// Interface name (e.g. `eth0`, `br0`).
     pub name: String,
+    /// Interface type: `bridge` or `ethernet`.
     #[serde(rename = "type")]
     pub kind: InterfaceKind,
+    /// Optional IPv4 configuration.
     #[serde(default)]
     pub ipv4: Option<Ipv4InterfaceConfig>,
+    /// Optional IPv6 configuration.
     #[serde(default)]
     pub ipv6: Option<Ipv6InterfaceConfig>,
+    /// Optional bridge-specific configuration.
     #[serde(default)]
     pub bridge: Option<BridgeConfig>,
 }
@@ -49,14 +58,18 @@ pub struct InterfaceConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InterfaceKind {
+    /// Bridge interface connecting multiple networks.
     Bridge,
+    /// Standard Ethernet interface.
     Ethernet,
 }
 
 /// An IPv4 address with a CIDR prefix length, serialized as `"a.b.c.d/prefix"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cidr4 {
+    /// IPv4 address component.
     pub address: Ipv4Addr,
+    /// CIDR prefix length (0–32).
     pub prefix: u8,
 }
 
@@ -102,7 +115,9 @@ impl<'de> Deserialize<'de> for Cidr4 {
 /// An IPv6 address with a CIDR prefix length, serialized as `"addr/prefix"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cidr6 {
+    /// IPv6 address component.
     pub address: Ipv6Addr,
+    /// CIDR prefix length (0–128).
     pub prefix: u8,
 }
 
@@ -149,9 +164,12 @@ impl<'de> Deserialize<'de> for Cidr6 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ipv4InterfaceConfig {
+    /// Whether to use DHCP for IPv4 address assignment.
     pub dhcp: bool,
+    /// Static IPv4 addresses with CIDR notation.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub addresses: Vec<Cidr4>,
+    /// Optional IPv4 gateway address.
     pub gateway: Option<Ipv4Addr>,
 }
 
@@ -159,9 +177,12 @@ pub struct Ipv4InterfaceConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ipv6InterfaceConfig {
+    /// Whether to use SLAAC for IPv6 address assignment.
     pub autoconf: bool,
+    /// Static IPv6 addresses with CIDR notation.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub addresses: Vec<Cidr6>,
+    /// Optional IPv6 gateway address.
     pub gateway: Option<Ipv6Addr>,
 }
 
@@ -169,7 +190,9 @@ pub struct Ipv6InterfaceConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct BridgeConfig {
+    /// Member ports attached to the bridge.
     pub port: Vec<String>,
+    /// Whether Spanning Tree Protocol is enabled.
     pub stp: bool,
 }
 

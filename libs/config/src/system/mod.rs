@@ -20,7 +20,9 @@ pub use vm::VmConfig;
 use crate::codec::{Codec, TomlCodec};
 use crate::error::{ConfigError, Result};
 
+/// Path to the system config file on disk.
 pub const CONFIG_PATH: &str = "/run/state/config.toml";
+/// File extension for system config files.
 pub const CONFIG_EXTENSION: &str = "toml";
 
 pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
@@ -31,12 +33,16 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
+    /// Host-level configuration (name, image, networking ports, etc.).
     #[serde(default)]
     pub host: HostConfig,
+    /// Disk partition layout configuration.
     #[serde(default)]
     pub disk: DiskConfig,
+    /// Network configuration (interfaces, DNS, IPv6).
     #[serde(default)]
     pub network: NetworkConfig,
+    /// Virtual machine configuration.
     #[serde(default)]
     pub vm: VmConfig,
 }

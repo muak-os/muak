@@ -8,45 +8,56 @@ use serde::{Deserialize, Serialize};
 /// Fine-grained permissions for RBAC.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Permission {
-    // Full administrative access to all operations.
+    /// Full administrative access to all operations.
     #[serde(rename = "admin")]
     Admin,
 
     // VM operations
+    /// Read VM state and configuration.
     #[serde(rename = "vm:read")]
     VmRead,
 
+    /// Create new VMs.
     #[serde(rename = "vm:create")]
     VmCreate,
 
+    /// Start existing VMs.
     #[serde(rename = "vm:start")]
     VmStart,
 
+    /// Stop running VMs.
     #[serde(rename = "vm:stop")]
     VmStop,
 
+    /// Delete existing VMs.
     #[serde(rename = "vm:delete")]
     VmDelete,
 
+    /// Upload VM images.
     #[serde(rename = "vm:upload")]
     VmUpload,
 
     // Auth/certificate management
+    /// Manage authentication and certificate operations.
     #[serde(rename = "auth:manage")]
     AuthManage,
 
     // System/Provision operations
+    /// Read system configuration and state.
     #[serde(rename = "system:read")]
     SystemRead,
 
+    /// Update system configuration.
     #[serde(rename = "system:update")]
     SystemUpdate,
 
     // Process monitoring
+    /// Read process information and metrics.
     #[serde(rename = "process:read")]
     ProcessRead,
 
     // Security monitoring
+    /// Read security events and audit logs.
     #[serde(rename = "security:read")]
     SecurityRead,
 }

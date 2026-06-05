@@ -1,5 +1,7 @@
 //! Configuration management for a Muak-based system.
 
+#![warn(missing_docs)]
+
 pub mod auth;
 mod codec;
 mod error;

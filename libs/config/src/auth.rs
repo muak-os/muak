@@ -10,7 +10,9 @@ use crate::Permission;
 use crate::codec::{Codec, TomlCodec};
 use crate::error::Result;
 
+/// Path to the auth state file on disk.
 pub const AUTH_PATH: &str = "/run/state/auth.toml";
+/// File extension for auth state files.
 pub const AUTH_EXTENSION: &str = "toml";
 
 /// Cached auth state with mtime-based invalidation.
@@ -25,14 +27,18 @@ static AUTH_CACHE: OnceLock<AuthCache> = OnceLock::new();
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AuthConfig {
+    /// Registered users with their permissions.
     pub users: Vec<AuthUser>,
+    /// Revoked certificate fingerprints.
     pub revoked: Vec<String>,
 }
 
 /// An authorized user identified by certificate fingerprint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthUser {
+    /// Certificate fingerprint identifying this user.
     pub fingerprint: String,
+    /// Permissions granted to this user.
     pub permissions: Vec<Permission>,
 }
 
