@@ -16,54 +16,79 @@ pub const EFI_GUID: [u8; 16] = [
 /// A GPT partition entry in a crate-local representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Partition {
+    /// GPT partition type GUID.
     pub type_guid: [u8; 16],
+    /// Unique partition GUID.
     pub unique_guid: [u8; 16],
+    /// First LBA of the partition.
     pub starting_lba: u64,
+    /// Last LBA of the partition (inclusive).
     pub ending_lba: u64,
+    /// Partition attributes bitfield.
     pub attributes: u64,
+    /// Partition name.
     pub name: String,
 }
 
 /// Selects how a partition slot should be chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
+    /// Automatically select the first available slot.
     Auto,
+    /// Use the exact slot number given.
     Exact(u32),
 }
 
 /// Selects how a partition start LBA should be chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
+    /// Start at the first usable LBA.
     FirstUsable,
+    /// Start after the last used partition.
     AfterLastUsed,
+    /// Start at or after the given LBA.
     AtOrAfter(u64),
+    /// Start after the partition with the given number.
     AfterPartition(u32),
 }
 
 /// Selects how a partition size should be chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Size {
+    /// Size in bytes.
     Bytes(u64),
+    /// Size in LBAs (512-byte sectors).
     Lbas(u64),
+    /// Fill to the last usable LBA.
     FillToLastUsable,
 }
 
 /// Describes one checked placement request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementRequest {
+    /// How the partition slot is chosen.
     pub slot: Slot,
+    /// How the partition start LBA is chosen.
     pub start: Start,
+    /// How the partition size is chosen.
     pub size: Size,
+    /// Alignment boundary in LBAs.
     pub alignment_lba: u64,
+    /// GPT partition type GUID.
     pub type_guid: [u8; 16],
+    /// Unique partition GUID.
     pub unique_guid: [u8; 16],
+    /// Partition attributes bitfield.
     pub attributes: u64,
+    /// Partition name.
     pub name: String,
 }
 
 /// Returns the resolved partition placement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
+    /// Partition number (1-based index).
     pub number: u32,
+    /// The resolved partition entry.
     pub partition: Partition,
 }

@@ -1,3 +1,5 @@
+//! Error types and shared result alias.
+
 use thiserror::Error;
 
 /// Errors returned by parttable operations.

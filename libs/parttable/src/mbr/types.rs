@@ -15,9 +15,13 @@ pub const MBR_PROTECTIVE_GPT_TYPE: u8 = 0xEE;
 /// A single MBR partition entry in LBA form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MbrPartitionEntry {
+    /// Whether the partition is bootable.
     pub bootable: bool,
+    /// MBR partition type byte.
     pub partition_type: u8,
+    /// Starting LBA of the partition.
     pub starting_lba: u32,
+    /// Size of the partition in LBAs.
     pub size_lba: u32,
 }
 
