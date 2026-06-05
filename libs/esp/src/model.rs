@@ -8,7 +8,9 @@ use crate::{EspError, path};
 /// The target architecture determining the EFI fallback boot filename.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arch {
+    /// 64-bit x86 architecture.
     X86_64,
+    /// 64-bit ARM architecture.
     Aarch64,
 }
 
@@ -43,13 +45,16 @@ impl Arch {
 /// A single file placed into the ESP at the given relative path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EspFile {
+    /// Relative path within the ESP.
     pub path: String,
+    /// File content as raw bytes.
     pub data: Vec<u8>,
 }
 
 /// Describes the complete file layout of an EFI System Partition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EspSpec {
+    /// Ordered list of files to place in the ESP.
     pub files: Vec<EspFile>,
 }
 

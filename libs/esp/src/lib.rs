@@ -1,5 +1,6 @@
 //! EFI System Partition manifest types and helpers.
 
+#![warn(missing_docs)]
 #![expect(
     clippy::pub_use,
     reason = "The crate intentionally exposes a flat public API at `esp::...`"
