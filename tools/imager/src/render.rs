@@ -13,7 +13,7 @@ use tokio::task::spawn_blocking;
 use crate::artifact::Artifact;
 use crate::catalog::extension_archive_name;
 use crate::error::{ImagerError, Result};
-use crate::source::ResolvedBuildProfile;
+use crate::resolve::ResolvedProfile;
 use crate::stage::{self, InstallerAssets};
 
 /// Builds the merged initramfs artifact from base image and extra files.
@@ -92,7 +92,7 @@ pub async fn build_uki(
 ///
 /// Returns an error when reading the UKI, running miso, or writing output fails.
 pub async fn build_iso(
-    resolved_profile: &ResolvedBuildProfile,
+    resolved_profile: &ResolvedProfile,
     output_dir: &Path,
     uki_path: &Path,
 ) -> Result<PathBuf> {
@@ -128,7 +128,7 @@ pub async fn build_iso(
 ///
 /// Returns an error when reading the UKI, running miso, or writing output fails.
 pub async fn build_raw(
-    resolved_profile: &ResolvedBuildProfile,
+    resolved_profile: &ResolvedProfile,
     overlay_assets: &[esp::EspFile],
     output_dir: &Path,
     uki_path: &Path,
@@ -166,7 +166,7 @@ pub async fn build_raw(
 /// # Errors
 ///
 /// Returns an error when pulling, staging, or building any artifact fails.
-pub async fn build(resolved_profile: &ResolvedBuildProfile, output_dir: &Path) -> Result<()> {
+pub async fn build(resolved_profile: &ResolvedProfile, output_dir: &Path) -> Result<()> {
     let work = output_dir.join(".work");
     fs::create_dir_all(&work)
         .await
@@ -362,7 +362,7 @@ mod tests {
     async fn build_iso_missing_uki() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let bp = ResolvedBuildProfile::new(
+        let bp = ResolvedProfile::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,
@@ -382,7 +382,7 @@ mod tests {
     async fn build_raw_missing_uki() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let bp = ResolvedBuildProfile::new(
+        let bp = ResolvedProfile::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,
@@ -431,7 +431,7 @@ mod tests {
         std::fs::create_dir_all(&output_dir).expect("create out");
         let uki = dir.path().join("uki.efi");
         std::fs::write(&uki, b"not-a-valid-uki").expect("write uki");
-        let bp = ResolvedBuildProfile::new(
+        let bp = ResolvedProfile::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,
@@ -457,7 +457,7 @@ mod tests {
         std::fs::create_dir_all(&output_dir).expect("create out");
         let uki = dir.path().join("uki.efi");
         std::fs::write(&uki, b"not-a-valid-uki").expect("write uki");
-        let bp = ResolvedBuildProfile::new(
+        let bp = ResolvedProfile::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,

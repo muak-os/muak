@@ -1,0 +1,204 @@
+//! OCI reference resolution engine.
+
+use crate::catalog::{is_official_extension, resolve_extension_name};
+use crate::error::{ImagerError, Result};
+use crate::profile::Profile;
+use crate::request::Resolve;
+use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};
+
+/// Internal OCI reference resolver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Resolver {
+    registry: String,
+    installer: String,
+}
+
+impl Resolver {
+    fn new(sources: &Sources) -> Self {
+        Self {
+            registry: sources.registry.clone(),
+            installer: sources.installer.clone(),
+        }
+    }
+
+    fn resolve(&self, request: &Resolve, profile: &Profile) -> Result<ResolvedProfile> {
+        let mut extensions = profile
+            .customization()
+            .extensions()
+            .iter()
+            .map(|name| self.resolve_one_extension(name, &request.version))
+            .collect::<Result<Vec<_>>>()?;
+        extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+
+        let overlay = profile.overlay().map(|overlay_spec| {
+            ResolvedOverlay::new(
+                overlay_spec.name().to_owned(),
+                overlay_spec.image().to_owned(),
+                self.versioned_ref(overlay_spec.image(), &request.version),
+            )
+        });
+
+        Ok(ResolvedProfile::new(
+            request.platform,
+            request.version.clone(),
+            request.arch,
+            extensions,
+            overlay,
+            self.versioned_ref(&self.installer, &request.version),
+        ))
+    }
+
+    fn versioned_ref(&self, repository: &str, version: &str) -> String {
+        format!("{}/{repository}:{version}", self.registry)
+    }
+
+    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<ResolvedExtension> {
+        let normalized = resolve_extension_name(name);
+        if !is_official_extension(normalized) {
+            return Err(ImagerError::SourceResolution(format!(
+                "unknown official extension: {name}"
+            )));
+        }
+        Ok(ResolvedExtension::new(
+            normalized.to_owned(),
+            self.versioned_ref(normalized, version),
+        ))
+    }
+}
+
+/// Resolves a profile and request into versioned OCI references.
+///
+/// # Errors
+///
+/// Returns an error when the profile references an unknown source input.
+pub(super) fn resolve(
+    request: &Resolve,
+    profile: &Profile,
+    sources: &Sources,
+) -> Result<ResolvedProfile> {
+    let resolver = Resolver::new(sources);
+    resolver.resolve(request, profile)
+}
+
+#[cfg(test)]
+mod tests {
+    use koci::arch::Arch;
+
+    use super::*;
+    use crate::profile::Profile;
+    use crate::request::{Platform, Resolve};
+
+    fn sources() -> Sources {
+        Sources {
+            registry: "ghcr.io".into(),
+            installer: "muak-os/installer".into(),
+        }
+    }
+
+    #[test]
+    fn uses_versioned_installer() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0-beta".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
+
+        // ACT
+        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+
+        // ASSERT
+        assert_eq!(bp.installer(), "ghcr.io/muak-os/installer:v1.0.0-beta");
+        assert_eq!(bp.version(), "v1.0.0-beta");
+        assert_eq!(bp.arch(), Arch::Amd64);
+        assert_eq!(bp.platform(), Platform::Metal);
+    }
+
+    #[test]
+    fn sorts_extensions() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0-beta".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile =
+            Profile::from_toml(b"[customization]\nextensions = [\"muak-os/qemu\"]").expect("parse");
+
+        // ACT
+        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+
+        // ASSERT
+        assert_eq!(bp.extensions().len(), 1);
+        assert_eq!(
+            bp.extensions().first().expect("first ext").name(),
+            "muak-os/qemu"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_extension() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0-beta".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile =
+            Profile::from_toml(b"[customization]\nextensions = [\"custom/thing\"]").expect("parse");
+
+        // ACT
+        let result = resolve(&request, &profile, &sources());
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("unknown official extension"))
+        );
+    }
+
+    #[test]
+    fn resolves_overlay() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0-beta".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile = Profile::from_toml(
+            b"[overlay]\nname = \"rpi\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
+
+        // ACT
+        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+
+        // ASSERT
+        assert!(bp.overlay().is_some());
+        let ov = bp.overlay().expect("overlay");
+        assert_eq!(ov.name(), "rpi");
+        assert_eq!(ov.image(), "muak-os/sbc");
+        assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc:v1.0.0-beta");
+    }
+
+    #[test]
+    fn aliases_extension_name() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile =
+            Profile::from_toml(b"[customization]\nextensions = [\"qemu\"]").expect("parse");
+
+        // ACT
+        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+
+        // ASSERT
+        assert_eq!(bp.extensions().len(), 1);
+        assert_eq!(bp.extensions().first().expect("ext").name(), "muak-os/qemu");
+    }
+}

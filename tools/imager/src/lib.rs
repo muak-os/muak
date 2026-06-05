@@ -16,6 +16,5 @@ mod catalog;
 mod layout;
 mod output;
 mod render;
-mod source;
 mod stage;
 mod workspace;

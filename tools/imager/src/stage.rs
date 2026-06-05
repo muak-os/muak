@@ -7,7 +7,7 @@ use tokio::fs;
 use tokio::task::spawn_blocking;
 
 use crate::error::{ImagerError, Result};
-use crate::source::{ResolvedBuildProfile, ResolvedExtension, ResolvedOverlay};
+use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile};
 
 /// Installer asset paths extracted from the source OCI image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub struct InstallerAssets {
 ///
 /// Returns an error when the OCI pull fails.
 pub async fn pull_installer(
-    resolved_profile: &ResolvedBuildProfile,
+    resolved_profile: &ResolvedProfile,
     installer_dir: &Path,
     signature_public_key: Option<&str>,
 ) -> Result<()> {

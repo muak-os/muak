@@ -6,8 +6,7 @@ use crate::error::Result;
 use crate::profile::Profile;
 use crate::render;
 use crate::request::{Build, Resolve};
-use crate::resolve;
-use crate::source::Sources;
+use crate::resolve::{self, Sources};
 
 /// Build pipeline configuration.
 #[derive(Debug, Clone)]

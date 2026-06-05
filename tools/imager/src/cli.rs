@@ -11,8 +11,7 @@ use crate::artifact::Artifact;
 use crate::build::{self, Config};
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Build, Platform, Resolve};
-use crate::resolve;
-use crate::source::Sources;
+use crate::resolve::{self, Sources};
 
 #[derive(Debug, Parser)]
 #[command(name = "imager")]
@@ -302,12 +301,12 @@ fn build_profile(
             std::fs::read(&path).with_context(|| format!("read profile {}", path.display()))?;
         Ok(Profile::from_toml(&bytes)?)
     } else {
-        Ok(Profile {
-            overlay: overlay_name.map(|name| OverlaySpec {
-                name,
-                image: overlay_image.unwrap_or_default(),
-            }),
-            customization: CustomizationSpec { extensions },
-        })
+        let overlay = if let Some(name) = overlay_name {
+            Some(OverlaySpec::new(name, overlay_image.unwrap_or_default())?)
+        } else {
+            None
+        };
+        let customization = CustomizationSpec::new(extensions)?;
+        Ok(Profile::new(overlay, customization))
     }
 }
