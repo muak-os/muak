@@ -1,5 +1,7 @@
 //! Interact with TPM2 via `/dev/tpmrm0`.
 
+#![warn(missing_docs)]
+
 mod auth;
 mod blob;
 mod buffer;
@@ -11,9 +13,13 @@ mod operations;
 pub mod pcr;
 mod response;
 
+/// Result type alias for TPM2 operations.
 pub type Result<T> = error::Result<T>;
+/// A sealed TPM2 blob.
 pub type SealedBlob = blob::SealedBlob;
+/// Result returned from a seal operation.
 pub type SealResult = operations::SealResult;
+/// Error type for TPM2 operations.
 pub type Tpm2Error = error::Tpm2Error;
 
 /// Returns true if the TPM2 resource manager device exists.
