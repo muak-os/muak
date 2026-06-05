@@ -1,5 +1,7 @@
 //! Procedural macros for the granola service framework.
 
+#![warn(missing_docs)]
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{FnArg, ItemFn, LitStr, Pat, ReturnType, parse_macro_input};
