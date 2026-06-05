@@ -71,7 +71,7 @@ pub async fn pull_extensions(
     Ok(pulled)
 }
 
-/// Pulls the overlay OCI image and extracts its regular files as boot assets.
+/// Pulls the overlay OCI image and extracts boot assets for the named overlay variant.
 ///
 /// # Errors
 ///
@@ -92,9 +92,9 @@ pub async fn pull_overlay(
     .await
     .map_err(|e| ImagerError::BuildError(format!("pull overlay: {e}")))?;
 
-    let overlay_dir_clone = overlay_dir.clone();
+    let overlay_subdir = overlay_dir.join(overlay.name());
 
-    spawn_blocking(move || esp::collect_tree(&overlay_dir_clone))
+    spawn_blocking(move || esp::collect_tree(&overlay_subdir))
         .await
         .map_err(|e| ImagerError::BuildError(format!("join overlay asset walk: {e}")))?
         .map_err(|e| ImagerError::BuildError(format!("collect overlay assets: {e}")))

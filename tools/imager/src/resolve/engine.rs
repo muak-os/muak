@@ -201,4 +201,35 @@ mod tests {
         assert_eq!(bp.extensions().len(), 1);
         assert_eq!(bp.extensions().first().expect("ext").name(), "muak-os/qemu");
     }
+
+    #[test]
+    fn different_overlay_names_produce_different_resolved_overlays() {
+        // ARRANGE
+        let request = Resolve {
+            version: "v1.0.0".into(),
+            platform: Platform::Metal,
+            arch: Arch::Amd64,
+        };
+        let profile_a = Profile::from_toml(
+            b"[overlay]\nname = \"rpi-4\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
+        let profile_b = Profile::from_toml(
+            b"[overlay]\nname = \"rpi-5\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
+
+        // ACT
+        let bp_a = resolve(&request, &profile_a, &sources()).expect("resolve");
+        let bp_b = resolve(&request, &profile_b, &sources()).expect("resolve");
+
+        // ASSERT
+        assert_eq!(bp_a.overlay().expect("overlay a").name(), "rpi-4");
+        assert_eq!(bp_b.overlay().expect("overlay b").name(), "rpi-5");
+        assert_eq!(
+            bp_a.overlay().expect("overlay a").image(),
+            bp_b.overlay().expect("overlay b").image()
+        );
+        assert_ne!(bp_a.overlay().expect("overlay a").source_ref(), "");
+    }
 }

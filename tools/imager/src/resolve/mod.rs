@@ -27,7 +27,7 @@ pub struct ResolvedExtension {
 impl ResolvedExtension {
     /// Creates a resolved extension from its canonical identifiers.
     #[must_use]
-    pub fn new(name: String, source: String) -> Self {
+    pub(crate) fn new(name: String, source: String) -> Self {
         Self { name, source }
     }
 
@@ -55,7 +55,7 @@ pub struct ResolvedOverlay {
 impl ResolvedOverlay {
     /// Creates a resolved overlay from its canonical identifiers.
     #[must_use]
-    pub fn new(name: String, image: String, source: String) -> Self {
+    pub(crate) fn new(name: String, image: String, source: String) -> Self {
         Self {
             name,
             image,
@@ -96,7 +96,7 @@ pub struct ResolvedProfile {
 impl ResolvedProfile {
     /// Creates a resolved build profile from all resolved source inputs.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         platform: Platform,
         version: String,
         arch: Arch,
