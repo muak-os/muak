@@ -27,6 +27,7 @@ enum ProfileExtension<'a> {
 
 /// Custom profile for Muak CA certificates.
 pub struct MuakCa {
+    /// CA subject name.
     pub subject: Name,
 }
 
@@ -71,8 +72,11 @@ impl BuilderProfile for MuakCa {
 
 /// Custom profile for Muak server certificates with SAN support.
 pub struct MuakServer {
+    /// Server certificate issuer name.
     pub issuer: Name,
+    /// Server certificate subject name.
     pub subject: Name,
+    /// DNS names for SAN extension.
     pub dns_names: Vec<String>,
 }
 
@@ -125,7 +129,9 @@ fn collect_dns_names(dns_names: &[String]) -> Vec<GeneralName> {
 
 /// Custom profile for Muak client certificates.
 pub struct MuakClient {
+    /// Client certificate issuer name.
     pub issuer: Name,
+    /// Client certificate subject name.
     pub subject: Name,
 }
 

@@ -13,27 +13,35 @@ use x509_cert::builder::Error as CertificateBuilderError;
 )]
 #[derive(Debug, ThisError)]
 pub enum PkiError {
+    /// Key generation failed.
     #[error("key generation failed")]
     KeyGeneration,
 
+    /// Invalid key encoding.
     #[error("invalid key encoding")]
     InvalidKeyEncoding,
 
+    /// Certificate building failed.
     #[error("certificate building failed: {0}")]
     CertificateBuild(#[from] CertificateBuilderError),
 
+    /// DER processing failed.
     #[error("DER processing failed: {0}")]
     Der(#[from] DerError),
 
+    /// SPKI error.
     #[error("SPKI error: {0}")]
     Spki(#[from] spki::Error),
 
+    /// Serial number generation failed.
     #[error("serial number generation failed")]
     SerialNumber,
 
+    /// Random generation failed.
     #[error("random generation failed")]
     Random,
 
+    /// CSR signature verification failed.
     #[error("CSR signature verification failed")]
     CsrVerification,
 }

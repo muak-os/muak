@@ -3,6 +3,8 @@
 //! This crate provides certificate generation, CSR handling, and fingerprint
 //! computation for the Muak authentication system using ECDSA P-256.
 
+#![warn(missing_docs)]
+
 pub mod cert;
 pub mod csr;
 pub mod error;
