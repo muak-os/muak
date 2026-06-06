@@ -6,27 +6,22 @@
 mod dtb;
 mod loadfile2;
 mod log;
+mod luks;
 mod pe;
 mod security;
 mod tpm2;
-mod util;
 
 use core::slice;
 use std::os::uefi as uefi_std;
 
 use anyhow::{Context as _, Result, anyhow};
-use base64ct::{Base64Unpadded, Encoding as _};
 use uefi::Guid;
 use uefi::Handle;
 use uefi::boot::{image_handle, open_protocol_exclusive, set_image_handle};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::table::set_system_table;
 
-use crate::util::strip_trailing_cmdline_terminators;
-
 const LINUX_INITRD_GUID: Guid = Guid::parse_or_panic("5568e427-68fc-4f3d-ac74-ca555231cc68");
-
-const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
 
 /// Initializes the UEFI crate with system table and image handle.
 fn setup_uefi_crate() -> Result<()> {
@@ -59,6 +54,10 @@ fn main() -> Result<()> {
 
     let loaded_image = open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
+
+    let device_handle = loaded_image
+        .device()
+        .context("Loaded image has null device handle")?;
 
     info!(
         "Setup Mode: {}",
@@ -116,31 +115,14 @@ fn main() -> Result<()> {
     }
 
     let combined_cmdline: Vec<u8>;
-    let cmdline: Option<&[u8]> = if let Some(luks_data) = sections.luks {
-        let base_cmd: &[u8] = sections
-            .cmdline
-            .map_or(&[], strip_trailing_cmdline_terminators);
-        let encoded_len = Base64Unpadded::encoded_len(luks_data);
-
-        let total_len = base_cmd
-            .len()
-            .checked_add(LUKS_KEY_PREFIX.len())
-            .and_then(|len| len.checked_add(encoded_len))
-            .context("combined command line length overflow")?;
-        let mut cmd = Vec::with_capacity(total_len);
-        cmd.extend_from_slice(base_cmd);
-        cmd.extend_from_slice(LUKS_KEY_PREFIX);
-
-        let start = cmd.len();
-        cmd.resize(total_len, 0);
-        let encoded = cmd
-            .get_mut(start..)
-            .context("LUKS key destination range unavailable")?;
-        Base64Unpadded::encode(luks_data, encoded).context("Failed to encode LUKS key")?;
-
-        combined_cmdline = cmd;
-        info!("LUKS key embedded ({} bytes)", luks_data.len());
-        Some(&combined_cmdline)
+    let cmdline: Option<&[u8]> = if !tpm2::is_available() {
+        if let Some(combined) = luks::try_inject(device_handle, sections.cmdline)? {
+            info!("LUKS key read from ESP file");
+            combined_cmdline = combined;
+            Some(&combined_cmdline)
+        } else {
+            sections.cmdline
+        }
     } else {
         sections.cmdline
     };

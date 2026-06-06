@@ -14,7 +14,6 @@ pub struct Sections<'a> {
     pub initrd: Option<&'a [u8]>,
     pub cmdline: Option<&'a [u8]>,
     pub dtb: Option<&'a [u8]>,
-    pub luks: Option<&'a [u8]>,
 }
 
 impl<'a> Sections<'a> {
@@ -34,7 +33,6 @@ impl<'a> Sections<'a> {
         let mut initrd: Option<&'a [u8]> = None;
         let mut cmdline: Option<&'a [u8]> = None;
         let mut dtb: Option<&'a [u8]> = None;
-        let mut luks: Option<&'a [u8]> = None;
 
         for section in pe
             .section_table()
@@ -43,15 +41,7 @@ impl<'a> Sections<'a> {
             .filter_map(Result::transpose)
         {
             let (name, section_data) = section?;
-            set_uki_section(
-                name,
-                section_data,
-                &mut linux,
-                &mut initrd,
-                &mut cmdline,
-                &mut dtb,
-                &mut luks,
-            )?;
+            set_uki_section(name, section_data, &mut linux, &mut initrd, &mut cmdline, &mut dtb)?;
         }
 
         Ok(Sections {
@@ -59,7 +49,6 @@ impl<'a> Sections<'a> {
             initrd,
             cmdline,
             dtb,
-            luks,
         })
     }
 
@@ -83,14 +72,12 @@ fn set_uki_section<'a>(
     initrd: &mut Option<&'a [u8]>,
     cmdline: &mut Option<&'a [u8]>,
     dtb: &mut Option<&'a [u8]>,
-    luks: &mut Option<&'a [u8]>,
 ) -> Result<()> {
     match name {
         ".linux" => *linux = Some(section_data),
         ".initrd" => *initrd = Some(section_data),
         ".cmdline" => *cmdline = Some(section_data),
         ".dtb" => *dtb = Some(section_data),
-        ".luks" => *luks = Some(section_data),
         unknown => bail!("unexpected UKI section {unknown}"),
     }
 
@@ -136,7 +123,6 @@ fn canonical_uki_section_name(name: &str) -> Option<&'static str> {
         ".initrd" => Some(".initrd"),
         ".cmdline" => Some(".cmdline"),
         ".dtb" => Some(".dtb"),
-        ".luks" => Some(".luks"),
         _ => None,
     }
 }
@@ -199,7 +185,6 @@ mod tests {
         assert!(sections.initrd.is_none());
         assert!(sections.cmdline.is_none());
         assert!(sections.dtb.is_none());
-        assert!(sections.luks.is_none());
     }
 
     #[test]
@@ -210,7 +195,6 @@ mod tests {
         builder.add_section(*b".initrd\0", b"initrd");
         builder.add_section(*b".cmdline", b"cmdline");
         builder.add_section(*b".dtb\0\0\0\0", b"dtb");
-        builder.add_section(*b".luks\0\0\0", b"luks");
         let data = builder.build();
 
         // ACT
@@ -221,7 +205,6 @@ mod tests {
         assert_eq!(sections.initrd.expect("initrd"), b"initrd");
         assert_eq!(sections.cmdline.expect("cmdline"), b"cmdline");
         assert_eq!(sections.dtb.expect("dtb"), b"dtb");
-        assert_eq!(sections.luks.expect("luks"), b"luks");
     }
 
     #[test]
@@ -281,7 +264,6 @@ mod tests {
             initrd: None,
             cmdline: None,
             dtb: None,
-            luks: None,
         };
 
         // ACT
@@ -292,14 +274,13 @@ mod tests {
     }
 
     #[test]
-    fn iter_sections_all_present_excludes_luks() {
+    fn iter_sections_all_present() {
         // ARRANGE
         let sections = Sections {
             linux: b"kern",
             initrd: Some(b"initrd"),
             cmdline: Some(b"quiet"),
             dtb: Some(b"dtb"),
-            luks: Some(b"secret"),
         };
 
         // ACT
@@ -315,7 +296,6 @@ mod tests {
                 (".dtb", &b"dtb"[..]),
             ]
         );
-        assert!(!items.iter().any(|&(name, _)| name == ".luks"));
     }
 
     #[test]
@@ -326,7 +306,6 @@ mod tests {
             initrd: Some(b"i"),
             cmdline: Some(b"c"),
             dtb: None,
-            luks: None,
         };
 
         // ACT

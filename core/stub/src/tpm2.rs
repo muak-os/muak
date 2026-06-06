@@ -46,6 +46,12 @@ struct Tcg2EventHeader {
     event_type: u32,
 }
 
+/// Returns whether the EFI TCG2 protocol is available (TPM2 present).
+pub fn is_available() -> bool {
+    // SAFETY: firmware-managed pointer valid during boot services.
+    unsafe { protocol::locate_raw(&EFI_TCG2_PROTOCOL_GUID).is_some() }
+}
+
 /// Measures a UKI section into PCR#11 via the EFI TCG2 protocol.
 ///
 /// # Errors

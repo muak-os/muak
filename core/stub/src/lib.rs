@@ -8,4 +8,3 @@ pub mod log;
 pub mod pe;
 pub mod security;
 pub mod tpm2;
-pub mod util;
