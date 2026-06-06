@@ -19,8 +19,6 @@ pub type Result<T> = error::Result<T>;
 pub type SealedBlob = blob::SealedBlob;
 /// Result returned from a seal operation.
 pub type SealResult = operations::SealResult;
-/// Error type for TPM2 operations.
-pub type Tpm2Error = error::Tpm2Error;
 
 /// Returns true if the TPM2 resource manager device exists.
 #[must_use]

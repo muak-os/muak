@@ -10,10 +10,10 @@ const SHA256_DIGEST_SIZE: usize = 32;
 
 /// Computes the expected PCR#11 value by simulating extend operations.
 #[must_use]
-pub fn predict_pcr11(section_data: &[(&str, &[u8])]) -> Digest {
+pub fn predict_pcr11(sections: &[(&str, &[u8])]) -> Digest {
     let mut pcr = [0_u8; SHA256_DIGEST_SIZE];
 
-    for &(name, data) in section_data {
+    for &(name, data) in sections {
         pcr = extend(&pcr, hash_name(name).as_ref());
         pcr = extend(&pcr, digest::digest(&digest::SHA256, data).as_ref());
     }
