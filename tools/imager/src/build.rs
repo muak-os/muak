@@ -8,17 +8,8 @@ use crate::error::Result;
 use crate::profile::Profile;
 use crate::render;
 use crate::request::{Build, Resolve};
-use crate::resolve::{self, Sources};
+use crate::resolve::{self, Config};
 use crate::workspace;
-
-/// Build pipeline configuration.
-#[derive(Debug, Clone)]
-pub struct Config {
-    /// OCI image registry and installer repository.
-    pub sources: Sources,
-    /// Root directory for output artifacts.
-    pub workspace_root: PathBuf,
-}
 
 /// Builds the requested artifacts sharing a single resolution and workspace.
 ///

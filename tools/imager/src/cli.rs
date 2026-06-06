@@ -8,10 +8,10 @@ use clap::{Parser, Subcommand};
 use koci::arch::Arch;
 
 use crate::artifact::Artifact;
-use crate::build::{self, Config};
+use crate::build;
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Build, Platform, Resolve};
-use crate::resolve::{self, Sources};
+use crate::resolve::{self, Config, Sources};
 
 #[derive(Debug, Parser)]
 #[command(name = "imager")]

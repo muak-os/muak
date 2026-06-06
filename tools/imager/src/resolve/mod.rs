@@ -2,11 +2,22 @@
 
 mod engine;
 
+use std::path::PathBuf;
+
 use koci::arch::Arch;
 
 use crate::error::Result;
 use crate::profile::Profile;
 use crate::request::{Platform, Resolve};
+
+/// Pipeline configuration shared across build and install paths.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// OCI image registry and installer repository.
+    pub sources: Sources,
+    /// Root directory for the workspace and output artifacts.
+    pub workspace_root: PathBuf,
+}
 
 /// Source configuration for the build pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]

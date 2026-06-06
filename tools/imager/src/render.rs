@@ -15,7 +15,51 @@ use crate::error::{ImagerError, Result};
 use crate::resolve::ResolvedProfile;
 use crate::stage::{self, InstallerAssets};
 
-/// Builds the requested artifacts.
+/// Pre-built intermediate artifacts shared across rendering paths.
+pub(crate) struct Prepared {
+    /// Loaded installer assets.
+    pub assets: InstallerAssets,
+    /// Path to the merged initramfs.
+    pub initramfs: PathBuf,
+    /// Path to the generic UKI.
+    pub uki: PathBuf,
+}
+
+/// Pulls the installer, builds the initramfs (with extensions and profile), and builds a UKI.
+///
+/// # Errors
+///
+/// Returns an error when pulling, staging, or building fails.
+pub(crate) async fn prepare(
+    resolved_profile: &ResolvedProfile,
+    profile_bytes: &[u8],
+    workspace: &Path,
+    output_dir: &Path,
+) -> Result<Prepared> {
+    let installer_dir = workspace.join("installer");
+    stage::pull_installer(resolved_profile, &installer_dir, None)
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("pull installer: {e}")))?;
+
+    let assets = stage::load_installer_assets(&installer_dir)?;
+    let initramfs = build_initramfs(
+        resolved_profile,
+        &assets,
+        profile_bytes,
+        workspace,
+        output_dir,
+    )
+    .await?;
+    let uki = uki(&assets, &initramfs, output_dir).await?;
+
+    Ok(Prepared {
+        assets,
+        initramfs,
+        uki,
+    })
+}
+
+/// Builds the requested artifacts sharing a single resolution and workspace.
 ///
 /// # Errors
 ///
@@ -31,79 +75,38 @@ pub async fn artifacts(
         .await
         .map_err(|e| ImagerError::BuildError(format!("create workspace: {e}")))?;
 
-    let installer_dir = workspace.join("installer");
-    stage::pull_installer(resolved_profile, &installer_dir, None)
-        .await
-        .map_err(|e| ImagerError::BuildError(format!("pull installer: {e}")))?;
-
-    let assets = stage::load_installer_assets(&installer_dir)?;
+    let prepared = prepare(resolved_profile, profile_bytes, workspace, output_dir).await?;
     let mut results = HashMap::new();
 
     if requested.contains(&Artifact::Kernel) {
         results.insert(
             Artifact::Kernel,
-            copy_to_output(&assets.kernel, output_dir, Artifact::Kernel).await?,
+            copy_to_output(&prepared.assets.kernel, output_dir, Artifact::Kernel).await?,
         );
     }
     if requested.contains(&Artifact::Cmdline) {
         results.insert(
             Artifact::Cmdline,
-            copy_to_output(&assets.cmdline, output_dir, Artifact::Cmdline).await?,
+            copy_to_output(&prepared.assets.cmdline, output_dir, Artifact::Cmdline).await?,
         );
     }
-
-    let needs_initramfs = requested.iter().any(|artifact| {
-        matches!(
-            artifact,
-            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
-        )
-    });
-    let mut initramfs_path = None;
-    if needs_initramfs {
-        let path = build_initramfs(
-            resolved_profile,
-            &assets,
-            profile_bytes,
-            workspace,
-            output_dir,
-        )
-        .await?;
-        if requested.contains(&Artifact::Initramfs) {
-            results.insert(Artifact::Initramfs, path.clone());
-        }
-        initramfs_path = Some(path);
+    if requested.contains(&Artifact::Initramfs) {
+        results.insert(Artifact::Initramfs, prepared.initramfs.clone());
     }
-
-    let needs_uki = requested
-        .iter()
-        .any(|artifact| matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw));
-    let mut uki_path = None;
-    if needs_uki {
-        let initramfs = initramfs_path
-            .as_ref()
-            .ok_or_else(|| ImagerError::BuildError("initramfs must be built before UKI".into()))?;
-        let path = uki(&assets, initramfs, output_dir).await?;
-        if requested.contains(&Artifact::Uki) {
-            results.insert(Artifact::Uki, path.clone());
-        }
-        uki_path = Some(path);
+    if requested.contains(&Artifact::Uki) {
+        results.insert(Artifact::Uki, prepared.uki.clone());
     }
-
     if requested.contains(&Artifact::Iso) {
-        let uki = uki_path
-            .as_ref()
-            .ok_or_else(|| ImagerError::BuildError("UKI must be built before ISO".into()))?;
-        results.insert(Artifact::Iso, iso(resolved_profile, output_dir, uki).await?);
+        results.insert(
+            Artifact::Iso,
+            iso(resolved_profile, output_dir, &prepared.uki).await?,
+        );
     }
-
     if requested.contains(&Artifact::Raw) {
-        let uki = uki_path
-            .as_ref()
-            .ok_or_else(|| ImagerError::BuildError("UKI must be built before RAW".into()))?;
         let overlay_files = pull_overlay_if_present(resolved_profile, workspace).await?;
         results.insert(
             Artifact::Raw,
-            raw(resolved_profile, &overlay_files, output_dir, uki).await?,
+            raw(resolved_profile, &overlay_files, output_dir, &prepared.uki).await?,
         );
     }
 
