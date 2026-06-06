@@ -20,6 +20,8 @@ pub enum Artifact {
     Iso,
     /// Raw disk image (compressed via zstd).
     Raw,
+    /// ESP overlay boot assets directory.
+    Esp,
 }
 
 impl fmt::Display for Artifact {
@@ -29,7 +31,7 @@ impl fmt::Display for Artifact {
 }
 
 impl Artifact {
-    /// Returns the canonical on-disk filename for this artifact.
+    /// Returns the canonical on-disk filename or directory for this artifact.
     #[must_use]
     pub fn filename(self) -> &'static str {
         match self {
@@ -39,6 +41,7 @@ impl Artifact {
             Self::Uki => "uki.efi",
             Self::Iso => "muak.iso",
             Self::Raw => "muak.raw.zst",
+            Self::Esp => "esp",
         }
     }
 
@@ -49,6 +52,7 @@ impl Artifact {
             Self::Cmdline => "text/plain; charset=utf-8",
             Self::Iso => "application/x-iso9660-image",
             Self::Kernel | Self::Initramfs | Self::Uki | Self::Raw => "application/octet-stream",
+            Self::Esp => "inode/directory",
         }
     }
 }
@@ -74,6 +78,7 @@ mod tests {
         assert_eq!(Artifact::Uki.filename(), "uki.efi");
         assert_eq!(Artifact::Iso.filename(), "muak.iso");
         assert_eq!(Artifact::Raw.filename(), "muak.raw.zst");
+        assert_eq!(Artifact::Esp.filename(), "esp");
     }
 
     #[test]
@@ -85,5 +90,6 @@ mod tests {
         assert_eq!(Artifact::Initramfs.media_type(), "application/octet-stream");
         assert_eq!(Artifact::Uki.media_type(), "application/octet-stream");
         assert_eq!(Artifact::Raw.media_type(), "application/octet-stream");
+        assert_eq!(Artifact::Esp.media_type(), "inode/directory");
     }
 }

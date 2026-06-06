@@ -102,12 +102,24 @@ pub async fn artifacts(
             iso(resolved_profile, output_dir, &prepared.uki).await?,
         );
     }
+
+    let needs_overlay = requested.contains(&Artifact::Raw) || requested.contains(&Artifact::Esp);
+    let overlay_files = if needs_overlay {
+        pull_overlay_if_present(resolved_profile, workspace).await?
+    } else {
+        vec![]
+    };
+
     if requested.contains(&Artifact::Raw) {
-        let overlay_files = pull_overlay_if_present(resolved_profile, workspace).await?;
         results.insert(
             Artifact::Raw,
             raw(resolved_profile, &overlay_files, output_dir, &prepared.uki).await?,
         );
+    }
+    if requested.contains(&Artifact::Esp) {
+        let esp_dir = output_dir.join(Artifact::Esp.filename());
+        write_esp_files(&overlay_files, &esp_dir).await?;
+        results.insert(Artifact::Esp, esp_dir);
     }
 
     Ok(results)
@@ -315,6 +327,21 @@ async fn raw(
     .map_err(|e| ImagerError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(raw_path)
+}
+
+async fn write_esp_files(files: &[esp::EspFile], esp_dir: &Path) -> Result<()> {
+    for file in files {
+        let dest = esp_dir.join(&file.path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ImagerError::BuildError(format!("create esp dir: {e}")))?;
+        }
+        fs::write(&dest, &file.data)
+            .await
+            .map_err(|e| ImagerError::BuildError(format!("write esp file: {e}")))?;
+    }
+    Ok(())
 }
 
 fn esp_arch(arch: Arch) -> EspArch {
