@@ -1,4 +1,4 @@
-//! Request types: architecture, platform, and focused request structs.
+//! User request for image resolution, building, and installation.
 
 use core::fmt;
 
@@ -6,6 +6,21 @@ use koci::arch::Arch;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
+
+/// Unified request used by resolve, build, and install paths.
+///
+/// When `arch` is `None` the host architecture is used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    /// Version to resolve/build/install.
+    pub version: String,
+    /// Target deployment platform.
+    pub platform: Platform,
+    /// Target CPU architecture (`None` → host arch).
+    pub arch: Option<Arch>,
+    /// Artifact types to build (ignored by resolve and install).
+    pub artifacts: Vec<Artifact>,
+}
 
 /// Deployment platform; determines boot and disk behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -32,45 +47,9 @@ impl Platform {
 }
 
 impl fmt::Display for Platform {
-    /// Formats the platform as its lowercase path segment.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
-}
-
-/// Request to resolve a profile into versioned OCI references.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolve {
-    /// Version to resolve.
-    pub version: String,
-    /// Target deployment platform.
-    pub platform: Platform,
-    /// Target CPU architecture.
-    pub arch: Arch,
-}
-
-/// Request to build one or more artifacts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Build {
-    /// Version to build.
-    pub version: String,
-    /// Target deployment platform.
-    pub platform: Platform,
-    /// Target CPU architecture.
-    pub arch: Arch,
-    /// Artifact types to build.
-    pub artifacts: Vec<Artifact>,
-}
-
-/// Request to prepare install assets from a profile.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Install {
-    /// Version to install.
-    pub version: String,
-    /// Target deployment platform.
-    pub platform: Platform,
-    /// Target CPU architecture.
-    pub arch: Arch,
 }
 
 #[cfg(test)]

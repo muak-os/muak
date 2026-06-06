@@ -8,7 +8,7 @@ use tokio::fs;
 use crate::error::{ImagerError, Result};
 use crate::profile::{self, Profile};
 use crate::render;
-use crate::request::{Install, Resolve};
+use crate::request::Request;
 use crate::resolve::{self, Config, ResolvedProfile};
 use crate::stage;
 use crate::workspace;
@@ -82,17 +82,12 @@ impl Assets {
 ///
 /// Returns an error when resolution, pulling, or building fails.
 pub async fn assets(
-    request: &Install,
+    request: &Request,
     profile: &Profile,
     config: &Config,
     output_dir: &Path,
 ) -> Result<Assets> {
-    let resolve_request = Resolve {
-        version: request.version.clone(),
-        platform: request.platform,
-        arch: request.arch,
-    };
-    let resolved = resolve::profile(&resolve_request, profile, &config.sources)?;
+    let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
     let profile_id = profile.id()?;
     let workspace = workspace::unique(&config.workspace_root);

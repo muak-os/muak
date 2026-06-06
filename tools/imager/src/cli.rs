@@ -10,7 +10,7 @@ use koci::arch::Arch;
 use crate::artifact::Artifact;
 use crate::build;
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
-use crate::request::{Build, Platform, Resolve};
+use crate::request::{Platform, Request};
 use crate::resolve::{self, Config, Sources};
 
 #[derive(Debug, Parser)]
@@ -208,10 +208,11 @@ fn run_resolve(
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let spec = Profile::from_toml(&bytes)?;
-    let request = Resolve {
+    let request = Request {
         version: version.to_owned(),
         platform: parse_platform(platform)?,
-        arch: parse_arch(arch)?,
+        arch: Some(parse_arch(arch)?),
+        artifacts: vec![],
     };
     let sources = Sources {
         registry,
@@ -258,10 +259,10 @@ async fn run_build(
 
     let spec = build_profile(profile_path, extension, overlay_image, overlay_name)?;
 
-    let request = Build {
+    let request = Request {
         version,
         platform,
-        arch,
+        arch: Some(arch),
         artifacts: vec![artifact],
     };
 

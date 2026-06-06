@@ -7,7 +7,7 @@ use crate::artifact::Artifact;
 use crate::error::Result;
 use crate::profile::Profile;
 use crate::render;
-use crate::request::{Build, Resolve};
+use crate::request::Request;
 use crate::resolve::{self, Config};
 use crate::workspace;
 
@@ -17,17 +17,12 @@ use crate::workspace;
 ///
 /// Returns an error when resolution, pulling, or building fails.
 pub async fn artifacts(
-    request: &Build,
+    request: &Request,
     profile: &Profile,
     config: &Config,
     output_dir: &Path,
 ) -> Result<HashMap<Artifact, PathBuf>> {
-    let resolve_request = Resolve {
-        version: request.version.clone(),
-        platform: request.platform,
-        arch: request.arch,
-    };
-    let resolved = resolve::profile(&resolve_request, profile, &config.sources)?;
+    let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
     let workspace = workspace::unique(&config.workspace_root);
 

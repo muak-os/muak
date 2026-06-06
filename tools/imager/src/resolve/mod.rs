@@ -2,13 +2,12 @@
 
 mod engine;
 
-use std::path::PathBuf;
-
+use koci::arch;
 use koci::arch::Arch;
 
 use crate::error::Result;
 use crate::profile::Profile;
-use crate::request::{Platform, Resolve};
+use crate::request::{Platform, Request};
 
 /// Pipeline configuration shared across build and install paths.
 #[derive(Debug, Clone)]
@@ -16,7 +15,7 @@ pub struct Config {
     /// OCI image registry and installer repository.
     pub sources: Sources,
     /// Root directory for the workspace and output artifacts.
-    pub workspace_root: PathBuf,
+    pub workspace_root: std::path::PathBuf,
 }
 
 /// Source configuration for the build pipeline.
@@ -36,7 +35,6 @@ pub struct ResolvedExtension {
 }
 
 impl ResolvedExtension {
-    /// Creates a resolved extension from its canonical identifiers.
     #[must_use]
     pub(crate) fn new(name: String, source: String) -> Self {
         Self { name, source }
@@ -64,7 +62,6 @@ pub struct ResolvedOverlay {
 }
 
 impl ResolvedOverlay {
-    /// Creates a resolved overlay from its canonical identifiers.
     #[must_use]
     pub(crate) fn new(name: String, image: String, source: String) -> Self {
         Self {
@@ -105,7 +102,6 @@ pub struct ResolvedProfile {
 }
 
 impl ResolvedProfile {
-    /// Creates a resolved build profile from all resolved source inputs.
     #[must_use]
     pub(crate) fn new(
         platform: Platform,
@@ -167,8 +163,11 @@ impl ResolvedProfile {
 /// # Errors
 ///
 /// Returns an error when the profile references an unknown source input.
-pub fn profile(request: &Resolve, profile: &Profile, sources: &Sources) -> Result<ResolvedProfile> {
-    engine::resolve(request, profile, sources)
+pub fn profile(request: &Request, profile: &Profile, sources: &Sources) -> Result<ResolvedProfile> {
+    let host = arch::host();
+    let arch = request.arch.unwrap_or(host);
+
+    engine::resolve(&request.version, request.platform, arch, profile, sources)
 }
 
 #[cfg(test)]
@@ -206,6 +205,8 @@ mod tests {
         // ARRANGE
         let ext =
             ResolvedExtension::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
+
+        // ACT
         let bp = ResolvedProfile::new(
             Platform::Metal,
             "v1.0.0-beta".into(),
@@ -215,7 +216,7 @@ mod tests {
             "ghcr.io/muak-os/installer:v1.0.0-beta".into(),
         );
 
-        // ACT / ASSERT
+        // ASSERT
         assert_eq!(bp.platform(), Platform::Metal);
         assert_eq!(bp.version(), "v1.0.0-beta");
         assert_eq!(bp.arch(), Arch::Amd64);

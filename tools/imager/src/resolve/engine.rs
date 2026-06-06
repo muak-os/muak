@@ -1,9 +1,11 @@
 //! OCI reference resolution engine.
 
+use koci::arch::Arch;
+
 use crate::catalog::{is_official_extension, resolve_extension_name};
 use crate::error::{ImagerError, Result};
 use crate::profile::Profile;
-use crate::request::Resolve;
+use crate::request::Platform;
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};
 
 /// Internal OCI reference resolver.
@@ -21,12 +23,18 @@ impl Resolver {
         }
     }
 
-    fn resolve(&self, request: &Resolve, profile: &Profile) -> Result<ResolvedProfile> {
+    fn resolve(
+        &self,
+        version: &str,
+        platform: Platform,
+        arch: Arch,
+        profile: &Profile,
+    ) -> Result<ResolvedProfile> {
         let mut extensions = profile
             .customization()
             .extensions()
             .iter()
-            .map(|name| self.resolve_one_extension(name, &request.version))
+            .map(|name| self.resolve_one_extension(name, version))
             .collect::<Result<Vec<_>>>()?;
         extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
@@ -34,17 +42,17 @@ impl Resolver {
             ResolvedOverlay::new(
                 overlay_spec.name().to_owned(),
                 overlay_spec.image().to_owned(),
-                self.versioned_ref(overlay_spec.image(), &request.version),
+                self.versioned_ref(overlay_spec.image(), version),
             )
         });
 
         Ok(ResolvedProfile::new(
-            request.platform,
-            request.version.clone(),
-            request.arch,
+            platform,
+            version.to_owned(),
+            arch,
             extensions,
             overlay,
-            self.versioned_ref(&self.installer, &request.version),
+            self.versioned_ref(&self.installer, version),
         ))
     }
 
@@ -72,21 +80,21 @@ impl Resolver {
 ///
 /// Returns an error when the profile references an unknown source input.
 pub(super) fn resolve(
-    request: &Resolve,
+    version: &str,
+    platform: Platform,
+    arch: Arch,
     profile: &Profile,
     sources: &Sources,
 ) -> Result<ResolvedProfile> {
     let resolver = Resolver::new(sources);
-    resolver.resolve(request, profile)
+    resolver.resolve(version, platform, arch, profile)
 }
 
 #[cfg(test)]
 mod tests {
-    use koci::arch::Arch;
-
     use super::*;
     use crate::profile::Profile;
-    use crate::request::{Platform, Resolve};
+    use crate::request::Platform;
 
     fn sources() -> Sources {
         Sources {
@@ -98,15 +106,18 @@ mod tests {
     #[test]
     fn uses_versioned_installer() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0-beta".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0-beta";
         let profile = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
 
         // ACT
-        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+        let bp = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile,
+            &sources(),
+        )
+        .expect("resolve");
 
         // ASSERT
         assert_eq!(bp.installer(), "ghcr.io/muak-os/installer:v1.0.0-beta");
@@ -118,16 +129,19 @@ mod tests {
     #[test]
     fn sorts_extensions() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0-beta".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0-beta";
         let profile =
             Profile::from_toml(b"[customization]\nextensions = [\"muak-os/qemu\"]").expect("parse");
 
         // ACT
-        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+        let bp = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile,
+            &sources(),
+        )
+        .expect("resolve");
 
         // ASSERT
         assert_eq!(bp.extensions().len(), 1);
@@ -140,16 +154,18 @@ mod tests {
     #[test]
     fn rejects_unknown_extension() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0-beta".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0-beta";
         let profile =
             Profile::from_toml(b"[customization]\nextensions = [\"custom/thing\"]").expect("parse");
 
         // ACT
-        let result = resolve(&request, &profile, &sources());
+        let result = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile,
+            &sources(),
+        );
 
         // ASSERT
         assert!(
@@ -162,18 +178,21 @@ mod tests {
     #[test]
     fn resolves_overlay() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0-beta".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0-beta";
         let profile = Profile::from_toml(
             b"[overlay]\nname = \"rpi\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
         // ACT
-        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+        let bp = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile,
+            &sources(),
+        )
+        .expect("resolve");
 
         // ASSERT
         assert!(bp.overlay().is_some());
@@ -186,16 +205,19 @@ mod tests {
     #[test]
     fn aliases_extension_name() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0";
         let profile =
             Profile::from_toml(b"[customization]\nextensions = [\"qemu\"]").expect("parse");
 
         // ACT
-        let bp = resolve(&request, &profile, &sources()).expect("resolve");
+        let bp = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile,
+            &sources(),
+        )
+        .expect("resolve");
 
         // ASSERT
         assert_eq!(bp.extensions().len(), 1);
@@ -205,11 +227,7 @@ mod tests {
     #[test]
     fn different_overlay_names_produce_different_resolved_overlays() {
         // ARRANGE
-        let request = Resolve {
-            version: "v1.0.0".into(),
-            platform: Platform::Metal,
-            arch: Arch::Amd64,
-        };
+        let request_version = "v1.0.0";
         let profile_a = Profile::from_toml(
             b"[overlay]\nname = \"rpi-4\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
         )
@@ -220,8 +238,22 @@ mod tests {
         .expect("parse");
 
         // ACT
-        let bp_a = resolve(&request, &profile_a, &sources()).expect("resolve");
-        let bp_b = resolve(&request, &profile_b, &sources()).expect("resolve");
+        let bp_a = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile_a,
+            &sources(),
+        )
+        .expect("resolve");
+        let bp_b = resolve(
+            request_version,
+            Platform::Metal,
+            Arch::Amd64,
+            &profile_b,
+            &sources(),
+        )
+        .expect("resolve");
 
         // ASSERT
         assert_eq!(bp_a.overlay().expect("overlay a").name(), "rpi-4");
