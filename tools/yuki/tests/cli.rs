@@ -68,6 +68,17 @@ mod tests {
         // ASSERT
         assert!(result.contains("Successfully created UKI at"));
         assert!(output.exists(), "output should be written");
+        assert!(
+            result.contains("bytes)"),
+            "result should report output size"
+        );
+        let output_len = fs::metadata(&output)
+            .expect("output metadata should be readable")
+            .len();
+        assert!(
+            result.contains(&format!("({output_len} bytes)")),
+            "result should contain exact output size"
+        );
     }
 
     #[test]
@@ -278,6 +289,36 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("Failed to write UKI"));
+    }
+
+    #[test]
+    fn run_with_reports_build_failure() {
+        // ARRANGE
+        let env = CliEnv::new();
+        let stub = env.write("stub.efi", b"not-a-pe");
+        let kernel = env.write("vmlinuz", &fake_kernel(1024));
+        let initrd = env.write("initrd.img", &fake_initrd(1024));
+        let cmdline = env.write("cmdline.txt", &sample_cmdline());
+        let output = env.path("output.efi");
+
+        // ACT
+        let error = cli::run_with([
+            "yuki",
+            "--stub",
+            stub.to_str().expect("stub path"),
+            "--linux",
+            kernel.to_str().expect("kernel path"),
+            "--initrd",
+            initrd.to_str().expect("initrd path"),
+            "--cmdline",
+            cmdline.to_str().expect("cmdline path"),
+            "--output",
+            output.to_str().expect("output path"),
+        ])
+        .expect_err("invalid stub should fail build");
+
+        // ASSERT
+        assert!(error.to_string().contains("Failed to create UKI"));
     }
 
     #[test]

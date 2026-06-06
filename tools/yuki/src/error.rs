@@ -9,6 +9,10 @@ use thiserror::Error;
 )]
 #[derive(Error, Debug)]
 pub enum YukiError {
+    /// Writing the output image failed.
+    #[error("Failed to write output image: {0}")]
+    Io(#[from] std::io::Error),
+
     /// PE parsing failed with a system-level error.
     #[error("Failed to parse PE file: {0}")]
     PeParseError(String),

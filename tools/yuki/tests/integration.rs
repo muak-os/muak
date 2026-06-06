@@ -5,6 +5,9 @@ mod fixtures;
 
 #[cfg(test)]
 mod tests {
+    use core::ptr::NonNull;
+    use std::io::Write;
+
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
@@ -25,6 +28,33 @@ mod tests {
         write_bytes(bytes, offset, &value.to_le_bytes());
     }
 
+    fn build_to_vec(input: &BuildInput<'_>) -> Result<Vec<u8>, YukiError> {
+        let mut output = Vec::new();
+        build(input, &mut output)?;
+        Ok(output)
+    }
+
+    struct FailWriter;
+
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn oversized_slice() -> &'static [u8] {
+        // ARRANGE
+        let oversized_len = usize::try_from(u32::MAX)
+            .unwrap_or_default()
+            .saturating_add(1);
+        // SAFETY: the slice is used only for its length; `build` rejects it before reading bytes.
+        unsafe { core::slice::from_raw_parts(NonNull::<u8>::dangling().as_ptr(), oversized_len) }
+    }
+
     #[test]
     fn build_creates_valid_uki() {
         // ARRANGE
@@ -34,7 +64,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -82,7 +112,7 @@ mod tests {
         let dtb = fake_dtb(1024);
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -110,7 +140,7 @@ mod tests {
         let initrd = fake_initrd(1024);
         let cmdline = sample_cmdline();
 
-        build(&BuildInput {
+        build_to_vec(&BuildInput {
             stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -207,7 +237,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -234,7 +264,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -257,7 +287,7 @@ mod tests {
         let initrd = fake_initrd(1024);
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -278,7 +308,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let result = build(&BuildInput {
+        let result = build_to_vec(&BuildInput {
             stub: b"this is not a PE file at all",
             kernel: &kernel,
             initramfs: &initrd,
@@ -302,7 +332,7 @@ mod tests {
         let cmdline_data = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel_data,
             initramfs: &initrd_data,
@@ -350,7 +380,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -389,7 +419,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -424,7 +454,7 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let uki = build(&BuildInput {
+        let uki = build_to_vec(&BuildInput {
             stub: &stub,
             kernel: &kernel,
             initramfs: &initrd,
@@ -474,18 +504,93 @@ mod tests {
         let stub = generate_stub_with_section_count(u16::MAX - 2);
 
         // ACT
-        let result = build(&BuildInput {
-            stub: &stub,
-            kernel: b"kernel",
-            initramfs: b"initrd",
-            cmdline: b"quiet",
-            dtb: None,
-        });
+        let mut sink = std::io::sink();
+        let result = build(
+            &BuildInput {
+                stub: &stub,
+                kernel: b"kernel",
+                initramfs: b"initrd",
+                cmdline: b"quiet",
+                dtb: None,
+            },
+            &mut sink,
+        );
 
         // ASSERT
         assert!(
             matches!(result, Err(YukiError::TooManySections)),
             "should return TooManySections, got: {result:?}"
         );
+    }
+
+    #[test]
+    fn build_rejects_insufficient_header_capacity() {
+        // ARRANGE
+        let mut stub = generate_minimal_stub();
+        write_u32(&mut stub, 148, 368);
+
+        // ACT
+        let result = build(
+            &BuildInput {
+                stub: &stub,
+                kernel: b"kernel",
+                initramfs: b"initrd",
+                cmdline: b"quiet",
+                dtb: None,
+            },
+            std::io::sink(),
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("section table exceeds size of headers")
+        ));
+    }
+
+    #[test]
+    fn build_propagates_writer_error() {
+        // ARRANGE
+        let stub = generate_minimal_stub();
+
+        // ACT
+        let result = build(
+            &BuildInput {
+                stub: &stub,
+                kernel: b"kernel",
+                initramfs: b"initrd",
+                cmdline: b"quiet",
+                dtb: None,
+            },
+            FailWriter,
+        );
+
+        // ASSERT
+        assert!(matches!(result, Err(YukiError::Io(_))));
+    }
+
+    #[test]
+    fn build_rejects_oversized_section_input() {
+        // ARRANGE
+        let stub = generate_minimal_stub();
+
+        // ACT
+        let result = build(
+            &BuildInput {
+                stub: &stub,
+                kernel: b"kernel",
+                initramfs: oversized_slice(),
+                cmdline: b"quiet",
+                dtb: None,
+            },
+            std::io::sink(),
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message)) if message.contains("section '.initrd' too large")
+        ));
     }
 }

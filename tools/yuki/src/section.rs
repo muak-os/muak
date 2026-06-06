@@ -3,7 +3,7 @@
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 
-use crate::binary::{align_to, usize_from_u128};
+use crate::binary;
 use crate::error::{Result, YukiError};
 use crate::pe::PeMetadata;
 
@@ -57,8 +57,9 @@ pub(crate) fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static st
 pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Result<SectionLayout> {
     let mut headers = Vec::new();
     let mut offsets = Vec::new();
-    let mut current_file_offset = align_to(metadata.last_section_file_end, metadata.file_alignment);
-    let mut current_virtual_address = align_to(
+    let mut current_file_offset =
+        binary::align_to(metadata.last_section_file_end, metadata.file_alignment);
+    let mut current_virtual_address = binary::align_to(
         metadata.last_section_virtual_end,
         metadata.section_alignment,
     );
@@ -68,8 +69,8 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
         let virtual_size = u32::try_from(data.len()).map_err(|_conversion_error| {
             YukiError::InvalidPeStructure(format!("section '{name}' too large"))
         })?;
-        let size_of_raw_data = align_to(virtual_size, metadata.file_alignment);
-        let aligned_virtual_size = align_to(virtual_size, metadata.section_alignment);
+        let size_of_raw_data = binary::align_to(virtual_size, metadata.file_alignment);
+        let aligned_virtual_size = binary::align_to(virtual_size, metadata.section_alignment);
 
         let mut section = ImageSectionHeader::default();
 
@@ -103,7 +104,7 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
 
         max_virtual_end = max_virtual_end.max(section_virtual_end);
 
-        let current_file_offset_usize = usize_from_u128(
+        let current_file_offset_usize = binary::usize_from_u128(
             u128::from(current_file_offset),
             "section file offset does not fit in usize",
         )?;
@@ -118,7 +119,7 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
         current_virtual_address = section_virtual_end;
     }
 
-    let total_file_size = usize_from_u128(
+    let total_file_size = binary::usize_from_u128(
         u128::from(current_file_offset),
         "total file size does not fit in usize",
     )?;
@@ -129,56 +130,6 @@ pub fn build_headers(metadata: &PeMetadata, sections: &[(&str, &[u8])]) -> Resul
         max_virtual_end,
         total_file_size,
     })
-}
-
-/// Writes the provided section headers and data into the given PE image buffer at the appropriate offsets.
-pub fn write_to_image(
-    stub: &mut [u8],
-    metadata: &PeMetadata,
-    layout: &SectionLayout,
-    sections: &[(&str, &[u8])],
-) -> Result<()> {
-    if layout.headers.len() != sections.len() || layout.offsets.len() != sections.len() {
-        return Err(YukiError::InvalidPeStructure(
-            "section layout length mismatch".to_owned(),
-        ));
-    }
-
-    for (i, section_header) in layout.headers.iter().enumerate() {
-        let section_index = usize::from(metadata.current_section_count).saturating_add(i);
-        let section_offset =
-            section_index.saturating_mul(core::mem::size_of::<ImageSectionHeader>());
-        let offset = metadata.section_table_offset.saturating_add(section_offset);
-        let header_bytes = section_header_to_bytes(section_header);
-        let end = offset.saturating_add(header_bytes.len());
-        stub.get_mut(offset..end)
-            .ok_or_else(|| {
-                YukiError::InvalidPeStructure(format!("section header oob: {offset}-{end}"))
-            })?
-            .copy_from_slice(&header_bytes);
-    }
-
-    for (i, &(file_offset, data_len)) in layout.offsets.iter().enumerate() {
-        let data = sections
-            .get(i)
-            .ok_or_else(|| YukiError::InvalidPeStructure(format!("missing section data at {i}")))?
-            .1;
-        if data.len() != data_len {
-            return Err(YukiError::InvalidPeStructure(format!(
-                "section data length mismatch at {i}: expected {data_len}, got {}",
-                data.len()
-            )));
-        }
-
-        let end = file_offset.saturating_add(data_len);
-        stub.get_mut(file_offset..end)
-            .ok_or_else(|| {
-                YukiError::InvalidPeStructure(format!("section data oob: {file_offset}-{end}"))
-            })?
-            .copy_from_slice(data);
-    }
-
-    Ok(())
 }
 
 /// Converts an `ImageSectionHeader` into its raw byte representation for writing into the PE image.
@@ -209,23 +160,15 @@ mod tests {
     use crate::pe::PeMetadata;
 
     fn header(layout: &SectionLayout, index: usize) -> &ImageSectionHeader {
-        layout
-            .headers
-            .get(index)
-            .unwrap_or_else(|| panic!("expected header at index {index}"))
+        layout.headers.get(index).unwrap()
     }
 
     fn offset(layout: &SectionLayout, index: usize) -> (usize, usize) {
-        *layout
-            .offsets
-            .get(index)
-            .unwrap_or_else(|| panic!("expected offset at index {index}"))
+        *layout.offsets.get(index).unwrap()
     }
 
     fn byte_range(bytes: &[u8], range: core::ops::Range<usize>) -> &[u8] {
-        bytes
-            .get(range.clone())
-            .unwrap_or_else(|| panic!("expected byte range {range:?}"))
+        bytes.get(range).unwrap()
     }
 
     fn create_test_metadata() -> PeMetadata {
@@ -564,13 +507,14 @@ mod tests {
         let layout = build_headers(&metadata, &sections).unwrap_or_default();
 
         // ASSERT
-        let first_end = header(&layout, 0)
-            .virtual_address
-            .get(LE)
-            .saturating_add(align_to(
-                header(&layout, 0).virtual_size.get(LE),
-                metadata.section_alignment,
-            ));
+        let first_end =
+            header(&layout, 0)
+                .virtual_address
+                .get(LE)
+                .saturating_add(binary::align_to(
+                    header(&layout, 0).virtual_size.get(LE),
+                    metadata.section_alignment,
+                ));
         assert_eq!(header(&layout, 1).virtual_address.get(LE), first_end);
     }
 
@@ -603,177 +547,6 @@ mod tests {
     }
 
     #[test]
-    fn write_to_image_success() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![1_u8; 1024];
-        let initrd = vec![2_u8; 2048];
-        let cmdline = b"console=ttyS0";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-        let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-        let mut stub_data = vec![0_u8; 100 * 1024];
-
-        // ACT
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(result.is_ok(), "write_to_image should succeed");
-        for (i, header) in layout.headers.iter().enumerate() {
-            let offset = metadata.section_table_offset.saturating_add(
-                usize::from(metadata.current_section_count)
-                    .saturating_add(i)
-                    .saturating_mul(core::mem::size_of::<ImageSectionHeader>()),
-            );
-            let expected = section_header_to_bytes(header);
-            assert_eq!(
-                byte_range(&stub_data, offset..offset + expected.len()),
-                &expected
-            );
-        }
-        let expected: [&[u8]; 3] = [cmdline, &linux, &initrd];
-        for (i, &(file_offset, data_len)) in layout.offsets.iter().enumerate() {
-            let end = file_offset.saturating_add(data_len);
-            let expected_data = expected
-                .get(i)
-                .unwrap_or_else(|| panic!("expected section data at index {i}"));
-            assert_eq!(byte_range(&stub_data, file_offset..end), *expected_data);
-        }
-    }
-
-    #[test]
-    fn write_to_image_buffer_too_small_for_headers() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![1_u8; 100];
-        let initrd = vec![2_u8; 100];
-        let cmdline = b"test";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-        let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-        let header_offset = metadata.section_table_offset
-            + usize::from(metadata.current_section_count)
-                * core::mem::size_of::<ImageSectionHeader>();
-        let mut stub_data = vec![0_u8; header_offset + 10];
-
-        // ACT
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(matches!(result, Err(YukiError::InvalidPeStructure(_))));
-    }
-
-    #[test]
-    fn write_to_image_buffer_too_small_for_data() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![1_u8; 100];
-        let initrd = vec![2_u8; 100];
-        let cmdline = b"test";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-        let sections = build_section_list(&data);
-
-        // ACT
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-
-        // ASSERT
-        assert!(offset(&layout, 0).0 > 10);
-    }
-
-    #[test]
-    fn write_to_image_empty_sections() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![];
-        let initrd = vec![];
-        let cmdline = b"";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-
-        // ACT
-        let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-        let mut stub_data = vec![0_u8; 10 * 1024];
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(
-            result.is_ok(),
-            "write_to_image should succeed for empty sections"
-        );
-        for &(file_offset, data_len) in &layout.offsets {
-            assert_eq!(file_offset.saturating_add(data_len), file_offset);
-        }
-    }
-
-    #[test]
-    fn write_to_image_rejects_data_out_of_bounds() {
-        // ARRANGE
-        let metadata = PeMetadata {
-            section_table_offset: 0,
-            current_section_count: 0,
-            ..create_test_metadata()
-        };
-        let sections = [(".ok", &[1_u8; 32][..])];
-        let layout = SectionLayout {
-            headers: vec![ImageSectionHeader::default()],
-            offsets: vec![(32, 32)],
-            max_virtual_end: 0,
-            total_file_size: 64,
-        };
-        let mut stub_data = vec![0_u8; 40];
-
-        // ACT
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("section data oob"))
-        );
-    }
-
-    #[test]
-    fn write_to_image_rejects_layout_length_mismatch() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let layout = SectionLayout {
-            headers: vec![ImageSectionHeader::default()],
-            offsets: Vec::new(),
-            max_virtual_end: 0,
-            total_file_size: 0,
-        };
-        let sections = [(".ok", &[1_u8; 4][..])];
-        let mut stub_data = vec![0_u8; 64];
-
-        // ACT
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("section layout length mismatch"))
-        );
-    }
-
-    #[test]
     fn build_headers_uses_exact_virtual_size() {
         // ARRANGE
         let metadata = create_test_metadata();
@@ -784,89 +557,5 @@ mod tests {
 
         // ASSERT
         assert_eq!(header(&layout, 0).virtual_size.get(LE), 16);
-    }
-
-    #[test]
-    fn write_to_image_header_error_contains_offsets() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![1_u8; 100];
-        let initrd = vec![2_u8; 100];
-        let cmdline = b"test";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-
-        // ACT
-        let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-        let header_offset = metadata.section_table_offset
-            + usize::from(metadata.current_section_count)
-                * core::mem::size_of::<ImageSectionHeader>();
-        let mut stub_data = vec![0_u8; header_offset + 10];
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERTT
-        assert!(matches!(
-            result,
-            Err(YukiError::InvalidPeStructure(message)) if message.contains("section header oob")
-        ));
-    }
-
-    #[test]
-    fn write_to_image_rejects_data_length_mismatch() {
-        // ARRANGE
-        let metadata = PeMetadata {
-            current_section_count: 0,
-            ..create_test_metadata()
-        };
-        let layout = SectionLayout {
-            headers: vec![ImageSectionHeader::default()],
-            offsets: vec![(0, 8)],
-            max_virtual_end: 0,
-            total_file_size: 8,
-        };
-        let sections = [(".ok", &[1_u8; 4][..])];
-        let mut stub_data = vec![0_u8; 64];
-
-        // ACT
-        let result = write_to_image(&mut stub_data, &metadata, &layout, &sections);
-
-        // ASSERT
-        assert!(matches!(
-            result,
-            Err(YukiError::InvalidPeStructure(message))
-                if message.contains("section data length mismatch")
-        ));
-    }
-
-    #[test]
-    fn write_to_image_data_error_contains_offsets() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let linux = vec![1_u8; 100];
-        let initrd = vec![2_u8; 100];
-        let cmdline = b"test";
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline,
-            dtb: None,
-        };
-
-        // ACT
-        let sections = build_section_list(&data);
-        let layout = build_headers(&metadata, &sections).unwrap_or_default();
-
-        // ASSERT
-        assert!(
-            layout
-                .offsets
-                .iter()
-                .all(|&(offset, len)| offset.saturating_add(len) <= layout.total_file_size)
-        );
     }
 }

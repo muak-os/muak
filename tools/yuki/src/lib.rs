@@ -8,6 +8,7 @@ pub mod cli;
 pub mod error;
 mod pe;
 mod section;
+mod stream;
 
 use error::{Result, YukiError};
 
@@ -30,10 +31,9 @@ pub struct BuildInput<'a> {
 /// # Errors
 ///
 /// Returns an error if the EFI stub is not a valid PE image or the resulting
-/// image would exceed PE section limits.
-pub fn build(input: &BuildInput<'_>) -> Result<Vec<u8>> {
-    let mut stub = input.stub.to_vec();
-    let metadata = pe::extract_metadata(&stub)?;
+/// image would exceed PE section limits, or writing the output fails.
+pub fn build<W: std::io::Write>(input: &BuildInput<'_>, mut writer: W) -> Result<()> {
+    let metadata = pe::extract_metadata(input.stub)?;
 
     let section_count = 3_u16.saturating_add(u16::from(input.dtb.is_some()));
     if usize::from(metadata.current_section_count).saturating_add(usize::from(section_count))
@@ -52,17 +52,14 @@ pub fn build(input: &BuildInput<'_>) -> Result<Vec<u8>> {
     let sections = section::build_section_list(&data);
     pe::validate_section_header_capacity(&metadata, sections.len())?;
     let layout = section::build_headers(&metadata, &sections)?;
+    let new_section_count = metadata.current_section_count.saturating_add(section_count);
 
-    stub.resize(layout.total_file_size, 0);
-
-    let new_section_count = metadata
-        .current_section_count
-        .checked_add(section_count)
-        .ok_or(YukiError::TooManySections)?;
-
-    pe::update_section_count(&mut stub, &metadata, new_section_count)?;
-    section::write_to_image(&mut stub, &metadata, &layout, &sections)?;
-    pe::update_image_size(&mut stub, &metadata, layout.max_virtual_end)?;
-
-    Ok(stub)
+    stream::write(
+        &mut writer,
+        input.stub,
+        &metadata,
+        &layout,
+        &sections,
+        new_section_count,
+    )
 }

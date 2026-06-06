@@ -1,6 +1,7 @@
 //! Command-line interface for yuki.
 
 use std::ffi::OsString;
+use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
@@ -70,22 +71,25 @@ fn run(args: &Cli) -> Result<String> {
         })
         .transpose()?;
 
-    let buffer = crate::build(&crate::BuildInput {
-        stub: &stub,
-        kernel: &kernel,
-        initramfs: &initramfs,
-        cmdline: &cmdline,
-        dtb: dtb.as_deref(),
-    })
-    .context("Failed to create UKI")?;
-
-    std::fs::write(&args.output, &buffer)
+    let mut output = File::create(&args.output)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
+
+    crate::build(
+        &crate::BuildInput {
+            stub: &stub,
+            kernel: &kernel,
+            initramfs: &initramfs,
+            cmdline: &cmdline,
+            dtb: dtb.as_deref(),
+        },
+        &mut output,
+    )
+    .context("Failed to create UKI")?;
 
     Ok(format!(
         "Successfully created UKI at {} ({} bytes)",
         args.output.display(),
-        buffer.len()
+        output.metadata()?.len()
     ))
 }
 
