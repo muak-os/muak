@@ -243,7 +243,6 @@ async fn uki(
             initramfs: &initramfs,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .map_err(|e| ImagerError::BuildError(format!("build UKI: {e}")))
     })
