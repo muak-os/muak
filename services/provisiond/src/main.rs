@@ -6,6 +6,7 @@ mod efi;
 mod history;
 mod install;
 mod ipc;
+mod profile;
 mod reboot;
 mod reset;
 mod secrets;
