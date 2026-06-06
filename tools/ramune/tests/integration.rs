@@ -6,6 +6,8 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    use ramune::error::RamuneError;
+
     use super::fixtures::{TestEnv, decode_extension_archive, decode_initramfs};
 
     fn create_config<'a>(
@@ -113,10 +115,7 @@ mod tests {
         let result = ramune::create(&create_config(&init, &rootfs, None), &output);
 
         // ASSERT
-        assert!(matches!(
-            result,
-            Err(ramune::RamuneError::WriteError { .. })
-        ));
+        assert!(matches!(result, Err(RamuneError::WriteError { .. })));
     }
 
     #[tokio::test]
@@ -226,6 +225,6 @@ mod tests {
         let result = ramune::extend(&config, output.as_path()).await;
 
         // ASSERT
-        assert!(matches!(result, Err(ramune::RamuneError::ReadError { .. })));
+        assert!(matches!(result, Err(RamuneError::ReadError { .. })));
     }
 }
