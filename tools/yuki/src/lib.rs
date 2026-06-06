@@ -23,8 +23,6 @@ pub struct BuildInput<'a> {
     pub cmdline: &'a [u8],
     /// Optional device-tree blob.
     pub dtb: Option<&'a [u8]>,
-    /// Optional LUKS key file.
-    pub luks_key: Option<&'a [u8]>,
 }
 
 /// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
@@ -37,9 +35,7 @@ pub fn build(input: &BuildInput<'_>) -> Result<Vec<u8>> {
     let mut stub = input.stub.to_vec();
     let metadata = pe::extract_metadata(&stub)?;
 
-    let section_count = 3_u16
-        .saturating_add(u16::from(input.dtb.is_some()))
-        .saturating_add(u16::from(input.luks_key.is_some()));
+    let section_count = 3_u16.saturating_add(u16::from(input.dtb.is_some()));
     if usize::from(metadata.current_section_count).saturating_add(usize::from(section_count))
         > usize::from(u16::MAX)
     {
@@ -51,7 +47,6 @@ pub fn build(input: &BuildInput<'_>) -> Result<Vec<u8>> {
         initrd: input.initramfs,
         cmdline: input.cmdline,
         dtb: input.dtb,
-        luks: input.luks_key,
     };
 
     let sections = section::build_section_list(&data);

@@ -37,7 +37,6 @@ pub struct SectionData<'a> {
     pub initrd: &'a [u8],
     pub cmdline: &'a [u8],
     pub dtb: Option<&'a [u8]>,
-    pub luks: Option<&'a [u8]>,
 }
 
 /// Builds a list of section names and data from the provided `SectionData`.
@@ -46,10 +45,6 @@ pub(crate) fn build_section_list<'a>(data: &SectionData<'a>) -> Vec<(&'static st
 
     if let Some(dtb) = data.dtb {
         sections.push((".dtb", dtb));
-    }
-
-    if let Some(luks) = data.luks {
-        sections.push((".luks", luks));
     }
 
     sections.push((".linux", data.linux));
@@ -361,7 +356,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -388,7 +382,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -416,7 +409,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -446,7 +438,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -469,7 +460,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -497,7 +487,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -598,7 +587,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: Some(&dtb),
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -626,7 +614,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
         let layout = build_headers(&metadata, &sections).unwrap_or_default();
@@ -671,7 +658,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
         let layout = build_headers(&metadata, &sections).unwrap_or_default();
@@ -699,7 +685,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
         let sections = build_section_list(&data);
 
@@ -722,7 +707,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
 
         // ACT
@@ -790,32 +774,6 @@ mod tests {
     }
 
     #[test]
-    fn build_section_list_includes_luks() {
-        // ARRANGE
-        let linux = [1_u8; 4];
-        let initrd = [2_u8; 4];
-        let cmdline = [3_u8; 4];
-        let luks = [4_u8; 4];
-        let data = SectionData {
-            linux: &linux,
-            initrd: &initrd,
-            cmdline: &cmdline,
-            dtb: None,
-            luks: Some(&luks),
-        };
-
-        // ACT
-        let sections = build_section_list(&data);
-
-        // ASSERT
-        assert!(
-            sections
-                .iter()
-                .any(|&(name, payload)| name == ".luks" && payload == luks)
-        );
-    }
-
-    #[test]
     fn build_headers_uses_exact_virtual_size() {
         // ARRANGE
         let metadata = create_test_metadata();
@@ -840,7 +798,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
 
         // ACT
@@ -898,7 +855,6 @@ mod tests {
             initrd: &initrd,
             cmdline,
             dtb: None,
-            luks: None,
         };
 
         // ACT

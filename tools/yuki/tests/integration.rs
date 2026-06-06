@@ -40,7 +40,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
 
@@ -89,7 +88,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: Some(&dtb),
-            luks_key: None,
         })
         .expect("build with DTB should succeed");
 
@@ -118,7 +116,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
     }
 
@@ -216,7 +213,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
         let result_pe = PeFile64::parse(&*uki).expect("output should be valid PE");
@@ -244,7 +240,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build with large files should succeed");
 
@@ -268,7 +263,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: b"",
             dtb: None,
-            luks_key: None,
         })
         .expect("empty cmdline should be allowed");
 
@@ -290,7 +284,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         });
 
         // ASSERT
@@ -315,7 +308,6 @@ mod tests {
             initramfs: &initrd_data,
             cmdline: &cmdline_data,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
 
@@ -364,7 +356,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
 
@@ -404,7 +395,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
 
@@ -440,7 +430,6 @@ mod tests {
             initramfs: &initrd,
             cmdline: &cmdline,
             dtb: None,
-            luks_key: None,
         })
         .expect("build should succeed");
 
@@ -491,7 +480,6 @@ mod tests {
             initramfs: b"initrd",
             cmdline: b"quiet",
             dtb: None,
-            luks_key: None,
         });
 
         // ASSERT

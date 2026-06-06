@@ -34,9 +34,6 @@ struct Cli {
     )]
     dtb: Option<PathBuf>,
 
-    #[arg(long, help = "Optional LUKS key file to include in the UKI")]
-    luks: Option<PathBuf>,
-
     #[arg(short, long)]
     output: PathBuf,
 }
@@ -72,14 +69,6 @@ fn run(args: &Cli) -> Result<String> {
                 .with_context(|| format!("Failed to read DTB from {}", path.display()))
         })
         .transpose()?;
-    let luks_data = args
-        .luks
-        .as_ref()
-        .map(|path| {
-            std::fs::read(path)
-                .with_context(|| format!("Failed to read LUKS key from {}", path.display()))
-        })
-        .transpose()?;
 
     let buffer = crate::build(&crate::BuildInput {
         stub: &stub,
@@ -87,7 +76,6 @@ fn run(args: &Cli) -> Result<String> {
         initramfs: &initramfs,
         cmdline: &cmdline,
         dtb: dtb.as_deref(),
-        luks_key: luks_data.as_deref(),
     })
     .context("Failed to create UKI")?;
 
