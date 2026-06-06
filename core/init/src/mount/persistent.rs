@@ -1,3 +1,5 @@
+//! Persistent mounts for installed systems.
+
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};

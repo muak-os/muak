@@ -1,3 +1,5 @@
+//! LUKS key resolution.
+
 use anyhow::{Context as _, Result};
 use zeroize::Zeroizing;
 

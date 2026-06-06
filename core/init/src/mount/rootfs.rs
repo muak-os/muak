@@ -1,3 +1,5 @@
+//! Mount the root filesystem with extensions as overlays.
+
 use alloc::ffi::CString;
 use std::path::Path;
 

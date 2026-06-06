@@ -1,3 +1,5 @@
+//! SELinux policy loading and enforcement status checking.
+
 use std::fs;
 use std::path::Path;
 
