@@ -41,7 +41,14 @@ impl<'a> Sections<'a> {
             .filter_map(Result::transpose)
         {
             let (name, section_data) = section?;
-            set_uki_section(name, section_data, &mut linux, &mut initrd, &mut cmdline, &mut dtb)?;
+            set_uki_section(
+                name,
+                section_data,
+                &mut linux,
+                &mut initrd,
+                &mut cmdline,
+                &mut dtb,
+            )?;
         }
 
         Ok(Sections {

@@ -59,12 +59,14 @@ fn read_key(device_handle: Handle) -> Result<Option<Vec<u8>>> {
             return Err(anyhow!("Failed to open luks file: {err}"));
         }
     };
-    let mut regular_file = file.into_regular_file().ok_or_else(|| {
-        anyhow!("luks file is not a regular file")
-    })?;
+    let mut regular_file = file
+        .into_regular_file()
+        .ok_or_else(|| anyhow!("luks file is not a regular file"))?;
 
     let mut buf = vec![0u8; MAX_LUKS_KEY_SIZE];
-    let bytes_read = regular_file.read(&mut buf).context("Failed to read luks file")?;
+    let bytes_read = regular_file
+        .read(&mut buf)
+        .context("Failed to read luks file")?;
     if bytes_read == 0 {
         return Ok(None);
     }
