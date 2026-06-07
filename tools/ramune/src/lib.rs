@@ -22,14 +22,18 @@ pub type ExtraFile<'a> = extender::ExtraFile<'a>;
 /// Default zstd compression level.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
 
-/// Creates a base initramfs image from an init binary and rootfs directory.
+/// Creates a base initramfs image from an init binary and rootfs directory,
+/// writing the compressed archive into `writer`.
 ///
 /// # Errors
 ///
 /// Returns an error when reading inputs, building the staged rootfs, compressing the archive,
-/// or writing the output image fails.
-pub fn create(config: &CreateConfig<'_>, output: &std::path::Path) -> error::Result<()> {
-    builder::create(config, output)
+/// or writing to the output sink fails.
+pub fn create<W: std::io::Write>(
+    config: &CreateConfig<'_>,
+    writer: &mut W,
+) -> error::Result<()> {
+    builder::create(config, writer)
 }
 
 /// Extends an initramfs image by appending a compressed archive of extra files.

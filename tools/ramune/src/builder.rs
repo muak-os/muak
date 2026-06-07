@@ -1,6 +1,6 @@
 //! Base initramfs creation from an init binary and rootfs directory.
 
-use std::io::Write as _;
+use std::io::Write;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
@@ -32,13 +32,14 @@ pub struct CreateConfig<'a> {
     pub rootfs_compression_level: i32,
 }
 
-/// Creates a base initramfs image from an init binary and rootfs directory.
+/// Creates a base initramfs image from an init binary and rootfs directory,
+/// writing the compressed archive to `writer`.
 ///
 /// # Errors
 ///
 /// Returns an error when reading inputs, building the staged rootfs, compressing the archive,
-/// or writing the output image fails.
-pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
+/// or writing to the output sink fails.
+pub fn create<W: Write>(config: &CreateConfig<'_>, writer: &mut W) -> Result<()> {
     let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
         file: config.init.display().to_string(),
         source: e,
@@ -57,7 +58,7 @@ pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
     let rootfs_size = u32::try_from(rootfs_erofs.len())
         .map_err(|_err| RamuneError::CpioError("rootfs exceeds CPIO limits".to_owned()))?;
 
-    let mut encoder = compress::encoder(Vec::new(), config.compression_level)?;
+    let mut encoder = compress::encoder(writer, config.compression_level)?;
     cpio::write_entry(&mut encoder, 1, "init", MODE_EXEC, init_size, |w| {
         w.write_all(&init_data)
             .map_err(|e| RamuneError::CpioError(format!("{e}")))
@@ -74,12 +75,9 @@ pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
         },
     )?;
     cpio::write_trailer(&mut encoder)?;
-    let data = encoder.finish().map_err(RamuneError::CompressionError)?;
+    encoder.finish().map_err(RamuneError::CompressionError)?;
 
-    std::fs::write(output, &data).map_err(|source| RamuneError::WriteError {
-        file: output.display().to_string(),
-        source,
-    })
+    Ok(())
 }
 
 /// Copies `src` into `dst` recursively, preserving symlinks as symlinks.
@@ -211,12 +209,11 @@ mod tests {
         setup_rootfs_dir(&rootfs);
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
-        create(&make_config(&init_file, &rootfs), &output).expect("create");
+        let mut buf = Vec::new();
+        create(&make_config(&init_file, &rootfs), &mut buf).expect("create");
 
         // ASSERT
-        let result = std::fs::read(output).expect("read output");
-        assert!(!result.is_empty());
+        assert!(!buf.is_empty());
     }
 
     #[test]
@@ -230,14 +227,12 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
         let config = make_config(&init_file, &rootfs);
 
-        let output1 = tmp.path().join("initramfs-1.img");
-        let output2 = tmp.path().join("initramfs-2.img");
-        create(&config, &output1).expect("create 1");
-        create(&config, &output2).expect("create 2");
+        let mut img1 = Vec::new();
+        let mut img2 = Vec::new();
+        create(&config, &mut img1).expect("create 1");
+        create(&config, &mut img2).expect("create 2");
 
         // ASSERT
-        let img1 = std::fs::read(output1).expect("read output 1");
-        let img2 = std::fs::read(output2).expect("read output 2");
         assert_eq!(img1, img2);
     }
 
@@ -249,7 +244,7 @@ mod tests {
         std::fs::create_dir_all(&rootfs).expect("mkdir");
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
+        let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
                 init: Path::new("/nonexistent/init"),
@@ -258,7 +253,7 @@ mod tests {
                 compression_level: 19,
                 rootfs_compression_level: 3,
             },
-            &output,
+            &mut buf,
         );
 
         // ASSERT
@@ -278,7 +273,7 @@ mod tests {
         let rootfs = tmp.path().join("missing-rootfs");
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
+        let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
                 init: &init_file,
@@ -287,7 +282,7 @@ mod tests {
                 compression_level: 19,
                 rootfs_compression_level: 3,
             },
-            &output,
+            &mut buf,
         );
 
         // ASSERT
@@ -312,7 +307,7 @@ mod tests {
                 .expect("fc");
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
+        let mut buf = Vec::new();
         create(
             &CreateConfig {
                 init: &init_file,
@@ -321,13 +316,12 @@ mod tests {
                 compression_level: 19,
                 rootfs_compression_level: 3,
             },
-            &output,
+            &mut buf,
         )
         .expect("create");
 
         // ASSERT
-        let result = std::fs::read(output).expect("read output");
-        assert!(!result.is_empty());
+        assert!(!buf.is_empty());
     }
 
     #[test]
@@ -341,7 +335,7 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
+        let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
                 init: &init_file,
@@ -350,7 +344,7 @@ mod tests {
                 compression_level: i32::MAX,
                 rootfs_compression_level: 3,
             },
-            &output,
+            &mut buf,
         );
 
         // ASSERT
@@ -372,7 +366,7 @@ mod tests {
         std::fs::write(rootfs.join("file"), b"data").expect("write");
 
         // ACT
-        let output = tmp.path().join("initramfs.img");
+        let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
                 init: &init_file,
@@ -381,7 +375,7 @@ mod tests {
                 compression_level: 19,
                 rootfs_compression_level: i32::MAX,
             },
-            &output,
+            &mut buf,
         );
 
         // ASSERT

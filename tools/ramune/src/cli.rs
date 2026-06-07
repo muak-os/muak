@@ -144,7 +144,9 @@ async fn run_command(command: Command) -> Result<()> {
                 rootfs_compression_level,
             };
 
-            crate::create(&config, &output).context("Failed to create initramfs")?;
+            let mut file = std::fs::File::create(&output)
+                .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+            crate::create(&config, &mut file).context("Failed to create initramfs")?;
             let size = initramfs_size(&output)?;
 
             println!(

@@ -52,8 +52,10 @@ mod tests {
         let output = env.path("initramfs.img");
 
         // ACT
-        ramune::create(&create_config(&init, &rootfs, None), &output)
+        let mut buf = Vec::new();
+        ramune::create(&create_config(&init, &rootfs, None), &mut buf)
             .expect("create should succeed");
+        std::fs::write(&output, &buf).expect("write output");
 
         // ASSERT
         let entries = decode_initramfs(&output);
@@ -95,8 +97,10 @@ mod tests {
                 .expect("file contexts should parse");
 
         // ACT
-        ramune::create(&create_config(&init, &rootfs, Some(&contexts)), &output)
+        let mut buf = Vec::new();
+        ramune::create(&create_config(&init, &rootfs, Some(&contexts)), &mut buf)
             .expect("create should succeed with file contexts");
+        std::fs::write(&output, &buf).expect("write output");
 
         // ASSERT
         let entries = decode_initramfs(&output);
@@ -104,18 +108,27 @@ mod tests {
     }
 
     #[test]
-    fn create_returns_write_error_for_missing_output_parent() {
+    fn create_returns_error_for_missing_init() {
         // ARRANGE
         let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let missing_init = env.path("nonexistent-init");
         let rootfs = env.write_rootfs();
-        let output = env.path("missing/initramfs.img");
 
         // ACT
-        let result = ramune::create(&create_config(&init, &rootfs, None), &output);
+        let mut buf = Vec::new();
+        let result = ramune::create(
+            &ramune::CreateConfig {
+                init: &missing_init,
+                rootfs_dir: &rootfs,
+                file_contexts: None,
+                compression_level: 19,
+                rootfs_compression_level: 3,
+            },
+            &mut buf,
+        );
 
         // ASSERT
-        assert!(matches!(result, Err(RamuneError::WriteError { .. })));
+        assert!(result.is_err());
     }
 
     #[tokio::test]
