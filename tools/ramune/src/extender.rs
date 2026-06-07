@@ -7,7 +7,7 @@ use tokio::fs::{OpenOptions, canonicalize, copy};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 
 use crate::compress;
-use crate::cpio::{CpioEntry, write_archive as write_cpio_archive};
+use crate::cpio;
 use crate::error::{RamuneError, Result};
 use crate::extra::process_extra_files;
 
@@ -114,50 +114,33 @@ async fn build_extra_archive(
     compression_level: i32,
 ) -> Result<Vec<u8>> {
     let files = process_extra_files(extra_files, compression_level).await?;
-    let entries = extra_archive_entries(&files);
-    write_compressed_extra_archive(Vec::new(), &entries, compression_level)
+    write_compressed_cpio_archive(Vec::new(), &files, compression_level)
 }
 
-fn write_compressed_extra_archive<W: Write>(
+fn write_compressed_cpio_archive<W: Write>(
     writer: W,
-    entries: &[CpioEntry<'_>],
+    files: &[(String, Vec<u8>)],
     compression_level: i32,
 ) -> Result<W> {
-    write_compressed_extra_archive_with(
-        writer,
-        entries,
-        compression_level,
-        write_cpio_archive::<zstd::Encoder<'static, W>>,
-    )
-}
-
-fn write_compressed_extra_archive_with<W, WriteArchive>(
-    writer: W,
-    entries: &[CpioEntry<'_>],
-    compression_level: i32,
-    write_archive: WriteArchive,
-) -> Result<W>
-where
-    W: Write,
-    WriteArchive: FnOnce(&mut zstd::Encoder<'static, W>, &[CpioEntry<'_>]) -> Result<()>,
-{
     let mut encoder = compress::encoder(writer, compression_level)?;
+    let mut ino = 1_u32;
 
-    match write_archive(&mut encoder, entries) {
-        Ok(()) => encoder.finish().map_err(RamuneError::CompressionError),
-        Err(error) => Err(error),
+    for abs_rel in files {
+        let (path, data) = (abs_rel.0.as_str(), abs_rel.1.as_slice());
+        let size = u32::try_from(data.len())
+            .map_err(|_err| RamuneError::CpioError("extra file exceeds CPIO limits".to_owned()))?;
+        cpio::write_entry(&mut encoder, ino, path, 0o100_644, size, |w| {
+            w.write_all(data)
+                .map_err(|e| RamuneError::CpioError(format!("{e}")))
+        })?;
+        ino = ino
+            .checked_add(1)
+            .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
     }
-}
 
-fn extra_archive_entries(files: &[(String, Vec<u8>)]) -> Vec<CpioEntry<'_>> {
-    files
-        .iter()
-        .map(|entry| CpioEntry {
-            path: entry.0.as_str(),
-            mode: 0o100_644,
-            data: &entry.1,
-        })
-        .collect()
+    cpio::write_trailer(&mut encoder)?;
+
+    encoder.finish().map_err(RamuneError::CompressionError)
 }
 
 async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
@@ -201,7 +184,6 @@ mod tests {
     use tokio::io::AsyncWrite;
 
     use super::*;
-    use crate::cpio::write_archive;
 
     struct CountingFailingWriter {
         fail_on_call: usize,
@@ -262,27 +244,12 @@ mod tests {
         }
     }
 
-    fn extra_entries() -> Vec<CpioEntry<'static>> {
-        vec![CpioEntry {
-            path: "extensions/test-ext.erofs",
-            mode: 0o100_644,
-            data: b"payload",
-        }]
-    }
-
     fn extra<'a>(name: &str, path: &'a Path, compress: bool) -> ExtraFile<'a> {
         ExtraFile {
             name: name.to_owned(),
             path,
             compress,
         }
-    }
-
-    fn fail_cpio_archive<W>(_: &mut zstd::Encoder<'static, W>, _: &[CpioEntry<'_>]) -> Result<()>
-    where
-        W: Write,
-    {
-        Err(RamuneError::CpioError("cpio failed".to_owned()))
     }
 
     #[test]
@@ -768,12 +735,12 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_extra_archive_invalid_level_errors() {
+    fn write_compressed_cpio_invalid_level_errors() {
         // ARRANGE
-        let entries = extra_entries();
+        let files = vec![("test.erofs".to_owned(), b"data".to_vec())];
 
         // ACT
-        let result = write_compressed_extra_archive(Vec::new(), &entries, i32::MAX);
+        let result = write_compressed_cpio_archive(Vec::new(), &files, i32::MAX);
 
         // ASSERT
         assert!(
@@ -784,48 +751,19 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_extra_archive_cpio_errors() {
+    fn write_compressed_cpio_finish_errors() {
         // ARRANGE
-        let entries = extra_entries();
+        let files = vec![("test.erofs".to_owned(), b"data".to_vec())];
+        let mut clean = Vec::new();
 
         // ACT
-        let result = write_compressed_extra_archive_with(
-            Vec::new(),
-            &entries,
-            19,
-            fail_cpio_archive::<Vec<u8>>,
-        );
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::CpioError(_)))
-        );
-    }
-
-    #[test]
-    fn write_compressed_extra_archive_finish_errors() {
-        // ARRANGE
-        let entries = extra_entries();
-        let mut encoder = zstd::Encoder::new(
+        write_compressed_cpio_archive(&mut clean, &files, 19).expect("write");
+        let result = write_compressed_cpio_archive(
             CountingFailingWriter {
-                fail_on_call: usize::MAX,
+                fail_on_call: 1,
                 calls: 0,
             },
-            19,
-        )
-        .expect("encoder");
-        write_archive(&mut encoder, &entries).expect("write archive");
-        let fail_on_call = encoder.get_ref().calls.saturating_add(1);
-
-        // ACT
-        let result = write_compressed_extra_archive(
-            CountingFailingWriter {
-                fail_on_call,
-                calls: 0,
-            },
-            &entries,
+            &files,
             19,
         );
 
@@ -835,29 +773,5 @@ mod tests {
                 .as_ref()
                 .is_err_and(|error| matches!(error, RamuneError::CompressionError(_)))
         );
-    }
-
-    #[test]
-    fn extra_archive_entries_converts_files() {
-        // ARRANGE
-        let files = [
-            ("profile.toml".to_owned(), b"profile".to_vec()),
-            ("extensions/test.erofs".to_owned(), b"erofs".to_vec()),
-        ];
-
-        // ACT
-        let entries = extra_archive_entries(&files);
-
-        // ASSERT
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries.first().expect("entry 0").path, "profile.toml");
-        assert_eq!(entries.first().expect("entry 0").mode, 0o100_644);
-        assert_eq!(entries.first().expect("entry 0").data, b"profile");
-        assert_eq!(
-            entries.get(1).expect("entry 1").path,
-            "extensions/test.erofs"
-        );
-        assert_eq!(entries.get(1).expect("entry 1").mode, 0o100_644);
-        assert_eq!(entries.get(1).expect("entry 1").data, b"erofs");
     }
 }

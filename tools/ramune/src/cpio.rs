@@ -13,13 +13,6 @@ const TRAILER: &str = "TRAILER!!!";
 /// Zero bytes used for archive padding.
 const PAD_SLICES: [&[u8]; 4] = [&[], &[0_u8], &[0_u8, 0_u8], &[0_u8, 0_u8, 0_u8]];
 
-/// A single entry in a CPIO archive.
-pub(crate) struct CpioEntry<'a> {
-    pub path: &'a str,
-    pub mode: u32,
-    pub data: &'a [u8],
-}
-
 /// Fields for a CPIO newc format header entry.
 #[derive(Debug, Default)]
 struct CpioHeader {
@@ -38,31 +31,17 @@ struct CpioHeader {
     check: u32,
 }
 
-/// Writes a CPIO archive containing the given entries into `writer`.
-pub(crate) fn write_archive<W: Write>(writer: &mut W, entries: &[CpioEntry<'_>]) -> Result<()> {
-    let mut inode = 1_u32;
-
-    for entry in entries {
-        write_entry(writer, inode, entry.path, entry.mode, entry.data)?;
-        inode = inode
-            .checked_add(1)
-            .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
-    }
-
-    write_entry(writer, inode, TRAILER, 0, &[])
-}
-
-/// Writes a single entry (file or directory) to the CPIO archive.
-fn write_entry<W: Write>(
+/// Writes a single CPIO entry.
+pub(crate) fn write_entry<W: Write>(
     writer: &mut W,
     ino: u32,
     name: &str,
     mode: u32,
-    data: &[u8],
+    size: u32,
+    write_data: impl FnOnce(&mut W) -> Result<()>,
 ) -> Result<()> {
     let name_bytes = name.as_bytes();
     let namesize = usize_to_u32(name_bytes.len().saturating_add(1), "filename length")?;
-    let filesize = usize_to_u32(data.len(), "file size")?;
 
     let mut position = write_header(
         writer,
@@ -70,7 +49,7 @@ fn write_entry<W: Write>(
             ino,
             mode,
             nlink: 1,
-            filesize,
+            filesize: size,
             namesize,
             ..CpioHeader::default()
         },
@@ -85,13 +64,40 @@ fn write_entry<W: Write>(
     position = position.saturating_add(name_bytes.len()).saturating_add(1);
     position = position.saturating_add(write_pad4(writer, position)?);
 
-    if !data.is_empty() {
-        writer
-            .write_all(data)
-            .map_err(|e| RamuneError::CpioError(format!("Failed to write file data: {e}")))?;
-        position = position.saturating_add(data.len());
+    if size > 0 {
+        write_data(writer)?;
+        position = position.saturating_add(usize::try_from(size).unwrap_or_default());
         let _padding = write_pad4(writer, position)?;
     }
+
+    Ok(())
+}
+
+/// Writes the CPIO end-of-archive trailer entry.
+pub(crate) fn write_trailer<W: Write>(writer: &mut W) -> Result<()> {
+    let bytes = TRAILER.as_bytes();
+    let namesize = usize_to_u32(bytes.len().saturating_add(1), "filename length")?;
+
+    let mut position = write_header(
+        writer,
+        &CpioHeader {
+            ino: 0,
+            mode: 0,
+            nlink: 1,
+            filesize: 0,
+            namesize,
+            ..CpioHeader::default()
+        },
+    )?;
+
+    writer
+        .write_all(bytes)
+        .map_err(|e| RamuneError::CpioError(format!("Failed to write trailer: {e}")))?;
+    writer
+        .write_all(&[0])
+        .map_err(|e| RamuneError::CpioError(format!("Failed to write trailer null: {e}")))?;
+    position = position.saturating_add(bytes.len()).saturating_add(1);
+    let _padding = write_pad4(writer, position)?;
 
     Ok(())
 }
@@ -149,25 +155,17 @@ fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
 mod tests {
     use super::*;
 
-    fn archive_from_entries(entries: &[CpioEntry<'_>]) -> Vec<u8> {
-        let mut writer = Vec::new();
-        write_archive(&mut writer, entries).expect("write_archive");
-        writer
-    }
+    fn run_with_data(data: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let size = u32::try_from(data.len()).expect("data fits u32");
+        write_entry(&mut buf, 1, "init", 0o100_755, size, |w| {
+            w.write_all(data)
+                .map_err(|e| RamuneError::CpioError(format!("{e}")))
+        })
+        .expect("write_entry");
+        write_trailer(&mut buf).expect("write_trailer");
 
-    fn extension_entries<'a>(files: &'a [(&'a str, &'a [u8])]) -> Vec<CpioEntry<'a>> {
-        let mut entries = Vec::with_capacity(files.len().saturating_add(1));
-        entries.push(CpioEntry {
-            path: "extensions",
-            mode: 0o040_755,
-            data: &[],
-        });
-        entries.extend(files.iter().map(|&(path, data)| CpioEntry {
-            path,
-            mode: 0o100_644,
-            data,
-        }));
-        entries
+        buf
     }
 
     struct FailingWriter {
@@ -178,7 +176,6 @@ mod tests {
     impl Write for FailingWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             self.calls = self.calls.saturating_add(1);
-
             (self.calls != self.fail_on_call)
                 .then_some(buf.len())
                 .ok_or_else(|| std::io::Error::other("boom"))
@@ -189,89 +186,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn failing_writer_flush_succeeds() {
-        use std::io::Write as _;
-
-        // ARRANGE
-        let mut writer = FailingWriter {
-            fail_on_call: usize::MAX,
-            calls: 0,
-        };
-
-        // ACT / ASSERT
-        writer.flush().expect("flush");
+    fn writer_entry_data<W: Write>(w: &mut W, data: &[u8]) -> Result<()> {
+        w.write_all(data)
+            .map_err(|e| RamuneError::CpioError(format!("{e}")))
     }
 
     #[test]
     fn create_archive_single_file() {
         // ARRANGE
-        let entries = extension_entries(&[("extensions/test.txt", b"hello world")]);
+        let data = b"hello world";
 
         // ACT
-        let mut buf = Vec::new();
-        write_archive(&mut buf, &entries).expect("write_archive");
-        let result = buf;
+        let result = run_with_data(data);
 
         // ASSERT
         assert!(!result.is_empty());
-        assert!(
-            result
-                .windows("test.txt".len())
-                .any(|w| w == "test.txt".as_bytes())
-        );
-    }
-
-    #[test]
-    fn create_archive_multiple_files() {
-        // ARRANGE
-        let entries = extension_entries(&[
-            ("extensions/file1.txt", b"content1"),
-            ("extensions/file2.txt", b"content2"),
-        ]);
-
-        // ACT
-        let mut buf = Vec::new();
-        write_archive(&mut buf, &entries).expect("write_archive");
-        let result = buf;
-
-        // ASSERT
-        assert!(!result.is_empty());
-        assert!(
-            result
-                .windows("file1.txt".len())
-                .any(|w| w == "file1.txt".as_bytes())
-        );
-        assert!(
-            result
-                .windows("file2.txt".len())
-                .any(|w| w == "file2.txt".as_bytes())
-        );
-    }
-
-    #[test]
-    fn create_archive_empty_files() {
-        // ARRANGE
-        let entries = extension_entries(&[]);
-
-        // ACT
-        let mut buf = Vec::new();
-        write_archive(&mut buf, &entries).expect("write_archive");
-        let result = buf;
-
-        // ASSERT
-        assert!(!result.is_empty());
+        assert!(result.windows(b"init".len()).any(|w| w == b"init"));
     }
 
     #[test]
     fn create_archive_empty_data() {
-        // ARRANGE
-        let entries = extension_entries(&[("extensions/empty.txt", b"")]);
-
-        // ACT
-        let mut buf = Vec::new();
-        write_archive(&mut buf, &entries).expect("write_archive");
-        let result = buf;
+        // ARRANGE / ACT
+        let result = run_with_data(b"");
 
         // ASSERT
         assert!(!result.is_empty());
@@ -280,67 +216,261 @@ mod tests {
     #[test]
     fn create_archive_large_data() {
         // ARRANGE
-        let large_data = vec![0_u8; 10_000];
-        let mut entries = extension_entries(&[]);
-        entries.push(CpioEntry {
-            path: "extensions/large.bin",
-            mode: 0o100_644,
-            data: large_data.as_slice(),
-        });
+        let data = vec![0_u8; 10_000];
 
         // ACT
-        let mut buf = Vec::new();
-        write_archive(&mut buf, &entries).expect("write_archive");
-        let result = buf;
+        let result = run_with_data(&data);
 
         // ASSERT
         assert!(result.len() > 10000);
     }
 
     #[test]
-    fn create_from_entries_with_directories() {
-        // ARRANGE
-        let entries = vec![
-            CpioEntry {
-                path: "lib",
-                mode: 0o040_755,
-                data: &[],
-            },
-            CpioEntry {
-                path: "lib/modules",
-                mode: 0o040_755,
-                data: &[],
-            },
-            CpioEntry {
-                path: "lib/modules/test.ko",
-                mode: 0o100_644,
-                data: b"module data",
-            },
-        ];
-
-        // ACT
-        let result = archive_from_entries(&entries);
+    fn archive_contains_trailer() {
+        // ARRANGE / ACT
+        let archive = run_with_data(b"data");
 
         // ASSERT
-        assert!(!result.is_empty());
         assert!(
-            result
-                .windows("lib/modules/test.ko".len())
-                .any(|w| w == "lib/modules/test.ko".as_bytes())
+            archive
+                .windows(TRAILER.len())
+                .any(|w| w == TRAILER.as_bytes())
         );
     }
 
     #[test]
-    fn create_from_entries_empty() {
+    fn trailer_only_is_non_empty() {
         // ARRANGE / ACT
-        let result = archive_from_entries(&[]);
+        let mut buf = Vec::new();
+        write_trailer(&mut buf).expect("write_trailer");
 
         // ASSERT
-        assert!(
-            result
-                .windows(TRAILER.len())
-                .any(|w| w == TRAILER.as_bytes())
-        );
+        assert!(!buf.is_empty());
+    }
+
+    #[test]
+    fn multiple_entries_with_varied_names() {
+        // ARRANGE
+        let mut buf = Vec::new();
+        let data_a = b"content a";
+        let data_b = b"content b";
+
+        // ACT
+        write_entry(
+            &mut buf,
+            1,
+            "a",
+            0o100_644,
+            u32::try_from(data_a.len()).expect("len fits u32"),
+            |w| writer_entry_data(w, data_a),
+        )
+        .expect("entry a");
+        write_entry(
+            &mut buf,
+            2,
+            "bbbb",
+            0o100_644,
+            u32::try_from(data_b.len()).expect("len fits u32"),
+            |w| writer_entry_data(w, data_b),
+        )
+        .expect("entry b");
+        write_trailer(&mut buf).expect("trailer");
+
+        // ASSERT
+        assert!(buf.windows(1).any(|w| w == b"a"));
+        assert!(buf.windows(4).any(|w| w == b"bbbb"));
+        assert!(buf.windows(TRAILER.len()).any(|w| w == TRAILER.as_bytes()));
+    }
+
+    #[test]
+    fn failing_writer_flush_succeeds() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: usize::MAX,
+            calls: 0,
+        };
+
+        // ACT / ASSERT
+        writer.flush().expect("flush should succeed");
+    }
+
+    #[test]
+    fn entry_propagates_header_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 1,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_propagates_name_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 2,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_propagates_null_byte_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 3,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_propagates_padding_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 4,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_propagates_data_write_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 5,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_propagates_data_padding_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 6,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "abc", 0o644, 5, |w| {
+            writer_entry_data(w, b"12345")
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn trailer_propagates_header_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 1,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_trailer(&mut writer);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_entry_propagates_closure_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: usize::MAX,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_entry(&mut writer, 1, "x", 0o644, 3, |_w| {
+            Err(RamuneError::CpioError("boom from closure".to_owned()))
+        });
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn data_aligned_to_four_bytes_no_padding() {
+        // ARRANGE
+        let mut buf = Vec::new();
+        let data = b"1234";
+
+        // ACT
+        write_entry(
+            &mut buf,
+            1,
+            "x",
+            0o644,
+            u32::try_from(data.len()).expect("len fits u32"),
+            |w| writer_entry_data(w, data),
+        )
+        .expect("entry");
+        write_trailer(&mut buf).expect("trailer");
+
+        // ASSERT
+        assert!(buf.len() >= 118);
+    }
+
+    #[test]
+    fn data_not_aligned_triggers_padding() {
+        // ARRANGE
+        let mut buf = Vec::new();
+        let data = b"123";
+
+        // ACT
+        write_entry(
+            &mut buf,
+            1,
+            "x",
+            0o644,
+            u32::try_from(data.len()).expect("len fits u32"),
+            |w| writer_entry_data(w, data),
+        )
+        .expect("entry");
+        write_trailer(&mut buf).expect("trailer");
+
+        // ASSERT
+        // 110 header + 1 name + 1 null + 2 pad + 3 data + 1 pad = 118
+        assert!(buf.len() >= 118);
     }
 
     #[test]
@@ -376,116 +506,130 @@ mod tests {
     }
 
     #[test]
-    fn write_entries_write_error_propagates() {
+    fn usize_to_u32_accepts_valid_value() {
         // ARRANGE
-        let entry = CpioEntry {
-            path: "init",
-            mode: 0o100_755,
-            data: b"data",
+        let valid = 42_usize;
+
+        // ACT
+        let result = usize_to_u32(valid, "test");
+
+        // ASSERT
+        assert_eq!(result.expect("valid value"), 42);
+    }
+
+    #[test]
+    fn trailer_propagates_name_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 2,
+            calls: 0,
         };
+
+        // ACT
+        let result = write_trailer(&mut writer);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn trailer_propagates_null_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 3,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_trailer(&mut writer);
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_with_failing_writer_succeeds_when_no_failure_triggered() {
+        // ARRANGE
+        let mut buf = Vec::new();
+        let data = b"hello";
+
+        // ACT
+        let result = write_entry(
+            &mut buf,
+            1,
+            "abc",
+            0o644,
+            u32::try_from(data.len()).expect("len fits u32"),
+            |w| {
+                w.write_all(data)
+                    .map_err(|e| RamuneError::CpioError(format!("{e}")))
+            },
+        );
+
+        // ASSERT
+        result.expect("entry should succeed");
+    }
+
+    #[test]
+    fn write_pad4_propagates_errors() {
+        // ARRANGE
         let mut writer = FailingWriter {
             fail_on_call: 1,
             calls: 0,
         };
 
         // ACT
-        let result = write_archive(&mut writer, &[entry]);
+        let result = write_pad4(&mut writer, 1);
 
         // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::CpioError(_)))
-        );
+        result.expect_err("expected write error");
     }
 
     #[test]
-    fn write_archive_writes_trailer_on_success() {
-        // ARRANGE
-        let entries = [CpioEntry {
-            path: "init",
-            mode: 0o100_755,
-            data: b"data",
-        }];
-        let mut writer = Vec::new();
-
-        // ACT
-        write_archive(&mut writer, &entries).expect("write_archive");
-
-        // ASSERT
-        assert!(
-            writer
-                .windows(TRAILER.len())
-                .any(|window| window == TRAILER.as_bytes())
-        );
-    }
-
-    #[test]
-    fn create_from_entries_contains_trailer() {
-        // ARRANGE
-        let entry = CpioEntry {
-            path: "init",
-            mode: 0o100_755,
-            data: b"data",
-        };
-
-        // ACT
-        let archive = archive_from_entries(&[entry]);
-
-        // ASSERT
-        assert!(
-            archive
-                .windows(TRAILER.len())
-                .any(|window| window == TRAILER.as_bytes())
-        );
-    }
-
-    #[test]
-    fn write_archive_maps_writer_errors() {
-        // ARRANGE
-        let entries = extension_entries(&[("extensions/test.erofs", b"abc")]);
-        let cases = [
-            (1, "Failed to write header"),
-            (2, "Failed to write filename"),
-            (3, "Failed to write null byte"),
-            (4, "Failed to write padding"),
-            (8, "Failed to write file data"),
-            (9, "Failed to write padding"),
-        ];
-
-        for (fail_on_call, expected_message) in cases {
-            let mut writer = FailingWriter {
-                fail_on_call,
-                calls: 0,
-            };
-
-            // ACT
-            let result = write_archive(&mut writer, &entries);
-
-            // ASSERT
-            let message = result.expect_err("expected CPIO error").to_string();
-            assert!(
-                message.contains(expected_message),
-                "unexpected message: {message}"
-            );
-        }
-    }
-
-    #[test]
-    fn write_entry_maps_post_data_padding_errors() {
+    fn write_pad4_zero_pad_returns_ok() {
         // ARRANGE
         let mut writer = FailingWriter {
-            fail_on_call: 6,
+            fail_on_call: 1,
             calls: 0,
         };
 
         // ACT
-        let result = write_entry(&mut writer, 1, "init", 0o100_755, b"abc");
+        let result = write_pad4(&mut writer, 0);
 
         // ASSERT
-        let message = result
-            .expect_err("expected post-data padding error")
-            .to_string();
-        assert!(message.contains("Failed to write padding"));
+        assert_eq!(result.expect("no pad needed"), 0);
+    }
+
+    #[test]
+    fn entry_zero_size_no_data_closure_called() {
+        // ARRANGE
+        let mut buf = Vec::new();
+        let mut closure_was_called = false;
+
+        // ACT
+        write_entry(&mut buf, 1, "abc", 0o644, 0, |_w| {
+            closure_was_called = true;
+            Ok(())
+        })
+        .expect("zero-size entry");
+        write_trailer(&mut buf).expect("trailer");
+
+        // ASSERT
+        assert!(!closure_was_called);
+    }
+
+    #[test]
+    fn trailer_propagates_padding_error() {
+        // ARRANGE
+        let mut writer = FailingWriter {
+            fail_on_call: 4,
+            calls: 0,
+        };
+
+        // ACT
+        let result = write_trailer(&mut writer);
+
+        // ASSERT
+        assert!(result.is_err());
     }
 }

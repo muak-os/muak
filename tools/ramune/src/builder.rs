@@ -1,10 +1,11 @@
 //! Base initramfs creation from an init binary and rootfs directory.
 
+use std::io::Write as _;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
 use crate::compress;
-use crate::cpio::{self, CpioEntry};
+use crate::cpio;
 use crate::erofs;
 use crate::error::{RamuneError, Result};
 
@@ -51,21 +52,28 @@ pub fn create(config: &CreateConfig<'_>, output: &Path) -> Result<()> {
         )
     })?;
 
-    let entries = vec![
-        CpioEntry {
-            path: "init",
-            mode: MODE_EXEC,
-            data: init_data.as_slice(),
-        },
-        CpioEntry {
-            path: "rootfs.erofs",
-            mode: MODE_FILE,
-            data: rootfs_erofs.as_slice(),
-        },
-    ];
+    let init_size = u32::try_from(init_data.len())
+        .map_err(|_err| RamuneError::CpioError("init data exceeds CPIO limits".to_owned()))?;
+    let rootfs_size = u32::try_from(rootfs_erofs.len())
+        .map_err(|_err| RamuneError::CpioError("rootfs exceeds CPIO limits".to_owned()))?;
 
     let mut encoder = compress::encoder(Vec::new(), config.compression_level)?;
-    cpio::write_archive(&mut encoder, &entries)?;
+    cpio::write_entry(&mut encoder, 1, "init", MODE_EXEC, init_size, |w| {
+        w.write_all(&init_data)
+            .map_err(|e| RamuneError::CpioError(format!("{e}")))
+    })?;
+    cpio::write_entry(
+        &mut encoder,
+        2,
+        "rootfs.erofs",
+        MODE_FILE,
+        rootfs_size,
+        |w| {
+            w.write_all(&rootfs_erofs)
+                .map_err(|e| RamuneError::CpioError(format!("{e}")))
+        },
+    )?;
+    cpio::write_trailer(&mut encoder)?;
     let data = encoder.finish().map_err(RamuneError::CompressionError)?;
 
     std::fs::write(output, &data).map_err(|source| RamuneError::WriteError {
