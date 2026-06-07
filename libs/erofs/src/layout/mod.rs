@@ -8,21 +8,27 @@ mod types;
 
 use std::path::Path;
 
-pub(crate) use assign::index_layout;
+use crate::MkfsConfig;
+use crate::error::Result;
 
-/// Compute the total image size from the planned layout.
-pub fn total_image_size(inodes: &[types::InodeLayout], do_compress: bool) -> usize {
-    assign::total_image_size(inodes, do_compress)
-}
+pub(crate) use assign::index_layout;
 
 /// Public inode layout type produced by layout planning.
 pub type InodeLayout = types::InodeLayout;
 
-use crate::MkfsConfig;
-use crate::error::Result;
+/// A fully-planned EROFS image, ready for emission.
+#[derive(Debug)]
+pub struct ImagePlan {
+    /// Planned inodes with complete layout metadata.
+    pub inodes: Vec<InodeLayout>,
+    /// Total image size in bytes (block-aligned).
+    pub total_size: usize,
+    /// Whether compression is enabled for this image.
+    pub do_compress: bool,
+}
 
 /// Plan the full image layout from a source directory.
-pub fn plan(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<InodeLayout>> {
+pub fn plan(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<ImagePlan> {
     planner::plan(source_dir, config)
 }
 

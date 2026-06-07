@@ -70,7 +70,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
@@ -102,6 +103,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 1,
             children: Vec::new(),

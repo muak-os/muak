@@ -132,7 +132,8 @@ mod tests {
             std::fs::write(dir.path().join(format!("f{index}")), [index]).expect("write");
         }
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
         // ACT
@@ -150,7 +151,8 @@ mod tests {
             std::fs::write(dir.path().join(&name), [index]).expect("write");
         }
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
         // ACT
@@ -167,7 +169,8 @@ mod tests {
             std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
         }
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
         // ACT
@@ -180,7 +183,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
         // ACT
@@ -209,6 +213,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
@@ -242,6 +247,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

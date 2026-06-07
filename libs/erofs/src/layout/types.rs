@@ -23,6 +23,7 @@ pub struct InodeLayout {
     pub xattr_payload: Vec<u8>,
     pub xattr_icount: u16,
     pub inline_data: Vec<u8>,
+    pub raw_data: Vec<u8>,
     pub data_blkaddr: u32,
     pub data_blocks: u32,
     pub children: Vec<String>,

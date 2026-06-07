@@ -95,12 +95,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let cfg = test_config(1);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
         // ACT
         // ASSERT
-        assert_eq!(find_parent_nid(root, &inodes, &BTreeMap::new()), root.nid);
+        assert_eq!(find_parent_nid(root, inodes, &BTreeMap::new()), root.nid);
     }
 
     #[test]
@@ -111,7 +112,8 @@ mod tests {
         std::fs::write(dir.path().join("subdir/file.txt"), b"content").expect("write");
         let cfg = test_config(1);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
             .enumerate()
@@ -128,7 +130,7 @@ mod tests {
 
         // ACT
         // ASSERT
-        assert_eq!(find_parent_nid(file, &inodes, &path_to_idx), subdir.nid);
+        assert_eq!(find_parent_nid(file, inodes, &path_to_idx), subdir.nid);
     }
 
     #[test]
@@ -140,14 +142,15 @@ mod tests {
         std::fs::write(dir.path().join("m"), b"m").expect("write");
         let cfg = test_config(1);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
             .enumerate()
             .map(|(index, inode)| (inode.rel_path.clone(), index))
             .collect();
         let root = inodes.first().expect("root inode");
-        let entries = sorted_entries(root, &inodes, &path_to_idx, root.nid);
+        let entries = sorted_entries(root, inodes, &path_to_idx, root.nid);
 
         // ACT
         // ASSERT
@@ -179,6 +182,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: vec!["/missing".to_owned()],
@@ -213,6 +217,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: vec!["/missing-child".to_owned(), "/known".to_owned()],

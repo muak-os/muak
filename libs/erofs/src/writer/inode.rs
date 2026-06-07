@@ -77,8 +77,8 @@ mod tests {
         std::fs::write(dir.path().join("test"), b"data").expect("write");
         let cfg = test_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
@@ -100,10 +100,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
@@ -128,10 +129,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
@@ -169,6 +171,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
@@ -213,6 +216,7 @@ mod tests {
             xattr_payload: vec![1, 2, 3, 4],
             xattr_icount: 1,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

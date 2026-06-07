@@ -168,7 +168,8 @@ mod tests {
         )
         .expect("chmod");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let file_inode = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
@@ -187,7 +188,8 @@ mod tests {
         let data = vec![0_u8; 8192];
         std::fs::write(dir.path().join("large"), &data).expect("write");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let file_inode = inodes
             .iter()
             .find(|inode| inode.rel_path == "/large")
@@ -205,7 +207,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/target", dir.path().join("link")).expect("symlink");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let sym = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
@@ -223,7 +226,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/short", dir.path().join("link")).expect("symlink");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
@@ -242,7 +246,8 @@ mod tests {
         let long_target = "/".to_owned() + &"x".repeat(4080);
         std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/longlink")
@@ -260,7 +265,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let empty = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
@@ -279,7 +285,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("tiny"), b"hi").expect("write");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let tiny = inodes
             .iter()
             .find(|inode| inode.rel_path == "/tiny")
@@ -298,7 +305,8 @@ mod tests {
         let data = vec![0_u8; 4100];
         std::fs::write(dir.path().join("partial"), &data).expect("write");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
         let partial = inodes
             .iter()
             .find(|inode| inode.rel_path == "/partial")
@@ -316,7 +324,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
@@ -344,7 +353,8 @@ mod tests {
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/random")
@@ -362,7 +372,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
@@ -380,7 +391,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("small"), vec![0_u8; 100]).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
@@ -398,7 +410,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
@@ -427,7 +440,8 @@ mod tests {
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
         let comp = inodes
             .iter()
             .find(|inode| inode.rel_path == "/compressible")
@@ -465,6 +479,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

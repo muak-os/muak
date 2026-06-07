@@ -1,7 +1,6 @@
 //! Plain and inline data writers for files, directories, and symlinks.
 
 use alloc::collections::BTreeMap;
-use std::fs;
 
 use super::dir::{find_parent_nid, sorted_entries};
 use super::util::{block_offset, full_block_bytes, usize_from_u32};
@@ -113,12 +112,12 @@ pub(super) fn file(
     inode_header_end: usize,
     block_size: usize,
 ) -> Result<()> {
-    let file_data = fs::read(&inode.path)?;
+    let file_data = &inode.raw_data;
 
     if inode.datalayout == EROFS_INODE_FLAT_INLINE {
         inline(
             image,
-            &file_data,
+            file_data,
             inode.data_blocks,
             inode.data_blkaddr,
             file_data.len(),
@@ -126,7 +125,7 @@ pub(super) fn file(
             block_size,
         )?;
     } else {
-        plain(image, &file_data, inode.data_blkaddr, block_size)?;
+        plain(image, file_data, inode.data_blkaddr, block_size)?;
     }
     Ok(())
 }
@@ -134,10 +133,9 @@ pub(super) fn file(
 #[cfg(test)]
 mod tests {
     use super::{file, inline, plain};
-    use crate::SLOT_SIZE;
     use crate::dir::EROFS_FT_REG_FILE;
     use crate::error::ErofsError;
-    use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::{self, InodeLayout};
     use crate::testutil::test_config;
     use crate::writer::write_image;
@@ -150,11 +148,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let file_inode = inodes
+        let file_inode = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
             .expect("found");
@@ -172,11 +171,11 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let root = inodes.first().expect("root inode");
+        let root = planned.inodes.first().expect("root inode");
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert!(image.len() >= 4096);
     }
@@ -192,10 +191,10 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
 
         // ASSERT
-        let root = inodes.first().expect("root inode");
+        let root = planned.inodes.first().expect("root inode");
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_PLAIN);
         assert!(root.data_blocks > 0);
     }
@@ -208,11 +207,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let link = inodes
+        let link = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
             .expect("found");
@@ -229,11 +229,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let link = inodes
+        let link = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/longlink")
             .expect("found");
@@ -250,11 +251,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/partial")
             .expect("found");
@@ -270,11 +272,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/tiny")
             .expect("found");
@@ -290,11 +293,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/full")
             .expect("found");
@@ -344,11 +348,11 @@ mod tests {
     }
 
     #[test]
-    fn write_file_data_out_of_bounds_helper_inputs_stay_local() {
+    fn write_file_data_plain_out_of_bounds() {
         // ARRANGE
         let inode = InodeLayout {
             path: std::path::PathBuf::new(),
-            rel_path: "/tiny".to_owned(),
+            rel_path: "/data".to_owned(),
             nid: 1,
             ino: 0,
             mode: 0,
@@ -363,6 +367,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: vec![0xAB; 8],
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
@@ -370,12 +375,15 @@ mod tests {
             rdev: 0,
             compressed: None,
         };
-        let mut image = vec![0_u8; SLOT_SIZE * 2 + COMPACT_INODE_SIZE];
+        let mut image = vec![0_u8; 4];
 
         // ACT
         let result = file(&mut image, &inode, 0, 4096);
 
         // ASSERT
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(ErofsError::Internal("plain data write out of bounds"))
+        ));
     }
 }

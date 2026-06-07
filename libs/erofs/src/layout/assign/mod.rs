@@ -112,6 +112,7 @@ mod tests {
             xattr_payload: Vec::new(),
             xattr_icount: 0,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
@@ -136,7 +137,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
 
         // ACT
         // ASSERT
@@ -150,7 +152,8 @@ mod tests {
         std::fs::write(dir.path().join("a"), b"aaa").expect("write");
         std::fs::write(dir.path().join("b"), b"bbb").expect("write");
 
-        let inodes = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let inodes = &planned.inodes;
 
         // ACT
         // ASSERT
@@ -171,7 +174,8 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/world.txt"), b"hello").expect("write");
 
-        let inodes = plan(dir.path(), &test_config(0)).expect("plan");
+        let planned = plan(dir.path(), &test_config(0)).expect("plan");
+        let inodes = &planned.inodes;
 
         // ACT
         // ASSERT
@@ -218,7 +222,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 4096]).expect("write");
 
-        let inodes = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let inodes = &planned.inodes;
 
         let expected_nid =
             u64::try_from(meta_start(true).div_euclid(SLOT_SIZE)).expect("expected nid fits u64");

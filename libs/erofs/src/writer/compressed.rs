@@ -466,10 +466,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
@@ -489,10 +490,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
@@ -519,10 +521,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
@@ -622,10 +625,11 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), &original).expect("write");
         let cfg = compress_config(0);
 
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");

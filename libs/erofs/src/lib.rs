@@ -25,6 +25,8 @@ pub type ErofsError = error::ErofsError;
 pub type FileContexts = filecontexts::FileContexts;
 /// Planned inode layout for the EROFS image.
 pub type InodeLayout = layout::InodeLayout;
+/// A fully-planned EROFS image.
+pub type ImagePlan = layout::ImagePlan;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
@@ -63,8 +65,8 @@ pub fn mkfs(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
     if let Some(level) = config.compression.level() {
         compress::validate_compression_level(level)?;
     }
-    let inodes = layout::plan(source_dir, config)?;
-    writer::write_image(&inodes, config)
+    let plan = layout::plan(source_dir, config)?;
+    writer::write_image(&plan, config)
 }
 
 #[cfg(test)]

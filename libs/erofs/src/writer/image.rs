@@ -14,13 +14,15 @@ use crate::checked::{add, u32_from_usize};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::COMPACT_INODE_SIZE;
-use crate::layout::{self, InodeLayout};
+use crate::layout::ImagePlan;
 use crate::superblock::{self, SuperblockParams};
 
-/// Build a complete EROFS image from the planned layout.
-pub fn write_image(inodes: &[InodeLayout], config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
+/// Build a complete EROFS image from a planned image plan.
+pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
     let block_size = block_size_usize();
-    let total_size = layout::total_image_size(inodes, config.compression.is_enabled());
+    let total_size = plan.total_size;
+    let inodes = &plan.inodes;
+    let has_compressed = plan.do_compress;
     let mut image = vec![0_u8; total_size];
 
     let path_to_idx: BTreeMap<String, usize> = inodes
@@ -62,7 +64,6 @@ pub fn write_image(inodes: &[InodeLayout], config: &crate::MkfsConfig<'_>) -> Re
         }
     }
 
-    let has_compressed = config.compression.is_enabled();
     let root_nid = inodes
         .first()
         .map_or(0, |inode| u16::try_from(inode.nid).ok().unwrap_or(u16::MAX));
@@ -104,11 +105,12 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let empty = inodes
+        let empty = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
             .expect("found");
@@ -130,8 +132,8 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
         let magic = u32::from_le_bytes(
@@ -151,8 +153,8 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
@@ -162,7 +164,7 @@ mod tests {
                 .try_into()
                 .expect("2 bytes"),
         );
-        let root = inodes.first().expect("root inode");
+        let root = planned.inodes.first().expect("root inode");
         assert_eq!(
             root_nid,
             u16::try_from(root.nid).expect("root nid fits u16")
@@ -176,8 +178,8 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
@@ -202,10 +204,10 @@ mod tests {
         };
 
         // ACT
-        let inodes1 = layout::plan(dir.path(), &cfg).expect("plan");
-        let image1 = write_image(&inodes1, &cfg).expect("write");
-        let inodes2 = layout::plan(dir.path(), &cfg).expect("plan");
-        let image2 = write_image(&inodes2, &cfg).expect("write");
+        let planned1 = layout::plan(dir.path(), &cfg).expect("plan");
+        let image1 = write_image(&planned1, &cfg).expect("write");
+        let planned2 = layout::plan(dir.path(), &cfg).expect("plan");
+        let image2 = write_image(&planned2, &cfg).expect("write");
 
         // ASSERT
         assert_eq!(image1, image2);
@@ -225,11 +227,12 @@ mod tests {
         };
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let _image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
-        let file = inodes
+        let file = planned
+            .inodes
             .iter()
             .find(|inode| inode.rel_path == "/f")
             .expect("found");
@@ -244,8 +247,8 @@ mod tests {
         let cfg = compress_config(0);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
@@ -260,8 +263,8 @@ mod tests {
         let cfg = compress_config(0);
 
         // ACT
-        let inodes = layout::plan(dir.path(), &cfg).expect("plan");
-        let image = write_image(&inodes, &cfg).expect("write");
+        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
         let cfg_off = EROFS_SUPER_OFFSET + 128;

@@ -69,6 +69,7 @@ pub fn initial_inodes(
             xattr_payload,
             xattr_icount: xattr_ic,
             inline_data: Vec::new(),
+            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
