@@ -25,11 +25,11 @@ pub(crate) fn create(
         },
     };
 
-    let mut buf = std::io::Cursor::new(Vec::new());
+    let mut buf = Vec::new();
     let source = erofs::FilesystemTreeSource::new(source_dir);
     erofs::mkfs(&mut buf, &source, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))?;
 
-    Ok(buf.into_inner())
+    Ok(buf)
 }
 
 #[cfg(test)]
