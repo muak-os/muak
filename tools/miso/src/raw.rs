@@ -1,6 +1,6 @@
 //! Raw disk image writer with protective MBR + GPT + EFI System Partition.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Seek as _, SeekFrom, Write};
 
 use parttable::error::ParttableError;
 use parttable::error::Result as ParttableResult;
@@ -15,27 +15,32 @@ const SECTOR_SIZE: u64 = 512;
 
 type PlacementResult = ParttableResult<()>;
 
-/// Writes a raw GPT disk image containing the FAT32 ESP into `out`.
+/// Writes a raw GPT disk image containing the FAT32 ESP into any `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error if the image layout overflows, GPT/MBR generation fails,
-/// or any write or seek operation fails.
-pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
-    let efi_image_len_bytes = efi_image.len().to_le_bytes();
-    let mut efi_image_len = [0_u8; 8];
-    for (dst, src) in efi_image_len.iter_mut().zip(efi_image_len_bytes) {
-        *dst = src;
-    }
-    let efi_image_len = u64::from_le_bytes(efi_image_len);
+/// or any write operation fails.
+pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
+    let efi_image_len = u64::try_from(efi_image.len()).unwrap_or(u64::MAX);
     let disk_sectors = layout_disk(efi_image_len)?;
     let disk_size = disk_sectors
         .checked_mul(SECTOR_SIZE)
         .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
 
-    zero_fill_to_size(out, disk_size)?;
+    let mut cursor = {
+        let mut buf = Cursor::new(Vec::new());
+        let last_byte = disk_size
+            .checked_sub(1)
+            .ok_or(MisoError::Gpt("raw image size underflowed".to_owned()))?;
+        drop(buf.seek(SeekFrom::Start(last_byte)));
+        drop(buf.write_all(&[0]));
+        drop(buf.seek(SeekFrom::Start(0)));
 
-    let mut gpt = Table::create(out, SECTOR_SIZE, [0xff; 16])?;
+        buf
+    };
+
+    let mut gpt = Table::create(&mut cursor, SECTOR_SIZE, [0xff; 16])?;
     let request = PlacementRequest {
         slot: Slot::Exact(1),
         start: Start::FirstUsable,
@@ -47,17 +52,19 @@ pub fn write<W: Write + Read + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()
         name: "EFI".to_owned(),
     };
     let placement = gpt.place_partition(request, SECTOR_SIZE)?;
-    gpt.write(out)?;
+    gpt.write(&mut cursor)?;
 
-    mbr::io::write_protective(out, disk_size, SECTOR_SIZE)?;
+    mbr::io::write_protective(&mut cursor, disk_size, SECTOR_SIZE)?;
 
     let partition_offset = placement
         .partition
         .starting_lba
         .checked_mul(SECTOR_SIZE)
         .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
-    out.seek(SeekFrom::Start(partition_offset))?;
-    out.write_all(efi_image)?;
+    cursor.seek(SeekFrom::Start(partition_offset))?;
+    cursor.write_all(efi_image)?;
+
+    out.write_all(cursor.into_inner().as_slice())?;
 
     Ok(())
 }
@@ -71,7 +78,13 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
             .checked_mul(SECTOR_SIZE)
             .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
         let mut disk = std::io::Cursor::new(Vec::new());
-        zero_fill_to_size(&mut disk, disk_size)?;
+        let last_byte = disk_size
+            .checked_sub(1)
+            .ok_or(MisoError::Gpt("raw image size underflowed".to_owned()))?;
+        drop(disk.seek(SeekFrom::Start(last_byte)));
+        drop(disk.write_all(&[0]));
+        drop(disk.seek(SeekFrom::Start(0)));
+
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
         let request = PlacementRequest {
             slot: Slot::Exact(1),
@@ -108,19 +121,6 @@ fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u6
     }
 }
 
-/// Fills `out` with zeros until it reaches `size` bytes, then seeks back to the start.
-fn zero_fill_to_size<W: Write + Seek>(out: &mut W, size: u64) -> Result<()> {
-    let Some(last_byte) = size.checked_sub(1) else {
-        return Ok(());
-    };
-
-    out.seek(SeekFrom::Start(last_byte))?;
-    out.write_all(&[0])?;
-    out.seek(SeekFrom::Start(0))?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -148,7 +148,13 @@ mod tests {
             .checked_mul(SECTOR_SIZE)
             .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
         let mut disk = Cursor::new(Vec::new());
-        zero_fill_to_size(&mut disk, disk_size)?;
+        let last_byte = disk_size
+            .checked_sub(1)
+            .ok_or(MisoError::Gpt("raw image size underflowed".to_owned()))?;
+        drop(disk.seek(SeekFrom::Start(last_byte)));
+        drop(disk.write_all(&[0]));
+        drop(disk.seek(SeekFrom::Start(0)));
+
         let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
 
         gpt.place_partition(
@@ -183,18 +189,6 @@ mod tests {
         let mut cursor = Cursor::new(data);
         let gpt = Table::read(&mut cursor).expect("GPT must be valid");
         assert!(gpt.has_used_partitions(), "must have a partition");
-    }
-
-    #[test]
-    fn zero_fill_to_size_with_zero_leaves_output_empty() {
-        // ARRANGE
-        let mut out = Cursor::new(Vec::new());
-
-        // ACT
-        zero_fill_to_size(&mut out, 0).expect("zero fill must succeed");
-
-        // ASSERT
-        assert!(out.into_inner().is_empty());
     }
 
     #[test]

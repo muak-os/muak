@@ -8,7 +8,7 @@ pub mod error;
 pub mod iso;
 pub mod raw;
 
-use std::io::{Cursor, Write};
+use std::io::Write;
 
 use esp::EspSpec;
 
@@ -36,17 +36,16 @@ pub fn build_raw<W: Write>(
     compression_level: Option<i32>,
 ) -> Result<()> {
     let efi_image = esp::build(spec)?;
-    let mut raw_out = Cursor::new(Vec::new());
-    raw::write(&mut raw_out, &efi_image)?;
-    let raw_bytes = raw_out.into_inner();
+    let mut raw = Vec::new();
+    raw::write(&mut raw, &efi_image)?;
 
     if let Some(level) = compression_level {
         let level = validate_compression_level(level)?;
         let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
-        encoder.write_all(&raw_bytes)?;
+        encoder.write_all(&raw)?;
         encoder.finish().map_err(MisoError::Compression)?;
     } else {
-        out.write_all(&raw_bytes)?;
+        out.write_all(&raw)?;
     }
 
     Ok(())
