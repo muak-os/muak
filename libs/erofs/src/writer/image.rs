@@ -2,41 +2,35 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
-use alloc::string::String;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 
-use super::compressed::write_file as write_compressed;
-use super::data::{dir as write_dir, file as write_file, symlink as write_symlink};
+use super::compressed;
+use super::data;
 use super::inode::write_header;
 use super::util::{block_size_usize, slot_offset};
-use crate::checked::{add, u32_from_usize, u64_from_usize};
-use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
+use crate::checked::{add, u32_from_usize};
 use crate::error::{ErofsError, Result};
 use crate::inode::COMPACT_INODE_SIZE;
 use crate::layout::ImagePlan;
 use crate::superblock::{self, SuperblockParams};
 
-/// Build a complete EROFS image from a planned image plan into a `Write + Seek + Read` sink.
-pub fn write_image<W: Write + Seek + Read>(
+/// Build a complete EROFS image from a planned image plan into a `Write` sink.
+pub fn write_image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
     config: &crate::MkfsConfig<'_>,
 ) -> Result<()> {
+    let image = build_image(plan, config)?;
+
+    writer.write_all(&image).map_err(ErofsError::Io)
+}
+
+fn build_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
     let block_size = block_size_usize();
     let total_size = plan.total_size;
     let inodes = &plan.inodes;
-    let has_compressed = plan.do_compress;
-
-    writer
-        .seek(SeekFrom::Start(
-            u64_from_usize(total_size).saturating_sub(1),
-        ))
-        .map_err(ErofsError::Io)?;
-    writer.write_all(&[0]).map_err(ErofsError::Io)?;
-    writer.seek(SeekFrom::Start(0)).map_err(ErofsError::Io)?;
-
-    let path_to_idx: BTreeMap<String, usize> = inodes
+    let mut image = vec![0_u8; total_size];
+    let path_to_idx = inodes
         .iter()
         .enumerate()
         .map(|(index, inode)| (inode.rel_path.clone(), index))
@@ -49,29 +43,19 @@ pub fn write_image<W: Write + Seek + Read>(
             .and_then(|offset| add(offset, xattr_size))
             .ok_or(ErofsError::Internal("inode header offset overflow"))?;
 
-        write_header(writer, inode, slot_offset)?;
+        write_header(&mut image, inode, slot_offset)?;
 
-        match inode.file_type {
-            EROFS_FT_DIR => {
-                write_dir(
-                    writer,
-                    inode,
-                    inodes,
-                    &path_to_idx,
-                    inode_header_end,
-                    block_size,
-                )?;
-            }
-            EROFS_FT_SYMLINK => {
-                write_symlink(writer, inode, inode_header_end, block_size)?;
-            }
-            EROFS_FT_REG_FILE if inode.compressed.is_some() => {
-                write_compressed(writer, inode, slot_offset)?;
-            }
-            EROFS_FT_REG_FILE if inode.size > 0 => {
-                write_file(writer, inode, inode_header_end, block_size)?;
-            }
-            _ => {}
+        if inode.compressed.is_some() {
+            compressed::write_metadata(&mut image, inode, slot_offset)?;
+        } else {
+            data::write_inline_tail(
+                &mut image,
+                inode,
+                inodes,
+                &path_to_idx,
+                inode_header_end,
+                block_size,
+            )?;
         }
     }
 
@@ -84,25 +68,34 @@ pub fn write_image<W: Write + Seek + Read>(
         .unwrap_or(u32::MAX);
 
     superblock::write(
-        writer,
+        &mut image,
         &SuperblockParams {
             root_nid,
             inos: u64::try_from(inodes.len()).ok().unwrap_or(u64::MAX),
             epoch: config.source_date_epoch,
             blocks,
             uuid: config.uuid,
-            has_compression: has_compressed,
+            has_compression: plan.do_compress,
         },
     )?;
-    superblock::write_checksum(writer)?;
+    superblock::write_checksum(&mut image)?;
 
-    Ok(())
+    for inode in inodes {
+        if inode.compressed.is_some() {
+            compressed::compressed_blocks(&mut image, inode)?;
+            continue;
+        }
+
+        if let Some(data_blocks) = data::plain_blocks(inode, inodes, &path_to_idx, block_size)? {
+            data::write_block_data(&mut image, inode, data_blocks.as_ref(), block_size)?;
+        }
+    }
+
+    Ok(image)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::write_image;
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
@@ -112,9 +105,9 @@ mod tests {
     use crate::testutil::{compress_config, test_config};
 
     fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
-        let mut cursor = Cursor::new(Vec::new());
-        write_image(&mut cursor, planned, cfg).expect("write_image");
-        cursor.into_inner()
+        let mut image = Vec::new();
+        write_image(&mut image, planned, cfg).expect("write_image");
+        image
     }
 
     #[test]

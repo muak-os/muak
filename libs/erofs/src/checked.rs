@@ -1,7 +1,3 @@
-use std::io::{Seek, SeekFrom, Write};
-
-use crate::error::ErofsError;
-
 pub(crate) fn add(lhs: usize, rhs: usize) -> Option<usize> {
     lhs.checked_add(rhs)
 }
@@ -53,32 +49,6 @@ pub(crate) fn u16_from_usize(value: usize) -> Option<u16> {
 
 pub(crate) fn u32_from_usize(value: usize) -> Option<u32> {
     u32::try_from(value).ok()
-}
-
-pub(crate) fn u64_from_usize(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
-}
-
-pub(crate) fn seek_write<W: Write + Seek>(
-    writer: &mut W,
-    offset: u64,
-    data: &[u8],
-) -> Result<(), ErofsError> {
-    writer.seek(SeekFrom::Start(offset))?;
-    writer.write_all(data)?;
-
-    Ok(())
-}
-
-pub(crate) fn seek_write_byte<W: Write + Seek>(
-    writer: &mut W,
-    offset: u64,
-    byte: u8,
-) -> Result<(), ErofsError> {
-    writer.seek(SeekFrom::Start(offset))?;
-    writer.write_all(&[byte])?;
-
-    Ok(())
 }
 
 #[cfg(test)]

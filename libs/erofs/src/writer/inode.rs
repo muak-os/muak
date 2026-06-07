@@ -1,18 +1,12 @@
 //! Compact inode header writing and xattr payload placement.
 
-use std::io::{Seek, Write};
-
-use crate::checked::{add, seek_write, u64_from_usize};
+use crate::checked::{add, write_bytes};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::{self, COMPACT_INODE_SIZE, CompactInodeParams};
 use crate::layout::InodeLayout;
 
-pub(super) fn write_header<W: Write + Seek>(
-    writer: &mut W,
-    inode: &InodeLayout,
-    slot_offset: usize,
-) -> Result<()> {
+pub(super) fn write_header(buf: &mut [u8], inode: &InodeLayout, slot_offset: usize) -> Result<()> {
     let i_u = if inode.compressed.is_some() {
         inode.data_blocks
     } else if inode.file_type != EROFS_FT_DIR
@@ -31,9 +25,9 @@ pub(super) fn write_header<W: Write + Seek>(
     let inode_header_end = add(slot_offset, COMPACT_INODE_SIZE)
         .ok_or(ErofsError::Internal("inode header write overflow"))?;
 
-    let mut buf = [0_u8; COMPACT_INODE_SIZE];
+    let mut inode_buf = [0_u8; COMPACT_INODE_SIZE];
     inode::write_compact(
-        &mut buf,
+        &mut inode_buf,
         &CompactInodeParams {
             datalayout: inode.datalayout,
             xattr_icount: inode.xattr_icount,
@@ -47,14 +41,13 @@ pub(super) fn write_header<W: Write + Seek>(
             reserved2: 0,
         },
     );
-    seek_write(writer, u64_from_usize(slot_offset), &buf)?;
+    if !write_bytes(buf, slot_offset, &inode_buf) {
+        return Err(ErofsError::Internal("inode header write out of bounds"));
+    }
 
-    if !inode.xattr_payload.is_empty() {
-        seek_write(
-            writer,
-            u64_from_usize(inode_header_end),
-            &inode.xattr_payload,
-        )?;
+    if !inode.xattr_payload.is_empty() && !write_bytes(buf, inode_header_end, &inode.xattr_payload)
+    {
+        return Err(ErofsError::Internal("inode xattr write out of bounds"));
     }
 
     Ok(())
@@ -62,8 +55,6 @@ pub(super) fn write_header<W: Write + Seek>(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::write_header;
     use crate::SLOT_SIZE;
     use crate::compress;
@@ -81,9 +72,8 @@ mod tests {
         let cfg = test_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let mut cursor = Cursor::new(Vec::new());
-        write_image(&mut cursor, &planned, &cfg).expect("write");
-        let image = cursor.into_inner();
+        let mut image = Vec::new();
+        write_image(&mut image, &planned, &cfg).expect("write");
 
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
@@ -106,9 +96,8 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let mut cursor = Cursor::new(Vec::new());
-        write_image(&mut cursor, &planned, &cfg).expect("write");
-        let image = cursor.into_inner();
+        let mut image = Vec::new();
+        write_image(&mut image, &planned, &cfg).expect("write");
 
         let file = planned
             .inodes
@@ -137,9 +126,8 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let mut cursor = Cursor::new(Vec::new());
-        write_image(&mut cursor, &planned, &cfg).expect("write");
-        let image = cursor.into_inner();
+        let mut image = Vec::new();
+        write_image(&mut image, &planned, &cfg).expect("write");
 
         let file = planned
             .inodes
@@ -187,14 +175,13 @@ mod tests {
             rdev: 0x0501,
             compressed: None,
         };
-        let mut cursor = Cursor::new(vec![0_u8; 8192]);
+        let mut image = vec![0_u8; 8192];
         let slot_offset = usize::try_from(inode.nid).expect("nid fits usize") * SLOT_SIZE;
 
-        write_header(&mut cursor, &inode, slot_offset).expect("inode header");
+        write_header(&mut image, &inode, slot_offset).expect("inode header");
 
         let stored = u32::from_le_bytes(
-            cursor
-                .get_ref()
+            image
                 .get(slot_offset + 0x10..slot_offset + 0x14)
                 .expect("rdev bytes")
                 .try_into()

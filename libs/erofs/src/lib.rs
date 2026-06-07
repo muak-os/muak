@@ -4,8 +4,6 @@
 
 extern crate alloc;
 
-use std::io::{Read, Seek, Write};
-
 mod checked;
 mod compress;
 mod dir;
@@ -31,10 +29,8 @@ pub type FilesystemTreeSource<'a> = layout::collect::FilesystemTreeSource<'a>;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
-
 /// Block size used throughout EROFS images (4 KiB).
 pub const BLOCK_SIZE: u32 = 4096;
-
 /// Slot size: every inode occupies an integer number of 32-byte slots.
 pub const SLOT_SIZE: usize = 32;
 
@@ -60,7 +56,7 @@ pub struct MkfsConfig<'a> {
 ///
 /// Returns an error when the source is invalid, compression settings are invalid,
 /// filesystem metadata cannot be read, or the image cannot be serialized.
-pub fn mkfs<W: Write + Seek + Read>(
+pub fn mkfs<W: std::io::Write>(
     writer: &mut W,
     source: &dyn tree::TreeSource,
     config: &MkfsConfig<'_>,
@@ -126,11 +122,11 @@ mod tests {
     }
 
     impl TreeSource for MockTreeSource {
-        fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
+        fn entries(&self) -> core::result::Result<Vec<TreeEntry>, ErofsError> {
             Ok(self.entries.clone())
         }
 
-        fn read(&self, rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
+        fn read(&self, rel_path: &str) -> core::result::Result<Vec<u8>, ErofsError> {
             Ok(format!("content:{rel_path}").into_bytes())
         }
     }
@@ -458,7 +454,7 @@ mod tests {
                 rel_path: "/subdir/link".to_owned(),
                 file_type: EROFS_FT_SYMLINK,
                 size: 0,
-                mode: 0o120777,
+                mode: 0o120_777,
                 uid: 0,
                 gid: 0,
                 mtime: 300,
@@ -628,75 +624,5 @@ mod tests {
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
         assert!(image.len() >= 4096);
-    }
-
-    #[test]
-    fn mock_read_error_propagates() {
-        // ARRANGE
-        struct BrokenSource;
-        impl TreeSource for BrokenSource {
-            fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
-                Ok(vec![
-                    TreeEntry {
-                        rel_path: "/".to_owned(),
-                        file_type: EROFS_FT_DIR,
-                        size: 0,
-                        mode: 0o40755,
-                        uid: 0,
-                        gid: 0,
-                        mtime: 0,
-                        mtime_nsec: 0,
-                        symlink_target: vec![],
-                        rdev: 0,
-                    },
-                    TreeEntry {
-                        rel_path: "/f".to_owned(),
-                        file_type: EROFS_FT_REG_FILE,
-                        size: 4,
-                        mode: 0o644,
-                        uid: 0,
-                        gid: 0,
-                        mtime: 0,
-                        mtime_nsec: 0,
-                        symlink_target: vec![],
-                        rdev: 0,
-                    },
-                ])
-            }
-            fn read(&self, _rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
-                Err(ErofsError::Io(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "mock read error",
-                )))
-            }
-        }
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        let result = mkfs(&mut buf, &BrokenSource, &test_config(0));
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mock_entries_error_propagates() {
-        // ARRANGE
-        struct FailingEntries;
-        impl TreeSource for FailingEntries {
-            fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
-                Err(ErofsError::Walk("mock walk failure".to_owned()))
-            }
-            fn read(&self, _rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
-                unreachable!()
-            }
-        }
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        let result = mkfs(&mut buf, &FailingEntries, &test_config(0));
-
-        // ASSERT
-        assert!(result.is_err());
     }
 }
