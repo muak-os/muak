@@ -1,9 +1,8 @@
 //! ISO 9660 + El Torito EFI bootable image writer.
 
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
 
-use parttable::mbr;
-use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
+use parttable::mbr::types::MBR_EFI_SYSTEM_TYPE;
 
 use crate::error::{MisoError, Result};
 
@@ -35,20 +34,20 @@ const LBA_FILE_DATA: u32 = LBA_ROOT_DIR + 1;
 /// Volume identifier written into the PVD (padded to 32 bytes by callers).
 const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
 
+/// Size of the system area in bytes (16 sectors).
+const SYSTEM_AREA_LEN: usize = SECTOR_SIZE * LBA_PVD_USIZE;
+
 /// Writes a complete bootable ISO 9660 image.
 ///
 /// # Errors
 ///
 /// Returns an error if ISO metadata construction overflows format limits or if any
-/// write or seek operation fails.
-pub fn write<W: Write + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
+/// write operation fails.
+pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
     let efi_sectors = efi_image.len().div_ceil(SECTOR_SIZE);
     let efi_image_lba = LBA_FILE_DATA;
-    let efi_image_size = match u32::try_from(efi_image.len()) {
-        Ok(efi_image_size) => efi_image_size,
-        Err(_conversion_error) => {
-            return Err(MisoError::Iso("ISO field must fit in u32".to_owned()));
-        }
+    let Ok(efi_image_size) = u32::try_from(efi_image.len()) else {
+        return Err(MisoError::Iso("ISO field must fit in u32".to_owned()));
     };
     let efi_image_sectors_u16 = el_torito_sector_count(efi_image.len())?;
     let efi_sectors_u32 = u32::try_from(efi_sectors).unwrap_or(u32::MAX);
@@ -62,66 +61,48 @@ pub fn write<W: Write + Seek>(out: &mut W, efi_image: &[u8]) -> Result<()> {
             "u32 addition for ISO sectors overflowed".to_owned(),
         ))?;
 
+    let total_size_usize = usize::try_from(
+        u64::from(LBA_FILE_DATA)
+            .saturating_add(u64::from(efi_sectors_u32))
+            .saturating_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX)),
+    )
+    .unwrap_or(usize::MAX);
+
+    let mut buf = Vec::with_capacity(total_size_usize);
+
     // System area: 16 empty sectors (bytes 0–32767)
-    let system_area = vec![
-        0_u8;
-        SECTOR_SIZE
-            .checked_mul(LBA_PVD_USIZE)
-            .ok_or(MisoError::Iso(
-                "usize multiplication for ISO structures overflowed".to_owned(),
-            ))?
-    ];
-    out.seek(SeekFrom::Start(0))?;
-    out.write_all(&system_area)?;
+    buf.resize(SYSTEM_AREA_LEN, 0_u8);
 
     // Sector 16: Primary Volume Descriptor
-    out.seek(SeekFrom::Start(sector_offset(LBA_PVD)?))?;
-    out.write_all(&build_pvd(total_sectors, efi_image_size)?)?;
+    buf.extend_from_slice(&build_pvd(total_sectors, efi_image_size)?);
 
     // Sector 17: Boot Record Volume Descriptor
-    out.seek(SeekFrom::Start(sector_offset(LBA_BOOT_RECORD)?))?;
-    out.write_all(&build_boot_record_vd())?;
+    buf.extend_from_slice(&build_boot_record_vd());
 
     // Sector 18: Volume Descriptor Set Terminator
-    out.seek(SeekFrom::Start(sector_offset(LBA_VD_TERMINATOR)?))?;
-    out.write_all(&build_vd_terminator())?;
+    buf.extend_from_slice(&build_vd_terminator());
 
     // Sector 19: L-path table
-    out.seek(SeekFrom::Start(sector_offset(LBA_PATH_TABLE_L)?))?;
-    out.write_all(&build_path_table_l())?;
+    buf.extend_from_slice(&build_path_table_l());
 
     // Sector 20: M-path table
-    out.seek(SeekFrom::Start(sector_offset(LBA_PATH_TABLE_M)?))?;
-    out.write_all(&build_path_table_m())?;
+    buf.extend_from_slice(&build_path_table_m());
 
     // Sector 21: El Torito boot catalog
-    out.seek(SeekFrom::Start(sector_offset(LBA_BOOT_CATALOG)?))?;
-    out.write_all(&build_boot_catalog(efi_image_lba, efi_image_sectors_u16)?)?;
+    buf.extend_from_slice(&build_boot_catalog(efi_image_lba, efi_image_sectors_u16)?);
 
     // Sector 22: Root directory
-    out.seek(SeekFrom::Start(sector_offset(LBA_ROOT_DIR)?))?;
-    out.write_all(&build_root_dir(efi_image_size)?)?;
+    buf.extend_from_slice(&build_root_dir(efi_image_size)?);
 
     // Sector 23+: EFI image data (padded to sector boundary)
-    out.seek(SeekFrom::Start(sector_offset(LBA_FILE_DATA)?))?;
-    out.write_all(efi_image)?;
-    let padding = efi_sectors
-        .checked_mul(SECTOR_SIZE)
-        .ok_or(MisoError::Iso(
-            "usize multiplication for ISO structures overflowed".to_owned(),
-        ))?
-        .checked_sub(efi_image.len())
-        .ok_or(MisoError::Iso(
-            "padded ISO image length underflowed".to_owned(),
-        ))?;
-    if padding > 0 {
-        let padding_bytes = vec![0_u8; padding];
-        out.write_all(&padding_bytes)?;
-    }
+    buf.extend_from_slice(efi_image);
+    buf.resize(total_size_usize, 0_u8);
 
-    // GPT hybrid MBR entry at byte 446
+    // Hybrid MBR entry at byte 446 within the system area
     let efi_offset = sector_offset(LBA_FILE_DATA)?;
-    write_protective_mbr(out, efi_offset, u64::from(efi_image_size))?;
+    write_protective_mbr(&mut buf, efi_offset, u64::from(efi_image_size))?;
+
+    out.write_all(&buf)?;
 
     Ok(())
 }
@@ -179,6 +160,7 @@ fn build_pvd(total_sectors: u32, efi_image_size: u32) -> Result<[u8; SECTOR_SIZE
     write_bytes(&mut pvd, 480, &zero_date());
     write_bytes(&mut pvd, 497, &zero_date());
     write_byte(&mut pvd, 514, 1);
+
     Ok(pvd)
 }
 
@@ -195,6 +177,7 @@ fn build_boot_record_vd() -> [u8; SECTOR_SIZE] {
         BOOT_RECORD_CATALOG_OFFSET,
         &LBA_BOOT_CATALOG.to_le_bytes(),
     );
+
     vd
 }
 
@@ -204,6 +187,7 @@ fn build_vd_terminator() -> [u8; SECTOR_SIZE] {
     write_byte(&mut vd, 0, 255);
     write_bytes(&mut vd, 1, b"CD001");
     write_byte(&mut vd, 6, 1);
+
     vd
 }
 
@@ -216,6 +200,7 @@ fn build_path_table_l() -> [u8; SECTOR_SIZE] {
     write_bytes(&mut pt, 6, &1_u16.to_le_bytes());
     write_byte(&mut pt, 8, 0x00);
     write_byte(&mut pt, 9, 0x00);
+
     pt
 }
 
@@ -228,6 +213,7 @@ fn build_path_table_m() -> [u8; SECTOR_SIZE] {
     write_bytes(&mut pt, 6, &1_u16.to_be_bytes());
     write_byte(&mut pt, 8, 0x00);
     write_byte(&mut pt, 9, 0x00);
+
     pt
 }
 
@@ -322,6 +308,7 @@ fn directory_record(name_bytes: &[u8], lba: u32, size: u32, is_dir: bool) -> Res
     both_endian_u16(&mut rec, 28, 1);
     write_byte(&mut rec, 32, u8::try_from(name_len).unwrap_or(u8::MAX));
     write_bytes(&mut rec, 33, name_bytes);
+
     Ok(rec)
 }
 
@@ -344,6 +331,7 @@ fn build_root_dir(efi_image_size: u32) -> Result<[u8; SECTOR_SIZE]> {
         "usize addition for ISO structures overflowed".to_owned(),
     ))?;
     write_bytes(&mut dir, offset, &efi);
+
     Ok(dir)
 }
 
@@ -365,37 +353,33 @@ fn root_dir_size(efi_image_size: u32) -> Result<u32> {
     Ok(size)
 }
 
-/// Writes a protective MBR entry so the ISO doubles as a valid hybrid MBR disk image.
-fn write_protective_mbr<W: Write + Seek>(
-    out: &mut W,
+/// Writes a protective MBR partition entry and boot signature directly into the
+/// in-memory buffer so the ISO doubles as a valid hybrid MBR disk image.
+fn write_protective_mbr(
+    buf: &mut [u8],
     efi_image_offset_bytes: u64,
     efi_image_size_bytes: u64,
 ) -> Result<()> {
-    let start_lba = match u32::try_from(efi_image_offset_bytes >> 9) {
-        Ok(start_lba) => start_lba,
-        Err(_conversion_error) => {
-            return Err(MisoError::Iso(
-                "EFI image offset sectors must fit in u32".to_owned(),
-            ));
-        }
+    const ENTRY_OFFSET: usize = 446;
+
+    let Ok(start_lba) = u32::try_from(efi_image_offset_bytes >> 9) else {
+        return Err(MisoError::Iso(
+            "EFI image offset sectors must fit in u32".to_owned(),
+        ));
     };
-    let size_lba = match u32::try_from(efi_image_size_bytes >> 9) {
-        Ok(size_lba) => size_lba,
-        Err(_conversion_error) => {
-            return Err(MisoError::Iso(
-                "EFI image size sectors must fit in u32".to_owned(),
-            ));
-        }
-    };
-    let entry = MbrPartitionEntry {
-        bootable: false,
-        partition_type: MBR_EFI_SYSTEM_TYPE,
-        starting_lba: start_lba,
-        size_lba,
+    let Ok(size_lba) = u32::try_from(efi_image_size_bytes >> 9) else {
+        return Err(MisoError::Iso(
+            "EFI image size sectors must fit in u32".to_owned(),
+        ));
     };
 
-    mbr::io::write_entry(out, 0, &entry)?;
-    mbr::io::write_signature(out)?;
+    write_byte(buf, ENTRY_OFFSET, 0x00);
+    write_bytes(buf, ENTRY_OFFSET + 1, &[0x00; 3]);
+    write_byte(buf, ENTRY_OFFSET + 4, MBR_EFI_SYSTEM_TYPE);
+    write_bytes(buf, ENTRY_OFFSET + 5, &[0x00; 3]);
+    write_bytes(buf, ENTRY_OFFSET + 8, &start_lba.to_le_bytes());
+    write_bytes(buf, ENTRY_OFFSET + 12, &size_lba.to_le_bytes());
+    write_bytes(buf, 510, &[0x55, 0xAA]);
 
     Ok(())
 }
@@ -404,6 +388,7 @@ fn write_protective_mbr<W: Write + Seek>(
 fn zero_date() -> [u8; 17] {
     let mut date = [b'0'; 17];
     date[16] = 0;
+
     date
 }
 
@@ -434,6 +419,7 @@ fn checksum_word(chunk: &[u8]) -> Result<u16> {
             ));
         }
     };
+
     Ok(u16::from_le_bytes(pair))
 }
 
@@ -887,11 +873,11 @@ mod tests {
     #[test]
     fn write_protective_mbr_rejects_offsets_that_do_not_fit_in_u32_sectors() {
         // ARRANGE
-        let mut out = Cursor::new(Vec::new());
+        let mut buf = vec![0_u8; 512];
         let overflowing_offset = (u64::from(u32::MAX) + 1) << 9;
 
         // ACT
-        let err = write_protective_mbr(&mut out, overflowing_offset, 512)
+        let err = write_protective_mbr(&mut buf, overflowing_offset, 512)
             .expect_err("oversized offset must fail");
 
         // ASSERT
@@ -902,11 +888,11 @@ mod tests {
     #[test]
     fn write_protective_mbr_rejects_sizes_that_do_not_fit_in_u32_sectors() {
         // ARRANGE
-        let mut out = Cursor::new(Vec::new());
+        let mut buf = vec![0_u8; 512];
         let overflowing_size = (u64::from(u32::MAX) + 1) << 9;
 
         // ACT
-        let err = write_protective_mbr(&mut out, 512, overflowing_size)
+        let err = write_protective_mbr(&mut buf, 512, overflowing_size)
             .expect_err("oversized size must fail");
 
         // ASSERT

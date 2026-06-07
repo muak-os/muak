@@ -14,12 +14,12 @@ use esp::EspSpec;
 
 use crate::error::{MisoError, Result};
 
-/// Builds a bootable ISO 9660 image from an `esp::EspSpec` into any `Write + Seek` sink.
+/// Builds a bootable ISO 9660 image from an `esp::EspSpec`.
 ///
 /// # Errors
 ///
 /// Returns an error if ESP construction fails or writing the ISO image fails.
-pub fn build_iso<W: std::io::Write + std::io::Seek>(spec: &EspSpec, out: &mut W) -> Result<()> {
+pub fn build_iso<W: Write>(spec: &EspSpec, out: &mut W) -> Result<()> {
     let efi_image = esp::build(spec)?;
     iso::write(out, &efi_image)
 }
