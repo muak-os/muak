@@ -2,6 +2,7 @@
 
 use core::mem::offset_of;
 use core::mem::size_of;
+use std::io::Write;
 
 use const_oid::ObjectIdentifier;
 use der::Encode as _;
@@ -33,16 +34,17 @@ const PE_SIGNATURE_PREFIX_SIZE: usize = 4;
 const CERT_TABLE_ENTRY_SIZE: usize = 4;
 const PE_ALIGNMENT: usize = 8;
 
-/// Sign a PE file with an Authenticode signature.
+/// Sign a PE file with an Authenticode signature, writing the signed output.
 ///
 /// # Errors
 ///
 /// Returns an error if hashing, CMS construction, or PE mutation fails.
-pub fn sign(
+pub fn sign<W: Write>(
     pe_data: &[u8],
     signer: &rsa2048::Signer,
     certificate: &Certificate,
-) -> Result<Vec<u8>> {
+    writer: &mut W,
+) -> Result<()> {
     let hash = compute_hash(pe_data)?;
 
     let spc_content = build_spc_indirect_data(&hash)?;
@@ -57,7 +59,12 @@ pub fn sign(
 
     let win_cert = build_win_certificate(&pkcs7_der)?;
 
-    embed_signature(pe_data, &win_cert)
+    let signed_pe = embed_signature(pe_data, &win_cert)?;
+    writer
+        .write_all(&signed_pe)
+        .map_err(|e| SboltError::Signing(format!("write signed PE: {e}")))?;
+
+    Ok(())
 }
 
 /// Build the inner fields of `SpcIndirectDataContent`.
@@ -517,7 +524,8 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed_pe = sign(&pe, &signer, &cert).expect("sign should succeed");
+        let mut signed_pe = Vec::new();
+        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign should succeed");
 
         // ASSERT
         assert!(signed_pe.len() > pe.len());
@@ -590,7 +598,8 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed_pe = sign(&pe, &signer, &cert).expect("sign should succeed");
+        let mut signed_pe = Vec::new();
+        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign should succeed");
 
         // ASSERT
         let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
@@ -638,7 +647,8 @@ mod tests {
         let hash_unsigned = compute_hash(&pe).expect("hash unsigned");
 
         // ACT
-        let signed_pe = sign(&pe, &signer, &cert).expect("sign");
+        let mut signed_pe = Vec::new();
+        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign");
         let hash_signed = compute_hash(&signed_pe).expect("hash signed");
 
         // ASSERT
@@ -655,7 +665,8 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let signed_pe = sign(&pe, &signer, &cert).expect("sign");
+        let mut signed_pe = Vec::new();
+        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign");
 
         // Extract the PKCS#7 ContentInfo from the WIN_CERTIFICATE
         let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
@@ -755,7 +766,8 @@ mod tests {
         let (signer, cert) = signer_and_cert();
 
         // ACT
-        let result = sign(b"not-a-pe-file", &signer, &cert);
+        let mut buf = Vec::new();
+        let result = sign(b"not-a-pe-file", &signer, &cert, &mut buf);
 
         // ASSERT
         result.expect_err("invalid PE should fail");
