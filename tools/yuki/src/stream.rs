@@ -7,7 +7,7 @@ use object::pe::ImageSectionHeader;
 use crate::binary;
 use crate::error::{Result, YukiError};
 use crate::pe::{self, PeMetadata};
-use crate::section::{self, SectionLayout};
+use crate::section::{self, Layout, Section};
 
 struct ImageChunk<'a> {
     offset: usize,
@@ -18,8 +18,9 @@ pub(crate) fn write<W: Write>(
     writer: &mut W,
     stub: &[u8],
     metadata: &PeMetadata,
-    layout: &SectionLayout,
-    sections: &[(&str, &[u8])],
+    layout: &Layout,
+    sections: &[Section],
+    sections_data: &[&[u8]],
     new_section_count: u16,
 ) -> Result<()> {
     let section_count_bytes = new_section_count.to_le_bytes();
@@ -51,12 +52,10 @@ pub(crate) fn write<W: Write>(
         });
     }
 
-    for (&(file_offset, _data_len), &(_, section_data)) in
-        layout.offsets.iter().zip(sections.iter())
-    {
+    for (section, data) in sections.iter().zip(sections_data.iter()) {
         chunks.push(ImageChunk {
-            offset: file_offset,
-            data: section_data,
+            offset: section.file_offset,
+            data,
         });
     }
 
@@ -124,6 +123,7 @@ fn write_base_range<W: Write>(writer: &mut W, stub: &[u8], start: usize, end: us
 }
 
 #[cfg(test)]
+#[expect(clippy::excessive_nesting, reason = "test code")]
 mod tests {
     use super::*;
 

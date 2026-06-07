@@ -30,7 +30,7 @@ mod tests {
 
     fn build_to_vec(input: &BuildInput<'_>) -> Result<Vec<u8>, YukiError> {
         let mut output = Vec::new();
-        build(input, &mut output)?;
+        let _sections = build(input, &mut output)?;
         Ok(output)
     }
 
@@ -505,16 +505,14 @@ mod tests {
 
         // ACT
         let mut sink = std::io::sink();
-        let result = build(
-            &BuildInput {
-                stub: &stub,
-                kernel: b"kernel",
-                initramfs: b"initrd",
-                cmdline: b"quiet",
-                dtb: None,
-            },
-            &mut sink,
-        );
+        let input = BuildInput {
+            stub: &stub,
+            kernel: b"kernel",
+            initramfs: b"initrd",
+            cmdline: b"quiet",
+            dtb: None,
+        };
+        let result = build(&input, &mut sink);
 
         // ASSERT
         assert!(
@@ -530,16 +528,14 @@ mod tests {
         write_u32(&mut stub, 148, 368);
 
         // ACT
-        let result = build(
-            &BuildInput {
-                stub: &stub,
-                kernel: b"kernel",
-                initramfs: b"initrd",
-                cmdline: b"quiet",
-                dtb: None,
-            },
-            std::io::sink(),
-        );
+        let input = BuildInput {
+            stub: &stub,
+            kernel: b"kernel",
+            initramfs: b"initrd",
+            cmdline: b"quiet",
+            dtb: None,
+        };
+        let result = build(&input, std::io::sink());
 
         // ASSERT
         assert!(matches!(
@@ -553,18 +549,16 @@ mod tests {
     fn build_propagates_writer_error() {
         // ARRANGE
         let stub = generate_minimal_stub();
+        let input = BuildInput {
+            stub: &stub,
+            kernel: b"kernel",
+            initramfs: b"initrd",
+            cmdline: b"quiet",
+            dtb: None,
+        };
 
         // ACT
-        let result = build(
-            &BuildInput {
-                stub: &stub,
-                kernel: b"kernel",
-                initramfs: b"initrd",
-                cmdline: b"quiet",
-                dtb: None,
-            },
-            FailWriter,
-        );
+        let result = build(&input, FailWriter);
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::Io(_))));
@@ -574,18 +568,16 @@ mod tests {
     fn build_rejects_oversized_section_input() {
         // ARRANGE
         let stub = generate_minimal_stub();
+        let input = BuildInput {
+            stub: &stub,
+            kernel: b"kernel",
+            initramfs: oversized_slice(),
+            cmdline: b"quiet",
+            dtb: None,
+        };
 
         // ACT
-        let result = build(
-            &BuildInput {
-                stub: &stub,
-                kernel: b"kernel",
-                initramfs: oversized_slice(),
-                cmdline: b"quiet",
-                dtb: None,
-            },
-            std::io::sink(),
-        );
+        let result = build(&input, std::io::sink());
 
         // ASSERT
         assert!(matches!(

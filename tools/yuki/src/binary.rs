@@ -11,7 +11,7 @@ pub(crate) const fn align_to(value: u32, alignment: u32) -> u32 {
     value.saturating_add(mask) & !mask
 }
 
-/// Converts a `u128` value to usize, returning an error if the value exceeds usize::MAX.
+/// Converts a `u128` value to usize, returning an error if the value exceeds `usize::MAX`.
 #[inline]
 pub(crate) fn usize_from_u128(value: u128, context: &'static str) -> Result<usize> {
     usize::try_from(value)

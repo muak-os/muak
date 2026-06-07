@@ -7,7 +7,7 @@ mod binary;
 pub mod cli;
 pub mod error;
 mod pe;
-mod section;
+pub mod section;
 mod stream;
 
 use error::{Result, YukiError};
@@ -26,13 +26,18 @@ pub struct BuildInput<'a> {
     pub dtb: Option<&'a [u8]>,
 }
 
-/// Builds a Unified Kernel Image (UKI) by embedding components into an EFI stub.
+/// Builds a Unified Kernel Image by embedding components into an EFI stub.
+///
+/// Returns section metadata with file offsets.
 ///
 /// # Errors
 ///
-/// Returns an error if the EFI stub is not a valid PE image or the resulting
-/// image would exceed PE section limits, or writing the output fails.
-pub fn build<W: std::io::Write>(input: &BuildInput<'_>, mut writer: W) -> Result<()> {
+/// Returns an error if the stub is not a valid PE image, the section count
+/// exceeds the PE limit, or writing the output fails.
+pub fn build<W: std::io::Write>(
+    input: &BuildInput<'_>,
+    mut writer: W,
+) -> Result<Vec<section::Section>> {
     let metadata = pe::extract_metadata(input.stub)?;
 
     let section_count = 3_u16.saturating_add(u16::from(input.dtb.is_some()));
@@ -42,16 +47,14 @@ pub fn build<W: std::io::Write>(input: &BuildInput<'_>, mut writer: W) -> Result
         return Err(YukiError::TooManySections);
     }
 
-    let data = section::SectionData {
+    let (mut sections, section_data) = section::prepare(&section::Data {
         linux: input.kernel,
         initrd: input.initramfs,
         cmdline: input.cmdline,
         dtb: input.dtb,
-    };
-
-    let sections = section::build_section_list(&data);
+    });
     pe::validate_section_header_capacity(&metadata, sections.len())?;
-    let layout = section::build_headers(&metadata, &sections)?;
+    let layout = section::build_headers(&metadata, &mut sections)?;
     let new_section_count = metadata.current_section_count.saturating_add(section_count);
 
     stream::write(
@@ -60,6 +63,9 @@ pub fn build<W: std::io::Write>(input: &BuildInput<'_>, mut writer: W) -> Result
         &metadata,
         &layout,
         &sections,
+        &section_data,
         new_section_count,
-    )
+    )?;
+
+    Ok(sections)
 }
