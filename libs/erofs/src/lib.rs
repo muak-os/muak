@@ -12,10 +12,9 @@ mod filecontexts;
 mod inode;
 mod layout;
 mod superblock;
+pub mod tree;
 mod writer;
 mod xattr;
-
-use std::path::Path;
 
 /// EROFS compression algorithm and level.
 pub type Compression = compress::Compression;
@@ -27,6 +26,8 @@ pub type FileContexts = filecontexts::FileContexts;
 pub type InodeLayout = layout::InodeLayout;
 /// A fully-planned EROFS image.
 pub type ImagePlan = layout::ImagePlan;
+/// A filesystem-backed [`tree::TreeSource`].
+pub type FilesystemTreeSource<'a> = layout::collect::FilesystemTreeSource<'a>;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
@@ -55,17 +56,17 @@ pub struct MkfsConfig<'a> {
     pub compression: Compression,
 }
 
-/// Build an EROFS filesystem image from a source directory.
+/// Build an EROFS filesystem image from a source tree.
 ///
 /// # Errors
 ///
-/// Returns an error when the source directory is invalid, compression settings are invalid,
+/// Returns an error when the source is invalid, compression settings are invalid,
 /// filesystem metadata cannot be read, or the image cannot be serialized.
-pub fn mkfs(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
+pub fn mkfs(source: &dyn tree::TreeSource, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
     if let Some(level) = config.compression.level() {
         compress::validate_compression_level(level)?;
     }
-    let plan = layout::plan(source_dir, config)?;
+    let plan = layout::plan(source, config)?;
     writer::write_image(&plan, config)
 }
 
@@ -100,9 +101,12 @@ pub(crate) mod testutil {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use testutil::{compress_config, test_config};
 
     use super::*;
+    use crate::layout::collect::FilesystemTreeSource;
 
     #[test]
     fn mkfs_invalid_source() {
@@ -110,7 +114,7 @@ mod tests {
         let nonexistent = Path::new("/this/path/does/not/exist/at/all");
 
         // ACT
-        let result = mkfs(nonexistent, &test_config(0));
+        let result = mkfs(&FilesystemTreeSource::new(nonexistent), &test_config(0));
 
         // ASSERT
         result.unwrap_err();
@@ -129,7 +133,8 @@ mod tests {
         };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs should succeed");
+        let image =
+            mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs should succeed");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -148,7 +153,8 @@ mod tests {
         };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs should succeed");
+        let image =
+            mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs should succeed");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -161,7 +167,8 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs should succeed");
+        let image = mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0))
+            .expect("mkfs should succeed");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -175,7 +182,8 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs");
+        let image =
+            mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("mkfs");
 
         // ASSERT
         let sb_off = 1024_usize;
@@ -210,8 +218,8 @@ mod tests {
         };
 
         // ACT
-        let image1 = mkfs(dir.path(), &config).expect("mkfs 1");
-        let image2 = mkfs(dir.path(), &config).expect("mkfs 2");
+        let image1 = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 1");
+        let image2 = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 2");
 
         // ASSERT
         assert_eq!(image1, image2);
@@ -224,7 +232,8 @@ mod tests {
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
         // ACT
-        let image = mkfs(dir.path(), &compress_config(0)).expect("mkfs");
+        let image =
+            mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("mkfs");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -253,7 +262,7 @@ mod tests {
         };
 
         // ACT
-        let result = mkfs(dir.path(), &config);
+        let result = mkfs(&FilesystemTreeSource::new(dir.path()), &config);
 
         // ASSERT
         assert!(matches!(
@@ -268,7 +277,7 @@ mod tests {
         let file_path = Path::new("/etc/passwd");
 
         // ACT
-        let result = layout::plan(file_path, &test_config(0));
+        let result = layout::plan(&FilesystemTreeSource::new(file_path), &test_config(0));
 
         // ASSERT
         result.unwrap_err();
@@ -294,7 +303,7 @@ mod tests {
         };
 
         // ACT
-        let image = mkfs(dir.path(), &config).expect("mkfs");
+        let image = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs");
 
         // ASSERT
         assert!(!image.is_empty());

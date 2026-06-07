@@ -449,6 +449,7 @@ mod tests {
     use crate::error::ErofsError;
     use crate::inode::COMPACT_INODE_SIZE;
     use crate::layout;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::testutil::compress_config;
     use crate::writer::write_image;
 
@@ -466,7 +467,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned
@@ -490,7 +491,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned
@@ -521,7 +522,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned
@@ -625,7 +626,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), &original).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned

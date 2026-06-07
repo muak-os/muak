@@ -104,7 +104,6 @@ mod tests {
 
     fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
         InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: rel_path.to_owned(),
             nid: 0,
             ino: 0,

@@ -61,6 +61,7 @@ mod tests {
     use crate::BLOCK_SIZE;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
     use crate::testutil::compress_config;
 
@@ -70,7 +71,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -87,7 +89,6 @@ mod tests {
     fn assign_data_and_total_size_handle_large_nid_fallbacks() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/".to_owned(),
             nid: u64::MAX,
             ino: 0,

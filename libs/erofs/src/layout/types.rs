@@ -1,13 +1,10 @@
 //! In-memory representation of a single inode's planned on-disk layout.
 
-use std::path::PathBuf;
-
 use crate::compress::CompressedFile;
 
 /// Planned layout for a single inode.
 #[derive(Debug, Clone)]
 pub struct InodeLayout {
-    pub path: PathBuf,
     pub rel_path: String,
     pub nid: u64,
     pub ino: u32,

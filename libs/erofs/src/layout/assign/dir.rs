@@ -121,6 +121,7 @@ mod tests {
     use crate::Compression;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
     use crate::testutil::test_config;
 
@@ -132,7 +133,7 @@ mod tests {
             std::fs::write(dir.path().join(format!("f{index}")), [index]).expect("write");
         }
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
@@ -151,7 +152,7 @@ mod tests {
             std::fs::write(dir.path().join(&name), [index]).expect("write");
         }
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
@@ -169,7 +170,7 @@ mod tests {
             std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
         }
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
@@ -183,7 +184,7 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
@@ -197,7 +198,6 @@ mod tests {
     fn find_parent_nid_from_children_missing_indices_returns_self() {
         // ARRANGE
         let inodes = vec![InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/child".to_owned(),
             nid: 0,
             ino: 0,
@@ -231,7 +231,6 @@ mod tests {
     fn layout_dir_returns_zero_for_missing_inode_index() {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,

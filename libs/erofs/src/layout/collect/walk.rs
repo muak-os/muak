@@ -57,6 +57,15 @@ pub(super) fn recurse(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>)
     Ok(())
 }
 
+pub(super) fn symlink_metadata_with_context(abs: &Path) -> Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(abs).map_err(|error| {
+        ErofsError::Io(std::io::Error::new(
+            error.kind(),
+            format!("{}: {}", abs.display(), error),
+        ))
+    })
+}
+
 pub(super) fn io_error(path: &Path, error: &std::io::Error) -> ErofsError {
     ErofsError::Walk(format!("{}: {error}", path.display()))
 }

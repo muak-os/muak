@@ -66,6 +66,7 @@ mod tests {
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN,
     };
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
     use crate::testutil::{compress_config, test_config};
     use crate::writer::write_image;
@@ -77,7 +78,7 @@ mod tests {
         std::fs::write(dir.path().join("test"), b"data").expect("write");
         let cfg = test_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let root_offset = 36 * SLOT_SIZE;
@@ -100,7 +101,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned
@@ -129,7 +130,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         let file = planned
@@ -155,7 +156,6 @@ mod tests {
     fn write_inode_header_rdev_for_special_file() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/dev/null".to_owned(),
             nid: 36,
             ino: 0,
@@ -200,7 +200,6 @@ mod tests {
     fn write_inode_header_reports_xattr_out_of_bounds() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/xattr".to_owned(),
             nid: 1,
             ino: 0,

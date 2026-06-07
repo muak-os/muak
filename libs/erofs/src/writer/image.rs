@@ -94,6 +94,7 @@ mod tests {
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
     use crate::layout;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
     use crate::testutil::{compress_config, test_config};
 
@@ -105,7 +106,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -132,7 +133,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -153,7 +154,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -178,7 +179,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -204,9 +205,9 @@ mod tests {
         };
 
         // ACT
-        let planned1 = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned1 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image1 = write_image(&planned1, &cfg).expect("write");
-        let planned2 = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned2 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image2 = write_image(&planned2, &cfg).expect("write");
 
         // ASSERT
@@ -227,7 +228,7 @@ mod tests {
         };
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -247,7 +248,7 @@ mod tests {
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -263,7 +264,7 @@ mod tests {
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT

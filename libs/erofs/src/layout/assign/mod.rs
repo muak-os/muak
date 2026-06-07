@@ -14,6 +14,7 @@ use crate::checked::align_up;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::inode::COMPACT_INODE_SIZE;
 use crate::superblock::EROFS_SUPER_OFFSET;
+use crate::tree::TreeSource;
 use crate::{Compression, SLOT_SIZE};
 
 /// Byte offset at which the inode metadata region begins (no compression).
@@ -37,6 +38,7 @@ pub fn nids_and_layouts(
     inodes: &mut [InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
     compression: Compression,
+    source: &dyn TreeSource,
 ) {
     let bs = util::block_size();
     let do_compress = compression.is_enabled();
@@ -58,9 +60,16 @@ pub fn nids_and_layouts(
         let advance = match inode.file_type {
             EROFS_FT_DIR => dir::layout(inodes, i, nid, slot_offset, inode_header, path_to_idx, bs),
             EROFS_FT_SYMLINK => file::symlink(inodes, i, nid, slot_offset, inode_header, bs),
-            EROFS_FT_REG_FILE => {
-                file::regular(inodes, i, nid, slot_offset, inode_header, bs, compression)
-            }
+            EROFS_FT_REG_FILE => file::regular(
+                inodes,
+                i,
+                nid,
+                slot_offset,
+                inode_header,
+                bs,
+                compression,
+                source,
+            ),
             _ => file::special(inodes, i, nid, inode_header),
         };
         meta_offset = meta_offset.saturating_add(advance);
@@ -85,18 +94,19 @@ pub(crate) fn index_layout(totalidx: usize, ebase: usize) -> (usize, usize, usiz
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
+    use std::path::Path;
 
     use super::{META_START, meta_start, nids_and_layouts};
     use crate::Compression;
     use crate::SLOT_SIZE;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
     use crate::testutil::{compress_config, test_config};
 
     fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
         InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: rel_path.to_owned(),
             nid: 0,
             ino: 0,
@@ -137,7 +147,7 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
 
         // ACT
@@ -152,7 +162,7 @@ mod tests {
         std::fs::write(dir.path().join("a"), b"aaa").expect("write");
         std::fs::write(dir.path().join("b"), b"bbb").expect("write");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
 
         // ACT
@@ -174,7 +184,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/world.txt"), b"hello").expect("write");
 
-        let planned = plan(dir.path(), &test_config(0)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(0)).expect("plan");
         let inodes = &planned.inodes;
 
         // ACT
@@ -222,7 +232,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 4096]).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
 
         let expected_nid =
@@ -273,7 +284,12 @@ mod tests {
         path_to_idx.insert("/".to_owned(), 0);
         path_to_idx.insert("/dev".to_owned(), 1);
 
-        nids_and_layouts(&mut inodes, &path_to_idx, Compression::None);
+        nids_and_layouts(
+            &mut inodes,
+            &path_to_idx,
+            Compression::None,
+            &FilesystemTreeSource::new(Path::new("/tmp")),
+        );
 
         // ACT
         // ASSERT

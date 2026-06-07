@@ -1,11 +1,11 @@
 //! Index structures for mapping paths to inodes and tracking parent-child relationships.
 
 use alloc::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
 
 use super::parent_rel;
 use super::types::InodeLayout;
 use crate::dir::EROFS_FT_DIR;
+use crate::tree::TreeEntry;
 
 /// Lookup maps populated from a directory tree walk.
 pub struct LayoutIndices {
@@ -14,8 +14,8 @@ pub struct LayoutIndices {
     pub nlink_map: BTreeMap<String, u16>,
 }
 
-/// Populate `LayoutIndices` from the flat entries list.
-pub fn build(entries: &[(PathBuf, String)], inodes: &[InodeLayout]) -> LayoutIndices {
+/// Populate `LayoutIndices` from [`TreeEntry`] entries.
+pub fn build_from_entries(entries: &[TreeEntry], inodes: &[InodeLayout]) -> LayoutIndices {
     let mut idx = LayoutIndices {
         path_to_idx: BTreeMap::new(),
         dir_children: BTreeMap::new(),
@@ -23,7 +23,7 @@ pub fn build(entries: &[(PathBuf, String)], inodes: &[InodeLayout]) -> LayoutInd
     };
 
     for (i, entry) in entries.iter().enumerate() {
-        let rel = &entry.1;
+        let rel = &entry.rel_path;
         idx.path_to_idx.insert(rel.clone(), i);
         let p_rel = parent_rel(rel);
 
@@ -148,10 +148,11 @@ fn set_ino(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dir::EROFS_FT_DIR;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::collect::{entries, initial_inodes};
+    use crate::layout::collect::{FilesystemTreeSource, initial_inodes};
     use crate::testutil::test_config;
+    use crate::tree::TreeSource as _;
 
     #[test]
     fn build_indices_mixed_types() {
@@ -159,11 +160,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        let entries = entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
-        let idx = build(&entries, &inodes);
+        let idx = build_from_entries(&entries, &inodes);
 
         // ASSERT
         assert_eq!(idx.path_to_idx.len(), 3);
@@ -176,9 +178,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("file"), b"x").expect("write");
         std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        let entries = entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
-        let idx = build(&entries, &inodes);
+        let idx = build_from_entries(&entries, &inodes);
 
         // ACT
         assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
@@ -206,7 +209,6 @@ mod tests {
     fn apply_nlinks_updates_nlink_count() {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
-            path: std::path::PathBuf::from("/"),
             rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
@@ -244,7 +246,6 @@ mod tests {
     fn apply_children_populates_children_list() {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
-            path: std::path::PathBuf::from("/"),
             rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
@@ -289,9 +290,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("a/b/c")).expect("mkdir");
         std::fs::write(dir.path().join("a/b/c/file"), b"x").expect("write");
-        let entries = entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
-        let idx = build(&entries, &inodes);
+        let idx = build_from_entries(&entries, &inodes);
 
         // ACT
         assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
@@ -308,11 +310,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
         std::fs::write(dir.path().join("subdir/file"), b"x").expect("write");
-        let entries = entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
-        let idx = build(&entries, &inodes);
+        let idx = build_from_entries(&entries, &inodes);
 
         // ASSERT
         assert!(idx.nlink_map.contains_key("/"));
@@ -323,11 +326,32 @@ mod tests {
     fn build_indices_ignores_missing_inode_entries() {
         // ARRANGE
         let entries = vec![
-            (PathBuf::from("/tmp/root"), "/".to_owned()),
-            (PathBuf::from("/tmp/root/file"), "/file".to_owned()),
+            super::TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: Vec::new(),
+                rdev: 0,
+            },
+            super::TreeEntry {
+                rel_path: "/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: Vec::new(),
+                rdev: 0,
+            },
         ];
         let inodes = vec![InodeLayout {
-            path: PathBuf::new(),
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,
@@ -353,7 +377,7 @@ mod tests {
         }];
 
         // ACT
-        let indices = build(&entries, &inodes);
+        let indices = build_from_entries(&entries, &inodes);
 
         // ASSERT
         assert!(indices.path_to_idx.contains_key("/file"));
@@ -364,7 +388,6 @@ mod tests {
     fn apply_children_and_nlinks_ignore_missing_indices() {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
-            path: PathBuf::new(),
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,

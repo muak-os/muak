@@ -1,33 +1,32 @@
-//! Initial inode construction from filesystem metadata and xattrs.
+//! Initial inode construction from [`TreeEntry`] metadata and xattrs.
 
 use std::fs;
 use std::os::unix::fs::MetadataExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::MkfsConfig;
 use crate::dir::{self, EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_PLAIN;
 use crate::layout::types::InodeLayout;
+use crate::tree::TreeEntry;
 use crate::xattr;
 
-/// Build initial `InodeLayout` entries from filesystem metadata.
-pub fn initial_inodes(
-    entries: &[(PathBuf, String)],
-    config: &MkfsConfig<'_>,
-) -> Result<Vec<InodeLayout>> {
+/// Build initial `InodeLayout` entries from tree entries.
+pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<Vec<InodeLayout>> {
     let mut inodes = Vec::with_capacity(entries.len());
 
-    for entry in entries {
-        let abs = &entry.0;
-        let rel = &entry.1;
-        let meta = symlink_metadata_with_context(abs)?;
+    for (idx, entry) in entries.iter().enumerate() {
+        let rel = &entry.rel_path;
 
-        inode_name(abs, rel)?;
+        inode_name(rel)?;
 
-        let file_type = classify_file_type(&meta);
         let epoch = config.source_date_epoch;
-        let (mtime, mtime_nsec) = resolve_mtime(&meta, epoch);
+        let (mtime, mtime_nsec) = if epoch > 0 {
+            (epoch, 0)
+        } else {
+            (entry.mtime, entry.mtime_nsec)
+        };
 
         let xattr_payload = config
             .file_contexts
@@ -36,34 +35,30 @@ pub fn initial_inodes(
             .unwrap_or_default();
         let xattr_ic = xattr::icount(xattr_payload.len());
 
-        let symlink_target = read_symlink_target(abs, &meta)?;
-        let idx = inodes.len();
-
-        let size = if meta.is_dir() {
+        let size = if entry.file_type == EROFS_FT_DIR {
             0_u32
         } else {
-            truncate_u64_to_u32(meta.len())
+            truncate_u64_to_u32(entry.size)
         };
 
         let uid = config
             .force_uid
-            .unwrap_or_else(|| truncate_u32_to_u16(meta.uid()));
+            .unwrap_or_else(|| truncate_u32_to_u16(entry.uid));
         let gid = config
             .force_gid
-            .unwrap_or_else(|| truncate_u32_to_u16(meta.gid()));
+            .unwrap_or_else(|| truncate_u32_to_u16(entry.gid));
 
         inodes.push(InodeLayout {
-            path: abs.clone(),
             rel_path: rel.clone(),
             nid: 0,
             ino: truncate_usize_to_u32(idx),
-            mode: truncate_u32_to_u16(meta.mode()),
+            mode: truncate_u32_to_u16(entry.mode),
             uid,
             gid,
             mtime,
             mtime_nsec,
             nlink: 1,
-            file_type,
+            file_type: entry.file_type,
             size,
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload,
@@ -73,16 +68,42 @@ pub fn initial_inodes(
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),
-            symlink_target,
-            rdev: if meta.is_dir() || meta.is_file() || meta.is_symlink() {
-                0
-            } else {
-                truncate_u64_to_u32(meta.rdev())
-            },
+            symlink_target: entry.symlink_target.clone(),
+            rdev: entry.rdev,
             compressed: None,
         });
     }
     Ok(inodes)
+}
+
+/// Build a [`TreeEntry`] from absolute path, relative path, and metadata.
+pub(super) fn entry_from_meta(abs: &Path, rel: &str, meta: &fs::Metadata) -> Result<TreeEntry> {
+    let symlink_target = if meta.is_symlink() {
+        let target =
+            fs::read_link(abs).map_err(|_err| ErofsError::SymlinkRead(abs.to_path_buf()))?;
+        target.to_string_lossy().as_bytes().to_vec()
+    } else {
+        Vec::new()
+    };
+
+    let file_type = classify_file_type(meta);
+
+    Ok(TreeEntry {
+        rel_path: rel.to_owned(),
+        file_type,
+        size: meta.len(),
+        mode: meta.mode(),
+        uid: meta.uid(),
+        gid: meta.gid(),
+        mtime: meta.mtime().cast_unsigned(),
+        mtime_nsec: u32::try_from(meta.mtime_nsec()).unwrap_or_default(),
+        symlink_target,
+        rdev: if meta.is_dir() || meta.is_file() || meta.is_symlink() {
+            0
+        } else {
+            truncate_u64_to_u32(meta.rdev())
+        },
+    })
 }
 
 /// Classify a filesystem entry's type into an EROFS file type constant.
@@ -96,11 +117,12 @@ pub(super) fn classify_file_type(meta: &fs::Metadata) -> u8 {
     }
 }
 
-pub(super) fn inode_name(abs: &Path, rel: &str) -> Result<String> {
+pub(super) fn inode_name(rel: &str) -> Result<String> {
     let name = if rel == "/" {
         String::new()
     } else {
-        abs.file_name()
+        Path::new(rel)
+            .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_default()
     };
@@ -110,39 +132,6 @@ pub(super) fn inode_name(abs: &Path, rel: &str) -> Result<String> {
     }
 
     Ok(name)
-}
-
-/// Resolve the modification time, using the source date epoch if configured.
-pub(super) fn resolve_mtime(meta: &fs::Metadata, epoch: u64) -> (u64, u32) {
-    if epoch > 0 {
-        (epoch, 0)
-    } else {
-        (
-            meta.mtime().cast_unsigned(),
-            u32::try_from(meta.mtime_nsec()).unwrap_or_default(),
-        )
-    }
-}
-
-/// Read the target of a symbolic link.
-pub(super) fn read_symlink_target(abs: &Path, meta: &fs::Metadata) -> Result<Vec<u8>> {
-    if !meta.is_symlink() {
-        return Ok(Vec::new());
-    }
-    let target = match fs::read_link(abs) {
-        Ok(target) => target,
-        Err(_error) => return Err(ErofsError::SymlinkRead(abs.to_path_buf())),
-    };
-    Ok(target.to_string_lossy().as_bytes().to_vec())
-}
-
-pub(super) fn symlink_metadata_with_context(abs: &Path) -> Result<fs::Metadata> {
-    fs::symlink_metadata(abs).map_err(|error| {
-        ErofsError::Io(std::io::Error::new(
-            error.kind(),
-            format!("{}: {}", abs.display(), error),
-        ))
-    })
 }
 
 pub(super) fn truncate_u64_to_u32(value: u64) -> u32 {
@@ -163,23 +152,24 @@ pub(super) fn truncate_usize_to_u32(value: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::{Path, PathBuf};
 
     use super::{
-        classify_file_type, initial_inodes, inode_name, read_symlink_target, resolve_mtime,
-        symlink_metadata_with_context, truncate_u32_to_u16, truncate_u64_to_u32,
+        classify_file_type, initial_inodes, inode_name, truncate_u32_to_u16, truncate_u64_to_u32,
     };
     use crate::MkfsConfig;
     use crate::dir::{self, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::error::ErofsError;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::testutil::test_config;
+    use crate::tree::TreeSource as _;
 
     #[test]
     fn build_initial_inodes_force_uid_gid() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let config = MkfsConfig {
             force_uid: Some(1234),
             force_gid: Some(5678),
@@ -201,7 +191,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let inodes = initial_inodes(&entries, &test_config(1_700_000_000)).expect("inodes");
         for inode in &inodes {
             // ACT
@@ -216,7 +207,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let file = inodes
             .iter()
@@ -232,7 +224,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/some/target", dir.path().join("link")).expect("symlink");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let link = inodes
             .iter()
@@ -255,47 +248,32 @@ mod tests {
     }
 
     #[test]
-    fn symlink_metadata_with_context_reports_path() {
-        // ARRANGE
-        let missing = Path::new("/definitely/missing/erofs-test-path");
-        let result = symlink_metadata_with_context(missing);
-        // ACT
-        // ASSERT
-        assert!(matches!(
-            result,
-            Err(ErofsError::Io(error)) if error.to_string().contains(missing.to_string_lossy().as_ref())
-        ));
-    }
-
-    #[test]
     fn inode_name_rejects_overlong_name() {
         // ARRANGE
         let long_name = "a".repeat(dir::EROFS_NAME_LEN + 1);
-        let abs = PathBuf::from(format!("/{long_name}"));
-        let result = inode_name(&abs, &format!("/{long_name}"));
+        let rel_path = format!("/{long_name}");
+        let result = inode_name(&rel_path);
         // ACT
         // ASSERT
         assert!(matches!(result, Err(ErofsError::FilenameTooLong(name)) if name == long_name));
     }
 
     #[test]
-    fn read_symlink_target_reports_missing_target_path() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        let link = dir.path().join("link");
-        std::os::unix::fs::symlink("target", &link).expect("symlink");
-        let meta = fs::symlink_metadata(&link).expect("metadata");
-        std::fs::remove_file(&link).expect("remove symlink");
-        let result = read_symlink_target(&link, &meta);
-        // ACT
-        // ASSERT
-        assert!(matches!(result, Err(ErofsError::SymlinkRead(path)) if path == link));
-    }
-
-    #[test]
     fn build_initial_inodes_sets_rdev_for_special_file() {
         // ARRANGE
-        let entries = vec![(PathBuf::from("/dev/null"), "/dev/null".to_owned())];
+        use crate::tree::TreeEntry;
+        let entries = vec![TreeEntry {
+            rel_path: "/dev/null".to_owned(),
+            file_type: 3,
+            size: 0,
+            mode: 0o020_666,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: Vec::new(),
+            rdev: 0x0501,
+        }];
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         // ACT
         // ASSERT
@@ -304,40 +282,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_mtime_with_epoch() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let metadata = fs::metadata(dir.path().join("f")).expect("metadata");
-
-        let (mtime, mtime_nsec) = resolve_mtime(&metadata, 1_700_000_000);
-
-        // ACT
-        // ASSERT
-        assert_eq!(mtime, 1_700_000_000);
-        assert_eq!(mtime_nsec, 0);
-    }
-
-    #[test]
-    fn resolve_mtime_without_epoch() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let metadata = fs::metadata(dir.path().join("f")).expect("metadata");
-
-        let (mtime, _) = resolve_mtime(&metadata, 0);
-
-        // ACT
-        // ASSERT
-        assert!(mtime > 0);
-    }
-
-    #[test]
     fn build_initial_inodes_force_uid() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let cfg = MkfsConfig {
             force_uid: Some(1000),
             ..test_config(0)
@@ -359,7 +309,8 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("f"), b"x").expect("write");
-        let entries = super::super::entries(dir.path()).expect("entries");
+        let source = FilesystemTreeSource::new(dir.path());
+        let entries = source.entries().expect("entries");
         let cfg = MkfsConfig {
             force_gid: Some(1000),
             ..test_config(0)

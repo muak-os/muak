@@ -9,6 +9,7 @@ use crate::inode::{
     EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     Z_EROFS_MAP_HEADER_SIZE,
 };
+use crate::tree::TreeSource;
 use crate::{Compression, SLOT_SIZE};
 
 pub(super) fn symlink(
@@ -38,6 +39,10 @@ pub(super) fn symlink(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all parameters are required for layout decision"
+)]
 pub(super) fn regular(
     inodes: &mut [InodeLayout],
     i: usize,
@@ -46,6 +51,7 @@ pub(super) fn regular(
     inode_header: usize,
     bs: usize,
     compression: Compression,
+    source: &dyn TreeSource,
 ) -> usize {
     let Some(file_size) = inodes
         .get(i)
@@ -56,7 +62,7 @@ pub(super) fn regular(
 
     if compression.is_enabled()
         && file_size > 0
-        && let Some(advance) = try_compressed(inodes, i, nid, inode_header, compression)
+        && let Some(advance) = try_compressed(inodes, i, nid, inode_header, compression, source)
     {
         return advance;
     }
@@ -97,11 +103,13 @@ fn try_compressed(
     nid: u64,
     inode_header: usize,
     compression: Compression,
+    source: &dyn TreeSource,
 ) -> Option<usize> {
     let Compression::Zstd { level } = compression else {
         return None;
     };
-    let file_data = std::fs::read(&inodes.get(i)?.path).ok()?;
+    let rel_path = inodes.get(i)?.rel_path.clone();
+    let file_data = source.read(&rel_path).ok()?;
     let cf = compress::compress_file(&file_data, level).ok()??;
 
     if !compress::has_representable_compact_indexes(&cf) {
@@ -145,6 +153,7 @@ pub(super) fn special(
 mod tests {
     use core::iter::repeat_with;
     use std::os::unix::fs::PermissionsExt as _;
+    use std::path::Path;
 
     use super::{regular, special, symlink};
     use crate::Compression;
@@ -154,6 +163,7 @@ mod tests {
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE,
         EROFS_INODE_FLAT_PLAIN,
     };
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
     use crate::testutil::{compress_config, test_config};
 
@@ -168,7 +178,7 @@ mod tests {
         )
         .expect("chmod");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let file_inode = inodes
             .iter()
@@ -188,7 +198,7 @@ mod tests {
         let data = vec![0_u8; 8192];
         std::fs::write(dir.path().join("large"), &data).expect("write");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let file_inode = inodes
             .iter()
@@ -207,7 +217,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/target", dir.path().join("link")).expect("symlink");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let sym = inodes
             .iter()
@@ -226,7 +236,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/short", dir.path().join("link")).expect("symlink");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let link = inodes
             .iter()
@@ -246,7 +256,7 @@ mod tests {
         let long_target = "/".to_owned() + &"x".repeat(4080);
         std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let link = inodes
             .iter()
@@ -265,7 +275,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let empty = inodes
             .iter()
@@ -285,7 +295,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("tiny"), b"hi").expect("write");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let tiny = inodes
             .iter()
@@ -305,7 +315,7 @@ mod tests {
         let data = vec![0_u8; 4100];
         std::fs::write(dir.path().join("partial"), &data).expect("write");
 
-        let planned = plan(dir.path(), &test_config(1)).expect("plan");
+        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let partial = inodes
             .iter()
@@ -324,7 +334,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -353,7 +364,8 @@ mod tests {
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -372,7 +384,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -391,7 +404,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("small"), vec![0_u8; 100]).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -410,7 +424,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
@@ -440,7 +455,8 @@ mod tests {
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
 
-        let planned = plan(dir.path(), &compress_config(0)).expect("plan");
+        let planned =
+            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let comp = inodes
             .iter()
@@ -463,7 +479,6 @@ mod tests {
     fn layout_functions_return_zero_for_missing_inode_index() {
         // ARRANGE
         let mut inodes = vec![InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,
@@ -497,6 +512,7 @@ mod tests {
             COMPACT_INODE_SIZE,
             4096,
             Compression::None,
+            &FilesystemTreeSource::new(Path::new("/tmp")),
         );
         let special_advance = special(&mut inodes, 9, 1, COMPACT_INODE_SIZE);
 

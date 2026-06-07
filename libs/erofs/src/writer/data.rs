@@ -136,6 +136,7 @@ mod tests {
     use crate::dir::EROFS_FT_REG_FILE;
     use crate::error::ErofsError;
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
     use crate::testutil::test_config;
     use crate::writer::write_image;
@@ -148,7 +149,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -171,7 +172,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -191,7 +192,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
 
         // ASSERT
         let root = planned.inodes.first().expect("root inode");
@@ -207,7 +208,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -229,7 +230,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -251,7 +252,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -272,7 +273,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let _image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -293,7 +294,7 @@ mod tests {
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let image = write_image(&planned, &cfg).expect("write");
 
         // ASSERT
@@ -351,7 +352,6 @@ mod tests {
     fn write_file_data_plain_out_of_bounds() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/data".to_owned(),
             nid: 1,
             ino: 0,

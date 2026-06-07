@@ -86,6 +86,7 @@ mod tests {
     use super::{find_parent_nid, sorted_entries};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
     use crate::testutil::test_config;
 
@@ -95,7 +96,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let cfg = test_config(1);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
@@ -112,7 +113,7 @@ mod tests {
         std::fs::write(dir.path().join("subdir/file.txt"), b"content").expect("write");
         let cfg = test_config(1);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
@@ -142,7 +143,7 @@ mod tests {
         std::fs::write(dir.path().join("m"), b"m").expect("write");
         let cfg = test_config(1);
 
-        let planned = layout::plan(dir.path(), &cfg).expect("plan");
+        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
         let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
@@ -166,7 +167,6 @@ mod tests {
     fn find_parent_nid_returns_zero_for_missing_parent() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/child".to_owned(),
             nid: 2,
             ino: 0,
@@ -201,7 +201,6 @@ mod tests {
     fn build_sorted_dir_entries_skips_missing_and_keeps_known_children() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "child".to_owned(),
             nid: 2,
             ino: 0,

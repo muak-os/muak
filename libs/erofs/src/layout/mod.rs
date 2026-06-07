@@ -1,17 +1,18 @@
 //! Layout planning for inode metadata and data blocks.
 
 mod assign;
-mod collect;
+pub(crate) mod collect;
 mod indices;
 mod planner;
 mod types;
 
 use std::path::Path;
 
+pub(crate) use assign::index_layout;
+
 use crate::MkfsConfig;
 use crate::error::Result;
-
-pub(crate) use assign::index_layout;
+use crate::tree::TreeSource;
 
 /// Public inode layout type produced by layout planning.
 pub type InodeLayout = types::InodeLayout;
@@ -27,9 +28,9 @@ pub struct ImagePlan {
     pub do_compress: bool,
 }
 
-/// Plan the full image layout from a source directory.
-pub fn plan(source_dir: &Path, config: &MkfsConfig<'_>) -> Result<ImagePlan> {
-    planner::plan(source_dir, config)
+/// Plan the full image layout from a source tree.
+pub fn plan(source: &dyn TreeSource, config: &MkfsConfig<'_>) -> Result<ImagePlan> {
+    planner::plan(source, config)
 }
 
 /// Compute parent relative path from a child relative path.

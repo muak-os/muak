@@ -93,7 +93,6 @@ mod tests {
     fn bfs_order_ignores_missing_child_indices() {
         // ARRANGE
         let inode = InodeLayout {
-            path: std::path::PathBuf::new(),
             rel_path: "/child".to_owned(),
             nid: 0,
             ino: 0,
