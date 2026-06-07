@@ -11,7 +11,7 @@ mod tests {
     use super::fixtures::{TestEnv, decode_extension_archive, decode_initramfs};
 
     fn create_config<'a>(
-        init: &'a Path,
+        init: &'a [u8],
         rootfs_dir: &'a Path,
         file_contexts: Option<&'a erofs::FileContexts>,
     ) -> ramune::CreateConfig<'a> {
@@ -47,13 +47,14 @@ mod tests {
     fn create_writes_expected_archive_entries() {
         // ARRANGE
         let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let init_path = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let init_bytes = std::fs::read(&init_path).expect("read init");
         let rootfs = env.write_rootfs();
         let output = env.path("initramfs.img");
 
         // ACT
         let mut buf = Vec::new();
-        ramune::create(&create_config(&init, &rootfs, None), &mut buf)
+        ramune::create(&create_config(&init_bytes, &rootfs, None), &mut buf)
             .expect("create should succeed");
         std::fs::write(&output, &buf).expect("write output");
 
@@ -89,7 +90,8 @@ mod tests {
     fn create_supports_file_contexts() {
         // ARRANGE
         let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let init_path = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let init_bytes = std::fs::read(&init_path).expect("read init");
         let rootfs = env.write_rootfs();
         let output = env.path("initramfs.img");
         let contexts =
@@ -98,8 +100,11 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        ramune::create(&create_config(&init, &rootfs, Some(&contexts)), &mut buf)
-            .expect("create should succeed with file contexts");
+        ramune::create(
+            &create_config(&init_bytes, &rootfs, Some(&contexts)),
+            &mut buf,
+        )
+        .expect("create should succeed with file contexts");
         std::fs::write(&output, &buf).expect("write output");
 
         // ASSERT
@@ -108,18 +113,18 @@ mod tests {
     }
 
     #[test]
-    fn create_returns_error_for_missing_init() {
+    fn create_returns_error_for_missing_rootfs() {
         // ARRANGE
         let env = TestEnv::new();
-        let missing_init = env.path("nonexistent-init");
-        let rootfs = env.write_rootfs();
+        let init_bytes = b"#!/bin/sh\nexec /sbin/init\n";
+        let missing_rootfs = env.path("nonexistent-rootfs");
 
         // ACT
         let mut buf = Vec::new();
         let result = ramune::create(
             &ramune::CreateConfig {
-                init: &missing_init,
-                rootfs_dir: &rootfs,
+                init: init_bytes.as_slice(),
+                rootfs_dir: &missing_rootfs,
                 file_contexts: None,
                 compression_level: 19,
                 rootfs_compression_level: 3,

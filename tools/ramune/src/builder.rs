@@ -20,8 +20,8 @@ const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "e
 
 /// Configuration for base initramfs creation.
 pub struct CreateConfig<'a> {
-    /// Path to the init binary.
-    pub init: &'a Path,
+    /// Contents of the init binary.
+    pub init: &'a [u8],
     /// Path to the rootfs directory to embed.
     pub rootfs_dir: &'a Path,
     /// Optional `SELinux` file contexts.
@@ -37,14 +37,9 @@ pub struct CreateConfig<'a> {
 ///
 /// # Errors
 ///
-/// Returns an error when reading inputs, building the staged rootfs, compressing the archive,
+/// Returns an error when building the staged rootfs, compressing the archive,
 /// or writing to the output sink fails.
 pub fn create<W: Write>(config: &CreateConfig<'_>, writer: &mut W) -> Result<()> {
-    let init_data = std::fs::read(config.init).map_err(|e| RamuneError::ReadError {
-        file: config.init.display().to_string(),
-        source: e,
-    })?;
-
     let rootfs_erofs = prepare_rootfs(config.rootfs_dir).and_then(|staging| {
         erofs::create(
             staging.path(),
@@ -53,14 +48,14 @@ pub fn create<W: Write>(config: &CreateConfig<'_>, writer: &mut W) -> Result<()>
         )
     })?;
 
-    let init_size = u32::try_from(init_data.len())
+    let init_size = u32::try_from(config.init.len())
         .map_err(|_err| RamuneError::CpioError("init data exceeds CPIO limits".to_owned()))?;
     let rootfs_size = u32::try_from(rootfs_erofs.len())
         .map_err(|_err| RamuneError::CpioError("rootfs exceeds CPIO limits".to_owned()))?;
 
     let mut encoder = compress::encoder(writer, config.compression_level)?;
     cpio::write_entry(&mut encoder, 1, "init", MODE_EXEC, init_size, |w| {
-        w.write_all(&init_data)
+        w.write_all(config.init)
             .map_err(|e| RamuneError::CpioError(format!("{e}")))
     })?;
     cpio::write_entry(
@@ -188,7 +183,7 @@ mod tests {
         std::fs::write(dir.join("sbin/init"), b"init-binary").expect("write");
     }
 
-    fn make_config<'a>(init: &'a Path, rootfs: &'a Path) -> CreateConfig<'a> {
+    fn make_config<'a>(init: &'a [u8], rootfs: &'a Path) -> CreateConfig<'a> {
         CreateConfig {
             init,
             rootfs_dir: rootfs,
@@ -204,13 +199,14 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"#!/bin/sh\nexec /sbin/init").expect("write init");
+        let init_bytes = std::fs::read(&init_file).expect("read init");
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         setup_rootfs_dir(&rootfs);
 
         // ACT
         let mut buf = Vec::new();
-        create(&make_config(&init_file, &rootfs), &mut buf).expect("create");
+        create(&make_config(&init_bytes, &rootfs), &mut buf).expect("create");
 
         // ASSERT
         assert!(!buf.is_empty());
@@ -222,10 +218,11 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
+        let init_bytes = std::fs::read(&init_file).expect("read init");
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
-        let config = make_config(&init_file, &rootfs);
+        let config = make_config(&init_bytes, &rootfs);
 
         let mut img1 = Vec::new();
         let mut img2 = Vec::new();
@@ -237,46 +234,17 @@ mod tests {
     }
 
     #[test]
-    fn create_missing_init_errors() {
-        // ARRANGE
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let rootfs = tmp.path().join("rootfs");
-        std::fs::create_dir_all(&rootfs).expect("mkdir");
-
-        // ACT
-        let mut buf = Vec::new();
-        let result = create(
-            &CreateConfig {
-                init: Path::new("/nonexistent/init"),
-                rootfs_dir: &rootfs,
-                file_contexts: None,
-                compression_level: 19,
-                rootfs_compression_level: 3,
-            },
-            &mut buf,
-        );
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
-        );
-    }
-
-    #[test]
     fn create_missing_rootfs_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
-        let init_file = tmp.path().join("init");
-        std::fs::write(&init_file, b"init").expect("write init");
+        let init_bytes = b"init";
         let rootfs = tmp.path().join("missing-rootfs");
 
         // ACT
         let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
-                init: &init_file,
+                init: init_bytes.as_slice(),
                 rootfs_dir: &rootfs,
                 file_contexts: None,
                 compression_level: 19,
@@ -299,6 +267,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let init_file = tmp.path().join("init");
         std::fs::write(&init_file, b"init").expect("write init");
+        let init_bytes = std::fs::read(&init_file).expect("read init");
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
@@ -310,7 +279,7 @@ mod tests {
         let mut buf = Vec::new();
         create(
             &CreateConfig {
-                init: &init_file,
+                init: &init_bytes,
                 rootfs_dir: &rootfs,
                 file_contexts: Some(&fc),
                 compression_level: 19,
@@ -328,8 +297,7 @@ mod tests {
     fn create_invalid_compression_level_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
-        let init_file = tmp.path().join("init");
-        std::fs::write(&init_file, b"init").expect("write init");
+        let init_bytes = b"init";
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
@@ -338,7 +306,7 @@ mod tests {
         let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
-                init: &init_file,
+                init: init_bytes.as_slice(),
                 rootfs_dir: &rootfs,
                 file_contexts: None,
                 compression_level: i32::MAX,
@@ -359,8 +327,7 @@ mod tests {
     fn create_invalid_rootfs_compression_level_errors() {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
-        let init_file = tmp.path().join("init");
-        std::fs::write(&init_file, b"init").expect("write init");
+        let init_bytes = b"init";
         let rootfs = tmp.path().join("rootfs");
         std::fs::create_dir_all(&rootfs).expect("mkdir rootfs");
         std::fs::write(rootfs.join("file"), b"data").expect("write");
@@ -369,7 +336,7 @@ mod tests {
         let mut buf = Vec::new();
         let result = create(
             &CreateConfig {
-                init: &init_file,
+                init: init_bytes.as_slice(),
                 rootfs_dir: &rootfs,
                 file_contexts: None,
                 compression_level: 19,

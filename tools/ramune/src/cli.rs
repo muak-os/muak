@@ -136,8 +136,11 @@ fn run_command(command: Command) -> Result<()> {
                 None => None,
             };
 
+            let init_bytes = std::fs::read(&init)
+                .with_context(|| format!("Failed to read init binary: {}", init.display()))?;
+
             let config = CreateConfig {
-                init: &init,
+                init: &init_bytes,
                 rootfs_dir: &rootfs_dir,
                 file_contexts: file_contexts.as_ref(),
                 compression_level,

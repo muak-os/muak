@@ -197,7 +197,7 @@ mod tests {
             "ramune create should fail for missing init"
         );
         assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Failed to create initramfs")
+            String::from_utf8_lossy(&process_output.stderr).contains("Failed to read init binary")
         );
     }
 
