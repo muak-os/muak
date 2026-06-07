@@ -9,8 +9,7 @@ pub type Compression = config::Compression;
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = config::DEFAULT_ZSTD_COMPRESSION_LEVEL;
 pub type CompressedFile = model::CompressedFile;
 
-use crate::ErofsError;
-use crate::error::Result;
+use crate::error::{ErofsError, Result};
 
 /// Compress file data into multiple destsize-bounded pclusters.
 pub fn compress_file(data: &[u8], compression_level: i32) -> Result<Option<CompressedFile>> {

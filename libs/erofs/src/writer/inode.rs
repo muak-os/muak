@@ -1,13 +1,15 @@
 //! Compact inode header writing and xattr payload placement.
 
-use crate::checked::{add, write_bytes};
+use std::io::{Seek, Write};
+
+use crate::checked::{add, seek_write, u64_from_usize};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::{self, COMPACT_INODE_SIZE, CompactInodeParams};
 use crate::layout::InodeLayout;
 
-pub(super) fn write_header(
-    image: &mut [u8],
+pub(super) fn write_header<W: Write + Seek>(
+    writer: &mut W,
     inode: &InodeLayout,
     slot_offset: usize,
 ) -> Result<()> {
@@ -29,10 +31,9 @@ pub(super) fn write_header(
     let inode_header_end = add(slot_offset, COMPACT_INODE_SIZE)
         .ok_or(ErofsError::Internal("inode header write overflow"))?;
 
+    let mut buf = [0_u8; COMPACT_INODE_SIZE];
     inode::write_compact(
-        image
-            .get_mut(slot_offset..inode_header_end)
-            .ok_or(ErofsError::Internal("inode header out of bounds"))?,
+        &mut buf,
         &CompactInodeParams {
             datalayout: inode.datalayout,
             xattr_icount: inode.xattr_icount,
@@ -46,11 +47,14 @@ pub(super) fn write_header(
             reserved2: 0,
         },
     );
+    seek_write(writer, u64_from_usize(slot_offset), &buf)?;
 
-    if !inode.xattr_payload.is_empty()
-        && !write_bytes(image, inode_header_end, &inode.xattr_payload)
-    {
-        return Err(ErofsError::Internal("xattr payload out of bounds"));
+    if !inode.xattr_payload.is_empty() {
+        seek_write(
+            writer,
+            u64_from_usize(inode_header_end),
+            &inode.xattr_payload,
+        )?;
     }
 
     Ok(())
@@ -58,14 +62,12 @@ pub(super) fn write_header(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::write_header;
     use crate::SLOT_SIZE;
     use crate::compress;
-    use crate::dir::EROFS_FT_REG_FILE;
-    use crate::error::ErofsError;
-    use crate::inode::{
-        COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN,
-    };
+    use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
     use crate::testutil::{compress_config, test_config};
@@ -79,7 +81,9 @@ mod tests {
         let cfg = test_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, &planned, &cfg).expect("write");
+        let image = cursor.into_inner();
 
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
@@ -102,7 +106,9 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, &planned, &cfg).expect("write");
+        let image = cursor.into_inner();
 
         let file = planned
             .inodes
@@ -131,7 +137,9 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, &planned, &cfg).expect("write");
+        let image = cursor.into_inner();
 
         let file = planned
             .inodes
@@ -179,13 +187,14 @@ mod tests {
             rdev: 0x0501,
             compressed: None,
         };
-        let mut image = vec![0_u8; 8192];
+        let mut cursor = Cursor::new(vec![0_u8; 8192]);
         let slot_offset = usize::try_from(inode.nid).expect("nid fits usize") * SLOT_SIZE;
 
-        write_header(&mut image, &inode, slot_offset).expect("inode header");
+        write_header(&mut cursor, &inode, slot_offset).expect("inode header");
 
         let stored = u32::from_le_bytes(
-            image
+            cursor
+                .get_ref()
                 .get(slot_offset + 0x10..slot_offset + 0x14)
                 .expect("rdev bytes")
                 .try_into()
@@ -194,44 +203,5 @@ mod tests {
         // ACT
         // ASSERT
         assert_eq!(stored, 0x0501);
-    }
-
-    #[test]
-    fn write_inode_header_reports_xattr_out_of_bounds() {
-        // ARRANGE
-        let inode = InodeLayout {
-            rel_path: "/xattr".to_owned(),
-            nid: 1,
-            ino: 0,
-            mode: 0,
-            uid: 0,
-            gid: 0,
-            mtime: 0,
-            mtime_nsec: 0,
-            nlink: 1,
-            file_type: EROFS_FT_REG_FILE,
-            size: 1,
-            datalayout: EROFS_INODE_FLAT_PLAIN,
-            xattr_payload: vec![1, 2, 3, 4],
-            xattr_icount: 1,
-            inline_data: Vec::new(),
-            raw_data: Vec::new(),
-            data_blkaddr: 0,
-            data_blocks: 0,
-            children: Vec::new(),
-            symlink_target: Vec::new(),
-            rdev: 0,
-            compressed: None,
-        };
-        let mut tiny_image = [0_u8; COMPACT_INODE_SIZE + 2];
-
-        let result = write_header(&mut tiny_image, &inode, 0);
-
-        // ACT
-        // ASSERT
-        assert!(matches!(
-            result,
-            Err(ErofsError::Internal("xattr payload out of bounds"))
-        ));
     }
 }

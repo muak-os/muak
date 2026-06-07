@@ -4,6 +4,8 @@
 
 extern crate alloc;
 
+use std::io::{Read, Seek, Write};
+
 mod checked;
 mod compress;
 mod dir;
@@ -18,8 +20,6 @@ mod xattr;
 
 /// EROFS compression algorithm and level.
 pub type Compression = compress::Compression;
-/// Error type for EROFS operations.
-pub type ErofsError = error::ErofsError;
 /// `SELinux` file context rules for labeling EROFS inodes.
 pub type FileContexts = filecontexts::FileContexts;
 /// Planned inode layout for the EROFS image.
@@ -31,8 +31,6 @@ pub type FilesystemTreeSource<'a> = layout::collect::FilesystemTreeSource<'a>;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
-/// Result type alias for EROFS operations.
-pub type Result<T> = error::Result<T>;
 
 /// Block size used throughout EROFS images (4 KiB).
 pub const BLOCK_SIZE: u32 = 4096;
@@ -62,12 +60,17 @@ pub struct MkfsConfig<'a> {
 ///
 /// Returns an error when the source is invalid, compression settings are invalid,
 /// filesystem metadata cannot be read, or the image cannot be serialized.
-pub fn mkfs(source: &dyn tree::TreeSource, config: &MkfsConfig<'_>) -> Result<Vec<u8>> {
+pub fn mkfs<W: Write + Seek + Read>(
+    writer: &mut W,
+    source: &dyn tree::TreeSource,
+    config: &MkfsConfig<'_>,
+) -> error::Result<()> {
     if let Some(level) = config.compression.level() {
         compress::validate_compression_level(level)?;
     }
     let plan = layout::plan(source, config)?;
-    writer::write_image(&plan, config)
+
+    writer::write_image(writer, &plan, config)
 }
 
 #[cfg(test)]
@@ -101,6 +104,7 @@ pub(crate) mod testutil {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::path::Path;
 
     use testutil::{compress_config, test_config};
@@ -114,7 +118,12 @@ mod tests {
         let nonexistent = Path::new("/this/path/does/not/exist/at/all");
 
         // ACT
-        let result = mkfs(&FilesystemTreeSource::new(nonexistent), &test_config(0));
+        let mut buf = Cursor::new(Vec::new());
+        let result = mkfs(
+            &mut buf,
+            &FilesystemTreeSource::new(nonexistent),
+            &test_config(0),
+        );
 
         // ASSERT
         result.unwrap_err();
@@ -133,8 +142,10 @@ mod tests {
         };
 
         // ACT
-        let image =
-            mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs should succeed");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config)
+            .expect("mkfs should succeed");
+        let image = buf.into_inner();
 
         // ASSERT
         assert!(!image.is_empty());
@@ -153,8 +164,10 @@ mod tests {
         };
 
         // ACT
-        let image =
-            mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs should succeed");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config)
+            .expect("mkfs should succeed");
+        let image = buf.into_inner();
 
         // ASSERT
         assert!(!image.is_empty());
@@ -167,8 +180,14 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let image = mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0))
-            .expect("mkfs should succeed");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(
+            &mut buf,
+            &FilesystemTreeSource::new(dir.path()),
+            &compress_config(0),
+        )
+        .expect("mkfs should succeed");
+        let image = buf.into_inner();
 
         // ASSERT
         assert!(!image.is_empty());
@@ -182,8 +201,14 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let image =
-            mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("mkfs");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(
+            &mut buf,
+            &FilesystemTreeSource::new(dir.path()),
+            &compress_config(0),
+        )
+        .expect("mkfs");
+        let image = buf.into_inner();
 
         // ASSERT
         let sb_off = 1024_usize;
@@ -218,8 +243,12 @@ mod tests {
         };
 
         // ACT
-        let image1 = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 1");
-        let image2 = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 2");
+        let mut buf1 = Cursor::new(Vec::new());
+        mkfs(&mut buf1, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 1");
+        let image1 = buf1.into_inner();
+        let mut buf2 = Cursor::new(Vec::new());
+        mkfs(&mut buf2, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 2");
+        let image2 = buf2.into_inner();
 
         // ASSERT
         assert_eq!(image1, image2);
@@ -232,8 +261,14 @@ mod tests {
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
         // ACT
-        let image =
-            mkfs(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("mkfs");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(
+            &mut buf,
+            &FilesystemTreeSource::new(dir.path()),
+            &compress_config(0),
+        )
+        .expect("mkfs");
+        let image = buf.into_inner();
 
         // ASSERT
         assert!(!image.is_empty());
@@ -262,12 +297,13 @@ mod tests {
         };
 
         // ACT
-        let result = mkfs(&FilesystemTreeSource::new(dir.path()), &config);
+        let mut buf = Cursor::new(Vec::new());
+        let result = mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config);
 
         // ASSERT
         assert!(matches!(
             result,
-            Err(ErofsError::InvalidCompressionLevel { .. })
+            Err(error::ErofsError::InvalidCompressionLevel { .. })
         ));
     }
 
@@ -303,7 +339,9 @@ mod tests {
         };
 
         // ACT
-        let image = mkfs(&FilesystemTreeSource::new(dir.path()), &config).expect("mkfs");
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs");
+        let image = buf.into_inner();
 
         // ASSERT
         assert!(!image.is_empty());

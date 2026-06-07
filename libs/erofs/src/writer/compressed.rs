@@ -1,8 +1,10 @@
 //! Compressed inode map encoding and pcluster data emission.
 
+use std::io::{Seek, Write};
+
 use super::dir::align8;
 use super::util::{block_offset, block_size_usize, mul, usize_from_u32};
-use crate::checked::{add, u16_from_usize, write_byte, write_bytes};
+use crate::checked::{add, seek_write, seek_write_byte, u16_from_usize, u64_from_usize};
 use crate::compress::{self, CompressedFile};
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, Z_EROFS_COMPRESSION_ZSTD, Z_EROFS_MAP_HEADER_SIZE};
@@ -66,7 +68,11 @@ pub(super) struct CompactWriteState {
     pub(super) update_blkaddr_in_pack: bool,
 }
 
-pub(super) fn write_file(image: &mut [u8], inode: &InodeLayout, slot_offset: usize) -> Result<()> {
+pub(super) fn write_file<W: Write + Seek>(
+    writer: &mut W,
+    inode: &InodeLayout,
+    slot_offset: usize,
+) -> Result<()> {
     let block_size = block_size_usize();
     let compressed_file = inode
         .compressed
@@ -80,7 +86,7 @@ pub(super) fn write_file(image: &mut [u8], inode: &InodeLayout, slot_offset: usi
         ))?;
 
     let map_header_off = align8(inode_header_end);
-    write_map_header(image, map_header_off)?;
+    write_map_header(writer, map_header_off)?;
 
     let entry_base = add(map_header_off, Z_EROFS_MAP_HEADER_SIZE)
         .ok_or(ErofsError::Internal("compact index base overflow"))?;
@@ -109,7 +115,7 @@ pub(super) fn write_file(image: &mut [u8], inode: &InodeLayout, slot_offset: usi
     };
 
     write_indexes(
-        image,
+        writer,
         &entries,
         &mut state,
         compact_4b_initial,
@@ -124,9 +130,11 @@ pub(super) fn write_file(image: &mut [u8], inode: &InodeLayout, slot_offset: usi
             block_size.saturating_sub(pcluster.compressed_data.len()),
         )
         .ok_or(ErofsError::Internal("compressed write start overflow"))?;
-        if !write_bytes(image, write_start, &pcluster.compressed_data) {
-            return Err(ErofsError::Internal("compressed data write out of bounds"));
-        }
+        seek_write(
+            writer,
+            u64_from_usize(write_start),
+            &pcluster.compressed_data,
+        )?;
         block_offset = block_offset.saturating_add(block_size);
     }
 
@@ -199,8 +207,8 @@ pub(super) fn build_legacy_index_entries(
     Ok(entries)
 }
 
-pub(super) fn write_indexes(
-    image: &mut [u8],
+pub(super) fn write_indexes<W: Write + Seek>(
+    writer: &mut W,
     entries: &[LegacyIndexEntry],
     state: &mut CompactWriteState,
     c4i: usize,
@@ -212,7 +220,7 @@ pub(super) fn write_indexes(
     let mut remaining_4b_initial = c4i;
     while remaining_4b_initial > 0 {
         let pack = two_entry_pack(entries, entry_index)?;
-        write_pack(image, state, &pack, 4, false, true)?;
+        write_pack(writer, state, &pack, 4, false, true)?;
         entry_index = entry_index.saturating_add(2);
         remaining_4b_initial = remaining_4b_initial.saturating_sub(2);
     }
@@ -220,7 +228,7 @@ pub(super) fn write_indexes(
     let mut remaining_2b = c2b;
     while remaining_2b >= 16 {
         let pack = sixteen_entry_pack(entries, entry_index)?;
-        write_pack(image, state, &pack, 2, false, true)?;
+        write_pack(writer, state, &pack, 2, false, true)?;
         entry_index = entry_index.saturating_add(16);
         remaining_2b = remaining_2b.saturating_sub(16);
     }
@@ -228,7 +236,7 @@ pub(super) fn write_indexes(
     let mut remaining_4b_end = c4e;
     while remaining_4b_end > 1 {
         let pack = two_entry_pack(entries, entry_index)?;
-        write_pack(image, state, &pack, 4, false, true)?;
+        write_pack(writer, state, &pack, 4, false, true)?;
         entry_index = entry_index.saturating_add(2);
         remaining_4b_end = remaining_4b_end.saturating_sub(2);
     }
@@ -238,7 +246,7 @@ pub(super) fn write_indexes(
             .get(entry_index)
             .ok_or(ErofsError::Internal("missing final compact index entry"))?;
         let pack = [first_entry, LegacyIndexEntry::zero()];
-        write_pack(image, state, &pack, 4, true, true)?;
+        write_pack(writer, state, &pack, 4, true, true)?;
         entry_index = entry_index.saturating_add(1);
     }
 
@@ -251,8 +259,8 @@ pub(super) fn write_indexes(
     Ok(())
 }
 
-pub(super) fn write_pack(
-    image: &mut [u8],
+pub(super) fn write_pack<W: Write + Seek>(
+    writer: &mut W,
     state: &mut CompactWriteState,
     pack: &[LegacyIndexEntry],
     destsize: usize,
@@ -308,9 +316,7 @@ pub(super) fn write_pack(
     let pack_bytes = out
         .get(..out_len)
         .ok_or(ErofsError::Internal("compact pack slice out of bounds"))?;
-    if !write_bytes(image, state.out_off, pack_bytes) {
-        return Err(ErofsError::Internal("compact pack write out of bounds"));
-    }
+    seek_write(writer, u64_from_usize(state.out_off), pack_bytes)?;
     state.out_off = state.out_off.saturating_add(out_len);
 
     Ok(())
@@ -390,21 +396,13 @@ pub(super) fn nonhead_offset(
     }
 }
 
-pub(super) fn write_map_header(image: &mut [u8], offset: usize) -> Result<()> {
-    if !write_bytes(image, offset, &0_u32.to_le_bytes()) {
-        return Err(ErofsError::Internal("map header prefix out of bounds"));
-    }
+pub(super) fn write_map_header<W: Write + Seek>(writer: &mut W, offset: usize) -> Result<()> {
+    let off = u64_from_usize(offset);
+    seek_write(writer, off, &0_u32.to_le_bytes())?;
     let h_advise: u16 = 0x0007;
-    if !write_bytes(image, offset.saturating_add(4), &h_advise.to_le_bytes()) {
-        return Err(ErofsError::Internal("map header advice out of bounds"));
-    }
-    let algorithmtype: u8 = Z_EROFS_COMPRESSION_ZSTD;
-    if !write_byte(image, offset.saturating_add(6), algorithmtype) {
-        return Err(ErofsError::Internal("map header algorithm out of bounds"));
-    }
-    if !write_byte(image, offset.saturating_add(7), 0) {
-        return Err(ErofsError::Internal("map header clusterbits out of bounds"));
-    }
+    seek_write(writer, off.saturating_add(4), &h_advise.to_le_bytes())?;
+    seek_write_byte(writer, off.saturating_add(6), Z_EROFS_COMPRESSION_ZSTD)?;
+    seek_write_byte(writer, off.saturating_add(7), 0)?;
 
     Ok(())
 }
@@ -436,17 +434,18 @@ pub(super) fn sixteen_entry_pack(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use zstd::bulk::decompress;
 
     use super::{
         CompactWriteState, LegacyIndexEntry, Z_EROFS_LCLUSTER_TYPE_HEAD1,
         Z_EROFS_LCLUSTER_TYPE_NONHEAD, Z_EROFS_LCLUSTER_TYPE_PLAIN, Z_EROFS_LI_D0_CBLKCNT,
         build_legacy_index_entries, head_offset, nonhead_offset, pack_bits_le, sixteen_entry_pack,
-        two_entry_pack, write_indexes, write_map_header, write_pack,
+        two_entry_pack, write_indexes, write_pack,
     };
     use crate::SLOT_SIZE;
     use crate::compress::{self, CompressedFile};
-    use crate::error::ErofsError;
     use crate::inode::COMPACT_INODE_SIZE;
     use crate::layout;
     use crate::layout::collect::FilesystemTreeSource;
@@ -460,6 +459,12 @@ mod tests {
             .expect("compressed file")
     }
 
+    fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, planned, cfg).expect("write_image");
+        cursor.into_inner()
+    }
+
     #[test]
     fn write_compressed_map_header_zstd() {
         // ARRANGE
@@ -468,7 +473,7 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         let file = planned
             .inodes
@@ -492,7 +497,7 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         let file = planned
             .inodes
@@ -523,7 +528,7 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         let file = planned
             .inodes
@@ -583,7 +588,7 @@ mod tests {
     #[test]
     fn write_compacted_pack_encodes_head_clusterofs() {
         // ARRANGE
-        let mut image = vec![0_u8; 4096];
+        let mut cursor = Cursor::new(vec![0_u8; 4096]);
         let mut state = CompactWriteState {
             out_off: 512,
             blkaddr_ret: 200,
@@ -593,8 +598,9 @@ mod tests {
         };
         let pack = [LegacyIndexEntry::head(904, 200), LegacyIndexEntry::zero()];
 
-        write_pack(&mut image, &mut state, &pack, 4, true, true).expect("pack");
+        write_pack(&mut cursor, &mut state, &pack, 4, true, true).expect("pack");
 
+        let image = cursor.get_ref();
         let encoded_first = u16::from_le_bytes(
             image
                 .get(512..514)
@@ -627,7 +633,7 @@ mod tests {
         let cfg = compress_config(0);
 
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         let file = planned
             .inodes
@@ -657,29 +663,23 @@ mod tests {
     }
 
     #[test]
-    fn helper_packs_and_map_header_report_out_of_bounds() {
+    fn helper_packs_handle_missing_entries() {
         // ARRANGE
         let entries = [LegacyIndexEntry::head(0, 0)];
-        let mut image = [0_u8; 4];
 
         let two_pack = two_entry_pack(&entries, 0);
         let sixteen_pack = sixteen_entry_pack(&entries, 0);
-        let header_write = write_map_header(&mut image, 0);
 
         // ACT
         // ASSERT
         assert!(two_pack.is_err());
         assert!(sixteen_pack.is_err());
-        assert!(matches!(
-            header_write,
-            Err(ErofsError::Internal("map header advice out of bounds"))
-        ));
     }
 
     #[test]
     fn compact_index_helpers_cover_final_pack_and_tail_cases() {
         // ARRANGE
-        let mut image = vec![0_u8; 64];
+        let mut cursor = Cursor::new(vec![0_u8; 64]);
         let entries = vec![LegacyIndexEntry::head(0, 7)];
         let mut state = CompactWriteState {
             out_off: 0,
@@ -690,7 +690,7 @@ mod tests {
         };
         let nonhead_entry = LegacyIndexEntry::nonhead(2, Z_EROFS_LI_D0_CBLKCNT + 5);
 
-        let write_result = write_indexes(&mut image, &entries, &mut state, 0, 0, 1);
+        let write_result = write_indexes(&mut cursor, &entries, &mut state, 0, 0, 1);
         let tail_offset = nonhead_offset(&nonhead_entry, 0, 1, &mut state);
 
         // ACT
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn compact_index_helpers_cover_remaining_pack_paths() {
         // ARRANGE
-        let mut image = vec![0_u8; 128];
+        let mut cursor = Cursor::new(vec![0_u8; 128]);
         let entries = build_legacy_index_entries(&compressed_file(18 * 4096), 0).expect("entries");
         let mut state = CompactWriteState {
             out_off: 0,
@@ -733,60 +733,12 @@ mod tests {
             blkaddr: 0,
             update_blkaddr_in_pack: false,
         };
-        let mut write_image_buf = [0_u8; 4];
-        let mut tiny_state = CompactWriteState {
-            out_off: 0,
-            blkaddr_ret: 0,
-            dummy_head: false,
-            blkaddr: 0,
-            update_blkaddr_in_pack: false,
-        };
 
-        let write_indexes = write_indexes(&mut image, &entries, &mut state, 0, 16, 2);
-        tiny_state.out_off = 2;
-        let write_error = write_pack(
-            &mut write_image_buf,
-            &mut tiny_state,
-            &[LegacyIndexEntry::head(0, 0), LegacyIndexEntry::head(0, 1)],
-            4,
-            false,
-            true,
-        );
+        let result = write_indexes(&mut cursor, &entries, &mut state, 0, 16, 2);
 
         // ACT
         // ASSERT
-        write_indexes.expect("write indexes");
+        result.expect("write indexes");
         assert!(entries.len() >= 18);
-        assert!(matches!(
-            write_error,
-            Err(ErofsError::Internal("compact pack write out of bounds"))
-        ));
-    }
-
-    #[test]
-    fn write_map_header_reports_suffix_out_of_bounds() {
-        // ARRANGE
-        let mut advice_image = [0_u8; 5];
-        let mut algorithm_image = [0_u8; 6];
-        let mut clusterbits_image = [0_u8; 7];
-
-        let advice_error = write_map_header(&mut advice_image, 0);
-        let algorithm_error = write_map_header(&mut algorithm_image, 0);
-        let clusterbits_error = write_map_header(&mut clusterbits_image, 0);
-
-        // ACT
-        // ASSERT
-        assert!(matches!(
-            advice_error,
-            Err(ErofsError::Internal("map header advice out of bounds"))
-        ));
-        assert!(matches!(
-            algorithm_error,
-            Err(ErofsError::Internal("map header algorithm out of bounds"))
-        ));
-        assert!(matches!(
-            clusterbits_error,
-            Err(ErofsError::Internal("map header clusterbits out of bounds"))
-        ));
     }
 }

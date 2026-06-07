@@ -4,26 +4,37 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::vec::Vec;
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use super::compressed::write_file as write_compressed;
 use super::data::{dir as write_dir, file as write_file, symlink as write_symlink};
 use super::inode::write_header;
 use super::util::{block_size_usize, slot_offset};
-use crate::checked::{add, u32_from_usize};
+use crate::checked::{add, u32_from_usize, u64_from_usize};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::COMPACT_INODE_SIZE;
 use crate::layout::ImagePlan;
 use crate::superblock::{self, SuperblockParams};
 
-/// Build a complete EROFS image from a planned image plan.
-pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
+/// Build a complete EROFS image from a planned image plan into a `Write + Seek + Read` sink.
+pub fn write_image<W: Write + Seek + Read>(
+    writer: &mut W,
+    plan: &ImagePlan,
+    config: &crate::MkfsConfig<'_>,
+) -> Result<()> {
     let block_size = block_size_usize();
     let total_size = plan.total_size;
     let inodes = &plan.inodes;
     let has_compressed = plan.do_compress;
-    let mut image = vec![0_u8; total_size];
+
+    writer
+        .seek(SeekFrom::Start(
+            u64_from_usize(total_size).saturating_sub(1),
+        ))
+        .map_err(ErofsError::Io)?;
+    writer.write_all(&[0]).map_err(ErofsError::Io)?;
+    writer.seek(SeekFrom::Start(0)).map_err(ErofsError::Io)?;
 
     let path_to_idx: BTreeMap<String, usize> = inodes
         .iter()
@@ -38,12 +49,12 @@ pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<V
             .and_then(|offset| add(offset, xattr_size))
             .ok_or(ErofsError::Internal("inode header offset overflow"))?;
 
-        write_header(&mut image, inode, slot_offset)?;
+        write_header(writer, inode, slot_offset)?;
 
         match inode.file_type {
             EROFS_FT_DIR => {
                 write_dir(
-                    &mut image,
+                    writer,
                     inode,
                     inodes,
                     &path_to_idx,
@@ -52,13 +63,13 @@ pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<V
                 )?;
             }
             EROFS_FT_SYMLINK => {
-                write_symlink(&mut image, inode, inode_header_end, block_size)?;
+                write_symlink(writer, inode, inode_header_end, block_size)?;
             }
             EROFS_FT_REG_FILE if inode.compressed.is_some() => {
-                write_compressed(&mut image, inode, slot_offset)?;
+                write_compressed(writer, inode, slot_offset)?;
             }
             EROFS_FT_REG_FILE if inode.size > 0 => {
-                write_file(&mut image, inode, inode_header_end, block_size)?;
+                write_file(writer, inode, inode_header_end, block_size)?;
             }
             _ => {}
         }
@@ -73,7 +84,7 @@ pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<V
         .unwrap_or(u32::MAX);
 
     superblock::write(
-        &mut image,
+        writer,
         &SuperblockParams {
             root_nid,
             inos: u64::try_from(inodes.len()).ok().unwrap_or(u64::MAX),
@@ -82,14 +93,16 @@ pub fn write_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<V
             uuid: config.uuid,
             has_compression: has_compressed,
         },
-    );
-    superblock::write_checksum(&mut image);
+    )?;
+    superblock::write_checksum(writer)?;
 
-    Ok(image)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::write_image;
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
@@ -97,6 +110,12 @@ mod tests {
     use crate::layout::collect::FilesystemTreeSource;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
     use crate::testutil::{compress_config, test_config};
+
+    fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, planned, cfg).expect("write_image");
+        cursor.into_inner()
+    }
 
     #[test]
     fn write_image_empty_file_has_zero_startblk() {
@@ -107,7 +126,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let empty = planned
@@ -134,7 +153,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let magic = u32::from_le_bytes(
@@ -155,7 +174,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
@@ -180,7 +199,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let root_nid = u16::from_le_bytes(
@@ -206,9 +225,9 @@ mod tests {
 
         // ACT
         let planned1 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image1 = write_image(&planned1, &cfg).expect("write");
+        let image1 = run_write(&planned1, &cfg);
         let planned2 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image2 = write_image(&planned2, &cfg).expect("write");
+        let image2 = run_write(&planned2, &cfg);
 
         // ASSERT
         assert_eq!(image1, image2);
@@ -229,7 +248,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let _image = write_image(&planned, &cfg).expect("write");
+        let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
         let file = planned
@@ -249,7 +268,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
@@ -265,7 +284,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let cfg_off = EROFS_SUPER_OFFSET + 128;

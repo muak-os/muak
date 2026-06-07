@@ -1,17 +1,18 @@
 //! Plain and inline data writers for files, directories, and symlinks.
 
 use alloc::collections::BTreeMap;
+use std::io::{Seek, Write};
 
 use super::dir::{find_parent_nid, sorted_entries};
 use super::util::{block_offset, full_block_bytes, usize_from_u32};
-use crate::checked::{add, write_bytes};
+use crate::checked::{add, seek_write, u64_from_usize};
 use crate::dir;
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_INLINE;
 use crate::layout::InodeLayout;
 
-pub(super) fn inline(
-    image: &mut [u8],
+pub(super) fn inline<W: Write + Seek>(
+    writer: &mut W,
     data: &[u8],
     data_blocks: u32,
     data_blkaddr: u32,
@@ -25,9 +26,7 @@ pub(super) fn inline(
         let full_block_data = data
             .get(..full_block_bytes)
             .ok_or(ErofsError::Internal("inline block data out of bounds"))?;
-        if !write_bytes(image, data_start, full_block_data) {
-            return Err(ErofsError::Internal("inline block write out of bounds"));
-        }
+        seek_write(writer, u64_from_usize(data_start), full_block_data)?;
     }
     let tail_len = data_size.saturating_sub(full_block_bytes);
     if tail_len > 0 {
@@ -36,30 +35,25 @@ pub(super) fn inline(
         let tail = data
             .get(full_block_bytes..tail_end)
             .ok_or(ErofsError::Internal("inline tail data out of bounds"))?;
-        if !write_bytes(image, inode_header_end, tail) {
-            return Err(ErofsError::Internal("inline tail write out of bounds"));
-        }
+        seek_write(writer, u64_from_usize(inode_header_end), tail)?;
     }
 
     Ok(())
 }
 
-pub(super) fn plain(
-    image: &mut [u8],
+pub(super) fn plain<W: Write + Seek>(
+    writer: &mut W,
     data: &[u8],
     data_blkaddr: u32,
     block_size: usize,
 ) -> Result<()> {
     let data_start = block_offset(data_blkaddr, block_size, "plain data")?;
-    if write_bytes(image, data_start, data) {
-        Ok(())
-    } else {
-        Err(ErofsError::Internal("plain data write out of bounds"))
-    }
+    seek_write(writer, u64_from_usize(data_start), data)?;
+    Ok(())
 }
 
-pub(super) fn dir(
-    image: &mut [u8],
+pub(super) fn dir<W: Write + Seek>(
+    writer: &mut W,
     inode: &InodeLayout,
     all_inodes: &[InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
@@ -72,7 +66,7 @@ pub(super) fn dir(
 
     if inode.datalayout == EROFS_INODE_FLAT_INLINE {
         inline(
-            image,
+            writer,
             &dir_data,
             inode.data_blocks,
             inode.data_blkaddr,
@@ -81,19 +75,19 @@ pub(super) fn dir(
             block_size,
         )
     } else {
-        plain(image, &dir_data, inode.data_blkaddr, block_size)
+        plain(writer, &dir_data, inode.data_blkaddr, block_size)
     }
 }
 
-pub(super) fn symlink(
-    image: &mut [u8],
+pub(super) fn symlink<W: Write + Seek>(
+    writer: &mut W,
     inode: &InodeLayout,
     inode_header_end: usize,
     block_size: usize,
 ) -> Result<()> {
     if inode.datalayout == EROFS_INODE_FLAT_INLINE {
         inline(
-            image,
+            writer,
             &inode.symlink_target,
             inode.data_blocks,
             inode.data_blkaddr,
@@ -102,12 +96,17 @@ pub(super) fn symlink(
             block_size,
         )
     } else {
-        plain(image, &inode.symlink_target, inode.data_blkaddr, block_size)
+        plain(
+            writer,
+            &inode.symlink_target,
+            inode.data_blkaddr,
+            block_size,
+        )
     }
 }
 
-pub(super) fn file(
-    image: &mut [u8],
+pub(super) fn file<W: Write + Seek>(
+    writer: &mut W,
     inode: &InodeLayout,
     inode_header_end: usize,
     block_size: usize,
@@ -116,7 +115,7 @@ pub(super) fn file(
 
     if inode.datalayout == EROFS_INODE_FLAT_INLINE {
         inline(
-            image,
+            writer,
             file_data,
             inode.data_blocks,
             inode.data_blkaddr,
@@ -125,21 +124,26 @@ pub(super) fn file(
             block_size,
         )?;
     } else {
-        plain(image, file_data, inode.data_blkaddr, block_size)?;
+        plain(writer, file_data, inode.data_blkaddr, block_size)?;
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{file, inline, plain};
-    use crate::dir::EROFS_FT_REG_FILE;
-    use crate::error::ErofsError;
+    use std::io::Cursor;
+
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::layout;
     use crate::layout::collect::FilesystemTreeSource;
-    use crate::layout::{self, InodeLayout};
     use crate::testutil::test_config;
     use crate::writer::write_image;
+
+    fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        write_image(&mut cursor, planned, cfg).expect("write_image");
+        cursor.into_inner()
+    }
 
     #[test]
     fn write_image_with_inline_file() {
@@ -150,7 +154,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let file_inode = planned
@@ -173,7 +177,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let root = planned.inodes.first().expect("root inode");
@@ -209,7 +213,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let link = planned
@@ -231,7 +235,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let _image = write_image(&planned, &cfg).expect("write");
+        let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
         let link = planned
@@ -253,7 +257,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let _image = write_image(&planned, &cfg).expect("write");
+        let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
         let file = planned
@@ -274,7 +278,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let _image = write_image(&planned, &cfg).expect("write");
+        let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
         let file = planned
@@ -295,7 +299,7 @@ mod tests {
 
         // ACT
         let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
-        let image = write_image(&planned, &cfg).expect("write");
+        let image = run_write(&planned, &cfg);
 
         // ASSERT
         let file = planned
@@ -311,79 +315,5 @@ mod tests {
                 .expect("plain data bytes"),
             data.as_slice()
         );
-    }
-
-    #[test]
-    fn write_inline_data_reports_out_of_bounds_errors() {
-        // ARRANGE
-        let mut small_inline_image = [0_u8; 4];
-
-        // ACT
-        let block_inline_result = inline(&mut small_inline_image, &[1, 2, 3, 4], 1, 1, 4, 0, 4);
-        let tail_inline_result = inline(&mut small_inline_image, &[1, 2, 3], 0, 0, 3, 3, 4);
-
-        // ASSERT
-        assert!(matches!(
-            block_inline_result,
-            Err(ErofsError::Internal("inline block write out of bounds"))
-        ));
-        assert!(matches!(
-            tail_inline_result,
-            Err(ErofsError::Internal("inline tail write out of bounds"))
-        ));
-    }
-
-    #[test]
-    fn write_plain_data_reports_out_of_bounds_errors() {
-        // ARRANGE
-        let mut plain_image = [0_u8; 4];
-
-        // ACT
-        let plain_result = plain(&mut plain_image, &[1, 2, 3, 4, 5], 0, 4);
-
-        // ASSERT
-        assert!(matches!(
-            plain_result,
-            Err(ErofsError::Internal("plain data write out of bounds"))
-        ));
-    }
-
-    #[test]
-    fn write_file_data_plain_out_of_bounds() {
-        // ARRANGE
-        let inode = InodeLayout {
-            rel_path: "/data".to_owned(),
-            nid: 1,
-            ino: 0,
-            mode: 0,
-            uid: 0,
-            gid: 0,
-            mtime: 0,
-            mtime_nsec: 0,
-            nlink: 1,
-            file_type: EROFS_FT_REG_FILE,
-            size: 0,
-            datalayout: EROFS_INODE_FLAT_PLAIN,
-            xattr_payload: Vec::new(),
-            xattr_icount: 0,
-            inline_data: Vec::new(),
-            raw_data: vec![0xAB; 8],
-            data_blkaddr: 0,
-            data_blocks: 0,
-            children: Vec::new(),
-            symlink_target: Vec::new(),
-            rdev: 0,
-            compressed: None,
-        };
-        let mut image = vec![0_u8; 4];
-
-        // ACT
-        let result = file(&mut image, &inode, 0, 4096);
-
-        // ASSERT
-        assert!(matches!(
-            result,
-            Err(ErofsError::Internal("plain data write out of bounds"))
-        ));
     }
 }
