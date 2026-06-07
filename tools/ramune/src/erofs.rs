@@ -24,7 +24,12 @@ pub(crate) fn create(
             level: compression_level,
         },
     };
-    erofs::mkfs(source_dir, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))
+
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let source = erofs::FilesystemTreeSource::new(source_dir);
+    erofs::mkfs(&mut buf, &source, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))?;
+
+    Ok(buf.into_inner())
 }
 
 #[cfg(test)]
