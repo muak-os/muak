@@ -425,8 +425,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn run_with_create_writes_output() {
+    #[test]
+    fn run_with_create_writes_output() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -444,15 +444,14 @@ mod tests {
             "--output",
             output.to_str().expect("output path"),
         ])
-        .await
         .expect("run_from create");
 
         // ASSERT
         assert!(output.exists());
     }
 
-    #[tokio::test]
-    async fn run_with_create_with_file_contexts_writes_output() {
+    #[test]
+    fn run_with_create_with_file_contexts_writes_output() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -473,15 +472,14 @@ mod tests {
             "--output",
             output.to_str().expect("output path"),
         ])
-        .await
         .expect("run_from create");
 
         // ASSERT
         assert!(output.exists());
     }
 
-    #[tokio::test]
-    async fn run_with_create_accepts_rootfs_compression_level() {
+    #[test]
+    fn run_with_create_accepts_rootfs_compression_level() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -501,15 +499,14 @@ mod tests {
             "--output",
             output.to_str().expect("output path"),
         ])
-        .await
         .expect("run_from create");
 
         // ASSERT
         assert!(output.exists());
     }
 
-    #[tokio::test]
-    async fn run_with_create_missing_file_contexts_errors() {
+    #[test]
+    fn run_with_create_missing_file_contexts_errors() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -530,15 +527,14 @@ mod tests {
                 .expect("file_contexts path"),
             "--output",
             output.to_str().expect("output path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn run_with_create_invalid_file_contexts_errors() {
+    #[test]
+    fn run_with_create_invalid_file_contexts_errors() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -558,15 +554,14 @@ mod tests {
             file_contexts.to_str().expect("file_contexts path"),
             "--output",
             output.to_str().expect("output path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn run_with_extend_writes_output() {
+    #[test]
+    fn run_with_extend_writes_output() {
         // ARRANGE
         let env = TestEnv::new();
         let base = env.write("base.img", b"base");
@@ -587,15 +582,14 @@ mod tests {
             "--output",
             output.to_str().expect("output path"),
         ])
-        .await
         .expect("run_from extend");
 
         // ASSERT
         assert!(output.exists());
     }
 
-    #[tokio::test]
-    async fn run_with_extend_missing_base_errors() {
+    #[test]
+    fn run_with_extend_missing_base_errors() {
         // ARRANGE
         let env = TestEnv::new();
         let output = env.path("run-with-extended.img");
@@ -608,15 +602,14 @@ mod tests {
             env.path("missing.img").to_str().expect("base path"),
             "--output",
             output.to_str().expect("output path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn run_with_returns_zero_for_success() {
+    #[test]
+    fn run_with_returns_zero_for_success() {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
@@ -633,15 +626,14 @@ mod tests {
             rootfs.to_str().expect("rootfs path"),
             "--output",
             output.to_str().expect("output path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert_eq!(exit_code, 0);
     }
 
-    #[tokio::test]
-    async fn run_with_returns_one_for_error() {
+    #[test]
+    fn run_with_returns_one_for_error() {
         // ARRANGE
         let env = TestEnv::new();
         let output = env.path("run-with-extended.img");
@@ -654,8 +646,7 @@ mod tests {
             env.path("missing.img").to_str().expect("base path"),
             "--output",
             output.to_str().expect("output path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert_eq!(exit_code, 1);

@@ -84,22 +84,22 @@ fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, String, bool), Strin
 /// # Errors
 ///
 /// Returns an error when argument parsing fails or when the requested command fails.
-pub async fn run_from<I, T>(args: I) -> Result<()>
+pub fn run_from<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     let args = Cli::parse_from(args);
-    run_command(args.command).await
+    run_command(args.command)
 }
 
 /// Like `run_from` but returns an exit code (0 for success, 1 for error).
-pub async fn run_with<I, T>(args: I) -> i32
+pub fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    match run_from(args).await {
+    match run_from(args) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:?}");
@@ -110,11 +110,11 @@ where
 
 /// Runs the CLI from the process's `std::env::args_os`.
 #[must_use]
-pub async fn run() -> i32 {
-    run_with(std::env::args_os()).await
+pub fn run() -> i32 {
+    run_with(std::env::args_os())
 }
 
-async fn run_command(command: Command) -> Result<()> {
+fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Create {
             init,
@@ -178,9 +178,9 @@ async fn run_command(command: Command) -> Result<()> {
                 compression_level,
             };
 
-            crate::extend(&config, &output)
-                .await
-                .context("Failed to build initramfs")?;
+            let mut file = std::fs::File::create(&output)
+                .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+            crate::extend(&config, &mut file).context("Failed to build initramfs")?;
 
             println!("Successfully created initramfs at {}", output.display());
 

@@ -2,8 +2,6 @@
 
 use std::path::Path;
 
-use tokio::task::JoinSet;
-
 use crate::erofs;
 use crate::error::{RamuneError, Result};
 use crate::extender::ExtraFile;
@@ -13,41 +11,62 @@ pub(crate) const MAX_CONCURRENT: usize = 8;
 type ProcessOutput = (String, Vec<u8>);
 
 /// Processes a list of `ExtraFile` entries concurrently and deterministically.
-pub(crate) async fn process_extra_files(
+pub(crate) fn process_extra_files(
     extra_files: &[&ExtraFile<'_>],
     compression_level: i32,
 ) -> Result<Vec<ProcessOutput>> {
     let mut files = Vec::with_capacity(extra_files.len());
 
     for batch in extra_files.chunks(MAX_CONCURRENT) {
-        files.extend(process_batch(batch, compression_level).await?);
+        files.extend(process_batch(batch, compression_level)?);
     }
 
     files.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
     Ok(files)
 }
 
-async fn process_batch(
-    batch: &[&ExtraFile<'_>],
-    compression_level: i32,
-) -> Result<Vec<ProcessOutput>> {
-    let mut tasks = JoinSet::new();
-
-    for entry in batch {
-        let name = entry.name.clone();
-        let path = entry.path.to_path_buf();
-        let compress = entry.compress;
-
-        tasks.spawn_blocking(move || process_one(&name, &path, compress, compression_level));
-    }
-
+fn process_batch(batch: &[&ExtraFile<'_>], compression_level: i32) -> Result<Vec<ProcessOutput>> {
     let mut files = Vec::with_capacity(batch.len());
 
-    while let Some(result) = tasks.join_next().await {
-        files.push(result.map_err(RamuneError::TaskError)??);
+    let result = std::thread::scope(|scope| -> core::result::Result<(), RamuneError> {
+        let mut handles = Vec::with_capacity(batch.len());
+
+        for entry in batch {
+            let name = entry.name.clone();
+            let path = entry.path.to_path_buf();
+            let compress = entry.compress;
+
+            handles
+                .push(scope.spawn(move || process_one(&name, &path, compress, compression_level)));
+        }
+
+        for handle in handles {
+            join_result(handle.join(), &mut files)?;
+        }
+
+        Ok(())
+    });
+
+    result?;
+    Ok(files)
+}
+
+fn join_result(
+    result: std::thread::Result<core::result::Result<ProcessOutput, RamuneError>>,
+    files: &mut Vec<ProcessOutput>,
+) -> core::result::Result<(), RamuneError> {
+    match result {
+        Ok(Ok(output)) => files.push(output),
+        Ok(Err(err)) => return Err(err),
+        Err(_) => {
+            return Err(RamuneError::CpioError(
+                "extra file thread panicked".to_owned(),
+            ));
+        }
     }
 
-    Ok(files)
+    Ok(())
 }
 
 fn process_one(
@@ -94,27 +113,27 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn process_extra_files_empty() {
+    #[test]
+    fn process_extra_files_empty() {
         // ARRANGE
         let entries: &[&ExtraFile<'_>] = &[];
 
         // ACT
-        let result = process_extra_files(entries, 3).await.expect("process");
+        let result = process_extra_files(entries, 3).expect("process");
 
         // ASSERT
         assert!(result.is_empty());
     }
 
-    #[tokio::test]
-    async fn process_extra_files_compress_dir() {
+    #[test]
+    fn process_extra_files_compress_dir() {
         // ARRANGE
         let dir = make_extension_dir("file.txt", b"data");
         let entry = extra_file("extensions/test.erofs", dir.path(), true);
         let entries = [&entry];
 
         // ACT
-        let files = process_extra_files(&entries, 3).await.expect("process");
+        let files = process_extra_files(&entries, 3).expect("process");
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -122,15 +141,15 @@ mod tests {
         assert!(!files.first().expect("first").1.is_empty());
     }
 
-    #[tokio::test]
-    async fn process_extra_files_plain_file() {
+    #[test]
+    fn process_extra_files_plain_file() {
         // ARRANGE
         let file = make_temp_file(b"profile data");
         let entry = extra_file("profile.toml", file.path(), false);
         let entries = [&entry];
 
         // ACT
-        let files = process_extra_files(&entries, 3).await.expect("process");
+        let files = process_extra_files(&entries, 3).expect("process");
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -138,8 +157,8 @@ mod tests {
         assert_eq!(files.first().expect("first").1, b"profile data");
     }
 
-    #[tokio::test]
-    async fn process_extra_files_mixed_sorted() {
+    #[test]
+    fn process_extra_files_mixed_sorted() {
         // ARRANGE
         let dir = make_extension_dir("f.txt", b"ext");
         let file = make_temp_file(b"raw");
@@ -150,7 +169,7 @@ mod tests {
         ];
 
         // ACT
-        let files = process_extra_files(&entries, 3).await.expect("process");
+        let files = process_extra_files(&entries, 3).expect("process");
 
         // ASSERT
         assert_eq!(files.len(), 2);
@@ -158,15 +177,15 @@ mod tests {
         assert_eq!(files.get(1).expect("second").0, "extensions/z.erofs");
     }
 
-    #[tokio::test]
-    async fn process_extra_files_missing_source_errors() {
+    #[test]
+    fn process_extra_files_missing_source_errors() {
         // ARRANGE
         let missing = PathBuf::from("/nonexistent/extra-source");
         let entry = extra_file("missing.erofs", &missing, true);
         let entries = [&entry];
 
         // ACT
-        let result = process_extra_files(&entries, 3).await;
+        let result = process_extra_files(&entries, 3);
 
         // ASSERT
         assert!(
@@ -176,15 +195,15 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn process_extra_files_invalid_compression_errors() {
+    #[test]
+    fn process_extra_files_invalid_compression_errors() {
         // ARRANGE
         let dir = make_extension_dir("f.txt", b"data");
         let entry = extra_file("ext.erofs", dir.path(), true);
         let entries = [&entry];
 
         // ACT
-        let result = process_extra_files(&entries, i32::MAX).await;
+        let result = process_extra_files(&entries, i32::MAX);
 
         // ASSERT
         assert!(
@@ -194,44 +213,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "spawn_blocking requires an extra closure nesting level"
-    )]
-    async fn process_extra_files_task_panic_errors() {
-        // ARRANGE
-        let dir = make_extension_dir("file.txt", b"data");
-        let entry = extra_file("panic-ext.erofs", dir.path(), true);
-
-        let mut tasks = JoinSet::new();
-        let name = entry.name.clone();
-        let path = entry.path.to_path_buf();
-        let compress = entry.compress;
-        tasks.spawn_blocking(move || -> Result<ProcessOutput> {
-            drop((name, path, compress));
-            panic!("task panicked")
-        });
-
-        // ACT
-        let result: Result<Vec<ProcessOutput>> = async {
-            let mut files = Vec::new();
-            while let Some(result) = tasks.join_next().await {
-                files.push(result.map_err(RamuneError::TaskError)??);
-            }
-            Ok(files)
-        }
-        .await;
-
-        // ASSERT
-        assert!(matches!(
-            result.as_ref(),
-            Err(RamuneError::TaskError(error)) if error.is_panic()
-        ));
-    }
-
-    #[tokio::test]
-    async fn process_extra_files_exceeds_concurrency_limit() {
+    #[test]
+    fn process_extra_files_exceeds_concurrency_limit() {
         // ARRANGE
         let dirs: Vec<_> = (0..MAX_CONCURRENT.saturating_add(2))
             .map(|index| make_extension_dir("x.txt", format!("{index}").as_bytes()))
@@ -244,7 +227,7 @@ mod tests {
         let refs: Vec<&ExtraFile<'_>> = entries.iter().collect();
 
         // ACT
-        let files = process_extra_files(&refs, 3).await.expect("process");
+        let files = process_extra_files(&refs, 3).expect("process");
 
         // ASSERT
         assert_eq!(files.len(), MAX_CONCURRENT.saturating_add(2));

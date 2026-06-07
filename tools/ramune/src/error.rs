@@ -1,7 +1,6 @@
 //! Error types for the ramune initramfs builder.
 
 use thiserror::Error;
-use tokio::task::JoinError;
 
 /// Error type for initramfs build operations.
 #[derive(Error, Debug)]
@@ -46,10 +45,6 @@ pub enum RamuneError {
         /// Maximum valid level.
         max: i32,
     },
-
-    /// An async worker task failed.
-    #[error("Worker task failed: {0}")]
-    TaskError(#[source] JoinError),
 
     /// EROFS filesystem creation failed.
     #[error("Failed to create EROFS image: {0}")]

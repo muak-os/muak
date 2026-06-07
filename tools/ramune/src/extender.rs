@@ -3,9 +3,6 @@
 use std::io::Write;
 use std::path::Path;
 
-use tokio::fs::{OpenOptions, canonicalize, copy};
-use tokio::io::{AsyncWrite, AsyncWriteExt as _};
-
 use crate::compress;
 use crate::cpio;
 use crate::error::{RamuneError, Result};
@@ -31,36 +28,50 @@ pub struct ExtraFile<'a> {
     pub compress: bool,
 }
 
-/// Builds an initramfs by appending a zstd-compressed archive of extra files to a base image.
+/// Builds an initramfs by appending a zstd-compressed archive of extra files to a base image,
+/// writing the result into `writer`.
+///
+/// The base image is read from `config.base` and written to `writer` first,
+/// then the extra-file archive is appended.
 ///
 /// # Errors
 ///
 /// Returns an error when validation of extra files fails, the base image cannot be read,
-/// extra files cannot be processed, compression fails, or the output cannot be written.
-pub async fn extend(config: &ExtendConfig<'_>, output: &Path) -> Result<()> {
+/// extra files cannot be processed, compression fails, or writing to the output sink fails.
+pub fn extend<W: Write>(config: &ExtendConfig<'_>, writer: &mut W) -> Result<()> {
     let mut sorted: Vec<&ExtraFile<'_>> = config.extra_files.iter().collect();
     sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
     let sorted = sorted.as_slice();
 
     validate_extra_files(sorted)?;
 
-    let same_file = is_same_file(config.base, output).await;
-
-    if !same_file {
-        copy(config.base, output)
-            .await
-            .map_err(|e| RamuneError::ReadError {
-                file: config.base.display().to_string(),
-                source: e,
-            })?;
-    }
+    let base_data = std::fs::read(config.base).map_err(|e| RamuneError::ReadError {
+        file: config.base.display().to_string(),
+        source: e,
+    })?;
+    writer
+        .write_all(&base_data)
+        .map_err(|e| RamuneError::WriteError {
+            file: String::new(),
+            source: e,
+        })?;
 
     if sorted.is_empty() {
         return Ok(());
     }
 
-    let archive = build_extra_archive(sorted, config.compression_level).await?;
-    append_to_file(output, &archive).await
+    let archive = build_extra_archive(sorted, config.compression_level)?;
+    writer
+        .write_all(&archive)
+        .map_err(|e| RamuneError::WriteError {
+            file: String::new(),
+            source: e,
+        })?;
+
+    writer.flush().map_err(|e| RamuneError::WriteError {
+        file: String::new(),
+        source: e,
+    })
 }
 
 fn validate_extra_files(extra_files: &[&ExtraFile<'_>]) -> Result<()> {
@@ -102,18 +113,8 @@ fn validate_extra_files(extra_files: &[&ExtraFile<'_>]) -> Result<()> {
     Ok(())
 }
 
-async fn is_same_file(first: &Path, second: &Path) -> bool {
-    match (canonicalize(first).await, canonicalize(second).await) {
-        (Ok(first_path), Ok(second_path)) => first_path == second_path,
-        _ => false,
-    }
-}
-
-async fn build_extra_archive(
-    extra_files: &[&ExtraFile<'_>],
-    compression_level: i32,
-) -> Result<Vec<u8>> {
-    let files = process_extra_files(extra_files, compression_level).await?;
+fn build_extra_archive(extra_files: &[&ExtraFile<'_>], compression_level: i32) -> Result<Vec<u8>> {
+    let files = process_extra_files(extra_files, compression_level)?;
     write_compressed_cpio_archive(Vec::new(), &files, compression_level)
 }
 
@@ -143,106 +144,9 @@ fn write_compressed_cpio_archive<W: Write>(
     encoder.finish().map_err(RamuneError::CompressionError)
 }
 
-async fn append_to_file(path: &Path, data: &[u8]) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .append(true)
-        .open(path)
-        .await
-        .map_err(|source| RamuneError::WriteError {
-            file: path.display().to_string(),
-            source,
-        })?;
-
-    append_to_writer(path, &mut file, data).await
-}
-
-async fn append_to_writer<W>(path: &Path, writer: &mut W, data: &[u8]) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    writer
-        .write_all(data)
-        .await
-        .map_err(|source| RamuneError::WriteError {
-            file: path.display().to_string(),
-            source,
-        })?;
-    writer
-        .flush()
-        .await
-        .map_err(|source| RamuneError::WriteError {
-            file: path.display().to_string(),
-            source,
-        })
-}
-
 #[cfg(test)]
 mod tests {
-    use core::pin::Pin;
-    use core::task::{Context, Poll};
-
-    use tokio::io::AsyncWrite;
-
     use super::*;
-
-    struct CountingFailingWriter {
-        fail_on_call: usize,
-        calls: usize,
-    }
-
-    struct AsyncWriteWriteFailingWriter;
-
-    struct AsyncWriteFlushFailingWriter;
-
-    impl Write for CountingFailingWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.calls = self.calls.saturating_add(1);
-
-            (self.calls != self.fail_on_call)
-                .then_some(buf.len())
-                .ok_or_else(|| std::io::Error::other("write failed"))
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl AsyncWrite for AsyncWriteWriteFailingWriter {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            _buf: &[u8],
-        ) -> Poll<std::io::Result<usize>> {
-            Poll::Ready(Err(std::io::Error::other("write failed")))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl AsyncWrite for AsyncWriteFlushFailingWriter {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            buf: &[u8],
-        ) -> Poll<std::io::Result<usize>> {
-            Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Err(std::io::Error::other("flush failed")))
-        }
-
-        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-    }
 
     fn extra<'a>(name: &str, path: &'a Path, compress: bool) -> ExtraFile<'a> {
         ExtraFile {
@@ -252,48 +156,32 @@ mod tests {
         }
     }
 
+    struct CountingFailingWriter {
+        fail_on_call: usize,
+        calls: usize,
+    }
+
+    #[expect(clippy::excessive_nesting, reason = "ok in tests")]
+    impl std::io::Write for CountingFailingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.calls = self.calls.saturating_add(1);
+            if self.calls >= self.fail_on_call {
+                return Err(std::io::Error::other("write failed"));
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.calls = self.calls.saturating_add(1);
+            if self.calls >= self.fail_on_call {
+                return Err(std::io::Error::other("flush failed"));
+            }
+            Ok(())
+        }
+    }
+
     #[test]
-    fn counting_failing_writer_success_paths() {
-        use std::io::Write as _;
-
-        // ARRANGE
-        let mut writer = CountingFailingWriter {
-            fail_on_call: usize::MAX,
-            calls: 0,
-        };
-
-        // ACT
-        assert_eq!(writer.write(b"x").expect("write"), 1);
-        // ASSERT
-        writer.flush().expect("flush");
-    }
-
-    #[tokio::test]
-    async fn async_write_write_failing_writer_supports_flush_and_shutdown() {
-        use tokio::io::AsyncWriteExt as _;
-
-        // ARRANGE
-        let mut writer = AsyncWriteWriteFailingWriter;
-
-        // ACT
-        writer.flush().await.expect("flush");
-        // ASSERT
-        writer.shutdown().await.expect("shutdown");
-    }
-
-    #[tokio::test]
-    async fn async_write_flush_failing_writer_supports_shutdown() {
-        use tokio::io::AsyncWriteExt as _;
-
-        // ARRANGE
-        let mut writer = AsyncWriteFlushFailingWriter;
-
-        // ACT
-        writer.shutdown().await.expect("shutdown");
-    }
-
-    #[tokio::test]
-    async fn extend_no_extra_files() {
+    fn extend_no_extra_files() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
@@ -306,15 +194,17 @@ mod tests {
         };
 
         // ACT
-        extend(&config, output.path()).await.expect("extend");
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        extend(&config, &mut out).expect("extend");
+        drop(out);
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
         assert_eq!(content, b"base-initramfs-content");
     }
 
-    #[tokio::test]
-    async fn extend_with_compress_dir() {
+    #[test]
+    fn extend_with_compress_dir() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base").expect("write base");
@@ -331,7 +221,9 @@ mod tests {
         };
 
         // ACT
-        extend(&config, output.path()).await.expect("extend");
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        extend(&config, &mut out).expect("extend");
+        drop(out);
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
@@ -339,8 +231,8 @@ mod tests {
         assert!(content.starts_with(b"base"));
     }
 
-    #[tokio::test]
-    async fn extend_with_plain_file() {
+    #[test]
+    fn extend_with_plain_file() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base").expect("write base");
@@ -357,7 +249,9 @@ mod tests {
         };
 
         // ACT
-        extend(&config, output.path()).await.expect("extend");
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        extend(&config, &mut out).expect("extend");
+        drop(out);
 
         // ASSERT
         let content = std::fs::read(output.path()).expect("read output");
@@ -365,53 +259,59 @@ mod tests {
         assert!(content.starts_with(b"base"));
     }
 
-    #[tokio::test]
-    async fn extend_same_file_no_extra_files() {
+    #[test]
+    fn extend_same_file_no_extra_files() {
         // ARRANGE
-        let file = tempfile::NamedTempFile::new().expect("tempfile");
-        std::fs::write(file.path(), b"initramfs-content").expect("write");
+        let source = tempfile::NamedTempFile::new().expect("source tempfile");
+        std::fs::write(source.path(), b"initramfs-content").expect("write");
+        let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         let config = ExtendConfig {
-            base: file.path(),
+            base: source.path(),
             extra_files: &[],
             compression_level: 19,
         };
 
         // ACT
-        extend(&config, file.path()).await.expect("extend");
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        extend(&config, &mut out).expect("extend");
+        drop(out);
 
         // ASSERT
-        let content = std::fs::read(file.path()).expect("read");
+        let content = std::fs::read(output.path()).expect("read output");
         assert_eq!(content, b"initramfs-content");
     }
 
-    #[tokio::test]
-    async fn extend_same_file_with_compress_dir() {
+    #[test]
+    fn extend_same_file_with_compress_dir() {
         // ARRANGE
-        let file = tempfile::NamedTempFile::new().expect("tempfile");
-        std::fs::write(file.path(), b"base").expect("write");
+        let source = tempfile::NamedTempFile::new().expect("source tempfile");
+        std::fs::write(source.path(), b"base").expect("write");
+        let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
         let ext_dir = tempfile::TempDir::new().expect("ext dir");
         std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
 
         let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
         let config = ExtendConfig {
-            base: file.path(),
+            base: source.path(),
             extra_files: &extras,
             compression_level: 19,
         };
 
         // ACT
-        extend(&config, file.path()).await.expect("extend");
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        extend(&config, &mut out).expect("extend");
+        drop(out);
 
         // ASSERT
-        let content = std::fs::read(file.path()).expect("read");
+        let content = std::fs::read(output.path()).expect("read output");
         assert!(content.len() > 4);
         assert!(content.starts_with(b"base"));
     }
 
-    #[tokio::test]
-    async fn extend_missing_base() {
+    #[test]
+    fn extend_missing_base() {
         // ARRANGE
         let output = tempfile::NamedTempFile::new().expect("output tempfile");
 
@@ -422,7 +322,9 @@ mod tests {
         };
 
         // ACT
-        let result = extend(&config, output.path()).await;
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        let result = extend(&config, &mut out);
+        drop(out);
 
         // ASSERT
         assert!(
@@ -432,8 +334,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn extend_missing_compress_source_errors() {
+    #[test]
+    fn extend_missing_compress_source_errors() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
@@ -451,7 +353,9 @@ mod tests {
         };
 
         // ACT
-        let result = extend(&config, output.path()).await;
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        let result = extend(&config, &mut out);
+        drop(out);
 
         // ASSERT
         assert!(
@@ -461,8 +365,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn extend_missing_plain_source_errors() {
+    #[test]
+    fn extend_missing_plain_source_errors() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
@@ -480,7 +384,9 @@ mod tests {
         };
 
         // ACT
-        let result = extend(&config, output.path()).await;
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        let result = extend(&config, &mut out);
+        drop(out);
 
         // ASSERT
         assert!(
@@ -490,8 +396,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn extend_invalid_compression_level_errors() {
+    #[test]
+    fn extend_invalid_compression_level_errors() {
         // ARRANGE
         let base = tempfile::NamedTempFile::new().expect("base tempfile");
         std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
@@ -508,7 +414,9 @@ mod tests {
         };
 
         // ACT
-        let result = extend(&config, output.path()).await;
+        let mut out = std::fs::File::create(output.path()).expect("create output");
+        let result = extend(&config, &mut out);
+        drop(out);
 
         // ASSERT
         assert!(
@@ -649,89 +557,6 @@ mod tests {
 
         // ASSERT
         result.unwrap();
-    }
-
-    #[tokio::test]
-    async fn append_to_file_writes_data() {
-        // ARRANGE
-        let file = tempfile::NamedTempFile::new().expect("tempfile");
-        std::fs::write(file.path(), b"hello").expect("write");
-
-        // ACT
-        append_to_file(file.path(), b" world")
-            .await
-            .expect("append");
-
-        // ASSERT
-        assert_eq!(std::fs::read(file.path()).expect("read"), b"hello world");
-    }
-
-    #[tokio::test]
-    async fn append_to_file_nonexistent_path_errors() {
-        // ARRANGE
-        let path = Path::new("/nonexistent/file");
-
-        // ACT
-        let result = append_to_file(path, b"data").await;
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
-        );
-    }
-
-    #[tokio::test]
-    async fn append_to_writer_errors_on_write() {
-        // ARRANGE
-        let mut writer = AsyncWriteWriteFailingWriter;
-
-        // ACT
-        let result = append_to_writer(Path::new("/virtual/output"), &mut writer, b"data").await;
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
-        );
-    }
-
-    #[tokio::test]
-    async fn append_to_writer_errors_on_flush() {
-        // ARRANGE
-        let mut writer = AsyncWriteFlushFailingWriter;
-
-        // ACT
-        let result = append_to_writer(Path::new("/virtual/output"), &mut writer, b"data").await;
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
-        );
-    }
-
-    #[tokio::test]
-    async fn append_to_file_read_only_file_errors_on_open() {
-        // ARRANGE
-        let file = tempfile::NamedTempFile::new().expect("tempfile");
-        let metadata = std::fs::metadata(file.path()).expect("metadata");
-        let mut permissions = metadata.permissions();
-        permissions.set_readonly(true);
-        std::fs::set_permissions(file.path(), permissions).expect("set readonly");
-
-        // ACT
-        let result = append_to_file(file.path(), b"data").await;
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
-        );
     }
 
     #[test]

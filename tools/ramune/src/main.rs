@@ -4,7 +4,6 @@
 use ramune::cli;
 
 #[cfg(feature = "cli")]
-#[tokio::main]
-async fn main() {
-    std::process::exit(cli::run().await);
+fn main() {
+    std::process::exit(cli::run());
 }

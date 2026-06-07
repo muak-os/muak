@@ -14,9 +14,6 @@ name = "ramune"
 required-features = ["cli"]
 
 [dependencies]
-# Asynchronous
-tokio = { workspace = true, features = ["fs", "io-util"] }
-
 # CLI
 clap = { workspace = true, optional = true }
 

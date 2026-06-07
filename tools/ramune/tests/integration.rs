@@ -131,26 +131,25 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn extend_without_extra_files_copies_base_image() {
+    #[test]
+    fn extend_without_extra_files_streams_base_to_output() {
         // ARRANGE
         let env = TestEnv::new();
         let base = env.write("base.img", b"base-initramfs");
         let output = env.path("copy.img");
-
         let config = extend_config(base.as_path(), &[]);
 
         // ACT
-        ramune::extend(&config, output.as_path())
-            .await
-            .expect("extend should succeed without extra files");
+        let mut file = std::fs::File::create(&output).expect("create output");
+        ramune::extend(&config, &mut file).expect("extend should succeed without extra files");
 
         // ASSERT
-        assert_eq!(fs::read(&output).expect("read output"), b"base-initramfs");
+        let result = fs::read(&output).expect("read output");
+        assert_eq!(result, b"base-initramfs");
     }
 
-    #[tokio::test]
-    async fn extend_with_compress_dir_appends_named_archive() {
+    #[test]
+    fn extend_with_compress_dir_appends_named_archive() {
         // ARRANGE
         let env = TestEnv::new();
         let base_bytes = b"base-initramfs";
@@ -166,9 +165,8 @@ mod tests {
         let config = extend_config(base.as_path(), &extras);
 
         // ACT
-        ramune::extend(&config, output.as_path())
-            .await
-            .expect("extend should succeed with extensions");
+        let mut file = std::fs::File::create(&output).expect("create output");
+        ramune::extend(&config, &mut file).expect("extend should succeed with extensions");
 
         // ASSERT
         let image = fs::read(&output).expect("read extended image");
@@ -183,23 +181,17 @@ mod tests {
             .find(|entry| entry.name == "extensions/test-ext.erofs")
             .expect("missing extension entry");
         assert_eq!(extension_entry.mode, 0o100_644);
-        assert!(
-            !extension_entry.data.is_empty(),
-            "extension erofs should not be empty"
-        );
-        assert_eq!(
-            extension_entry.data.len().rem_euclid(4096),
-            0,
-            "extension erofs should be block aligned"
-        );
+        assert!(!extension_entry.data.is_empty());
+        assert_eq!(extension_entry.data.len().rem_euclid(4096), 0);
     }
 
-    #[tokio::test]
-    async fn extend_in_place_appends_archive() {
+    #[test]
+    fn extend_in_place_appends_archive() {
         // ARRANGE
         let env = TestEnv::new();
         let base_bytes = b"base-initramfs";
         let image = env.write("base.img", base_bytes);
+        let tmp_output = env.path("extended.img");
         let extension = env.write_extension("in-place-ext", b"payload");
 
         let extras = [extra_file(
@@ -210,15 +202,14 @@ mod tests {
         let config = extend_config(image.as_path(), &extras);
 
         // ACT
-        ramune::extend(&config, image.as_path())
-            .await
-            .expect("in-place extend should succeed");
+        let mut file = std::fs::File::create(&tmp_output).expect("create output");
+        ramune::extend(&config, &mut file).expect("extend should succeed");
 
         // ASSERT
-        let output = fs::read(&image).expect("read output");
+        let output = fs::read(&tmp_output).expect("read output");
         assert!(output.starts_with(base_bytes));
 
-        let entries = decode_extension_archive(&image, base_bytes.len());
+        let entries = decode_extension_archive(&tmp_output, base_bytes.len());
         assert!(
             entries
                 .iter()
@@ -226,16 +217,16 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn extend_returns_read_error_for_missing_base() {
+    #[test]
+    fn extend_returns_read_error_for_missing_base() {
         // ARRANGE
         let env = TestEnv::new();
         let output = env.path("extended.img");
-
         let config = extend_config(Path::new("/nonexistent/base.img"), &[]);
 
         // ACT
-        let result = ramune::extend(&config, output.as_path()).await;
+        let mut file = std::fs::File::create(&output).expect("create output");
+        let result = ramune::extend(&config, &mut file);
 
         // ASSERT
         assert!(matches!(result, Err(RamuneError::ReadError { .. })));
