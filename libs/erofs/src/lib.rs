@@ -110,7 +110,38 @@ mod tests {
     use testutil::{compress_config, test_config};
 
     use super::*;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
+    use crate::error::ErofsError;
     use crate::layout::collect::FilesystemTreeSource;
+    use crate::tree::{TreeEntry, TreeSource};
+
+    struct MockTreeSource {
+        entries: Vec<TreeEntry>,
+    }
+
+    impl MockTreeSource {
+        fn new(entries: Vec<TreeEntry>) -> Self {
+            Self { entries }
+        }
+    }
+
+    impl TreeSource for MockTreeSource {
+        fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
+            Ok(self.entries.clone())
+        }
+
+        fn read(&self, rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
+            Ok(format!("content:{rel_path}").into_bytes())
+        }
+    }
+
+    fn run_mock(entries: Vec<TreeEntry>, config: &MkfsConfig<'_>) -> Vec<u8> {
+        let source = MockTreeSource::new(entries);
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(&mut buf, &source, config).expect("mkfs");
+
+        buf.into_inner()
+    }
 
     #[test]
     fn mkfs_invalid_source() {
@@ -350,5 +381,322 @@ mod tests {
                 .len()
                 .is_multiple_of(usize::try_from(BLOCK_SIZE).expect("block size fits usize"))
         );
+    }
+
+    #[test]
+    fn deterministic_synthetic_output() {
+        // ARRANGE
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = MkfsConfig {
+            uuid: [1; 16],
+            source_date_epoch: 1000,
+            ..test_config(0)
+        };
+
+        // ACT
+        let img1 = run_mock(entries.clone(), &cfg);
+        let img2 = run_mock(entries, &cfg);
+
+        // ASSERT
+        assert_eq!(img1, img2);
+    }
+
+    #[test]
+    fn synthetic_symlink_and_dir_structure() {
+        // ARRANGE
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 100,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 1000,
+                gid: 100,
+                mtime: 200,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir/link".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120777,
+                uid: 0,
+                gid: 0,
+                mtime: 300,
+                mtime_nsec: 0,
+                symlink_target: b"/target".to_vec(),
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 4,
+                mode: 0o644,
+                uid: 2000,
+                gid: 200,
+                mtime: 400,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = MkfsConfig {
+            uuid: [2; 16],
+            source_date_epoch: 0,
+            ..test_config(0)
+        };
+
+        // ACT
+        let image = run_mock(entries, &cfg);
+
+        // ASSERT
+        assert!(image.len().is_multiple_of(4096));
+        assert!(image.len() >= 4096);
+    }
+
+    #[test]
+    fn sorted_entry_order_is_deterministic() {
+        // ARRANGE
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/z".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = test_config(0);
+
+        // ACT
+        let image = run_mock(entries, &cfg);
+
+        // ASSERT
+        assert!(image.len().is_multiple_of(4096));
+        assert!(image.len() >= 4096);
+    }
+
+    // ---- 3. Large files ----
+
+    #[test]
+    fn large_file_blocks() {
+        // ARRANGE
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/big".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 20_000,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = test_config(0);
+
+        // ACT
+        let image = run_mock(entries, &cfg);
+
+        // ASSERT
+        assert!(image.len().is_multiple_of(4096));
+        let meta_end = 4096;
+        let file_blocks = 5_usize;
+        let expected_min = meta_end + file_blocks * 4096;
+        assert!(image.len() >= expected_min);
+    }
+
+    #[test]
+    fn large_file_compressed() {
+        // ARRANGE
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/zeros".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 32_768,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = MkfsConfig {
+            compression: Compression::Zstd { level: 1 },
+            ..test_config(0)
+        };
+
+        // ACT
+        let image = run_mock(entries, &cfg);
+
+        // ASSERT
+        assert!(image.len().is_multiple_of(4096));
+        assert!(image.len() >= 4096);
+    }
+
+    #[test]
+    fn mock_read_error_propagates() {
+        // ARRANGE
+        struct BrokenSource;
+        impl TreeSource for BrokenSource {
+            fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
+                Ok(vec![
+                    TreeEntry {
+                        rel_path: "/".to_owned(),
+                        file_type: EROFS_FT_DIR,
+                        size: 0,
+                        mode: 0o40755,
+                        uid: 0,
+                        gid: 0,
+                        mtime: 0,
+                        mtime_nsec: 0,
+                        symlink_target: vec![],
+                        rdev: 0,
+                    },
+                    TreeEntry {
+                        rel_path: "/f".to_owned(),
+                        file_type: EROFS_FT_REG_FILE,
+                        size: 4,
+                        mode: 0o644,
+                        uid: 0,
+                        gid: 0,
+                        mtime: 0,
+                        mtime_nsec: 0,
+                        symlink_target: vec![],
+                        rdev: 0,
+                    },
+                ])
+            }
+            fn read(&self, _rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
+                Err(ErofsError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "mock read error",
+                )))
+            }
+        }
+        let mut buf = Cursor::new(Vec::new());
+
+        // ACT
+        let result = mkfs(&mut buf, &BrokenSource, &test_config(0));
+
+        // ASSERT
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mock_entries_error_propagates() {
+        // ARRANGE
+        struct FailingEntries;
+        impl TreeSource for FailingEntries {
+            fn entries(&self) -> std::result::Result<Vec<TreeEntry>, ErofsError> {
+                Err(ErofsError::Walk("mock walk failure".to_owned()))
+            }
+            fn read(&self, _rel_path: &str) -> std::result::Result<Vec<u8>, ErofsError> {
+                unreachable!()
+            }
+        }
+        let mut buf = Cursor::new(Vec::new());
+
+        // ACT
+        let result = mkfs(&mut buf, &FailingEntries, &test_config(0));
+
+        // ASSERT
+        assert!(result.is_err());
     }
 }
