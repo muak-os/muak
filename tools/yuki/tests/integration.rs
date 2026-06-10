@@ -5,33 +5,40 @@ mod fixtures;
 
 #[cfg(test)]
 mod tests {
-    use core::ptr::NonNull;
-    use std::io::Write;
+    use std::io::{Cursor, Write};
 
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
     use yuki::error::YukiError;
-    use yuki::{BuildInput, build};
+    use yuki::{BuildInput, SizedPart, build};
 
     use super::fixtures::components::{fake_dtb, fake_initrd, fake_kernel, sample_cmdline};
-    use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count};
+    use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count, write_u32};
 
-    fn write_bytes(bytes: &mut [u8], offset: usize, data: &[u8]) {
-        let end = offset.saturating_add(data.len());
-        if let Some(dst) = bytes.get_mut(offset..end) {
-            dst.copy_from_slice(data);
+    fn part(reader: &mut Cursor<Vec<u8>>) -> SizedPart<'_> {
+        SizedPart {
+            len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
+            reader,
         }
     }
 
-    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-        write_bytes(bytes, offset, &value.to_le_bytes());
+    fn bytes_part<'a>(reader: &'a mut Cursor<&'static [u8]>) -> SizedPart<'a> {
+        SizedPart {
+            len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
+            reader,
+        }
     }
 
-    fn build_to_vec(input: &BuildInput<'_>) -> Result<Vec<u8>, YukiError> {
-        let mut output = Vec::new();
-        let _sections = build(input, &mut output)?;
-        Ok(output)
+    fn build_to_vec(input: BuildInput<'_>) -> Result<Vec<u8>, YukiError> {
+        let mut output = Cursor::new(Vec::new());
+        build(input, &mut output)?;
+        Ok(output.into_inner())
+    }
+
+    fn non_zero_allowed(allowed: usize) -> std::io::Result<core::num::NonZeroUsize> {
+        core::num::NonZeroUsize::new(allowed)
+            .ok_or_else(|| std::io::Error::other("writer failed after limit"))
     }
 
     struct FailWriter;
@@ -46,38 +53,70 @@ mod tests {
         }
     }
 
-    fn oversized_slice() -> &'static [u8] {
-        // ARRANGE
-        let oversized_len = usize::try_from(u32::MAX)
-            .unwrap_or_default()
-            .saturating_add(1);
-        // SAFETY: the slice is used only for its length; `build` rejects it before reading bytes.
-        unsafe { core::slice::from_raw_parts(NonNull::<u8>::dangling().as_ptr(), oversized_len) }
+    struct LimitedWriter {
+        written: u64,
+        fail_after: u64,
+    }
+
+    impl Write for LimitedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let allowed = usize::try_from(self.fail_after.saturating_sub(self.written))
+                .unwrap_or(usize::MAX)
+                .min(buf.len());
+            let allowed = non_zero_allowed(allowed)?;
+
+            self.written = self
+                .written
+                .saturating_add(u64::try_from(allowed.get()).unwrap_or(u64::MAX));
+            Ok(allowed.get())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn build_result_with_stub(stub: Vec<u8>) -> Result<Vec<u8>, YukiError> {
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(1024);
+        let cmdline = sample_cmdline();
+
+        let mut stub_reader = Cursor::new(stub);
+        let mut kernel_reader = Cursor::new(kernel);
+        let mut initrd_reader = Cursor::new(initrd);
+        let mut cmdline_reader = Cursor::new(cmdline);
+
+        build_to_vec(BuildInput {
+            stub: part(&mut stub_reader),
+            kernel: part(&mut kernel_reader),
+            initramfs: part(&mut initrd_reader),
+            cmdline: part(&mut cmdline_reader),
+            dtb: None,
+        })
     }
 
     #[test]
     fn build_creates_valid_uki() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(4096);
-        let initrd = fake_initrd(8192);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(4096));
+        let mut initrd = Cursor::new(fake_initrd(8192));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
 
         // ASSERT
-        assert!(uki.starts_with(b"MZ"), "output should start with MZ");
+        assert!(uki.starts_with(b"MZ"));
 
         let pe = PeFile64::parse(&*uki).expect("output should be valid PE64");
-
         let section_names: Vec<&[u8]> = pe
             .section_table()
             .iter()
@@ -87,37 +126,32 @@ mod tests {
         assert!(
             section_names
                 .iter()
-                .any(|name| name.starts_with(b".cmdline")),
-            "should have .cmdline section, got: {section_names:?}"
+                .any(|name| name.starts_with(b".cmdline"))
         );
-        assert!(
-            section_names.iter().any(|name| name.starts_with(b".linux")),
-            "should have .linux section"
-        );
+        assert!(section_names.iter().any(|name| name.starts_with(b".linux")));
         assert!(
             section_names
                 .iter()
-                .any(|name| name.starts_with(b".initrd")),
-            "should have .initrd section"
+                .any(|name| name.starts_with(b".initrd"))
         );
     }
 
     #[test]
     fn build_with_dtb() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(4096);
-        let initrd = fake_initrd(8192);
-        let cmdline = sample_cmdline();
-        let dtb = fake_dtb(1024);
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(4096));
+        let mut initrd = Cursor::new(fake_initrd(8192));
+        let mut cmdline = Cursor::new(sample_cmdline());
+        let mut dtb = Cursor::new(fake_dtb(1024));
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
-            dtb: Some(&dtb),
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
+            dtb: Some(part(&mut dtb)),
         })
         .expect("build with DTB should succeed");
 
@@ -129,24 +163,7 @@ mod tests {
             .map(|section| section.name.as_slice())
             .collect();
 
-        assert!(
-            section_names.iter().any(|name| name.starts_with(b".dtb")),
-            "should have .dtb section, got: {section_names:?}"
-        );
-    }
-
-    fn build_result_with_stub(stub: &[u8]) -> Result<Vec<u8>, YukiError> {
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
-
-        build_to_vec(&BuildInput {
-            stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
-            dtb: None,
-        })
+        assert!(section_names.iter().any(|name| name.starts_with(b".dtb")));
     }
 
     #[test]
@@ -156,12 +173,14 @@ mod tests {
         write_u32(&mut stub, 88 + 36, 3);
 
         // ACT
-        let result = build_result_with_stub(&stub);
+        let result = build_result_with_stub(stub);
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("invalid file alignment"))
-        );
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("invalid file alignment")
+        ));
     }
 
     #[test]
@@ -171,12 +190,14 @@ mod tests {
         write_u32(&mut stub, 88 + 32, 0);
 
         // ACT
-        let result = build_result_with_stub(&stub);
+        let result = build_result_with_stub(stub);
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("invalid section alignment"))
-        );
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("invalid section alignment")
+        ));
     }
 
     #[test]
@@ -186,12 +207,14 @@ mod tests {
         write_u32(&mut stub, 148, 0);
 
         // ACT
-        let result = build_result_with_stub(&stub);
+        let result = build_result_with_stub(stub);
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("invalid size of headers 0"))
-        );
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("invalid size of headers 0")
+        ));
     }
 
     #[test]
@@ -202,12 +225,14 @@ mod tests {
         write_u32(&mut stub, 328 + 20, 1);
 
         // ACT
-        let result = build_result_with_stub(&stub);
+        let result = build_result_with_stub(stub);
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("section raw data end overflow"))
-        );
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("section raw data end overflow")
+        ));
     }
 
     #[test]
@@ -218,12 +243,14 @@ mod tests {
         write_u32(&mut stub, 328 + 12, u32::MAX);
 
         // ACT
-        let result = build_result_with_stub(&stub);
+        let result = build_result_with_stub(stub);
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::InvalidPeStructure(message)) if message.contains("section virtual end overflow"))
-        );
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("section virtual end overflow")
+        ));
     }
 
     #[test]
@@ -232,66 +259,63 @@ mod tests {
         let stub = generate_minimal_stub();
         let original_pe = PeFile64::parse(&*stub).expect("generated stub should be valid PE");
         let original_section_count = original_pe.section_table().len();
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
+        let mut stub_reader = Cursor::new(stub);
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub_reader),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
         let result_pe = PeFile64::parse(&*uki).expect("output should be valid PE");
 
         // ASSERT
-        assert_eq!(
-            result_pe.section_table().len(),
-            original_section_count + 3,
-            "should add exactly 3 sections"
-        );
+        assert_eq!(result_pe.section_table().len(), original_section_count + 3);
     }
 
     #[test]
     fn build_with_large_files() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(1024 * 1024);
-        let initrd = fake_initrd(2 * 1024 * 1024);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024 * 1024));
+        let mut initrd = Cursor::new(fake_initrd(2 * 1024 * 1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build with large files should succeed");
 
         // ASSERT
         assert!(uki.len() > 3 * 1024 * 1024);
-
         PeFile64::parse(&*uki).expect("large UKI should be valid PE64");
     }
 
     #[test]
     fn build_handles_empty_cmdline() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(Vec::new());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: b"",
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("empty cmdline should be allowed");
@@ -303,47 +327,47 @@ mod tests {
     #[test]
     fn build_rejects_invalid_pe_stub() {
         // ARRANGE
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(b"this is not a PE file at all".to_vec());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let result = build_to_vec(&BuildInput {
-            stub: b"this is not a PE file at all",
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let result = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         });
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::PeParseError(_))),
-            "should fail with PE parse error for invalid stub, got: {result:?}"
-        );
+        assert!(matches!(result, Err(YukiError::PeParseError(_))));
     }
 
     #[test]
     fn sections_contain_correct_data() {
         // ARRANGE
-        let stub = generate_minimal_stub();
         let kernel_data = fake_kernel(1024);
         let initrd_data = fake_initrd(2048);
         let cmdline_data = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(kernel_data.clone());
+        let mut initrd = Cursor::new(initrd_data.clone());
+        let mut cmdline = Cursor::new(cmdline_data.clone());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel_data,
-            initramfs: &initrd_data,
-            cmdline: &cmdline_data,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
 
         // ASSERT
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
-
         let sections = pe.section_table();
         let expected_sections = [
             (b".linux".as_slice(), kernel_data.as_slice()),
@@ -356,74 +380,61 @@ mod tests {
                 .iter()
                 .find(|section| section.name.starts_with(section_name))
                 .expect("expected section should exist");
-            let offset = usize::try_from(section.pointer_to_raw_data.get(LE))
-                .expect("section offset should fit in usize");
-            let virtual_size = usize::try_from(section.virtual_size.get(LE))
-                .expect("virtual size should fit in usize");
+            let offset = usize::try_from(section.pointer_to_raw_data.get(LE)).unwrap_or(0);
+            let virtual_size = usize::try_from(section.virtual_size.get(LE)).unwrap_or(0);
             let section_data = uki
                 .get(offset..offset + virtual_size)
                 .expect("section data should be in bounds");
 
-            assert!(
-                section_data.starts_with(expected_data),
-                "section should contain expected data"
-            );
+            assert!(section_data.starts_with(expected_data));
         }
     }
 
     #[test]
     fn linux_section_is_executable() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
 
         // ASSERT
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
-
         let linux_section = pe
             .section_table()
             .iter()
             .find(|section| section.name.starts_with(b".linux"))
             .expect("should have .linux section");
-
         let chars = linux_section.characteristics.get(LE);
 
-        assert!(
-            chars & object_pe::IMAGE_SCN_MEM_EXECUTE != 0,
-            ".linux section should be executable"
-        );
-        assert!(
-            chars & object_pe::IMAGE_SCN_MEM_READ != 0,
-            ".linux section should be readable"
-        );
+        assert!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE != 0);
+        assert!(chars & object_pe::IMAGE_SCN_MEM_READ != 0);
     }
 
     #[test]
     fn data_sections_are_not_executable() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
@@ -431,34 +442,28 @@ mod tests {
         // ASSERT
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
 
-        let data_sections = pe.section_table().iter().filter(|section| {
+        for section in pe.section_table().iter().filter(|section| {
             section.name.starts_with(b".cmdline") || section.name.starts_with(b".initrd")
-        });
-
-        for section in data_sections {
+        }) {
             let chars = section.characteristics.get(LE);
-            assert!(
-                chars & object_pe::IMAGE_SCN_MEM_EXECUTE == 0,
-                "{:?} section should not be executable",
-                core::str::from_utf8(&section.name).unwrap_or("?")
-            );
+            assert!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE == 0);
         }
     }
 
     #[test]
     fn output_is_efi_application() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let kernel = fake_kernel(1024);
-        let initrd = fake_initrd(1024);
-        let cmdline = sample_cmdline();
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(1024));
+        let mut cmdline = Cursor::new(sample_cmdline());
 
         // ACT
-        let uki = build_to_vec(&BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initrd,
-            cmdline: &cmdline,
+        let uki = build_to_vec(BuildInput {
+            stub: part(&mut stub),
+            kernel: part(&mut kernel),
+            initramfs: part(&mut initrd),
+            cmdline: part(&mut cmdline),
             dtb: None,
         })
         .expect("build should succeed");
@@ -466,12 +471,7 @@ mod tests {
         // ASSERT
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
         let subsystem = pe.nt_headers().optional_header.subsystem.get(LE);
-
-        assert_eq!(
-            subsystem,
-            object_pe::IMAGE_SUBSYSTEM_EFI_APPLICATION,
-            "output should be EFI application"
-        );
+        assert_eq!(subsystem, object_pe::IMAGE_SUBSYSTEM_EFI_APPLICATION);
     }
 
     #[test]
@@ -480,62 +480,68 @@ mod tests {
         let stub = generate_minimal_stub();
 
         // ACT
-        assert!(stub.starts_with(b"MZ"), "should have DOS signature");
-
-        // ASSERT
         let pe = PeFile64::parse(&*stub).expect("generated stub should be valid PE64");
 
-        assert_eq!(pe.section_table().len(), 1, "should have 1 section");
-
-        let section = pe
-            .section_table()
-            .iter()
-            .next()
-            .expect("should have section");
+        // ASSERT
+        assert!(stub.starts_with(b"MZ"));
+        assert_eq!(pe.section_table().len(), 1);
         assert!(
-            section.name.starts_with(b".text"),
-            "section should be .text"
+            pe.section_table()
+                .iter()
+                .next()
+                .expect("should have section")
+                .name
+                .starts_with(b".text")
         );
     }
 
     #[test]
     fn build_rejects_too_many_sections() {
         // ARRANGE
-        let stub = generate_stub_with_section_count(u16::MAX - 2);
+        let mut stub = Cursor::new(generate_stub_with_section_count(u16::MAX - 2));
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+        let mut output = Cursor::new(Vec::new());
 
         // ACT
-        let mut sink = std::io::sink();
-        let input = BuildInput {
-            stub: &stub,
-            kernel: b"kernel",
-            initramfs: b"initrd",
-            cmdline: b"quiet",
-            dtb: None,
-        };
-        let result = build(&input, &mut sink);
+        let result = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut output,
+        );
 
         // ASSERT
-        assert!(
-            matches!(result, Err(YukiError::TooManySections)),
-            "should return TooManySections, got: {result:?}"
-        );
+        assert!(matches!(result, Err(YukiError::TooManySections)));
     }
 
     #[test]
     fn build_rejects_insufficient_header_capacity() {
         // ARRANGE
-        let mut stub = generate_minimal_stub();
-        write_u32(&mut stub, 148, 368);
+        let mut stub_bytes = generate_minimal_stub();
+        write_u32(&mut stub_bytes, 148, 368);
+        let mut stub = Cursor::new(stub_bytes);
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+        let mut output = Cursor::new(Vec::new());
 
         // ACT
-        let input = BuildInput {
-            stub: &stub,
-            kernel: b"kernel",
-            initramfs: b"initrd",
-            cmdline: b"quiet",
-            dtb: None,
-        };
-        let result = build(&input, std::io::sink());
+        let result = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut output,
+        );
 
         // ASSERT
         assert!(matches!(
@@ -548,41 +554,169 @@ mod tests {
     #[test]
     fn build_propagates_writer_error() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let input = BuildInput {
-            stub: &stub,
-            kernel: b"kernel",
-            initramfs: b"initrd",
-            cmdline: b"quiet",
-            dtb: None,
-        };
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
 
         // ACT
-        let result = build(&input, FailWriter);
+        let result = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut FailWriter,
+        );
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::Io(_))));
     }
 
     #[test]
-    fn build_rejects_oversized_section_input() {
+    fn build_fails_during_section_streaming() {
         // ARRANGE
-        let stub = generate_minimal_stub();
-        let input = BuildInput {
-            stub: &stub,
-            kernel: b"kernel",
-            initramfs: oversized_slice(),
-            cmdline: b"quiet",
-            dtb: None,
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(vec![0xAA; 2048]);
+        let mut initrd = Cursor::new(vec![0xBB; 2048]);
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+        let mut writer = LimitedWriter {
+            written: 0,
+            fail_after: 1600,
         };
 
         // ACT
-        let result = build(&input, std::io::sink());
+        let result = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut writer,
+        );
+
+        // ASSERT
+        assert!(matches!(result, Err(YukiError::Io(_))));
+    }
+
+    #[test]
+    fn build_rejects_stub_shorter_than_prefix() {
+        // ARRANGE
+        let stub_bytes = generate_minimal_stub();
+        let mut stub = Cursor::new(stub_bytes.clone());
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+        let prefix_len = 512_u64;
+
+        // ACT
+        let result = build(
+            BuildInput {
+                stub: SizedPart {
+                    len: prefix_len.saturating_sub(1),
+                    reader: &mut stub,
+                },
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut Cursor::new(Vec::new()),
+        );
 
         // ASSERT
         assert!(matches!(
             result,
-            Err(YukiError::InvalidPeStructure(message)) if message.contains("section '.initrd' too large")
+            Err(YukiError::InvalidPeStructure(message))
+                if message.contains("stub length smaller than copied prefix")
         ));
+    }
+
+    #[test]
+    fn build_handles_stub_longer_than_section_table() {
+        // ARRANGE
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+
+        // ACT
+        let result = build(
+            BuildInput {
+                stub: SizedPart {
+                    len: 1024,
+                    reader: &mut stub,
+                },
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut Cursor::new(Vec::new()),
+        );
+
+        // ASSERT
+        assert!(result.is_ok(), "stub longer than sections should succeed");
+    }
+
+    #[test]
+    fn build_rejects_section_length_larger_than_stream() {
+        // ARRANGE
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(b"kernel".to_vec());
+        let mut initrd = Cursor::new(b"initrd".to_vec());
+        let mut cmdline = Cursor::new(b"quiet".to_vec());
+
+        // ACT
+        let result = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: SizedPart {
+                    len: 100,
+                    reader: &mut kernel,
+                },
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut Cursor::new(Vec::new()),
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(message)) if message.contains("ended early")
+        ));
+    }
+
+    #[test]
+    fn build_accepts_static_byte_slices() {
+        // ARRANGE
+        static KERNEL: &[u8] = b"kernel";
+        static INITRD: &[u8] = b"initrd";
+        static CMDLINE: &[u8] = b"quiet";
+
+        let stub_bytes: &'static [u8] = Box::leak(generate_minimal_stub().into_boxed_slice());
+        let mut stub = Cursor::new(stub_bytes);
+        let mut kernel = Cursor::new(KERNEL);
+        let mut initrd = Cursor::new(INITRD);
+        let mut cmdline = Cursor::new(CMDLINE);
+
+        // ACT
+        let uki = build_to_vec(BuildInput {
+            stub: bytes_part(&mut stub),
+            kernel: bytes_part(&mut kernel),
+            initramfs: bytes_part(&mut initrd),
+            cmdline: bytes_part(&mut cmdline),
+            dtb: None,
+        })
+        .expect("static slices should work");
+
+        // ASSERT
+        PeFile64::parse(&*uki).expect("static slices should yield a valid PE");
     }
 }

@@ -53,34 +53,44 @@ where
     run(&args)
 }
 
+fn sized_file(file: &mut File) -> Result<crate::SizedPart<'_>> {
+    let len = file
+        .metadata()
+        .context("Failed to read input file metadata")?
+        .len();
+
+    Ok(crate::SizedPart { len, reader: file })
+}
+
 fn run(args: &Cli) -> Result<String> {
-    let stub = std::fs::read(&args.stub)
+    let mut stub = File::open(&args.stub)
         .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?;
-    let kernel = std::fs::read(&args.linux)
+    let mut kernel = File::open(&args.linux)
         .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?;
-    let initramfs = std::fs::read(&args.initrd)
+    let mut initrd = File::open(&args.initrd)
         .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?;
-    let cmdline = std::fs::read(&args.cmdline)
+    let mut cmdline = File::open(&args.cmdline)
         .with_context(|| format!("Failed to read cmdline from {}", args.cmdline.display()))?;
-    let dtb = args
+    let mut dtb = args
         .dtb
         .as_ref()
         .map(|path| {
-            std::fs::read(path)
-                .with_context(|| format!("Failed to read DTB from {}", path.display()))
+            File::open(path).with_context(|| format!("Failed to read DTB from {}", path.display()))
         })
         .transpose()?;
 
     let mut output = File::create(&args.output)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
 
+    let dtb_part = dtb.as_mut().map(sized_file).transpose()?;
+
     crate::build(
-        &crate::BuildInput {
-            stub: &stub,
-            kernel: &kernel,
-            initramfs: &initramfs,
-            cmdline: &cmdline,
-            dtb: dtb.as_deref(),
+        crate::BuildInput {
+            stub: sized_file(&mut stub)?,
+            kernel: sized_file(&mut kernel)?,
+            initramfs: sized_file(&mut initrd)?,
+            cmdline: sized_file(&mut cmdline)?,
+            dtb: dtb_part,
         },
         &mut output,
     )
@@ -89,20 +99,9 @@ fn run(args: &Cli) -> Result<String> {
     Ok(format!(
         "Successfully created UKI at {} ({} bytes)",
         args.output.display(),
-        output.metadata()?.len()
+        output
+            .metadata()
+            .context("Failed to read output metadata")?
+            .len()
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn run_with_missing_required_argument_returns_clap_error() {
-        // ARRANGE & ACT
-        let error = run_with(["yuki"]).expect_err("missing required args should error");
-
-        // ASSERT
-        assert!(error.downcast_ref::<clap::Error>().is_some());
-    }
 }

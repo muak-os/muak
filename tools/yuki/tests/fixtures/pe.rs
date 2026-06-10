@@ -20,7 +20,7 @@ fn write_u16(buf: &mut [u8], offset: usize, value: u16) {
     write_bytes(buf, offset, &value.to_le_bytes());
 }
 
-fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
+pub fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
     write_bytes(buf, offset, &value.to_le_bytes());
 }
 
