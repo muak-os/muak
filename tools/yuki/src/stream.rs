@@ -18,11 +18,16 @@ pub(crate) fn copy_stub<W: Write>(
     prefix: &[u8],
 ) -> Result<()> {
     writer.write_all(prefix)?;
-    let prefix_len = u64::try_from(prefix.len())
-        .map_err(|_err| YukiError::InvalidPeStructure("stub prefix length overflow".to_owned()))?;
-    let remaining = stub.len.checked_sub(prefix_len).ok_or_else(|| {
-        YukiError::InvalidPeStructure("stub length smaller than copied prefix".to_owned())
-    })?;
+    let Ok(prefix_len) = u64::try_from(prefix.len()) else {
+        return Err(YukiError::InvalidPeStructure(
+            "stub prefix length overflow".to_owned(),
+        ));
+    };
+    let Some(remaining) = stub.len.checked_sub(prefix_len) else {
+        return Err(YukiError::InvalidPeStructure(
+            "stub length smaller than copied prefix".to_owned(),
+        ));
+    };
     copy_exact(stub.reader, writer, remaining, "stub")?;
 
     Ok(())
@@ -31,16 +36,23 @@ pub(crate) fn copy_stub<W: Write>(
 pub(crate) fn write_gap<W: Write>(writer: &mut W, size: u64) -> Result<()> {
     let mut remaining = size;
     while remaining > 0 {
-        let chunk = usize::try_from(remaining.min(8192_u64))
-            .map_err(|_err| YukiError::InvalidPeStructure("gap range overflow".to_owned()))?;
-        let pad = ZERO_BUF
-            .get(..chunk)
-            .ok_or_else(|| YukiError::InvalidPeStructure("zero buffer range invalid".to_owned()))?;
+        let Ok(chunk) = usize::try_from(remaining.min(8192_u64)) else {
+            return Err(YukiError::InvalidPeStructure(
+                "gap range overflow".to_owned(),
+            ));
+        };
+        let Some(pad) = ZERO_BUF.get(..chunk) else {
+            return Err(YukiError::InvalidPeStructure(
+                "zero buffer range invalid".to_owned(),
+            ));
+        };
         writer.write_all(pad)?;
-        remaining = remaining.saturating_sub(
-            u64::try_from(chunk)
-                .map_err(|_err| YukiError::InvalidPeStructure("gap count overflow".to_owned()))?,
-        );
+        let Ok(chunk_u64) = u64::try_from(chunk) else {
+            return Err(YukiError::InvalidPeStructure(
+                "gap count overflow".to_owned(),
+            ));
+        };
+        remaining = remaining.saturating_sub(chunk_u64);
     }
 
     Ok(())
@@ -71,14 +83,16 @@ fn copy_exact<W: Write>(
         if n == 0 {
             break;
         }
-        let chunk = buffer
-            .get(..n)
-            .ok_or_else(|| YukiError::Io(std::io::Error::other("buffer range invalid")))?;
+        let Some(chunk) = buffer.get(..n) else {
+            return Err(YukiError::Io(std::io::Error::other("buffer range invalid")));
+        };
         writer.write_all(chunk)?;
-        copied = copied.saturating_add(
-            u64::try_from(n)
-                .map_err(|_err| YukiError::InvalidPeStructure("read count overflow".to_owned()))?,
-        );
+        let Ok(amount) = u64::try_from(n) else {
+            return Err(YukiError::InvalidPeStructure(
+                "read count overflow".to_owned(),
+            ));
+        };
+        copied = copied.saturating_add(amount);
     }
 
     if copied != len {
@@ -157,12 +171,16 @@ fn write_prefix_range(
     data: &[u8],
     field: &'static str,
 ) -> Result<()> {
-    let end = offset.checked_add(data.len()).ok_or_else(|| {
-        YukiError::InvalidPeStructure(format!("{field} range overflow while patching PE prefix"))
-    })?;
-    let target = prefix.get_mut(offset..end).ok_or_else(|| {
-        YukiError::InvalidPeStructure(format!("{field} lies outside the extracted PE prefix"))
-    })?;
+    let Some(end) = offset.checked_add(data.len()) else {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "{field} range overflow while patching PE prefix"
+        )));
+    };
+    let Some(target) = prefix.get_mut(offset..end) else {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "{field} lies outside the extracted PE prefix"
+        )));
+    };
     target.copy_from_slice(data);
 
     Ok(())
@@ -287,6 +305,29 @@ mod tests {
 
         // ASSERT
         assert_eq!(output, b"prefix");
+    }
+
+    #[test]
+    fn copy_stub_rejects_short_stub() {
+        // ARRANGE
+        let mut output = Vec::new();
+
+        // ACT
+        let result = copy_stub(
+            &mut SizedPart {
+                len: 2,
+                reader: &mut &b"ab"[..],
+            },
+            &mut output,
+            b"prefix",
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("stub length smaller than copied prefix")
+        ));
     }
 
     #[test]

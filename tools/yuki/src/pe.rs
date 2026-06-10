@@ -28,12 +28,16 @@ pub fn extract_metadata(reader: &mut dyn Read) -> Result<(PeMetadata, Vec<u8>)> 
     let size_of_headers = parse_size_of_headers(&buf)?;
     if size_of_headers > buf.len() {
         buf.resize(size_of_headers, 0);
-        let tail = buf.get_mut(512..size_of_headers).ok_or_else(|| {
-            YukiError::PeParseError("buffer range overflow for PE headers".to_owned())
-        })?;
-        reader
-            .read_exact(tail)
-            .map_err(|e| YukiError::PeParseError(format!("Failed to read full PE headers: {e}")))?;
+        let Some(tail) = buf.get_mut(512..size_of_headers) else {
+            return Err(YukiError::PeParseError(
+                "buffer range overflow for PE headers".to_owned(),
+            ));
+        };
+        if let Err(e) = reader.read_exact(tail) {
+            return Err(YukiError::PeParseError(format!(
+                "Failed to read full PE headers: {e}"
+            )));
+        }
     }
     if size_of_headers > 0 && size_of_headers < buf.len() {
         buf.truncate(size_of_headers);
@@ -46,12 +50,16 @@ pub fn extract_metadata(reader: &mut dyn Read) -> Result<(PeMetadata, Vec<u8>)> 
 fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
     let pe_offset = parse_e_lfanew(buf)?;
 
-    let coff_header_offset = pe_offset
-        .checked_add(4)
-        .ok_or_else(|| YukiError::PeParseError("coff header offset overflow".to_owned()))?;
-    let optional_header_offset = coff_header_offset
-        .checked_add(20)
-        .ok_or_else(|| YukiError::PeParseError("optional header offset overflow".to_owned()))?;
+    let Some(coff_header_offset) = pe_offset.checked_add(4) else {
+        return Err(YukiError::PeParseError(
+            "coff header offset overflow".to_owned(),
+        ));
+    };
+    let Some(optional_header_offset) = coff_header_offset.checked_add(20) else {
+        return Err(YukiError::PeParseError(
+            "optional header offset overflow".to_owned(),
+        ));
+    };
 
     let min_opt_hdr_size = 64_usize;
     if buf.len() < optional_header_offset.saturating_add(min_opt_hdr_size) {
@@ -64,9 +72,11 @@ fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
         return Err(YukiError::PeParseError("Invalid DOS signature".to_owned()));
     }
 
-    let pe_sig_end = pe_offset
-        .checked_add(4)
-        .ok_or_else(|| YukiError::PeParseError("pe signature range overflow".to_owned()))?;
+    let Some(pe_sig_end) = pe_offset.checked_add(4) else {
+        return Err(YukiError::PeParseError(
+            "pe signature range overflow".to_owned(),
+        ));
+    };
     if buf.get(pe_offset..pe_sig_end) != Some(b"PE\0\0") {
         return Err(YukiError::PeParseError("Invalid PE signature".to_owned()));
     }
@@ -130,9 +140,11 @@ pub fn validate_section_header_capacity(
     let section_table_end = metadata
         .section_table_offset
         .saturating_add(section_table_size);
-    let size_of_headers = usize::try_from(metadata.size_of_headers).map_err(|_err| {
-        YukiError::InvalidPeStructure("size of headers does not fit in usize".to_owned())
-    })?;
+    let Ok(size_of_headers) = usize::try_from(metadata.size_of_headers) else {
+        return Err(YukiError::InvalidPeStructure(
+            "size of headers does not fit in usize".to_owned(),
+        ));
+    };
 
     if section_table_end > size_of_headers {
         return Err(YukiError::InvalidPeStructure(format!(
@@ -147,31 +159,33 @@ fn parse_size_of_headers(buf: &[u8]) -> Result<usize> {
     let pe_offset = parse_e_lfanew(buf)?;
 
     let soh_offset = pe_offset.saturating_add(24).saturating_add(60);
-    let soh_bytes = buf
-        .get(soh_offset..soh_offset.saturating_add(4))
-        .ok_or_else(|| {
-            YukiError::PeParseError(
-                "Optional header too small to contain size_of_headers".to_owned(),
-            )
-        })?;
+    let Some(soh_bytes) = buf.get(soh_offset..soh_offset.saturating_add(4)) else {
+        return Err(YukiError::PeParseError(
+            "Optional header too small to contain size_of_headers".to_owned(),
+        ));
+    };
 
-    usize::try_from(u32::from_le_bytes(soh_bytes.try_into().map_err(
-        |_err| YukiError::PeParseError("invalid size_of_headers".to_owned()),
-    )?))
-    .map_err(|_err| YukiError::PeParseError("size_of_headers overflow".to_owned()))
+    let mut soh_arr = [0_u8; 4];
+    soh_arr.copy_from_slice(soh_bytes);
+
+    usize::try_from(u32::from_le_bytes(soh_arr))
+        .map_err(|_err| YukiError::PeParseError("size_of_headers overflow".to_owned()))
 }
 
 fn parse_e_lfanew(buf: &[u8]) -> Result<usize> {
     let e_lfanew = u32_from_le(buf, 0x3C)?;
+
     usize::try_from(e_lfanew)
         .map_err(|_err| YukiError::PeParseError("e_lfanew overflow".to_owned()))
 }
 
 fn read_prefix(reader: &mut dyn Read) -> Result<Vec<u8>> {
     let mut buf = vec![0_u8; 512];
-    reader
-        .read_exact(&mut buf)
-        .map_err(|e| YukiError::PeParseError(format!("Failed to read PE headers: {e}")))?;
+    if let Err(e) = reader.read_exact(&mut buf) {
+        return Err(YukiError::PeParseError(format!(
+            "Failed to read PE headers: {e}"
+        )));
+    }
 
     Ok(buf)
 }
@@ -189,15 +203,17 @@ fn find_section_ends(
         let virtual_size = u32_from_le(buf, section_offset.saturating_add(8))?;
         let virtual_addr = u32_from_le(buf, section_offset.saturating_add(12))?;
 
-        let file_end = ptr_raw_data.checked_add(size_raw_data).ok_or_else(|| {
-            YukiError::InvalidPeStructure("section raw data end overflow".to_owned())
-        })?;
+        let Some(file_end) = ptr_raw_data.checked_add(size_raw_data) else {
+            return Err(YukiError::InvalidPeStructure(
+                "section raw data end overflow".to_owned(),
+            ));
+        };
         let aligned_virtual_size = align::align_to(virtual_size, section_alignment);
-        let virt_end = virtual_addr
-            .checked_add(aligned_virtual_size)
-            .ok_or_else(|| {
-                YukiError::InvalidPeStructure("section virtual end overflow".to_owned())
-            })?;
+        let Some(virt_end) = virtual_addr.checked_add(aligned_virtual_size) else {
+            return Err(YukiError::InvalidPeStructure(
+                "section virtual end overflow".to_owned(),
+            ));
+        };
 
         Ok::<(u32, u32), YukiError>((max_file.max(file_end), max_virt.max(virt_end)))
     })
@@ -228,27 +244,33 @@ fn validate_pe_params(
 }
 
 fn u32_from_le(buf: &[u8], offset: usize) -> Result<u32> {
-    let end = offset
-        .checked_add(4)
-        .ok_or_else(|| YukiError::PeParseError("u32 offset overflow".to_owned()))?;
-    let bytes = buf
-        .get(offset..end)
-        .ok_or_else(|| YukiError::PeParseError("buffer too small for u32".to_owned()))?;
-    Ok(u32::from_le_bytes(bytes.try_into().map_err(|_err| {
-        YukiError::PeParseError("invalid u32 bytes".to_owned())
-    })?))
+    let Some(end) = offset.checked_add(4) else {
+        return Err(YukiError::PeParseError("u32 offset overflow".to_owned()));
+    };
+    let Some(bytes) = buf.get(offset..end) else {
+        return Err(YukiError::PeParseError(
+            "buffer too small for u32".to_owned(),
+        ));
+    };
+    let mut arr = [0_u8; 4];
+    arr.copy_from_slice(bytes);
+
+    Ok(u32::from_le_bytes(arr))
 }
 
 fn u16_from_le(buf: &[u8], offset: usize) -> Result<u16> {
-    let end = offset
-        .checked_add(2)
-        .ok_or_else(|| YukiError::PeParseError("u16 offset overflow".to_owned()))?;
-    let bytes = buf
-        .get(offset..end)
-        .ok_or_else(|| YukiError::PeParseError("buffer too small for u16".to_owned()))?;
-    Ok(u16::from_le_bytes(bytes.try_into().map_err(|_err| {
-        YukiError::PeParseError("invalid u16 bytes".to_owned())
-    })?))
+    let Some(end) = offset.checked_add(2) else {
+        return Err(YukiError::PeParseError("u16 offset overflow".to_owned()));
+    };
+    let Some(bytes) = buf.get(offset..end) else {
+        return Err(YukiError::PeParseError(
+            "buffer too small for u16".to_owned(),
+        ));
+    };
+    let mut arr = [0_u8; 2];
+    arr.copy_from_slice(bytes);
+
+    Ok(u16::from_le_bytes(arr))
 }
 
 #[cfg(test)]
@@ -461,5 +483,95 @@ mod tests {
         assert!(
             matches!(result, Err(YukiError::InvalidPeStructure(msg)) if msg.contains("section table exceeds size of headers"))
         );
+    }
+
+    #[test]
+    fn extract_metadata_rejects_truncated_stub_with_large_headers() {
+        // ARRANGE
+        let mut stub = vec![0_u8; 1024];
+        write_bytes(&mut stub, 0, b"MZ");
+        write_u32(&mut stub, 0x3C, 64);
+        write_bytes(&mut stub, 64, b"PE\0\0");
+        write_u16(&mut stub, 68, 0x8664);
+        write_u16(&mut stub, 70, 1);
+        write_u16(&mut stub, 84, 240);
+        write_u16(&mut stub, 86, 0x0222);
+        write_u16(&mut stub, 88, 0x020B);
+        write_u32(&mut stub, 88 + 32, 4096);
+        write_u32(&mut stub, 88 + 36, 512);
+        write_u32(&mut stub, 88 + 60, 1024);
+        // Truncate to 600 so read_exact into the extended prefix fails
+        stub.truncate(600);
+
+        // ACT
+        let result = extract_metadata(&mut Cursor::new(stub));
+
+        // ASSERT
+        result.unwrap_err();
+    }
+
+    #[test]
+    fn extract_metadata_rejects_large_e_lfanew() {
+        // ARRANGE
+        let mut stub = vec![0_u8; 512];
+        write_bytes(&mut stub, 0, b"MZ");
+        // e_lfanew = 500 causes soh_offset = 500 + 84 = 584 > 512 - 4
+        write_u32(&mut stub, 0x3C, 500);
+
+        // ACT
+        let result = extract_metadata(&mut Cursor::new(stub));
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::PeParseError(msg))
+                if msg.contains("Optional header too small")
+        ));
+    }
+
+    #[test]
+    fn u32_from_le_rejects_small_buffer() {
+        // ARRANGE
+        let buf = [0_u8; 3];
+
+        // ACT
+        let result = u32_from_le(&buf, 0);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::PeParseError(msg))
+                if msg.contains("buffer too small for u32")
+        ));
+    }
+
+    #[test]
+    fn u16_from_le_rejects_small_buffer() {
+        // ARRANGE
+        let buf = [0_u8; 1];
+
+        // ACT
+        let result = u16_from_le(&buf, 0);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::PeParseError(msg))
+                if msg.contains("buffer too small for u16")
+        ));
+    }
+
+    #[test]
+    fn parse_metadata_rejects_missing_coff_header() {
+        // ARRANGE
+        let mut buf = vec![0_u8; 128];
+        write_bytes(&mut buf, 0, b"MZ");
+        write_u32(&mut buf, 0x3C, 64);
+
+        // ACT
+        let result = parse_metadata(&buf);
+
+        // ASSERT
+        result.unwrap_err();
     }
 }

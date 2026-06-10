@@ -49,12 +49,12 @@ pub fn build<W: Write>(mut input: BuildInput<'_>, writer: &mut W) -> Result<Vec<
     let new_section_count = validate_build_params(&metadata, input.dtb.is_some())?;
 
     let mut layout = section::Layout::new(&metadata);
-    layout.current_file_offset =
-        layout
-            .current_file_offset
-            .max(u32::try_from(input.stub.len).map_err(|_err| {
-                YukiError::InvalidPeStructure("stub file offset overflow".to_owned())
-            })?);
+    let Ok(stub_file_off) = u32::try_from(input.stub.len) else {
+        return Err(YukiError::InvalidPeStructure(
+            "stub file offset overflow".to_owned(),
+        ));
+    };
+    layout.current_file_offset = layout.current_file_offset.max(stub_file_off);
     let gap_start = finalize_sections(&mut layout, &input)?;
 
     stream::patch_prefix(&mut stub_prefix, &metadata, &layout, new_section_count)?;
@@ -78,28 +78,32 @@ fn validate_build_params(metadata: &pe::PeMetadata, has_dtb: bool) -> Result<u16
 fn finalize_sections(layout: &mut section::Layout, input: &BuildInput<'_>) -> Result<u64> {
     layout.finalize_section(
         ".cmdline",
-        align::validate_section_size(input.cmdline.len, ".cmdline")?,
+        section::validate_size(input.cmdline.len, ".cmdline")?,
     )?;
     if let Some(dtb) = input.dtb.as_ref() {
-        layout.finalize_section(".dtb", align::validate_section_size(dtb.len, ".dtb")?)?;
+        layout.finalize_section(".dtb", section::validate_size(dtb.len, ".dtb")?)?;
     }
     layout.finalize_section(
         ".linux",
-        align::validate_section_size(input.kernel.len, ".linux")?,
+        section::validate_size(input.kernel.len, ".linux")?,
     )?;
     layout.finalize_section(
         ".initrd",
-        align::validate_section_size(input.initramfs.len, ".initrd")?,
+        section::validate_size(input.initramfs.len, ".initrd")?,
     )?;
 
-    u64::try_from(
-        layout
-            .sections
-            .first()
-            .ok_or_else(|| YukiError::InvalidPeStructure("missing generated sections".to_owned()))?
-            .file_offset,
-    )
-    .map_err(|_err| YukiError::InvalidPeStructure("first section offset overflow".to_owned()))
+    let Some(first) = layout.sections.first() else {
+        return Err(YukiError::InvalidPeStructure(
+            "missing generated sections".to_owned(),
+        ));
+    };
+    let Ok(gap_start) = u64::try_from(first.file_offset) else {
+        return Err(YukiError::InvalidPeStructure(
+            "first section offset overflow".to_owned(),
+        ));
+    };
+
+    Ok(gap_start)
 }
 
 fn assemble_image<W: Write>(

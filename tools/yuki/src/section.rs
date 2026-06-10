@@ -70,10 +70,11 @@ impl Layout {
         let size_of_raw_data = align::align_to(virtual_size, self.file_alignment);
         let aligned_virtual_size = align::align_to(virtual_size, self.section_alignment);
 
-        let section_file_offset =
-            usize::try_from(self.current_file_offset).map_err(|_conversion_error| {
-                YukiError::InvalidPeStructure("section file offset overflow".to_owned())
-            })?;
+        let Ok(section_file_offset) = usize::try_from(self.current_file_offset) else {
+            return Err(YukiError::InvalidPeStructure(
+                "section file offset overflow".to_owned(),
+            ));
+        };
 
         self.sections.push(Section {
             name,
@@ -143,6 +144,26 @@ fn build_header(
     header
 }
 
+/// Validates that a section byte length fits within `u32` (PE32+ limit).
+///
+/// # Errors
+///
+/// Returns an error if the section is too large for the PE format.
+pub fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> {
+    let Ok(len) = usize::try_from(byte_len) else {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "section '{name}' length exceeds usize"
+        )));
+    };
+    if u32::try_from(len).is_err() {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "section '{name}' too large"
+        )));
+    }
+
+    Ok(len)
+}
+
 pub(crate) fn header_to_bytes(
     header: &ImageSectionHeader,
 ) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
@@ -170,6 +191,7 @@ mod tests {
     use object::pe::ImageSectionHeader;
 
     use super::*;
+    use crate::error::YukiError;
     use crate::pe::PeMetadata;
 
     fn byte_range(bytes: &[u8], range: core::ops::Range<usize>) -> &[u8] {
@@ -565,5 +587,21 @@ mod tests {
             u32::from_le_bytes(byte_range(&bytes, 20..24).try_into().unwrap_or_default()),
             u32::MAX - 3
         );
+    }
+
+    #[test]
+    fn validate_size_rejects_overflow() {
+        // ARRANGE
+        let oversized = u64::from(u32::MAX).saturating_add(1);
+
+        // ACT
+        let result = validate_size(oversized, ".big");
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("section '.big' too large")
+        ));
     }
 }

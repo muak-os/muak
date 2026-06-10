@@ -14,22 +14,13 @@ pub const fn align_to(value: u32, alignment: u32) -> u32 {
 }
 
 pub fn usize_to_u32(value: usize) -> Result<u32> {
-    u32::try_from(value).map_err(|_err| YukiError::PeParseError("usize to u32 overflow".to_owned()))
+    u32::try_from(value)
+        .or(Err(YukiError::PeParseError("usize to u32 overflow".to_owned())))
 }
 
 pub fn u64_to_usize(value: u64) -> Result<usize> {
     usize::try_from(value)
-        .map_err(|_err| YukiError::PeParseError("u64 to usize overflow".to_owned()))
-}
-
-pub fn validate_section_size(len: u64, name: &'static str) -> Result<usize> {
-    let len = usize::try_from(len).map_err(|_err| {
-        YukiError::InvalidPeStructure(format!("section '{name}' length exceeds usize"))
-    })?;
-    u32::try_from(len)
-        .map_err(|_err| YukiError::InvalidPeStructure(format!("section '{name}' too large")))?;
-
-    Ok(len)
+        .or(Err(YukiError::PeParseError("u64 to usize overflow".to_owned())))
 }
 
 #[cfg(test)]
@@ -46,6 +37,34 @@ mod tests {
             // ASSERT
             assert_eq!(align_to(value, alignment), expected);
         }
+    }
+
+    #[test]
+    fn usize_to_u32_rejects_overflow() {
+        // ARRANGE
+        let large = usize::try_from(u32::MAX).unwrap_or(0).saturating_add(1);
+
+        // ACT
+        let result = usize_to_u32(large);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::PeParseError(msg))
+                if msg.contains("usize to u32 overflow")
+        ));
+    }
+
+    #[test]
+    fn u64_to_usize_succeeds() {
+        // ARRANGE
+        let val = 42_u64;
+
+        // ACT
+        let result = u64_to_usize(val);
+
+        // ASSERT
+        result.unwrap();
     }
 
     #[test]
