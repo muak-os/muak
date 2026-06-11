@@ -32,6 +32,7 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
+erofs = { workspace = true }
 esp = { workspace = true }
 koci = { workspace = true, default-features = false }
 miso = { workspace = true, default-features = false }

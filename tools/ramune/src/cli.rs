@@ -2,12 +2,13 @@
 
 use std::ffi::OsString;
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
-use crate::{AppendEntry, CreateConfig, TailConfig};
+use crate::Entry;
+use crate::rootfs;
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -130,10 +131,10 @@ fn run_command(command: Command) -> Result<()> {
 }
 
 fn run_create(
-    init: &std::path::Path,
-    rootfs_dir: &std::path::Path,
-    file_contexts: Option<&std::path::Path>,
-    output: &std::path::Path,
+    init: &Path,
+    rootfs_dir: &Path,
+    file_contexts: Option<&Path>,
+    output: &Path,
     compression_level: i32,
     rootfs_compression_level: i32,
 ) -> Result<()> {
@@ -148,88 +149,83 @@ fn run_create(
 
     let init_bytes = std::fs::read(init)
         .with_context(|| format!("Failed to read init binary: {}", init.display()))?;
+    let rootfs_erofs =
+        rootfs::prepare(rootfs_dir, file_contexts.as_ref(), rootfs_compression_level)
+            .context("Failed to prepare rootfs")?;
 
-    let config = CreateConfig {
-        init: &init_bytes,
-        file_contexts: file_contexts.as_ref(),
-        rootfs_dir,
-        compression_level,
-        rootfs_compression_level,
-    };
+    let mut init_reader = Cursor::new(init_bytes);
+    let mut erofs_reader = Cursor::new(rootfs_erofs);
+    let mut entries = [
+        Entry {
+            archive_path: Path::new("init"),
+            mode: 0o100_755,
+            len: u64::try_from(init_reader.get_ref().len()).unwrap_or(0),
+            reader: &mut init_reader,
+        },
+        Entry {
+            archive_path: Path::new("rootfs.erofs"),
+            mode: 0o100_644,
+            len: u64::try_from(erofs_reader.get_ref().len()).unwrap_or(0),
+            reader: &mut erofs_reader,
+        },
+    ];
 
     let mut file = std::fs::File::create(output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-    crate::create(&config, &mut file).context("Failed to create initramfs")?;
-    let size = initramfs_size(output)?;
+    crate::archive(&mut entries, compression_level, &mut file)
+        .context("Failed to create initramfs")?;
 
     println!(
         "Successfully created initramfs at {} ({} bytes)",
         output.display(),
-        size
+        initramfs_size(output)?
     );
 
     Ok(())
 }
 
-fn run_tail(
-    entry: &[(PathBuf, PathBuf)],
-    output: &std::path::Path,
-    compression_level: i32,
-) -> Result<()> {
+fn run_tail(entry: &[(PathBuf, PathBuf)], output: &Path, compression_level: i32) -> Result<()> {
     let sources: Vec<Vec<u8>> = entry
         .iter()
         .map(|entry| read_entry_source(&entry.0))
         .collect::<Result<_>>()?;
     let mut readers: Vec<Cursor<Vec<u8>>> = sources.into_iter().map(Cursor::new).collect();
-    let mut append_entries: Vec<AppendEntry<'_>> = entry
+    let mut entries: Vec<Entry<'_>> = entry
         .iter()
         .zip(readers.iter_mut())
-        .map(|(entry, reader)| append_entry_from_source(&entry.0, entry.1.as_path(), reader))
+        .map(|(entry, reader)| entry_from_source(&entry.0, entry.1.as_path(), reader))
         .collect::<Result<_>>()?;
 
-    let mut config = TailConfig {
-        entries: &mut append_entries,
-        compression_level,
-    };
-
-    let tail = crate::build_tail(&mut config).context("Failed to build initramfs tail")?;
-    std::fs::write(output, &tail)
+    let mut file = std::fs::File::create(output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+    crate::archive(&mut entries, compression_level, &mut file)
+        .context("Failed to build initramfs tail")?;
 
     println!(
         "Successfully created initramfs tail at {} ({} bytes)",
         output.display(),
-        tail.len()
+        initramfs_size(output)?
     );
 
     Ok(())
 }
 
-fn mode_for_source(path: &std::path::Path) -> Result<u32> {
-    let metadata = std::fs::metadata(path)?;
-    let readonly = metadata.permissions().readonly();
-
-    Ok(if readonly { 0o100_444 } else { 0o100_644 })
-}
-
-fn read_entry_source(source: &std::path::Path) -> Result<Vec<u8>> {
+fn read_entry_source(source: &Path) -> Result<Vec<u8>> {
     std::fs::read(source)
         .with_context(|| format!("Failed to read input entry: {}", source.display()))
 }
 
-fn append_entry_from_source<'a>(
-    source: &std::path::Path,
-    archive_path: &'a std::path::Path,
+fn entry_from_source<'a>(
+    source: &Path,
+    archive_path: &'a Path,
     reader: &'a mut Cursor<Vec<u8>>,
-) -> Result<AppendEntry<'a>> {
-    let mode = mode_for_source(source).with_context(|| {
-        format!(
-            "Failed to inspect input entry metadata: {}",
-            source.display()
-        )
-    })?;
+) -> Result<Entry<'a>> {
+    let metadata = std::fs::metadata(source)
+        .with_context(|| format!("Failed to inspect entry metadata: {}", source.display()))?;
+    let readonly = metadata.permissions().readonly();
+    let mode = if readonly { 0o100_444 } else { 0o100_644 };
 
-    Ok(AppendEntry {
+    Ok(Entry {
         archive_path,
         mode,
         len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
@@ -237,7 +233,7 @@ fn append_entry_from_source<'a>(
     })
 }
 
-fn initramfs_size(output: &std::path::Path) -> Result<u64> {
+fn initramfs_size(output: &Path) -> Result<u64> {
     Ok(std::fs::metadata(output)
         .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
         .len())
