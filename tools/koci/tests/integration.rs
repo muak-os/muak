@@ -8,12 +8,14 @@ mod registry;
 #[cfg(test)]
 mod tests {
     use core::time::Duration;
+    use std::io::Read as _;
     use std::path::Path;
     use std::process::Command;
     use std::time::Instant;
 
     use koci::arch::Arch;
     use koci::error::KociError;
+    use koci::pulled::PulledImage;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -34,14 +36,29 @@ mod tests {
         Path::new(env!("CARGO_BIN_EXE_koci"))
     }
 
-    async fn expect_pull_error(
-        reference: &str,
-        output: &Path,
-        pubkey_pem: Option<&str>,
-    ) -> KociError {
-        koci::pull(reference, output, pubkey_pem)
+    fn read_pulled_file(image: &PulledImage, path: &str) -> String {
+        let file = image
+            .file(Path::new(path))
+            .expect("file lookup")
+            .expect("missing pulled file");
+        let mut reader = file.open().expect("open pulled file");
+        let mut contents = String::new();
+        reader
+            .read_to_string(&mut contents)
+            .expect("read pulled file");
+        contents
+    }
+
+    async fn expect_pull_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
+        koci::pull(reference, pubkey_pem)
             .await
             .expect_err("pull should fail")
+    }
+
+    async fn expect_pull_image(reference: &str, pubkey_pem: Option<&str>) -> PulledImage {
+        koci::pull(reference, pubkey_pem)
+            .await
+            .expect("pull should succeed")
     }
 
     async fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
@@ -89,21 +106,13 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        koci::pull(&registry.reference("repo", "test"), output.path(), None)
-            .await
-            .expect("pull image");
+        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
+        assert_eq!(read_pulled_file(&image, "etc/motd"), "hello from koci\n");
         assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/motd")).expect("read motd"),
-            "hello from koci\n"
-        );
-        assert_eq!(
-            std::fs::read_to_string(output.path().join("usr/share/koci/message.txt"))
-                .expect("read message file"),
+            read_pulled_file(&image, "usr/share/koci/message.txt"),
             "integration test\n"
         );
     }
@@ -148,22 +157,14 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        koci::pull_arch(
-            &registry.reference("repo", "test"),
-            &Arch::Arm64,
-            output.path(),
-            None,
-        )
-        .await
-        .expect("pull image");
+        let image = koci::pull_arch(&registry.reference("repo", "test"), &Arch::Arm64, None)
+            .await
+            .expect("pull image");
 
         // ASSERT
         assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/platform"))
-                .expect("read platform file"),
+            read_pulled_file(&image, "etc/platform"),
             "selected requested manifest\n"
         );
     }
@@ -182,17 +183,10 @@ mod tests {
             HttpResponse::index(index),
         )]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error = koci::pull_arch(
-            &registry.reference("repo", "test"),
-            &Arch::Arm64,
-            output.path(),
-            None,
-        )
-        .await
-        .expect_err("pull should fail");
+        let error = koci::pull_arch(&registry.reference("repo", "test"), &Arch::Arm64, None)
+            .await
+            .expect_err("pull should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
@@ -217,22 +211,12 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        koci::pull(
-            &registry.digest_reference("repo", &manifest_digest),
-            output.path(),
-            None,
-        )
-        .await
-        .expect("pull image by digest");
+        let image =
+            expect_pull_image(&registry.digest_reference("repo", &manifest_digest), None).await;
 
         // ASSERT
-        assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/digest")).expect("read extracted file"),
-            "pulled by digest\n"
-        );
+        assert_eq!(read_pulled_file(&image, "etc/digest"), "pulled by digest\n");
         let request = required_request(
             &registry,
             "GET",
@@ -263,20 +247,11 @@ mod tests {
         ),
     ]))
     .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error =
-            expect_pull_error(&registry.reference("repo", "test"), output.path(), None).await;
+        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::DigestMismatch { .. }));
-        assert!(
-            std::fs::read_dir(output.path())
-                .expect("read output directory")
-                .next()
-                .is_none()
-        );
     }
 
     #[tokio::test]
@@ -637,19 +612,11 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        koci::pull(&registry.reference("repo", "test"), output.path(), None)
-            .await
-            .expect("pull image");
+        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
-        assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/message"))
-                .expect("read extracted file"),
-            "second\n"
-        );
+        assert_eq!(read_pulled_file(&image, "etc/message"), "second\n");
     }
 
     #[tokio::test]
@@ -668,11 +635,8 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error =
-            expect_pull_error(&registry.reference("repo", "test"), output.path(), None).await;
+        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
@@ -686,20 +650,11 @@ mod tests {
             HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
         )]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        koci::pull(&registry.reference("repo", "test"), output.path(), None)
-            .await
-            .expect("pull image");
+        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
-        assert!(
-            std::fs::read_dir(output.path())
-                .expect("read output directory")
-                .next()
-                .is_none()
-        );
+        assert!(image.entries().expect("entries").is_empty());
     }
 
     #[tokio::test]
@@ -713,11 +668,8 @@ mod tests {
             HttpResponse::json(manifest),
         )]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error =
-            expect_pull_error(&registry.reference("repo", "test"), output.path(), None).await;
+        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::DownloadError(_)));
@@ -757,24 +709,14 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
         let started_at = Instant::now();
-        koci::pull(&registry.reference("repo", "test"), output.path(), None)
-            .await
-            .expect("pull image");
+        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(started_at.elapsed() < Duration::from_millis(900));
-        assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/first")).expect("read first file"),
-            "first\n"
-        );
-        assert_eq!(
-            std::fs::read_to_string(output.path().join("etc/second")).expect("read second file"),
-            "second\n"
-        );
+        assert_eq!(read_pulled_file(&image, "etc/first"), "first\n");
+        assert_eq!(read_pulled_file(&image, "etc/second"), "second\n");
     }
 
     #[tokio::test]
@@ -785,10 +727,8 @@ mod tests {
             HttpResponse::json(vec![0xff, 0xfe, 0xfd]),
         )]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error = koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        let error = koci::pull(&registry.reference("repo", "test"), None)
             .await
             .expect_err("pull should fail");
 
@@ -804,10 +744,8 @@ mod tests {
             HttpResponse::json(b"not json".to_vec()),
         )]))
         .expect("start mock registry");
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error = koci::pull(&registry.reference("repo", "test"), output.path(), None)
+        let error = koci::pull(&registry.reference("repo", "test"), None)
             .await
             .expect_err("pull should fail");
 

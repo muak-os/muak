@@ -1,12 +1,11 @@
-//! Layer download and ordered extraction.
-
-use std::path::Path;
+//! Layer download and ordered in-memory application.
 
 use tokio::task::{JoinSet, spawn_blocking};
 
 use super::layer;
 use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor};
+use crate::pulled::PulledImage;
 use crate::registry::http::HttpClient;
 
 /// Maximum number of concurrent layer downloads.
@@ -15,13 +14,12 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 type DownloadJoinSet = JoinSet<Result<(usize, Vec<u8>, Option<String>)>>;
 
 /// Download all layers with bounded parallelism, then apply them in manifest order.
-pub(super) async fn extract_layers(
+pub(super) async fn pull_layers(
     client: &HttpClient,
     image_ref: &ImageReference,
     layers: &[OciDescriptor],
     token: Option<&str>,
-    dest: &Path,
-) -> Result<()> {
+) -> Result<PulledImage> {
     let token = token.map(str::to_owned);
     let mut downloaded: Vec<Option<(Vec<u8>, Option<String>)>> = vec![None; layers.len()];
     let mut join_set: DownloadJoinSet = JoinSet::new();
@@ -65,21 +63,20 @@ pub(super) async fn extract_layers(
         );
     }
 
+    let mut image = PulledImage::new();
     for (index, entry) in downloaded.into_iter().enumerate() {
         let Some((bytes, media_type)) = entry else {
             return Err(KociError::DownloadError(format!(
                 "missing download result for layer {index}"
             )));
         };
-        spawn_blocking({
-            let dest = dest.to_path_buf();
-            move || layer::extract_archive(&bytes, media_type.as_deref(), &dest)
-        })
-        .await
-        .map_err(|e| KociError::LayerExtractionError(format!("layer {index}: {e}")))??;
+        image =
+            spawn_blocking(move || layer::extract_archive(&bytes, media_type.as_deref(), image))
+                .await
+                .map_err(|e| KociError::LayerExtractionError(format!("layer {index}: {e}")))??;
     }
 
-    Ok(())
+    Ok(image)
 }
 
 fn store_layer(
@@ -123,8 +120,6 @@ fn fill_download_slots<'a>(
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-
     use super::*;
     use crate::image::ImageReference;
     use crate::registry::http::build_client;
@@ -143,23 +138,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_and_extract_layers_allows_empty_layer_list() {
+    async fn pull_layers_allows_empty_layer_list() {
         // ARRANGE
         let client = build_client();
-        let output = TempDir::new().expect("create temp dir");
         let image_reference = ImageReference::parse("127.0.0.1:9/repo:test");
 
         // ACT
-        extract_layers(&client, &image_reference, &[], None, output.path())
+        let image = pull_layers(&client, &image_reference, &[], None)
             .await
             .expect("download should succeed");
 
         // ASSERT
-        assert!(
-            std::fs::read_dir(output.path())
-                .expect("read output dir")
-                .next()
-                .is_none()
-        );
+        assert!(image.entries().expect("entries").is_empty());
     }
 }

@@ -1,11 +1,10 @@
 //! Remote OCI registry pull orchestration.
 
-use std::path::Path;
-
 use crate::arch::Arch;
 use crate::error::Result;
 use crate::image::ImageReference;
 use crate::image::manifest;
+use crate::pulled::PulledImage;
 use crate::registry::auth::fetch_auth_token;
 use crate::registry::http::build_client;
 use crate::sign::verify;
@@ -13,13 +12,12 @@ use crate::sign::verify;
 mod download;
 pub(crate) mod layer;
 
-/// Pull an OCI image and extract all layers to `dest`.
-pub(crate) async fn pull_to_dir(
+/// Pull an OCI image and materialize all layers into a merged in-memory image.
+pub(crate) async fn pull_image(
     reference: &str,
     arch: &Arch,
-    dest: &Path,
     signature_key: Option<&str>,
-) -> Result<()> {
+) -> Result<PulledImage> {
     let image_ref = ImageReference::parse(reference);
     let client = build_client();
     let target_arch = arch.as_str().to_owned();
@@ -44,5 +42,5 @@ pub(crate) async fn pull_to_dir(
         manifest::parse(&platform_json)?.layers
     };
 
-    download::extract_layers(&client, &image_ref, &layers, token.as_deref(), dest).await
+    download::pull_layers(&client, &image_ref, &layers, token.as_deref()).await
 }

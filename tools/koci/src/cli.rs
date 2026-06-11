@@ -61,17 +61,22 @@ async fn run_command(command: Command) -> Result<()> {
                 .map(|path| read_key_file(path))
                 .transpose()?;
 
-            if let Some(ref target_arch) = arch {
-                crate::pull_arch(&image, target_arch, &output, key_contents.as_deref())
+            let image = if let Some(ref target_arch) = arch {
+                crate::pull_arch(&image, target_arch, key_contents.as_deref())
                     .await
-                    .context("Failed to pull image with specified architecture")?;
+                    .context("Failed to pull image with specified architecture")?
             } else {
-                crate::pull(&image, &output, key_contents.as_deref())
+                crate::pull(&image, key_contents.as_deref())
                     .await
-                    .context("Failed to pull image")?;
-            }
+                    .context("Failed to pull image")?
+            };
+
+            image
+                .write_to_dir(&output)
+                .context("Failed to write pulled image to output directory")?;
 
             println!("Successfully extracted image to {}", output.display());
+
             Ok(())
         }
         Command::Sign { image, key } => {
@@ -81,6 +86,7 @@ async fn run_command(command: Command) -> Result<()> {
                 .await
                 .context("Failed to sign image")?;
             println!("Successfully signed {image}");
+
             Ok(())
         }
     }

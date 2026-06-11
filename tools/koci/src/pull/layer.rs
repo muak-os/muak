@@ -1,6 +1,5 @@
-//! OCI layer download, digest verification, and archive extraction.
+//! OCI layer download, digest verification, and in-memory application.
 
-use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
 
@@ -10,11 +9,14 @@ use tar::Archive;
 use crate::digest::verify_blob_digest;
 use crate::error::{KociError, Result};
 use crate::image::ImageReference;
+use crate::pulled::PulledImage;
 use crate::registry::http::{HttpClient, collect_body, get};
 
 const OCI_LAYER_TAR: &str = "application/vnd.oci.image.layer.v1.tar";
 const OCI_LAYER_TAR_GZIP: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 const DOCKER_LAYER_TAR_GZIP: &str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
+const DEFAULT_FILE_MODE: u32 = 0o644;
+const DEFAULT_DIR_MODE: u32 = 0o755;
 
 /// Download a blob from the registry, verify its SHA-256 digest, and return the raw bytes.
 pub(crate) async fn download_blob(
@@ -37,19 +39,23 @@ pub(crate) async fn download_blob(
     Ok(bytes)
 }
 
-/// Extract a gzip-compressed tar archive from an OCI layer blob.
-pub(crate) fn extract_archive(bytes: &[u8], media_type: Option<&str>, dest: &Path) -> Result<()> {
+/// Apply an OCI layer blob onto a merged in-memory image.
+pub(crate) fn extract_archive(
+    bytes: &[u8],
+    media_type: Option<&str>,
+    image: PulledImage,
+) -> Result<PulledImage> {
     match media_type.unwrap_or(OCI_LAYER_TAR_GZIP) {
         OCI_LAYER_TAR_GZIP | DOCKER_LAYER_TAR_GZIP => {
             let decoder = GzDecoder::new(Cursor::new(bytes));
-            extract_tar(decoder, dest)
+            extract_tar(decoder, image)
         }
-        OCI_LAYER_TAR => extract_tar(Cursor::new(bytes), dest),
+        OCI_LAYER_TAR => extract_tar(Cursor::new(bytes), image),
         other => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
     }
 }
 
-fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
+fn extract_tar<R: Read>(reader: R, mut image: PulledImage) -> Result<PulledImage> {
     let mut archive = Archive::new(reader);
 
     for entry in archive
@@ -69,16 +75,13 @@ fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
             continue;
         };
 
-        if let Some(whiteout) = whiteout_target(dest, &relative_path)? {
-            apply_whiteout(&whiteout, dest)?;
+        if let Some(whiteout) = whiteout_target(&relative_path) {
+            image.remove_path(&whiteout);
             continue;
         }
 
-        let output_path = dest.join(&relative_path);
-        ensure_within_root(dest, &output_path)?;
-
         if entry_type.is_dir() {
-            fs::create_dir_all(&output_path)?;
+            image.insert_dir(&relative_path, DEFAULT_DIR_MODE);
             continue;
         }
 
@@ -103,18 +106,14 @@ fn extract_tar<R: Read>(reader: R, dest: &Path) -> Result<()> {
             )));
         }
 
-        if let Some(parent) = output_path
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent)?;
-        }
-
-        let mut file = fs::File::create(&output_path)?;
-        std::io::copy(&mut entry, &mut file)?;
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data).map_err(|source| {
+            KociError::LayerExtractionError(format!("Failed to read file data: {source}"))
+        })?;
+        image.insert_file(&relative_path, DEFAULT_FILE_MODE, data);
     }
 
-    Ok(())
+    Ok(image)
 }
 
 fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
@@ -153,54 +152,17 @@ fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
     }
 }
 
-fn whiteout_target(dest: &Path, path: &Path) -> Result<Option<PathBuf>> {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Ok(None);
-    };
+fn whiteout_target(path: &Path) -> Option<PathBuf> {
+    let file_name = path.file_name().and_then(|name| name.to_str())?;
 
     if file_name == ".wh..wh..opq" {
-        let parent = path.parent().unwrap_or_else(|| Path::new(""));
-        let target = dest.join(parent);
-        ensure_within_root(dest, &target)?;
-        return Ok(Some(target));
+        return Some(path.parent().unwrap_or_else(|| Path::new("")).to_path_buf());
     }
 
-    let Some(stripped) = file_name.strip_prefix(".wh.") else {
-        return Ok(None);
-    };
+    let stripped = file_name.strip_prefix(".wh.")?;
 
     let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    let target = dest.join(parent).join(stripped);
-    ensure_within_root(dest, &target)?;
-    Ok(Some(target))
-}
-
-fn apply_whiteout(target: &Path, dest: &Path) -> Result<()> {
-    ensure_within_root(dest, target)?;
-
-    if !target.exists() {
-        return Ok(());
-    }
-
-    let metadata = fs::symlink_metadata(target)?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(target)?;
-    } else {
-        fs::remove_file(target)?;
-    }
-
-    Ok(())
-}
-
-fn ensure_within_root(root: &Path, candidate: &Path) -> Result<()> {
-    if candidate.starts_with(root) {
-        Ok(())
-    } else {
-        Err(KociError::LayerExtractionError(format!(
-            "OCI layer entry escapes extraction root: {}",
-            candidate.display()
-        )))
-    }
+    Some(parent.join(stripped))
 }
 
 fn layer_extract_error(error: &std::io::Error) -> KociError {
@@ -214,7 +176,6 @@ mod tests {
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use tar::{Builder, EntryType, Header};
-    use tempfile::TempDir;
 
     use super::*;
 
@@ -286,188 +247,141 @@ mod tests {
     }
 
     #[test]
-    fn apply_whiteout_removes_directories() {
+    fn extract_archive_writes_root_level_file() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-        let target = output.path().join("etc/conf.d");
-        fs::create_dir_all(&target).expect("create target dir");
-        fs::write(target.join("stale"), b"old").expect("write target file");
-
-        // ACT
-        apply_whiteout(&target, output.path()).expect("apply whiteout");
-
-        // ASSERT
-        assert!(!target.exists());
-    }
-
-    #[test]
-    fn ensure_within_root_accepts_path_inside_root() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-        let candidate = output.path().join("etc/file");
-
-        // ACT
-        let result = ensure_within_root(output.path(), &candidate);
-
-        // ASSERT
-        result.expect("path should be inside root");
-    }
-
-    #[test]
-    fn normalize_entry_path_strips_root_dir_and_current_dir_components() {
-        // ARRANGE
-        let path = Path::new("/./etc/absolute");
-
-        // ACT
-        let normalized = normalize_entry_path(path).expect("normalize path");
-
-        // ASSERT
-        assert_eq!(normalized, Some(PathBuf::from("etc/absolute")));
-    }
-
-    #[test]
-    fn extract_archive_writes_root_level_file_without_parent_directory_creation() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
+        let image = PulledImage::new();
         let layer = archive_bytes(&[("root.txt", b"hello\n")]).expect("build layer archive");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert_eq!(
-            fs::read_to_string(output.path().join("root.txt")).expect("read extracted file"),
-            "hello\n"
-        );
-    }
-
-    #[test]
-    fn whiteout_target_returns_none_for_non_utf8_file_name() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-        #[cfg(unix)]
-        let path = {
-            use std::ffi::OsString;
-            use std::os::unix::ffi::OsStringExt as _;
-
-            PathBuf::from(OsString::from_vec(vec![0xff]))
-        };
-
-        // ACT
-        #[cfg(unix)]
-        let target = whiteout_target(output.path(), &path).expect("resolve whiteout target");
-
-        // ASSERT
-        #[cfg(unix)]
-        assert!(target.is_none());
-    }
-
-    #[test]
-    fn extract_archive_rejects_invalid_gzip_data() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-
-        // ACT
-        let result = extract_archive(b"not a gzip archive", None, output.path());
-
-        // ASSERT
-        assert!(matches!(result, Err(KociError::LayerExtractionError(_))));
+        let file = image
+            .file(Path::new("root.txt"))
+            .expect("file lookup")
+            .expect("missing root file");
+        let mut reader = file.open().expect("open file");
+        let mut contents = String::new();
+        reader.read_to_string(&mut contents).expect("read file");
+        assert_eq!(contents, "hello\n");
     }
 
     #[test]
     fn extract_archive_applies_whiteout_file_removal() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-        fs::create_dir_all(output.path().join("etc")).expect("create etc dir");
-        fs::write(output.path().join("etc/obsolete"), b"stale").expect("write stale file");
+        let image = {
+            let mut image = PulledImage::new();
+            image.insert_file(
+                Path::new("etc/obsolete"),
+                DEFAULT_FILE_MODE,
+                b"stale".to_vec(),
+            );
+            image
+        };
         let layer = archive_bytes(&[("etc/.wh.obsolete", b"")]).expect("build layer archive");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert!(!output.path().join("etc/obsolete").exists());
+        assert!(
+            image
+                .file(Path::new("etc/obsolete"))
+                .expect("file lookup")
+                .is_none()
+        );
     }
 
     #[test]
     fn extract_archive_applies_opaque_whiteout_directory_removal() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-        fs::create_dir_all(output.path().join("etc/conf.d")).expect("create conf dir");
-        fs::write(output.path().join("etc/conf.d/old"), b"stale").expect("write stale file");
+        let image = {
+            let mut image = PulledImage::new();
+            image.insert_file(
+                Path::new("etc/conf.d/old"),
+                DEFAULT_FILE_MODE,
+                b"stale".to_vec(),
+            );
+            image
+        };
         let layer = archive_bytes(&[("etc/conf.d/.wh..wh..opq", b"")]).expect("build layer");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert!(!output.path().join("etc/conf.d").exists());
+        assert!(
+            image
+                .file(Path::new("etc/conf.d/old"))
+                .expect("file lookup")
+                .is_none()
+        );
     }
 
     #[test]
     fn extract_archive_supports_raw_tar_layers() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
+        let image = PulledImage::new();
         let layer = raw_archive_bytes(&[("etc/raw", b"raw tar layer\n")]).expect("build layer");
 
         // ACT
-        extract_archive(&layer, Some(OCI_LAYER_TAR), output.path()).expect("extract layer");
+        let image = extract_archive(&layer, Some(OCI_LAYER_TAR), image).expect("extract layer");
 
         // ASSERT
-        assert_eq!(
-            fs::read_to_string(output.path().join("etc/raw")).expect("read extracted file"),
-            "raw tar layer\n"
-        );
+        let file = image
+            .file(Path::new("etc/raw"))
+            .expect("file lookup")
+            .expect("missing raw file");
+        let mut reader = file.open().expect("open file");
+        let mut contents = String::new();
+        reader.read_to_string(&mut contents).expect("read file");
+        assert_eq!(contents, "raw tar layer\n");
     }
 
     #[test]
     fn extract_archive_creates_directory_entries() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
+        let image = PulledImage::new();
         let layer = archive_with_entry("etc/nested/", EntryType::dir(), b"", None)
             .expect("build layer archive");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert!(output.path().join("etc/nested").is_dir());
+        let paths: Vec<PathBuf> = image
+            .entries()
+            .expect("entries")
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect();
+        assert!(paths.contains(&PathBuf::from("etc/nested")));
     }
 
     #[test]
     fn extract_archive_skips_current_directory_entry() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
+        let image = PulledImage::new();
         let layer = archive_bytes(&[("./", b"")]).expect("build layer archive");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert!(
-            fs::read_dir(output.path())
-                .expect("read output dir")
-                .next()
-                .is_none()
-        );
+        assert!(image.entries().expect("entries").is_empty());
     }
 
     #[test]
     fn extract_archive_ignores_whiteout_when_target_is_missing() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
+        let image = PulledImage::new();
         let layer = archive_bytes(&[("etc/.wh.missing", b"")]).expect("build layer archive");
 
         // ACT
-        extract_archive(&layer, None, output.path()).expect("extract layer");
+        let image = extract_archive(&layer, None, image).expect("extract layer");
 
         // ASSERT
-        assert!(
-            fs::read_dir(output.path())
-                .expect("read output dir")
-                .next()
-                .is_none()
-        );
+        assert!(image.entries().expect("entries").is_empty());
     }
 
     #[test]
@@ -483,12 +397,12 @@ mod tests {
     #[test]
     fn extract_archive_rejects_symlink_entries() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
         let layer = archive_with_entry("etc/link", EntryType::symlink(), b"", Some("target"))
             .expect("build layer archive");
 
         // ACT
-        let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
+        let error =
+            extract_archive(&layer, None, PulledImage::new()).expect_err("extract should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::LayerExtractionError(_)));
@@ -497,12 +411,12 @@ mod tests {
     #[test]
     fn extract_archive_rejects_hard_link_entries() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
         let layer = archive_with_entry("etc/link", EntryType::hard_link(), b"", Some("target"))
             .expect("build layer archive");
 
         // ACT
-        let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
+        let error =
+            extract_archive(&layer, None, PulledImage::new()).expect_err("extract should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::LayerExtractionError(_)));
@@ -511,12 +425,12 @@ mod tests {
     #[test]
     fn extract_archive_rejects_fifo_entries() {
         // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
         let layer = archive_with_entry("etc/fifo", EntryType::fifo(), b"", None)
             .expect("build layer archive");
 
         // ACT
-        let error = extract_archive(&layer, None, output.path()).expect_err("extract should fail");
+        let error =
+            extract_archive(&layer, None, PulledImage::new()).expect_err("extract should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::LayerExtractionError(_)));
@@ -524,11 +438,8 @@ mod tests {
 
     #[test]
     fn extract_archive_rejects_unsupported_media_type() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let error = extract_archive(b"irrelevant", Some("application/test"), output.path())
+        let error = extract_archive(b"irrelevant", Some("application/test"), PulledImage::new())
             .expect_err("extract should fail");
 
         // ASSERT
@@ -537,41 +448,10 @@ mod tests {
 
     #[test]
     fn whiteout_target_returns_none_for_non_whiteout_path() {
-        // ARRANGE
-        let output = TempDir::new().expect("create temp dir");
-
         // ACT
-        let target =
-            whiteout_target(output.path(), Path::new("etc/file")).expect("resolve whiteout target");
+        let target = whiteout_target(Path::new("etc/file"));
 
         // ASSERT
         assert!(target.is_none());
-    }
-
-    #[test]
-    fn apply_whiteout_rejects_target_outside_root() {
-        // ARRANGE
-        let root = TempDir::new().expect("create temp dir");
-        let outside = TempDir::new().expect("create second temp dir");
-
-        // ACT
-        let error = apply_whiteout(outside.path(), root.path()).expect_err("whiteout should fail");
-
-        // ASSERT
-        assert!(matches!(error, KociError::LayerExtractionError(_)));
-    }
-
-    #[test]
-    fn ensure_within_root_rejects_path_outside_root() {
-        // ARRANGE
-        let root = TempDir::new().expect("create temp dir");
-        let outside = TempDir::new().expect("create second temp dir");
-
-        // ACT
-        let error =
-            ensure_within_root(root.path(), outside.path()).expect_err("path check should fail");
-
-        // ASSERT
-        assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 }
