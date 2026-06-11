@@ -48,13 +48,6 @@ impl TestEnv {
         fs::write(rootfs.join("sbin/init"), b"rootfs-init").expect("failed to write rootfs init");
         rootfs
     }
-
-    pub fn write_extension(&self, name: &str, data: &[u8]) -> PathBuf {
-        let dir = self.path(name);
-        fs::create_dir_all(&dir).expect("failed to create extension dir");
-        fs::write(dir.join("payload.txt"), data).expect("failed to write extension payload");
-        dir
-    }
 }
 
 fn parse_hex(field: &[u8]) -> u32 {
@@ -127,20 +120,5 @@ pub fn parse_newc_archive(bytes: &[u8]) -> Vec<ArchiveEntry> {
 pub fn decode_initramfs(path: &Path) -> Vec<ArchiveEntry> {
     let compressed = fs::read(path).expect("failed to read initramfs");
     let archive = zstd::decode_all(compressed.as_slice()).expect("failed to decode initramfs");
-    parse_newc_archive(&archive)
-}
-
-pub fn decode_extension_archive(path: &Path, base_len: usize) -> Vec<ArchiveEntry> {
-    let image = fs::read(path).expect("failed to read extended initramfs");
-    assert!(
-        image.len() > base_len,
-        "extended image should contain appended archive"
-    );
-    let archive = zstd::decode_all(
-        image
-            .get(base_len..)
-            .expect("extended image should contain extension archive"),
-    )
-    .expect("failed to decode extension archive");
     parse_newc_archive(&archive)
 }

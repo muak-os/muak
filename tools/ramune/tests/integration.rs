@@ -4,11 +4,12 @@ mod fixtures;
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::Cursor;
     use std::path::Path;
 
     use ramune::error::RamuneError;
 
-    use super::fixtures::{TestEnv, decode_extension_archive, decode_initramfs};
+    use super::fixtures::{TestEnv, decode_initramfs, parse_newc_archive};
 
     fn create_config<'a>(
         init: &'a [u8],
@@ -24,22 +25,15 @@ mod tests {
         }
     }
 
-    fn extra_file<'a>(name: &str, path: &'a Path, compress: bool) -> ramune::ExtraFile<'a> {
-        ramune::ExtraFile {
-            name: name.to_owned(),
-            path,
-            compress,
-        }
-    }
-
-    fn extend_config<'a>(
-        base: &'a Path,
-        extra_files: &'a [ramune::ExtraFile<'a>],
-    ) -> ramune::ExtendConfig<'a> {
-        ramune::ExtendConfig {
-            base,
-            extra_files,
-            compression_level: 19,
+    fn append_entry<'a>(
+        archive_path: &'a Path,
+        reader: &'a mut Cursor<Vec<u8>>,
+    ) -> ramune::AppendEntry<'a> {
+        ramune::AppendEntry {
+            archive_path,
+            mode: 0o100_644,
+            len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
+            reader,
         }
     }
 
@@ -69,21 +63,6 @@ mod tests {
             .expect("missing init entry");
         assert_eq!(init_entry.mode, 0o100_755);
         assert_eq!(init_entry.data, b"#!/bin/sh\nexec /sbin/init\n");
-
-        let rootfs_entry = entries
-            .iter()
-            .find(|entry| entry.name == "rootfs.erofs")
-            .expect("missing rootfs erofs entry");
-        assert_eq!(rootfs_entry.mode, 0o100_644);
-        assert!(
-            !rootfs_entry.data.is_empty(),
-            "rootfs erofs should not be empty"
-        );
-        assert_eq!(
-            rootfs_entry.data.len().rem_euclid(4096),
-            0,
-            "rootfs erofs should be block aligned"
-        );
     }
 
     #[test]
@@ -137,103 +116,76 @@ mod tests {
     }
 
     #[test]
-    fn extend_without_extra_files_streams_base_to_output() {
+    fn build_tail_returns_empty_when_no_entries() {
         // ARRANGE
-        let env = TestEnv::new();
-        let base = env.write("base.img", b"base-initramfs");
-        let output = env.path("copy.img");
-        let config = extend_config(base.as_path(), &[]);
+        let mut entries: [ramune::AppendEntry<'_>; 0] = [];
 
         // ACT
-        let mut file = std::fs::File::create(&output).expect("create output");
-        ramune::extend(&config, &mut file).expect("extend should succeed without extra files");
+        let tail = ramune::build_tail(&mut ramune::TailConfig {
+            entries: &mut entries,
+            compression_level: 19,
+        })
+        .expect("build tail should succeed without entries");
 
         // ASSERT
-        let result = fs::read(&output).expect("read output");
-        assert_eq!(result, b"base-initramfs");
+        assert!(tail.is_empty());
     }
 
     #[test]
-    fn extend_with_compress_dir_appends_named_archive() {
+    fn build_tail_with_entries_writes_named_archive() {
         // ARRANGE
         let env = TestEnv::new();
-        let base_bytes = b"base-initramfs";
-        let base = env.write("base.img", base_bytes);
-        let output = env.path("extended.img");
-        let extension = env.write_extension("test-ext", b"hello extension");
-
-        let extras = [extra_file(
-            "extensions/test-ext.erofs",
-            extension.as_path(),
-            true,
-        )];
-        let config = extend_config(base.as_path(), &extras);
+        let profile_data =
+            fs::read(env.write("profile.toml", b"profile = true\n")).expect("read profile");
+        let extension_data =
+            fs::read(env.write("test-ext.erofs", b"erofs-bytes")).expect("read extension");
+        let mut profile_reader = Cursor::new(profile_data.clone());
+        let mut extension_reader = Cursor::new(extension_data.clone());
+        let mut entries = [
+            append_entry(Path::new("profile.toml"), &mut profile_reader),
+            append_entry(
+                Path::new("extensions/test-ext.erofs"),
+                &mut extension_reader,
+            ),
+        ];
 
         // ACT
-        let mut file = std::fs::File::create(&output).expect("create output");
-        ramune::extend(&config, &mut file).expect("extend should succeed with extensions");
+        let tail = ramune::build_tail(&mut ramune::TailConfig {
+            entries: &mut entries,
+            compression_level: 19,
+        })
+        .expect("build tail should succeed");
 
         // ASSERT
-        let image = fs::read(&output).expect("read extended image");
-        assert!(image.starts_with(base_bytes));
-
-        let entries = decode_extension_archive(&output, base_bytes.len());
-        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
-        assert_eq!(names, ["extensions/test-ext.erofs"]);
-
-        let extension_entry = entries
-            .iter()
-            .find(|entry| entry.name == "extensions/test-ext.erofs")
-            .expect("missing extension entry");
-        assert_eq!(extension_entry.mode, 0o100_644);
-        assert!(!extension_entry.data.is_empty());
-        assert_eq!(extension_entry.data.len().rem_euclid(4096), 0);
+        let archive = zstd::decode_all(tail.as_slice()).expect("decode tail");
+        let parsed = parse_newc_archive(&archive);
+        let names: Vec<&str> = parsed.iter().map(|entry| entry.name.as_str()).collect();
+        assert_eq!(names, ["extensions/test-ext.erofs", "profile.toml"]);
+        assert_eq!(parsed.first().expect("first entry").mode, 0o100_644);
+        assert_eq!(parsed.first().expect("first entry").data, extension_data);
+        assert_eq!(parsed.get(1).expect("second entry").data, profile_data);
     }
 
     #[test]
-    fn extend_in_place_appends_archive() {
+    fn build_tail_returns_error_for_short_reader() {
         // ARRANGE
-        let env = TestEnv::new();
-        let base_bytes = b"base-initramfs";
-        let image = env.write("base.img", base_bytes);
-        let tmp_output = env.path("extended.img");
-        let extension = env.write_extension("in-place-ext", b"payload");
-
-        let extras = [extra_file(
-            "extensions/in-place-ext.erofs",
-            extension.as_path(),
-            true,
-        )];
-        let config = extend_config(image.as_path(), &extras);
+        let mut reader = Cursor::new(b"small".to_vec());
+        let mut entries = [ramune::AppendEntry {
+            archive_path: Path::new("profile.toml"),
+            mode: 0o100_644,
+            len: 64,
+            reader: &mut reader,
+        }];
 
         // ACT
-        let mut file = std::fs::File::create(&tmp_output).expect("create output");
-        ramune::extend(&config, &mut file).expect("extend should succeed");
+        let result = ramune::build_tail(&mut ramune::TailConfig {
+            entries: &mut entries,
+            compression_level: 19,
+        });
 
         // ASSERT
-        let output = fs::read(&tmp_output).expect("read output");
-        assert!(output.starts_with(base_bytes));
-
-        let entries = decode_extension_archive(&tmp_output, base_bytes.len());
         assert!(
-            entries
-                .iter()
-                .any(|entry| entry.name == "extensions/in-place-ext.erofs")
+            matches!(result, Err(RamuneError::CpioError(message)) if message.contains("ended early"))
         );
-    }
-
-    #[test]
-    fn extend_returns_read_error_for_missing_base() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let output = env.path("extended.img");
-        let config = extend_config(Path::new("/nonexistent/base.img"), &[]);
-
-        // ACT
-        let mut file = std::fs::File::create(&output).expect("create output");
-        let result = ramune::extend(&config, &mut file);
-
-        // ASSERT
-        assert!(matches!(result, Err(RamuneError::ReadError { .. })));
     }
 }

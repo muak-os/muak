@@ -10,9 +10,6 @@ const NEWC_MAGIC: &str = "070701";
 /// Trailer entry name marking the end of the archive.
 const TRAILER: &str = "TRAILER!!!";
 
-/// Zero bytes used for archive padding.
-const PAD_SLICES: [&[u8]; 4] = [&[], &[0_u8], &[0_u8, 0_u8], &[0_u8, 0_u8, 0_u8]];
-
 /// Fields for a CPIO newc format header entry.
 #[derive(Debug, Default)]
 struct CpioHeader {
@@ -75,31 +72,7 @@ pub(crate) fn write_entry<W: Write>(
 
 /// Writes the CPIO end-of-archive trailer entry.
 pub(crate) fn write_trailer<W: Write>(writer: &mut W) -> Result<()> {
-    let bytes = TRAILER.as_bytes();
-    let namesize = usize_to_u32(bytes.len().saturating_add(1), "filename length")?;
-
-    let mut position = write_header(
-        writer,
-        &CpioHeader {
-            ino: 0,
-            mode: 0,
-            nlink: 1,
-            filesize: 0,
-            namesize,
-            ..CpioHeader::default()
-        },
-    )?;
-
-    writer
-        .write_all(bytes)
-        .map_err(|e| RamuneError::CpioError(format!("Failed to write trailer: {e}")))?;
-    writer
-        .write_all(&[0])
-        .map_err(|e| RamuneError::CpioError(format!("Failed to write trailer null: {e}")))?;
-    position = position.saturating_add(bytes.len()).saturating_add(1);
-    let _padding = write_pad4(writer, position)?;
-
-    Ok(())
+    write_entry(writer, 0, TRAILER, 0, 0, |_| Ok(()))
 }
 
 /// Writes a CPIO newc format header to `writer`, returning bytes written.
@@ -134,15 +107,15 @@ fn header_string(header: &CpioHeader) -> String {
 fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
     let pad = pos.next_multiple_of(4).saturating_sub(pos);
     if pad > 0 {
-        let padding = PAD_SLICES.get(pad).copied().unwrap_or(&[]);
+        let padding = &[0_u8; 4];
         writer
-            .write_all(padding)
+            .write_all(padding.get(..pad).unwrap_or(&[]))
             .map_err(|e| RamuneError::CpioError(format!("Failed to write padding: {e}")))?;
     }
     Ok(pad)
 }
 
-fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
+pub(crate) fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
     match u32::try_from(value) {
         Ok(converted) => Ok(converted),
         Err(_conversion_error) => Err(RamuneError::CpioError(format!(

@@ -1,139 +1,132 @@
-//! Initramfs extension by appending a compressed archive of extra files.
+//! Initramfs tail generation by writing a compressed archive of append entries.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::compress;
 use crate::cpio;
 use crate::error::{RamuneError, Result};
-use crate::extra::process_extra_files;
 
-/// Settings for appending a compressed extrafile archive to an initramfs image.
-pub struct ExtendConfig<'a> {
-    /// Path to the base initramfs image to extend.
-    pub base: &'a Path,
+/// Settings for building a compressed append tail.
+pub struct TailConfig<'a> {
     /// Entries to include in the appended archive.
-    pub extra_files: &'a [ExtraFile<'a>],
-    /// Zstd compression level for the appended archive and any EROFS conversion.
+    pub entries: &'a mut [AppendEntry<'a>],
+    /// Zstd compression level for the appended archive.
     pub compression_level: i32,
 }
 
-/// A single entry to append to the initramfs.
-pub struct ExtraFile<'a> {
+/// A single finalized entry to append to the initramfs tail.
+pub struct AppendEntry<'a> {
     /// Destination path inside the appended CPIO archive.
-    pub name: String,
-    /// Source path on disk.
-    pub path: &'a Path,
-    /// When true, convert the source to a zstd-compressed EROFS blob before packing.
-    pub compress: bool,
+    pub archive_path: &'a Path,
+    /// File mode to encode in the CPIO entry.
+    pub mode: u32,
+    /// Exact payload length in bytes.
+    pub len: u64,
+    /// Readable payload stream.
+    pub reader: &'a mut dyn Read,
 }
 
-/// Builds an initramfs by appending a zstd-compressed archive of extra files to a base image,
-/// writing the result into `writer`.
+/// Builds a zstd-compressed CPIO archive containing the configured entries.
 ///
-/// The base image is read from `config.base` and written to `writer` first,
-/// then the extra-file archive is appended.
+/// Entries are sorted by `archive_path` in-place before compression.
 ///
 /// # Errors
 ///
-/// Returns an error when validation of extra files fails, the base image cannot be read,
-/// extra files cannot be processed, compression fails, or writing to the output sink fails.
-pub fn extend<W: Write>(config: &ExtendConfig<'_>, writer: &mut W) -> Result<()> {
-    let mut sorted: Vec<&ExtraFile<'_>> = config.extra_files.iter().collect();
-    sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-    let sorted = sorted.as_slice();
+/// Returns an error when validation fails, entry lengths exceed CPIO limits,
+/// reading an entry fails, or zstd compression fails.
+pub fn build_tail(config: &mut TailConfig<'_>) -> Result<Vec<u8>> {
+    config
+        .entries
+        .sort_unstable_by(|left, right| left.archive_path.cmp(right.archive_path));
+    validate_entries(config.entries)?;
 
-    validate_extra_files(sorted)?;
-
-    let base_data = std::fs::read(config.base).map_err(|e| RamuneError::ReadError {
-        file: config.base.display().to_string(),
-        source: e,
-    })?;
-    writer
-        .write_all(&base_data)
-        .map_err(|e| RamuneError::WriteError {
-            file: String::new(),
-            source: e,
-        })?;
-
-    if sorted.is_empty() {
-        return Ok(());
+    if config.entries.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let archive = build_extra_archive(sorted, config.compression_level)?;
-    writer
-        .write_all(&archive)
-        .map_err(|e| RamuneError::WriteError {
-            file: String::new(),
-            source: e,
-        })?;
-
-    writer.flush().map_err(|e| RamuneError::WriteError {
-        file: String::new(),
-        source: e,
-    })
+    write_compressed_cpio_archive(config.entries, config.compression_level)
 }
 
-fn validate_extra_files(extra_files: &[&ExtraFile<'_>]) -> Result<()> {
-    let mut prev: Option<&str> = None;
+fn validate_entries(entries: &[AppendEntry<'_>]) -> Result<()> {
+    let mut prev: Option<&Path> = None;
 
-    for entry in extra_files {
-        if entry.name.is_empty() {
-            return Err(RamuneError::CpioError(
-                "extra file name must not be empty".to_owned(),
-            ));
-        }
-
-        if entry.name.starts_with('/') {
-            return Err(RamuneError::CpioError(format!(
-                "extra file name must not be absolute: {}",
-                entry.name
-            )));
-        }
-
-        if entry.name.contains("..") {
-            return Err(RamuneError::CpioError(format!(
-                "extra file name must not contain ..: {}",
-                entry.name
-            )));
-        }
-
-        if let Some(previous_name) = prev
-            && entry.name.as_str() == previous_name
-        {
-            return Err(RamuneError::CpioError(format!(
-                "duplicate extra file name: {}",
-                entry.name
-            )));
-        }
-
-        prev = Some(&entry.name);
+    for entry in entries {
+        validate_path_not_empty(entry)?;
+        validate_not_absolute(entry)?;
+        validate_no_parent_dir(entry)?;
+        validate_no_duplicate(entry, prev)?;
+        prev = Some(entry.archive_path);
     }
 
     Ok(())
 }
 
-fn build_extra_archive(extra_files: &[&ExtraFile<'_>], compression_level: i32) -> Result<Vec<u8>> {
-    let files = process_extra_files(extra_files, compression_level)?;
-    write_compressed_cpio_archive(Vec::new(), &files, compression_level)
+fn validate_path_not_empty(entry: &AppendEntry<'_>) -> Result<()> {
+    if entry.archive_path.as_os_str().is_empty() {
+        return Err(RamuneError::CpioError(
+            "archive path must not be empty".to_owned(),
+        ));
+    }
+
+    Ok(())
 }
 
-fn write_compressed_cpio_archive<W: Write>(
-    writer: W,
-    files: &[(String, Vec<u8>)],
+fn validate_not_absolute(entry: &AppendEntry<'_>) -> Result<()> {
+    if entry.archive_path.is_absolute() {
+        return Err(RamuneError::CpioError(format!(
+            "archive path must not be absolute: {}",
+            entry.archive_path.display()
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_no_parent_dir(entry: &AppendEntry<'_>) -> Result<()> {
+    if entry
+        .archive_path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(RamuneError::CpioError(format!(
+            "archive path must not contain ..: {}",
+            entry.archive_path.display()
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_no_duplicate(entry: &AppendEntry<'_>, prev: Option<&Path>) -> Result<()> {
+    if let Some(previous) = prev
+        && entry.archive_path == previous
+    {
+        return Err(RamuneError::CpioError(format!(
+            "duplicate archive path: {}",
+            entry.archive_path.display()
+        )));
+    }
+
+    Ok(())
+}
+
+fn write_compressed_cpio_archive(
+    entries: &mut [AppendEntry<'_>],
     compression_level: i32,
-) -> Result<W> {
-    let mut encoder = compress::encoder(writer, compression_level)?;
+) -> Result<Vec<u8>> {
+    let mut encoder = compress::encoder(Vec::new(), compression_level)?;
     let mut ino = 1_u32;
 
-    for abs_rel in files {
-        let (path, data) = (abs_rel.0.as_str(), abs_rel.1.as_slice());
-        let size = u32::try_from(data.len())
+    for entry in entries {
+        let archive_path = entry.archive_path.to_string_lossy();
+        let size = u32::try_from(entry.len)
             .map_err(|_err| RamuneError::CpioError("extra file exceeds CPIO limits".to_owned()))?;
-        cpio::write_entry(&mut encoder, ino, path, 0o100_644, size, |w| {
-            w.write_all(data)
-                .map_err(|e| RamuneError::CpioError(format!("{e}")))
+
+        cpio::write_entry(&mut encoder, ino, &archive_path, entry.mode, size, |w| {
+            copy_entry_data(w, entry.reader, entry.len)
         })?;
+
         ino = ino
             .checked_add(1)
             .ok_or_else(|| RamuneError::CpioError("CPIO inode overflowed".to_owned()))?;
@@ -144,459 +137,241 @@ fn write_compressed_cpio_archive<W: Write>(
     encoder.finish().map_err(RamuneError::CompressionError)
 }
 
+fn copy_entry_data<W: Write>(writer: &mut W, reader: &mut dyn Read, len: u64) -> Result<()> {
+    let mut limited = reader.take(len);
+    let copied = std::io::copy(&mut limited, writer).map_err(|source| RamuneError::WriteError {
+        file: String::new(),
+        source,
+    })?;
+
+    if copied != len {
+        return Err(RamuneError::CpioError(format!(
+            "entry ended early: expected {len} bytes, copied {copied}"
+        )));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use core::str;
+    use std::io::Cursor;
+    use std::path::Path;
+
     use super::*;
 
-    fn extra<'a>(name: &str, path: &'a Path, compress: bool) -> ExtraFile<'a> {
-        ExtraFile {
-            name: name.to_owned(),
-            path,
-            compress,
+    fn entry<'a>(
+        archive_path: &'a Path,
+        mode: u32,
+        reader: &'a mut Cursor<Vec<u8>>,
+    ) -> AppendEntry<'a> {
+        let len = u64::try_from(reader.get_ref().len()).unwrap_or(0);
+        AppendEntry {
+            archive_path,
+            mode,
+            len,
+            reader,
         }
     }
 
-    struct CountingFailingWriter {
-        fail_on_call: usize,
-        calls: usize,
-    }
+    fn decode_tail(tail: &[u8]) -> Vec<(String, Vec<u8>)> {
+        let archive = zstd::decode_all(tail).expect("decode tail");
+        let mut offset = 0_usize;
+        let mut entries = Vec::new();
 
-    #[expect(clippy::excessive_nesting, reason = "ok in tests")]
-    impl std::io::Write for CountingFailingWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.calls = self.calls.saturating_add(1);
-            if self.calls >= self.fail_on_call {
-                return Err(std::io::Error::other("write failed"));
+        loop {
+            let header = archive
+                .get(offset..offset.saturating_add(110))
+                .expect("header");
+            let namesize = parse_hex(header.get(94..102).expect("namesize"));
+            let filesize = parse_hex(header.get(54..62).expect("filesize"));
+            let name_start = offset.saturating_add(110);
+            let name_end = name_start.saturating_add(namesize);
+            let name = str::from_utf8(
+                archive
+                    .get(name_start..name_end.saturating_sub(1))
+                    .expect("name bytes"),
+            )
+            .unwrap_or("")
+            .to_owned();
+            let data_start = name_end.next_multiple_of(4);
+            let data_end = data_start.saturating_add(filesize);
+            let data = archive
+                .get(data_start..data_end)
+                .expect("data bytes")
+                .to_vec();
+            offset = data_end.next_multiple_of(4);
+
+            match name.as_str() {
+                "TRAILER!!!" => return entries,
+                _ => entries.push((name, data)),
             }
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.calls = self.calls.saturating_add(1);
-            if self.calls >= self.fail_on_call {
-                return Err(std::io::Error::other("flush failed"));
-            }
-            Ok(())
         }
     }
 
-    #[test]
-    fn extend_no_extra_files() {
-        // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &[],
-            compression_level: 19,
-        };
-
-        // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        extend(&config, &mut out).expect("extend");
-        drop(out);
-
-        // ASSERT
-        let content = std::fs::read(output.path()).expect("read output");
-        assert_eq!(content, b"base-initramfs-content");
+    fn parse_hex(field: &[u8]) -> usize {
+        str::from_utf8(field)
+            .ok()
+            .and_then(|field| usize::from_str_radix(field, 16).ok())
+            .unwrap_or(0)
     }
 
     #[test]
-    fn extend_with_compress_dir() {
+    fn build_tail_returns_empty_vec_for_no_entries() {
         // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let ext_dir = tempfile::TempDir::new().expect("ext dir");
-        std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
-
-        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &extras,
-            compression_level: 19,
-        };
+        let mut entries: [AppendEntry<'_>; 0] = [];
 
         // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        extend(&config, &mut out).expect("extend");
-        drop(out);
+        let tail = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        })
+        .expect("build tail");
 
         // ASSERT
-        let content = std::fs::read(output.path()).expect("read output");
-        assert!(content.len() > 4);
-        assert!(content.starts_with(b"base"));
+        assert!(tail.is_empty());
     }
 
     #[test]
-    fn extend_with_plain_file() {
+    fn build_tail_writes_entries_in_sorted_order() {
         // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let file = tempfile::NamedTempFile::new().expect("extra file");
-        std::fs::write(file.path(), b"profile content").expect("write extra");
-
-        let extras = [extra("profile.toml", file.path(), false)];
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &extras,
-            compression_level: 19,
-        };
+        let mut profile_reader = Cursor::new(b"profile".to_vec());
+        let mut ext_reader = Cursor::new(b"extension".to_vec());
+        let mut entries = [
+            entry(Path::new("profile.toml"), 0o100_644, &mut profile_reader),
+            entry(
+                Path::new("extensions/test.erofs"),
+                0o100_644,
+                &mut ext_reader,
+            ),
+        ];
 
         // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        extend(&config, &mut out).expect("extend");
-        drop(out);
+        let tail = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        })
+        .expect("build tail");
 
         // ASSERT
-        let content = std::fs::read(output.path()).expect("read output");
-        assert!(content.len() > 4);
-        assert!(content.starts_with(b"base"));
-    }
-
-    #[test]
-    fn extend_same_file_no_extra_files() {
-        // ARRANGE
-        let source = tempfile::NamedTempFile::new().expect("source tempfile");
-        std::fs::write(source.path(), b"initramfs-content").expect("write");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let config = ExtendConfig {
-            base: source.path(),
-            extra_files: &[],
-            compression_level: 19,
-        };
-
-        // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        extend(&config, &mut out).expect("extend");
-        drop(out);
-
-        // ASSERT
-        let content = std::fs::read(output.path()).expect("read output");
-        assert_eq!(content, b"initramfs-content");
-    }
-
-    #[test]
-    fn extend_same_file_with_compress_dir() {
-        // ARRANGE
-        let source = tempfile::NamedTempFile::new().expect("source tempfile");
-        std::fs::write(source.path(), b"base").expect("write");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let ext_dir = tempfile::TempDir::new().expect("ext dir");
-        std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
-
-        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
-        let config = ExtendConfig {
-            base: source.path(),
-            extra_files: &extras,
-            compression_level: 19,
-        };
-
-        // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        extend(&config, &mut out).expect("extend");
-        drop(out);
-
-        // ASSERT
-        let content = std::fs::read(output.path()).expect("read output");
-        assert!(content.len() > 4);
-        assert!(content.starts_with(b"base"));
-    }
-
-    #[test]
-    fn extend_missing_base() {
-        // ARRANGE
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let config = ExtendConfig {
-            base: Path::new("/nonexistent/base.img"),
-            extra_files: &[],
-            compression_level: 19,
-        };
-
-        // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        let result = extend(&config, &mut out);
-        drop(out);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
+        let decoded = decode_tail(&tail);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(
+            decoded.first().map(|entry| entry.0.as_str()),
+            Some("extensions/test.erofs")
+        );
+        assert_eq!(
+            decoded.get(1).map(|entry| entry.0.as_str()),
+            Some("profile.toml")
         );
     }
 
     #[test]
-    fn extend_missing_compress_source_errors() {
+    fn build_tail_rejects_empty_archive_path() {
         // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let extras = [extra(
-            "missing.erofs",
-            Path::new("/nonexistent/extra-source"),
-            true,
-        )];
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &extras,
-            compression_level: 19,
-        };
+        let mut reader = Cursor::new(b"data".to_vec());
+        let mut entries = [entry(Path::new(""), 0o100_644, &mut reader)];
 
         // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        let result = extend(&config, &mut out);
-        drop(out);
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        });
 
         // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::ErofsError(_)))
-        );
+        assert!(result.is_err_and(|error| error.to_string().contains("must not be empty")));
     }
 
     #[test]
-    fn extend_missing_plain_source_errors() {
+    fn build_tail_rejects_absolute_archive_path() {
         // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
-
-        let extras = [extra(
-            "profile.toml",
-            Path::new("/nonexistent/extra-source"),
-            false,
-        )];
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &extras,
-            compression_level: 19,
-        };
+        let mut reader = Cursor::new(b"data".to_vec());
+        let mut entries = [entry(Path::new("/absolute"), 0o100_644, &mut reader)];
 
         // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        let result = extend(&config, &mut out);
-        drop(out);
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        });
 
         // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
-        );
+        assert!(result.is_err_and(|error| error.to_string().contains("must not be absolute")));
     }
 
     #[test]
-    fn extend_invalid_compression_level_errors() {
+    fn build_tail_rejects_parent_segments() {
         // ARRANGE
-        let base = tempfile::NamedTempFile::new().expect("base tempfile");
-        std::fs::write(base.path(), b"base-initramfs-content").expect("write base");
-        let output = tempfile::NamedTempFile::new().expect("output tempfile");
+        let mut reader = Cursor::new(b"data".to_vec());
+        let mut entries = [entry(Path::new("foo/../bar"), 0o100_644, &mut reader)];
 
-        let ext_dir = tempfile::TempDir::new().expect("ext dir");
-        std::fs::write(ext_dir.path().join("hello.txt"), b"world").expect("write ext file");
+        // ACT
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        });
 
-        let extras = [extra("extensions/test-ext.erofs", ext_dir.path(), true)];
-        let config = ExtendConfig {
-            base: base.path(),
-            extra_files: &extras,
+        // ASSERT
+        assert!(result.is_err_and(|error| error.to_string().contains("must not contain ..")));
+    }
+
+    #[test]
+    fn build_tail_rejects_duplicate_paths() {
+        // ARRANGE
+        let mut first_reader = Cursor::new(b"first".to_vec());
+        let mut second_reader = Cursor::new(b"second".to_vec());
+        let mut entries = [
+            entry(Path::new("dup"), 0o100_644, &mut first_reader),
+            entry(Path::new("dup"), 0o100_644, &mut second_reader),
+        ];
+
+        // ACT
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        });
+
+        // ASSERT
+        assert!(result.is_err_and(|error| error.to_string().contains("duplicate")));
+    }
+
+    #[test]
+    fn build_tail_rejects_short_reader() {
+        // ARRANGE
+        let mut reader = Cursor::new(b"data".to_vec());
+        let mut entries = [AppendEntry {
+            archive_path: Path::new("profile.toml"),
+            mode: 0o100_644,
+            len: 32,
+            reader: &mut reader,
+        }];
+
+        // ACT
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
+            compression_level: 3,
+        });
+
+        // ASSERT
+        assert!(result.is_err_and(|error| error.to_string().contains("ended early")));
+    }
+
+    #[test]
+    fn build_tail_rejects_invalid_compression_level() {
+        // ARRANGE
+        let mut reader = Cursor::new(b"data".to_vec());
+        let mut entries = [entry(Path::new("profile.toml"), 0o100_644, &mut reader)];
+
+        // ACT
+        let result = build_tail(&mut TailConfig {
+            entries: &mut entries,
             compression_level: i32::MAX,
-        };
-
-        // ACT
-        let mut out = std::fs::File::create(output.path()).expect("create output");
-        let result = extend(&config, &mut out);
-        drop(out);
+        });
 
         // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::InvalidCompressionLevel { .. }))
-        );
-    }
-
-    #[test]
-    fn validate_rejects_empty_name() {
-        // ARRANGE
-        let entry = ExtraFile {
-            name: String::new(),
-            path: Path::new("/tmp/x"),
-            compress: false,
-        };
-        let extras = [&entry];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("must not be empty"))
-        );
-    }
-
-    #[test]
-    fn validate_rejects_absolute_name() {
-        // ARRANGE
-        let entry = ExtraFile {
-            name: "/absolute/path".to_owned(),
-            path: Path::new("/tmp/x"),
-            compress: false,
-        };
-        let extras = [&entry];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("must not be absolute"))
-        );
-    }
-
-    #[test]
-    fn validate_rejects_dotdot() {
-        // ARRANGE
-        let entry = ExtraFile {
-            name: "foo/../bar".to_owned(),
-            path: Path::new("/tmp/x"),
-            compress: false,
-        };
-        let extras = [&entry];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("must not contain .."))
-        );
-    }
-
-    #[test]
-    fn validate_rejects_duplicates() {
-        // ARRANGE
-        let e1 = ExtraFile {
-            name: "a.txt".to_owned(),
-            path: Path::new("/tmp/a"),
-            compress: false,
-        };
-        let e2 = ExtraFile {
-            name: "a.txt".to_owned(),
-            path: Path::new("/tmp/b"),
-            compress: false,
-        };
-        let extras = [&e1, &e2];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("duplicate"))
-        );
-    }
-
-    #[test]
-    fn validate_accepts_valid_entries() {
-        // ARRANGE
-        let e1 = ExtraFile {
-            name: "a.txt".to_owned(),
-            path: Path::new("/tmp/a"),
-            compress: false,
-        };
-        let e2 = ExtraFile {
-            name: "b.txt".to_owned(),
-            path: Path::new("/tmp/b"),
-            compress: true,
-        };
-        let extras = [&e1, &e2];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        result.unwrap();
-    }
-
-    #[test]
-    fn validate_accepts_extensions_path() {
-        // ARRANGE
-        let e1 = ExtraFile {
-            name: "extensions/test.erofs".to_owned(),
-            path: Path::new("/tmp/ext"),
-            compress: true,
-        };
-        let e2 = ExtraFile {
-            name: "profile.toml".to_owned(),
-            path: Path::new("/tmp/profile"),
-            compress: false,
-        };
-        let extras = [&e1, &e2];
-
-        // ACT
-        let result = validate_extra_files(&extras);
-
-        // ASSERT
-        result.unwrap();
-    }
-
-    #[test]
-    fn write_compressed_cpio_invalid_level_errors() {
-        // ARRANGE
-        let files = vec![("test.erofs".to_owned(), b"data".to_vec())];
-
-        // ACT
-        let result = write_compressed_cpio_archive(Vec::new(), &files, i32::MAX);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::InvalidCompressionLevel { .. }))
-        );
-    }
-
-    #[test]
-    fn write_compressed_cpio_finish_errors() {
-        // ARRANGE
-        let files = vec![("test.erofs".to_owned(), b"data".to_vec())];
-        let mut clean = Vec::new();
-
-        // ACT
-        write_compressed_cpio_archive(&mut clean, &files, 19).expect("write");
-        let result = write_compressed_cpio_archive(
-            CountingFailingWriter {
-                fail_on_call: 1,
-                calls: 0,
-            },
-            &files,
-            19,
-        );
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::CompressionError(_)))
-        );
+        assert!(matches!(
+            result,
+            Err(RamuneError::InvalidCompressionLevel { .. })
+        ));
     }
 }

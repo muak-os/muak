@@ -48,14 +48,21 @@ pub fn create<W: Write>(config: &CreateConfig<'_>, writer: &mut W) -> Result<()>
         )
     })?;
 
-    let init_size = u32::try_from(config.init.len())
-        .map_err(|_err| RamuneError::CpioError("init data exceeds CPIO limits".to_owned()))?;
-    let rootfs_size = u32::try_from(rootfs_erofs.len())
-        .map_err(|_err| RamuneError::CpioError("rootfs exceeds CPIO limits".to_owned()))?;
+    let encoder = compress::encoder(writer, config.compression_level)?;
 
-    let mut encoder = compress::encoder(writer, config.compression_level)?;
+    write_cpio_archive(encoder, config.init, &rootfs_erofs)
+}
+
+fn write_cpio_archive<W: Write>(
+    mut encoder: zstd::Encoder<'static, &mut W>,
+    init: &[u8],
+    rootfs_erofs: &[u8],
+) -> Result<()> {
+    let init_size = cpio::usize_to_u32(init.len(), "init data")?;
+    let rootfs_size = cpio::usize_to_u32(rootfs_erofs.len(), "rootfs")?;
+
     cpio::write_entry(&mut encoder, 1, "init", MODE_EXEC, init_size, |w| {
-        w.write_all(config.init)
+        w.write_all(init)
             .map_err(|e| RamuneError::CpioError(format!("{e}")))
     })?;
     cpio::write_entry(
@@ -65,7 +72,7 @@ pub fn create<W: Write>(config: &CreateConfig<'_>, writer: &mut W) -> Result<()>
         MODE_FILE,
         rootfs_size,
         |w| {
-            w.write_all(&rootfs_erofs)
+            w.write_all(rootfs_erofs)
                 .map_err(|e| RamuneError::CpioError(format!("{e}")))
         },
     )?;
@@ -87,22 +94,15 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
         source,
     })?;
 
-    copy_dir_entries(src, dst, entries)
-}
-
-fn copy_dir_entries<I>(src: &Path, dst: &Path, entries: I) -> Result<()>
-where
-    I: IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
-{
-    entries.into_iter().try_for_each(|entry| {
+    for entry in entries {
         let entry = entry.map_err(|source| RamuneError::ReadError {
             file: src.display().to_string(),
             source,
         })?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        copy_path(&src_path, &dst_path)
-    })
+        copy_path(&entry.path(), &dst.join(entry.file_name()))?;
+    }
+
+    Ok(())
 }
 
 fn copy_path(src: &Path, dst: &Path) -> Result<()> {
@@ -148,17 +148,21 @@ fn prepare_rootfs(rootfs_dir: &Path) -> Result<tempfile::TempDir> {
         })?;
 
     copy_dir_all(rootfs_dir, staging.path())?;
+    inject_required_dirs(staging.path())?;
 
+    ensure_default_resolv_conf(&staging.path().join("etc/resolv.conf")).map(|()| staging)
+}
+
+fn inject_required_dirs(root: &Path) -> Result<()> {
     for dir in REQUIRED_DIRS {
-        let path = staging.path().join(dir);
+        let path = root.join(dir);
         std::fs::create_dir_all(&path).map_err(|source| RamuneError::WriteError {
             file: path.display().to_string(),
             source,
         })?;
     }
 
-    let resolv = staging.path().join("etc/resolv.conf");
-    ensure_default_resolv_conf(&resolv).map(|()| staging)
+    Ok(())
 }
 
 fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
@@ -579,23 +583,6 @@ mod tests {
             result
                 .as_ref()
                 .is_err_and(|error| matches!(error, RamuneError::WriteError { .. }))
-        );
-    }
-
-    #[test]
-    fn copy_dir_entries_iteration_error() {
-        // ARRANGE
-        let src = Path::new("/virtual/src");
-        let dst = Path::new("/virtual/dst");
-
-        // ACT
-        let result = copy_dir_entries(src, dst, [Err(std::io::Error::other("boom"))]);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| matches!(error, RamuneError::ReadError { .. }))
         );
     }
 

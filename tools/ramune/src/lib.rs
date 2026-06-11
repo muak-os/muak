@@ -1,4 +1,4 @@
-//! Ramune: initramfs builder for creating base images and appending extra files.
+//! Ramune: initramfs builder for creating base images and compressed append tails.
 
 #![warn(missing_docs)]
 
@@ -10,14 +10,13 @@ mod cpio;
 mod erofs;
 pub mod error;
 pub mod extender;
-mod extra;
 
 /// Configuration for creating a base initramfs.
 pub type CreateConfig<'a> = builder::CreateConfig<'a>;
-/// Configuration for extending an existing initramfs.
-pub type ExtendConfig<'a> = extender::ExtendConfig<'a>;
-/// An extra file to append to an initramfs archive.
-pub type ExtraFile<'a> = extender::ExtraFile<'a>;
+/// Configuration for creating a compressed append tail.
+pub type TailConfig<'a> = extender::TailConfig<'a>;
+/// An archive entry to append to an initramfs tail.
+pub type AppendEntry<'a> = extender::AppendEntry<'a>;
 
 /// Default zstd compression level.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
@@ -33,16 +32,12 @@ pub fn create<W: std::io::Write>(config: &CreateConfig<'_>, writer: &mut W) -> e
     builder::create(config, writer)
 }
 
-/// Extends an initramfs image by appending a compressed archive of extra files,
-/// writing the result into `writer`.
-///
-/// The base image is read from `config.base` and written to `writer` first,
-/// then the extra-file archive is appended.
+/// Builds a compressed append tail containing the configured archive entries.
 ///
 /// # Errors
 ///
-/// Returns an error when validation fails, reading the base image or extra files fails,
-/// compressing the appended archive fails, or writing to the output sink fails.
-pub fn extend<W: std::io::Write>(config: &ExtendConfig<'_>, writer: &mut W) -> error::Result<()> {
-    extender::extend(config, writer)
+/// Returns an error when validation fails, streaming an entry fails,
+/// or compressing the appended archive fails.
+pub fn build_tail(config: &mut TailConfig<'_>) -> error::Result<Vec<u8>> {
+    extender::build_tail(config)
 }

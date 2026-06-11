@@ -1,12 +1,13 @@
 //! Command-line interface for ramune.
 
 use std::ffi::OsString;
+use std::io::Cursor;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
-use crate::{CreateConfig, ExtendConfig, ExtraFile};
+use crate::{AppendEntry, CreateConfig, TailConfig};
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -38,17 +39,14 @@ enum Command {
         #[arg(long, default_value_t = ::erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
         rootfs_compression_level: i32,
     },
-    Extend {
-        #[arg(short, long)]
-        base: PathBuf,
-
+    Tail {
         #[arg(
             short = 'e',
-            long = "extra",
-            value_name = "SRC:DEST[:COMPRESS]",
+            long = "entry",
+            value_name = "SRC:DEST",
             value_parser = parse_extra
         )]
-        extra: Vec<(PathBuf, String, bool)>,
+        entry: Vec<(PathBuf, PathBuf)>,
 
         #[arg(short, long)]
         output: PathBuf,
@@ -58,16 +56,11 @@ enum Command {
     },
 }
 
-fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, String, bool), String> {
+fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, PathBuf), String> {
+    let invalid = || format!("expected SRC:DEST, got: {raw}");
     let mut parts = raw.split(':');
-    let src = parts.next().ok_or("missing source path")?;
-    let dest = parts
-        .next()
-        .ok_or_else(|| format!("expected SRC:DEST[:COMPRESS], got: {raw}"))?;
-    let compress = match parts.next() {
-        None | Some("") => false,
-        Some(flag) => matches!(flag, "true" | "1" | "yes" | "compress"),
-    };
+    let src = parts.next().ok_or_else(invalid)?;
+    let dest = parts.next().ok_or_else(invalid)?;
 
     if src.is_empty() {
         return Err("source path must not be empty".to_owned());
@@ -75,8 +68,11 @@ fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, String, bool), Strin
     if dest.is_empty() {
         return Err("destination name must not be empty".to_owned());
     }
+    if parts.next().is_some() {
+        return Err(invalid());
+    }
 
-    Ok((PathBuf::from(src), dest.to_owned(), compress))
+    Ok((PathBuf::from(src), PathBuf::from(dest)))
 }
 
 /// Runs the CLI from a caller-provided argument iterator.
@@ -108,12 +104,6 @@ where
     }
 }
 
-/// Runs the CLI from the process's `std::env::args_os`.
-#[must_use]
-pub fn run() -> i32 {
-    run_with(std::env::args_os())
-}
-
 fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Create {
@@ -123,73 +113,128 @@ fn run_command(command: Command) -> Result<()> {
             output,
             compression_level,
             rootfs_compression_level,
-        } => {
-            let file_contexts = match file_contexts.as_ref() {
-                Some(path) => {
-                    let file = std::fs::File::open(path)
-                        .context(format!("Failed to open file_contexts: {}", path.display()))?;
-                    Some(
-                        erofs::FileContexts::from_reader(file)
-                            .context("Failed to parse file_contexts")?,
-                    )
-                }
-                None => None,
-            };
-
-            let init_bytes = std::fs::read(&init)
-                .with_context(|| format!("Failed to read init binary: {}", init.display()))?;
-
-            let config = CreateConfig {
-                init: &init_bytes,
-                rootfs_dir: &rootfs_dir,
-                file_contexts: file_contexts.as_ref(),
-                compression_level,
-                rootfs_compression_level,
-            };
-
-            let mut file = std::fs::File::create(&output)
-                .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-            crate::create(&config, &mut file).context("Failed to create initramfs")?;
-            let size = initramfs_size(&output)?;
-
-            println!(
-                "Successfully created initramfs at {} ({} bytes)",
-                output.display(),
-                size
-            );
-
-            Ok(())
-        }
-        Command::Extend {
-            base,
-            extra,
+        } => run_create(
+            &init,
+            &rootfs_dir,
+            file_contexts.as_deref(),
+            &output,
+            compression_level,
+            rootfs_compression_level,
+        ),
+        Command::Tail {
+            entry,
             output,
             compression_level,
-        } => {
-            let entries: Vec<ExtraFile<'_>> = extra
-                .iter()
-                .map(|entry| ExtraFile {
-                    name: entry.1.clone(),
-                    path: &entry.0,
-                    compress: entry.2,
-                })
-                .collect();
-
-            let config = ExtendConfig {
-                base: &base,
-                extra_files: &entries,
-                compression_level,
-            };
-
-            let mut file = std::fs::File::create(&output)
-                .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-            crate::extend(&config, &mut file).context("Failed to build initramfs")?;
-
-            println!("Successfully created initramfs at {}", output.display());
-
-            Ok(())
-        }
+        } => run_tail(&entry, &output, compression_level),
     }
+}
+
+fn run_create(
+    init: &std::path::Path,
+    rootfs_dir: &std::path::Path,
+    file_contexts: Option<&std::path::Path>,
+    output: &std::path::Path,
+    compression_level: i32,
+    rootfs_compression_level: i32,
+) -> Result<()> {
+    let file_contexts = match file_contexts {
+        Some(path) => {
+            let file = std::fs::File::open(path)
+                .context(format!("Failed to open file_contexts: {}", path.display()))?;
+            Some(erofs::FileContexts::from_reader(file).context("Failed to parse file_contexts")?)
+        }
+        None => None,
+    };
+
+    let init_bytes = std::fs::read(init)
+        .with_context(|| format!("Failed to read init binary: {}", init.display()))?;
+
+    let config = CreateConfig {
+        init: &init_bytes,
+        file_contexts: file_contexts.as_ref(),
+        rootfs_dir,
+        compression_level,
+        rootfs_compression_level,
+    };
+
+    let mut file = std::fs::File::create(output)
+        .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+    crate::create(&config, &mut file).context("Failed to create initramfs")?;
+    let size = initramfs_size(output)?;
+
+    println!(
+        "Successfully created initramfs at {} ({} bytes)",
+        output.display(),
+        size
+    );
+
+    Ok(())
+}
+
+fn run_tail(
+    entry: &[(PathBuf, PathBuf)],
+    output: &std::path::Path,
+    compression_level: i32,
+) -> Result<()> {
+    let sources: Vec<Vec<u8>> = entry
+        .iter()
+        .map(|entry| read_entry_source(&entry.0))
+        .collect::<Result<_>>()?;
+    let mut readers: Vec<Cursor<Vec<u8>>> = sources.into_iter().map(Cursor::new).collect();
+    let mut append_entries: Vec<AppendEntry<'_>> = entry
+        .iter()
+        .zip(readers.iter_mut())
+        .map(|(entry, reader)| append_entry_from_source(&entry.0, entry.1.as_path(), reader))
+        .collect::<Result<_>>()?;
+
+    let mut config = TailConfig {
+        entries: &mut append_entries,
+        compression_level,
+    };
+
+    let tail = crate::build_tail(&mut config).context("Failed to build initramfs tail")?;
+    std::fs::write(output, &tail)
+        .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+
+    println!(
+        "Successfully created initramfs tail at {} ({} bytes)",
+        output.display(),
+        tail.len()
+    );
+
+    Ok(())
+}
+
+fn mode_for_source(path: &std::path::Path) -> Result<u32> {
+    let metadata = std::fs::metadata(path)?;
+    let readonly = metadata.permissions().readonly();
+
+    Ok(if readonly { 0o100_444 } else { 0o100_644 })
+}
+
+fn read_entry_source(source: &std::path::Path) -> Result<Vec<u8>> {
+    std::fs::read(source)
+        .with_context(|| format!("Failed to read input entry: {}", source.display()))
+}
+
+fn append_entry_from_source<'a>(
+    source: &std::path::Path,
+    archive_path: &'a std::path::Path,
+    reader: &'a mut Cursor<Vec<u8>>,
+) -> Result<AppendEntry<'a>> {
+    let mode = mode_for_source(source).with_context(|| {
+        format!(
+            "Failed to inspect input entry metadata: {}",
+            source.display()
+        )
+    })?;
+
+    Ok(AppendEntry {
+        archive_path,
+        mode,
+        len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
+        reader,
+    })
 }
 
 fn initramfs_size(output: &std::path::Path) -> Result<u64> {
@@ -226,50 +271,11 @@ mod tests {
         let input = "/tmp/profile.toml:profile.toml";
 
         // ACT
-        let (path, name, compress) = parse_extra(input).expect("parse");
+        let (path, name) = parse_extra(input).expect("parse");
 
         // ASSERT
         assert_eq!(path, PathBuf::from("/tmp/profile.toml"));
-        assert_eq!(name, "profile.toml");
-        assert!(!compress);
-    }
-
-    #[test]
-    fn parse_extra_compress() {
-        // ARRANGE
-        let input = "/tmp/ext-dir:extensions/qemu.erofs:true";
-
-        // ACT
-        let (path, name, compress) = parse_extra(input).expect("parse");
-
-        // ASSERT
-        assert_eq!(path, PathBuf::from("/tmp/ext-dir"));
-        assert_eq!(name, "extensions/qemu.erofs");
-        assert!(compress);
-    }
-
-    #[test]
-    fn parse_extra_compress_with_1() {
-        // ARRANGE
-        let input = "/tmp/dir:ext.erofs:1";
-
-        // ACT
-        let (_, _, compress) = parse_extra(input).expect("parse");
-
-        // ASSERT
-        assert!(compress);
-    }
-
-    #[test]
-    fn parse_extra_no_compress_flag() {
-        // ARRANGE
-        let input = "/tmp/data:data.txt";
-
-        // ACT
-        let (_, _, compress) = parse_extra(input).expect("parse");
-
-        // ASSERT
-        assert!(!compress);
+        assert_eq!(name, PathBuf::from("profile.toml"));
     }
 
     #[test]

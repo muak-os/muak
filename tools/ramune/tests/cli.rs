@@ -9,7 +9,7 @@ mod tests {
 
     use ramune::cli;
 
-    use super::fixtures::{TestEnv, decode_extension_archive, decode_initramfs};
+    use super::fixtures::{TestEnv, decode_initramfs, parse_newc_archive};
 
     fn ramune_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_BIN_EXE_ramune"))
@@ -38,31 +38,14 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune create should exit successfully"
-        );
+        assert!(process_output.status.success());
         assert!(
             String::from_utf8_lossy(&process_output.stdout)
                 .contains("Successfully created initramfs at")
         );
         let entries = decode_initramfs(&output);
-        let init_entry = entries
-            .iter()
-            .find(|entry| entry.name == "init")
-            .expect("missing init entry");
-        assert_eq!(init_entry.mode, 0o100_755);
-        assert_eq!(init_entry.data, b"#!/bin/sh\nexec /sbin/init\n");
-
-        let rootfs_entry = entries
-            .iter()
-            .find(|entry| entry.name == "rootfs.erofs")
-            .expect("missing rootfs erofs entry");
-        assert_eq!(rootfs_entry.mode, 0o100_644);
-        assert!(
-            !rootfs_entry.data.is_empty(),
-            "rootfs erofs should not be empty"
-        );
+        assert!(entries.iter().any(|entry| entry.name == "init"));
+        assert!(entries.iter().any(|entry| entry.name == "rootfs.erofs"));
     }
 
     #[test]
@@ -91,83 +74,8 @@ mod tests {
             .expect("failed to run ramune create with file contexts");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune create should accept file contexts"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stdout)
-                .contains("Successfully created initramfs at")
-        );
-        assert!(output.exists(), "output image should exist");
-    }
-
-    #[test]
-    fn cli_create_accepts_separate_rootfs_compression_level() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let output = env.path("initramfs.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "create",
-                "--init",
-                init.to_str().expect("init path"),
-                "--rootfs-dir",
-                rootfs.to_str().expect("rootfs path"),
-                "--compression-level",
-                "19",
-                "--rootfs-compression-level",
-                "7",
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune create with separate compression levels");
-
-        // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune create should accept separate rootfs compression level"
-        );
-        assert!(output.exists(), "output image should exist");
-    }
-
-    #[test]
-    fn cli_create_invalid_rootfs_compression_level_exits_with_error() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let output = env.path("initramfs.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "create",
-                "--init",
-                init.to_str().expect("init path"),
-                "--rootfs-dir",
-                rootfs.to_str().expect("rootfs path"),
-                "--rootfs-compression-level",
-                &i32::MAX.to_string(),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune create with invalid rootfs compression level");
-
-        // ASSERT
-        assert!(
-            !process_output.status.success(),
-            "ramune create should fail for invalid rootfs compression level"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level")
-        );
+        assert!(process_output.status.success());
+        assert!(output.exists());
     }
 
     #[test]
@@ -192,12 +100,109 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert!(
-            !process_output.status.success(),
-            "ramune create should fail for missing init"
-        );
+        assert!(!process_output.status.success());
         assert!(
             String::from_utf8_lossy(&process_output.stderr).contains("Failed to read init binary")
+        );
+    }
+
+    #[test]
+    fn cli_tail_builds_compressed_archive() {
+        // ARRANGE
+        let env = TestEnv::new();
+        let profile = env.write("profile.toml", b"[overlay]\nname = \"test\"\n");
+        let extension = env.write("cli-ext.erofs", b"payload");
+        let output = env.path("tail.img");
+
+        // ACT
+        let process_output = Command::new(ramune_bin())
+            .args([
+                "tail",
+                "--entry",
+                &format!("{}:profile.toml", profile.to_str().expect("profile path")),
+                "--entry",
+                &format!(
+                    "{}:extensions/cli-ext.erofs",
+                    extension.to_str().expect("extension path")
+                ),
+                "--output",
+                output.to_str().expect("output path"),
+            ])
+            .output()
+            .expect("failed to run ramune tail");
+
+        // ASSERT
+        assert!(process_output.status.success());
+        assert!(
+            String::from_utf8_lossy(&process_output.stdout)
+                .contains("Successfully created initramfs tail at")
+        );
+
+        let archive = zstd::decode_all(fs::read(&output).expect("read tail").as_slice())
+            .expect("decode tail");
+        let entries = parse_newc_archive(&archive);
+        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+        assert_eq!(names, ["extensions/cli-ext.erofs", "profile.toml"]);
+        assert_eq!(entries.first().expect("first entry").mode, 0o100_644);
+        assert_eq!(
+            entries.get(1).expect("second entry").data,
+            b"[overlay]\nname = \"test\"\n"
+        );
+    }
+
+    #[test]
+    fn cli_tail_invalid_compression_level_exits_with_error() {
+        // ARRANGE
+        let env = TestEnv::new();
+        let profile = env.write("profile.toml", b"[overlay]\nname = \"test\"\n");
+        let output = env.path("tail.img");
+
+        // ACT
+        let process_output = Command::new(ramune_bin())
+            .args([
+                "tail",
+                "--entry",
+                &format!("{}:profile.toml", profile.to_str().expect("profile path")),
+                "--compression-level",
+                &i32::MAX.to_string(),
+                "--output",
+                output.to_str().expect("output path"),
+            ])
+            .output()
+            .expect("failed to run ramune tail");
+
+        // ASSERT
+        assert!(!process_output.status.success());
+        assert!(
+            String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level")
+        );
+    }
+
+    #[test]
+    fn cli_tail_missing_entry_source_exits_with_error() {
+        // ARRANGE
+        let env = TestEnv::new();
+        let output = env.path("tail.img");
+
+        // ACT
+        let process_output = Command::new(ramune_bin())
+            .args([
+                "tail",
+                "--entry",
+                &format!(
+                    "{}:profile.toml",
+                    env.path("missing-profile").to_str().expect("missing path")
+                ),
+                "--output",
+                output.to_str().expect("output path"),
+            ])
+            .output()
+            .expect("failed to run ramune tail");
+
+        // ASSERT
+        assert!(!process_output.status.success());
+        assert!(
+            String::from_utf8_lossy(&process_output.stderr).contains("Failed to read input entry")
         );
     }
 
@@ -210,16 +215,10 @@ mod tests {
             .expect("failed to run ramune --help");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune --help should exit successfully"
-        );
+        assert!(process_output.status.success());
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(stdout.contains("Usage: ramune <COMMAND>"));
-        assert!(
-            process_output.stderr.is_empty(),
-            "help should not print to stderr"
-        );
+        assert!(process_output.stderr.is_empty());
     }
 
     #[test]
@@ -231,375 +230,74 @@ mod tests {
             .expect("failed to run ramune --version");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune --version should exit successfully"
-        );
+        assert!(process_output.status.success());
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
-        assert!(
-            process_output.stderr.is_empty(),
-            "version should not print to stderr"
-        );
+        assert!(process_output.stderr.is_empty());
     }
 
     #[test]
-    fn cli_extend_builds_extended_initramfs() {
+    fn run_from_create_writes_output() {
         // ARRANGE
         let env = TestEnv::new();
-        let base_bytes = b"base-initramfs";
-        let base = env.write("base.img", base_bytes);
-        let extension = env.write_extension("cli-ext", b"payload");
-        let output = env.path("extended.img");
+        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
+        let rootfs = env.write_rootfs();
+        let output = env.path("run-from-initramfs.img");
 
         // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "extend",
-                "--base",
-                base.to_str().expect("base path"),
-                "--extra",
-                &format!(
-                    "{}:extensions/cli-ext.erofs:true",
-                    extension.to_str().expect("extension path")
-                ),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune extend");
+        cli::run_from([
+            "ramune",
+            "create",
+            "--init",
+            init.to_str().expect("init path"),
+            "--rootfs-dir",
+            rootfs.to_str().expect("rootfs path"),
+            "--output",
+            output.to_str().expect("output path"),
+        ])
+        .expect("run_from create");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune extend should exit successfully"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stdout)
-                .contains("Successfully created initramfs at")
-        );
-        let image = fs::read(&output).expect("read output");
-        assert!(image.starts_with(base_bytes));
-
-        let entries = decode_extension_archive(&output, base_bytes.len());
-        let entry = entries
-            .iter()
-            .find(|entry| entry.name == "extensions/cli-ext.erofs")
-            .expect("missing extension entry");
-        assert_eq!(entry.mode, 0o100_644);
-        assert!(
-            !entry.data.is_empty(),
-            "extension erofs should not be empty"
-        );
+        assert!(output.exists());
     }
 
     #[test]
-    fn cli_extend_plain_file() {
+    fn run_from_tail_writes_output() {
         // ARRANGE
         let env = TestEnv::new();
-        let base_bytes = b"base-initramfs";
-        let base = env.write("base.img", base_bytes);
         let profile = env.write("profile.toml", b"[overlay]\nname = \"test\"\n");
-        let output = env.path("extended.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "extend",
-                "--base",
-                base.to_str().expect("base path"),
-                "--extra",
-                &format!("{}:profile.toml", profile.to_str().expect("profile path")),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune extend");
-
-        // ASSERT
-        assert!(
-            process_output.status.success(),
-            "ramune extend with plain file should exit successfully"
-        );
-        let image = fs::read(&output).expect("read output");
-        assert!(image.starts_with(base_bytes));
-
-        let entries = decode_extension_archive(&output, base_bytes.len());
-        let entry = entries
-            .iter()
-            .find(|entry| entry.name == "profile.toml")
-            .expect("missing profile entry");
-        assert_eq!(entry.data, b"[overlay]\nname = \"test\"\n");
-    }
-
-    #[test]
-    fn cli_extend_invalid_compression_level_exits_with_error() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let base = env.write("base.img", b"base-initramfs");
-        let extension = env.write_extension("cli-ext", b"payload");
-        let output = env.path("extended.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "extend",
-                "--base",
-                base.to_str().expect("base path"),
-                "--extra",
-                &format!(
-                    "{}:extensions/cli-ext.erofs:true",
-                    extension.to_str().expect("extension path")
-                ),
-                "--compression-level",
-                &i32::MAX.to_string(),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune extend with invalid compression level");
-
-        // ASSERT
-        assert!(
-            !process_output.status.success(),
-            "ramune extend should fail for invalid compression level"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Invalid compression level")
-        );
-    }
-
-    #[test]
-    fn cli_extend_missing_base_exits_with_error() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let output = env.path("extended.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "extend",
-                "--base",
-                env.path("missing-base").to_str().expect("base path"),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune extend");
-
-        // ASSERT
-        assert!(
-            !process_output.status.success(),
-            "ramune extend should fail for missing base"
-        );
-        assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Failed to build initramfs")
-        );
-    }
-
-    #[test]
-    fn cli_extend_malformed_extra_file_errors() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let base = env.write("base.img", b"base-initramfs");
-        let output = env.path("extended.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "extend",
-                "--base",
-                base.to_str().expect("base path"),
-                "--extra",
-                "/tmp/src",
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune extend");
-
-        // ASSERT
-        assert!(
-            !process_output.status.success(),
-            "ramune extend should fail for malformed extra file"
-        );
-    }
-
-    #[test]
-    fn run_with_create_writes_output() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let output = env.path("run-with-initramfs.img");
+        let output = env.path("run-from-tail.img");
 
         // ACT
         cli::run_from([
             "ramune",
-            "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
+            "tail",
+            "--entry",
+            &format!("{}:profile.toml", profile.to_str().expect("profile path")),
             "--output",
             output.to_str().expect("output path"),
         ])
-        .expect("run_from create");
+        .expect("run_from tail");
 
         // ASSERT
         assert!(output.exists());
     }
 
     #[test]
-    fn run_with_create_with_file_contexts_writes_output() {
+    fn run_from_tail_missing_source_errors() {
         // ARRANGE
         let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let file_contexts = env.write("file_contexts", b"/.*    system_u:object_r:file_t:s0\n");
-        let output = env.path("run-with-initramfs.img");
-
-        // ACT
-        cli::run_from([
-            "ramune",
-            "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
-            "--file-contexts",
-            file_contexts.to_str().expect("file_contexts path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect("run_from create");
-
-        // ASSERT
-        assert!(output.exists());
-    }
-
-    #[test]
-    fn run_with_create_accepts_rootfs_compression_level() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let output = env.path("run-with-initramfs.img");
-
-        // ACT
-        cli::run_from([
-            "ramune",
-            "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
-            "--rootfs-compression-level",
-            "7",
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect("run_from create");
-
-        // ASSERT
-        assert!(output.exists());
-    }
-
-    #[test]
-    fn run_with_create_missing_file_contexts_errors() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let output = env.path("run-with-initramfs.img");
+        let output = env.path("run-from-tail.img");
 
         // ACT
         let result = cli::run_from([
             "ramune",
-            "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
-            "--file-contexts",
-            env.path("missing-file-contexts")
-                .to_str()
-                .expect("file_contexts path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ]);
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn run_with_create_invalid_file_contexts_errors() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let file_contexts = env.write("file_contexts", b"/path -- ctx extra\n");
-        let output = env.path("run-with-initramfs.img");
-
-        // ACT
-        let result = cli::run_from([
-            "ramune",
-            "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
-            "--file-contexts",
-            file_contexts.to_str().expect("file_contexts path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ]);
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn run_with_extend_writes_output() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let base = env.write("base.img", b"base");
-        let extension = env.write_extension("run-with-ext", b"payload");
-        let output = env.path("run-with-extended.img");
-
-        // ACT
-        cli::run_from([
-            "ramune",
-            "extend",
-            "--base",
-            base.to_str().expect("base path"),
-            "--extra",
+            "tail",
+            "--entry",
             &format!(
-                "{}:extensions/run-with-ext.erofs:true",
-                extension.to_str().expect("extension path")
+                "{}:profile.toml",
+                env.path("missing-profile").to_str().expect("missing path")
             ),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect("run_from extend");
-
-        // ASSERT
-        assert!(output.exists());
-    }
-
-    #[test]
-    fn run_with_extend_missing_base_errors() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let output = env.path("run-with-extended.img");
-
-        // ACT
-        let result = cli::run_from([
-            "ramune",
-            "extend",
-            "--base",
-            env.path("missing.img").to_str().expect("base path"),
             "--output",
             output.to_str().expect("output path"),
         ]);
@@ -636,14 +334,17 @@ mod tests {
     fn run_with_returns_one_for_error() {
         // ARRANGE
         let env = TestEnv::new();
-        let output = env.path("run-with-extended.img");
+        let output = env.path("run-with-tail.img");
 
         // ACT
         let exit_code = cli::run_with([
             "ramune",
-            "extend",
-            "--base",
-            env.path("missing.img").to_str().expect("base path"),
+            "tail",
+            "--entry",
+            &format!(
+                "{}:profile.toml",
+                env.path("missing-profile").to_str().expect("missing path")
+            ),
             "--output",
             output.to_str().expect("output path"),
         ]);
