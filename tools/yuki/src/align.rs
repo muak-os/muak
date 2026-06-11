@@ -14,13 +14,15 @@ pub const fn align_to(value: u32, alignment: u32) -> u32 {
 }
 
 pub fn usize_to_u32(value: usize) -> Result<u32> {
-    u32::try_from(value)
-        .or(Err(YukiError::PeParseError("usize to u32 overflow".to_owned())))
+    u32::try_from(value).or(Err(YukiError::PeParseError(
+        "usize to u32 overflow".to_owned(),
+    )))
 }
 
 pub fn u64_to_usize(value: u64) -> Result<usize> {
-    usize::try_from(value)
-        .or(Err(YukiError::PeParseError("u64 to usize overflow".to_owned())))
+    usize::try_from(value).or(Err(YukiError::PeParseError(
+        "u64 to usize overflow".to_owned(),
+    )))
 }
 
 #[cfg(test)]
