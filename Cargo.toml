@@ -97,7 +97,7 @@ rsa = "0.10.0-rc.18"
 cms = "0.3.0-pre.2"
 aes = "0.9"
 argon2 = { version = "0.6.0-rc.8", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
-zeroize = "1.8"
+zeroize = "1.9"
 webpki-roots = "1.0"
 
 ## Encoding
