@@ -3,6 +3,10 @@
 use thiserror::Error;
 
 /// Errors that can occur during EROFS image creation.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type intentionally matches the crate name"
+)]
 #[derive(Error, Debug)]
 pub enum ErofsError {
     /// IO operation failed.
@@ -15,7 +19,12 @@ pub enum ErofsError {
 
     /// File too large for the format.
     #[error("file too large: {path}, size {size}")]
-    FileTooLarge { path: std::path::PathBuf, size: u64 },
+    FileTooLarge {
+        /// Path of the oversized file.
+        path: std::path::PathBuf,
+        /// File size in bytes.
+        size: u64,
+    },
 
     /// Filename exceeds the 255-byte EROFS limit.
     #[error("filename too long: {0}")]
@@ -35,11 +44,21 @@ pub enum ErofsError {
 
     /// Compression failed.
     #[error("compression error: {detail}")]
-    Compression { detail: String },
+    Compression {
+        /// Human-readable compression failure detail.
+        detail: String,
+    },
 
     /// Compression level is outside the zstd-supported range.
     #[error("invalid compression level {level}; expected 0 or {min}..={max}")]
-    InvalidCompressionLevel { level: i32, min: i32, max: i32 },
+    InvalidCompressionLevel {
+        /// Invalid level provided by the caller.
+        level: i32,
+        /// Minimum supported compression level.
+        min: i32,
+        /// Maximum supported compression level.
+        max: i32,
+    },
 
     /// Internal invariant violated.
     #[error("internal error: {0}")]

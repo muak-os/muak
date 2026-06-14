@@ -7,7 +7,7 @@ extern crate alloc;
 mod checked;
 mod compress;
 mod dir;
-mod error;
+pub mod error;
 mod filecontexts;
 mod inode;
 mod layout;
@@ -26,6 +26,8 @@ pub type InodeLayout = layout::InodeLayout;
 pub type ImagePlan = layout::ImagePlan;
 /// A filesystem-backed [`tree::TreeSource`].
 pub type FilesystemTreeSource<'a> = layout::collect::FilesystemTreeSource<'a>;
+/// An in-memory [`tree::TreeSource`].
+pub type InMemoryTreeSource = tree::InMemoryTreeSource;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;

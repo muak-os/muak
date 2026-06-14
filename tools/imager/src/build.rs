@@ -3,15 +3,16 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use tokio::fs;
+
 use crate::artifact::Artifact;
-use crate::error::Result;
+use crate::error::{ImagerError, Result};
 use crate::profile::Profile;
 use crate::render;
 use crate::request::Request;
 use crate::resolve::{self, Config};
-use crate::workspace;
 
-/// Builds the requested artifacts sharing a single resolution and workspace.
+/// Builds the requested artifacts sharing a single resolution.
 ///
 /// # Errors
 ///
@@ -24,14 +25,10 @@ pub async fn artifacts(
 ) -> Result<HashMap<Artifact, PathBuf>> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
-    let workspace = workspace::unique(&config.workspace_root);
 
-    render::artifacts(
-        &resolved,
-        &request.artifacts,
-        &profile_bytes,
-        output_dir,
-        &workspace,
-    )
-    .await
+    fs::create_dir_all(output_dir)
+        .await
+        .map_err(|e| ImagerError::BuildError(format!("create output dir: {e}")))?;
+
+    render::artifacts(&resolved, &request.artifacts, &profile_bytes, output_dir).await
 }
