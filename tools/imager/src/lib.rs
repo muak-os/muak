@@ -10,10 +10,3 @@ pub mod error;
 pub mod profile;
 pub mod request;
 pub mod resolve;
-
-mod catalog;
-mod layout;
-mod output;
-mod render;
-mod stage;
-mod workspace;

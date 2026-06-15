@@ -2,11 +2,25 @@
 
 use koci::arch::Arch;
 
-use crate::catalog::{is_official_extension, resolve_extension_name};
 use crate::error::{ImagerError, Result};
 use crate::profile::Profile;
 use crate::request::Platform;
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};
+
+const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
+
+/// Normalizes legacy extension names to canonical logical names.
+fn resolve_extension_name(name: &str) -> &str {
+    match name {
+        "qemu" => "muak-os/qemu",
+        other => other,
+    }
+}
+
+/// Returns true when a logical extension belongs to the checked-in official inventory.
+fn is_official_extension(name: &str) -> bool {
+    OFFICIAL_EXTENSION_REPOSITORIES.binary_search(&name).is_ok()
+}
 
 /// Internal OCI reference resolver.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,5 +277,18 @@ mod tests {
             bp_b.overlay().expect("overlay b").image()
         );
         assert_ne!(bp_a.overlay().expect("overlay a").source_ref(), "");
+    }
+
+    #[test]
+    fn resolves_legacy_extension_names() {
+        assert_eq!(resolve_extension_name("qemu"), "muak-os/qemu");
+        assert_eq!(resolve_extension_name("custom"), "custom");
+        assert_eq!(resolve_extension_name("muak-os/qemu"), "muak-os/qemu");
+    }
+
+    #[test]
+    fn identifies_official_extensions() {
+        assert!(is_official_extension("muak-os/qemu"));
+        assert!(!is_official_extension("custom/thing"));
     }
 }

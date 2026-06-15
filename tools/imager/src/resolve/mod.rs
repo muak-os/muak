@@ -14,8 +14,6 @@ use crate::request::{Platform, Request};
 pub struct Config {
     /// OCI image registry and installer repository.
     pub sources: Sources,
-    /// Root directory for the workspace and output artifacts.
-    pub workspace_root: std::path::PathBuf,
 }
 
 /// Source configuration for the build pipeline.

@@ -271,7 +271,6 @@ async fn run_build(
             registry,
             installer,
         },
-        workspace_root: output.clone(),
     };
 
     let results = build::artifacts(&request, &spec, &config, &output)

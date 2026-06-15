@@ -147,6 +147,16 @@ impl PulledImage {
         Ok(())
     }
 
+    /// Add a directory entry to the pulled image (public for test convenience).
+    pub fn add_dir(&mut self, path: &Path, mode: u32) {
+        self.insert_dir(path, mode);
+    }
+
+    /// Add a file entry to the pulled image (public for test convenience).
+    pub fn add_file(&mut self, path: &Path, mode: u32, data: Vec<u8>) {
+        self.insert_file(path, mode, data);
+    }
+
     pub(crate) fn insert_dir(&mut self, path: &Path, mode: u32) {
         if path.as_os_str().is_empty() {
             return;
