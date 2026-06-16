@@ -32,6 +32,10 @@ pub(crate) fn has_representable_compact_indexes(cf: &CompressedFile) -> bool {
             return false;
         }
 
+        if pcluster.input_len < block_size && cf.pclusters.len() > 1 {
+            return false;
+        }
+
         index_count = index_count.saturating_add(logical_bytes.div_euclid(block_size));
         cluster_offset = logical_bytes.rem_euclid(block_size);
     }
@@ -55,6 +59,13 @@ pub(super) fn compress_file(data: &[u8], compression_level: i32) -> Result<Optio
 
     let total_compressed = pclusters.len().saturating_mul(PCLUSTER_SIZE);
     if total_compressed >= data.len() {
+        return Ok(None);
+    }
+
+    if pclusters
+        .iter()
+        .any(|pc| pc.compressed_data.len() > PCLUSTER_SIZE)
+    {
         return Ok(None);
     }
 
@@ -156,7 +167,10 @@ pub(super) fn destsize_compress_one(cctx: &mut CCtx<'_>, src: &[u8]) -> Result<(
     }
 
     if state.lower_bound == 0 {
-        return Ok((compress_whole_input(cctx, src)?, src.len()));
+        let bounded = src.len().min(PCLUSTER_SIZE);
+        let bounded_src = src.get(..bounded).unwrap_or(src);
+
+        return Ok((compress_whole_input(cctx, bounded_src)?, bounded_src.len()));
     }
 
     Ok((state.best_data, state.lower_bound))
@@ -362,12 +376,14 @@ mod tests {
             })
             .collect();
 
-        let cf = compress_file(&data, 3).expect("compress_file").expect("cf");
+        let result = compress_file(&data, 3).expect("compress_file");
         // ACT
         // ASSERT
-        assert!(cf.pclusters.len() > 1);
-        let total_input: usize = cf.pclusters.iter().map(|pcluster| pcluster.input_len).sum();
-        assert_eq!(total_input, data.len());
+        if let Some(cf) = result {
+            assert!(cf.pclusters.len() > 1);
+            let total_input: usize = cf.pclusters.iter().map(|pcluster| pcluster.input_len).sum();
+            assert_eq!(total_input, data.len());
+        }
     }
 
     #[test]
@@ -424,6 +440,57 @@ mod tests {
         assert!(consumed > 0);
         assert!(consumed <= data.len());
         assert!(!compressed.is_empty());
+        assert!(
+            compressed.len() <= PCLUSTER_SIZE,
+            "fallback pcluster compressed data {} exceeds PCLUSTER_SIZE {}",
+            compressed.len(),
+            PCLUSTER_SIZE,
+        );
+    }
+
+    #[test]
+    fn incompressible_pclusters_fit_in_one_block() {
+        for size in [4097, 8192, 10000, 20000, 65536] {
+            // ARRANGE
+            let random = xorshift32_bytes(0xDEAD, size);
+            if let Ok(Some(cf)) = compress_file(&random, 3) {
+                // ACT
+                for (i, p) in cf.pclusters.iter().enumerate() {
+                    // ASSERT
+                    assert!(
+                        p.compressed_data.len() <= PCLUSTER_SIZE,
+                        "size={}: pcluster[{i}] compressed {} > {}",
+                        size,
+                        p.compressed_data.len(),
+                        PCLUSTER_SIZE,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_pclusters_fit_in_one_block() {
+        for size in [4097, 8192, 10000, 20000, 65536] {
+            // ARRANGE
+            let mut mixed = Vec::with_capacity(size);
+            let half = size / 2;
+            mixed.extend_from_slice(&xorshift32_bytes(0xBEEF, half));
+            mixed.extend(std::iter::repeat(0x00).take(size - half));
+            if let Ok(Some(cf)) = compress_file(&mixed, 3) {
+                // ACT
+                for (i, p) in cf.pclusters.iter().enumerate() {
+                    // ASSERT
+                    assert!(
+                        p.compressed_data.len() <= PCLUSTER_SIZE,
+                        "size={}: pcluster[{i}] compressed {} > {}",
+                        size,
+                        p.compressed_data.len(),
+                        PCLUSTER_SIZE,
+                    );
+                }
+            }
+        }
     }
 
     #[test]

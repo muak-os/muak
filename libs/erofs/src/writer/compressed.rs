@@ -165,7 +165,8 @@ pub(super) fn build_legacy_index_entries(
 
         if delta1 == 0 {
             entries.push(LegacyIndexEntry::head(head_cluster_offset, blkaddr));
-            cluster_offset = 0_usize;
+            cluster_offset = add(local_cluster_offset, remaining_count)
+                .ok_or(ErofsError::Internal("cluster offset overflow"))?;
             blkaddr = blkaddr.saturating_add(1);
             continue;
         }
