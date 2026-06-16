@@ -11,7 +11,6 @@ mod reboot;
 mod reset;
 mod secrets;
 mod streaming;
-mod uki;
 mod update;
 
 use std::path::Path;

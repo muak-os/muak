@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use tokio::fs;
-use yuki::section::Section;
+pub use yuki::section::Section;
 
 use crate::artifact::Artifact;
 use crate::error::{ImagerError, Result};

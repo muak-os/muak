@@ -23,7 +23,6 @@ prost = { workspace = true }
 # Cryptography
 ring = { workspace = true }
 x509-cert = { workspace = true }
-uuid = { workspace = true }
 zeroize = { workspace = true }
 
 # Error handling
@@ -42,18 +41,19 @@ esp = { workspace = true }
 imager = { workspace = true }
 parttable = { workspace = true }
 granola = { workspace = true }
-koci = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
-ramune = { workspace = true }
 sbolt = { workspace = true }
 tpm2 = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net"] }
 libc = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

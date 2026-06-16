@@ -1,14 +1,14 @@
 //! Kexec-based reboot into the staged update kernel.
 
-use std::fs;
+use std::fs::{self, File};
 use std::os::fd::AsRawFd;
+use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
 use crate::constants::UPDATE_DIR;
-use crate::uki::Uki;
 
 #[cfg(target_arch = "x86_64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;
@@ -18,17 +18,20 @@ const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 
 /// Loads the staged kernel via kexec and reboots into it.
 pub fn run(update_id: &str) -> Result<()> {
-    let uki = Uki::from_dir(std::path::Path::new(UPDATE_DIR));
-    load(&uki, update_id).context("Failed to load new kernel with kexec")?;
+    let update_dir = Path::new(UPDATE_DIR);
+    let kernel_path = update_dir.join("assets").join("kernel");
+    let initrd_path = update_dir.join("assets").join("initramfs");
+
+    load(&kernel_path, &initrd_path, update_id).context("Failed to load new kernel with kexec")?;
     kmsg::info!("kexec booting into update {}", update_id);
     reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {}", e))?;
+
     unreachable!("If we reach here, something went really wrong")
 }
 
-/// Loads the new kernel and initramfs into memory.
-fn load(uki: &Uki, update_id: &str) -> Result<()> {
-    let kernel = fs::File::open(&uki.kernel).context("Failed to open kernel for kexec")?;
-    let initrd = fs::File::open(&uki.initramfs).context("Failed to open initramfs for kexec")?;
+fn load(kernel_path: &Path, initrd_path: &Path, update_id: &str) -> Result<()> {
+    let kernel = File::open(kernel_path).context("Failed to open kernel for kexec")?;
+    let initrd = File::open(initrd_path).context("Failed to open initrd for kexec")?;
     let cmdline = add_cmdline_update_marker(update_id)?;
 
     // SAFETY: kexec_file_load syscall with valid file descriptors and null-terminated string
@@ -53,7 +56,6 @@ fn load(uki: &Uki, update_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Adds the update ID marker to the kernel cmdline.
 fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
     let cmdline = fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()

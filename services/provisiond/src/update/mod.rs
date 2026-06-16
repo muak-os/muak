@@ -11,6 +11,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::{CONFIG_PATH, SystemConfig};
+use imager::artifact::Artifact;
+use imager::build;
+use imager::profile::Profile;
+use imager::request::{Platform, Request};
+use imager::resolve::Config;
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
@@ -18,8 +23,8 @@ use tokio::sync::mpsc;
 use crate::constants::UPDATE_DIR;
 use crate::history::{self, ChangeKind};
 use crate::ipc::proto::provision::PrepareUpdateProgress;
+use crate::profile;
 use crate::streaming;
-use crate::uki::Uki;
 
 /// Status of a system update.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,7 +59,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
     UpdateStatus::Unknown
 }
 
-/// Prepares an update by staging the UKI components.
+/// Prepares an update by staging the UKI components via the imager.
 pub async fn prepare(
     image: &str,
     extensions: &[String],
@@ -72,6 +77,24 @@ pub async fn prepare(
     .await;
 
     let staging_dir = create_staging_dir()?;
+    let install_profile = derive_install_profile(extensions)?;
+
+    let (registry, installer, version) = image_parts(image)?;
+    let config = Config {
+        sources: imager::resolve::Sources {
+            registry,
+            installer,
+        },
+    };
+    let request = Request {
+        version,
+        platform: Platform::Metal,
+        arch: None,
+        artifacts: vec![Artifact::Uki, Artifact::Esp],
+    };
+    build::prepare_uki(&request, &install_profile, &config)
+        .await
+        .context("imager update prepare")?;
 
     if let Some(ref cfg) = new_config {
         let secure_boot_active = sbolt::efi::secure_boot().unwrap_or(false);
@@ -83,8 +106,6 @@ pub async fn prepare(
             );
         }
     }
-
-    Uki::prepare(image, extensions, &staging_dir).await?;
 
     streaming::send_progress(
         &progress,
@@ -108,6 +129,32 @@ pub async fn prepare(
     Ok(update_id)
 }
 
+fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
+    let booted = profile::load().context("failed to load booted profile")?;
+    let customization = imager::profile::CustomizationSpec::new(extensions.to_vec())
+        .context("invalid extensions")?;
+    Ok(Profile::new(booted.overlay().cloned(), customization))
+}
+
+fn image_parts(image: &str) -> Result<(String, String, String)> {
+    let colon = image
+        .rfind(':')
+        .context("invalid installer image: missing tag")?;
+    let version = &image[colon + 1..];
+    let path = &image[..colon];
+    let slash = path
+        .find('/')
+        .context("invalid installer image: missing registry")?;
+    let registry = &path[..slash];
+    let installer = &path[slash + 1..];
+
+    Ok((
+        registry.to_owned(),
+        installer.to_owned(),
+        version.to_owned(),
+    ))
+}
+
 /// Checks for a pending update snapshot and spawns validation in the background.
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let Some((update_id, snapshot_path)) = snapshot::find_pending()? else {
@@ -128,28 +175,25 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     Ok(())
 }
 
-/// Returns true if the current boot has the update marker in the cmdline.
 fn has_update_marker() -> bool {
     std::fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()
         .contains("muak.update_id=")
 }
 
-/// Removes stale update files left from a previous boot cycle.
 fn cleanup_stale() {
     if let Err(e) = std::fs::remove_dir_all(Path::new(UPDATE_DIR)) {
         eprintln!("Failed to cleanup stale update dir: {}", e);
     }
 }
 
-/// Creates the staging directory for update files.
 fn create_staging_dir() -> Result<PathBuf> {
     let dir = PathBuf::from(UPDATE_DIR);
     fs::create_dir_all(&dir).context("Failed to create update staging dir")?;
+
     Ok(dir)
 }
 
-/// Updates the host system config with a new image, preserving all other fields.
 pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let mut config: SystemConfig =
@@ -167,7 +211,6 @@ pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) ->
     Ok(())
 }
 
-/// Writes all mutable fields to the existing config on-disk.
 pub(super) fn update_config(
     update_id: &str,
     new_config: &SystemConfig,
@@ -190,7 +233,6 @@ pub(super) fn update_config(
     Ok(())
 }
 
-/// Signals that the CLI has contacted provisiond during validation.
 pub fn signal_cli_contact() {
     validation::signal_cli_contact();
 }

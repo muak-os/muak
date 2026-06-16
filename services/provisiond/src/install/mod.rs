@@ -3,10 +3,16 @@
 mod pki;
 mod state;
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::SystemConfig;
+use imager::artifact::Artifact;
+use imager::build;
+use imager::profile::Profile;
+use imager::request::{Platform, Request};
+use imager::resolve::Config;
 pub use pki::InstallResult;
 use rustix::fs::sync;
 use tokio::sync::mpsc;
@@ -15,9 +21,9 @@ use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
 use crate::efi;
 use crate::ipc::proto::provision::InstallProgress;
+use crate::profile;
 use crate::secrets;
 use crate::streaming;
-use crate::uki::Uki;
 
 /// Working directory for installation operations.
 const INSTALL_DIR: &str = "/run/install";
@@ -47,21 +53,30 @@ pub async fn run(
     format_partitions(&partitions, &luks_key, &progress).await?;
 
     match uki.seal_result {
-        secrets::SealResult::Sealed(token) => {
+        secrets::SealResult::Sealed(ref token) => {
             secrets::write_token_to_devices(
-                &token,
+                token,
                 &[&partitions.state_part, &partitions.data_part],
             )?;
             println!("LUKS key sealed to TPM2 with PCR#11 values");
         }
-        secrets::SealResult::Embedded => {}
+        secrets::SealResult::EspKey => {
+            println!("TPM2 unavailable, LUKS key will be written to ESP");
+        }
     }
 
     let (dm_state, dm_data) =
         open_luks_volumes(&partitions.state_part, &partitions.data_part, &luks_key).await?;
     format_btrfs_volumes(&dm_state, &dm_data, &progress).await?;
 
-    deploy_uki(&partitions.efi_part, &uki.staged_path, &progress).await?;
+    deploy_uki(
+        &partitions.efi_part,
+        &uki.staged_path,
+        &uki.esp_files,
+        &uki.luks_key,
+        &progress,
+    )
+    .await?;
     initialize_state(
         &dm_state,
         config,
@@ -108,7 +123,8 @@ fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::hi
     if !setup_mode {
         bail!(
             "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
-             Please reset your firmware to Setup Mode and try again or disable the secureboot option in the config."
+             Please reset your firmware to Setup Mode and try again or disable \
+             the secureboot option in the config."
         );
     }
 
@@ -125,6 +141,7 @@ async fn enroll_secureboot_keys(
         send_progress(progress, "Enrolling secureboot keys").await;
         sbolt::efi::enroll(hierarchy).context("Failed to enroll Secure Boot keys")?;
     }
+
     Ok(())
 }
 
@@ -159,7 +176,9 @@ async fn generate_keys(
 struct PreparedUki {
     work_dir: PathBuf,
     staged_path: PathBuf,
+    esp_files: Vec<esp::EspFile>,
     seal_result: secrets::SealResult,
+    luks_key: Option<Vec<u8>>,
 }
 
 async fn prepare_uki(
@@ -169,21 +188,103 @@ async fn prepare_uki(
     progress: &mpsc::Sender<InstallProgress>,
     sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
 ) -> Result<PreparedUki> {
+    let install_profile = derive_install_profile(extensions)?;
+
     send_progress(progress, &format!("Pulling installer image: {}", image)).await;
-    let work_dir = Path::new(INSTALL_DIR);
-    let mut uki = Uki::prepare(image, extensions, work_dir).await?;
-    let staged_path = work_dir.join("staged.efi");
+    let output_dir = Path::new(INSTALL_DIR).join("assets");
+    let (registry, installer, version) = image_parts(image)?;
+    let config = Config {
+        sources: imager::resolve::Sources {
+            registry,
+            installer,
+        },
+    };
+    let request = Request {
+        version,
+        platform: Platform::Metal,
+        arch: None,
+        artifacts: vec![Artifact::Uki, Artifact::Esp],
+    };
 
-    let seal_result = secrets::seal_luks_key(luks_key, &mut uki)?;
+    let (uki_bytes, sections, overlay_files) =
+        build::prepare_uki(&request, &install_profile, &config)
+            .await
+            .context("imager build artifacts")?;
 
-    send_progress(progress, "Building UKI").await;
-    uki.build(&staged_path, sb_hierarchy).await?;
+    let staged_path = output_dir.join("signed.efi");
+    let seal_result = secrets::seal_luks_key(luks_key, &uki_bytes, &sections)?;
+
+    sign_and_write_uki(&uki_bytes, &staged_path, sb_hierarchy)?;
+
+    let esp_files = overlay_files;
+    let luks_file = if matches!(seal_result, secrets::SealResult::EspKey) {
+        Some(luks_key.to_vec())
+    } else {
+        None
+    };
 
     Ok(PreparedUki {
-        work_dir: work_dir.to_path_buf(),
+        work_dir: Path::new(INSTALL_DIR).to_path_buf(),
         staged_path,
+        esp_files,
         seal_result,
+        luks_key: luks_file,
     })
+}
+
+fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
+    let booted = profile::load().context("failed to load booted profile")?;
+    let customization = imager::profile::CustomizationSpec::new(extensions.to_vec())
+        .context("invalid extensions")?;
+
+    Ok(Profile::new(booted.overlay().cloned(), customization))
+}
+
+fn sign_and_write_uki(
+    uki_bytes: &[u8],
+    output: &Path,
+    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
+) -> Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create dir {}", output.display()))?;
+    }
+    let mut file = std::fs::File::create(output)
+        .with_context(|| format!("create UKI {}", output.display()))?;
+
+    if let Some(hierarchy) = sb_hierarchy {
+        sbolt::pe::signature::sign(
+            uki_bytes,
+            &hierarchy.db.signer,
+            &hierarchy.db.certificate,
+            &mut file,
+        )
+        .context("Failed to sign UKI")?;
+    } else {
+        file.write_all(uki_bytes)
+            .with_context(|| format!("write UKI {}", output.display()))?;
+    }
+
+    Ok(())
+}
+
+fn image_parts(image: &str) -> Result<(String, String, String)> {
+    let colon = image
+        .rfind(':')
+        .context("invalid installer image: missing tag")?;
+    let version = &image[colon + 1..];
+    let path = &image[..colon];
+    let slash = path
+        .find('/')
+        .context("invalid installer image: missing registry")?;
+    let registry = &path[..slash];
+    let installer = &path[slash + 1..];
+
+    Ok((
+        registry.to_owned(),
+        installer.to_owned(),
+        version.to_owned(),
+    ))
 }
 
 struct PartitionInfo {
@@ -311,10 +412,22 @@ async fn format_btrfs_volumes(
 async fn deploy_uki(
     efi_part: &str,
     staged_path: &Path,
+    esp_files: &[esp::EspFile],
+    luks_key: &Option<Vec<u8>>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Deploying UKI to EFI partition").await;
-    efi::deploy(efi_part, staged_path)?;
+
+    let mut all_files = esp_files.to_vec();
+    if let Some(key) = luks_key {
+        all_files.push(esp::EspFile {
+            path: "luks".into(),
+            data: key.clone(),
+        });
+    }
+
+    efi::deploy(efi_part, staged_path, &all_files)?;
+
     Ok(())
 }
 
@@ -328,12 +441,14 @@ async fn initialize_state(
 ) -> Result<()> {
     send_progress(progress, "Initializing STATE partition").await;
     state::init(dm_state, config, auth_config, server_pki, sb_hierarchy)?;
+
     Ok(())
 }
 
 fn close_luks_volumes() -> Result<()> {
     luks2::close(DM_STATE).context("Failed to close LUKS STATE mapping")?;
     luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
+
     Ok(())
 }
 
@@ -341,6 +456,7 @@ fn cleanup_work_dir(work_dir: PathBuf) -> Result<()> {
     if let Err(e) = std::fs::remove_dir_all(&work_dir) {
         eprintln!("Failed to cleanup work dir: {}", e);
     }
+
     Ok(())
 }
 
