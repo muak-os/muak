@@ -2,9 +2,10 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use config::SystemConfig;
 use tempfile::{NamedTempFile, TempDir};
+use tokio::process::Command;
 
 /// Drives the real `muakctl` binary with per-test isolation via a temporary config directory.
 pub struct Cli {
@@ -15,6 +16,10 @@ pub struct Cli {
 
 impl Cli {
     /// Creates a new CLI driver pointing at the given host port.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the temporary config directory cannot be created.
     pub fn new(cli_bin: &Path, host_port: u16) -> Result<Self> {
         let config_dir = TempDir::new().context("failed to create temp config directory")?;
         Ok(Self {
@@ -24,7 +29,8 @@ impl Cli {
         })
     }
 
-    /// Returns the path to the isolated MUAK_CONFIG file.
+    /// Returns the path to the isolated `MUAK_CONFIG` file.
+    #[must_use]
     pub fn config_path(&self) -> PathBuf {
         self.config_dir
             .path()
@@ -33,12 +39,16 @@ impl Cli {
 
     /// Runs `muakctl` with the given arguments, injecting `--endpoint` and `MUAK_CONFIG`.
     /// Pass `insecure: true` to also add `--insecure` (TOFU mode).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `muakctl` fails to execute or the command fails.
     pub async fn run<I, S>(&self, args: I, insecure: bool) -> Result<Output>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut cmd = tokio::process::Command::new(&self.bin);
+        let mut cmd = Command::new(&self.bin);
         cmd.env("MUAK_CONFIG", self.config_path())
             .env("HOME", self.config_dir.path())
             .env("NO_COLOR", "1")
@@ -91,9 +101,14 @@ impl Cli {
     }
 
     /// Runs `muakctl config generate`, applies `patch`, and writes the result to a temp file.
-    pub async fn generate_config(
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `muakctl config generate` fails, the config cannot be parsed or
+    /// serialised, or the temporary file cannot be written.
+    pub async fn generate_config<F: FnOnce(&mut SystemConfig)>(
         &self,
-        patch: impl FnOnce(&mut SystemConfig),
+        patch: F,
     ) -> Result<NamedTempFile> {
         let raw = self
             .assert_success_impl(["config", "generate"], false)
@@ -110,7 +125,7 @@ impl Cli {
 
 /// Asserts that `muakctl` exits successfully and returns stdout.
 ///
-/// Usage: `assert_success!(cli, ["arg1", "arg2"])`
+/// Usage: `assert_success!(cli, ["arg1", "arg2"])`.
 #[macro_export]
 macro_rules! assert_success {
     ($cli:expr, $args:expr) => {
@@ -120,7 +135,7 @@ macro_rules! assert_success {
 
 /// Asserts that `muakctl --insecure` exits successfully and returns stdout.
 ///
-/// Usage: `assert_success_insecure!(cli, ["arg1", "arg2"])`
+/// Usage: `assert_success_insecure!(cli, ["arg1", "arg2"])`.
 #[macro_export]
 macro_rules! assert_success_insecure {
     ($cli:expr, $args:expr) => {
@@ -138,7 +153,7 @@ macro_rules! assert_output_contains {
 
 /// Asserts that `muakctl --insecure` stdout contains the given needle.
 ///
-/// Usage: `assert_output_contains_insecure!(cli, ["arg1"], "needle")`
+/// Usage: `assert_output_contains_insecure!(cli, ["arg1"], "needle")`.
 #[macro_export]
 macro_rules! assert_output_contains_insecure {
     ($cli:expr, $args:expr, $needle:expr) => {

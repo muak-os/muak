@@ -12,12 +12,16 @@ pub struct Artifacts {
 
 impl Artifacts {
     /// Resolves artifacts from environment variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required artifact file is missing or `qemu-system-x86_64` is not
+    /// available in `PATH`.
     pub fn from_env() -> Result<Self> {
         let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
 
-        let artifacts_dir = std::env::var("MUAK_ARTIFACTS")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| workspace.join("_out"));
+        let artifacts_dir =
+            std::env::var("MUAK_ARTIFACTS").map_or_else(|_| workspace.join("_out"), PathBuf::from);
 
         let iso = artifacts_dir.join("muak-x86_64.iso");
         ensure!(
@@ -41,12 +45,13 @@ impl Artifacts {
             ovmf_vars.display()
         );
 
-        let cli_bin = std::env::var("MUAK_CLI")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
+        let cli_bin = std::env::var("MUAK_CLI").map_or_else(
+            |_| {
                 let arch = std::env::consts::ARCH;
                 workspace.join(format!("target/{arch}-unknown-linux-musl/release/muakctl"))
-            });
+            },
+            PathBuf::from,
+        );
         ensure!(
             cli_bin.exists(),
             "muakctl binary not found at {}.\nRun `just build --release muakctl` or set MUAK_CLI to the binary path.",
@@ -72,7 +77,7 @@ fn ensure_qemu_available() -> Result<()> {
         .status();
 
     match status {
-        Ok(s) if s.success() => Ok(()),
+        Ok(status) if status.success() => Ok(()),
         _ => bail!("qemu-system-x86_64 not found in PATH."),
     }
 }

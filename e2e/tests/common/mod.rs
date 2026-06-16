@@ -1,9 +1,11 @@
-use std::time::Duration;
+use core::time::Duration;
 
+use anyhow::Result;
 use e2e::artifacts::Artifacts;
 use e2e::assert_success_insecure;
 use e2e::cli::Cli;
 use e2e::vm::TestFixture;
+use tokio::time::timeout;
 
 pub const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 pub const DEFAULT_TAG: &str = "latest";
@@ -17,35 +19,32 @@ pub fn install_image() -> String {
 
 /// Boots a VM, runs install with the given extra config patch, waits for the
 /// installed system marker, and returns the fixture + CLI driver.
-pub async fn boot_and_install(
+///
+/// # Errors
+///
+/// Returns an error if the VM fails to boot, apid does not become ready, the config cannot be
+/// generated, the install command fails, or the installed-boot marker is not found.
+pub async fn boot_and_install<F: FnOnce(&mut config::SystemConfig)>(
     artifacts: &Artifacts,
-    extra_config: impl FnOnce(&mut config::SystemConfig),
-) -> (TestFixture, Cli) {
-    let fixture = TestFixture::boot_install(artifacts)
-        .await
-        .expect("failed to boot install VM");
+    extra_config: F,
+) -> Result<(TestFixture, Cli)> {
+    let fixture = TestFixture::boot_install(artifacts)?;
 
-    fixture
-        .vm
-        .wait_ready(Duration::from_secs(60))
-        .await
-        .expect("maintenance-mode apid did not become ready");
+    fixture.vm.wait_ready(Duration::from_mins(1)).await?;
 
-    let cli =
-        Cli::new(&artifacts.cli_bin, fixture.vm.host_port).expect("failed to create CLI driver");
+    let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
     let image = install_image();
     let config_file = cli
         .generate_config(|cfg| {
-            cfg.disk.system = "/dev/nvme0n1".to_owned();
+            "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
             cfg.host.image = image;
             extra_config(cfg);
         })
-        .await
-        .expect("failed to generate install config");
+        .await?;
 
-    tokio::time::timeout(
-        Duration::from_secs(60),
+    timeout(
+        Duration::from_mins(1),
         assert_success_insecure!(
             cli,
             [
@@ -56,13 +55,12 @@ pub async fn boot_and_install(
         ),
     )
     .await
-    .expect("install timed out")
-    .expect("muakctl install failed");
+    .map_err(|_elapsed| anyhow::anyhow!("install timed out after 1 minute"))?
+    .map_err(|e| anyhow::anyhow!("muakctl install failed: {e}"))?;
 
     fixture
         .vm
-        .assert_serial_contains("[granola] Running from INSTALLED DISK")
-        .expect("installed-boot marker not found in serial log");
+        .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
 
-    (fixture, cli)
+    Ok((fixture, cli))
 }

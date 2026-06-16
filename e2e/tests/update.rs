@@ -1,153 +1,142 @@
 mod common;
 
-use std::time::Duration;
+use core::time::Duration;
 
+use anyhow::{Result, ensure};
 use common::{boot_and_install, install_image};
 use e2e::artifacts::Artifacts;
 use e2e::assert_success;
+use tokio::time::timeout;
 
-#[tokio::test]
-async fn update() {
-    // ARRANGE
-    let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await;
+#[cfg(test)]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "closures inside boot_and_install calls"
+)]
+mod tests {
+    use super::*;
 
-    // ACT
-    let stdout = tokio::time::timeout(
-        Duration::from_secs(60),
-        assert_success!(cli, ["update", "--image", &install_image()]),
-    )
-    .await
-    .expect("update timed out after 10 minutes")
-    .expect("muakctl update failed");
+    #[tokio::test]
+    async fn update() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
 
-    // ASSERT
-    assert!(
-        stdout.contains("committed successfully"),
-        "expected 'committed successfully' in update output, got: {stdout}"
-    );
+        // ACT
+        let stdout = timeout(
+            Duration::from_mins(1),
+            assert_success!(cli, ["update", "--image", &install_image()]),
+        )
+        .await
+        .map_err(|_elapsed| anyhow::anyhow!("update timed out"))?
+        .map_err(|e| anyhow::anyhow!("muakctl update failed: {e}"))?;
 
-    fixture
-        .vm
-        .assert_serial_contains("muak.update_id=")
-        .expect("kexec update marker not found in serial log");
-}
+        // ASSERT
+        ensure!(
+            stdout.contains("committed successfully"),
+            "expected 'committed successfully' in update output, got: {stdout}"
+        );
+        fixture.vm.assert_serial_contains("muak.update_id=")?;
+        Ok(())
+    }
 
-#[tokio::test]
-async fn update_config() {
-    // ARRANGE
-    let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await;
+    #[tokio::test]
+    async fn update_config() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
 
-    let image = install_image();
-    let update_cfg = cli
-        .generate_config(|cfg| {
-            cfg.disk.system = "/dev/nvme0n1".to_owned();
-            cfg.host.image = image;
+        let image = install_image();
+        let update_cfg = cli
+            .generate_config(|cfg| {
+                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.host.image = image;
+            })
+            .await?;
+
+        // ACT
+        let stdout = timeout(
+            Duration::from_mins(1),
+            assert_success!(
+                cli,
+                [
+                    "update",
+                    "--config",
+                    &update_cfg.path().display().to_string(),
+                ]
+            ),
+        )
+        .await
+        .map_err(|_elapsed| anyhow::anyhow!("update --config timed out"))?
+        .map_err(|e| anyhow::anyhow!("muakctl update --config failed: {e}"))?;
+
+        // ASSERT
+        ensure!(
+            stdout.contains("committed successfully"),
+            "expected 'committed successfully' in update --config output, got: {stdout}"
+        );
+        let config_out = assert_success!(cli, ["config", "get"]).await?;
+        ensure!(
+            config_out.contains(&install_image()),
+            "expected updated image '{}' in config get output, got: {config_out}",
+            install_image()
+        );
+        fixture.vm.assert_serial_contains("muak.update_id=")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_config_secureboot() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
+            cfg.host.secureboot = false;
         })
+        .await?;
+
+        let image = install_image();
+        let update_cfg = cli
+            .generate_config(|cfg| {
+                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.host.image = image;
+                cfg.host.secureboot = true;
+            })
+            .await?;
+
+        // ACT
+        let stdout = timeout(
+            Duration::from_mins(1),
+            assert_success!(
+                cli,
+                [
+                    "update",
+                    "--config",
+                    &update_cfg.path().display().to_string(),
+                ]
+            ),
+        )
         .await
-        .expect("failed to generate update config");
+        .map_err(|_elapsed| anyhow::anyhow!("update --config timed out"))?
+        .map_err(|e| anyhow::anyhow!("muakctl update --config failed: {e}"))?;
 
-    // ACT
-    let stdout = tokio::time::timeout(
-        Duration::from_secs(60),
-        assert_success!(
-            cli,
-            [
-                "update",
-                "--config",
-                &update_cfg.path().display().to_string(),
-            ]
-        ),
-    )
-    .await
-    .expect("update --config timed out after 10 minutes")
-    .expect("muakctl update --config failed");
+        // ASSERT
+        ensure!(
+            stdout.contains("committed successfully"),
+            "expected 'committed successfully' in update --config output, got: {stdout}"
+        );
+        let config_out = assert_success!(cli, ["config", "get"]).await?;
+        ensure!(
+            config_out.contains(&install_image()),
+            "expected updated image '{}' in config get output, got: {config_out}",
+            install_image()
+        );
+        fixture.vm.assert_serial_contains("muak.update_id=")?;
 
-    // ASSERT
-    assert!(
-        stdout.contains("committed successfully"),
-        "expected 'committed successfully' in update --config output, got: {stdout}"
-    );
-
-    let config_out = assert_success!(cli, ["config", "get"])
-        .await
-        .expect("muakctl config get failed after update");
-
-    assert!(
-        config_out.contains(&install_image()),
-        "expected updated image '{}' in config get output, got: {config_out}",
-        install_image()
-    );
-
-    fixture
-        .vm
-        .assert_serial_contains("muak.update_id=")
-        .expect("kexec update marker not found in serial log");
-}
-
-#[tokio::test]
-async fn update_config_secureboot() {
-    // ARRANGE
-    let artifacts = Artifacts::from_env().expect("failed to resolve artifacts");
-    let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
-        cfg.host.secureboot = false;
-    })
-    .await;
-
-    let image = install_image();
-    let update_cfg = cli
-        .generate_config(|cfg| {
-            cfg.disk.system = "/dev/nvme0n1".to_owned();
-            cfg.host.image = image;
-            cfg.host.secureboot = true;
-        })
-        .await
-        .expect("failed to generate update config");
-
-    // ACT
-    let stdout = tokio::time::timeout(
-        Duration::from_secs(60),
-        assert_success!(
-            cli,
-            [
-                "update",
-                "--config",
-                &update_cfg.path().display().to_string(),
-            ]
-        ),
-    )
-    .await
-    .expect("update --config timed out after 10 minutes")
-    .expect("muakctl update --config failed");
-
-    // ASSERT
-    assert!(
-        stdout.contains("committed successfully"),
-        "expected 'committed successfully' in update --config output, got: {stdout}"
-    );
-
-    let config_out = assert_success!(cli, ["config", "get"])
-        .await
-        .expect("muakctl config get failed after update");
-
-    assert!(
-        config_out.contains(&install_image()),
-        "expected updated image '{}' in config get output, got: {config_out}",
-        install_image()
-    );
-
-    fixture
-        .vm
-        .assert_serial_contains("muak.update_id=")
-        .expect("kexec update marker not found in serial log");
-
-    let security = assert_success!(cli, ["security", "state"])
-        .await
-        .expect("authenticated muakctl security state failed");
-
-    assert!(
-        security.contains("Secure Boot: Pending (firmware reboot required)"),
-        "expected Secure Boot to be enabled, got: {security}"
-    );
+        let security = assert_success!(cli, ["security", "state"]).await?;
+        ensure!(
+            security.contains("Secure Boot: Pending (firmware reboot required)"),
+            "expected Secure Boot to be enabled, got: {security}"
+        );
+        Ok(())
+    }
 }
