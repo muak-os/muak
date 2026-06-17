@@ -3,8 +3,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use sbolt::keys::SigningPair;
+use sbolt::pe::signature;
 use tokio::fs;
-pub use yuki::section::Section;
 
 use crate::artifact::Artifact;
 use crate::error::{ImagerError, Result};
@@ -17,6 +18,17 @@ pub(crate) mod media;
 pub(crate) mod pipeline;
 pub(crate) mod stage;
 pub(crate) mod uki;
+
+/// PE section metadata needed for TPM PCR#11 prediction.
+#[derive(Debug, Clone)]
+pub struct SectionInfo {
+    /// PE section name (e.g. ".linux", ".initrd", ".cmdline").
+    pub name: &'static str,
+    /// File offset of the section data within the PE image.
+    pub file_offset: usize,
+    /// Size of the section data in bytes.
+    pub size: usize,
+}
 
 /// Builds the requested artifacts sharing a single resolution.
 ///
@@ -39,20 +51,49 @@ pub async fn artifacts(
     pipeline::artifacts(&resolved, &request.artifacts, &profile_bytes, output_dir).await
 }
 
-/// Build the UKI and return its raw bytes, PE sections, and ESP overlay files.
+/// Build the UKI and return its signed (or unsigned) bytes, PE section metadata,
+/// and ESP overlay files.
+///
+/// If `signing_key` is provided the UKI is Authenticode-signed before returning.
 ///
 /// # Errors
 ///
-/// Returns an error when resolution, pulling, or building fails.
+/// Returns an error when resolution, pulling, building, or signing fails.
 pub async fn prepare_uki(
     request: &Request,
     profile: &Profile,
     config: &Config,
-) -> Result<(Vec<u8>, Vec<Section>, Vec<esp::EspFile>)> {
+    signing_key: Option<&SigningPair<'_>>,
+) -> Result<(Vec<u8>, Vec<SectionInfo>, Vec<esp::EspFile>)> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
     let prepared = pipeline::prepare(&resolved, &profile_bytes).await?;
     let overlay_files = pipeline::pull_overlay_if_present(&resolved).await?;
 
-    Ok((prepared.uki_bytes, prepared.sections, overlay_files))
+    let uki_bytes = if let Some(key) = signing_key {
+        let capacity = prepared.uki_bytes.len().saturating_add(8192);
+        let mut signed = Vec::with_capacity(capacity);
+        signature::sign(
+            &prepared.uki_bytes,
+            key.signer,
+            key.certificate,
+            &mut signed,
+        )
+        .map_err(|e| ImagerError::BuildError(format!("sign UKI: {e}")))?;
+        signed
+    } else {
+        prepared.uki_bytes
+    };
+
+    let sections = prepared
+        .sections
+        .into_iter()
+        .map(|section| SectionInfo {
+            name: section.name,
+            file_offset: section.file_offset,
+            size: section.size,
+        })
+        .collect();
+
+    Ok((uki_bytes, sections, overlay_files))
 }

@@ -3,7 +3,6 @@
 mod pki;
 mod state;
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -15,6 +14,7 @@ use imager::request::{Platform, Request};
 use imager::resolve::Config;
 pub use pki::InstallResult;
 use rustix::fs::sync;
+use sbolt::keys::SigningPair;
 use tokio::sync::mpsc;
 
 use crate::constants::{DM_DATA, DM_STATE};
@@ -206,15 +206,20 @@ async fn prepare_uki(
         artifacts: vec![Artifact::Uki, Artifact::Esp],
     };
 
+    let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
+        signer: &h.db.signer,
+        certificate: &h.db.certificate,
+    });
     let (uki_bytes, sections, overlay_files) =
-        build::prepare_uki(&request, &install_profile, &config)
+        build::prepare_uki(&request, &install_profile, &config, signing.as_ref())
             .await
             .context("imager build artifacts")?;
 
     let staged_path = output_dir.join("signed.efi");
     let seal_result = secrets::seal_luks_key(luks_key, &uki_bytes, &sections)?;
 
-    sign_and_write_uki(&uki_bytes, &staged_path, sb_hierarchy)?;
+    std::fs::write(&staged_path, &uki_bytes)
+        .with_context(|| format!("write UKI {}", staged_path.display()))?;
 
     let esp_files = overlay_files;
     let luks_file = if matches!(seal_result, secrets::SealResult::EspKey) {
@@ -238,34 +243,6 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
         .context("invalid extensions")?;
 
     Ok(Profile::new(booted.overlay().cloned(), customization))
-}
-
-fn sign_and_write_uki(
-    uki_bytes: &[u8],
-    output: &Path,
-    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
-) -> Result<()> {
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create dir {}", output.display()))?;
-    }
-    let mut file = std::fs::File::create(output)
-        .with_context(|| format!("create UKI {}", output.display()))?;
-
-    if let Some(hierarchy) = sb_hierarchy {
-        sbolt::pe::signature::sign(
-            uki_bytes,
-            &hierarchy.db.signer,
-            &hierarchy.db.certificate,
-            &mut file,
-        )
-        .context("Failed to sign UKI")?;
-    } else {
-        file.write_all(uki_bytes)
-            .with_context(|| format!("write UKI {}", output.display()))?;
-    }
-
-    Ok(())
 }
 
 fn image_parts(image: &str) -> Result<(String, String, String)> {

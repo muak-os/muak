@@ -1,7 +1,7 @@
 //! LUKS key protection: TPM2 sealing, token management, and fallback to ESP file.
 
 use anyhow::{Context, Result};
-use imager::build::Section;
+use imager::build::SectionInfo;
 use luks2::Tpm2Token;
 use zeroize::Zeroizing;
 
@@ -12,7 +12,7 @@ pub enum SealResult {
 }
 
 /// Seals a LUKS key to TPM2 or signals writing it to the ESP as a fallback.
-pub fn seal_luks_key(key: &[u8], uki_bytes: &[u8], sections: &[Section]) -> Result<SealResult> {
+pub fn seal_luks_key(key: &[u8], uki_bytes: &[u8], sections: &[SectionInfo]) -> Result<SealResult> {
     if tpm2::is_available() {
         let token =
             seal_to_token(key, uki_bytes, sections).context("Failed to seal LUKS key to TPM2")?;
@@ -76,7 +76,7 @@ pub fn read_luks_key_from_cmdline() -> Option<Vec<u8>> {
 fn seal_to_token(
     luks_key: &[u8],
     uki_bytes: &[u8],
-    sections: &[Section],
+    sections: &[SectionInfo],
 ) -> Result<luks2::Tpm2Token> {
     let sections: Vec<(&str, &[u8])> = sections
         .iter()

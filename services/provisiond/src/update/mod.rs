@@ -18,9 +18,10 @@ use imager::request::{Platform, Request};
 use imager::resolve::Config;
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
+use sbolt::keys::SigningPair;
 use tokio::sync::mpsc;
 
-use crate::constants::UPDATE_DIR;
+use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::history::{self, ChangeKind};
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::profile;
@@ -79,6 +80,28 @@ pub async fn prepare(
     let staging_dir = create_staging_dir()?;
     let install_profile = derive_install_profile(extensions)?;
 
+    if let Some(ref cfg) = new_config {
+        let secure_boot_active = sbolt::efi::secure_boot().unwrap_or(false);
+        let setup_mode = sbolt::efi::setup_mode().unwrap_or(false);
+        if cfg.host.secureboot && !secure_boot_active && !setup_mode {
+            bail!(
+                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
+                 Please reboot and reset your firmware to Setup Mode and try again."
+            );
+        }
+    }
+
+    let sb_hierarchy = if config::host().secureboot {
+        Some(resolve_sb_hierarchy()?)
+    } else {
+        None
+    };
+
+    let signing_key = sb_hierarchy.as_ref().map(|h| SigningPair {
+        signer: &h.db.signer,
+        certificate: &h.db.certificate,
+    });
+
     let (registry, installer, version) = image_parts(image)?;
     let config = Config {
         sources: imager::resolve::Sources {
@@ -92,20 +115,17 @@ pub async fn prepare(
         arch: None,
         artifacts: vec![Artifact::Uki, Artifact::Esp],
     };
-    build::prepare_uki(&request, &install_profile, &config)
-        .await
-        .context("imager update prepare")?;
 
-    if let Some(ref cfg) = new_config {
-        let secure_boot_active = sbolt::efi::secure_boot().unwrap_or(false);
-        let setup_mode = sbolt::efi::setup_mode().unwrap_or(false);
-        if cfg.host.secureboot && !secure_boot_active && !setup_mode {
-            bail!(
-                "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
-                 Please reboot and reset your firmware to Setup Mode and try again."
-            );
-        }
-    }
+    let (uki_bytes, _sections, _overlay_files) =
+        build::prepare_uki(&request, &install_profile, &config, signing_key.as_ref())
+            .await
+            .context("imager update prepare")?;
+
+    let assets_dir = staging_dir.join("assets");
+    fs::create_dir_all(&assets_dir)
+        .with_context(|| format!("create assets dir {}", assets_dir.display()))?;
+    fs::write(assets_dir.join("uki.efi"), &uki_bytes)
+        .with_context(|| format!("write UKI to {}", assets_dir.join("uki.efi").display()))?;
 
     streaming::send_progress(
         &progress,
@@ -231,6 +251,20 @@ pub(super) fn update_config(
     }
 
     Ok(())
+}
+
+pub(super) fn resolve_sb_hierarchy() -> Result<sbolt::keys::hierarchy::Bundle> {
+    let dir = Path::new(SECRETS_DIR).join("secureboot");
+    if dir.exists() {
+        sbolt::keys::storage::load_hierarchy(&dir).context("Failed to load Secure Boot keys")
+    } else {
+        let keys = sbolt::keys::hierarchy::Bundle::generate("Muak")
+            .context("Failed to generate Secure Boot keys")?;
+        sbolt::keys::storage::save_hierarchy(&keys, &dir)
+            .context("Failed to save Secure Boot keys")?;
+
+        Ok(keys)
+    }
 }
 
 pub fn signal_cli_contact() {
