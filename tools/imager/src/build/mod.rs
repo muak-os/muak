@@ -34,11 +34,12 @@ pub struct SectionInfo {
 ///
 /// # Errors
 ///
-/// Returns an error when resolution, pulling, or building fails.
+/// Returns an error when resolution, pulling, building, or signing fails.
 pub async fn artifacts(
     request: &Request,
     profile: &Profile,
     config: &Config,
+    signing_key: Option<&SigningPair<'_>>,
     output_dir: &Path,
 ) -> Result<HashMap<Artifact, PathBuf>> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
@@ -48,7 +49,14 @@ pub async fn artifacts(
         .await
         .map_err(|e| ImagerError::BuildError(format!("create output dir: {e}")))?;
 
-    pipeline::artifacts(&resolved, &request.artifacts, &profile_bytes, output_dir).await
+    pipeline::artifacts(
+        &resolved,
+        &request.artifacts,
+        signing_key,
+        &profile_bytes,
+        output_dir,
+    )
+    .await
 }
 
 /// Build the UKI and return its signed (or unsigned) bytes, PE section metadata,

@@ -102,6 +102,7 @@ fn write_private_file(path: &Path, content: &[u8]) -> Result<()> {
         .mode(0o600)
         .open(path)?;
     file.write_all(content)?;
+
     Ok(())
 }
 
@@ -109,12 +110,14 @@ fn write_private_file(path: &Path, content: &[u8]) -> Result<()> {
 fn pkcs8_to_pem(der: &[u8]) -> Result<String> {
     let doc = der::SecretDocument::try_from(der)?;
     let pem = doc.to_pem("PRIVATE KEY", LineEnding::LF)?;
+
     Ok(pem.to_string())
 }
 
 /// Convert PEM-encoded PKCS#8 to DER.
-fn pem_to_pkcs8_der(pem: &str) -> Result<Vec<u8>> {
+pub(crate) fn pem_to_pkcs8_der(pem: &str) -> Result<Vec<u8>> {
     let (_label, doc) = der::SecretDocument::from_pem(pem)?;
+
     Ok(doc.as_bytes().to_vec())
 }
 
@@ -123,12 +126,14 @@ fn cert_to_pem(cert: &Certificate) -> Result<String> {
     let der = cert.to_der()?;
     let doc = der::Document::try_from(der)?;
     let pem = doc.to_pem("CERTIFICATE", LineEnding::LF)?;
+
     Ok(pem)
 }
 
 /// Convert PEM-encoded certificate to Certificate.
-fn pem_to_cert(pem: &str) -> Result<Certificate> {
+pub(crate) fn pem_to_cert(pem: &str) -> Result<Certificate> {
     let (_label, doc) = der::Document::from_pem(pem)?;
+
     Certificate::from_der(doc.as_bytes()).map_err(SboltError::Der)
 }
 

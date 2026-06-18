@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use sbolt::keys::SigningPair;
+use sbolt::pe::signature;
 use tokio::fs;
 use yuki::section::Section;
 
@@ -52,14 +54,31 @@ pub(crate) async fn prepare(
 ///
 /// # Errors
 ///
-/// Returns an error when pulling, staging, or building fails.
+/// Returns an error when pulling, staging, building, or signing fails.
 pub async fn artifacts(
     resolved_profile: &ResolvedProfile,
     requested: &[Artifact],
+    signing_key: Option<&SigningPair<'_>>,
     profile_bytes: &[u8],
     output_dir: &Path,
 ) -> Result<HashMap<Artifact, PathBuf>> {
     let prepared = prepare(resolved_profile, profile_bytes).await?;
+
+    let uki_bytes = if let Some(key) = signing_key {
+        let capacity = prepared.uki_bytes.len().saturating_add(8192);
+        let mut signed = Vec::with_capacity(capacity);
+        signature::sign(
+            &prepared.uki_bytes,
+            key.signer,
+            key.certificate,
+            &mut signed,
+        )
+        .map_err(|e| ImagerError::BuildError(format!("sign UKI: {e}")))?;
+        signed
+    } else {
+        prepared.uki_bytes
+    };
+
     let mut results = HashMap::new();
 
     if requested.contains(&Artifact::Kernel) {
@@ -89,7 +108,7 @@ pub async fn artifacts(
     }
     if requested.contains(&Artifact::Uki) {
         let uki_path = output_dir.join(Artifact::Uki.filename());
-        fs::write(&uki_path, &prepared.uki_bytes)
+        fs::write(&uki_path, &uki_bytes)
             .await
             .map_err(|e| ImagerError::BuildError(format!("write UKI: {e}")))?;
         results.insert(Artifact::Uki, uki_path);
@@ -97,7 +116,7 @@ pub async fn artifacts(
     if requested.contains(&Artifact::Iso) {
         results.insert(
             Artifact::Iso,
-            media::iso(resolved_profile, output_dir, &prepared.uki_bytes).await?,
+            media::iso(resolved_profile, output_dir, &uki_bytes).await?,
         );
     }
 
@@ -111,13 +130,7 @@ pub async fn artifacts(
     if requested.contains(&Artifact::Raw) {
         results.insert(
             Artifact::Raw,
-            media::raw(
-                resolved_profile,
-                &overlay_files,
-                output_dir,
-                &prepared.uki_bytes,
-            )
-            .await?,
+            media::raw(resolved_profile, &overlay_files, output_dir, &uki_bytes).await?,
         );
     }
     if requested.contains(&Artifact::Esp) {

@@ -6,12 +6,29 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use koci::arch::Arch;
+use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 
 use crate::artifact::Artifact;
 use crate::build;
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Platform, Request};
 use crate::resolve::{self, Config, Sources};
+
+struct BuildArgs {
+    profile: Option<PathBuf>,
+    artifact: String,
+    version: String,
+    arch: String,
+    platform: String,
+    extension: Vec<String>,
+    overlay_image: Option<String>,
+    overlay_name: Option<String>,
+    output: PathBuf,
+    registry: String,
+    installer: String,
+    signing_key: Option<PathBuf>,
+    signing_cert: Option<PathBuf>,
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "imager")]
@@ -80,6 +97,12 @@ enum Command {
 
         #[arg(long, default_value = "muak-os/installer")]
         installer: String,
+
+        #[arg(long)]
+        signing_key: Option<PathBuf>,
+
+        #[arg(long)]
+        signing_cert: Option<PathBuf>,
     },
 }
 
@@ -170,8 +193,10 @@ async fn run_command(command: Command) -> Result<()> {
             output,
             registry,
             installer,
+            signing_key,
+            signing_cert,
         } => {
-            run_build(
+            run_build(BuildArgs {
                 profile,
                 artifact,
                 version,
@@ -183,7 +208,9 @@ async fn run_command(command: Command) -> Result<()> {
                 output,
                 registry,
                 installer,
-            )
+                signing_key,
+                signing_cert,
+            })
             .await
         }
     }
@@ -236,31 +263,24 @@ fn run_resolve(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "CLI arguments are passed individually for clarity"
-)]
-async fn run_build(
-    profile_path: Option<PathBuf>,
-    artifact: String,
-    version: String,
-    arch: String,
-    platform: String,
-    extension: Vec<String>,
-    overlay_image: Option<String>,
-    overlay_name: Option<String>,
-    output: PathBuf,
-    registry: String,
-    installer: String,
-) -> Result<()> {
-    let arch = parse_arch(&arch)?;
-    let platform = parse_platform(&platform)?;
-    let artifact = parse_artifact(&artifact)?;
+async fn run_build(args: BuildArgs) -> Result<()> {
+    let arch = parse_arch(&args.arch)?;
+    let platform = parse_platform(&args.platform)?;
+    let artifact = parse_artifact(&args.artifact)?;
 
-    let spec = build_profile(profile_path, extension, overlay_image, overlay_name)?;
+    if args.signing_key.is_some() != args.signing_cert.is_some() {
+        anyhow::bail!("--signing-key and --signing-cert must be provided together");
+    }
+
+    let spec = build_profile(
+        args.profile,
+        args.extension,
+        args.overlay_image,
+        args.overlay_name,
+    )?;
 
     let request = Request {
-        version,
+        version: args.version,
         platform,
         arch: Some(arch),
         artifacts: vec![artifact],
@@ -268,14 +288,32 @@ async fn run_build(
 
     let config = Config {
         sources: Sources {
-            registry,
-            installer,
+            registry: args.registry,
+            installer: args.installer,
         },
     };
 
-    let results = build::artifacts(&request, &spec, &config, &output)
+    let owned_pair = match (args.signing_key.as_ref(), args.signing_cert.as_ref()) {
+        (Some(key_path), Some(cert_path)) => {
+            let signer = load_signer_from_pem(key_path)?;
+            let cert = load_certificate_from_pem(cert_path)?;
+            Some((signer, cert))
+        }
+        (None, None) => None,
+        _ => anyhow::bail!("--signing-key and --signing-cert must be provided together"),
+    };
+
+    let signing = match owned_pair {
+        Some((ref signer, ref cert)) => Some(SigningPair {
+            signer,
+            certificate: cert,
+        }),
+        None => None,
+    };
+
+    let results = build::artifacts(&request, &spec, &config, signing.as_ref(), &args.output)
         .await
-        .context(format!("build {} to {}", artifact, output.display()))?;
+        .context(format!("build {} to {}", artifact, args.output.display()))?;
 
     let path = results
         .get(&artifact)
