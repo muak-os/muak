@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sbolt::keys::SigningPair;
-use sbolt::pe::signature;
+use sbolt::signature;
 use tokio::fs;
 use yuki::section::Section;
 
@@ -68,7 +68,7 @@ pub async fn artifacts(
         let capacity = prepared.uki_bytes.len().saturating_add(8192);
         let mut signed = Vec::with_capacity(capacity);
         signature::sign(
-            &prepared.uki_bytes,
+            &mut prepared.uki_bytes.as_slice(),
             key.signer,
             key.certificate,
             &mut signed,

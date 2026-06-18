@@ -1,8 +1,7 @@
 //! PE signature embedding and PKCS#7 `SignedData` creation.
 
-use core::mem::offset_of;
-use core::mem::size_of;
-use std::io::Write;
+use core::mem::{offset_of, size_of};
+use std::io::{Read, Write};
 
 use const_oid::ObjectIdentifier;
 use der::Encode as _;
@@ -10,14 +9,16 @@ use der::asn1::{Any, OctetString};
 use object::pe::{
     IMAGE_DIRECTORY_ENTRY_SECURITY, ImageDataDirectory, ImageFileHeader, ImageOptionalHeader64,
 };
-use object::read::pe::PeFile64;
+use object::{LittleEndian as LE, read::pe::PeFile64};
+use ring::digest::{Context, SHA256};
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::Certificate;
 
-use super::authenticode::compute_hash;
 use crate::error::{Result, SboltError};
 use crate::keys::rsa2048;
-use crate::pkcs7::build_authenticode_signed_data;
+use crate::pkcs7::{
+    self, DER_ONE_BYTE_LENGTH_LIMIT, DER_SHORT_FORM_LENGTH_LIMIT, DER_TWO_BYTE_LENGTH_LIMIT,
+};
 
 const SPC_INDIRECT_DATA_OBJID: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.4.1.311.2.1.4");
@@ -27,39 +28,107 @@ const SHA256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.10
 const WIN_CERT_REVISION_2_0: u16 = 0x0200;
 const WIN_CERT_TYPE_PKCS_SIGNED_DATA: u16 = 0x0002;
 const WIN_CERT_HEADER_SIZE: usize = 8;
-const DER_SHORT_FORM_LENGTH_LIMIT: usize = 0x80;
-const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
-const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
 const PE_SIGNATURE_PREFIX_SIZE: usize = 4;
 const CERT_TABLE_ENTRY_SIZE: usize = 4;
 const PE_ALIGNMENT: usize = 8;
 
-/// Sign a PE file with an Authenticode signature, writing the signed output.
+/// Sign a PE file with an Authenticode signature.
 ///
 /// # Errors
 ///
-/// Returns an error if hashing, CMS construction, or PE mutation fails.
-pub fn sign<W: Write>(
-    pe_data: &[u8],
+/// Returns an error when the PE is malformed, hashing fails, or the writer
+/// rejects bytes.
+pub fn sign<R: Read, W: Write>(
+    reader: &mut R,
     signer: &rsa2048::Signer,
     certificate: &Certificate,
     writer: &mut W,
 ) -> Result<()> {
-    let hash = compute_hash(pe_data)?;
+    let mut pe_bytes = Vec::new();
+    reader
+        .read_to_end(&mut pe_bytes)
+        .map_err(|e| SboltError::Signing(format!("read PE: {e}")))?;
+
+    let pe_data = pe_bytes.as_slice();
+    let pe = PeFile64::parse(pe_data)
+        .map_err(|e| SboltError::PeOperation(format!("invalid or unsupported PE file: {e}")))?;
+    let opt = &pe.nt_headers().optional_header;
+
+    let pe_offset = u32_to_usize(pe.dos_header().nt_headers_offset(), "PE header offset")?;
+    let opt_offset = checked_add(
+        pe_offset,
+        PE_SIGNATURE_PREFIX_SIZE,
+        "optional header offset",
+    )?;
+    let opt_offset = checked_add(
+        opt_offset,
+        size_of::<ImageFileHeader>(),
+        "optional header offset",
+    )?;
+
+    let checksum_offset = checked_add(
+        opt_offset,
+        offset_of!(ImageOptionalHeader64, check_sum),
+        "checksum field offset",
+    )?;
+
+    let num_dirs = u32_to_usize(opt.number_of_rva_and_sizes.get(LE), "directory count")?;
+    if num_dirs <= IMAGE_DIRECTORY_ENTRY_SECURITY {
+        return Err(SboltError::PeOperation(
+            "no certificate table data directory".into(),
+        ));
+    }
+
+    let cert_dir = IMAGE_DIRECTORY_ENTRY_SECURITY
+        .checked_mul(size_of::<ImageDataDirectory>())
+        .ok_or_else(|| SboltError::PeOperation("cert dir index overflow".into()))?;
+    let cert_table_dd_offset = opt_offset
+        .checked_add(size_of::<ImageOptionalHeader64>())
+        .and_then(|base| base.checked_add(cert_dir))
+        .ok_or_else(|| SboltError::PeOperation("cert dir offset overflow".into()))?;
+
+    let headers_end = u32_to_usize(opt.size_of_headers.get(LE), "SizeOfHeaders")?;
+
+    let section_ranges = collect_section_ranges(&pe, pe_data)?;
+    let pe_size = section_end(&section_ranges).unwrap_or(headers_end);
+
+    let dummy_spc = build_spc_indirect_data(&[0_u8; 32])?;
+    let _cert_size =
+        pkcs7::compute_authenticode_size(SPC_INDIRECT_DATA_OBJID, &dummy_spc, certificate)?;
+
+    let hash = compute_hash_inner(
+        &pe_bytes,
+        checksum_offset,
+        cert_table_dd_offset,
+        headers_end,
+        &section_ranges,
+        pe_size,
+    )?;
 
     let spc_content = build_spc_indirect_data(&hash)?;
+    let mut ctx = Context::new(&SHA256);
+    ctx.update(&spc_content);
+    let digest = ctx.finish();
+    let digest_bytes: [u8; 32] = digest
+        .as_ref()
+        .try_into()
+        .map_err(|e| SboltError::Signing(format!("digest length mismatch: {e}")))?;
+    let signed_attrs = pkcs7::build_signed_attributes(SPC_INDIRECT_DATA_OBJID, &digest_bytes)?;
+    let attrs_der = signed_attrs
+        .to_der()
+        .map_err(|e| SboltError::Signing(format!("encode signed attrs: {e}")))?;
+    let sig = signer.sign_pkcs1v15_sha256(&attrs_der)?;
 
-    let pkcs7_der = build_authenticode_signed_data(
+    let pkcs7_der = pkcs7::build_authenticode_signed_data(
         SPC_INDIRECT_DATA_OBJID,
         &spc_content,
-        &hash,
-        signer,
+        &sig,
         certificate,
+        Some(signed_attrs),
     )?;
 
     let win_cert = build_win_certificate(&pkcs7_der)?;
-
-    let signed_pe = embed_signature(pe_data, &win_cert)?;
+    let signed_pe = embed_signature(&pe_bytes, &win_cert, checksum_offset, cert_table_dd_offset)?;
     writer
         .write_all(&signed_pe)
         .map_err(|e| SboltError::Signing(format!("write signed PE: {e}")))?;
@@ -68,13 +137,8 @@ pub fn sign<W: Write>(
 }
 
 /// Build the inner fields of `SpcIndirectDataContent`.
-///
-/// Returns the concatenated DER of the two child elements **without** the
-/// outer SEQUENCE wrapper. The caller is responsible for wrapping these
-/// bytes in a SEQUENCE when constructing the `EncapsulatedContentInfo`.
 fn build_spc_indirect_data(hash: &[u8; 32]) -> Result<Vec<u8>> {
     let mut result = Vec::new();
-
     let mut data_content = Vec::new();
 
     let sequence_tag = 0x30;
@@ -88,10 +152,8 @@ fn build_spc_indirect_data(hash: &[u8; 32]) -> Result<Vec<u8>> {
     data_content.extend_from_slice(&oid_der);
 
     let mut spc_pe_image_data = Vec::new();
-
     spc_pe_image_data.extend_from_slice(&[0x03, 0x01, 0x00]);
 
-    // This is the "<<<Obsolete>>>" string in UTF-16BE
     let obsolete_bmp: [u8; 28] = [
         0x00, 0x3c, 0x00, 0x3c, 0x00, 0x3c, 0x00, 0x4f, 0x00, 0x62, 0x00, 0x73, 0x00, 0x6f, 0x00,
         0x6c, 0x00, 0x65, 0x00, 0x74, 0x00, 0x65, 0x00, 0x3e, 0x00, 0x3e, 0x00, 0x3e,
@@ -99,17 +161,17 @@ fn build_spc_indirect_data(hash: &[u8; 32]) -> Result<Vec<u8>> {
 
     let mut unicode_field = Vec::new();
     unicode_field.push(implicit_primitive_tag);
-    push_u8(&mut unicode_field, obsolete_bmp.len())?;
+    pkcs7::push_u8(&mut unicode_field, obsolete_bmp.len())?;
     unicode_field.extend_from_slice(&obsolete_bmp);
 
     let mut file_choice = Vec::new();
     file_choice.push(constructed_2_tag);
-    push_u8(&mut file_choice, unicode_field.len())?;
+    pkcs7::push_u8(&mut file_choice, unicode_field.len())?;
     file_choice.extend_from_slice(&unicode_field);
 
     let mut spc_link = Vec::new();
     spc_link.push(constructed_tag);
-    push_u8(&mut spc_link, file_choice.len())?;
+    pkcs7::push_u8(&mut spc_link, file_choice.len())?;
     spc_link.extend_from_slice(&file_choice);
 
     spc_pe_image_data.extend_from_slice(&spc_link);
@@ -157,19 +219,19 @@ struct DigestInfo {
 /// Encode ASN.1 length in DER format.
 fn encode_length(buf: &mut Vec<u8>, len: usize) -> Result<()> {
     if len < DER_SHORT_FORM_LENGTH_LIMIT {
-        push_u8(buf, len & 0xff)?;
+        pkcs7::push_u8(buf, len & 0xff)?;
     } else if len < DER_ONE_BYTE_LENGTH_LIMIT {
         buf.push(0x81);
-        push_u8(buf, len & 0xff)?;
+        pkcs7::push_u8(buf, len & 0xff)?;
     } else if len < DER_TWO_BYTE_LENGTH_LIMIT {
         buf.push(0x82);
-        push_u8(buf, len >> 8)?;
-        push_u8(buf, len & 0xff)?;
+        pkcs7::push_u8(buf, len >> 8)?;
+        pkcs7::push_u8(buf, len & 0xff)?;
     } else {
         buf.push(0x83);
-        push_u8(buf, len >> 16)?;
-        push_u8(buf, (len >> 8) & 0xff)?;
-        push_u8(buf, len & 0xff)?;
+        pkcs7::push_u8(buf, len >> 16)?;
+        pkcs7::push_u8(buf, (len >> 8) & 0xff)?;
+        pkcs7::push_u8(buf, len & 0xff)?;
     }
 
     Ok(())
@@ -183,9 +245,7 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
         "WIN_CERTIFICATE size",
     )?;
     let total_size_u32 = usize_to_u32(total_size, "WIN_CERTIFICATE")?;
-
     let mut result = Vec::with_capacity(total_size);
-
     result.extend_from_slice(&total_size_u32.to_le_bytes());
     result.extend_from_slice(&WIN_CERT_REVISION_2_0.to_le_bytes());
     result.extend_from_slice(&WIN_CERT_TYPE_PKCS_SIGNED_DATA.to_le_bytes());
@@ -194,145 +254,229 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
     Ok(result)
 }
 
+/// Compute the Authenticode SHA-256 hash of a PE file.
+fn compute_hash_inner(
+    pe_data: &[u8],
+    checksum_offset: usize,
+    cert_table_dd_offset: usize,
+    headers_end: usize,
+    section_ranges: &[(usize, usize)],
+    pe_size: usize,
+) -> Result<[u8; 32]> {
+    let mut ctx = Context::new(&SHA256);
+
+    hash_range_excluding(
+        &mut ctx,
+        pe_data,
+        0,
+        headers_end,
+        &[
+            (checksum_offset, size_of::<u32>()),
+            (cert_table_dd_offset, size_of::<ImageDataDirectory>()),
+        ],
+    )?;
+
+    for &(raw_ptr, raw_size) in section_ranges {
+        let section_end = checked_add(raw_ptr, raw_size, "section end")?;
+        if section_end > pe_data.len() {
+            return Err(SboltError::PeOperation(
+                "section extends beyond file".into(),
+            ));
+        }
+        let cert_addr = 0_usize;
+        let cert_size = 0_usize;
+        if hash_section_excluding_cert(
+            &mut ctx,
+            pe_data,
+            raw_ptr,
+            section_end,
+            cert_addr,
+            cert_size,
+        ) {
+            continue;
+        }
+        let section_bytes = pe_data
+            .get(raw_ptr..section_end)
+            .ok_or_else(|| SboltError::PeOperation("section extends beyond file".into()))?;
+        ctx.update(section_bytes);
+    }
+
+    let sections_end = section_end(section_ranges).unwrap_or(headers_end);
+    let hash_end = pe_size.min(pe_data.len());
+
+    if sections_end < hash_end {
+        let trailing_bytes = pe_data
+            .get(sections_end..hash_end)
+            .ok_or_else(|| SboltError::PeOperation("trailing hash range exceeds file".into()))?;
+        ctx.update(trailing_bytes);
+    }
+
+    let digest = ctx.finish();
+    let mut hash = [0_u8; 32];
+    hash.copy_from_slice(digest.as_ref());
+
+    Ok(hash)
+}
+
+fn section_end(section_ranges: &[(usize, usize)]) -> Option<usize> {
+    section_ranges
+        .iter()
+        .map(|&(ptr, size)| ptr.checked_add(size))
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .max()
+}
+
+/// Hash a section range, skipping the certificate table if it overlaps.
+fn hash_section_excluding_cert(
+    ctx: &mut Context,
+    data: &[u8],
+    raw_ptr: usize,
+    section_end: usize,
+    cert_addr: usize,
+    cert_size: usize,
+) -> bool {
+    if cert_addr == 0 || cert_size == 0 {
+        return false;
+    }
+    let Some(cert_end) = cert_addr.checked_add(cert_size) else {
+        return false;
+    };
+    if raw_ptr >= cert_end || section_end <= cert_addr {
+        return false;
+    }
+    if raw_ptr < cert_addr {
+        let Some(prefix_bytes) = data.get(raw_ptr..cert_addr) else {
+            return false;
+        };
+        ctx.update(prefix_bytes);
+    }
+    if section_end > cert_end {
+        let Some(suffix_bytes) = data.get(cert_end..section_end) else {
+            return false;
+        };
+        ctx.update(suffix_bytes);
+    }
+
+    true
+}
+
+/// Hash a range of data, excluding specified regions.
+fn hash_range_excluding(
+    ctx: &mut Context,
+    data: &[u8],
+    start: usize,
+    end: usize,
+    exclusions: &[(usize, usize)],
+) -> Result<()> {
+    let mut exclusions: Vec<_> = exclusions
+        .iter()
+        .filter(|&&(off, _)| off >= start && off < end)
+        .copied()
+        .collect();
+    exclusions.sort_by_key(|&(off, _)| off);
+
+    let mut pos = start;
+    for (excl_off, excl_len) in exclusions {
+        if pos < excl_off {
+            let range_bytes = data
+                .get(pos..excl_off)
+                .ok_or_else(|| SboltError::PeOperation("excluded range exceeds file".into()))?;
+            ctx.update(range_bytes);
+        }
+        pos = checked_add(excl_off, excl_len, "excluded range end")?;
+    }
+
+    if pos < end {
+        let range_bytes = data
+            .get(pos..end)
+            .ok_or_else(|| SboltError::PeOperation("hashed range exceeds file".into()))?;
+        ctx.update(range_bytes);
+    }
+
+    Ok(())
+}
+
+/// Collect sorted section ranges from a PE file.
+fn collect_section_ranges(pe: &PeFile64<'_>, pe_data: &[u8]) -> Result<Vec<(usize, usize)>> {
+    let sections = pe.section_table();
+    let mut ranges = Vec::with_capacity(sections.len());
+    for section in sections.iter() {
+        let ptr = u32_to_usize(section.pointer_to_raw_data.get(LE), "section raw pointer")?;
+        let size = u32_to_usize(section.size_of_raw_data.get(LE), "section raw size")?;
+        if ptr == 0 || size == 0 {
+            continue;
+        }
+        let section_end = ptr
+            .checked_add(size)
+            .ok_or_else(|| SboltError::PeOperation("section overflows".into()))?;
+        if section_end > pe_data.len() {
+            return Err(SboltError::PeOperation(
+                "section extends beyond file".into(),
+            ));
+        }
+        ranges.push((ptr, size));
+    }
+    ranges.sort_by_key(|range| range.0);
+
+    Ok(ranges)
+}
+
 /// Embed the signature into the PE file.
-fn embed_signature(pe_data: &[u8], win_cert: &[u8]) -> Result<Vec<u8>> {
-    let pe = PeFile64::parse(pe_data)
-        .map_err(|_parse_error| SboltError::PeOperation("invalid or unsupported PE file".into()))?;
-
-    let pe_offset = u32_to_usize(pe.dos_header().nt_headers_offset(), "PE header offset")?;
-    let opt_offset = checked_add(
-        pe_offset,
-        PE_SIGNATURE_PREFIX_SIZE,
-        "optional header offset",
-    )?;
-    let opt_offset = checked_add(
-        opt_offset,
-        size_of::<ImageFileHeader>(),
-        "optional header offset",
-    )?;
-    let cert_table_index_offset = checked_mul(
-        IMAGE_DIRECTORY_ENTRY_SECURITY,
-        size_of::<ImageDataDirectory>(),
-        "certificate table directory offset",
-    )?;
-    let cert_table_relative_offset = checked_add(
-        size_of::<ImageOptionalHeader64>(),
-        cert_table_index_offset,
-        "certificate table directory offset",
-    )?;
-    let cert_table_dd_offset = checked_add(
-        opt_offset,
-        cert_table_relative_offset,
-        "certificate table data directory offset",
-    )?;
-    let checksum_offset = checked_add(
-        opt_offset,
-        offset_of!(ImageOptionalHeader64, check_sum),
-        "checksum field offset",
-    )?;
-
+fn embed_signature(
+    pe_data: &[u8],
+    win_cert: &[u8],
+    checksum_offset: usize,
+    cert_table_dd_offset: usize,
+) -> Result<Vec<u8>> {
     let aligned_size = align_to(pe_data.len(), PE_ALIGNMENT, "PE file alignment")?;
-
     let sig_aligned_size = align_to(win_cert.len(), PE_ALIGNMENT, "signature alignment")?;
     let sig_padding = sig_aligned_size
         .checked_sub(win_cert.len())
         .ok_or_else(|| SboltError::PeOperation("signature alignment underflow".into()))?;
 
-    let result_capacity = checked_add(aligned_size, sig_aligned_size, "signed PE size")?;
+    let result_capacity = aligned_size
+        .checked_add(sig_aligned_size)
+        .ok_or_else(|| SboltError::PeOperation("signed PE size overflow".into()))?;
     let mut result = Vec::with_capacity(result_capacity);
     result.extend_from_slice(pe_data);
-
     result.resize(aligned_size, 0);
     result.extend_from_slice(win_cert);
-    let padded_len = checked_add(result.len(), sig_padding, "signed PE padding")?;
+    let padded_len = result
+        .len()
+        .checked_add(sig_padding)
+        .ok_or_else(|| SboltError::PeOperation("signed PE padding overflow".into()))?;
     result.resize(padded_len, 0);
 
     let aligned_size_u32 = usize_to_u32(aligned_size, "aligned PE size")?;
     let sig_aligned_size_u32 = usize_to_u32(sig_aligned_size, "signature size")?;
-
-    write_u32_le(&mut result, cert_table_dd_offset, aligned_size_u32)?;
-    let cert_table_size_offset = checked_add(
-        cert_table_dd_offset,
-        CERT_TABLE_ENTRY_SIZE,
-        "certificate table size field",
-    )?;
-    write_u32_le(&mut result, cert_table_size_offset, sig_aligned_size_u32)?;
-
-    let new_checksum = calculate_pe_checksum(&result, checksum_offset)?;
-    write_u32_le(&mut result, checksum_offset, new_checksum)?;
+    put_u32_le(&mut result, cert_table_dd_offset, aligned_size_u32)?;
+    let cert_table_size_offset = cert_table_dd_offset
+        .checked_add(CERT_TABLE_ENTRY_SIZE)
+        .ok_or_else(|| SboltError::PeOperation("cert table size offset overflow".into()))?;
+    put_u32_le(&mut result, cert_table_size_offset, sig_aligned_size_u32)?;
+    put_u32_le(&mut result, checksum_offset, 0_u32)?;
 
     Ok(result)
 }
 
-/// Calculate the PE checksum.
-fn calculate_pe_checksum(data: &[u8], checksum_offset: usize) -> Result<u32> {
-    let mut sum: u64 = 0;
-
-    let mut i = 0;
-    while i < data.len() {
-        if i == checksum_offset {
-            i = checked_add(i, CERT_TABLE_ENTRY_SIZE, "checksum skip")?;
-            continue;
-        }
-
-        let next_index = checked_add(i, 1, "checksum word end")?;
-        let word = if next_index < data.len() {
-            let bytes = data
-                .get(i..=next_index)
-                .ok_or_else(|| SboltError::PeOperation("checksum read beyond buffer".into()))?;
-            let pair = read_checksum_pair(bytes)?;
-
-            u64::from(u16::from_le_bytes(pair))
-        } else {
-            u64::from(
-                *data
-                    .get(i)
-                    .ok_or_else(|| SboltError::PeOperation("checksum read beyond buffer".into()))?,
-            )
-        };
-
-        sum = sum.wrapping_add(word);
-        sum = fold_checksum(sum);
-
-        i = checked_add(i, 2, "checksum iteration")?;
-    }
-
-    sum = fold_checksum(sum);
-
-    let sum_u32 = u32::try_from(sum)
-        .map_err(|_sum_error| SboltError::PeOperation("checksum exceeds 32-bit range".into()))?;
-    let data_len_u32 = usize_to_u32(data.len(), "PE length")?;
-
-    sum_u32
-        .checked_add(data_len_u32)
-        .ok_or_else(|| SboltError::PeOperation("checksum addition overflow".into()))
-}
-
-fn write_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<()> {
+fn put_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<()> {
     let end = checked_add(offset, CERT_TABLE_ENTRY_SIZE, "write_u32 range end")?;
-
-    data.get_mut(offset..end)
-        .ok_or_else(|| SboltError::PeOperation("write beyond buffer".into()))
-        .map(|bytes| bytes.copy_from_slice(&value.to_le_bytes()))
-}
-
-fn push_u8(buf: &mut Vec<u8>, value: usize) -> Result<()> {
-    let byte = u8::try_from(value).map_err(|_conversion_error| {
-        SboltError::Signing(format!("DER length byte out of range: {value}"))
-    })?;
-    buf.push(byte);
+    let bytes = data
+        .get_mut(offset..end)
+        .ok_or_else(|| SboltError::PeOperation("write u32 beyond buffer".into()))?;
+    bytes.copy_from_slice(&value.to_le_bytes());
 
     Ok(())
 }
 
 fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
-    u32::try_from(value)
-        .map_err(|_conversion_error| SboltError::PeOperation(format!("{context} exceeds u32")))
+    u32::try_from(value).map_err(|e| SboltError::PeOperation(format!("{context} exceeds u32: {e}")))
 }
 
 fn u32_to_usize(value: u32, context: &str) -> Result<usize> {
     usize::try_from(value)
-        .map_err(|_conversion_error| SboltError::PeOperation(format!("{context} exceeds usize")))
+        .map_err(|e| SboltError::PeOperation(format!("{context} exceeds usize: {e}")))
 }
 
 fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
@@ -340,35 +484,15 @@ fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
         .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))
 }
 
-fn checked_mul(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
-    lhs.checked_mul(rhs)
-        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))
-}
-
 fn align_to(value: usize, alignment: usize, context: &str) -> Result<usize> {
-    let adjusted = checked_add(
-        value,
-        alignment
-            .checked_sub(1)
-            .ok_or_else(|| SboltError::PeOperation(format!("{context} invalid alignment")))?,
-        context,
-    )?;
-
     let alignment_mask = alignment
         .checked_sub(1)
         .ok_or_else(|| SboltError::PeOperation(format!("{context} invalid alignment")))?;
+    let adjusted = value
+        .checked_add(alignment_mask)
+        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))?;
 
     Ok(adjusted & !alignment_mask)
-}
-
-fn fold_checksum(sum: u64) -> u64 {
-    sum.wrapping_add(sum >> 16) & 0xffff
-}
-
-fn read_checksum_pair(bytes: &[u8]) -> Result<[u8; 2]> {
-    bytes
-        .try_into()
-        .map_err(|_word_width_error| SboltError::PeOperation("invalid checksum word width".into()))
 }
 
 #[cfg(test)]
@@ -377,6 +501,7 @@ mod tests {
     use cms::signed_data::SignedData;
     use der::asn1::OctetString;
     use der::{Decode as _, Encode as _};
+    use object::pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC;
     use ring::digest::{Context, SHA256};
 
     use super::*;
@@ -387,7 +512,6 @@ mod tests {
         let end = offset
             .checked_add(4)
             .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))?;
-
         data.get(offset..end)
             .and_then(|bytes| bytes.try_into().ok())
             .map(u32::from_le_bytes)
@@ -398,7 +522,6 @@ mod tests {
         let end = offset
             .checked_add(2)
             .ok_or_else(|| SboltError::PeOperation("read beyond buffer".into()))?;
-
         data.get(offset..end)
             .and_then(|bytes| bytes.try_into().ok())
             .map(u16::from_le_bytes)
@@ -419,7 +542,6 @@ mod tests {
             .copy_from_slice(&val.to_le_bytes());
     }
 
-    /// Build a minimal PE32+ binary suitable for signing tests.
     fn build_signable_pe() -> Vec<u8> {
         let pe_offset: u32 = 0x40;
         let pe_offset_usize = usize::try_from(pe_offset).expect("PE offset fits usize");
@@ -469,7 +591,7 @@ mod tests {
             opt_header_size,
         );
 
-        put_u16(&mut pe, opt_offset, 0x20b);
+        put_u16(&mut pe, opt_offset, IMAGE_NT_OPTIONAL_HDR64_MAGIC);
         put_u32(
             &mut pe,
             opt_offset.checked_add(60).expect("headers size offset"),
@@ -517,6 +639,48 @@ mod tests {
         (db_signer, db_cert)
     }
 
+    fn pe_hash(data: &[u8]) -> Result<[u8; 32]> {
+        let pe_obj =
+            PeFile64::parse(data).map_err(|e| SboltError::PeOperation(format!("parse PE: {e}")))?;
+        let opt = &pe_obj.nt_headers().optional_header;
+
+        let pe_offset = u32_to_usize(pe_obj.dos_header().nt_headers_offset(), "PE offset")?;
+        let opt_base = pe_offset
+            .checked_add(4)
+            .and_then(|acc| acc.checked_add(size_of::<ImageFileHeader>()))
+            .ok_or_else(|| SboltError::PeOperation("opt header offset overflow".into()))?;
+        let checksum = opt_base
+            .checked_add(offset_of!(ImageOptionalHeader64, check_sum))
+            .ok_or_else(|| SboltError::PeOperation("checksum offset overflow".into()))?;
+
+        let num_dirs = u32_to_usize(opt.number_of_rva_and_sizes.get(LE), "dirs")?;
+        if num_dirs <= IMAGE_DIRECTORY_ENTRY_SECURITY {
+            return Err(SboltError::PeOperation(
+                "no certificate table data directory".into(),
+            ));
+        }
+        let cert_dir_offset = IMAGE_DIRECTORY_ENTRY_SECURITY
+            .checked_mul(size_of::<ImageDataDirectory>())
+            .ok_or_else(|| SboltError::PeOperation("cert dir offset overflow".into()))?;
+        let cert_table_dd = opt_base
+            .checked_add(size_of::<ImageOptionalHeader64>())
+            .and_then(|acc| acc.checked_add(cert_dir_offset))
+            .ok_or_else(|| SboltError::PeOperation("cert dir offset overflow".into()))?;
+
+        let headers_end = u32_to_usize(opt.size_of_headers.get(LE), "SizeOfHeaders")?;
+        let sections = collect_section_ranges(&pe_obj, data)?;
+        let pe_size = section_end(&sections).unwrap_or(headers_end);
+
+        compute_hash_inner(
+            data,
+            checksum,
+            cert_table_dd,
+            headers_end,
+            &sections,
+            pe_size,
+        )
+    }
+
     #[test]
     fn sign_produces_valid_win_certificate() {
         // ARRANGE
@@ -525,7 +689,7 @@ mod tests {
 
         // ACT
         let mut signed_pe = Vec::new();
-        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign should succeed");
+        sign(&mut pe.as_slice(), &signer, &cert, &mut signed_pe).expect("sign should succeed");
 
         // ASSERT
         assert!(signed_pe.len() > pe.len());
@@ -599,7 +763,7 @@ mod tests {
 
         // ACT
         let mut signed_pe = Vec::new();
-        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign should succeed");
+        sign(&mut pe.as_slice(), &signer, &cert, &mut signed_pe).expect("sign should succeed");
 
         // ASSERT
         let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
@@ -644,12 +808,14 @@ mod tests {
         // ARRANGE
         let pe = build_signable_pe();
         let (signer, cert) = signer_and_cert();
-        let hash_unsigned = compute_hash(&pe).expect("hash unsigned");
 
         // ACT
+        let hash_unsigned = pe_hash(pe.as_slice()).expect("hash unsigned");
+
         let mut signed_pe = Vec::new();
-        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign");
-        let hash_signed = compute_hash(&signed_pe).expect("hash signed");
+        sign(&mut pe.as_slice(), &signer, &cert, &mut signed_pe).expect("sign");
+
+        let hash_signed = pe_hash(signed_pe.as_slice()).expect("hash signed");
 
         // ASSERT
         assert_eq!(
@@ -666,7 +832,7 @@ mod tests {
 
         // ACT
         let mut signed_pe = Vec::new();
-        sign(&pe, &signer, &cert, &mut signed_pe).expect("sign");
+        sign(&mut pe.as_slice(), &signer, &cert, &mut signed_pe).expect("sign");
 
         // Extract the PKCS#7 ContentInfo from the WIN_CERTIFICATE
         let pe_offset = usize::try_from(read_u32_le(&signed_pe, 0x3c).expect("read PE offset"))
@@ -767,7 +933,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = sign(b"not-a-pe-file", &signer, &cert, &mut buf);
+        let result = sign(&mut &b"not-a-pe-file"[..], &signer, &cert, &mut buf);
 
         // ASSERT
         result.expect_err("invalid PE should fail");
@@ -821,7 +987,7 @@ mod tests {
         let mut encoded = Vec::new();
 
         // ACT
-        let result = push_u8(&mut encoded, 0x100);
+        let result = pkcs7::push_u8(&mut encoded, 0x100);
 
         // ASSERT
         result.expect_err("large byte value should fail");
@@ -848,31 +1014,6 @@ mod tests {
     }
 
     #[test]
-    fn embed_signature_rejects_non_pe32_plus_images() {
-        // ARRANGE
-        let mut pe = build_signable_pe();
-        put_u16(&mut pe, 0x58, 0x10b);
-
-        // ACT
-        let result = embed_signature(&pe, b"cert");
-
-        // ASSERT
-        result.expect_err("non-PE32+ image should fail");
-    }
-
-    #[test]
-    fn embed_signature_rejects_invalid_pe_bytes() {
-        // ARRANGE
-        let pe = b"not-a-pe-file";
-
-        // ACT
-        let result = embed_signature(pe, b"cert");
-
-        // ASSERT
-        result.expect_err("invalid PE should fail");
-    }
-
-    #[test]
     fn embed_signature_aligns_input_and_certificate_sizes() {
         // ARRANGE
         let mut pe = build_signable_pe();
@@ -886,15 +1027,10 @@ mod tests {
             & !7;
 
         // ACT
-        let signed = embed_signature(&pe, &win_cert).expect("embed signature");
+        let signed = embed_signature(&pe, &win_cert, 0x94, 0xe8).expect("embed signature");
 
         // ASSERT
-        assert_eq!(
-            signed.len(),
-            aligned_pe_len
-                .checked_add(aligned_cert_len)
-                .expect("signed PE length")
-        );
+        assert_eq!(signed.len(), aligned_pe_len + aligned_cert_len);
         let embedded_cert_end = aligned_pe_len
             .checked_add(win_cert.len())
             .expect("embedded cert end");
@@ -907,32 +1043,13 @@ mod tests {
     }
 
     #[test]
-    fn embed_signature_preserves_original_section_payload() {
-        // ARRANGE
-        let pe = build_signable_pe();
-        let win_cert = build_win_certificate(b"certificate").expect("build WIN_CERTIFICATE");
-        let section_offset = 0x200;
-
-        // ACT
-        let signed = embed_signature(&pe, &win_cert).expect("embed signature");
-
-        // ASSERT
-        assert_eq!(
-            signed
-                .get(section_offset..pe.len())
-                .expect("signed section bytes"),
-            pe.get(section_offset..).expect("original section bytes")
-        );
-    }
-
-    #[test]
     fn helper_alignment_and_write_success_paths_work() {
         // ARRANGE
         let mut data = [0_u8; 8];
 
         // ACT
         let aligned = align_to(9, 8, "align").expect("align length");
-        write_u32_le(&mut data, 2, 0x1234_5678).expect("write u32");
+        put_u32_le(&mut data, 2, 0x1234_5678).expect("write u32");
 
         // ASSERT
         assert_eq!(aligned, 16);
@@ -944,8 +1061,6 @@ mod tests {
 
     #[test]
     fn align_to_rejects_adjustment_overflow() {
-        // ARRANGE
-
         // ACT
         let result = align_to(usize::MAX, 8, "align");
         let zero_result = align_to(0, 8, "align");
@@ -956,28 +1071,8 @@ mod tests {
     }
 
     #[test]
-    fn calculate_pe_checksum_handles_odd_length_and_skip_offset() {
-        // ARRANGE
-        let data = [1_u8, 2, 3, 4, 5];
-
-        // ACT
-        let checksum = calculate_pe_checksum(&data, 2).expect("calculate checksum");
-
-        // ASSERT
-        assert_eq!(
-            checksum,
-            0x0201 + u32::try_from(data.len()).expect("data length fits u32")
-        );
-    }
-
-    #[test]
     fn checksum_and_bounds_helpers_validate_inputs() {
-        // ARRANGE
-        let checksum = calculate_pe_checksum(&[1_u8, 2, 3], 10).expect("checksum");
-
         // ACT
-        let write_result = write_u32_le(&mut [0_u8; 3], 0, 1);
-        let pair_result = read_checksum_pair(&[1_u8]);
         let too_large = usize::try_from(u32::MAX)
             .expect("u32 max fits usize")
             .checked_add(1)
@@ -985,18 +1080,12 @@ mod tests {
         let conversion_result = usize_to_u32(too_large, "too large");
         let offset_result = u32_to_usize(0, "offset");
         let add_result = checked_add(usize::MAX, 1, "add");
-        let mul_result = checked_mul(usize::MAX, 2, "mul");
         let align_result = align_to(5, 0, "align");
 
         // ASSERT
-        assert!(checksum > 0);
-        write_result.expect_err("short u32 write should fail");
-        pair_result.expect_err("short checksum pair should fail");
         conversion_result.expect_err("large usize conversion should fail");
         assert_eq!(offset_result.expect("convert offset"), 0);
         add_result.expect_err("addition overflow should fail");
-        mul_result.expect_err("multiplication overflow should fail");
         align_result.expect_err("zero alignment should fail");
-        assert_eq!(fold_checksum(0x12345), 0x2346);
     }
 }

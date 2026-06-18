@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sbolt::keys::SigningPair;
-use sbolt::pe::signature;
+use sbolt::signature;
 use tokio::fs;
 
 use crate::artifact::Artifact;
@@ -62,8 +62,6 @@ pub async fn artifacts(
 /// Build the UKI and return its signed (or unsigned) bytes, PE section metadata,
 /// and ESP overlay files.
 ///
-/// If `signing_key` is provided the UKI is Authenticode-signed before returning.
-///
 /// # Errors
 ///
 /// Returns an error when resolution, pulling, building, or signing fails.
@@ -82,7 +80,7 @@ pub async fn prepare_uki(
         let capacity = prepared.uki_bytes.len().saturating_add(8192);
         let mut signed = Vec::with_capacity(capacity);
         signature::sign(
-            &prepared.uki_bytes,
+            &mut prepared.uki_bytes.as_slice(),
             key.signer,
             key.certificate,
             &mut signed,

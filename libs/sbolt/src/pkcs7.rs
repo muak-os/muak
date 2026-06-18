@@ -24,9 +24,9 @@ const RSA_ENCRYPTION: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.1
 const ID_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.1");
 const ID_SIGNED_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.2");
 
-const DER_SHORT_FORM_LENGTH_LIMIT: usize = 0x80;
-const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
-const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
+pub(crate) const DER_SHORT_FORM_LENGTH_LIMIT: usize = 0x80;
+pub(crate) const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
+pub(crate) const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
 
 /// Build PKCS#7 `SignedData` for Authenticode PE signing.
 ///
@@ -36,32 +36,52 @@ const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
 pub(crate) fn build_authenticode_signed_data(
     content_type: ObjectIdentifier,
     content: &[u8],
-    _hash: &[u8; 32],
-    signer: &rsa2048::Signer,
+    signature: &[u8],
     certificate: &Certificate,
+    signed_attrs: Option<SignedAttributes>,
 ) -> Result<Vec<u8>> {
+    let signed_data_der = build_signed_data_with_cms(
+        content_type,
+        Some(content),
+        signature,
+        certificate,
+        signed_attrs,
+    )?;
+
+    wrap_signed_data_content_info(&signed_data_der)
+}
+
+/// Compute the `WIN_CERTIFICATE` size (including 8-byte alignment)
+/// without performing RSA signing. Uses a zeroed signature buffer since
+/// RSA-2048 always produces 256 bytes.
+pub(crate) fn compute_authenticode_size(
+    content_type: ObjectIdentifier,
+    content: &[u8],
+    certificate: &Certificate,
+) -> Result<usize> {
     let mut ctx = Context::new(&SHA256);
     ctx.update(content);
     let digest = ctx.finish();
     let digest_bytes = parse_sha256_digest(digest.as_ref())?;
-
     let signed_attrs = build_signed_attributes(content_type, &digest_bytes)?;
-
-    let attrs_for_signing = signed_attrs
-        .to_der()
-        .map_err(|e| SboltError::Signing(format!("encode signed attrs: {e}")))?;
-
-    let sig = signer.sign_pkcs1v15_sha256(&attrs_for_signing)?;
-
+    let zero_sig = [0_u8; 256];
     let signed_data_der = build_signed_data_with_cms(
         content_type,
         Some(content),
-        &sig,
+        &zero_sig,
         certificate,
         Some(signed_attrs),
     )?;
+    let content_info_der = wrap_signed_data_content_info(&signed_data_der)?;
+    let aligned_size = content_info_der
+        .len()
+        .checked_add(8)
+        .ok_or_else(|| SboltError::Signing("WIN_CERTIFICATE size overflow".into()))?;
+    let adjusted = aligned_size
+        .checked_add(7)
+        .ok_or_else(|| SboltError::Signing("alignment overflow".into()))?;
 
-    wrap_signed_data_content_info(&signed_data_der)
+    Ok(adjusted & !7)
 }
 
 /// Build PKCS#7 `SignedData` for EFI authenticated variable signing (detached).
@@ -195,7 +215,7 @@ fn build_signer_info_cms(
 }
 
 /// Build signed attributes for PKCS#7 `SignedData` following RFC 5652.
-fn build_signed_attributes(
+pub(crate) fn build_signed_attributes(
     content_type: ObjectIdentifier,
     message_digest: &[u8; 32],
 ) -> Result<SignedAttributes> {
@@ -268,7 +288,7 @@ fn build_signed_attributes(
 }
 
 /// Encode ASN.1 DER length bytes.
-fn encode_der_length(buf: &mut Vec<u8>, len: usize) -> Result<()> {
+pub(crate) fn encode_der_length(buf: &mut Vec<u8>, len: usize) -> Result<()> {
     if len < DER_SHORT_FORM_LENGTH_LIMIT {
         push_u8(buf, len & 0xff)?;
     } else if len < DER_ONE_BYTE_LENGTH_LIMIT {
@@ -294,7 +314,7 @@ fn parse_sha256_digest(digest: &[u8]) -> Result<[u8; 32]> {
     })
 }
 
-fn push_u8(buf: &mut Vec<u8>, value: usize) -> Result<()> {
+pub(crate) fn push_u8(buf: &mut Vec<u8>, value: usize) -> Result<()> {
     let byte = u8::try_from(value).map_err(|_conversion_error| {
         SboltError::Signing(format!("DER length byte out of range: {value}"))
     })?;
@@ -338,11 +358,19 @@ mod tests {
         // ARRANGE
         let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
-        let hash = [0_u8; 32];
+        let mut ctx = Context::new(&SHA256);
+        ctx.update(&content);
+        let digest = ctx.finish();
+        let digest_bytes = parse_sha256_digest(digest.as_ref()).expect("parse digest");
+        let signed_attrs =
+            build_signed_attributes(ID_DATA, &digest_bytes).expect("build signed attrs");
+        let attrs_der = signed_attrs.to_der().expect("encode signed attrs");
+        let sig = signer.sign_pkcs1v15_sha256(&attrs_der).expect("sign attrs");
 
         // ACT
-        let der = build_authenticode_signed_data(ID_DATA, &content, &hash, &signer, &cert)
-            .expect("build Authenticode SignedData");
+        let der =
+            build_authenticode_signed_data(ID_DATA, &content, &sig, &cert, Some(signed_attrs))
+                .expect("build Authenticode SignedData");
         let content_info = ContentInfo::from_der(&der).expect("decode ContentInfo");
 
         // ASSERT
@@ -354,11 +382,19 @@ mod tests {
         // ARRANGE
         let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
-        let hash = [0x7b_u8; 32];
+        let mut ctx = Context::new(&SHA256);
+        ctx.update(&content);
+        let digest = ctx.finish();
+        let digest_bytes = parse_sha256_digest(digest.as_ref()).expect("parse digest");
+        let signed_attrs =
+            build_signed_attributes(ID_DATA, &digest_bytes).expect("build signed attrs");
+        let attrs_der = signed_attrs.to_der().expect("encode signed attrs");
+        let sig = signer.sign_pkcs1v15_sha256(&attrs_der).expect("sign attrs");
 
         // ACT
-        let der = build_authenticode_signed_data(ID_DATA, &content, &hash, &signer, &cert)
-            .expect("build Authenticode SignedData");
+        let der =
+            build_authenticode_signed_data(ID_DATA, &content, &sig, &cert, Some(signed_attrs))
+                .expect("build Authenticode SignedData");
         let content_info = ContentInfo::from_der(&der).expect("decode ContentInfo");
         let signed_data = content_info
             .content

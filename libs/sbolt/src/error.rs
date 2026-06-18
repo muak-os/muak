@@ -25,10 +25,6 @@ pub enum SboltError {
     #[error("PE operation failed: {0}")]
     PeOperation(String),
 
-    /// Authenticode hash computation failed.
-    #[error("authenticode hash failed: {0}")]
-    AuthenticodeHash(String),
-
     /// EFI variable operation failed.
     #[error("efivar operation failed: {0}")]
     EfiVar(String),

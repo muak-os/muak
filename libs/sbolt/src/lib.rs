@@ -11,6 +11,6 @@
 pub mod efi;
 pub mod error;
 pub mod keys;
-pub mod pe;
 mod pkcs7;
 mod platform;
+pub mod signature;
