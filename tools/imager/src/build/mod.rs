@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sbolt::keys::SigningPair;
-use sbolt::signature;
 use tokio::fs;
 
 use crate::artifact::Artifact;
@@ -73,23 +72,8 @@ pub async fn prepare_uki(
 ) -> Result<(Vec<u8>, Vec<SectionInfo>, Vec<esp::EspFile>)> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
-    let prepared = pipeline::prepare(&resolved, &profile_bytes).await?;
+    let prepared = pipeline::prepare(&resolved, &profile_bytes, signing_key).await?;
     let overlay_files = pipeline::pull_overlay_if_present(&resolved).await?;
-
-    let uki_bytes = if let Some(key) = signing_key {
-        let capacity = prepared.uki_bytes.len().saturating_add(8192);
-        let mut signed = Vec::with_capacity(capacity);
-        signature::sign(
-            &mut prepared.uki_bytes.as_slice(),
-            key.signer,
-            key.certificate,
-            &mut signed,
-        )
-        .map_err(|e| ImagerError::BuildError(format!("sign UKI: {e}")))?;
-        signed
-    } else {
-        prepared.uki_bytes
-    };
 
     let sections = prepared
         .sections
@@ -101,5 +85,5 @@ pub async fn prepare_uki(
         })
         .collect();
 
-    Ok((uki_bytes, sections, overlay_files))
+    Ok((prepared.uki_bytes, sections, overlay_files))
 }
