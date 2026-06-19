@@ -263,6 +263,10 @@ fn run_resolve(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "match on 6 artifact variants is verbose"
+)]
 async fn run_build(args: BuildArgs) -> Result<()> {
     let arch = parse_arch(&args.arch)?;
     let platform = parse_platform(&args.platform)?;
@@ -311,15 +315,68 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         None => None,
     };
 
-    let results = build::artifacts(&request, &spec, &config, signing.as_ref(), &args.output)
+    let file = std::fs::File::create(&args.output)
+        .with_context(|| format!("create output file {}", args.output.display()))?;
+    let mut file = std::io::BufWriter::new(file);
+    let writers = match artifact {
+        Artifact::Uki => build::ArtifactWriters {
+            uki: Some(&mut file),
+            kernel: None,
+            cmdline: None,
+            initramfs: None,
+            iso: None,
+            raw: None,
+        },
+        Artifact::Kernel => build::ArtifactWriters {
+            kernel: Some(&mut file),
+            uki: None,
+            cmdline: None,
+            initramfs: None,
+            iso: None,
+            raw: None,
+        },
+        Artifact::Cmdline => build::ArtifactWriters {
+            cmdline: Some(&mut file),
+            uki: None,
+            kernel: None,
+            initramfs: None,
+            iso: None,
+            raw: None,
+        },
+        Artifact::Initramfs => build::ArtifactWriters {
+            initramfs: Some(&mut file),
+            uki: None,
+            kernel: None,
+            cmdline: None,
+            iso: None,
+            raw: None,
+        },
+        Artifact::Iso => build::ArtifactWriters {
+            iso: Some(&mut file),
+            uki: None,
+            kernel: None,
+            cmdline: None,
+            initramfs: None,
+            raw: None,
+        },
+        Artifact::Raw => build::ArtifactWriters {
+            raw: Some(&mut file),
+            uki: None,
+            kernel: None,
+            cmdline: None,
+            initramfs: None,
+            iso: None,
+        },
+    };
+    let _metadata = build::artifacts(&request, &spec, &config, signing.as_ref(), writers)
         .await
         .context(format!("build {} to {}", artifact, args.output.display()))?;
 
-    let path = results
-        .get(&artifact)
-        .context("built artifact not found in results")?;
-
-    println!("Successfully built {} at {}", artifact, path.display());
+    println!(
+        "Successfully built {} at {}",
+        artifact,
+        args.output.display()
+    );
 
     Ok(())
 }

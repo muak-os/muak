@@ -1,13 +1,10 @@
 //! Public artifact build API.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::io::Write;
 
 use sbolt::keys::SigningPair;
-use tokio::fs;
 
-use crate::artifact::Artifact;
-use crate::error::{ImagerError, Result};
+use crate::error::Result;
 use crate::profile::Profile;
 use crate::request::Request;
 use crate::resolve::{self, Config};
@@ -29,61 +26,64 @@ pub struct SectionInfo {
     pub size: usize,
 }
 
+/// Artifact build metadata (PE sections, overlay files).
+pub struct Metadata {
+    /// PE section descriptors for the built UKI.
+    pub sections: Vec<SectionInfo>,
+    /// Overlay boot assets pulled from the resolved overlay image.
+    pub overlay_files: Vec<esp::EspFile>,
+}
+
+/// Per-artifact output sinks passed to [`artifacts`].
+pub struct ArtifactWriters<'a, W: Write> {
+    /// Sink for the signed UKI `.efi` file.
+    pub uki: Option<&'a mut W>,
+    /// Sink for the extracted kernel image.
+    pub kernel: Option<&'a mut W>,
+    /// Sink for the kernel command line.
+    pub cmdline: Option<&'a mut W>,
+    /// Sink for the combined initramfs (base + tail).
+    pub initramfs: Option<&'a mut W>,
+    /// Sink for the bootable ISO image.
+    pub iso: Option<&'a mut W>,
+    /// Sink for the raw disk image.
+    pub raw: Option<&'a mut W>,
+}
+
 /// Builds the requested artifacts sharing a single resolution.
 ///
 /// # Errors
 ///
 /// Returns an error when resolution, pulling, building, or signing fails.
-pub async fn artifacts(
+pub async fn artifacts<W: Write>(
     request: &Request,
     profile: &Profile,
     config: &Config,
     signing_key: Option<&SigningPair<'_>>,
-    output_dir: &Path,
-) -> Result<HashMap<Artifact, PathBuf>> {
+    writers: ArtifactWriters<'_, W>,
+) -> Result<Metadata> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
 
-    fs::create_dir_all(output_dir)
-        .await
-        .map_err(|e| ImagerError::BuildError(format!("create output dir: {e}")))?;
-
-    pipeline::artifacts(
+    let meta = pipeline::artifacts(
         &resolved,
         &request.artifacts,
         signing_key,
         &profile_bytes,
-        output_dir,
+        writers,
     )
-    .await
-}
+    .await?;
 
-/// Build the UKI and return its signed (or unsigned) bytes, PE section metadata,
-/// and ESP overlay files.
-///
-/// # Errors
-///
-/// Returns an error when resolution, pulling, building, or signing fails.
-pub async fn prepare_uki(
-    request: &Request,
-    profile: &Profile,
-    config: &Config,
-    signing_key: Option<&SigningPair<'_>>,
-) -> Result<(Vec<u8>, Vec<SectionInfo>, Vec<esp::EspFile>)> {
-    let resolved = resolve::profile(request, profile, &config.sources)?;
-    let profile_bytes = profile.canonical_bytes()?;
-    let prepared = pipeline::prepare(&resolved, &profile_bytes, signing_key).await?;
-    let overlay_files = pipeline::pull_overlay_if_present(&resolved).await?;
-
-    let sections = prepared
-        .sections
-        .into_iter()
-        .map(|section| SectionInfo {
-            name: section.name,
-            file_offset: section.file_offset,
-            size: section.size,
-        })
-        .collect();
-
-    Ok((prepared.uki_bytes, sections, overlay_files))
+    Ok(Metadata {
+        sections: meta
+            .sections
+            .into_iter()
+            .map(|section| SectionInfo {
+                name: section.name,
+                file_offset: section.file_offset,
+                size: section.size,
+            })
+            .collect(),
+        overlay_files: meta.overlay_files,
+    })
 }

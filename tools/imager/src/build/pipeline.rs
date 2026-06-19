@@ -1,14 +1,10 @@
 //! Build pipeline orchestration.
 
-use std::collections::HashMap;
-use std::io::Cursor;
-use std::io::Read as _;
+use std::io::{Cursor, Read as _, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
 
 use sbolt::keys::SigningPair;
 use sbolt::signature;
-use tokio::fs;
 use tokio::task::spawn_blocking;
 use yuki::BuildInput;
 use yuki::SizedPart;
@@ -26,7 +22,6 @@ use crate::resolve::ResolvedProfile;
 pub(crate) struct Prepared {
     pub assets: InstallerAssets,
     pub initramfs_tail: Vec<u8>,
-    pub uki_bytes: Vec<u8>,
     pub sections: Vec<Section>,
 }
 
@@ -35,6 +30,7 @@ pub(crate) async fn prepare(
     resolved_profile: &ResolvedProfile,
     profile_bytes: &[u8],
     signing_key: Option<&SigningPair<'_>>,
+    uki_writer: &mut impl Write,
 ) -> Result<Prepared> {
     let installer = stage::pull_installer(resolved_profile, None).await?;
     let assets = stage::load_installer_assets(&installer)?;
@@ -87,17 +83,13 @@ pub(crate) async fn prepare(
             .map_err(|e| ImagerError::BuildError(format!("build UKI: {e}")))
     });
 
-    let uki_bytes = if let Some(key) = signing_key {
-        let mut signed = Vec::new();
-        signature::sign(&mut reader, key.signer, key.certificate, &mut signed)
+    if let Some(key) = signing_key {
+        signature::sign(&mut reader, key.signer, key.certificate, uki_writer)
             .map_err(|e| ImagerError::BuildError(format!("sign UKI: {e}")))?;
-        signed
     } else {
-        let mut buf = Vec::new();
-        std::io::copy(&mut reader, &mut buf)
+        std::io::copy(&mut reader, uki_writer)
             .map_err(|e| ImagerError::BuildError(format!("read UKI pipe: {e}")))?;
-        buf
-    };
+    }
 
     let sections = sections_handle
         .await
@@ -106,87 +98,85 @@ pub(crate) async fn prepare(
     Ok(Prepared {
         assets,
         initramfs_tail,
-        uki_bytes,
         sections,
     })
+}
+
+/// Metadata returned alongside written artifacts.
+pub(crate) struct Metadata {
+    pub sections: Vec<Section>,
+    pub overlay_files: Vec<esp::EspFile>,
 }
 
 /// Builds the requested artifacts sharing a single resolution.
 ///
 /// # Errors
 ///
-/// Returns an error when pulling, staging, building, or signing fails.
-pub async fn artifacts(
+/// Returns an error when pulling, staging, building, signing, or writing fails.
+pub async fn artifacts<W: Write>(
     resolved_profile: &ResolvedProfile,
     requested: &[Artifact],
     signing_key: Option<&SigningPair<'_>>,
     profile_bytes: &[u8],
-    output_dir: &Path,
-) -> Result<HashMap<Artifact, PathBuf>> {
-    let prepared = prepare(resolved_profile, profile_bytes, signing_key).await?;
-    let uki_bytes = &prepared.uki_bytes;
+    writers: super::ArtifactWriters<'_, W>,
+) -> Result<Metadata> {
+    let super::ArtifactWriters {
+        uki,
+        kernel,
+        cmdline,
+        initramfs,
+        iso,
+        raw,
+    } = writers;
 
-    let mut results = HashMap::new();
-
-    if requested.contains(&Artifact::Kernel) {
-        let kernel_path = output_dir.join(Artifact::Kernel.filename());
-        fs::write(
-            &kernel_path,
-            stage::read_file(&prepared.assets.kernel, "kernel")?,
-        )
-        .await
-        .map_err(|e| ImagerError::BuildError(format!("write kernel: {e}")))?;
-        results.insert(Artifact::Kernel, kernel_path);
-    }
-    if requested.contains(&Artifact::Cmdline) {
-        let cmdline_path = output_dir.join(Artifact::Cmdline.filename());
-        fs::write(
-            &cmdline_path,
-            stage::read_file(&prepared.assets.cmdline, "cmdline")?,
-        )
-        .await
-        .map_err(|e| ImagerError::BuildError(format!("write cmdline: {e}")))?;
-        results.insert(Artifact::Cmdline, cmdline_path);
-    }
-    if requested.contains(&Artifact::Initramfs) {
-        let initramfs_path = output_dir.join(Artifact::Initramfs.filename());
-        uki::write_initramfs(&prepared.assets, &prepared.initramfs_tail, &initramfs_path).await?;
-        results.insert(Artifact::Initramfs, initramfs_path);
-    }
-    if requested.contains(&Artifact::Uki) {
-        let uki_path = output_dir.join(Artifact::Uki.filename());
-        fs::write(&uki_path, &uki_bytes)
-            .await
-            .map_err(|e| ImagerError::BuildError(format!("write UKI: {e}")))?;
-        results.insert(Artifact::Uki, uki_path);
-    }
-    if requested.contains(&Artifact::Iso) {
-        results.insert(
-            Artifact::Iso,
-            media::iso(resolved_profile, output_dir, uki_bytes).await?,
-        );
-    }
-
-    let needs_overlay = requested.contains(&Artifact::Raw) || requested.contains(&Artifact::Esp);
-    let overlay_files = if needs_overlay {
-        pull_overlay_if_present(resolved_profile).await?
+    let prepared = if requested.contains(&Artifact::Iso) || requested.contains(&Artifact::Raw) {
+        // TODO: Buffer UKI in memory for EspSpec (ISO/Raw) — deferred optimization.
+        let mut uki_buf = Vec::new();
+        let prepared = prepare(resolved_profile, profile_bytes, signing_key, &mut uki_buf).await?;
+        if let Some(w) = uki {
+            w.write_all(&uki_buf)
+                .map_err(|e| ImagerError::BuildError(format!("write UKI: {e}")))?;
+        }
+        if let Some(w) = iso {
+            media::iso_to_writer(resolved_profile, &uki_buf, w).await?;
+        }
+        if let Some(w) = raw {
+            let overlay = pull_overlay_if_present(resolved_profile).await?;
+            media::raw_to_writer(resolved_profile, &overlay, &uki_buf, w).await?;
+        }
+        prepared
+    } else if let Some(w) = uki {
+        prepare(resolved_profile, profile_bytes, signing_key, w).await?
     } else {
-        vec![]
+        prepare(
+            resolved_profile,
+            profile_bytes,
+            signing_key,
+            &mut std::io::sink(),
+        )
+        .await?
     };
 
-    if requested.contains(&Artifact::Raw) {
-        results.insert(
-            Artifact::Raw,
-            media::raw(resolved_profile, &overlay_files, output_dir, uki_bytes).await?,
-        );
+    if let Some(w) = kernel {
+        let data = stage::read_file(&prepared.assets.kernel, "kernel")?;
+        w.write_all(&data)
+            .map_err(|e| ImagerError::BuildError(format!("write kernel: {e}")))?;
     }
-    if requested.contains(&Artifact::Esp) {
-        let esp_dir = output_dir.join(Artifact::Esp.filename());
-        media::write_esp_files(&overlay_files, &esp_dir).await?;
-        results.insert(Artifact::Esp, esp_dir);
+    if let Some(w) = cmdline {
+        let data = stage::read_file(&prepared.assets.cmdline, "cmdline")?;
+        w.write_all(&data)
+            .map_err(|e| ImagerError::BuildError(format!("write cmdline: {e}")))?;
+    }
+    if let Some(w) = initramfs {
+        uki::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w).await?;
     }
 
-    Ok(results)
+    let overlay_files = pull_overlay_if_present(resolved_profile).await?;
+
+    Ok(Metadata {
+        sections: prepared.sections,
+        overlay_files,
+    })
 }
 
 pub(crate) async fn pull_overlay_if_present(

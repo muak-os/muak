@@ -203,25 +203,38 @@ async fn prepare_uki(
         version,
         platform: Platform::Metal,
         arch: None,
-        artifacts: vec![Artifact::Uki, Artifact::Esp],
+        artifacts: vec![Artifact::Uki],
     };
 
     let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
         signer: &h.db.signer,
         certificate: &h.db.certificate,
     });
-    let (uki_bytes, sections, overlay_files) =
-        build::prepare_uki(&request, &install_profile, &config, signing.as_ref())
-            .await
-            .context("imager build artifacts")?;
 
     let staged_path = output_dir.join("signed.efi");
-    let seal_result = secrets::seal_luks_key(luks_key, &uki_bytes, &sections)?;
+    let uki_file = std::fs::File::create(&staged_path)
+        .with_context(|| format!("create UKI file {}", staged_path.display()))?;
+    let mut uki_file = std::io::BufWriter::new(uki_file);
 
-    std::fs::write(&staged_path, &uki_bytes)
-        .with_context(|| format!("write UKI {}", staged_path.display()))?;
+    let writers = build::ArtifactWriters {
+        uki: Some(&mut uki_file),
+        kernel: None,
+        cmdline: None,
+        initramfs: None,
+        iso: None,
+        raw: None,
+    };
 
-    let esp_files = overlay_files;
+    let meta = build::artifacts(&request, &install_profile, &config, signing.as_ref(), writers)
+        .await
+        .context("imager build artifacts")?;
+
+    drop(uki_file);
+
+    let uki_bytes = std::fs::read(&staged_path)
+        .with_context(|| format!("read UKI back from {}", staged_path.display()))?;
+    let seal_result = secrets::seal_luks_key(luks_key, &uki_bytes, &meta.sections)?;
+
     let luks_file = if matches!(seal_result, secrets::SealResult::EspKey) {
         Some(luks_key.to_vec())
     } else {
@@ -231,7 +244,7 @@ async fn prepare_uki(
     Ok(PreparedUki {
         work_dir: Path::new(INSTALL_DIR).to_path_buf(),
         staged_path,
-        esp_files,
+        esp_files: meta.overlay_files,
         seal_result,
         luks_key: luks_file,
     })

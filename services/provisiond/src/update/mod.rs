@@ -113,19 +113,29 @@ pub async fn prepare(
         version,
         platform: Platform::Metal,
         arch: None,
-        artifacts: vec![Artifact::Uki, Artifact::Esp],
+        artifacts: vec![Artifact::Uki],
     };
-
-    let (uki_bytes, _sections, _overlay_files) =
-        build::prepare_uki(&request, &install_profile, &config, signing_key.as_ref())
-            .await
-            .context("imager update prepare")?;
 
     let assets_dir = staging_dir.join("assets");
     fs::create_dir_all(&assets_dir)
         .with_context(|| format!("create assets dir {}", assets_dir.display()))?;
-    fs::write(assets_dir.join("uki.efi"), &uki_bytes)
-        .with_context(|| format!("write UKI to {}", assets_dir.join("uki.efi").display()))?;
+    let uki_path = assets_dir.join("uki.efi");
+    let uki_file = std::fs::File::create(&uki_path)
+        .with_context(|| format!("create UKI file {}", uki_path.display()))?;
+    let mut uki_file = std::io::BufWriter::new(uki_file);
+
+    let writers = build::ArtifactWriters {
+        uki: Some(&mut uki_file),
+        kernel: None,
+        cmdline: None,
+        initramfs: None,
+        iso: None,
+        raw: None,
+    };
+
+    let _meta = build::artifacts(&request, &install_profile, &config, signing_key.as_ref(), writers)
+        .await
+        .context("imager update prepare")?;
 
     streaming::send_progress(
         &progress,
