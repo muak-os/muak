@@ -15,7 +15,7 @@ use super::media;
 use super::stage::{self, InstallerAssets};
 use super::uki;
 use crate::artifact::Artifact;
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 use crate::resolve::ResolvedProfile;
 
 /// Prebuilt intermediate artifacts shared across rendering paths.
@@ -48,7 +48,7 @@ pub(crate) async fn prepare(
     let cmdline_len = u64::try_from(cmdline.len()).unwrap_or(u64::MAX);
 
     let (writer, mut reader) =
-        UnixStream::pair().map_err(|e| ImagerError::BuildError(format!("create pipe: {e}")))?;
+        UnixStream::pair().map_err(|e| WizardError::BuildError(format!("create pipe: {e}")))?;
 
     let sections_handle = spawn_blocking(move || {
         let mut stub_reader = Cursor::new(stub);
@@ -56,7 +56,7 @@ pub(crate) async fn prepare(
         let mut cmdline_reader = Cursor::new(cmdline);
         let base_reader = base_file
             .open()
-            .map_err(|e| ImagerError::BuildError(format!("open initramfs: {e}")))?;
+            .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
         let tail_reader = Cursor::new(tail.as_slice());
         let mut initramfs_reader = base_reader.chain(tail_reader);
 
@@ -80,20 +80,20 @@ pub(crate) async fn prepare(
             dtb: None,
         };
         yuki::build(input, &mut &writer)
-            .map_err(|e| ImagerError::BuildError(format!("build UKI: {e}")))
+            .map_err(|e| WizardError::BuildError(format!("build UKI: {e}")))
     });
 
     if let Some(key) = signing_key {
         signature::sign(&mut reader, key.signer, key.certificate, uki_writer)
-            .map_err(|e| ImagerError::BuildError(format!("sign UKI: {e}")))?;
+            .map_err(|e| WizardError::BuildError(format!("sign UKI: {e}")))?;
     } else {
         std::io::copy(&mut reader, uki_writer)
-            .map_err(|e| ImagerError::BuildError(format!("read UKI pipe: {e}")))?;
+            .map_err(|e| WizardError::BuildError(format!("read UKI pipe: {e}")))?;
     }
 
     let sections = sections_handle
         .await
-        .map_err(|e| ImagerError::BuildError(format!("join UKI build task: {e}")))??;
+        .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))??;
 
     Ok(Prepared {
         assets,
@@ -135,7 +135,7 @@ pub async fn artifacts<W: Write>(
         let prepared = prepare(resolved_profile, profile_bytes, signing_key, &mut uki_buf).await?;
         if let Some(w) = uki {
             w.write_all(&uki_buf)
-                .map_err(|e| ImagerError::BuildError(format!("write UKI: {e}")))?;
+                .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
         }
         if let Some(w) = iso {
             media::iso_to_writer(resolved_profile, &uki_buf, w).await?;
@@ -160,12 +160,12 @@ pub async fn artifacts<W: Write>(
     if let Some(w) = kernel {
         let data = stage::read_file(&prepared.assets.kernel, "kernel")?;
         w.write_all(&data)
-            .map_err(|e| ImagerError::BuildError(format!("write kernel: {e}")))?;
+            .map_err(|e| WizardError::BuildError(format!("write kernel: {e}")))?;
     }
     if let Some(w) = cmdline {
         let data = stage::read_file(&prepared.assets.cmdline, "cmdline")?;
         w.write_all(&data)
-            .map_err(|e| ImagerError::BuildError(format!("write cmdline: {e}")))?;
+            .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
     }
     if let Some(w) = initramfs {
         uki::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w).await?;
@@ -185,7 +185,7 @@ pub(crate) async fn pull_overlay_if_present(
     if let Some(overlay) = resolved_profile.overlay() {
         stage::pull_overlay(overlay, &resolved_profile.arch(), None)
             .await
-            .map_err(|e| ImagerError::BuildError(format!("pull overlay: {e}")))
+            .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))
     } else {
         Ok(vec![])
     }

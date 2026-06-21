@@ -6,7 +6,7 @@ use std::path::Path;
 use koci::arch::Arch;
 use koci::pulled::{PulledEntry, PulledFile, PulledImage};
 
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile};
 
 /// Installer asset handles extracted from the source OCI image.
@@ -33,7 +33,7 @@ pub async fn pull_installer(
         signature_public_key,
     )
     .await
-    .map_err(|e| ImagerError::BuildError(format!("pull installer: {e}")))
+    .map_err(|e| WizardError::BuildError(format!("pull installer: {e}")))
 }
 
 /// Pulls each resolved extension OCI image into memory.
@@ -51,7 +51,7 @@ pub async fn pull_extensions(
         let image = koci::pull_arch(ext.source(), arch, signature_public_key)
             .await
             .map_err(|e| {
-                ImagerError::BuildError(format!("pull extension {}: {e}", ext.source()))
+                WizardError::BuildError(format!("pull extension {}: {e}", ext.source()))
             })?;
         pulled.push((ext.name().to_owned(), image));
     }
@@ -71,7 +71,7 @@ pub async fn pull_overlay(
 ) -> Result<Vec<esp::EspFile>> {
     let image = koci::pull_arch(overlay.source_ref(), arch, signature_public_key)
         .await
-        .map_err(|e| ImagerError::BuildError(format!("pull overlay: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))?;
 
     collect_overlay_files(&image, overlay.name())
 }
@@ -98,11 +98,11 @@ pub fn load_installer_assets(installer: &PulledImage) -> Result<InstallerAssets>
 pub fn read_file(file: &PulledFile, name: &str) -> Result<Vec<u8>> {
     let mut reader = file
         .open()
-        .map_err(|e| ImagerError::BuildError(format!("open {name}: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("open {name}: {e}")))?;
     let mut bytes = Vec::new();
     reader
         .read_to_end(&mut bytes)
-        .map_err(|e| ImagerError::BuildError(format!("read {name}: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("read {name}: {e}")))?;
 
     Ok(bytes)
 }
@@ -110,8 +110,8 @@ pub fn read_file(file: &PulledFile, name: &str) -> Result<Vec<u8>> {
 fn installer_file(installer: &PulledImage, name: &str) -> Result<PulledFile> {
     installer
         .file(Path::new(name))
-        .map_err(|e| ImagerError::BuildError(format!("lookup installer file {name}: {e}")))?
-        .ok_or_else(|| ImagerError::MissingInstallerFile(name.to_owned()))
+        .map_err(|e| WizardError::BuildError(format!("lookup installer file {name}: {e}")))?
+        .ok_or_else(|| WizardError::MissingInstallerFile(name.to_owned()))
 }
 
 fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<esp::EspFile>> {
@@ -120,7 +120,7 @@ fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<
 
     for entry in image
         .entries()
-        .map_err(|e| ImagerError::BuildError(format!("list overlay entries: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("list overlay entries: {e}")))?
     {
         let PulledEntry::File { path, file } = entry else {
             continue;
@@ -135,7 +135,7 @@ fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<
             .map(str::to_owned)
             .filter(|path| !path.is_empty())
             .ok_or_else(|| {
-                ImagerError::BuildError(format!("invalid overlay path: {}", path.display()))
+                WizardError::BuildError(format!("invalid overlay path: {}", path.display()))
             })?;
         files.push(esp::EspFile {
             path: rel,
@@ -183,7 +183,7 @@ mod tests {
         let result = load_installer_assets(&image);
 
         // ASSERT
-        assert!(matches!(result, Err(ImagerError::MissingInstallerFile(_))));
+        assert!(matches!(result, Err(WizardError::MissingInstallerFile(_))));
     }
 
     #[test]

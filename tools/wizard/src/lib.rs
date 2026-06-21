@@ -1,4 +1,4 @@
-//! Imager: shared deterministic image build pipeline.
+//! Wizard: shared deterministic image build pipeline.
 
 #![warn(missing_docs)]
 

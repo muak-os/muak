@@ -1,5 +1,5 @@
 [package]
-name = "imager"
+name = "wizard"
 description = "Deterministic image build pipeline"
 edition.workspace = true
 version.workspace = true
@@ -10,7 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [[bin]]
-name = "imager"
+name = "wizard"
 required-features = ["cli"]
 
 [dependencies]

@@ -2,7 +2,7 @@
 
 use koci::arch::Arch;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 use crate::profile::Profile;
 use crate::request::Platform;
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};
@@ -77,7 +77,7 @@ impl Resolver {
     fn resolve_one_extension(&self, name: &str, version: &str) -> Result<ResolvedExtension> {
         let normalized = resolve_extension_name(name);
         if !is_official_extension(normalized) {
-            return Err(ImagerError::SourceResolution(format!(
+            return Err(WizardError::SourceResolution(format!(
                 "unknown official extension: {name}"
             )));
         }

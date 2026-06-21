@@ -15,7 +15,7 @@ members = [
     "services/timed",
     "services/vmd",
 
-    "tools/imager",
+    "tools/wizard",
     "tools/koci",
     "tools/miso",
     "tools/ramune",
@@ -49,7 +49,7 @@ categories = ["os"]
 [workspace.dependencies]
 # Internal crates
 
-imager = { path = "tools/imager", default-features = false }
+wizard = { path = "tools/wizard", default-features = false }
 koci = { path = "tools/koci", default-features = false }
 miso = { path = "tools/miso", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }

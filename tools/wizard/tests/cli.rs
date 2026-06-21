@@ -3,40 +3,40 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use imager::cli;
+    use wizard::cli;
     use tokio::runtime::Runtime;
 
-    fn imager_bin() -> PathBuf {
-        PathBuf::from(env!("CARGO_BIN_EXE_imager"))
+    fn wizard_bin() -> PathBuf {
+        PathBuf::from(env!("CARGO_BIN_EXE_wizard"))
     }
 
     #[test]
     fn cli_help_exits_successfully() {
         // ACT
-        let process_output = Command::new(imager_bin())
+        let process_output = Command::new(wizard_bin())
             .arg("--help")
             .output()
-            .expect("failed to run muak-imager --help");
+            .expect("failed to run muak-wizard --help");
 
         // ASSERT
         assert!(
             process_output.status.success(),
-            "muak-imager --help should exit successfully"
+            "muak-wizard --help should exit successfully"
         );
     }
 
     #[test]
     fn cli_version_exits_successfully() {
         // ACT
-        let process_output = Command::new(imager_bin())
+        let process_output = Command::new(wizard_bin())
             .arg("--version")
             .output()
-            .expect("failed to run muak-imager --version");
+            .expect("failed to run muak-wizard --version");
 
         // ASSERT
         assert!(
             process_output.status.success(),
-            "muak-imager --version should exit successfully"
+            "muak-wizard --version should exit successfully"
         );
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(
@@ -53,19 +53,19 @@ mod tests {
         std::fs::write(&profile, b"[customization]\nextensions = []").expect("write profile");
 
         // ACT
-        let process_output = Command::new(imager_bin())
+        let process_output = Command::new(wizard_bin())
             .args([
                 "profile-id",
                 "--profile",
                 profile.to_str().expect("profile path"),
             ])
             .output()
-            .expect("failed to run muak-imager profile-id");
+            .expect("failed to run muak-wizard profile-id");
 
         // ASSERT
         assert!(
             process_output.status.success(),
-            "muak-imager profile-id should exit successfully"
+            "muak-wizard profile-id should exit successfully"
         );
         let id = String::from_utf8_lossy(&process_output.stdout)
             .trim()
@@ -76,9 +76,9 @@ mod tests {
     #[test]
     fn cli_without_subcommand_exits_with_error() {
         // ACT
-        let process_output = Command::new(imager_bin())
+        let process_output = Command::new(wizard_bin())
             .output()
-            .expect("failed to run imager without subcommand");
+            .expect("failed to run wizard without subcommand");
 
         // ASSERT
         assert!(!process_output.status.success());
@@ -93,7 +93,7 @@ mod tests {
 
         // ACT
         cli::run_from([
-            "muak-imager",
+            "muak-wizard",
             "profile-id",
             "--profile",
             profile.to_str().expect("profile path"),
@@ -111,7 +111,7 @@ mod tests {
 
         // ACT
         let exit_code = cli::run_with([
-            "muak-imager",
+            "muak-wizard",
             "profile-id",
             "--profile",
             profile.to_str().expect("profile path"),
@@ -126,7 +126,7 @@ mod tests {
     fn run_with_returns_one_for_error() {
         // ACT
         let exit_code = Runtime::new().expect("runtime").block_on(cli::run_with([
-            "muak-imager",
+            "muak-wizard",
             "profile-id",
             "--profile",
             "/nonexistent/profile.toml",

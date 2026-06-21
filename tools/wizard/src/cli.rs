@@ -1,4 +1,4 @@
-//! Command-line interface for the imager.
+//! Command-line interface for the wizard.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ struct BuildArgs {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "imager")]
+#[command(name = "wizard")]
 #[command(about = "Build Muak boot artifacts")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {

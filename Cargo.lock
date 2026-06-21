@@ -1042,27 +1042,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
-name = "imager"
-version = "1.0.0-beta"
-dependencies = [
- "anyhow",
- "clap",
- "erofs",
- "esp",
- "koci",
- "miso",
- "ramune",
- "ring",
- "sbolt",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "yuki",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1802,7 +1781,6 @@ dependencies = [
  "config",
  "esp",
  "granola",
- "imager",
  "kmsg",
  "libc",
  "luks2",
@@ -1823,6 +1801,7 @@ dependencies = [
  "tonic-prost-build",
  "tpm2",
  "uuid",
+ "wizard",
  "x509-cert",
  "zeroize",
 ]
@@ -2875,6 +2854,27 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "wizard"
+version = "1.0.0-beta"
+dependencies = [
+ "anyhow",
+ "clap",
+ "erofs",
+ "esp",
+ "koci",
+ "miso",
+ "ramune",
+ "ring",
+ "sbolt",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "yuki",
+]
 
 [[package]]
 name = "x509-cert"

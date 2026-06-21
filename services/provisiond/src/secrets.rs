@@ -1,7 +1,7 @@
 //! LUKS key protection: TPM2 sealing, token management, and fallback to ESP file.
 
 use anyhow::{Context, Result};
-use imager::build::SectionInfo;
+use wizard::build::SectionInfo;
 use luks2::Tpm2Token;
 use zeroize::Zeroizing;
 

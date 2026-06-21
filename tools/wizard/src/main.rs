@@ -1,5 +1,5 @@
 #[cfg(feature = "cli")]
-use imager::cli;
+use wizard::cli;
 
 #[cfg(feature = "cli")]
 #[tokio::main]

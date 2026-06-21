@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use imager::profile::{CustomizationSpec, Profile};
+use wizard::profile::{CustomizationSpec, Profile};
 
 /// Runtime path where `core/init` copies the embedded profile.
 const BOOTED_PROFILE: &str = "/profile.toml";
@@ -23,7 +23,7 @@ pub(crate) fn load() -> Result<Profile> {
 
 #[cfg(test)]
 mod tests {
-    use imager::profile::Profile;
+    use wizard::profile::Profile;
 
     use super::*;
 

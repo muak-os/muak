@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::SystemConfig;
-use imager::artifact::Artifact;
-use imager::build;
-use imager::profile::Profile;
-use imager::request::{Platform, Request};
-use imager::resolve::Config;
+use wizard::artifact::Artifact;
+use wizard::build;
+use wizard::profile::Profile;
+use wizard::request::{Platform, Request};
+use wizard::resolve::Config;
 pub use pki::InstallResult;
 use rustix::fs::sync;
 use sbolt::keys::SigningPair;
@@ -194,7 +194,7 @@ async fn prepare_uki(
     let output_dir = Path::new(INSTALL_DIR).join("assets");
     let (registry, installer, version) = image_parts(image)?;
     let config = Config {
-        sources: imager::resolve::Sources {
+        sources: wizard::resolve::Sources {
             registry,
             installer,
         },
@@ -227,7 +227,7 @@ async fn prepare_uki(
 
     let meta = build::artifacts(&request, &install_profile, &config, signing.as_ref(), writers)
         .await
-        .context("imager build artifacts")?;
+        .context("wizard build artifacts")?;
 
     drop(uki_file);
 
@@ -252,7 +252,7 @@ async fn prepare_uki(
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     let booted = profile::load().context("failed to load booted profile")?;
-    let customization = imager::profile::CustomizationSpec::new(extensions.to_vec())
+    let customization = wizard::profile::CustomizationSpec::new(extensions.to_vec())
         .context("invalid extensions")?;
 
     Ok(Profile::new(booted.overlay().cloned(), customization))

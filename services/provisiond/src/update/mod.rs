@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::{CONFIG_PATH, SystemConfig};
-use imager::artifact::Artifact;
-use imager::build;
-use imager::profile::Profile;
-use imager::request::{Platform, Request};
-use imager::resolve::Config;
+use wizard::artifact::Artifact;
+use wizard::build;
+use wizard::profile::Profile;
+use wizard::request::{Platform, Request};
+use wizard::resolve::Config;
 use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use sbolt::keys::SigningPair;
@@ -60,7 +60,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
     UpdateStatus::Unknown
 }
 
-/// Prepares an update by staging the UKI components via the imager.
+/// Prepares an update by staging the UKI components via the wizard.
 pub async fn prepare(
     image: &str,
     extensions: &[String],
@@ -104,7 +104,7 @@ pub async fn prepare(
 
     let (registry, installer, version) = image_parts(image)?;
     let config = Config {
-        sources: imager::resolve::Sources {
+        sources: wizard::resolve::Sources {
             registry,
             installer,
         },
@@ -135,7 +135,7 @@ pub async fn prepare(
 
     let _meta = build::artifacts(&request, &install_profile, &config, signing_key.as_ref(), writers)
         .await
-        .context("imager update prepare")?;
+        .context("wizard update prepare")?;
 
     streaming::send_progress(
         &progress,
@@ -161,7 +161,7 @@ pub async fn prepare(
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     let booted = profile::load().context("failed to load booted profile")?;
-    let customization = imager::profile::CustomizationSpec::new(extensions.to_vec())
+    let customization = wizard::profile::CustomizationSpec::new(extensions.to_vec())
         .context("invalid extensions")?;
     Ok(Profile::new(booted.overlay().cloned(), customization))
 }

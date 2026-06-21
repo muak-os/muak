@@ -9,7 +9,7 @@ use koci::pulled::{PulledEntry, PulledImage};
 use tokio::task::spawn_blocking;
 
 use super::stage;
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 use crate::resolve::ResolvedProfile;
 
 /// Builds the compressed initramfs tail (profile + extension EROFS blobs).
@@ -32,7 +32,7 @@ pub async fn build_initramfs_tail(
 
     spawn_blocking(move || build_ramune_tail(&extra_bytes))
         .await
-        .map_err(|e| ImagerError::BuildError(format!("join initramfs tail task: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("join initramfs tail task: {e}")))?
 }
 
 /// Derives the stable archive base name for an extension.
@@ -48,7 +48,7 @@ async fn pull_extensions(resolved_profile: &ResolvedProfile) -> Result<Vec<(Stri
 
     stage::pull_extensions(resolved_extensions, &resolved_profile.arch(), None)
         .await
-        .map_err(|e| ImagerError::BuildError(format!("pull extensions: {e}")))
+        .map_err(|e| WizardError::BuildError(format!("pull extensions: {e}")))
 }
 
 fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<Vec<u8>> {
@@ -71,18 +71,18 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
 
     for entry in image
         .entries()
-        .map_err(|e| ImagerError::BuildError(format!("list entries: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("list entries: {e}")))?
     {
         let rel_path = format!("/{}", entry.path().display());
         match entry {
             PulledEntry::File { file, .. } => {
                 let mut reader = file
                     .open()
-                    .map_err(|e| ImagerError::BuildError(format!("open entry: {e}")))?;
+                    .map_err(|e| WizardError::BuildError(format!("open entry: {e}")))?;
                 let mut content = Vec::new();
                 reader
                     .read_to_end(&mut content)
-                    .map_err(|e| ImagerError::BuildError(format!("read entry: {e}")))?;
+                    .map_err(|e| WizardError::BuildError(format!("read entry: {e}")))?;
                 data.insert(rel_path.clone(), content);
                 entries.push(TreeEntry {
                     rel_path,
@@ -130,7 +130,7 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
             },
         },
     )
-    .map_err(|error| ImagerError::BuildError(format!("build EROFS blob: {error}")))?;
+    .map_err(|error| WizardError::BuildError(format!("build EROFS blob: {error}")))?;
 
     Ok(buf)
 }
@@ -156,7 +156,7 @@ fn build_ramune_tail(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
         ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         &mut buf,
     )
-    .map_err(|e| ImagerError::BuildError(format!("build initramfs tail: {e}")))?;
+    .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
     Ok(buf)
 }

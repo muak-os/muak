@@ -5,9 +5,9 @@ use core::fmt;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 
-/// Top-level profile document used as input for the imager.
+/// Top-level profile document used as input for the wizard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -24,10 +24,10 @@ impl Profile {
     /// semantic validation fails.
     pub fn from_toml(bytes: &[u8]) -> Result<Self> {
         let spec: Self = toml::from_str(core::str::from_utf8(bytes).map_err(|_error| {
-            ImagerError::ProfileValidation("profile is not valid UTF-8".into())
+            WizardError::ProfileValidation("profile is not valid UTF-8".into())
         })?)
         .map_err(|e| {
-            ImagerError::ProfileValidation(format!("failed to parse profile TOML: {e}"))
+            WizardError::ProfileValidation(format!("failed to parse profile TOML: {e}"))
         })?;
 
         Ok(spec)
@@ -65,7 +65,7 @@ impl Profile {
 
         Ok(toml::to_string(&normalized)
             .map_err(|e| {
-                ImagerError::ProfileValidation(format!("failed to serialize profile to TOML: {e}"))
+                WizardError::ProfileValidation(format!("failed to serialize profile to TOML: {e}"))
             })?
             .into_bytes())
     }
@@ -119,12 +119,12 @@ impl OverlaySpec {
     /// Returns an error when `name` or `image` is empty.
     pub fn new(name: String, image: String) -> Result<Self> {
         if name.is_empty() {
-            return Err(ImagerError::ProfileValidation(
+            return Err(WizardError::ProfileValidation(
                 "overlay.name must not be empty".into(),
             ));
         }
         if image.is_empty() {
-            return Err(ImagerError::ProfileValidation(
+            return Err(WizardError::ProfileValidation(
                 "overlay.image must not be empty".into(),
             ));
         }
@@ -160,7 +160,7 @@ impl CustomizationSpec {
     /// Returns an error when any extension name is empty.
     pub fn new(extensions: Vec<String>) -> Result<Self> {
         if extensions.iter().any(String::is_empty) {
-            return Err(ImagerError::ProfileValidation(
+            return Err(WizardError::ProfileValidation(
                 "extension name must not be empty".into(),
             ));
         }
@@ -291,7 +291,7 @@ extensions = ["muak-os/qemu"]
         let err = Profile::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -304,7 +304,7 @@ extensions = ["muak-os/qemu"]
         let err = Profile::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -316,7 +316,7 @@ extensions = ["muak-os/qemu"]
         let err = Profile::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -328,7 +328,7 @@ extensions = ["muak-os/qemu"]
         let err = Profile::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -346,7 +346,7 @@ extensions = ["muak-os/qemu"]
         let err = OverlaySpec::new(String::new(), "image".into()).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -355,7 +355,7 @@ extensions = ["muak-os/qemu"]
         let err = OverlaySpec::new("name".into(), String::new()).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -364,7 +364,7 @@ extensions = ["muak-os/qemu"]
         let err = CustomizationSpec::new(vec![String::new()]).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, ImagerError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]

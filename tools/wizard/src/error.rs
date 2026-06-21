@@ -1,14 +1,14 @@
-//! Error types for the imager build pipeline.
+//! Error types for the wizard build pipeline.
 
 use thiserror::Error;
 
-/// Error type for imager operations.
+/// Error type for wizard operations.
 #[derive(Debug, Error)]
 #[expect(
     clippy::module_name_repetitions,
-    reason = "The public error type name intentionally includes the crate name"
+    reason = "Public error type intentionally includes 'wizard'"
 )]
-pub enum ImagerError {
+pub enum WizardError {
     /// Profile validation failed.
     #[error("profile validation: {0}")]
     ProfileValidation(String),
@@ -26,5 +26,5 @@ pub enum ImagerError {
     BuildError(String),
 }
 
-/// Result type alias for imager operations.
-pub type Result<T, E = ImagerError> = core::result::Result<T, E>;
+/// Result type alias for wizard operations.
+pub type Result<T, E = WizardError> = core::result::Result<T, E>;

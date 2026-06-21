@@ -7,7 +7,7 @@ use esp::EspSpecBuilder;
 use koci::arch::Arch;
 use tokio::task::spawn_blocking;
 
-use crate::error::{ImagerError, Result};
+use crate::error::{WizardError, Result};
 use crate::resolve::ResolvedProfile;
 
 /// Build an ISO image, writing to a `Write` sink.
@@ -23,9 +23,9 @@ pub async fn iso_to_writer<W: Write>(
     let arch = esp_arch(resolved_profile.arch());
     let spec = EspSpecBuilder::default()
         .with_uki(arch, uki_bytes.to_vec())
-        .map_err(|e| ImagerError::BuildError(format!("add UKI to ISO ESP spec: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("add UKI to ISO ESP spec: {e}")))?
         .build()
-        .map_err(|e| ImagerError::BuildError(format!("build ISO ESP spec: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("build ISO ESP spec: {e}")))?;
 
     let buf = spawn_blocking(move || {
         let mut buf = Vec::new();
@@ -33,12 +33,12 @@ pub async fn iso_to_writer<W: Write>(
         Ok::<_, std::io::Error>(buf)
     })
     .await
-    .map_err(|e| ImagerError::BuildError(format!("join ISO build task: {e}")))?
-    .map_err(|e| ImagerError::BuildError(format!("build bootable ISO: {e}")))?;
+    .map_err(|e| WizardError::BuildError(format!("join ISO build task: {e}")))?
+    .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     writer
         .write_all(&buf)
-        .map_err(|e| ImagerError::BuildError(format!("write ISO: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("write ISO: {e}")))?;
 
     Ok(())
 }
@@ -57,11 +57,11 @@ pub async fn raw_to_writer<W: Write>(
     let arch = esp_arch(resolved_profile.arch());
     let spec = EspSpecBuilder::default()
         .with_uki(arch, uki_bytes.to_vec())
-        .map_err(|e| ImagerError::BuildError(format!("add UKI to raw ESP spec: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("add UKI to raw ESP spec: {e}")))?
         .add_files(overlay_assets.to_vec())
-        .map_err(|e| ImagerError::BuildError(format!("add overlay assets to raw ESP spec: {e}")))?
+        .map_err(|e| WizardError::BuildError(format!("add overlay assets to raw ESP spec: {e}")))?
         .build()
-        .map_err(|e| ImagerError::BuildError(format!("build raw ESP spec: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("build raw ESP spec: {e}")))?;
 
     let buf = spawn_blocking(move || {
         let mut buf = Vec::new();
@@ -69,12 +69,12 @@ pub async fn raw_to_writer<W: Write>(
         Ok::<_, std::io::Error>(buf)
     })
     .await
-    .map_err(|e| ImagerError::BuildError(format!("join IMG build task: {e}")))?
-    .map_err(|e| ImagerError::BuildError(format!("build raw disk image: {e}")))?;
+    .map_err(|e| WizardError::BuildError(format!("join IMG build task: {e}")))?
+    .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     writer
         .write_all(&buf)
-        .map_err(|e| ImagerError::BuildError(format!("write raw image: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("write raw image: {e}")))?;
 
     Ok(())
 }
