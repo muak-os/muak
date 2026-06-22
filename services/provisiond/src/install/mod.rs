@@ -7,15 +7,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::SystemConfig;
+pub use pki::InstallResult;
+use rustix::fs::sync;
+use sbolt::keys::SigningPair;
+use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::build;
 use wizard::profile::Profile;
 use wizard::request::{Platform, Request};
 use wizard::resolve::Config;
-pub use pki::InstallResult;
-use rustix::fs::sync;
-use sbolt::keys::SigningPair;
-use tokio::sync::mpsc;
 
 use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
@@ -225,15 +225,19 @@ async fn prepare_uki(
         raw: None,
     };
 
-    let meta = build::artifacts(&request, &install_profile, &config, signing.as_ref(), writers)
-        .await
-        .context("wizard build artifacts")?;
+    let metadata = build::artifacts(
+        &request,
+        &install_profile,
+        &config,
+        signing.as_ref(),
+        writers,
+    )
+    .await
+    .context("wizard build artifacts")?;
 
     drop(uki_file);
 
-    let uki_bytes = std::fs::read(&staged_path)
-        .with_context(|| format!("read UKI back from {}", staged_path.display()))?;
-    let seal_result = secrets::seal_luks_key(luks_key, &uki_bytes, &meta.sections)?;
+    let seal_result = secrets::seal_luks_key(luks_key, &metadata.sections)?;
 
     let luks_file = if matches!(seal_result, secrets::SealResult::EspKey) {
         Some(luks_key.to_vec())
@@ -244,7 +248,7 @@ async fn prepare_uki(
     Ok(PreparedUki {
         work_dir: Path::new(INSTALL_DIR).to_path_buf(),
         staged_path,
-        esp_files: meta.overlay_files,
+        esp_files: metadata.overlay_files,
         seal_result,
         luks_key: luks_file,
     })

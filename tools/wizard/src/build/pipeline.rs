@@ -3,6 +3,7 @@
 use std::io::{Cursor, Read as _, Write};
 use std::os::unix::net::UnixStream;
 
+use ring::digest;
 use sbolt::keys::SigningPair;
 use sbolt::signature;
 use tokio::task::spawn_blocking;
@@ -15,7 +16,7 @@ use super::media;
 use super::stage::{self, InstallerAssets};
 use super::uki;
 use crate::artifact::Artifact;
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
 /// Prebuilt intermediate artifacts shared across rendering paths.
@@ -23,6 +24,7 @@ pub(crate) struct Prepared {
     pub assets: InstallerAssets,
     pub initramfs_tail: Vec<u8>,
     pub sections: Vec<Section>,
+    pub section_hashes: Vec<[u8; 32]>,
 }
 
 /// Pulls the installer, builds the initramfs tail, and builds a UKI.
@@ -39,6 +41,10 @@ pub(crate) async fn prepare(
     let stub = stage::read_file(&assets.stub, "stub")?;
     let kernel = stage::read_file(&assets.kernel, "kernel")?;
     let cmdline = stage::read_file(&assets.cmdline, "cmdline")?;
+
+    let cmdline_hash = sha256(&[&cmdline]);
+    let kernel_hash = sha256(&[&kernel]);
+
     let base_file = assets.initramfs.clone();
     let base_len = base_file.len;
     let tail = initramfs_tail.clone();
@@ -95,16 +101,31 @@ pub(crate) async fn prepare(
         .await
         .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))??;
 
+    let initrd_hash = sha256(&[&assets.initramfs.data, &initramfs_tail]);
+
+    let mut section_hashes = Vec::with_capacity(sections.len());
+    for section in &sections {
+        let hash = match section.name {
+            ".cmdline" => cmdline_hash,
+            ".linux" => kernel_hash,
+            ".initrd" => initrd_hash,
+            n => return Err(WizardError::BuildError(format!("unexpected section {n}"))),
+        };
+        section_hashes.push(hash);
+    }
+
     Ok(Prepared {
         assets,
         initramfs_tail,
         sections,
+        section_hashes,
     })
 }
 
 /// Metadata returned alongside written artifacts.
 pub(crate) struct Metadata {
     pub sections: Vec<Section>,
+    pub section_hashes: Vec<[u8; 32]>,
     pub overlay_files: Vec<esp::EspFile>,
 }
 
@@ -175,6 +196,7 @@ pub async fn artifacts<W: Write>(
 
     Ok(Metadata {
         sections: prepared.sections,
+        section_hashes: prepared.section_hashes,
         overlay_files,
     })
 }
@@ -189,4 +211,16 @@ pub(crate) async fn pull_overlay_if_present(
     } else {
         Ok(vec![])
     }
+}
+
+fn sha256(parts: &[&[u8]]) -> [u8; 32] {
+    let mut ctx = digest::Context::new(&digest::SHA256);
+    for part in parts {
+        ctx.update(part);
+    }
+    let digest = ctx.finish();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(digest.as_ref());
+
+    hash
 }

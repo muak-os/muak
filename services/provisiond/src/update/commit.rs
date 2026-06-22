@@ -27,12 +27,10 @@ pub async fn apply() -> Result<()> {
     std::fs::copy(&signed_uki, &staged)
         .with_context(|| format!("copy {} to {}", signed_uki.display(), staged.display()))?;
 
-    let uki_bytes =
-        std::fs::read(&signed_uki).with_context(|| format!("read UKI {}", signed_uki.display()))?;
     let mut esp_files: Vec<esp::EspFile> = vec![];
     if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
         if tpm2::is_available() {
-            let token = match secrets::seal_luks_key(&key, &uki_bytes, &[])? {
+            let token = match secrets::seal_luks_key(&key, &[])? {
                 secrets::SealResult::Sealed(token) => token,
                 _ => unreachable!(),
             };

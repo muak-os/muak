@@ -11,15 +11,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::{CONFIG_PATH, SystemConfig};
+use rollback::{ROLLBACKS_DIR, RollbackInfo};
+use rustix::fs::sync;
+use sbolt::keys::SigningPair;
+use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::build;
 use wizard::profile::Profile;
 use wizard::request::{Platform, Request};
 use wizard::resolve::Config;
-use rollback::{ROLLBACKS_DIR, RollbackInfo};
-use rustix::fs::sync;
-use sbolt::keys::SigningPair;
-use tokio::sync::mpsc;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::history::{self, ChangeKind};
@@ -133,9 +133,15 @@ pub async fn prepare(
         raw: None,
     };
 
-    let _meta = build::artifacts(&request, &install_profile, &config, signing_key.as_ref(), writers)
-        .await
-        .context("wizard update prepare")?;
+    let _metadata = build::artifacts(
+        &request,
+        &install_profile,
+        &config,
+        signing_key.as_ref(),
+        writers,
+    )
+    .await
+    .context("wizard update prepare")?;
 
     streaming::send_progress(
         &progress,

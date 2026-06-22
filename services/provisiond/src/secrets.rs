@@ -1,8 +1,8 @@
 //! LUKS key protection: TPM2 sealing, token management, and fallback to ESP file.
 
 use anyhow::{Context, Result};
-use wizard::build::SectionInfo;
 use luks2::Tpm2Token;
+use wizard::build::SectionInfo;
 use zeroize::Zeroizing;
 
 /// Result of sealing a LUKS key against a UKI.
@@ -12,10 +12,9 @@ pub enum SealResult {
 }
 
 /// Seals a LUKS key to TPM2 or signals writing it to the ESP as a fallback.
-pub fn seal_luks_key(key: &[u8], uki_bytes: &[u8], sections: &[SectionInfo]) -> Result<SealResult> {
+pub fn seal_luks_key(key: &[u8], sections: &[SectionInfo]) -> Result<SealResult> {
     if tpm2::is_available() {
-        let token =
-            seal_to_token(key, uki_bytes, sections).context("Failed to seal LUKS key to TPM2")?;
+        let token = seal_to_token(key, sections).context("Failed to seal LUKS key to TPM2")?;
         return Ok(SealResult::Sealed(token));
     }
 
@@ -73,15 +72,8 @@ pub fn read_luks_key_from_cmdline() -> Option<Vec<u8>> {
 }
 
 /// Seals a LUKS key to TPM2 PCR#11 predicted from the UKI and returns a LUKS2 token.
-fn seal_to_token(
-    luks_key: &[u8],
-    uki_bytes: &[u8],
-    sections: &[SectionInfo],
-) -> Result<luks2::Tpm2Token> {
-    let sections: Vec<(&str, &[u8])> = sections
-        .iter()
-        .map(|s| (s.name, &uki_bytes[s.file_offset..s.file_offset + s.size]))
-        .collect();
+fn seal_to_token(luks_key: &[u8], sections: &[SectionInfo]) -> Result<luks2::Tpm2Token> {
+    let sections: Vec<(&str, &[u8; 32])> = sections.iter().map(|s| (s.name, &s.hash)).collect();
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed = tpm2::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
 

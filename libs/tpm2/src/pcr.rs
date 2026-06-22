@@ -8,14 +8,15 @@ const TPM2_CC_POLICY_PCR: u32 = 0x0000_017F;
 const PCR11_SELECTION: [u8; 10] = [0, 0, 0, 1, 0, 0x0B, 3, 0, 8, 0];
 const SHA256_DIGEST_SIZE: usize = 32;
 
-/// Computes the expected PCR#11 value by simulating extend operations.
+/// Computes the expected PCR#11 value by simulating extend operations
+/// using pre-computed SHA-256 hashes of each section's data.
 #[must_use]
-pub fn predict_pcr11(sections: &[(&str, &[u8])]) -> Digest {
+pub fn predict_pcr11(sections: &[(&str, &[u8; 32])]) -> Digest {
     let mut pcr = [0_u8; SHA256_DIGEST_SIZE];
 
-    for &(name, data) in sections {
+    for &(name, data_hash) in sections {
         pcr = extend(&pcr, hash_name(name).as_ref());
-        pcr = extend(&pcr, digest::digest(&digest::SHA256, data).as_ref());
+        pcr = extend(&pcr, data_hash);
     }
 
     pcr
@@ -70,47 +71,44 @@ mod tests {
         let result = predict_pcr11(&[]);
 
         // ASSERT
-        assert_eq!(
-            result, [0_u8; SHA256_DIGEST_SIZE],
-            "empty PCR prediction should be zero"
-        );
+        assert_eq!(result, [0_u8; SHA256_DIGEST_SIZE]);
     }
 
     #[test]
     fn predict_pcr11_deterministic() {
         // ARRANGE
-        let sections: [(&str, &[u8]); 3] = [
-            (".cmdline", b"console=ttyS0"),
-            (".linux", &[0xDE, 0xAD]),
-            (".initrd", &[0xBE, 0xEF]),
+        let mut h_cmdline = [0; 32];
+        let mut h_linux = [0; 32];
+        let mut h_initrd = [0; 32];
+        h_cmdline.copy_from_slice(digest::digest(&digest::SHA256, b"console=ttyS0").as_ref());
+        h_linux.copy_from_slice(digest::digest(&digest::SHA256, &[0xDE, 0xAD]).as_ref());
+        h_initrd.copy_from_slice(digest::digest(&digest::SHA256, &[0xBE, 0xEF]).as_ref());
+
+        let sections: [(&str, &[u8; 32]); 3] = [
+            (".cmdline", &h_cmdline),
+            (".linux", &h_linux),
+            (".initrd", &h_initrd),
         ];
 
         // ACT
-        let first_prediction = predict_pcr11(&sections);
-        let second_prediction = predict_pcr11(&sections);
+        let first = predict_pcr11(&sections);
+        let second = predict_pcr11(&sections);
 
         // ASSERT
-        assert_eq!(
-            first_prediction, second_prediction,
-            "PCR prediction should be deterministic"
-        );
+        assert_eq!(first, second);
     }
 
     #[test]
     fn predict_pcr11_order_matters() {
         // ARRANGE
-        let ordered_sections: [(&str, &[u8]); 2] = [(".cmdline", b"a"), (".linux", b"b")];
-        let reordered_sections: [(&str, &[u8]); 2] = [(".linux", b"b"), (".cmdline", b"a")];
+        let h_a = sha256_arr(b"a");
+        let h_b = sha256_arr(b"b");
 
-        // ACT
-        let ordered_prediction = predict_pcr11(&ordered_sections);
-        let reordered_prediction = predict_pcr11(&reordered_sections);
+        let ordered: [(&str, &[u8; 32]); 2] = [(".cmdline", &h_a), (".linux", &h_b)];
+        let reordered: [(&str, &[u8; 32]); 2] = [(".linux", &h_b), (".cmdline", &h_a)];
 
-        // ASSERT
-        assert_ne!(
-            ordered_prediction, reordered_prediction,
-            "PCR prediction should be order-sensitive"
-        );
+        // ACT / ASSERT
+        assert_ne!(predict_pcr11(&ordered), predict_pcr11(&reordered));
     }
 
     #[test]
@@ -144,5 +142,12 @@ mod tests {
             first_digest, second_digest,
             "policy digest should depend on PCR value"
         );
+    }
+
+    fn sha256_arr(data: &[u8]) -> [u8; 32] {
+        let digest = digest::digest(&digest::SHA256, data);
+        let mut hash = [0; 32];
+        hash.copy_from_slice(digest.as_ref());
+        hash
     }
 }

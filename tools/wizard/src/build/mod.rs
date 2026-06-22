@@ -24,6 +24,8 @@ pub struct SectionInfo {
     pub file_offset: usize,
     /// Size of the section data in bytes.
     pub size: usize,
+    /// SHA-256 hash of the section data.
+    pub hash: [u8; 32],
 }
 
 /// Artifact build metadata (PE sections, overlay files).
@@ -78,10 +80,12 @@ pub async fn artifacts<W: Write>(
         sections: meta
             .sections
             .into_iter()
-            .map(|section| SectionInfo {
+            .zip(meta.section_hashes)
+            .map(|(section, hash)| SectionInfo {
                 name: section.name,
                 file_offset: section.file_offset,
                 size: section.size,
+                hash,
             })
             .collect(),
         overlay_files: meta.overlay_files,
