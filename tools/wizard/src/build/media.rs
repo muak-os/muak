@@ -7,7 +7,7 @@ use esp::EspSpecBuilder;
 use koci::arch::Arch;
 use tokio::task::spawn_blocking;
 
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
 /// Build an ISO image, writing to a `Write` sink.

@@ -5,7 +5,7 @@ use core::fmt;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 
 /// Top-level profile document used as input for the wizard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

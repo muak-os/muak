@@ -9,7 +9,7 @@ use koci::pulled::{PulledEntry, PulledImage};
 use tokio::task::spawn_blocking;
 
 use super::stage;
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
 /// Builds the compressed initramfs tail (profile + extension EROFS blobs).

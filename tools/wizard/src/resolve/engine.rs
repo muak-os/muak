@@ -2,7 +2,7 @@
 
 use koci::arch::Arch;
 
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Platform;
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};

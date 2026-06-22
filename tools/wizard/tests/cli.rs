@@ -3,8 +3,8 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use wizard::cli;
     use tokio::runtime::Runtime;
+    use wizard::cli;
 
     fn wizard_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_BIN_EXE_wizard"))

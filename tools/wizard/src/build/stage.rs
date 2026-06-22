@@ -6,7 +6,7 @@ use std::path::Path;
 use koci::arch::Arch;
 use koci::pulled::{PulledEntry, PulledFile, PulledImage};
 
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile};
 
 /// Installer asset handles extracted from the source OCI image.

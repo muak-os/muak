@@ -5,7 +5,7 @@ use std::io::{Cursor, Read as _, Write};
 use tokio::task::spawn_blocking;
 
 use super::stage::InstallerAssets;
-use crate::error::{WizardError, Result};
+use crate::error::{Result, WizardError};
 
 /// Writes a combined initramfs to a `Write` sink.
 ///
