@@ -1,8 +1,10 @@
 //! Commits a validated update to the EFI partition.
 
+use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use wizard::build::SectionInfo;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::disk;
@@ -27,10 +29,18 @@ pub async fn apply() -> Result<()> {
     std::fs::copy(&signed_uki, &staged)
         .with_context(|| format!("copy {} to {}", signed_uki.display(), staged.display()))?;
 
+    let sections: Vec<SectionInfo> = {
+        let path = assets_dir.join("sections.json");
+        let data = fs::read_to_string(&path)
+            .with_context(|| format!("read sections from {}", path.display()))?;
+
+        serde_json::from_str(&data).context("Failed to deserialize UKI sections")?
+    };
+
     let mut esp_files: Vec<esp::EspFile> = vec![];
     if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
         if tpm2::is_available() {
-            let token = match secrets::seal_luks_key(&key, &[])? {
+            let token = match secrets::seal_luks_key(&key, &sections)? {
                 secrets::SealResult::Sealed(token) => token,
                 _ => unreachable!(),
             };

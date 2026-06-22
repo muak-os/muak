@@ -73,7 +73,10 @@ pub fn read_luks_key_from_cmdline() -> Option<Vec<u8>> {
 
 /// Seals a LUKS key to TPM2 PCR#11 predicted from the UKI and returns a LUKS2 token.
 fn seal_to_token(luks_key: &[u8], sections: &[SectionInfo]) -> Result<luks2::Tpm2Token> {
-    let sections: Vec<(&str, &[u8; 32])> = sections.iter().map(|s| (s.name, &s.hash)).collect();
+    let sections: Vec<(&str, &[u8; 32])> = sections
+        .iter()
+        .map(|s| (s.name.as_str(), &s.hash))
+        .collect();
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed = tpm2::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
 

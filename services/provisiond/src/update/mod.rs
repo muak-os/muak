@@ -133,7 +133,7 @@ pub async fn prepare(
         raw: None,
     };
 
-    let _metadata = build::artifacts(
+    let metadata = build::artifacts(
         &request,
         &install_profile,
         &config,
@@ -142,6 +142,13 @@ pub async fn prepare(
     )
     .await
     .context("wizard update prepare")?;
+
+    let sections_path = assets_dir.join("sections.json");
+    std::fs::write(
+        &sections_path,
+        serde_json::to_string(&metadata.sections).context("Failed to serialize UKI sections")?,
+    )
+    .with_context(|| format!("Failed to write sections to {}", sections_path.display()))?;
 
     streaming::send_progress(
         &progress,

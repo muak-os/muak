@@ -3,6 +3,7 @@
 use std::io::Write;
 
 use sbolt::keys::SigningPair;
+use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::profile::Profile;
@@ -16,10 +17,10 @@ pub(crate) mod stage;
 pub(crate) mod uki;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionInfo {
     /// PE section name (e.g. ".linux", ".initrd", ".cmdline").
-    pub name: &'static str,
+    pub name: String,
     /// File offset of the section data within the PE image.
     pub file_offset: usize,
     /// Size of the section data in bytes.
@@ -82,7 +83,7 @@ pub async fn artifacts<W: Write>(
             .into_iter()
             .zip(meta.section_hashes)
             .map(|(section, hash)| SectionInfo {
-                name: section.name,
+                name: section.name.to_string(),
                 file_offset: section.file_offset,
                 size: section.size,
                 hash,
