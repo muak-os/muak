@@ -76,6 +76,23 @@ pub async fn pull_overlay(
     collect_overlay_files(&image, overlay.name())
 }
 
+/// Pulls the overlay image if the resolved profile specifies one.
+///
+/// # Errors
+///
+/// Returns an error when the OCI pull or file collection fails.
+pub(crate) async fn pull_overlay_if_present(
+    resolved_profile: &ResolvedProfile,
+) -> Result<Vec<esp::EspFile>> {
+    if let Some(overlay) = resolved_profile.overlay() {
+        pull_overlay(overlay, &resolved_profile.arch(), None)
+            .await
+            .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))
+    } else {
+        Ok(vec![])
+    }
+}
+
 /// Loads required installer assets from the pulled OCI image.
 ///
 /// # Errors

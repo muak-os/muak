@@ -1,6 +1,6 @@
-//! Build pipeline orchestration.
+//! Prepare base assets for UKI building.
 
-use std::io::{Cursor, Read as _, Write};
+use std::io::{Cursor, Read, Write};
 use std::os::unix::net::UnixStream;
 
 use ring::digest;
@@ -12,11 +12,22 @@ use yuki::SizedPart;
 use yuki::section::Section;
 
 use super::archive;
-use super::media;
 use super::stage::{self, InstallerAssets};
-use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
+
+struct HashReader<R> {
+    inner: R,
+    ctx: digest::Context,
+}
+
+impl<R: Read> Read for HashReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.ctx.update(buf.get(..n).unwrap_or(&[]));
+        Ok(n)
+    }
+}
 
 /// Prebuilt intermediate artifacts shared across rendering paths.
 pub(crate) struct Prepared {
@@ -27,6 +38,10 @@ pub(crate) struct Prepared {
 }
 
 /// Pulls the installer, builds the initramfs tail, and builds a UKI.
+///
+/// # Errors
+///
+/// Returns an error when pulling, building, or signing fails.
 pub(crate) async fn prepare(
     resolved_profile: &ResolvedProfile,
     profile_bytes: &[u8],
@@ -69,7 +84,10 @@ pub(crate) async fn prepare(
             .open()
             .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
         let tail_reader = Cursor::new(tail.as_slice());
-        let mut initramfs_reader = base_reader.chain(tail_reader);
+        let mut initramfs_reader = HashReader {
+            inner: base_reader.chain(tail_reader),
+            ctx: digest::Context::new(&digest::SHA256),
+        };
 
         let input = BuildInput {
             stub: SizedPart {
@@ -90,8 +108,12 @@ pub(crate) async fn prepare(
             },
             dtb: None,
         };
-        yuki::build(input, &mut &writer)
-            .map_err(|e| WizardError::BuildError(format!("build UKI: {e}")))
+        let sections = yuki::build(input, &mut &writer)
+            .map_err(|e| WizardError::BuildError(format!("build UKI: {e}")))?;
+        let digest = initramfs_reader.ctx.finish();
+        let mut initrd_hash = [0; 32];
+        initrd_hash.copy_from_slice(digest.as_ref());
+        Ok::<_, WizardError>((sections, initrd_hash))
     });
 
     if let Some(key) = signing_key {
@@ -102,11 +124,9 @@ pub(crate) async fn prepare(
             .map_err(|e| WizardError::BuildError(format!("read UKI pipe: {e}")))?;
     }
 
-    let sections = sections_handle
+    let (sections, initrd_hash) = sections_handle
         .await
         .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))??;
-
-    let initrd_hash = sha256(&[&assets.initramfs.data, &initramfs_tail]);
 
     let mut section_hashes = Vec::with_capacity(sections.len());
     for section in &sections {
@@ -125,97 +145,6 @@ pub(crate) async fn prepare(
         sections,
         section_hashes,
     })
-}
-
-/// Metadata returned alongside written artifacts.
-pub(crate) struct Metadata {
-    pub sections: Vec<Section>,
-    pub section_hashes: Vec<[u8; 32]>,
-    pub overlay_files: Vec<esp::EspFile>,
-}
-
-/// Builds the requested artifacts sharing a single resolution.
-///
-/// # Errors
-///
-/// Returns an error when pulling, staging, building, signing, or writing fails.
-pub async fn artifacts<W: Write>(
-    resolved_profile: &ResolvedProfile,
-    requested: &[Artifact],
-    signing_key: Option<&SigningPair<'_>>,
-    profile_bytes: &[u8],
-    writers: super::ArtifactWriters<'_, W>,
-) -> Result<Metadata> {
-    let super::ArtifactWriters {
-        uki,
-        kernel,
-        cmdline,
-        initramfs,
-        iso,
-        raw,
-    } = writers;
-
-    let prepared = if requested.contains(&Artifact::Iso) || requested.contains(&Artifact::Raw) {
-        // TODO: Buffer UKI in memory for EspSpec (ISO/Raw) — deferred optimization.
-        let mut uki_buf = Vec::new();
-        let prepared = prepare(resolved_profile, profile_bytes, signing_key, &mut uki_buf).await?;
-        if let Some(w) = uki {
-            w.write_all(&uki_buf)
-                .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
-        }
-        if let Some(w) = iso {
-            media::iso_to_writer(resolved_profile, &uki_buf, w).await?;
-        }
-        if let Some(w) = raw {
-            let overlay = pull_overlay_if_present(resolved_profile).await?;
-            media::raw_to_writer(resolved_profile, &overlay, &uki_buf, w).await?;
-        }
-        prepared
-    } else if let Some(w) = uki {
-        prepare(resolved_profile, profile_bytes, signing_key, w).await?
-    } else {
-        prepare(
-            resolved_profile,
-            profile_bytes,
-            signing_key,
-            &mut std::io::sink(),
-        )
-        .await?
-    };
-
-    if let Some(w) = kernel {
-        let data = stage::read_file(&prepared.assets.kernel, "kernel")?;
-        w.write_all(&data)
-            .map_err(|e| WizardError::BuildError(format!("write kernel: {e}")))?;
-    }
-    if let Some(w) = cmdline {
-        let data = stage::read_file(&prepared.assets.cmdline, "cmdline")?;
-        w.write_all(&data)
-            .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
-    }
-    if let Some(w) = initramfs {
-        archive::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w)?;
-    }
-
-    let overlay_files = pull_overlay_if_present(resolved_profile).await?;
-
-    Ok(Metadata {
-        sections: prepared.sections,
-        section_hashes: prepared.section_hashes,
-        overlay_files,
-    })
-}
-
-pub(crate) async fn pull_overlay_if_present(
-    resolved_profile: &ResolvedProfile,
-) -> Result<Vec<esp::EspFile>> {
-    if let Some(overlay) = resolved_profile.overlay() {
-        stage::pull_overlay(overlay, &resolved_profile.arch(), None)
-            .await
-            .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))
-    } else {
-        Ok(vec![])
-    }
 }
 
 fn sha256(parts: &[&[u8]]) -> [u8; 32] {

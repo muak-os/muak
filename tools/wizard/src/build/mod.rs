@@ -5,14 +5,15 @@ use std::io::Write;
 use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::artifact::Artifact;
+use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Request;
 use crate::resolve::{self, Config};
 
 pub(crate) mod archive;
 pub(crate) mod media;
-pub(crate) mod pipeline;
+pub(crate) mod prepare;
 pub(crate) mod stage;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
@@ -66,21 +67,61 @@ pub async fn artifacts<W: Write>(
 ) -> Result<Metadata> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
+    let requested = &request.artifacts;
 
-    let meta = pipeline::artifacts(
-        &resolved,
-        &request.artifacts,
-        signing_key,
-        &profile_bytes,
-        writers,
-    )
-    .await?;
+    let ArtifactWriters {
+        uki,
+        kernel,
+        cmdline,
+        initramfs,
+        iso,
+        raw,
+    } = writers;
+
+    let prepared = if requested.contains(&Artifact::Iso) || requested.contains(&Artifact::Raw) {
+        // TODO: Buffer UKI in memory for EspSpec (ISO/Raw) — deferred optimization.
+        let mut uki_buf = Vec::new();
+        let prepared =
+            prepare::prepare(&resolved, &profile_bytes, signing_key, &mut uki_buf).await?;
+        if let Some(w) = uki {
+            w.write_all(&uki_buf)
+                .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
+        }
+        if let Some(w) = iso {
+            media::iso_to_writer(&resolved, &uki_buf, w).await?;
+        }
+        if let Some(w) = raw {
+            let overlay = stage::pull_overlay_if_present(&resolved).await?;
+            media::raw_to_writer(&resolved, &overlay, &uki_buf, w).await?;
+        }
+        prepared
+    } else if let Some(w) = uki {
+        prepare::prepare(&resolved, &profile_bytes, signing_key, w).await?
+    } else {
+        prepare::prepare(&resolved, &profile_bytes, signing_key, &mut std::io::sink()).await?
+    };
+
+    if let Some(w) = kernel {
+        let data = stage::read_file(&prepared.assets.kernel, "kernel")?;
+        w.write_all(&data)
+            .map_err(|e| WizardError::BuildError(format!("write kernel: {e}")))?;
+    }
+    if let Some(w) = cmdline {
+        let data = stage::read_file(&prepared.assets.cmdline, "cmdline")?;
+        w.write_all(&data)
+            .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
+    }
+    if let Some(w) = initramfs {
+        archive::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w)?;
+    }
+
+    let overlay_files = stage::pull_overlay_if_present(&resolved).await?;
 
     Ok(Metadata {
-        sections: meta
+        sections: prepared
             .sections
             .into_iter()
-            .zip(meta.section_hashes)
+            .zip(prepared.section_hashes)
             .map(|(section, hash)| SectionInfo {
                 name: section.name.to_owned(),
                 file_offset: section.file_offset,
@@ -88,6 +129,6 @@ pub async fn artifacts<W: Write>(
                 hash,
             })
             .collect(),
-        overlay_files: meta.overlay_files,
+        overlay_files,
     })
 }
