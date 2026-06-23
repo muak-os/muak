@@ -23,11 +23,18 @@ mod tests {
 
         let rootfs_erofs = rootfs::prepare(&rootfs, None, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
             .expect("prepare rootfs");
+        let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
+        let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
-            ramune::Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
+            ramune::Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::Entry::new(
+                Path::new("rootfs.erofs"),
+                0o100_644,
+                &mut erofs_reader,
+                erofs_len,
+            ),
         ];
 
         // ACT
@@ -61,11 +68,18 @@ mod tests {
                 .expect("file contexts should parse");
 
         let rootfs_erofs = rootfs::prepare(&rootfs, Some(&contexts), 3).expect("prepare rootfs");
+        let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
+        let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
-            ramune::Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
+            ramune::Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::Entry::new(
+                Path::new("rootfs.erofs"),
+                0o100_644,
+                &mut erofs_reader,
+                erofs_len,
+            ),
         ];
 
         // ACT
@@ -106,14 +120,22 @@ mod tests {
             fs::read(env.write("profile.toml", b"profile = true\n")).expect("read profile");
         let extension_data =
             fs::read(env.write("test-ext.erofs", b"erofs-bytes")).expect("read extension");
+        let profile_len = profile_data.len().try_into().unwrap_or(u64::MAX);
+        let extension_len = extension_data.len().try_into().unwrap_or(u64::MAX);
         let mut profile_reader = Cursor::new(profile_data.clone());
         let mut extension_reader = Cursor::new(extension_data.clone());
         let mut entries = [
-            ramune::Entry::from_bytes(Path::new("profile.toml"), 0o100_644, &mut profile_reader),
-            ramune::Entry::from_bytes(
+            ramune::Entry::new(
+                Path::new("profile.toml"),
+                0o100_644,
+                &mut profile_reader,
+                profile_len,
+            ),
+            ramune::Entry::new(
                 Path::new("extensions/test-ext.erofs"),
                 0o100_644,
                 &mut extension_reader,
+                extension_len,
             ),
         ];
 
@@ -135,12 +157,12 @@ mod tests {
     fn archive_returns_error_for_short_reader() {
         // ARRANGE
         let mut reader = Cursor::new(b"small".to_vec());
-        let mut entries = [ramune::Entry {
-            archive_path: Path::new("profile.toml"),
-            mode: 0o100_644,
-            len: 64,
-            reader: &mut reader,
-        }];
+        let mut entries = [ramune::Entry::new(
+            Path::new("profile.toml"),
+            0o100_644,
+            &mut reader,
+            64,
+        )];
 
         // ACT
         let mut buf = Vec::new();

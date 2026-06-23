@@ -153,11 +153,18 @@ fn run_create(
         rootfs::prepare(rootfs_dir, file_contexts.as_ref(), rootfs_compression_level)
             .context("Failed to prepare rootfs")?;
 
+    let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
+    let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
     let mut init_reader = Cursor::new(init_bytes);
     let mut erofs_reader = Cursor::new(rootfs_erofs);
     let mut entries = [
-        Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
-        Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
+        Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+        Entry::new(
+            Path::new("rootfs.erofs"),
+            0o100_644,
+            &mut erofs_reader,
+            erofs_len,
+        ),
     ];
 
     let mut file = std::fs::File::create(output)
@@ -214,8 +221,9 @@ fn entry_from_source<'a>(
         .with_context(|| format!("Failed to inspect entry metadata: {}", source.display()))?;
     let readonly = metadata.permissions().readonly();
     let mode = if readonly { 0o100_444 } else { 0o100_644 };
+    let len = reader.get_ref().len().try_into().unwrap_or(u64::MAX);
 
-    Ok(Entry::from_bytes(archive_path, mode, reader))
+    Ok(Entry::new(archive_path, mode, reader, len))
 }
 
 fn initramfs_size(output: &Path) -> Result<u64> {

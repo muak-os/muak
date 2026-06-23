@@ -14,7 +14,6 @@ pub(crate) mod archive;
 pub(crate) mod media;
 pub(crate) mod pipeline;
 pub(crate) mod stage;
-pub(crate) mod uki;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,7 +82,7 @@ pub async fn artifacts<W: Write>(
             .into_iter()
             .zip(meta.section_hashes)
             .map(|(section, hash)| SectionInfo {
-                name: section.name.to_string(),
+                name: section.name.to_owned(),
                 file_offset: section.file_offset,
                 size: section.size,
                 hash,

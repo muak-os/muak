@@ -1,7 +1,7 @@
-//! Initramfs tail archive building.
+//! Initramfs archive building.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read as _};
+use std::io::{Read as _, Write};
 use std::path::Path;
 
 use erofs::tree::TreeEntry;
@@ -9,6 +9,7 @@ use koci::pulled::{PulledEntry, PulledImage};
 use tokio::task::spawn_blocking;
 
 use super::stage;
+use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
@@ -30,9 +31,17 @@ pub async fn build_initramfs_tail(
         extra_bytes.push(("profile.toml".to_owned(), profile_bytes.to_vec()));
     }
 
-    spawn_blocking(move || build_ramune_tail(&extra_bytes))
-        .await
-        .map_err(|e| WizardError::BuildError(format!("join initramfs tail task: {e}")))?
+    spawn_blocking(move || {
+        let mut buf = Vec::new();
+        let refs: Vec<(&Path, &[u8])> = extra_bytes
+            .iter()
+            .map(|entry| (Path::new(entry.0.as_str()), entry.1.as_slice()))
+            .collect();
+        build_ramune_tail(&refs, &mut buf)?;
+        Ok::<_, WizardError>(buf)
+    })
+    .await
+    .map_err(|e| WizardError::BuildError(format!("join initramfs tail task: {e}")))?
 }
 
 /// Derives the stable archive base name for an extension.
@@ -135,25 +144,53 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
     Ok(buf)
 }
 
-fn build_ramune_tail(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut readers: Vec<Cursor<Vec<u8>>> = entries
+fn build_ramune_tail<W: Write>(entries: &[(&Path, &[u8])], writer: &mut W) -> Result<()> {
+    let mut readers: Vec<std::io::Cursor<&[u8]>> = entries
         .iter()
-        .map(|entry| Cursor::new(entry.1.clone()))
+        .map(|&(_, data)| std::io::Cursor::new(data))
         .collect();
     let mut ramune_entries: Vec<ramune::Entry<'_>> = entries
         .iter()
         .zip(readers.iter_mut())
-        .map(|(entry, reader)| ramune::Entry::from_bytes(Path::new(&entry.0), 0o100_644, reader))
+        .map(|(entry, reader)| {
+            ramune::Entry::new(
+                entry.0,
+                0o100_644,
+                reader,
+                entry.1.len().try_into().unwrap_or(u64::MAX),
+            )
+        })
         .collect();
-    let mut buf = Vec::new();
     ramune::archive(
         &mut ramune_entries,
         ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        &mut buf,
+        writer,
     )
     .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
-    Ok(buf)
+    Ok(())
+}
+
+/// Writes a combined initramfs to a `Write` sink.
+///
+/// # Errors
+///
+/// Returns an error when reading the base initramfs or writing fails.
+pub fn write_initramfs_to_writer<W: Write>(
+    assets: &InstallerAssets,
+    tail: &[u8],
+    writer: &mut W,
+) -> Result<()> {
+    let base_reader = assets
+        .initramfs
+        .open()
+        .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
+    let tail_reader = std::io::Cursor::new(tail);
+    let mut combined = base_reader.chain(tail_reader);
+    std::io::copy(&mut combined, writer)
+        .map_err(|e| WizardError::BuildError(format!("write initramfs: {e}")))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -176,16 +213,17 @@ mod tests {
     #[test]
     fn build_ramune_tail_with_entries() {
         // ARRANGE
-        let entries = vec![
-            ("profile.toml".to_owned(), b"profile = true\n".to_vec()),
-            ("extensions/test.erofs".to_owned(), b"erofs-bytes".to_vec()),
+        let entries: [(&Path, &[u8]); 2] = [
+            (Path::new("profile.toml"), b"profile = true\n"),
+            (Path::new("extensions/test.erofs"), b"erofs-bytes"),
         ];
 
         // ACT
-        let tail = build_ramune_tail(&entries).expect("build tail");
+        let mut buf = Vec::new();
+        build_ramune_tail(&entries, &mut buf).expect("build tail");
 
         // ASSERT
-        assert!(!tail.is_empty());
+        assert!(!buf.is_empty());
     }
 
     #[tokio::test]

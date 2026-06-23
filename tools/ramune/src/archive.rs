@@ -1,6 +1,6 @@
 //! Creates a zstd-compressed CPIO archive from a list of entries.
 
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::compress;
@@ -20,9 +20,8 @@ pub struct Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
-    /// Creates an entry from in-memory bytes wrapped in a cursor.
-    pub fn from_bytes(archive_path: &'a Path, mode: u32, reader: &'a mut Cursor<Vec<u8>>) -> Self {
-        let len = u64::try_from(reader.get_ref().len()).unwrap_or(0);
+    /// Creates an entry from a reader with an explicitly known payload length.
+    pub fn new(archive_path: &'a Path, mode: u32, reader: &'a mut dyn Read, len: u64) -> Self {
         Entry {
             archive_path,
             mode,
@@ -215,7 +214,8 @@ mod tests {
         mode: u32,
         reader: &'a mut Cursor<Vec<u8>>,
     ) -> Entry<'a> {
-        Entry::from_bytes(archive_path, mode, reader)
+        let len = reader.get_ref().len().try_into().unwrap_or(u64::MAX);
+        Entry::new(archive_path, mode, reader, len)
     }
 
     #[test]
@@ -324,12 +324,12 @@ mod tests {
     fn rejects_short_reader() {
         // ARRANGE
         let mut reader = Cursor::new(b"data".to_vec());
-        let mut entries = [Entry {
-            archive_path: Path::new("profile.toml"),
-            mode: 0o100_644,
-            len: 32,
-            reader: &mut reader,
-        }];
+        let mut entries = [Entry::new(
+            Path::new("profile.toml"),
+            0o100_644,
+            &mut reader,
+            32,
+        )];
 
         // ACT
         let mut buf = Vec::new();

@@ -14,7 +14,6 @@ use yuki::section::Section;
 use super::archive;
 use super::media;
 use super::stage::{self, InstallerAssets};
-use super::uki;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
@@ -189,7 +188,7 @@ pub async fn artifacts<W: Write>(
             .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
     }
     if let Some(w) = initramfs {
-        uki::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w).await?;
+        archive::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w)?;
     }
 
     let overlay_files = pull_overlay_if_present(resolved_profile).await?;
