@@ -3,6 +3,7 @@
 use std::io::{Cursor, Read, Write};
 use std::os::unix::net::UnixStream;
 
+use koci::pulled::PulledImage;
 use ring::digest;
 use sbolt::keys::SigningPair;
 use sbolt::signature;
@@ -32,7 +33,7 @@ impl<R: Read> Read for HashReader<R> {
 /// Prebuilt intermediate artifacts shared across rendering paths.
 pub(crate) struct Prepared {
     pub assets: InstallerAssets,
-    pub initramfs_tail: Vec<u8>,
+    pub cached_extensions: Vec<(String, PulledImage)>,
     pub sections: Vec<Section>,
     pub section_hashes: Vec<[u8; 32]>,
 }
@@ -50,7 +51,9 @@ pub(crate) async fn prepare(
 ) -> Result<Prepared> {
     let installer = stage::pull_installer(resolved_profile, None).await?;
     let assets = stage::load_installer_assets(&installer)?;
-    let initramfs_tail = archive::build_initramfs_tail(resolved_profile, profile_bytes).await?;
+    let (tail, cached_extensions) =
+        archive::build_and_cache_tail(resolved_profile, profile_bytes).await?;
+    let tail_size = u64::try_from(tail.len()).unwrap_or(u64::MAX);
 
     let kernel_file = assets.kernel.clone();
     let stub_file = assets.stub.clone();
@@ -61,8 +64,7 @@ pub(crate) async fn prepare(
 
     let base_file = assets.initramfs.clone();
     let base_len = base_file.len;
-    let tail = initramfs_tail.clone();
-    let initramfs_len = base_len.saturating_add(u64::try_from(tail.len()).unwrap_or(u64::MAX));
+    let initramfs_len = base_len.saturating_add(tail_size);
     let stub_len = assets.stub.len;
     let kernel_len = assets.kernel.len;
     let cmdline_len = assets.cmdline.len;
@@ -141,7 +143,7 @@ pub(crate) async fn prepare(
 
     Ok(Prepared {
         assets,
-        initramfs_tail,
+        cached_extensions,
         sections,
         section_hashes,
     })

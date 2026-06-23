@@ -13,17 +13,37 @@ use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
-/// Builds the compressed initramfs tail (profile + extension EROFS blobs).
+/// Builds the compressed initramfs tail (profile + extension EROFS blobs) with fresh extension pulls.
 pub async fn build_initramfs_tail(
     resolved_profile: &ResolvedProfile,
     profile_bytes: &[u8],
 ) -> Result<Vec<u8>> {
     let extensions = pull_extensions(resolved_profile).await?;
+
+    build_tail_from_extensions(&extensions, profile_bytes).await
+}
+
+/// Builds the tail and returns the compressed bytes alongside the pulled extensions for caching.
+pub async fn build_and_cache_tail(
+    resolved_profile: &ResolvedProfile,
+    profile_bytes: &[u8],
+) -> Result<(Vec<u8>, Vec<(String, PulledImage)>)> {
+    let extensions = pull_extensions(resolved_profile).await?;
+    let tail = build_tail_from_extensions(&extensions, profile_bytes).await?;
+
+    Ok((tail, extensions))
+}
+
+/// Builds the tail from pre-pulled extensions (no network).
+async fn build_tail_from_extensions(
+    extensions: &[(String, PulledImage)],
+    profile_bytes: &[u8],
+) -> Result<Vec<u8>> {
     let mut extra_bytes = Vec::new();
-    for (name, image) in extensions {
-        let blob = erofs_blob_from_image(&image, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
+    for entry in extensions {
+        let blob = erofs_blob_from_image(&entry.1, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
         extra_bytes.push((
-            format!("extensions/{}.erofs", extension_archive_name(&name)),
+            format!("extensions/{}.erofs", extension_archive_name(&entry.0)),
             blob,
         ));
     }
@@ -171,24 +191,30 @@ fn build_ramune_tail<W: Write>(entries: &[(&Path, &[u8])], writer: &mut W) -> Re
     Ok(())
 }
 
-/// Writes a combined initramfs to a `Write` sink.
+/// Writes the base initramfs followed by a freshly built tail to a `Write` sink.
+///
+/// Uses cached extensions to avoid re-pulling OCI images.
 ///
 /// # Errors
 ///
-/// Returns an error when reading the base initramfs or writing fails.
-pub fn write_initramfs_to_writer<W: Write>(
+/// Returns an error when reading the base initramfs, building the tail, or writing fails.
+pub async fn write_combined_initramfs<W: Write>(
     assets: &InstallerAssets,
-    tail: &[u8],
+    profile_bytes: &[u8],
+    cached_extensions: &[(String, PulledImage)],
     writer: &mut W,
 ) -> Result<()> {
-    let base_reader = assets
+    let mut base_reader = assets
         .initramfs
         .open()
         .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
-    let tail_reader = std::io::Cursor::new(tail);
-    let mut combined = base_reader.chain(tail_reader);
-    std::io::copy(&mut combined, writer)
-        .map_err(|e| WizardError::BuildError(format!("write initramfs: {e}")))?;
+    std::io::copy(&mut base_reader, writer)
+        .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
+
+    let tail = build_tail_from_extensions(cached_extensions, profile_bytes).await?;
+    writer
+        .write_all(&tail)
+        .map_err(|e| WizardError::BuildError(format!("write initramfs tail: {e}")))?;
 
     Ok(())
 }

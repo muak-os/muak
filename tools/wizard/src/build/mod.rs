@@ -98,7 +98,16 @@ pub async fn artifacts<W: Write>(
     } else if let Some(w) = uki {
         prepare::prepare(&resolved, &profile_bytes, signing_key, w).await?
     } else {
-        prepare::prepare(&resolved, &profile_bytes, signing_key, &mut std::io::sink()).await?
+        let installer = stage::pull_installer(&resolved, None)
+            .await
+            .map_err(|e| WizardError::BuildError(format!("pull installer: {e}")))?;
+        let assets = stage::load_installer_assets(&installer)?;
+        prepare::Prepared {
+            assets,
+            cached_extensions: Vec::new(),
+            sections: Vec::new(),
+            section_hashes: Vec::new(),
+        }
     };
 
     if let Some(w) = kernel {
@@ -112,7 +121,26 @@ pub async fn artifacts<W: Write>(
             .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
     }
     if let Some(w) = initramfs {
-        archive::write_initramfs_to_writer(&prepared.assets, &prepared.initramfs_tail, w)?;
+        if prepared.cached_extensions.is_empty() {
+            let mut base_reader = prepared
+                .assets
+                .initramfs
+                .open()
+                .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
+            std::io::copy(&mut base_reader, w)
+                .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
+            let tail = archive::build_initramfs_tail(&resolved, &profile_bytes).await?;
+            w.write_all(&tail)
+                .map_err(|e| WizardError::BuildError(format!("write initramfs tail: {e}")))?;
+        } else {
+            archive::write_combined_initramfs(
+                &prepared.assets,
+                &profile_bytes,
+                &prepared.cached_extensions,
+                w,
+            )
+            .await?;
+        }
     }
 
     let overlay_files = stage::pull_overlay_if_present(&resolved).await?;
