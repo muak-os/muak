@@ -1,6 +1,6 @@
 //! Creates a zstd-compressed CPIO archive from a list of entries.
 
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
 use crate::compress;
@@ -17,6 +17,19 @@ pub struct Entry<'a> {
     pub len: u64,
     /// Readable payload stream.
     pub reader: &'a mut dyn Read,
+}
+
+impl<'a> Entry<'a> {
+    /// Creates an entry from in-memory bytes wrapped in a cursor.
+    pub fn from_bytes(archive_path: &'a Path, mode: u32, reader: &'a mut Cursor<Vec<u8>>) -> Self {
+        let len = u64::try_from(reader.get_ref().len()).unwrap_or(0);
+        Entry {
+            archive_path,
+            mode,
+            len,
+            reader,
+        }
+    }
 }
 
 /// Writes a zstd-compressed CPIO archive containing the given entries.
@@ -202,13 +215,7 @@ mod tests {
         mode: u32,
         reader: &'a mut Cursor<Vec<u8>>,
     ) -> Entry<'a> {
-        let len = u64::try_from(reader.get_ref().len()).unwrap_or(0);
-        Entry {
-            archive_path,
-            mode,
-            len,
-            reader,
-        }
+        Entry::from_bytes(archive_path, mode, reader)
     }
 
     #[test]

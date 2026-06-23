@@ -143,12 +143,7 @@ fn build_ramune_tail(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
     let mut ramune_entries: Vec<ramune::Entry<'_>> = entries
         .iter()
         .zip(readers.iter_mut())
-        .map(|(entry, reader)| ramune::Entry {
-            archive_path: Path::new(&entry.0),
-            mode: 0o100_644,
-            len: u64::try_from(entry.1.len()).unwrap_or(u64::MAX),
-            reader,
-        })
+        .map(|(entry, reader)| ramune::Entry::from_bytes(Path::new(&entry.0), 0o100_644, reader))
         .collect();
     let mut buf = Vec::new();
     ramune::archive(

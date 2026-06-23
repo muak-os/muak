@@ -156,18 +156,8 @@ fn run_create(
     let mut init_reader = Cursor::new(init_bytes);
     let mut erofs_reader = Cursor::new(rootfs_erofs);
     let mut entries = [
-        Entry {
-            archive_path: Path::new("init"),
-            mode: 0o100_755,
-            len: u64::try_from(init_reader.get_ref().len()).unwrap_or(0),
-            reader: &mut init_reader,
-        },
-        Entry {
-            archive_path: Path::new("rootfs.erofs"),
-            mode: 0o100_644,
-            len: u64::try_from(erofs_reader.get_ref().len()).unwrap_or(0),
-            reader: &mut erofs_reader,
-        },
+        Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
+        Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
     ];
 
     let mut file = std::fs::File::create(output)
@@ -225,12 +215,7 @@ fn entry_from_source<'a>(
     let readonly = metadata.permissions().readonly();
     let mode = if readonly { 0o100_444 } else { 0o100_644 };
 
-    Ok(Entry {
-        archive_path,
-        mode,
-        len: u64::try_from(reader.get_ref().len()).unwrap_or(0),
-        reader,
-    })
+    Ok(Entry::from_bytes(archive_path, mode, reader))
 }
 
 fn initramfs_size(output: &Path) -> Result<u64> {

@@ -26,18 +26,8 @@ mod tests {
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry {
-                archive_path: Path::new("init"),
-                mode: 0o100_755,
-                len: u64::try_from(init_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut init_reader,
-            },
-            ramune::Entry {
-                archive_path: Path::new("rootfs.erofs"),
-                mode: 0o100_644,
-                len: u64::try_from(erofs_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut erofs_reader,
-            },
+            ramune::Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
+            ramune::Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
         ];
 
         // ACT
@@ -74,18 +64,8 @@ mod tests {
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry {
-                archive_path: Path::new("init"),
-                mode: 0o100_755,
-                len: u64::try_from(init_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut init_reader,
-            },
-            ramune::Entry {
-                archive_path: Path::new("rootfs.erofs"),
-                mode: 0o100_644,
-                len: u64::try_from(erofs_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut erofs_reader,
-            },
+            ramune::Entry::from_bytes(Path::new("init"), 0o100_755, &mut init_reader),
+            ramune::Entry::from_bytes(Path::new("rootfs.erofs"), 0o100_644, &mut erofs_reader),
         ];
 
         // ACT
@@ -129,18 +109,12 @@ mod tests {
         let mut profile_reader = Cursor::new(profile_data.clone());
         let mut extension_reader = Cursor::new(extension_data.clone());
         let mut entries = [
-            ramune::Entry {
-                archive_path: Path::new("profile.toml"),
-                mode: 0o100_644,
-                len: u64::try_from(profile_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut profile_reader,
-            },
-            ramune::Entry {
-                archive_path: Path::new("extensions/test-ext.erofs"),
-                mode: 0o100_644,
-                len: u64::try_from(extension_reader.get_ref().len()).unwrap_or(0),
-                reader: &mut extension_reader,
-            },
+            ramune::Entry::from_bytes(Path::new("profile.toml"), 0o100_644, &mut profile_reader),
+            ramune::Entry::from_bytes(
+                Path::new("extensions/test-ext.erofs"),
+                0o100_644,
+                &mut extension_reader,
+            ),
         ];
 
         // ACT
