@@ -1,7 +1,7 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION
-ARG KERNEL_VERSION=7.1.0
+ARG KERNEL_VERSION=7.1.1
 ARG KERNEL_RELEASE=${KERNEL_VERSION}-muak
 
 ARG TOOLS=ghcr.io/muak-os/tools:latest
