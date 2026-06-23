@@ -37,28 +37,34 @@ pub(crate) async fn prepare(
     let assets = stage::load_installer_assets(&installer)?;
     let initramfs_tail = archive::build_initramfs_tail(resolved_profile, profile_bytes).await?;
 
-    let stub = stage::read_file(&assets.stub, "stub")?;
-    let kernel = stage::read_file(&assets.kernel, "kernel")?;
-    let cmdline = stage::read_file(&assets.cmdline, "cmdline")?;
+    let kernel_file = assets.kernel.clone();
+    let stub_file = assets.stub.clone();
+    let cmdline_file = assets.cmdline.clone();
 
-    let cmdline_hash = sha256(&[&cmdline]);
-    let kernel_hash = sha256(&[&kernel]);
+    let cmdline_hash = sha256(&[&assets.cmdline.data]);
+    let kernel_hash = sha256(&[&assets.kernel.data]);
 
     let base_file = assets.initramfs.clone();
     let base_len = base_file.len;
     let tail = initramfs_tail.clone();
     let initramfs_len = base_len.saturating_add(u64::try_from(tail.len()).unwrap_or(u64::MAX));
-    let stub_len = u64::try_from(stub.len()).unwrap_or(u64::MAX);
-    let kernel_len = u64::try_from(kernel.len()).unwrap_or(u64::MAX);
-    let cmdline_len = u64::try_from(cmdline.len()).unwrap_or(u64::MAX);
+    let stub_len = assets.stub.len;
+    let kernel_len = assets.kernel.len;
+    let cmdline_len = assets.cmdline.len;
 
     let (writer, mut reader) =
         UnixStream::pair().map_err(|e| WizardError::BuildError(format!("create pipe: {e}")))?;
 
     let sections_handle = spawn_blocking(move || {
-        let mut stub_reader = Cursor::new(stub);
-        let mut kernel_reader = Cursor::new(kernel);
-        let mut cmdline_reader = Cursor::new(cmdline);
+        let mut stub_reader = stub_file
+            .open()
+            .map_err(|e| WizardError::BuildError(format!("open stub: {e}")))?;
+        let mut kernel_reader = kernel_file
+            .open()
+            .map_err(|e| WizardError::BuildError(format!("open kernel: {e}")))?;
+        let mut cmdline_reader = cmdline_file
+            .open()
+            .map_err(|e| WizardError::BuildError(format!("open cmdline: {e}")))?;
         let base_reader = base_file
             .open()
             .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
