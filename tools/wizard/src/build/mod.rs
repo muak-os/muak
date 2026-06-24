@@ -6,12 +6,13 @@ use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
-use crate::error::{Result, WizardError};
+use crate::error::Result;
 use crate::profile::Profile;
 use crate::request::Request;
 use crate::resolve::{self, Config};
 
 pub(crate) mod archive;
+pub(crate) mod artifacts;
 pub(crate) mod media;
 pub(crate) mod prepare;
 pub(crate) mod stage;
@@ -67,8 +68,6 @@ pub async fn artifacts<W: Write>(
 ) -> Result<Metadata> {
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
-    let requested = &request.artifacts;
-
     let ArtifactWriters {
         uki,
         kernel,
@@ -78,78 +77,45 @@ pub async fn artifacts<W: Write>(
         raw,
     } = writers;
 
-    let prepared = if requested.contains(&Artifact::Iso) || requested.contains(&Artifact::Raw) {
-        // TODO: Buffer UKI in memory for EspSpec (ISO/Raw) — deferred optimization.
-        let mut uki_buf = Vec::new();
-        let prepared =
-            prepare::prepare(&resolved, &profile_bytes, signing_key, &mut uki_buf).await?;
-        if let Some(w) = uki {
-            w.write_all(&uki_buf)
-                .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
-        }
-        if let Some(w) = iso {
-            media::iso_to_writer(&resolved, &uki_buf, w).await?;
-        }
-        if let Some(w) = raw {
-            let overlay = stage::pull_overlay_if_present(&resolved).await?;
-            media::raw_to_writer(&resolved, &overlay, &uki_buf, w).await?;
-        }
-        prepared
-    } else if let Some(w) = uki {
-        prepare::prepare(&resolved, &profile_bytes, signing_key, w).await?
+    let assets = artifacts::pull_installer_assets(&resolved).await?;
+    let extensions = artifacts::prepare_extensions(&resolved, &request.artifacts).await?;
+    let needs_post = request
+        .artifacts
+        .iter()
+        .any(|art| matches!(art, Artifact::Uki | Artifact::Iso | Artifact::Raw));
+
+    let (sections, section_hashes) = if needs_post {
+        artifacts::build_post(
+            &assets,
+            &resolved,
+            &profile_bytes,
+            extensions.as_deref().unwrap_or(&[]),
+            signing_key,
+            uki,
+            iso,
+            raw,
+        )
+        .await?
     } else {
-        let installer = stage::pull_installer(&resolved, None)
-            .await
-            .map_err(|e| WizardError::BuildError(format!("pull installer: {e}")))?;
-        let assets = stage::load_installer_assets(&installer)?;
-        prepare::Prepared {
-            assets,
-            cached_extensions: Vec::new(),
-            sections: Vec::new(),
-            section_hashes: Vec::new(),
-        }
+        Default::default()
     };
 
-    if let Some(w) = kernel {
-        let data = stage::read_file(&prepared.assets.kernel, "kernel")?;
-        w.write_all(&data)
-            .map_err(|e| WizardError::BuildError(format!("write kernel: {e}")))?;
-    }
-    if let Some(w) = cmdline {
-        let data = stage::read_file(&prepared.assets.cmdline, "cmdline")?;
-        w.write_all(&data)
-            .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
-    }
-    if let Some(w) = initramfs {
-        if prepared.cached_extensions.is_empty() {
-            let mut base_reader = prepared
-                .assets
-                .initramfs
-                .open()
-                .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
-            std::io::copy(&mut base_reader, w)
-                .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
-            let tail = archive::build_initramfs_tail(&resolved, &profile_bytes).await?;
-            w.write_all(&tail)
-                .map_err(|e| WizardError::BuildError(format!("write initramfs tail: {e}")))?;
-        } else {
-            archive::write_combined_initramfs(
-                &prepared.assets,
-                &profile_bytes,
-                &prepared.cached_extensions,
-                w,
-            )
-            .await?;
-        }
-    }
+    artifacts::write_standalone(
+        &assets,
+        &profile_bytes,
+        extensions.as_deref(),
+        kernel,
+        cmdline,
+        initramfs,
+    )
+    .await?;
 
-    let overlay_files = stage::pull_overlay_if_present(&resolved).await?;
+    let overlay_files = stage::pull_overlay(&resolved).await?;
 
     Ok(Metadata {
-        sections: prepared
-            .sections
+        sections: sections
             .into_iter()
-            .zip(prepared.section_hashes)
+            .zip(section_hashes)
             .map(|(section, hash)| SectionInfo {
                 name: section.name.to_owned(),
                 file_offset: section.file_offset,

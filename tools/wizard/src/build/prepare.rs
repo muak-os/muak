@@ -1,9 +1,8 @@
-//! Prepare base assets for UKI building.
+//! UKI assembly helper.
 
 use std::io::{Cursor, Read, Write};
 use std::os::unix::net::UnixStream;
 
-use koci::pulled::PulledImage;
 use ring::digest;
 use sbolt::keys::SigningPair;
 use sbolt::signature;
@@ -12,49 +11,20 @@ use yuki::BuildInput;
 use yuki::SizedPart;
 use yuki::section::Section;
 
-use super::archive;
-use super::stage::{self, InstallerAssets};
+use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
-use crate::resolve::ResolvedProfile;
 
-struct HashReader<R> {
-    inner: R,
-    ctx: digest::Context,
-}
-
-impl<R: Read> Read for HashReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        self.ctx.update(buf.get(..n).unwrap_or(&[]));
-        Ok(n)
-    }
-}
-
-/// Prebuilt intermediate artifacts shared across rendering paths.
-pub(crate) struct Prepared {
-    pub assets: InstallerAssets,
-    pub cached_extensions: Vec<(String, PulledImage)>,
-    pub sections: Vec<Section>,
-    pub section_hashes: Vec<[u8; 32]>,
-}
-
-/// Pulls the installer, builds the initramfs tail, and builds a UKI.
+/// Builds a UKI from prepulled installer assets and a prebuilt tail.
 ///
 /// # Errors
 ///
-/// Returns an error when pulling, building, or signing fails.
-pub(crate) async fn prepare(
-    resolved_profile: &ResolvedProfile,
-    profile_bytes: &[u8],
+/// Returns an error when yuki or signing fails.
+pub(crate) async fn build_uki(
+    assets: &InstallerAssets,
+    tail: Vec<u8>,
     signing_key: Option<&SigningPair<'_>>,
     uki_writer: &mut impl Write,
-) -> Result<Prepared> {
-    let installer = stage::pull_installer(resolved_profile, None).await?;
-    let assets = stage::load_installer_assets(&installer)?;
-    let (tail, cached_extensions) =
-        archive::build_and_cache_tail(resolved_profile, profile_bytes).await?;
-    let tail_size = u64::try_from(tail.len()).unwrap_or(u64::MAX);
-
+) -> Result<(Vec<Section>, Vec<[u8; 32]>)> {
     let kernel_file = assets.kernel.clone();
     let stub_file = assets.stub.clone();
     let cmdline_file = assets.cmdline.clone();
@@ -64,6 +34,7 @@ pub(crate) async fn prepare(
 
     let base_file = assets.initramfs.clone();
     let base_len = base_file.len;
+    let tail_size = u64::try_from(tail.len()).unwrap_or(u64::MAX);
     let initramfs_len = base_len.saturating_add(tail_size);
     let stub_len = assets.stub.len;
     let kernel_len = assets.kernel.len;
@@ -115,6 +86,7 @@ pub(crate) async fn prepare(
         let digest = initramfs_reader.ctx.finish();
         let mut initrd_hash = [0; 32];
         initrd_hash.copy_from_slice(digest.as_ref());
+
         Ok::<_, WizardError>((sections, initrd_hash))
     });
 
@@ -141,12 +113,20 @@ pub(crate) async fn prepare(
         section_hashes.push(hash);
     }
 
-    Ok(Prepared {
-        assets,
-        cached_extensions,
-        sections,
-        section_hashes,
-    })
+    Ok((sections, section_hashes))
+}
+
+struct HashReader<R> {
+    inner: R,
+    ctx: digest::Context,
+}
+
+impl<R: Read> Read for HashReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.ctx.update(buf.get(..n).unwrap_or(&[]));
+        Ok(n)
+    }
 }
 
 fn sha256(parts: &[&[u8]]) -> [u8; 32] {

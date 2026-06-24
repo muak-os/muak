@@ -7,7 +7,7 @@ use koci::arch::Arch;
 use koci::pulled::{PulledEntry, PulledFile, PulledImage};
 
 use crate::error::{Result, WizardError};
-use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile};
+use crate::resolve::{ResolvedExtension, ResolvedProfile};
 
 /// Installer asset handles extracted from the source OCI image.
 #[derive(Debug, Clone)]
@@ -59,38 +59,20 @@ pub async fn pull_extensions(
     Ok(pulled)
 }
 
-/// Pulls the overlay OCI image and extracts boot assets for the named overlay variant.
+/// Pulls the overlay OCI image if the resolved profile specifies one.
 ///
 /// # Errors
 ///
 /// Returns an error when the OCI pull or file collection fails.
-pub async fn pull_overlay(
-    overlay: &ResolvedOverlay,
-    arch: &Arch,
-    signature_public_key: Option<&str>,
-) -> Result<Vec<esp::EspFile>> {
-    let image = koci::pull_arch(overlay.source_ref(), arch, signature_public_key)
+pub async fn pull_overlay(resolved_profile: &ResolvedProfile) -> Result<Vec<esp::EspFile>> {
+    let Some(overlay) = resolved_profile.overlay() else {
+        return Ok(vec![]);
+    };
+    let image = koci::pull_arch(overlay.source_ref(), &resolved_profile.arch(), None)
         .await
         .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))?;
 
     collect_overlay_files(&image, overlay.name())
-}
-
-/// Pulls the overlay image if the resolved profile specifies one.
-///
-/// # Errors
-///
-/// Returns an error when the OCI pull or file collection fails.
-pub(crate) async fn pull_overlay_if_present(
-    resolved_profile: &ResolvedProfile,
-) -> Result<Vec<esp::EspFile>> {
-    if let Some(overlay) = resolved_profile.overlay() {
-        pull_overlay(overlay, &resolved_profile.arch(), None)
-            .await
-            .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))
-    } else {
-        Ok(vec![])
-    }
 }
 
 /// Loads required installer assets from the pulled OCI image.

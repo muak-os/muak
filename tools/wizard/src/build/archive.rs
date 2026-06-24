@@ -13,29 +13,8 @@ use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
-/// Builds the compressed initramfs tail (profile + extension EROFS blobs) with fresh extension pulls.
-pub async fn build_initramfs_tail(
-    resolved_profile: &ResolvedProfile,
-    profile_bytes: &[u8],
-) -> Result<Vec<u8>> {
-    let extensions = pull_extensions(resolved_profile).await?;
-
-    build_tail_from_extensions(&extensions, profile_bytes).await
-}
-
-/// Builds the tail and returns the compressed bytes alongside the pulled extensions for caching.
-pub async fn build_and_cache_tail(
-    resolved_profile: &ResolvedProfile,
-    profile_bytes: &[u8],
-) -> Result<(Vec<u8>, Vec<(String, PulledImage)>)> {
-    let extensions = pull_extensions(resolved_profile).await?;
-    let tail = build_tail_from_extensions(&extensions, profile_bytes).await?;
-
-    Ok((tail, extensions))
-}
-
-/// Builds the tail from pre-pulled extensions (no network).
-async fn build_tail_from_extensions(
+/// Builds the tail from pre-pulled extensions.
+pub(crate) async fn build_tail_from_extensions(
     extensions: &[(String, PulledImage)],
     profile_bytes: &[u8],
 ) -> Result<Vec<u8>> {
@@ -69,7 +48,9 @@ fn extension_archive_name(name: &str) -> String {
     name.replace('/', "-")
 }
 
-async fn pull_extensions(resolved_profile: &ResolvedProfile) -> Result<Vec<(String, PulledImage)>> {
+pub(crate) async fn pull_extensions(
+    resolved_profile: &ResolvedProfile,
+) -> Result<Vec<(String, PulledImage)>> {
     let resolved_extensions = resolved_profile.extensions();
     if resolved_extensions.is_empty() {
         return Ok(vec![]);
@@ -253,7 +234,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_initramfs_tail_without_extensions_appends_profile_tail() {
+    async fn build_tail_from_extensions_appends_profile_tail() {
         // ARRANGE
         let resolved = ResolvedProfile::new(
             Platform::Metal,
@@ -265,9 +246,10 @@ mod tests {
         );
 
         // ACT
-        let tail = build_initramfs_tail(&resolved, b"profile = true\n")
+        let extensions = pull_extensions(&resolved).await.expect("pull extensions");
+        let tail = build_tail_from_extensions(&extensions, b"profile = true\n")
             .await
-            .expect("build initramfs tail");
+            .expect("build tail from extensions");
 
         // ASSERT
         assert!(!tail.is_empty());
