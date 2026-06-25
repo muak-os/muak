@@ -28,7 +28,15 @@ mod tests {
             assert_success!(cli, ["update", "--image", &install_image()]),
         )
         .await
-        .map_err(|_elapsed| anyhow::anyhow!("update timed out"))?
+        .map_err(|_elapsed| {
+            let serial = fixture.vm.read_serial().unwrap_or_default();
+            let stderr = fixture.vm.read_stderr().unwrap_or_default();
+            anyhow::anyhow!(
+                "update timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+            )
+        })?
         .map_err(|e| anyhow::anyhow!("muakctl update failed: {e}"))?;
 
         // ASSERT
@@ -67,7 +75,15 @@ mod tests {
             ),
         )
         .await
-        .map_err(|_elapsed| anyhow::anyhow!("update --config timed out"))?
+        .map_err(|_elapsed| {
+            let serial = fixture.vm.read_serial().unwrap_or_default();
+            let stderr = fixture.vm.read_stderr().unwrap_or_default();
+            anyhow::anyhow!(
+                "update --config timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+            )
+        })?
         .map_err(|e| anyhow::anyhow!("muakctl update --config failed: {e}"))?;
 
         // ASSERT
@@ -116,7 +132,15 @@ mod tests {
             ),
         )
         .await
-        .map_err(|_elapsed| anyhow::anyhow!("update --config timed out"))?
+        .map_err(|_elapsed| {
+            let serial = fixture.vm.read_serial().unwrap_or_default();
+            let stderr = fixture.vm.read_stderr().unwrap_or_default();
+            anyhow::anyhow!(
+                "update --config timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+            )
+        })?
         .map_err(|e| anyhow::anyhow!("muakctl update --config failed: {e}"))?;
 
         // ASSERT

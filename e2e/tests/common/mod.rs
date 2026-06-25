@@ -55,7 +55,15 @@ pub async fn boot_and_install<F: FnOnce(&mut config::SystemConfig)>(
         ),
     )
     .await
-    .map_err(|_elapsed| anyhow::anyhow!("install timed out after 1 minute"))?
+    .map_err(|_elapsed| {
+        let serial = fixture.vm.read_serial().unwrap_or_default();
+        let stderr = fixture.vm.read_stderr().unwrap_or_default();
+        anyhow::anyhow!(
+            "install timed out after 1 minute\
+             \n\n--- serial log ---\n{serial}\
+             \n\n--- stderr ---\n{stderr}"
+        )
+    })?
     .map_err(|e| anyhow::anyhow!("muakctl install failed: {e}"))?;
 
     fixture
