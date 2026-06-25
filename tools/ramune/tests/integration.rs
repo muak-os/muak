@@ -28,8 +28,8 @@ mod tests {
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
-            ramune::Entry::new(
+            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::EntryStream::new(
                 Path::new("rootfs.erofs"),
                 0o100_644,
                 &mut erofs_reader,
@@ -73,8 +73,8 @@ mod tests {
         let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
-            ramune::Entry::new(
+            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::EntryStream::new(
                 Path::new("rootfs.erofs"),
                 0o100_644,
                 &mut erofs_reader,
@@ -125,13 +125,13 @@ mod tests {
         let mut profile_reader = Cursor::new(profile_data.clone());
         let mut extension_reader = Cursor::new(extension_data.clone());
         let mut entries = [
-            ramune::Entry::new(
+            ramune::EntryStream::new(
                 Path::new("profile.toml"),
                 0o100_644,
                 &mut profile_reader,
                 profile_len,
             ),
-            ramune::Entry::new(
+            ramune::EntryStream::new(
                 Path::new("extensions/test-ext.erofs"),
                 0o100_644,
                 &mut extension_reader,
@@ -157,7 +157,7 @@ mod tests {
     fn archive_returns_error_for_short_reader() {
         // ARRANGE
         let mut reader = Cursor::new(b"small".to_vec());
-        let mut entries = [ramune::Entry::new(
+        let mut entries = [ramune::EntryStream::new(
             Path::new("profile.toml"),
             0o100_644,
             &mut reader,

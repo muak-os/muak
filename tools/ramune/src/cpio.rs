@@ -1,16 +1,16 @@
-//! CPIO newc-format archive writer.
+//! CPIO `newc` format archive writer.
 
 use std::io::Write;
 
 use crate::error::{RamuneError, Result};
 
-/// CPIO newc format magic number.
+/// CPIO `newc` format magic number.
 const NEWC_MAGIC: &str = "070701";
 
 /// Trailer entry name marking the end of the archive.
 const TRAILER: &str = "TRAILER!!!";
 
-/// Fields for a CPIO newc format header entry.
+/// Fields for a CPIO `newc` format header entry.
 #[derive(Debug, Default)]
 struct CpioHeader {
     ino: u32,
@@ -75,12 +75,29 @@ pub(crate) fn write_trailer<W: Write>(writer: &mut W) -> Result<()> {
     write_entry(writer, 0, TRAILER, 0, 0, |_| Ok(()))
 }
 
-/// Writes a CPIO newc format header to `writer`, returning bytes written.
+/// Returns the exact byte length of a CPIO `newc` entry (header + name + payload + padding).
+pub(crate) fn entry_size(name: &str, payload_len: u64) -> u64 {
+    let name_len = u64::try_from(name.len()).unwrap_or(u64::MAX);
+    let header_end = 110_u64.saturating_add(name_len).saturating_add(1);
+    let after_name = header_end.next_multiple_of(4);
+    if payload_len > 0 {
+        after_name.saturating_add(payload_len).next_multiple_of(4)
+    } else {
+        after_name
+    }
+}
+
+/// Returns the exact byte length of a CPIO `newc` trailer entry.
+pub(crate) fn trailer_size() -> u64 {
+    124
+}
+
 fn write_header<W: Write>(writer: &mut W, header: &CpioHeader) -> Result<usize> {
     let header_text = header_string(header);
     writer
         .write_all(header_text.as_bytes())
         .map_err(|e| RamuneError::CpioError(format!("Failed to write header: {e}")))?;
+
     Ok(header_text.len())
 }
 
@@ -103,7 +120,6 @@ fn header_string(header: &CpioHeader) -> String {
     )
 }
 
-/// Writes null padding to align `pos` to a 4-byte boundary; returns bytes written.
 fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
     let pad = pos.next_multiple_of(4).saturating_sub(pos);
     if pad > 0 {
@@ -112,6 +128,7 @@ fn write_pad4<W: Write>(writer: &mut W, pos: usize) -> Result<usize> {
             .write_all(padding.get(..pad).unwrap_or(&[]))
             .map_err(|e| RamuneError::CpioError(format!("Failed to write padding: {e}")))?;
     }
+
     Ok(pad)
 }
 

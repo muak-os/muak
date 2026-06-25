@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
-use crate::Entry;
+use crate::EntryStream;
 use crate::rootfs;
 
 #[derive(Debug, Parser)]
@@ -158,8 +158,8 @@ fn run_create(
     let mut init_reader = Cursor::new(init_bytes);
     let mut erofs_reader = Cursor::new(rootfs_erofs);
     let mut entries = [
-        Entry::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
-        Entry::new(
+        EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+        EntryStream::new(
             Path::new("rootfs.erofs"),
             0o100_644,
             &mut erofs_reader,
@@ -187,7 +187,7 @@ fn run_tail(entry: &[(PathBuf, PathBuf)], output: &Path, compression_level: i32)
         .map(|entry| read_entry_source(&entry.0))
         .collect::<Result<_>>()?;
     let mut readers: Vec<Cursor<Vec<u8>>> = sources.into_iter().map(Cursor::new).collect();
-    let mut entries: Vec<Entry<'_>> = entry
+    let mut entries: Vec<EntryStream<'_>> = entry
         .iter()
         .zip(readers.iter_mut())
         .map(|(entry, reader)| entry_from_source(&entry.0, entry.1.as_path(), reader))
@@ -214,16 +214,16 @@ fn read_entry_source(source: &Path) -> Result<Vec<u8>> {
 
 fn entry_from_source<'a>(
     source: &Path,
-    archive_path: &'a Path,
+    path: &'a Path,
     reader: &'a mut Cursor<Vec<u8>>,
-) -> Result<Entry<'a>> {
+) -> Result<EntryStream<'a>> {
     let metadata = std::fs::metadata(source)
         .with_context(|| format!("Failed to inspect entry metadata: {}", source.display()))?;
     let readonly = metadata.permissions().readonly();
     let mode = if readonly { 0o100_444 } else { 0o100_644 };
     let len = reader.get_ref().len().try_into().unwrap_or(u64::MAX);
 
-    Ok(Entry::new(archive_path, mode, reader, len))
+    Ok(EntryStream::new(path, mode, reader, len))
 }
 
 fn initramfs_size(output: &Path) -> Result<u64> {
