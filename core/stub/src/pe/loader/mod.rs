@@ -3,7 +3,7 @@
 //! Loads the embedded Linux kernel PE image by manually mapping its sections into memory and
 //! jumping to the entry point.
 
-mod cmdline;
+pub(crate) mod cmdline;
 mod mapping;
 mod protection;
 pub(crate) mod protocol;

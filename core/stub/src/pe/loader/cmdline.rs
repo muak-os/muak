@@ -44,7 +44,7 @@ pub(super) fn encode_ucs2(cmdline: &[u8]) -> Result<(*mut u8, u32)> {
 
 /// Strips trailing NUL and ASCII whitespace bytes from a command line.
 #[must_use]
-fn strip_trailing_terminators(data: &[u8]) -> &[u8] {
+pub(crate) fn strip_trailing_terminators(data: &[u8]) -> &[u8] {
     let end = data
         .iter()
         .rposition(|byte| *byte != 0 && !byte.is_ascii_whitespace())

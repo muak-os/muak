@@ -7,6 +7,8 @@ use uefi::boot::open_protocol_exclusive;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
 
+use crate::pe::loader::cmdline::strip_trailing_terminators;
+
 const LUKS_KEY_PREFIX: &[u8] = b" luks.key=";
 const MAX_LUKS_KEY_SIZE: usize = 65536;
 
@@ -17,7 +19,7 @@ pub fn try_inject(device_handle: Handle, cmdline: Option<&[u8]>) -> Result<Optio
         None => return Ok(None),
     };
 
-    let base_cmd = cmdline.unwrap_or(&[]);
+    let base_cmd = strip_trailing_terminators(cmdline.unwrap_or(&[]));
     let encoded_len = Base64Unpadded::encoded_len(&luks_data);
 
     let total_len = base_cmd
