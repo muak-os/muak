@@ -192,6 +192,8 @@ async fn prepare_uki(
 
     send_progress(progress, &format!("Pulling installer image: {}", image)).await;
     let output_dir = Path::new(INSTALL_DIR).join("assets");
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("Failed to create assets dir {}", output_dir.display()))?;
     let (registry, installer, version) = image_parts(image)?;
     let config = Config {
         sources: wizard::resolve::Sources {
