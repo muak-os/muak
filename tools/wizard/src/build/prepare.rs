@@ -1,27 +1,30 @@
 //! UKI assembly helper.
 
-use std::io::{Cursor, Read, Write};
+use std::io::Read;
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 
 use ring::digest;
 use sbolt::keys::SigningPair;
 use sbolt::signature;
-use tokio::task::spawn_blocking;
+use tokio::task::{block_in_place, spawn_blocking};
 use yuki::BuildInput;
 use yuki::SizedPart;
 use yuki::section::Section;
 
+use super::archive::{TailParts, build_tail_from_parts};
 use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
 
-/// Builds a UKI from prepulled installer assets and a prebuilt tail.
+/// Builds a UKI from prepulled installer assets and prebuilt tail parts.
 ///
 /// # Errors
 ///
 /// Returns an error when yuki or signing fails.
 pub(crate) async fn build_uki(
     assets: &InstallerAssets,
-    tail: Vec<u8>,
+    tail_parts: &TailParts,
+    tail_size: u64,
     signing_key: Option<&SigningPair<'_>>,
     uki_writer: &mut impl Write,
 ) -> Result<(Vec<Section>, Vec<[u8; 32]>)> {
@@ -34,14 +37,15 @@ pub(crate) async fn build_uki(
 
     let base_file = assets.initramfs.clone();
     let base_len = base_file.len;
-    let tail_size = u64::try_from(tail.len()).unwrap_or(u64::MAX);
     let initramfs_len = base_len.saturating_add(tail_size);
     let stub_len = assets.stub.len;
     let kernel_len = assets.kernel.len;
     let cmdline_len = assets.cmdline.len;
 
-    let (writer, mut reader) =
-        UnixStream::pair().map_err(|e| WizardError::BuildError(format!("create pipe: {e}")))?;
+    let (tail_w, tail_r) = UnixStream::pair()
+        .map_err(|e| WizardError::BuildError(format!("create tail pipe: {e}")))?;
+    let (uki_w, mut uki_r) =
+        UnixStream::pair().map_err(|e| WizardError::BuildError(format!("create UKI pipe: {e}")))?;
 
     let sections_handle = spawn_blocking(move || {
         let mut stub_reader = stub_file
@@ -56,9 +60,8 @@ pub(crate) async fn build_uki(
         let base_reader = base_file
             .open()
             .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
-        let tail_reader = Cursor::new(tail.as_slice());
         let mut initramfs_reader = HashReader {
-            inner: base_reader.chain(tail_reader),
+            inner: base_reader.chain(tail_r),
             ctx: digest::Context::new(&digest::SHA256),
         };
 
@@ -81,7 +84,7 @@ pub(crate) async fn build_uki(
             },
             dtb: None,
         };
-        let sections = yuki::build(input, &mut &writer)
+        let sections = yuki::build(input, &mut &uki_w)
             .map_err(|e| WizardError::BuildError(format!("build UKI: {e}")))?;
         let digest = initramfs_reader.ctx.finish();
         let mut initrd_hash = [0; 32];
@@ -90,11 +93,16 @@ pub(crate) async fn build_uki(
         Ok::<_, WizardError>((sections, initrd_hash))
     });
 
+    block_in_place(|| {
+        build_tail_from_parts(tail_parts, &mut &tail_w)
+            .map_err(|e| WizardError::BuildError(format!("build tail: {e}")))
+    })?;
+
     if let Some(key) = signing_key {
-        signature::sign(&mut reader, key.signer, key.certificate, uki_writer)
+        signature::sign(&mut uki_r, key.signer, key.certificate, uki_writer)
             .map_err(|e| WizardError::BuildError(format!("sign UKI: {e}")))?;
     } else {
-        std::io::copy(&mut reader, uki_writer)
+        std::io::copy(&mut uki_r, uki_writer)
             .map_err(|e| WizardError::BuildError(format!("read UKI pipe: {e}")))?;
     }
 
@@ -125,6 +133,7 @@ impl<R: Read> Read for HashReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let n = self.inner.read(buf)?;
         self.ctx.update(buf.get(..n).unwrap_or(&[]));
+
         Ok(n)
     }
 }

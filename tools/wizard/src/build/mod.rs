@@ -6,7 +6,7 @@ use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
-use crate::error::Result;
+use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Request;
 use crate::resolve::{self, Config};
@@ -83,13 +83,27 @@ pub async fn artifacts<W: Write>(
         .artifacts
         .iter()
         .any(|art| matches!(art, Artifact::Uki | Artifact::Iso | Artifact::Raw));
+    let needs_tail = needs_post || initramfs.is_some();
+
+    let (tail_parts, tail_size) = if needs_tail {
+        let parts =
+            archive::prepare_tail_parts(extensions.as_deref().unwrap_or(&[]), &profile_bytes)?;
+        let size = archive::tail_exact_size(&parts);
+
+        (Some(parts), size)
+    } else {
+        (None, 0)
+    };
 
     let (sections, section_hashes) = if needs_post {
+        let parts = tail_parts.as_ref().ok_or_else(|| {
+            WizardError::BuildError("tail parts required for post processing".to_owned())
+        })?;
         artifacts::build_post(
             &assets,
             &resolved,
-            &profile_bytes,
-            extensions.as_deref().unwrap_or(&[]),
+            parts,
+            tail_size,
             signing_key,
             uki,
             iso,
@@ -100,15 +114,7 @@ pub async fn artifacts<W: Write>(
         Default::default()
     };
 
-    artifacts::write_standalone(
-        &assets,
-        &profile_bytes,
-        extensions.as_deref(),
-        kernel,
-        cmdline,
-        initramfs,
-    )
-    .await?;
+    artifacts::write_standalone(&assets, tail_parts.as_ref(), kernel, cmdline, initramfs)?;
 
     let overlay_files = stage::pull_overlay(&resolved).await?;
 

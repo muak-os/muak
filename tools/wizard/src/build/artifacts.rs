@@ -7,6 +7,7 @@ use sbolt::keys::SigningPair;
 use yuki::section::Section;
 
 use super::archive;
+use super::archive::TailParts;
 use super::media;
 use super::prepare;
 use super::stage;
@@ -46,20 +47,19 @@ pub(crate) async fn prepare_extensions(
 pub(crate) async fn build_post<W: Write>(
     assets: &InstallerAssets,
     resolved: &ResolvedProfile,
-    profile_bytes: &[u8],
-    extensions: &[(String, PulledImage)],
+    tail_parts: &TailParts,
+    tail_size: u64,
     signing_key: Option<&SigningPair<'_>>,
     uki: Option<&mut W>,
     iso: Option<&mut W>,
     raw: Option<&mut W>,
 ) -> Result<(Vec<Section>, Vec<[u8; 32]>)> {
-    let tail = archive::build_tail_from_extensions(extensions, profile_bytes).await?;
-
     let iso_or_raw = iso.is_some() || raw.is_some();
     if iso_or_raw {
         // TODO: Avoid buffering the full UKI for ISO/Raw — stream it instead.
         let mut uki_buf = Vec::new();
-        let result = prepare::build_uki(assets, tail, signing_key, &mut uki_buf).await?;
+        let result =
+            prepare::build_uki(assets, tail_parts, tail_size, signing_key, &mut uki_buf).await?;
         if let Some(w) = uki {
             w.write_all(&uki_buf)
                 .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
@@ -71,18 +71,18 @@ pub(crate) async fn build_post<W: Write>(
             let overlay = stage::pull_overlay(resolved).await?;
             media::raw_to_writer(resolved, &overlay, &uki_buf, w).await?;
         }
+
         Ok(result)
     } else if let Some(w) = uki {
-        prepare::build_uki(assets, tail, signing_key, w).await
+        prepare::build_uki(assets, tail_parts, tail_size, signing_key, w).await
     } else {
-        prepare::build_uki(assets, tail, signing_key, &mut std::io::sink()).await
+        Ok(Default::default())
     }
 }
 
-pub(crate) async fn write_standalone<W: Write>(
+pub(crate) fn write_standalone<W: Write>(
     assets: &InstallerAssets,
-    profile_bytes: &[u8],
-    extensions: Option<&[(String, PulledImage)]>,
+    tail_parts: Option<&TailParts>,
     kernel: Option<&mut W>,
     cmdline: Option<&mut W>,
     initramfs: Option<&mut W>,
@@ -98,10 +98,10 @@ pub(crate) async fn write_standalone<W: Write>(
             .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
     }
     if let Some(w) = initramfs {
-        let exts = extensions.ok_or_else(|| {
+        let tail = tail_parts.ok_or_else(|| {
             WizardError::BuildError("initramfs requires extensions but none were pulled".to_owned())
         })?;
-        archive::write_combined_initramfs(assets, profile_bytes, exts, w).await?;
+        archive::write_combined_initramfs(assets, tail, w)?;
     }
 
     Ok(())

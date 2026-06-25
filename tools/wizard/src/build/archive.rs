@@ -1,46 +1,99 @@
 //! Initramfs archive building.
 
 use std::collections::HashMap;
-use std::io::{Read as _, Write};
+use std::io::{Cursor, Read as _, Write};
 use std::path::Path;
 
 use erofs::tree::TreeEntry;
 use koci::pulled::{PulledEntry, PulledImage};
-use tokio::task::spawn_blocking;
+use ramune::Entry;
+use ramune::EntryStream;
 
 use super::stage;
 use super::stage::InstallerAssets;
 use crate::error::{Result, WizardError};
 use crate::resolve::ResolvedProfile;
 
-/// Builds the tail from pre-pulled extensions.
-pub(crate) async fn build_tail_from_extensions(
+/// Prebuilt components for the initramfs tail.
+#[derive(Clone)]
+pub(crate) struct TailParts {
+    paths: Vec<String>,
+    blobs: Vec<Vec<u8>>,
+}
+
+impl TailParts {
+    fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+}
+
+/// Builds EROFS blobs from pre-pulled extensions and profile bytes.
+pub(crate) fn prepare_tail_parts(
     extensions: &[(String, PulledImage)],
     profile_bytes: &[u8],
-) -> Result<Vec<u8>> {
-    let mut extra_bytes = Vec::new();
+) -> Result<TailParts> {
+    let mut paths = Vec::new();
+    let mut blobs = Vec::new();
     for entry in extensions {
         let blob = erofs_blob_from_image(&entry.1, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
-        extra_bytes.push((
-            format!("extensions/{}.erofs", extension_archive_name(&entry.0)),
-            blob,
+        paths.push(format!(
+            "extensions/{}.erofs",
+            extension_archive_name(&entry.0)
         ));
+        blobs.push(blob);
     }
     if !profile_bytes.is_empty() {
-        extra_bytes.push(("profile.toml".to_owned(), profile_bytes.to_vec()));
+        paths.push("profile.toml".to_owned());
+        blobs.push(profile_bytes.to_vec());
     }
 
-    spawn_blocking(move || {
-        let mut buf = Vec::new();
-        let refs: Vec<(&Path, &[u8])> = extra_bytes
-            .iter()
-            .map(|entry| (Path::new(entry.0.as_str()), entry.1.as_slice()))
-            .collect();
-        build_ramune_tail(&refs, &mut buf)?;
-        Ok::<_, WizardError>(buf)
-    })
-    .await
-    .map_err(|e| WizardError::BuildError(format!("join initramfs tail task: {e}")))?
+    Ok(TailParts { paths, blobs })
+}
+
+/// Returns the exact byte length of the raw CPIO archive for a prebuilt tail.
+pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
+    let metas: Vec<Entry> = parts
+        .paths
+        .iter()
+        .zip(parts.blobs.iter())
+        .map(|(path, blob)| Entry {
+            path: Path::new(path),
+            len: u64::try_from(blob.len()).unwrap_or(u64::MAX),
+        })
+        .collect();
+
+    ramune::raw_size(&metas)
+}
+
+/// Writes a raw CPIO archive from prebuilt tail parts into `writer`.
+pub(crate) fn build_tail_from_parts(parts: &TailParts, writer: &mut impl Write) -> Result<()> {
+    if parts.is_empty() {
+        return Ok(());
+    }
+
+    let mut readers: Vec<Cursor<&[u8]>> = parts
+        .blobs
+        .iter()
+        .map(|blob| Cursor::new(blob.as_slice()))
+        .collect();
+    let mut entries: Vec<EntryStream<'_>> = parts
+        .paths
+        .iter()
+        .zip(readers.iter_mut())
+        .zip(parts.blobs.iter())
+        .map(|((path, reader), blob)| {
+            EntryStream::new(
+                Path::new(path),
+                0o100_644,
+                reader,
+                u64::try_from(blob.len()).unwrap_or(u64::MAX),
+            )
+        })
+        .collect();
+
+    ramune::raw(&mut entries, writer)
+        .map(|_| ())
+        .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))
 }
 
 /// Derives the stable archive base name for an extension.
@@ -145,44 +198,14 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
     Ok(buf)
 }
 
-fn build_ramune_tail<W: Write>(entries: &[(&Path, &[u8])], writer: &mut W) -> Result<()> {
-    let mut readers: Vec<std::io::Cursor<&[u8]>> = entries
-        .iter()
-        .map(|&(_, data)| std::io::Cursor::new(data))
-        .collect();
-    let mut ramune_entries: Vec<ramune::Entry<'_>> = entries
-        .iter()
-        .zip(readers.iter_mut())
-        .map(|(entry, reader)| {
-            ramune::Entry::new(
-                entry.0,
-                0o100_644,
-                reader,
-                entry.1.len().try_into().unwrap_or(u64::MAX),
-            )
-        })
-        .collect();
-    ramune::archive(
-        &mut ramune_entries,
-        ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL,
-        writer,
-    )
-    .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
-
-    Ok(())
-}
-
 /// Writes the base initramfs followed by a freshly built tail to a `Write` sink.
-///
-/// Uses cached extensions to avoid re-pulling OCI images.
 ///
 /// # Errors
 ///
 /// Returns an error when reading the base initramfs, building the tail, or writing fails.
-pub async fn write_combined_initramfs<W: Write>(
+pub fn write_combined_initramfs<W: Write>(
     assets: &InstallerAssets,
-    profile_bytes: &[u8],
-    cached_extensions: &[(String, PulledImage)],
+    tail_parts: &TailParts,
     writer: &mut W,
 ) -> Result<()> {
     let mut base_reader = assets
@@ -192,12 +215,7 @@ pub async fn write_combined_initramfs<W: Write>(
     std::io::copy(&mut base_reader, writer)
         .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
 
-    let tail = build_tail_from_extensions(cached_extensions, profile_bytes).await?;
-    writer
-        .write_all(&tail)
-        .map_err(|e| WizardError::BuildError(format!("write initramfs tail: {e}")))?;
-
-    Ok(())
+    build_tail_from_parts(tail_parts, writer)
 }
 
 #[cfg(test)]
@@ -218,23 +236,62 @@ mod tests {
     }
 
     #[test]
-    fn build_ramune_tail_with_entries() {
+    fn build_tail_from_parts_writes_archive() {
         // ARRANGE
-        let entries: [(&Path, &[u8]); 2] = [
-            (Path::new("profile.toml"), b"profile = true\n"),
-            (Path::new("extensions/test.erofs"), b"erofs-bytes"),
-        ];
+        let parts = TailParts {
+            paths: vec![
+                "profile.toml".to_owned(),
+                "extensions/test.erofs".to_owned(),
+            ],
+            blobs: vec![b"profile = true\n".to_vec(), b"erofs-bytes".to_vec()],
+        };
 
         // ACT
         let mut buf = Vec::new();
-        build_ramune_tail(&entries, &mut buf).expect("build tail");
+        build_tail_from_parts(&parts, &mut buf).expect("build tail");
 
         // ASSERT
         assert!(!buf.is_empty());
     }
 
+    #[test]
+    fn tail_exact_size_matches_built_size() {
+        // ARRANGE
+        let parts = TailParts {
+            paths: vec![
+                "profile.toml".to_owned(),
+                "extensions/test.erofs".to_owned(),
+            ],
+            blobs: vec![b"profile = true\n".to_vec(), b"erofs-bytes".to_vec()],
+        };
+
+        // ACT
+        let expected = tail_exact_size(&parts);
+        let mut buf = Vec::new();
+        build_tail_from_parts(&parts, &mut buf).expect("build tail");
+
+        // ASSERT
+        assert_eq!(expected, u64::try_from(buf.len()).unwrap_or(0));
+    }
+
+    #[test]
+    fn build_tail_from_parts_empty_returns_ok() {
+        // ARRANGE
+        let parts = TailParts {
+            paths: vec![],
+            blobs: vec![],
+        };
+        let mut buf = Vec::new();
+
+        // ACT
+        build_tail_from_parts(&parts, &mut buf).expect("build empty tail");
+
+        // ASSERT
+        assert!(buf.is_empty());
+    }
+
     #[tokio::test]
-    async fn build_tail_from_extensions_appends_profile_tail() {
+    async fn prepare_tail_parts_builds_nonempty_tail() {
         // ARRANGE
         let resolved = ResolvedProfile::new(
             Platform::Metal,
@@ -244,15 +301,13 @@ mod tests {
             None,
             "ghcr.io/muak-os/installer:v1.0.0".into(),
         );
-
         // ACT
         let extensions = pull_extensions(&resolved).await.expect("pull extensions");
-        let tail = build_tail_from_extensions(&extensions, b"profile = true\n")
-            .await
-            .expect("build tail from extensions");
+        let parts =
+            prepare_tail_parts(&extensions, b"profile = true\n").expect("prepare tail parts");
 
         // ASSERT
-        assert!(!tail.is_empty());
+        assert!(!parts.paths.is_empty());
     }
 
     #[tokio::test]
