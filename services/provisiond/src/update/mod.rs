@@ -91,7 +91,9 @@ pub async fn prepare(
         }
     }
 
-    let sb_hierarchy = if config::host().secureboot {
+    let needs_sb =
+        config::host().secureboot || new_config.as_ref().map_or(false, |c| c.host.secureboot);
+    let sb_hierarchy = if needs_sb {
         Some(resolve_sb_hierarchy()?)
     } else {
         None
@@ -124,11 +126,21 @@ pub async fn prepare(
         .with_context(|| format!("create UKI file {}", uki_path.display()))?;
     let mut uki_file = std::io::BufWriter::new(uki_file);
 
+    let kernel_path = assets_dir.join("kernel");
+    let kernel_file = std::fs::File::create(&kernel_path)
+        .with_context(|| format!("create kernel file {}", kernel_path.display()))?;
+    let mut kernel_file = std::io::BufWriter::new(kernel_file);
+
+    let initramfs_path = assets_dir.join("initramfs");
+    let initramfs_file = std::fs::File::create(&initramfs_path)
+        .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
+    let mut initramfs_file = std::io::BufWriter::new(initramfs_file);
+
     let writers = build::ArtifactWriters {
         uki: Some(&mut uki_file),
-        kernel: None,
+        kernel: Some(&mut kernel_file),
         cmdline: None,
-        initramfs: None,
+        initramfs: Some(&mut initramfs_file),
         iso: None,
         raw: None,
     };
