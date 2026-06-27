@@ -117,13 +117,13 @@ fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
     })
 }
 
-pub fn section_count_offset(metadata: &PeMetadata) -> usize {
+pub(crate) fn section_count_offset(metadata: &PeMetadata) -> usize {
     metadata
         .file_header_offset
         .saturating_add(COFF_NUMBER_OF_SECTIONS_OFFSET)
 }
 
-pub fn size_of_image_offset(metadata: &PeMetadata) -> usize {
+pub(crate) fn size_of_image_offset(metadata: &PeMetadata) -> usize {
     metadata
         .optional_header_offset
         .saturating_add(OPT_HEADER_SIZE_OF_IMAGE_OFFSET)

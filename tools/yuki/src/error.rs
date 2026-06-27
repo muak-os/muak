@@ -21,9 +21,13 @@ pub enum YukiError {
     #[error("Invalid PE structure: {0}")]
     InvalidPeStructure(String),
 
-    /// PE section count would exceed the maximum.
+    /// Too many sections to fit in the PE header.
     #[error("Too many sections: cannot add more sections to PE file")]
     TooManySections,
+
+    /// Numeric conversion failed (overflow or impossible cast).
+    #[error("Conversion error: {0}")]
+    ConversionError(String),
 }
 
 /// Result type alias for yuki operations.

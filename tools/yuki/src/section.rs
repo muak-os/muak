@@ -144,15 +144,11 @@ fn build_header(
             IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
         },
     );
+
     header
 }
 
-/// Validates that a section byte length fits within `u32` (PE32+ limit).
-///
-/// # Errors
-///
-/// Returns an error if the section is too large for the PE format.
-pub fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> {
+pub(crate) fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> {
     let Ok(len) = usize::try_from(byte_len) else {
         return Err(YukiError::InvalidPeStructure(format!(
             "section '{name}' length exceeds usize"
