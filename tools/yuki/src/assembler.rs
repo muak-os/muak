@@ -19,18 +19,19 @@ pub(crate) fn assemble<W: Write>(
     writer: &mut W,
 ) -> Result<Vec<section::Section>> {
     let (metadata, mut stub_prefix) = pe::extract_metadata(input.stub.reader)?;
-    let new_section_count = validate_build_params(&metadata, input.dtb.is_some())?;
+    let mut sizes = Vec::with_capacity(SECTION_ORDER.len());
+    for &name in SECTION_ORDER {
+        sizes.push((name, section_len(&input, name)));
+    }
+    let (mut layout, gap_start) =
+        prepare_layout(&metadata, input.stub.len, input.dtb.is_some(), &sizes)?;
 
-    let mut layout = Layout::new(&metadata);
-    let Ok(stub_file_off) = u32::try_from(input.stub.len) else {
-        return Err(YukiError::InvalidPeStructure(
-            "stub file offset overflow".to_owned(),
-        ));
-    };
-    layout.current_file_offset = layout.current_file_offset.max(stub_file_off);
-    let gap_start = finalize_sections(&mut layout, &input)?;
-
-    prefix::patch(&mut stub_prefix, &metadata, &layout, new_section_count)?;
+    prefix::patch(
+        &mut stub_prefix,
+        &metadata,
+        &layout,
+        new_section_count(input.dtb.is_some()),
+    )?;
     assemble_image(
         writer,
         &mut input,
@@ -43,19 +44,11 @@ pub(crate) fn assemble<W: Write>(
     Ok(layout.sections)
 }
 
-fn validate_build_params(metadata: &PeMetadata, has_dtb: bool) -> Result<u16> {
-    let new_count = 3_u16.saturating_add(u16::from(has_dtb));
-    if usize::from(metadata.existing_section_count).saturating_add(usize::from(new_count))
-        > usize::from(u16::MAX)
-    {
-        return Err(YukiError::TooManySections);
-    }
-    pe::validate_section_header_capacity(metadata, usize::from(new_count))?;
-
-    Ok(new_count)
+fn new_section_count(has_dtb: bool) -> u16 {
+    3_u16.saturating_add(u16::from(has_dtb))
 }
 
-fn section_size(input: &BuildInput<'_>, name: &str) -> Option<u64> {
+fn section_len(input: &BuildInput<'_>, name: &str) -> Option<u64> {
     match name {
         ".cmdline" => Some(input.cmdline.len),
         ".dtb" => input.dtb.as_ref().map(|dtb| dtb.len),
@@ -65,9 +58,32 @@ fn section_size(input: &BuildInput<'_>, name: &str) -> Option<u64> {
     }
 }
 
-fn finalize_sections(layout: &mut Layout, input: &BuildInput<'_>) -> Result<u64> {
-    for &name in SECTION_ORDER {
-        let Some(len) = section_size(input, name) else {
+/// Validates section capacity, creates a layout, adjusts for stub length,
+/// and finalizes all component sections. Returns the layout and gap start offset.
+pub(crate) fn prepare_layout(
+    metadata: &PeMetadata,
+    stub_len: u64,
+    has_dtb: bool,
+    sizes: &[(&'static str, Option<u64>)],
+) -> Result<(Layout, u64)> {
+    let count = new_section_count(has_dtb);
+    if usize::from(metadata.existing_section_count).saturating_add(usize::from(count))
+        > usize::from(u16::MAX)
+    {
+        return Err(YukiError::TooManySections);
+    }
+    pe::validate_section_header_capacity(metadata, usize::from(count))?;
+
+    let mut layout = Layout::new(metadata);
+    let Ok(stub_file_off) = u32::try_from(stub_len) else {
+        return Err(YukiError::InvalidPeStructure(
+            "stub file offset overflow".to_owned(),
+        ));
+    };
+    layout.current_file_offset = layout.current_file_offset.max(stub_file_off);
+
+    for &(name, maybe_len) in sizes {
+        let Some(len) = maybe_len else {
             continue;
         };
         layout.finalize_section(name, section::validate_size(len, name)?)?;
@@ -84,7 +100,7 @@ fn finalize_sections(layout: &mut Layout, input: &BuildInput<'_>) -> Result<u64>
         ));
     };
 
-    Ok(gap_start)
+    Ok((layout, gap_start))
 }
 
 fn assemble_image<W: Write>(

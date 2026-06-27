@@ -10,6 +10,7 @@ mod tests {
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
+    use yuki::compute_size;
     use yuki::error::YukiError;
     use yuki::{BuildInput, SizedPart, build};
 
@@ -750,5 +751,158 @@ mod tests {
                 section.name
             );
         }
+    }
+
+    #[test]
+    fn compute_size_matches_build_output() {
+        // ARRANGE
+        let stub_bytes = generate_minimal_stub();
+        let cmdline = sample_cmdline();
+        let kernel = fake_kernel(8192);
+        let initrd = fake_initrd(4096);
+
+        // ACT
+        let computed = compute_size(
+            &stub_bytes,
+            u64::try_from(cmdline.len()).unwrap_or(0),
+            u64::try_from(kernel.len()).unwrap_or(0),
+            u64::try_from(initrd.len()).unwrap_or(0),
+            None,
+        )
+        .expect("compute_size must succeed");
+
+        let mut stub_reader = Cursor::new(stub_bytes);
+        let mut cmdline_reader = Cursor::new(cmdline);
+        let mut kernel_reader = Cursor::new(kernel);
+        let mut initrd_reader = Cursor::new(initrd);
+        let mut output = Vec::new();
+
+        build(
+            BuildInput {
+                stub: part(&mut stub_reader),
+                cmdline: part(&mut cmdline_reader),
+                kernel: part(&mut kernel_reader),
+                initramfs: part(&mut initrd_reader),
+                dtb: None,
+            },
+            &mut output,
+        )
+        .expect("build must succeed");
+
+        // ASSERT
+        assert_eq!(u64::try_from(output.len()).unwrap_or(0), computed);
+    }
+
+    #[test]
+    fn compute_size_matches_build_output_with_dtb() {
+        // ARRANGE
+        let stub_bytes = generate_minimal_stub();
+        let cmdline = sample_cmdline();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(2048);
+        let dtb = fake_dtb(512);
+
+        // ACT
+        let computed = compute_size(
+            &stub_bytes,
+            u64::try_from(cmdline.len()).unwrap_or(0),
+            u64::try_from(kernel.len()).unwrap_or(0),
+            u64::try_from(initrd.len()).unwrap_or(0),
+            Some(u64::try_from(dtb.len()).unwrap_or(0)),
+        )
+        .expect("compute_size with dtb must succeed");
+
+        let mut stub_reader = Cursor::new(stub_bytes);
+        let mut cmdline_reader = Cursor::new(cmdline);
+        let mut kernel_reader = Cursor::new(kernel);
+        let mut initrd_reader = Cursor::new(initrd);
+        let mut dtb_reader = Cursor::new(dtb);
+        let mut output = Vec::new();
+
+        build(
+            BuildInput {
+                stub: part(&mut stub_reader),
+                cmdline: part(&mut cmdline_reader),
+                kernel: part(&mut kernel_reader),
+                initramfs: part(&mut initrd_reader),
+                dtb: Some(part(&mut dtb_reader)),
+            },
+            &mut output,
+        )
+        .expect("build with dtb must succeed");
+
+        // ASSERT
+        assert_eq!(u64::try_from(output.len()).unwrap_or(0), computed);
+    }
+
+    #[test]
+    fn compute_size_matches_with_stub_longer_than_headers() {
+        // ARRANGE
+        let stub_bytes = generate_minimal_stub();
+        let cmdline = vec![0x01];
+
+        // ACT
+        let computed = compute_size(
+            &stub_bytes,
+            u64::try_from(cmdline.len()).unwrap_or(0),
+            2,
+            3,
+            None,
+        )
+        .expect("compute_size must succeed");
+
+        let mut stub_reader = Cursor::new(stub_bytes);
+        let mut cmdline_reader = Cursor::new(cmdline);
+        let mut kernel_reader = Cursor::new(vec![0x02; 2]);
+        let mut initrd_reader = Cursor::new(vec![0x03; 3]);
+        let mut output = Vec::new();
+
+        build(
+            BuildInput {
+                stub: SizedPart {
+                    len: u64::try_from(stub_reader.get_ref().len()).unwrap_or(0),
+                    reader: &mut stub_reader,
+                },
+                cmdline: part(&mut cmdline_reader),
+                kernel: part(&mut kernel_reader),
+                initramfs: part(&mut initrd_reader),
+                dtb: None,
+            },
+            &mut output,
+        )
+        .expect("build must succeed");
+
+        // ASSERT
+        assert_eq!(u64::try_from(output.len()).unwrap_or(0), computed);
+    }
+
+    #[test]
+    fn compute_size_rejects_invalid_stub() {
+        // ARRANGE & ACT
+        let result = compute_size(b"not a PE file", 10, 10, 10, None);
+
+        // ASSERT
+        result.unwrap_err();
+    }
+
+    #[test]
+    fn compute_size_rejects_oversized_component() {
+        // ARRANGE
+        let stub_bytes = generate_minimal_stub();
+
+        // ACT
+        let result = compute_size(
+            &stub_bytes,
+            u64::from(u32::MAX).saturating_add(1),
+            10,
+            10,
+            None,
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg)) if msg.contains("too large")
+        ));
     }
 }
