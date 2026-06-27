@@ -6,11 +6,9 @@ use parttable::error::ParttableError;
 use parttable::error::Result as ParttableResult;
 use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
-use parttable::mbr;
 
 use crate::error::{MisoError, Result};
 
-/// Sector size for the raw disk image (512 bytes).
 const SECTOR_SIZE: u64 = 512;
 
 type PlacementResult = ParttableResult<()>;
@@ -28,6 +26,19 @@ pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
         .checked_mul(SECTOR_SIZE)
         .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
 
+    let mut table = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
+    let request = PlacementRequest {
+        slot: Slot::Exact(1),
+        start: Start::FirstUsable,
+        size: Size::Bytes(efi_image_len),
+        alignment_lba: ALIGN_1_MIB_SECTORS,
+        type_guid: EFI_GUID,
+        unique_guid: [0xAA; 16],
+        attributes: 0,
+        name: "EFI".to_owned(),
+    };
+    let placement = table.place_partition(request, SECTOR_SIZE)?;
+
     let mut cursor = {
         let mut buf = Cursor::new(Vec::new());
         let last_byte = disk_size
@@ -40,21 +51,7 @@ pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
         buf
     };
 
-    let mut gpt = Table::create(&mut cursor, SECTOR_SIZE, [0xff; 16])?;
-    let request = PlacementRequest {
-        slot: Slot::Exact(1),
-        start: Start::FirstUsable,
-        size: Size::Bytes(efi_image_len),
-        alignment_lba: ALIGN_1_MIB_SECTORS,
-        type_guid: EFI_GUID,
-        unique_guid: [0xAA; 16],
-        attributes: 0,
-        name: "EFI".to_owned(),
-    };
-    let placement = gpt.place_partition(request, SECTOR_SIZE)?;
-    gpt.write(&mut cursor)?;
-
-    mbr::io::write_protective(&mut cursor, disk_size, SECTOR_SIZE)?;
+    table.write_primary_to(disk_sectors, &mut cursor)?;
 
     let partition_offset = placement
         .partition
@@ -64,28 +61,18 @@ pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
     cursor.seek(SeekFrom::Start(partition_offset))?;
     cursor.write_all(efi_image)?;
 
+    table.write_backup_to(disk_sectors, &mut cursor)?;
+
     out.write_all(cursor.into_inner().as_slice())?;
 
     Ok(())
 }
 
-/// Computes the number of sectors needed for the raw disk image to fit the ESP partition.
 fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
     let mut disk_sectors = ALIGN_1_MIB_SECTORS * 2;
 
     loop {
-        let disk_size = disk_sectors
-            .checked_mul(SECTOR_SIZE)
-            .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
-        let mut disk = std::io::Cursor::new(Vec::new());
-        let last_byte = disk_size
-            .checked_sub(1)
-            .ok_or(MisoError::Gpt("raw image size underflowed".to_owned()))?;
-        drop(disk.seek(SeekFrom::Start(last_byte)));
-        drop(disk.write_all(&[0]));
-        drop(disk.seek(SeekFrom::Start(0)));
-
-        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
+        let mut gpt = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
         let request = PlacementRequest {
             slot: Slot::Exact(1),
             start: Start::FirstUsable,
@@ -112,7 +99,6 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
     }
 }
 
-/// Interprets the result of a partition placement attempt.
 fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u64>> {
     match placement {
         Ok(()) => Ok(Some(disk_sectors)),
@@ -125,11 +111,10 @@ fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u6
 mod tests {
     use std::io::Cursor;
 
-    use esp::{Arch, EspSpec};
+    use esp::{Arch, EspSpec, build};
     use parttable::{
-        error::ParttableError,
         gpt::{
-            table::Table,
+            table::Table as GptTable,
             types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start},
         },
         mbr::types::MBR_PROTECTIVE_GPT_TYPE,
@@ -140,22 +125,11 @@ mod tests {
 
     fn minimal_esp() -> Vec<u8> {
         let spec = EspSpec::with_uki(Arch::X86_64, b"fake-uki".to_vec(), vec![]);
-        esp::build(&spec).expect("should build FAT32 image")
+        build(&spec).expect("should build FAT32 image")
     }
 
     fn try_place_efi_partition(disk_sectors: u64, efi_image_bytes: u64) -> Result<()> {
-        let disk_size = disk_sectors
-            .checked_mul(SECTOR_SIZE)
-            .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
-        let mut disk = Cursor::new(Vec::new());
-        let last_byte = disk_size
-            .checked_sub(1)
-            .ok_or(MisoError::Gpt("raw image size underflowed".to_owned()))?;
-        drop(disk.seek(SeekFrom::Start(last_byte)));
-        drop(disk.write_all(&[0]));
-        drop(disk.seek(SeekFrom::Start(0)));
-
-        let mut gpt = Table::create(&mut disk, SECTOR_SIZE, [0xff; 16])?;
+        let mut gpt = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
 
         gpt.place_partition(
             PlacementRequest {
@@ -186,8 +160,8 @@ mod tests {
         // ASSERT
         let data = buf.into_inner();
         assert!(!data.is_empty());
-        let mut cursor = Cursor::new(data);
-        let gpt = Table::read(&mut cursor).expect("GPT must be valid");
+        let mut cursor = Cursor::new(data.clone());
+        let gpt = GptTable::read(&mut cursor).expect("GPT must be readable");
         assert!(gpt.has_used_partitions(), "must have a partition");
     }
 
@@ -229,8 +203,9 @@ mod tests {
         write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
-        let mut cursor = Cursor::new(buf.into_inner());
-        let gpt = Table::read(&mut cursor).expect("GPT must be valid");
+        let data = buf.into_inner();
+        let mut cursor = Cursor::new(data.clone());
+        let gpt = GptTable::read(&mut cursor).expect("must read GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.type_guid, EFI_GUID);
     }
@@ -239,7 +214,7 @@ mod tests {
     fn write_raw_esp_contains_uki_data() {
         // ARRANGE
         let spec = EspSpec::with_uki(Arch::X86_64, b"test-uki-content".to_vec(), vec![]);
-        let esp = esp::build(&spec).expect("build FAT32");
+        let esp = build(&spec).expect("build FAT32");
         let mut buf = Cursor::new(Vec::new());
 
         // ACT
@@ -247,8 +222,8 @@ mod tests {
 
         // ASSERT
         let data = buf.into_inner();
-        let mut cursor = Cursor::new(&data);
-        let gpt = Table::read(&mut cursor).expect("GPT must be valid");
+        let mut cursor = Cursor::new(data.clone());
+        let gpt = GptTable::read(&mut cursor).expect("must read GPT");
         let part = gpt.partition(1).expect("must have partition");
         let offset = usize::try_from(
             part.starting_lba
@@ -272,8 +247,9 @@ mod tests {
         write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
-        let mut cursor = Cursor::new(buf.into_inner());
-        let gpt = Table::read(&mut cursor).expect("GPT must be valid");
+        let data = buf.into_inner();
+        let mut cursor = Cursor::new(data.clone());
+        let gpt = GptTable::read(&mut cursor).expect("must read GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(
             part.starting_lba.rem_euclid(ALIGN_1_MIB_SECTORS),
@@ -312,8 +288,9 @@ mod tests {
         write(&mut buf, &esp).expect("write_raw must succeed");
 
         // ASSERT
-        let mut cursor = Cursor::new(buf.into_inner());
-        let gpt = Table::read(&mut cursor).expect("GPT must be valid");
+        let data = buf.into_inner();
+        let mut cursor = Cursor::new(data.clone());
+        let gpt = GptTable::read(&mut cursor).expect("must read GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.name.as_str(), "EFI");
     }

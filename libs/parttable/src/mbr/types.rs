@@ -26,11 +26,3 @@ pub struct MbrPartitionEntry {
 }
 
 pub(crate) const MBR_BYTES: usize = 512;
-pub(crate) const MBR_ENTRY_BYTES: usize = 16;
-pub(crate) const MBR_MAX_SLOTS: u8 = 4;
-pub(crate) const MBR_CHS_LBA_PLACEHOLDER: [u8; 3] = [0xFE, 0xFF, 0xFF];
-pub(crate) const MBR_STARTING_LBA_OFFSET: usize = 8;
-pub(crate) const MBR_SIZE_LBA_OFFSET: usize = 12;
-pub(crate) const MBR_PARTITION_TYPE_OFFSET: usize = 4;
-pub(crate) const MBR_PARTITION_STARTING_LBA: u32 = 1;
-pub(crate) const MBR_BOOT_SIGNATURE_OFFSET: u64 = 510;

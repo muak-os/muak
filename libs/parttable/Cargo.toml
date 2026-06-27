@@ -16,6 +16,9 @@ gptman = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
+# Filesyste
+crc32fast = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 

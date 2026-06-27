@@ -1,14 +1,8 @@
-//! MBR I/O utilities.
-
-use std::io::{Seek, SeekFrom, Write};
+//! Protective MBR serialization.
 
 use super::types::{
-    MBR_BOOT_SIGNATURE, MBR_BOOT_SIGNATURE_OFFSET, MBR_BYTES, MBR_CHS_LBA_PLACEHOLDER,
-    MBR_ENTRY_BYTES, MBR_MAX_SLOTS, MBR_PARTITION_ENTRY_OFFSET, MBR_PARTITION_STARTING_LBA,
-    MBR_PARTITION_TYPE_OFFSET, MBR_PROTECTIVE_GPT_TYPE, MBR_SIZE_LBA_OFFSET,
-    MBR_STARTING_LBA_OFFSET, MbrPartitionEntry,
+    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_PARTITION_ENTRY_OFFSET, MBR_PROTECTIVE_GPT_TYPE,
 };
-use crate::error::{ParttableError, Result};
 
 /// Returns the protective MBR partition size in LBAs.
 #[must_use]
@@ -18,100 +12,45 @@ pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
     u32::try_from(size_lba).unwrap_or(u32::MAX)
 }
 
-/// Writes one MBR partition entry into `slot`.
-///
-/// # Errors
-///
-/// Returns an error when `slot` is invalid or the underlying writer fails.
-pub fn write_entry<W: Write + Seek>(
-    writer: &mut W,
-    slot: u8,
-    entry: &MbrPartitionEntry,
-) -> Result<()> {
-    if slot >= MBR_MAX_SLOTS {
-        return Err(ParttableError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("invalid MBR slot {slot}; expected 0..=3"),
-        )));
+/// Returns a complete 512-byte protective MBR as a fixed-size array.
+#[must_use]
+pub fn protective_mbr_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES] {
+    let mut mbr = [0_u8; MBR_BYTES];
+    let entry = build_partition_entry(disk_size, sector_size);
+    let Some(off) = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).ok() else {
+        return mbr;
+    };
+    let end = off.saturating_add(16);
+    if let Some(dst) = mbr.get_mut(off..end) {
+        dst.copy_from_slice(&entry);
+    }
+    if let Some(dst) = mbr.get_mut(MBR_BYTES.saturating_sub(2)..) {
+        dst.copy_from_slice(&MBR_BOOT_SIGNATURE);
     }
 
-    let entry_bytes = u64::try_from(MBR_ENTRY_BYTES).unwrap_or(0);
-    let offset =
-        MBR_PARTITION_ENTRY_OFFSET.saturating_add(u64::from(slot).saturating_mul(entry_bytes));
-    let mut raw = [0_u8; MBR_ENTRY_BYTES];
-    raw[0] = if entry.bootable { 0x80 } else { 0x00 };
-    raw[1..4].copy_from_slice(&MBR_CHS_LBA_PLACEHOLDER);
-    raw[MBR_PARTITION_TYPE_OFFSET] = entry.partition_type;
-    raw[5..8].copy_from_slice(&MBR_CHS_LBA_PLACEHOLDER);
-    raw[MBR_STARTING_LBA_OFFSET..MBR_STARTING_LBA_OFFSET + 4]
-        .copy_from_slice(&entry.starting_lba.to_le_bytes());
-    raw[MBR_SIZE_LBA_OFFSET..MBR_SIZE_LBA_OFFSET + 4]
-        .copy_from_slice(&entry.size_lba.to_le_bytes());
-
-    writer.seek(SeekFrom::Start(offset))?;
-    writer.write_all(&raw)?;
-    Ok(())
+    mbr
 }
 
-/// Writes the canonical MBR boot signature.
-///
-/// # Errors
-///
-/// Returns an error when seeking or writing the signature fails.
-pub fn write_signature<W: Write + Seek>(writer: &mut W) -> Result<()> {
-    writer.seek(SeekFrom::Start(MBR_BOOT_SIGNATURE_OFFSET))?;
-    writer.write_all(&MBR_BOOT_SIGNATURE)?;
-    Ok(())
-}
+fn build_partition_entry(disk_size: u64, sector_size: u64) -> [u8; 16] {
+    let mut entry = [0_u8; 16];
+    entry[0] = 0x00;
+    entry[1] = 0x00;
+    entry[2] = 0x02;
+    entry[3] = 0x00;
+    entry[4] = MBR_PROTECTIVE_GPT_TYPE;
+    entry[5] = 0xFF;
+    entry[6] = 0xFF;
+    entry[7] = 0xFF;
+    entry[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    entry[12..16].copy_from_slice(&protective_size_lba(disk_size, sector_size).to_le_bytes());
 
-/// Writes a GPT protective MBR covering the whole disk.
-///
-/// # Errors
-///
-/// Returns an error when any write to the output device fails.
-pub fn write_protective<W: Write + Seek>(
-    writer: &mut W,
-    disk_size: u64,
-    sector_size: u64,
-) -> Result<()> {
-    let mut pmbr = [0_u8; MBR_BYTES];
-    let mut cursor = std::io::Cursor::new(pmbr.as_mut_slice());
-    let entry = MbrPartitionEntry {
-        bootable: false,
-        partition_type: MBR_PROTECTIVE_GPT_TYPE,
-        starting_lba: MBR_PARTITION_STARTING_LBA,
-        size_lba: protective_size_lba(disk_size, sector_size),
-    };
-
-    write_entry(&mut cursor, 0, &entry)?;
-    write_signature(&mut cursor)?;
-
-    writer.seek(SeekFrom::Start(0))?;
-    writer.write_all(&pmbr)?;
-    Ok(())
+    entry
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
-    use super::{
-        super::types::{
-            MBR_BOOT_SIGNATURE, MBR_EFI_SYSTEM_TYPE, MBR_PARTITION_ENTRY_OFFSET,
-            MBR_PROTECTIVE_GPT_TYPE, MbrPartitionEntry,
-        },
-        protective_size_lba, write_entry, write_protective, write_signature,
-    };
-
-    fn le_u32_at(data: &[u8], offset: usize) -> u32 {
-        let end = offset
-            .checked_add(4)
-            .expect("test field offset must not overflow");
-        let bytes = data
-            .get(offset..end)
-            .expect("test data must contain field bytes");
-        u32::from_le_bytes(bytes.try_into().expect("field must be four bytes"))
-    }
+    use super::super::types::MBR_PROTECTIVE_GPT_TYPE;
+    use super::*;
 
     #[test]
     fn protective_size_lba_uses_all_remaining_sectors() {
@@ -150,119 +89,45 @@ mod tests {
     }
 
     #[test]
-    fn write_entry_writes_lba_fields() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-        let entry = MbrPartitionEntry {
-            bootable: false,
-            partition_type: MBR_EFI_SYSTEM_TYPE,
-            starting_lba: 123,
-            size_lba: 456,
-        };
-
-        // ACT
-        write_entry(&mut cursor, 0, &entry).expect("MBR entry write must work");
+    fn protective_mbr_bytes_has_correct_type() {
+        // ARRANGE / ACT
+        let mbr = protective_mbr_bytes(4096, 512);
 
         // ASSERT
-        let data = cursor.into_inner();
-        assert_eq!(data.get(450), Some(&MBR_EFI_SYSTEM_TYPE));
-        assert_eq!(le_u32_at(&data, 454), 123);
-        assert_eq!(le_u32_at(&data, 458), 456);
+        assert_eq!(mbr.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
+        assert_eq!(mbr.get(510), Some(&0x55));
+        assert_eq!(mbr.get(511), Some(&0xAA));
     }
 
     #[test]
-    fn write_entry_writes_bootable_flag() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-        let entry = MbrPartitionEntry {
-            bootable: true,
-            partition_type: MBR_EFI_SYSTEM_TYPE,
-            starting_lba: 1,
-            size_lba: 1,
-        };
-
-        // ACT
-        write_entry(&mut cursor, 0, &entry).expect("MBR entry write must work");
+    fn protective_mbr_bytes_has_starting_lba_one() {
+        // ARRANGE / ACT
+        let mbr = protective_mbr_bytes(4096, 512);
 
         // ASSERT
-        let data = cursor.into_inner();
-        assert_eq!(data.get(446), Some(&0x80));
+        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 8;
+        let start = u32::from_le_bytes(
+            mbr.get(offset..offset + 4)
+                .expect("start LBA bytes")
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(start, 1);
     }
 
     #[test]
-    fn write_entry_rejects_invalid_slot() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-        let entry = MbrPartitionEntry {
-            bootable: false,
-            partition_type: MBR_EFI_SYSTEM_TYPE,
-            starting_lba: 1,
-            size_lba: 1,
-        };
-
-        // ACT
-        let result = write_entry(&mut cursor, 4, &entry);
+    fn protective_mbr_bytes_has_partition_size() {
+        // ARRANGE / ACT
+        let mbr = protective_mbr_bytes(4096, 512);
 
         // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn write_signature_writes_magic_bytes() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-
-        // ACT
-        write_signature(&mut cursor).expect("signature write must work");
-
-        // ASSERT
-        let data = cursor.into_inner();
-        assert_eq!(data.get(510..512), Some(MBR_BOOT_SIGNATURE.as_slice()));
-    }
-
-    #[test]
-    fn write_protective_writes_signature_and_type() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-
-        // ACT
-        write_protective(&mut cursor, 4096, 512).expect("protective MBR write must work");
-
-        // ASSERT
-        let data = cursor.into_inner();
-        assert_eq!(data.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
-        assert_eq!(data.get(510..512), Some(MBR_BOOT_SIGNATURE.as_slice()));
-    }
-
-    #[test]
-    fn write_protective_writes_starting_lba_one() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-
-        // ACT
-        write_protective(&mut cursor, 4096, 512).expect("protective MBR write must work");
-
-        // ASSERT
-        let data = cursor.into_inner();
-        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
-            .expect("MBR partition entry offset must fit usize")
-            + 8;
-        assert_eq!(le_u32_at(&data, offset), 1);
-    }
-
-    #[test]
-    fn write_protective_writes_partition_size() {
-        // ARRANGE
-        let mut cursor = Cursor::new(vec![0_u8; 512]);
-
-        // ACT
-        write_protective(&mut cursor, 4096, 512).expect("protective MBR write must work");
-
-        // ASSERT
-        let data = cursor.into_inner();
-        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
-            .expect("MBR partition entry offset must fit usize")
-            + 12;
-        assert_eq!(le_u32_at(&data, offset), 7);
+        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 12;
+        let size = u32::from_le_bytes(
+            mbr.get(offset..offset + 4)
+                .expect("size LBA bytes")
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(size, 7);
     }
 }

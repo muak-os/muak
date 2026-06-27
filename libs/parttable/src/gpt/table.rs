@@ -1,6 +1,6 @@
 //! GPT table wrapper with a stable workspace-local API.
 
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 
 use gptman::{GPT, GPTPartitionEntry, PartitionName};
 
@@ -14,20 +14,17 @@ pub struct Table {
 }
 
 impl Table {
-    /// Creates a new GPT on `device` using the device size implied by the writer.
+    /// Creates a new GPT from known disk geometry.
     ///
     /// # Errors
     ///
-    /// Returns an error when GPT initialization or the underlying I/O fails.
-    pub fn create<W: Read + Write + Seek>(
-        device: &mut W,
-        sector_size: u64,
-        disk_guid: [u8; 16],
-    ) -> Result<Self> {
-        let inner = match GPT::new_from(device, sector_size, disk_guid) {
-            Ok(inner) => inner,
-            Err(err) => return Err(ParttableError::Gpt(err.to_string())),
-        };
+    /// Returns an error when GPT initialization or arithmetic overflows.
+    pub fn create(sector_count: u64, sector_size: u64, disk_guid: [u8; 16]) -> Result<Self> {
+        let size = usize::try_from(sector_count.saturating_mul(sector_size))
+            .map_err(|_err| ParttableError::Gpt("disk size overflow".to_owned()))?;
+        let inner = GPT::new_from(&mut Cursor::new(vec![0; size]), sector_size, disk_guid)
+            .map_err(|e| ParttableError::Gpt(e.to_string()))?;
+
         Ok(Self { inner })
     }
 
@@ -37,10 +34,8 @@ impl Table {
     ///
     /// Returns an error when the GPT cannot be decoded from `reader`.
     pub fn read<R: Read + Seek>(reader: &mut R) -> Result<Self> {
-        let inner = match GPT::find_from(reader) {
-            Ok(inner) => inner,
-            Err(err) => return Err(ParttableError::Gpt(err.to_string())),
-        };
+        let inner = GPT::find_from(reader).map_err(|e| ParttableError::Gpt(e.to_string()))?;
+
         Ok(Self { inner })
     }
 
@@ -166,16 +161,52 @@ impl Table {
         }
     }
 
-    /// Writes the GPT back into `writer`.
+    /// Writes the protective MBR, GPT header, and partition entries sequentially.
     ///
     /// # Errors
     ///
-    /// Returns an error when the GPT cannot be encoded to `writer`.
-    pub fn write<W: Write + Seek>(&mut self, writer: &mut W) -> Result<()> {
-        match self.inner.write_into(writer) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(ParttableError::Gpt(err.to_string())),
-        }
+    /// Returns an error when writing the data fails.
+    pub fn write_primary_to<W: Write>(&self, sector_count: u64, writer: &mut W) -> Result<()> {
+        use crate::mbr::io;
+
+        let mbr = io::protective_mbr_bytes(
+            sector_count.saturating_mul(self.inner.sector_size),
+            self.inner.sector_size,
+        );
+        writer.write_all(&mbr)?;
+
+        let (header, entries_crc) = gpt_header_bytes(&self.inner, false, sector_count);
+        let entries = partition_entries_bytes(&self.inner);
+
+        let mut header_with_crc = header;
+        header_with_crc[88..92].copy_from_slice(&entries_crc.to_le_bytes());
+        let header_crc = crc32fast::hash(&header_with_crc);
+        header_with_crc[16..20].copy_from_slice(&header_crc.to_le_bytes());
+
+        write_gpt_header(&header_with_crc, writer)?;
+        writer.write_all(&entries)?;
+
+        Ok(())
+    }
+
+    /// Writes the backup GPT (partition entries + header) at the end of the disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing the data fails.
+    pub fn write_backup_to<W: Write>(&self, sector_count: u64, writer: &mut W) -> Result<()> {
+        let entries = partition_entries_bytes(&self.inner);
+        let (header, entries_crc) = gpt_header_bytes(&self.inner, true, sector_count);
+
+        let mut header_with_crc = header;
+        header_with_crc[88..92].copy_from_slice(&entries_crc.to_le_bytes());
+        let header_crc = crc32fast::hash(&header_with_crc);
+        header_with_crc[16..20].copy_from_slice(&header_crc.to_le_bytes());
+
+        writer.write_all(&entries)?;
+        write_gpt_header(&header_with_crc, writer)?;
+
+        Ok(())
     }
 
     fn resolve_start_anchor(&self, start: Start) -> Result<u64> {
@@ -324,16 +355,98 @@ pub fn align_up_lba(lba: u64, align: u64) -> u64 {
     lba.next_multiple_of(align)
 }
 
+fn gpt_header_bytes(gpt: &GPT, backup: bool, sector_count: u64) -> ([u8; 92], u32) {
+    let mut hdr = [0_u8; 92];
+    hdr[0..8].copy_from_slice(b"EFI PART");
+    hdr[8..12].copy_from_slice(&0x0001_0000_u32.to_le_bytes());
+    hdr[12..16].copy_from_slice(&92_u32.to_le_bytes());
+    let current_lba = if backup {
+        sector_count.saturating_sub(1)
+    } else {
+        1
+    };
+    let backup_lba = if backup {
+        1
+    } else {
+        sector_count.saturating_sub(1)
+    };
+    hdr[24..32].copy_from_slice(&current_lba.to_le_bytes());
+    hdr[32..40].copy_from_slice(&backup_lba.to_le_bytes());
+    hdr[40..48].copy_from_slice(&gpt.header.first_usable_lba.to_le_bytes());
+    hdr[48..56].copy_from_slice(&gpt.header.last_usable_lba.to_le_bytes());
+    hdr[56..72].copy_from_slice(&gpt.header.disk_guid);
+    let entries_lba = if backup {
+        sector_count.saturating_sub(1).saturating_sub(
+            u64::from(gpt.header.number_of_partition_entries)
+                .saturating_mul(u64::from(gpt.header.size_of_partition_entry))
+                .div_ceil(gpt.sector_size),
+        )
+    } else {
+        gpt.header.partition_entry_lba
+    };
+    hdr[72..80].copy_from_slice(&entries_lba.to_le_bytes());
+    hdr[80..84].copy_from_slice(&gpt.header.number_of_partition_entries.to_le_bytes());
+    hdr[84..88].copy_from_slice(&gpt.header.size_of_partition_entry.to_le_bytes());
+
+    let entries = partition_entries_bytes(gpt);
+    (hdr, crc32fast::hash(&entries))
+}
+
+fn partition_entries_bytes(gpt: &GPT) -> Vec<u8> {
+    let count = usize::try_from(gpt.header.number_of_partition_entries).unwrap_or(0);
+    let entry_size = usize::try_from(gpt.header.size_of_partition_entry).unwrap_or(0);
+    let mut buf = vec![0_u8; count.saturating_mul(entry_size)];
+
+    for (i, entry) in gpt.iter() {
+        let offset = i
+            .saturating_sub(1)
+            .saturating_mul(u32::try_from(entry_size).unwrap_or(0));
+        let offset = usize::try_from(offset).unwrap_or(0);
+        let Some(dst) = buf.get_mut(offset..offset.saturating_add(128)) else {
+            continue;
+        };
+        let entry_bytes = partition_entry_to_bytes(entry);
+        dst.copy_from_slice(&entry_bytes);
+    }
+
+    buf
+}
+
+fn partition_entry_to_bytes(entry: &GPTPartitionEntry) -> [u8; 128] {
+    let mut bytes = [0_u8; 128];
+    bytes[0..16].copy_from_slice(&entry.partition_type_guid);
+    bytes[16..32].copy_from_slice(&entry.unique_partition_guid);
+    bytes[32..40].copy_from_slice(&entry.starting_lba.to_le_bytes());
+    bytes[40..48].copy_from_slice(&entry.ending_lba.to_le_bytes());
+    bytes[48..56].copy_from_slice(&entry.attribute_bits.to_le_bytes());
+    let name_bytes: Vec<u8> = entry
+        .partition_name
+        .as_str()
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let name_len = name_bytes.len().min(72);
+    let name_end = 56_usize.saturating_add(name_len);
+    if let Some(dst) = bytes.get_mut(56..name_end) {
+        dst.copy_from_slice(name_bytes.get(..name_len).unwrap_or(&[]));
+    }
+
+    bytes
+}
+
+fn write_gpt_header<W: Write>(header: &[u8; 92], writer: &mut W) -> Result<()> {
+    writer.write_all(header)?;
+    let pad = [0_u8; 512 - 92];
+    writer.write_all(&pad)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
-    use super::{super::types::*, *};
+    use super::super::types::*;
+    use super::*;
     use crate::error::ParttableError;
-
-    fn blank_disk(size: usize) -> Cursor<Vec<u8>> {
-        Cursor::new(vec![0_u8; size])
-    }
 
     fn efi_partition(starting_lba: u64, ending_lba: u64) -> Partition {
         Partition {
@@ -428,11 +541,8 @@ mod tests {
 
     #[test]
     fn create_table_exposes_usable_lba_range() {
-        // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-
-        // ACT
-        let table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        // ARRANGE / ACT
+        let table = Table::create(8 * 2048, 512, [0xCD; 16]).expect("table must be created");
 
         // ASSERT
         assert!(table.first_usable_lba() > 0);
@@ -440,19 +550,28 @@ mod tests {
     }
 
     #[test]
-    fn set_partition_persists_through_write_and_read() {
+    fn partition_persists_through_sequential_write_and_read() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
 
         // ACT
-        table.write(&mut disk).expect("table must be written");
-        disk.set_position(0);
-        let reread = Table::read(&mut disk).expect("table must be read back");
+        let mut buf = Vec::new();
+        table
+            .write_primary_to(sector_count, &mut buf)
+            .expect("primary write must succeed");
+        table
+            .write_backup_to(sector_count, &mut buf)
+            .expect("backup write must succeed");
+
+        let mut cursor = Cursor::new(buf);
+        let reread = GPT::find_from(&mut cursor).expect("GPT must be readable");
 
         // ASSERT
-        let partition = reread.partition(1).expect("partition must exist");
+        let reread_table = Table { inner: reread };
+        let partition = reread_table.partition(1).expect("partition must exist");
         assert_eq!(partition.type_guid, EFI_GUID);
         assert_eq!(partition.starting_lba, 2048);
         assert_eq!(partition.ending_lba, 4095);
@@ -460,10 +579,65 @@ mod tests {
     }
 
     #[test]
+    fn sequential_write_matches_gptman_write_into() {
+        let sector_count = 8 * 2048;
+
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+        let mut seq_buf = Vec::new();
+        table.write_primary_to(sector_count, &mut seq_buf).unwrap();
+        table.write_backup_to(sector_count, &mut seq_buf).unwrap();
+
+        let mut disk = Cursor::new(vec![0_u8; 512 * usize::try_from(sector_count).unwrap_or(0)]);
+        let mut ref_gpt = GPT::new_from(&mut disk, 512, [0xCD; 16]).expect("gptman create");
+        ref_gpt[1] = efi_partition(2048, 4095).into();
+        ref_gpt.write_into(&mut disk).expect("gptman write");
+        let ref_data = disk.into_inner();
+
+        let primary_start: usize = 512;
+        let entries_start: usize = primary_start + 512;
+        let entries_end = entries_start.saturating_add(16384);
+        assert_eq!(
+            seq_buf.get(entries_start..entries_end).unwrap_or(&[]),
+            ref_data.get(entries_start..entries_end).unwrap_or(&[]),
+            "primary partition entries must match"
+        );
+
+        let backup_header_start = ref_data.len().saturating_sub(512);
+        let backup_entries_start = backup_header_start.saturating_sub(16384);
+        let seq_backup_header_start = seq_buf.len().saturating_sub(512);
+        let seq_backup_entries_start = seq_backup_header_start.saturating_sub(16384);
+        let seq_backup_end = seq_backup_entries_start.saturating_add(16384);
+        let ref_backup_end = backup_entries_start.saturating_add(16384);
+        assert_eq!(
+            seq_buf
+                .get(seq_backup_entries_start..seq_backup_end)
+                .unwrap_or(&[]),
+            ref_data
+                .get(backup_entries_start..ref_backup_end)
+                .unwrap_or(&[]),
+            "backup partition entries must match"
+        );
+        let seq_hdr_end = seq_backup_header_start.saturating_add(92);
+        let ref_hdr_end = backup_header_start.saturating_add(92);
+        assert_eq!(
+            seq_buf
+                .get(seq_backup_header_start..seq_hdr_end)
+                .unwrap_or(&[]),
+            ref_data
+                .get(backup_header_start..ref_hdr_end)
+                .unwrap_or(&[]),
+            "backup GPT headers must match"
+        );
+    }
+
+    #[test]
     fn used_partitions_returns_only_used_entries() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
         table.set_partition(
             2,
@@ -489,8 +663,9 @@ mod tests {
     #[test]
     fn highest_used_partition_number_returns_maximum_used_slot() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(2, efi_partition(4096, 8191));
         table.set_partition(7, efi_partition(8192, 12287));
 
@@ -504,8 +679,9 @@ mod tests {
     #[test]
     fn last_used_ending_lba_returns_farthest_partition_end() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
         table.set_partition(2, efi_partition(4096, 12287));
 
@@ -519,8 +695,9 @@ mod tests {
     #[test]
     fn next_free_slot_returns_first_unused_slot() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
         table.set_partition(3, efi_partition(4096, 8191));
 
@@ -534,8 +711,9 @@ mod tests {
     #[test]
     fn place_partition_aligns_first_usable_request() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
 
         // ACT
         let placement = table
@@ -564,8 +742,9 @@ mod tests {
     #[test]
     fn place_partition_after_partition_uses_previous_end() {
         // ARRANGE
-        let mut disk = blank_disk(32 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 32 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         let first = table
             .place_partition(
                 request(
@@ -606,8 +785,9 @@ mod tests {
     #[test]
     fn place_partition_auto_slot_uses_next_free_slot() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
 
         // ACT
@@ -631,8 +811,9 @@ mod tests {
     #[test]
     fn place_partition_fill_to_last_usable_extends_to_table_end() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
 
         // ACT
         let placement = table
@@ -655,8 +836,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_overlap() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
 
         // ACT
@@ -678,8 +860,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_used_exact_slot() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
 
         // ACT
@@ -701,8 +884,9 @@ mod tests {
     #[test]
     fn remove_partition_clears_used_slot() {
         // ARRANGE
-        let mut disk = blank_disk(8 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
 
         // ACT
@@ -718,8 +902,9 @@ mod tests {
     #[test]
     fn place_partition_auto_slot_rejects_fully_used_table() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         let max_slots = table
             .inner
             .iter()
@@ -753,8 +938,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_missing_anchor_partition() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
 
         // ACT
         let result = table.place_partition(
@@ -777,8 +963,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_zero_sized_bytes_request() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
 
         // ACT
         let result = table.place_partition(
@@ -801,8 +988,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_zero_sized_lba_request() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
 
         // ACT
         let result = table.place_partition(
@@ -825,8 +1013,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_start_after_end() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         let invalid_start = table.last_usable_lba() + 1;
         let mut request = request(
             Slot::Exact(1),
@@ -849,8 +1038,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_start_before_first_usable() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         let invalid_start = table.first_usable_lba() - 1;
         let mut request = request(
             Slot::Exact(1),
@@ -873,8 +1063,9 @@ mod tests {
     #[test]
     fn place_partition_rejects_end_after_last_usable() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sector_count = 16 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         let invalid_start = table.last_usable_lba();
 
         // ACT

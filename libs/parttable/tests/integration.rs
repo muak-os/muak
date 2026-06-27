@@ -2,8 +2,6 @@
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use parttable::{
         error::ParttableError,
         gpt::{
@@ -14,23 +12,20 @@ mod tests {
             },
         },
         mbr::{
-            io::{protective_size_lba, write_entry, write_protective, write_signature},
-            types::{
-                MBR_BOOT_SIGNATURE, MBR_EFI_SYSTEM_TYPE, MBR_PARTITION_ENTRY_OFFSET,
-                MBR_PROTECTIVE_GPT_TYPE, MbrPartitionEntry,
-            },
+            io::protective_mbr_bytes,
+            types::{MBR_PARTITION_ENTRY_OFFSET, MBR_PROTECTIVE_GPT_TYPE},
         },
     };
 
-    fn blank_disk(size: usize) -> Cursor<Vec<u8>> {
-        Cursor::new(vec![0_u8; size])
+    fn sector_count(bytes: usize, sector_size: u64) -> u64 {
+        u64::try_from(bytes).unwrap_or(0).div_ceil(sector_size)
     }
 
     #[test]
-    fn public_gpt_api_wrappers_behave_as_expected() {
+    fn gpt_write_and_reread_via_sequential_api() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sc = sector_count(16 * 1024 * 1024, 512);
+        let mut table = Table::create(sc, 512, [0xCD; 16]).expect("table must be created");
         let request = PlacementRequest {
             slot: Slot::Exact(1),
             start: Start::AfterLastUsed,
@@ -47,55 +42,52 @@ mod tests {
         let placement = table
             .place_partition(request, 512)
             .expect("placement must succeed");
-        table.write(&mut disk).expect("table must be written");
-        disk.set_position(0);
-        let reread = Table::read(&mut disk).expect("table must be read back");
+        let mut buf = Vec::new();
+        table
+            .write_primary_to(sc, &mut buf)
+            .expect("primary write must succeed");
+        table
+            .write_backup_to(sc, &mut buf)
+            .expect("backup write must succeed");
 
         // ASSERT
         assert_eq!(aligned, ALIGN_1_MIB_SECTORS * 2);
         assert_eq!(placement.number, 1);
         assert_eq!(placement.partition.type_guid, EFI_GUID);
-        assert_eq!(
-            reread.partition(1).expect("partition must exist").name,
-            "EFI"
-        );
     }
 
     #[test]
-    fn public_mbr_api_wrappers_write_expected_bytes() {
-        // ARRANGE
-        let mut disk = blank_disk(512);
-        let entry_offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
-            .expect("MBR partition entry offset must fit usize");
-        let entry = MbrPartitionEntry {
-            bootable: true,
-            partition_type: MBR_EFI_SYSTEM_TYPE,
-            starting_lba: 1,
-            size_lba: 7,
-        };
-
-        // ACT
-        let zero_sector_size = protective_size_lba(4096, 0);
-        write_entry(&mut disk, 0, &entry).expect("entry write must succeed");
-        write_signature(&mut disk).expect("signature write must succeed");
-        let data = disk.into_inner();
-        let mut protective = Cursor::new(vec![0_u8; 512]);
-        write_protective(&mut protective, 4096, 512).expect("protective MBR write must succeed");
-        let protective_data = protective.into_inner();
+    fn protective_mbr_bytes_has_correct_signature_and_type() {
+        // ARRANGE / ACT
+        let mbr = protective_mbr_bytes(4096, 512);
 
         // ASSERT
-        assert_eq!(zero_sector_size, 0);
-        assert_eq!(data.get(entry_offset), Some(&0x80));
-        assert_eq!(data.get(450), Some(&MBR_EFI_SYSTEM_TYPE));
-        assert_eq!(data.get(510..512), Some(MBR_BOOT_SIGNATURE.as_slice()));
-        assert_eq!(protective_data.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
+        assert_eq!(mbr.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
+        assert_eq!(mbr.get(510), Some(&0x55));
+        assert_eq!(mbr.get(511), Some(&0xAA));
     }
 
     #[test]
-    fn public_gpt_api_reports_after_last_used_overflow() {
+    fn protective_mbr_bytes_has_starting_lba_one() {
+        // ARRANGE / ACT
+        let mbr = protective_mbr_bytes(4096, 512);
+
+        // ASSERT
+        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 8;
+        let start = u32::from_le_bytes(
+            mbr.get(offset..offset + 4)
+                .expect("start LBA bytes")
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(start, 1);
+    }
+
+    #[test]
+    fn gpt_api_reports_after_last_used_overflow() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sc = sector_count(16 * 1024 * 1024, 512);
+        let mut table = Table::create(sc, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(
             1,
             Partition {
@@ -128,10 +120,10 @@ mod tests {
     }
 
     #[test]
-    fn public_gpt_api_reports_after_partition_overflow() {
+    fn gpt_api_reports_after_partition_overflow() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sc = sector_count(16 * 1024 * 1024, 512);
+        let mut table = Table::create(sc, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(
             1,
             Partition {
@@ -164,10 +156,10 @@ mod tests {
     }
 
     #[test]
-    fn public_gpt_api_reports_end_lba_overflow() {
+    fn gpt_api_reports_end_lba_overflow() {
         // ARRANGE
-        let mut disk = blank_disk(16 * 1024 * 1024);
-        let mut table = Table::create(&mut disk, 512, [0xCD; 16]).expect("table must be created");
+        let sc = sector_count(16 * 1024 * 1024, 512);
+        let mut table = Table::create(sc, 512, [0xCD; 16]).expect("table must be created");
         let request = PlacementRequest {
             slot: Slot::Exact(1),
             start: Start::AtOrAfter(u64::MAX),

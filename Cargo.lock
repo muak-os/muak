@@ -1538,6 +1538,7 @@ dependencies = [
 name = "parttable"
 version = "1.0.0-beta"
 dependencies = [
+ "crc32fast",
  "gptman",
  "tempfile",
  "thiserror 2.0.18",
