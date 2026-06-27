@@ -21,6 +21,9 @@ clap = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
+# Cryptography
+ring = { workspace = true }
+
 # Utilities
 object = { workspace = true }
 

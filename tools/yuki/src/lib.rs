@@ -13,6 +13,7 @@ mod stream;
 use std::io::{Read, Write};
 
 use error::{Result, YukiError};
+use ring::digest;
 
 /// A readable UKI component with an exact byte length.
 pub struct SizedPart<'a> {
@@ -58,7 +59,14 @@ pub fn build<W: Write>(mut input: BuildInput<'_>, writer: &mut W) -> Result<Vec<
     let gap_start = finalize_sections(&mut layout, &input)?;
 
     stream::patch_prefix(&mut stub_prefix, &metadata, &layout, new_section_count)?;
-    assemble_image(writer, &mut input, &stub_prefix, &metadata, gap_start)?;
+    assemble_image(
+        writer,
+        &mut input,
+        &stub_prefix,
+        &metadata,
+        gap_start,
+        &mut layout.sections,
+    )?;
 
     Ok(layout.sections)
 }
@@ -112,25 +120,67 @@ fn assemble_image<W: Write>(
     stub_prefix: &[u8],
     metadata: &pe::PeMetadata,
     gap_start: u64,
+    sections: &mut [section::Section],
 ) -> Result<()> {
+    let mut iter = sections.iter_mut();
+
     stream::copy_stub(&mut input.stub, writer, stub_prefix)?;
     stream::write_gap(writer, gap_start.saturating_sub(input.stub.len))?;
-    stream::write_part(
+
+    write_section(
         &mut input.cmdline,
         writer,
         metadata.file_alignment,
         ".cmdline",
+        &mut iter,
     )?;
+
     if let Some(ref mut dtb) = input.dtb {
-        stream::write_part(dtb, writer, metadata.file_alignment, ".dtb")?;
+        write_section(dtb, writer, metadata.file_alignment, ".dtb", &mut iter)?;
     }
-    stream::write_part(&mut input.kernel, writer, metadata.file_alignment, ".linux")?;
-    stream::write_part(
+
+    write_section(
+        &mut input.kernel,
+        writer,
+        metadata.file_alignment,
+        ".linux",
+        &mut iter,
+    )?;
+
+    write_section(
         &mut input.initramfs,
         writer,
         metadata.file_alignment,
         ".initrd",
+        &mut iter,
     )?;
 
     Ok(())
+}
+
+fn write_section<'a, W: Write>(
+    part: &mut SizedPart<'_>,
+    writer: &mut W,
+    file_alignment: u32,
+    name: &'static str,
+    sections: &mut impl Iterator<Item = &'a mut section::Section>,
+) -> Result<()> {
+    let mut ctx = digest::Context::new(&digest::SHA256);
+    stream::write_part(part, writer, file_alignment, name, Some(&mut ctx))?;
+    let Some(section) = sections.next() else {
+        return Err(YukiError::InvalidPeStructure(
+            "section count mismatch during assembly".to_owned(),
+        ));
+    };
+    section.checksum = finish_ctx(ctx);
+
+    Ok(())
+}
+
+fn finish_ctx(ctx: digest::Context) -> [u8; 32] {
+    let digest = ctx.finish();
+    let mut checksum = [0; 32];
+    checksum.copy_from_slice(digest.as_ref());
+
+    checksum
 }

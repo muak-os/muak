@@ -31,6 +31,8 @@ pub struct Section {
     pub file_offset: usize,
     /// Size of the section data in bytes.
     pub size: usize,
+    /// SHA-256 checksum of the section data.
+    pub checksum: [u8; 32],
 }
 
 pub(crate) struct Layout {
@@ -80,6 +82,7 @@ impl Layout {
             name,
             file_offset: section_file_offset,
             size,
+            checksum: [0; 32],
         });
         self.headers.push(build_header(
             name,
@@ -243,6 +246,7 @@ mod tests {
         assert_eq!(state.sections.first().unwrap().name, ".linux");
         assert_eq!(state.sections.first().unwrap().size, 100);
         assert_eq!(state.sections.first().unwrap().file_offset, 512);
+        assert_eq!(state.sections.first().unwrap().checksum, [0_u8; 32]);
 
         assert_eq!(state.headers.len(), 1);
         assert_section_header(

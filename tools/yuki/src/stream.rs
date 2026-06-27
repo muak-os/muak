@@ -3,6 +3,7 @@
 use std::io::{Read, Write};
 
 use object::pe::ImageSectionHeader;
+use ring::digest;
 
 use crate::SizedPart;
 use crate::align;
@@ -28,7 +29,7 @@ pub(crate) fn copy_stub<W: Write>(
             "stub length smaller than copied prefix".to_owned(),
         ));
     };
-    copy_exact(stub.reader, writer, remaining, "stub")?;
+    copy_exact(stub.reader, writer, remaining, "stub", None)?;
 
     Ok(())
 }
@@ -63,8 +64,9 @@ pub(crate) fn write_part<W: Write>(
     writer: &mut W,
     file_alignment: u32,
     name: &'static str,
+    hash_ctx: Option<&mut digest::Context>,
 ) -> Result<()> {
-    copy_exact(part.reader, writer, part.len, name)?;
+    copy_exact(part.reader, writer, part.len, name, hash_ctx)?;
 
     write_zero_padding(writer, file_alignment, align::u64_to_usize(part.len)?)
 }
@@ -74,6 +76,7 @@ fn copy_exact<W: Write>(
     writer: &mut W,
     len: u64,
     name: &'static str,
+    mut hash_ctx: Option<&mut digest::Context>,
 ) -> Result<()> {
     let mut buffer = [0_u8; 16384];
     let mut limited = reader.take(len);
@@ -87,6 +90,9 @@ fn copy_exact<W: Write>(
             return Err(YukiError::Io(std::io::Error::other("buffer range invalid")));
         };
         writer.write_all(chunk)?;
+        if let Some(ctx) = hash_ctx.as_mut() {
+            ctx.update(chunk);
+        }
         let Ok(amount) = u64::try_from(n) else {
             return Err(YukiError::InvalidPeStructure(
                 "read count overflow".to_owned(),
@@ -344,6 +350,7 @@ mod tests {
             &mut writer,
             test_metadata().file_alignment,
             ".test",
+            None,
         );
 
         // ASSERT
@@ -366,6 +373,7 @@ mod tests {
             &mut output,
             test_metadata().file_alignment,
             ".test",
+            None,
         )
         .unwrap();
 
@@ -390,6 +398,7 @@ mod tests {
             &mut output,
             test_metadata().file_alignment,
             ".test",
+            None,
         );
 
         // ASSERT

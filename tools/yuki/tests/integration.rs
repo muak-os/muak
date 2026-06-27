@@ -719,4 +719,36 @@ mod tests {
         // ASSERT
         PeFile64::parse(&*uki).expect("static slices should yield a valid PE");
     }
+
+    #[test]
+    fn sections_have_nonzero_checksums() {
+        // ARRANGE
+        let mut stub = Cursor::new(generate_minimal_stub());
+        let mut kernel = Cursor::new(fake_kernel(1024));
+        let mut initrd = Cursor::new(fake_initrd(2048));
+        let mut cmdline = Cursor::new(sample_cmdline());
+
+        // ACT
+        let sections = build(
+            BuildInput {
+                stub: part(&mut stub),
+                kernel: part(&mut kernel),
+                initramfs: part(&mut initrd),
+                cmdline: part(&mut cmdline),
+                dtb: None,
+            },
+            &mut Cursor::new(Vec::new()),
+        )
+        .expect("build should succeed");
+
+        // ASSERT
+        assert_eq!(sections.len(), 3);
+        for section in &sections {
+            assert_ne!(
+                section.checksum, [0_u8; 32],
+                "section {} should have a non-zero checksum",
+                section.name
+            );
+        }
+    }
 }

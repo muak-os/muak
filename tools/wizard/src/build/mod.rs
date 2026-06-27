@@ -95,7 +95,7 @@ pub async fn artifacts<W: Write>(
         (None, 0)
     };
 
-    let (sections, section_hashes) = if needs_post {
+    let sections = if needs_post {
         let parts = tail_parts.as_ref().ok_or_else(|| {
             WizardError::BuildError("tail parts required for post processing".to_owned())
         })?;
@@ -111,7 +111,7 @@ pub async fn artifacts<W: Write>(
         )
         .await?
     } else {
-        Default::default()
+        Vec::default()
     };
 
     artifacts::write_standalone(&assets, tail_parts.as_ref(), kernel, cmdline, initramfs)?;
@@ -121,12 +121,11 @@ pub async fn artifacts<W: Write>(
     Ok(Metadata {
         sections: sections
             .into_iter()
-            .zip(section_hashes)
-            .map(|(section, hash)| SectionInfo {
+            .map(|section| SectionInfo {
                 name: section.name.to_owned(),
                 file_offset: section.file_offset,
                 size: section.size,
-                hash,
+                hash: section.checksum,
             })
             .collect(),
         overlay_files,

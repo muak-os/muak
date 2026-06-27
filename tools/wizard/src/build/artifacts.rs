@@ -53,7 +53,7 @@ pub(crate) async fn build_post<W: Write>(
     uki: Option<&mut W>,
     iso: Option<&mut W>,
     raw: Option<&mut W>,
-) -> Result<(Vec<Section>, Vec<[u8; 32]>)> {
+) -> Result<Vec<Section>> {
     let iso_or_raw = iso.is_some() || raw.is_some();
     if iso_or_raw {
         // TODO: Avoid buffering the full UKI for ISO/Raw — stream it instead.
@@ -76,7 +76,7 @@ pub(crate) async fn build_post<W: Write>(
     } else if let Some(w) = uki {
         prepare::build_uki(assets, tail_parts, tail_size, signing_key, w).await
     } else {
-        Ok(Default::default())
+        Ok(Vec::default())
     }
 }
 
