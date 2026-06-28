@@ -12,8 +12,7 @@ use object::pe::{
 };
 use object::{LittleEndian as LE, read::pe::PeFile64};
 use ops::{
-    CERT_TABLE_ENTRY_SIZE, align_to, build_win_certificate, checked_add, hash_range_excluding,
-    put_u32_le, u32_to_usize, usize_to_u32,
+    CERT_TABLE_ENTRY_SIZE, align_to, build_win_certificate, hash_range_excluding, put_u32_le,
 };
 use ring::digest::{Context, SHA256};
 use spc::build_spc_indirect_data;
@@ -55,8 +54,11 @@ pub fn sign<R: Read, W: Write>(
 
     let mut pe_size = size_of_headers;
     for section in pe.section_table().iter() {
-        let ptr = u32_to_usize(section.pointer_to_raw_data.get(LE), "section raw pointer")?;
-        let size = u32_to_usize(section.size_of_raw_data.get(LE), "section raw size")?;
+        let ptr = usize::try_from(section.pointer_to_raw_data.get(LE)).map_err(|e| {
+            SboltError::PeOperation(format!("section raw pointer exceeds usize: {e}"))
+        })?;
+        let size = usize::try_from(section.size_of_raw_data.get(LE))
+            .map_err(|e| SboltError::PeOperation(format!("section raw size exceeds usize: {e}")))?;
         if ptr == 0 || size == 0 {
             continue;
         }
@@ -71,8 +73,10 @@ pub fn sign<R: Read, W: Write>(
         pkcs7::compute_authenticode_size(SPC_INDIRECT_DATA_OBJID, &dummy_spc, certificate)?;
 
     let cert_table_va = align_to(pe_size, PE_ALIGNMENT, "cert table VA")?;
-    let cert_table_va_u32 = usize_to_u32(cert_table_va, "cert table VA")?;
-    let cert_size_u32 = usize_to_u32(cert_size, "cert size")?;
+    let cert_table_va_u32 = u32::try_from(cert_table_va)
+        .map_err(|e| SboltError::PeOperation(format!("cert table VA exceeds u32: {e}")))?;
+    let cert_size_u32 = u32::try_from(cert_size)
+        .map_err(|e| SboltError::PeOperation(format!("cert size exceeds u32: {e}")))?;
     put_u32_le(&mut header_buf, checksum_offset, 0_u32)?;
     put_u32_le(&mut header_buf, cert_table_dd_offset, cert_table_va_u32)?;
     let cert_table_size_offset = cert_table_dd_offset
@@ -156,10 +160,8 @@ fn read_headers<R: Read>(reader: &mut R) -> Result<(Vec<u8>, usize, usize, usize
 
     let pe = PeFile64::parse(header_buf.as_slice())
         .map_err(|e| SboltError::PeOperation(format!("invalid PE: {e}")))?;
-    let size_of_headers = u32_to_usize(
-        pe.nt_headers().optional_header.size_of_headers.get(LE),
-        "SizeOfHeaders",
-    )?;
+    let size_of_headers = usize::try_from(pe.nt_headers().optional_header.size_of_headers.get(LE))
+        .map_err(|e| SboltError::PeOperation(format!("SizeOfHeaders exceeds usize: {e}")))?;
 
     if size_of_headers > bytes_read {
         header_buf.resize(size_of_headers, 0);
@@ -176,24 +178,20 @@ fn read_headers<R: Read>(reader: &mut R) -> Result<(Vec<u8>, usize, usize, usize
     let pe = PeFile64::parse(headers_only)
         .map_err(|e| SboltError::PeOperation(format!("invalid PE: {e}")))?;
     let opt = &pe.nt_headers().optional_header;
-    let pe_offset = u32_to_usize(pe.dos_header().nt_headers_offset(), "PE header offset")?;
-    let opt_offset = checked_add(
-        pe_offset,
-        PE_SIGNATURE_PREFIX_SIZE,
-        "optional header offset",
-    )?;
-    let opt_offset = checked_add(
-        opt_offset,
-        size_of::<ImageFileHeader>(),
-        "optional header offset",
-    )?;
-    let checksum_offset = checked_add(
-        opt_offset,
-        offset_of!(ImageOptionalHeader64, check_sum),
-        "checksum field offset",
-    )?;
+    let pe_offset = usize::try_from(pe.dos_header().nt_headers_offset())
+        .map_err(|e| SboltError::PeOperation(format!("PE header offset exceeds usize: {e}")))?;
+    let opt_offset = pe_offset
+        .checked_add(PE_SIGNATURE_PREFIX_SIZE)
+        .ok_or_else(|| SboltError::PeOperation("optional header offset overflow".into()))?;
+    let opt_offset = opt_offset
+        .checked_add(size_of::<ImageFileHeader>())
+        .ok_or_else(|| SboltError::PeOperation("optional header offset overflow".into()))?;
+    let checksum_offset = opt_offset
+        .checked_add(offset_of!(ImageOptionalHeader64, check_sum))
+        .ok_or_else(|| SboltError::PeOperation("checksum field offset overflow".into()))?;
 
-    let num_dirs = u32_to_usize(opt.number_of_rva_and_sizes.get(LE), "directory count")?;
+    let num_dirs = usize::try_from(opt.number_of_rva_and_sizes.get(LE))
+        .map_err(|e| SboltError::PeOperation(format!("directory count exceeds usize: {e}")))?;
     if num_dirs <= IMAGE_DIRECTORY_ENTRY_SECURITY {
         return Err(SboltError::PeOperation(
             "no certificate table data directory".into(),
@@ -753,7 +751,7 @@ mod tests {
 
     #[test]
     fn align_to_rejects_adjustment_overflow() {
-        // ACT
+        // ARRANGE & ACT
         let result = align_to(usize::MAX, 8, "align");
         let zero_result = align_to(0, 8, "align");
 
@@ -764,20 +762,20 @@ mod tests {
 
     #[test]
     fn checksum_and_bounds_helpers_validate_inputs() {
-        // ACT
+        // ARRANGE & ACT
         let too_large = usize::try_from(u32::MAX)
             .expect("u32 max fits usize")
             .checked_add(1)
             .expect("oversized usize");
-        let conversion_result = usize_to_u32(too_large, "too large");
-        let offset_result = u32_to_usize(0, "offset");
-        let add_result = checked_add(usize::MAX, 1, "add");
+        let conversion_result: std::result::Result<u32, _> = u32::try_from(too_large);
+        let offset_result: std::result::Result<usize, _> = usize::try_from(0_u32);
+        let add_result = usize::MAX.checked_add(1);
         let align_result = align_to(5, 0, "align");
 
         // ASSERT
         conversion_result.expect_err("large usize conversion should fail");
         assert_eq!(offset_result.expect("convert offset"), 0);
-        add_result.expect_err("addition overflow should fail");
+        assert!(add_result.is_none(), "addition overflow should be None");
         align_result.expect_err("zero alignment should fail");
     }
 }

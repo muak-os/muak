@@ -67,19 +67,30 @@ impl SignatureDatabase {
 
 fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     let mut lists = Vec::new();
-    let mut offset = 0;
-    while checked_add(offset, SIGNATURE_LIST_HEADER_SIZE, "signature list header")? <= data.len() {
-        let size_offset = checked_add(offset, 16, "signature list size offset")?;
+    let mut offset = 0_usize;
+    while offset
+        .checked_add(SIGNATURE_LIST_HEADER_SIZE)
+        .ok_or_else(|| SboltError::EfiVar("signature list header overflow".into()))?
+        <= data.len()
+    {
+        let size_offset = offset
+            .checked_add(16)
+            .ok_or_else(|| SboltError::EfiVar("signature list size offset overflow".into()))?;
         let list_size =
             usize::try_from(read_u32_le(data, size_offset)?).map_err(|_size_error| {
                 SboltError::EfiVar("signature list size exceeds usize".into())
             })?;
         if list_size < SIGNATURE_LIST_HEADER_SIZE
-            || checked_add(offset, list_size, "signature list end")? > data.len()
+            || offset
+                .checked_add(list_size)
+                .ok_or_else(|| SboltError::EfiVar("signature list end overflow".into()))?
+                > data.len()
         {
             return Err(SboltError::EfiVar("invalid signature list size".into()));
         }
-        let end = checked_add(offset, list_size, "signature list end")?;
+        let end = offset
+            .checked_add(list_size)
+            .ok_or_else(|| SboltError::EfiVar("signature list end overflow".into()))?;
         let list_bytes = data
             .get(offset..end)
             .ok_or_else(|| SboltError::EfiVar("signature list exceeds buffer".into()))?;
@@ -95,16 +106,12 @@ fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
 ///
 /// Returns an error if the serialized list would exceed `u32` size limits.
 pub fn build_x509(owner_guid: &Guid, cert_der: &[u8]) -> Result<Vec<u8>> {
-    let signature_size = checked_add(
-        SIGNATURE_DATA_HEADER_SIZE,
-        cert_der.len(),
-        "signature data size",
-    )?;
-    let list_size = checked_add(
-        SIGNATURE_LIST_HEADER_SIZE,
-        signature_size,
-        "signature list size",
-    )?;
+    let signature_size = SIGNATURE_DATA_HEADER_SIZE
+        .checked_add(cert_der.len())
+        .ok_or_else(|| SboltError::EfiVar("signature data size overflow".into()))?;
+    let list_size = SIGNATURE_LIST_HEADER_SIZE
+        .checked_add(signature_size)
+        .ok_or_else(|| SboltError::EfiVar("signature list size overflow".into()))?;
     let list_size_u32 = u32::try_from(list_size)
         .map_err(|_size_error| SboltError::EfiVar("signature list size exceeds u32".into()))?;
     let signature_size_u32 = u32::try_from(signature_size)
@@ -124,17 +131,14 @@ pub fn build_x509(owner_guid: &Guid, cert_der: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
-    let end = checked_add(offset, 4, "u32 read end")?;
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| SboltError::EfiVar("u32 read end overflow".into()))?;
 
     data.get(offset..end)
         .and_then(|bytes| bytes.try_into().ok())
         .map(u32::from_le_bytes)
         .ok_or_else(|| SboltError::EfiVar("read signature list size".into()))
-}
-
-fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
-    lhs.checked_add(rhs)
-        .ok_or_else(|| SboltError::EfiVar(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -148,7 +152,7 @@ mod tests {
 
     #[test]
     fn build_x509_siglist_layout() {
-        // ACT
+        // ARRANGE & ACT
         let siglist = build_x509(&TEST_OWNER, FAKE_CERT).expect("build siglist");
 
         // ASSERT
@@ -311,12 +315,12 @@ mod tests {
 
     #[test]
     fn helper_bounds_checks_reject_invalid_inputs() {
-        // ACT
+        // ARRANGE & ACT
         let read_result = read_u32_le(&[1_u8, 2, 3], 0);
-        let add_result = checked_add(usize::MAX, 1, "siglist");
+        let add_result = usize::MAX.checked_add(1);
 
         // ASSERT
         read_result.expect_err("short u32 read should fail");
-        add_result.expect_err("overflow should fail");
+        assert!(add_result.is_none(), "overflow should be None");
     }
 }

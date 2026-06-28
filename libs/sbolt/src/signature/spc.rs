@@ -14,6 +14,13 @@ const SPC_PE_IMAGE_DATA_OBJID: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.4.1.311.2.1.15");
 const SHA256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.1");
 
+/// ASN.1 structure representing the digest information for `SpcIndirectDataContent`.
+#[derive(Clone, Debug, der::Sequence)]
+struct DigestInfo {
+    digest_algorithm: AlgorithmIdentifierOwned,
+    digest: OctetString,
+}
+
 /// Build the inner fields of `SpcIndirectDataContent`.
 pub(super) fn build_spc_indirect_data(hash: &[u8; 32]) -> Result<Vec<u8>> {
     let mut result = Vec::new();
@@ -85,13 +92,6 @@ pub(super) fn build_spc_indirect_data(hash: &[u8; 32]) -> Result<Vec<u8>> {
     result.extend_from_slice(&digest_info_der);
 
     Ok(result)
-}
-
-/// `DigestInfo` structure.
-#[derive(Clone, Debug, der::Sequence)]
-struct DigestInfo {
-    digest_algorithm: AlgorithmIdentifierOwned,
-    digest: OctetString,
 }
 
 /// Encode ASN.1 length in DER format.

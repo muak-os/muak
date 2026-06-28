@@ -121,6 +121,7 @@ fn generate_serial() -> Result<SerialNumber> {
             SboltError::KeyGeneration("failed to generate random serial".into())
         })?
         .expose();
+
     SerialNumber::new(&random)
         .map_err(|e| SboltError::CertificateCreation(format!("invalid serial: {e}")))
 }
@@ -128,6 +129,7 @@ fn generate_serial() -> Result<SerialNumber> {
 fn get_spki_from_signer(signer: &rsa2048::Signer) -> Result<SubjectPublicKeyInfoOwned> {
     let verifying_key = signer.verifying_key();
     let der = verifying_key.to_public_key_der()?;
+
     Ok(SubjectPublicKeyInfoOwned::from_der(der.as_bytes())?)
 }
 

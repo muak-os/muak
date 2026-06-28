@@ -29,10 +29,6 @@ pub(crate) const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
 pub(crate) const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
 
 /// Build PKCS#7 `SignedData` for Authenticode PE signing.
-///
-/// The `content` parameter must be the **inner fields** of
-/// `SpcIndirectDataContent` (the concatenated child DER elements WITHOUT
-/// the outer SEQUENCE wrapper).
 pub(crate) fn build_authenticode_signed_data(
     content_type: ObjectIdentifier,
     content: &[u8],
@@ -51,9 +47,7 @@ pub(crate) fn build_authenticode_signed_data(
     wrap_signed_data_content_info(&signed_data_der)
 }
 
-/// Compute the `WIN_CERTIFICATE` size (including 8-byte alignment)
-/// without performing RSA signing. Uses a zeroed signature buffer since
-/// RSA-2048 always produces 256 bytes.
+/// Compute the `WIN_CERTIFICATE` size (including 8-byte alignment).
 pub(crate) fn compute_authenticode_size(
     content_type: ObjectIdentifier,
     content: &[u8],
@@ -170,8 +164,6 @@ fn build_signed_data_with_cms(
         signer_infos: SignerInfos(signer_infos_vec),
     };
 
-    // Return just the SignedData DER, NOT wrapped in ContentInfo.
-    // The caller handles ContentInfo wrapping.
     signed_data
         .to_der()
         .map_err(|e| SboltError::Signing(format!("signed data encode: {e}")))

@@ -37,15 +37,11 @@ pub fn sign(
 
     let win_cert = build_win_certificate(&pkcs7_der)?;
 
-    let payload_capacity = checked_add(
-        checked_add(
-            AUTHVAR_ATTRIBUTE_SIZE,
-            EFI_TIME_SIZE,
-            "authvar payload header",
-        )?,
-        checked_add(win_cert.len(), content.len(), "authvar payload content")?,
-        "authvar payload total",
-    )?;
+    let payload_capacity = AUTHVAR_ATTRIBUTE_SIZE
+        .checked_add(EFI_TIME_SIZE)
+        .and_then(|hdr| hdr.checked_add(win_cert.len()))
+        .and_then(|total| total.checked_add(content.len()))
+        .ok_or_else(|| SboltError::EfiVar("authvar payload size overflow".into()))?;
     let mut payload = Vec::with_capacity(payload_capacity);
     payload.extend_from_slice(&attributes.bits().to_le_bytes());
     payload.extend_from_slice(&time_to_bytes(&timestamp));
@@ -79,11 +75,9 @@ fn build_descriptor(
 
 /// Build `WIN_CERTIFICATE_UEFI_GUID` structure.
 fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
-    let total_size = checked_add(
-        WIN_CERT_UEFI_GUID_HEADER_SIZE,
-        pkcs7_der.len(),
-        "WIN_CERTIFICATE_UEFI_GUID size",
-    )?;
+    let total_size = WIN_CERT_UEFI_GUID_HEADER_SIZE
+        .checked_add(pkcs7_der.len())
+        .ok_or_else(|| SboltError::EfiVar("WIN_CERTIFICATE_UEFI_GUID size overflow".into()))?;
     let total_size_u32 = u32::try_from(total_size)
         .map_err(|_size_error| SboltError::EfiVar("WIN_CERTIFICATE size exceeds u32".into()))?;
 
@@ -96,11 +90,6 @@ fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
     result.extend_from_slice(pkcs7_der);
 
     Ok(result)
-}
-
-fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
-    lhs.checked_add(rhs)
-        .ok_or_else(|| SboltError::EfiVar(format!("{context} overflow")))
 }
 
 #[cfg(test)]
@@ -388,9 +377,9 @@ mod tests {
     #[test]
     fn checked_add_rejects_overflow() {
         // ACT
-        let result = checked_add(usize::MAX, 1, "authvar");
+        let result = usize::MAX.checked_add(1);
 
         // ASSERT
-        result.expect_err("overflow should fail");
+        assert!(result.is_none(), "overflow should be None");
     }
 }

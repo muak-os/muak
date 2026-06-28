@@ -11,12 +11,11 @@ const WIN_CERT_TYPE_PKCS_SIGNED_DATA: u16 = 0x0002;
 
 /// Build `WIN_CERTIFICATE` for standard Authenticode (type 0x0002).
 pub(super) fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
-    let total_size = checked_add(
-        WIN_CERT_HEADER_SIZE,
-        pkcs7_der.len(),
-        "WIN_CERTIFICATE size",
-    )?;
-    let total_size_u32 = usize_to_u32(total_size, "WIN_CERTIFICATE")?;
+    let total_size = WIN_CERT_HEADER_SIZE
+        .checked_add(pkcs7_der.len())
+        .ok_or_else(|| SboltError::PeOperation("WIN_CERTIFICATE size overflow".into()))?;
+    let total_size_u32 = u32::try_from(total_size)
+        .map_err(|e| SboltError::PeOperation(format!("WIN_CERTIFICATE exceeds u32: {e}")))?;
     let mut result = Vec::with_capacity(total_size);
     result.extend_from_slice(&total_size_u32.to_le_bytes());
     result.extend_from_slice(&WIN_CERT_REVISION_2_0.to_le_bytes());
@@ -49,7 +48,9 @@ pub(super) fn hash_range_excluding(
                 .ok_or_else(|| SboltError::PeOperation("excluded range exceeds file".into()))?;
             ctx.update(range_bytes);
         }
-        pos = checked_add(excl_off, excl_len, "excluded range end")?;
+        pos = excl_off
+            .checked_add(excl_len)
+            .ok_or_else(|| SboltError::PeOperation("excluded range end overflow".into()))?;
     }
 
     if pos < end {
@@ -63,27 +64,15 @@ pub(super) fn hash_range_excluding(
 }
 
 pub(super) fn put_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<()> {
-    let end = checked_add(offset, CERT_TABLE_ENTRY_SIZE, "write_u32 range end")?;
+    let end = offset
+        .checked_add(CERT_TABLE_ENTRY_SIZE)
+        .ok_or_else(|| SboltError::PeOperation("write_u32 range end overflow".into()))?;
     let bytes = data
         .get_mut(offset..end)
         .ok_or_else(|| SboltError::PeOperation("write u32 beyond buffer".into()))?;
     bytes.copy_from_slice(&value.to_le_bytes());
 
     Ok(())
-}
-
-pub(super) fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
-    u32::try_from(value).map_err(|e| SboltError::PeOperation(format!("{context} exceeds u32: {e}")))
-}
-
-pub(super) fn u32_to_usize(value: u32, context: &str) -> Result<usize> {
-    usize::try_from(value)
-        .map_err(|e| SboltError::PeOperation(format!("{context} exceeds usize: {e}")))
-}
-
-pub(super) fn checked_add(lhs: usize, rhs: usize, context: &str) -> Result<usize> {
-    lhs.checked_add(rhs)
-        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))
 }
 
 pub(super) fn align_to(value: usize, alignment: usize, context: &str) -> Result<usize> {
