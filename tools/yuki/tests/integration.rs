@@ -762,8 +762,10 @@ mod tests {
         let initrd = fake_initrd(4096);
 
         // ACT
+        let stub_len = u64::try_from(stub_bytes.len()).unwrap_or(u64::MAX);
         let computed = compute_size(
-            &stub_bytes,
+            &mut Cursor::new(&stub_bytes),
+            stub_len,
             u64::try_from(cmdline.len()).unwrap_or(0),
             u64::try_from(kernel.len()).unwrap_or(0),
             u64::try_from(initrd.len()).unwrap_or(0),
@@ -803,8 +805,10 @@ mod tests {
         let dtb = fake_dtb(512);
 
         // ACT
+        let stub_len = u64::try_from(stub_bytes.len()).unwrap_or(u64::MAX);
         let computed = compute_size(
-            &stub_bytes,
+            &mut Cursor::new(&stub_bytes),
+            stub_len,
             u64::try_from(cmdline.len()).unwrap_or(0),
             u64::try_from(kernel.len()).unwrap_or(0),
             u64::try_from(initrd.len()).unwrap_or(0),
@@ -842,8 +846,10 @@ mod tests {
         let cmdline = vec![0x01];
 
         // ACT
+        let stub_len = u64::try_from(stub_bytes.len()).unwrap_or(u64::MAX);
         let computed = compute_size(
-            &stub_bytes,
+            &mut Cursor::new(&stub_bytes),
+            stub_len,
             u64::try_from(cmdline.len()).unwrap_or(0),
             2,
             3,
@@ -879,7 +885,7 @@ mod tests {
     #[test]
     fn compute_size_rejects_invalid_stub() {
         // ARRANGE & ACT
-        let result = compute_size(b"not a PE file", 10, 10, 10, None);
+        let result = compute_size(&mut Cursor::new(b"not a PE file"), 13, 10, 10, 10, None);
 
         // ASSERT
         result.unwrap_err();
@@ -891,8 +897,10 @@ mod tests {
         let stub_bytes = generate_minimal_stub();
 
         // ACT
+        let stub_len = u64::try_from(stub_bytes.len()).unwrap_or(u64::MAX);
         let result = compute_size(
-            &stub_bytes,
+            &mut Cursor::new(&stub_bytes),
+            stub_len,
             u64::from(u32::MAX).saturating_add(1),
             10,
             10,
