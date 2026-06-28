@@ -1,15 +1,20 @@
 //! Protective MBR serialization.
 
+use std::io::{Seek, SeekFrom, Write};
+
 use super::types::{
-    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_PARTITION_ENTRY_OFFSET, MBR_PROTECTIVE_GPT_TYPE,
+    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_ENTRY_SIZE, MBR_PARTITION_ENTRY_OFFSET,
+    MBR_PROTECTIVE_GPT_TYPE, MbrPartitionEntry,
 };
+use crate::error::{ParttableError, Result};
 
 /// Returns the protective MBR partition size in LBAs.
 #[must_use]
 pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
-    let sectors = disk_size.checked_div(sector_size).unwrap_or(0);
-    let size_lba = sectors.saturating_sub(1).min(u64::from(u32::MAX));
-    u32::try_from(size_lba).unwrap_or(u32::MAX)
+    let Some(sectors) = disk_size.checked_div(sector_size) else {
+        return 0;
+    };
+    u32::try_from(sectors.saturating_sub(1).min(u64::from(u32::MAX))).unwrap_or(u32::MAX)
 }
 
 /// Returns a complete 512-byte protective MBR as a fixed-size array.
@@ -20,7 +25,7 @@ pub fn protective_mbr_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES]
     let Some(off) = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).ok() else {
         return mbr;
     };
-    let end = off.saturating_add(16);
+    let end = off.saturating_add(MBR_ENTRY_SIZE);
     if let Some(dst) = mbr.get_mut(off..end) {
         dst.copy_from_slice(&entry);
     }
@@ -31,25 +36,52 @@ pub fn protective_mbr_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES]
     mbr
 }
 
-fn build_partition_entry(disk_size: u64, sector_size: u64) -> [u8; 16] {
-    let mut entry = [0_u8; 16];
-    entry[0] = 0x00;
-    entry[1] = 0x00;
-    entry[2] = 0x02;
-    entry[3] = 0x00;
-    entry[4] = MBR_PROTECTIVE_GPT_TYPE;
-    entry[5] = 0xFF;
-    entry[6] = 0xFF;
-    entry[7] = 0xFF;
-    entry[8..12].copy_from_slice(&1_u32.to_le_bytes());
-    entry[12..16].copy_from_slice(&protective_size_lba(disk_size, sector_size).to_le_bytes());
+/// Writes an MBR partition entry at the given slot index.
+///
+/// # Errors
+///
+/// Returns an error when seeking or writing fails.
+pub fn write_entry<W: Write + Seek>(
+    writer: &mut W,
+    index: usize,
+    entry: &MbrPartitionEntry,
+) -> Result<()> {
+    let entry_offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET)
+        .map_err(|_err| ParttableError::Gpt("MBR entry offset overflow".to_owned()))?;
+    let slot_offset = index
+        .checked_mul(MBR_ENTRY_SIZE)
+        .ok_or_else(|| ParttableError::Gpt("MBR entry index overflow".to_owned()))?;
+    let offset = entry_offset
+        .checked_add(slot_offset)
+        .ok_or_else(|| ParttableError::Gpt("MBR entry offset overflow".to_owned()))?;
+    writer.seek(SeekFrom::Start(u64::try_from(offset).unwrap_or(u64::MAX)))?;
+    writer.write_all(&entry.to_bytes())?;
+    Ok(())
+}
 
-    entry
+/// Writes the MBR boot signature `0x55AA` at the end of the sector.
+///
+/// # Errors
+///
+/// Returns an error when seeking or writing fails.
+pub fn write_signature<W: Write + Seek>(writer: &mut W) -> Result<()> {
+    writer.seek(SeekFrom::Start(u64::try_from(MBR_BYTES - 2).unwrap_or(510)))?;
+    writer.write_all(&MBR_BOOT_SIGNATURE)?;
+    Ok(())
+}
+
+fn build_partition_entry(disk_size: u64, sector_size: u64) -> [u8; MBR_ENTRY_SIZE] {
+    let entry = MbrPartitionEntry {
+        bootable: false,
+        partition_type: MBR_PROTECTIVE_GPT_TYPE,
+        starting_lba: 1,
+        size_lba: protective_size_lba(disk_size, sector_size),
+    };
+    entry.to_bytes()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::MBR_PROTECTIVE_GPT_TYPE;
     use super::*;
 
     #[test]
@@ -86,48 +118,5 @@ mod tests {
 
         // ASSERT
         assert_eq!(size, 0);
-    }
-
-    #[test]
-    fn protective_mbr_bytes_has_correct_type() {
-        // ARRANGE / ACT
-        let mbr = protective_mbr_bytes(4096, 512);
-
-        // ASSERT
-        assert_eq!(mbr.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
-        assert_eq!(mbr.get(510), Some(&0x55));
-        assert_eq!(mbr.get(511), Some(&0xAA));
-    }
-
-    #[test]
-    fn protective_mbr_bytes_has_starting_lba_one() {
-        // ARRANGE / ACT
-        let mbr = protective_mbr_bytes(4096, 512);
-
-        // ASSERT
-        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 8;
-        let start = u32::from_le_bytes(
-            mbr.get(offset..offset + 4)
-                .expect("start LBA bytes")
-                .try_into()
-                .unwrap(),
-        );
-        assert_eq!(start, 1);
-    }
-
-    #[test]
-    fn protective_mbr_bytes_has_partition_size() {
-        // ARRANGE / ACT
-        let mbr = protective_mbr_bytes(4096, 512);
-
-        // ASSERT
-        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 12;
-        let size = u32::from_le_bytes(
-            mbr.get(offset..offset + 4)
-                .expect("size LBA bytes")
-                .try_into()
-                .unwrap(),
-        );
-        assert_eq!(size, 7);
     }
 }

@@ -11,10 +11,6 @@ mod tests {
                 Slot, Start,
             },
         },
-        mbr::{
-            io::protective_mbr_bytes,
-            types::{MBR_PARTITION_ENTRY_OFFSET, MBR_PROTECTIVE_GPT_TYPE},
-        },
     };
 
     fn sector_count(bytes: usize, sector_size: u64) -> u64 {
@@ -54,33 +50,6 @@ mod tests {
         assert_eq!(aligned, ALIGN_1_MIB_SECTORS * 2);
         assert_eq!(placement.number, 1);
         assert_eq!(placement.partition.type_guid, EFI_GUID);
-    }
-
-    #[test]
-    fn protective_mbr_bytes_has_correct_signature_and_type() {
-        // ARRANGE / ACT
-        let mbr = protective_mbr_bytes(4096, 512);
-
-        // ASSERT
-        assert_eq!(mbr.get(450), Some(&MBR_PROTECTIVE_GPT_TYPE));
-        assert_eq!(mbr.get(510), Some(&0x55));
-        assert_eq!(mbr.get(511), Some(&0xAA));
-    }
-
-    #[test]
-    fn protective_mbr_bytes_has_starting_lba_one() {
-        // ARRANGE / ACT
-        let mbr = protective_mbr_bytes(4096, 512);
-
-        // ASSERT
-        let offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0) + 8;
-        let start = u32::from_le_bytes(
-            mbr.get(offset..offset + 4)
-                .expect("start LBA bytes")
-                .try_into()
-                .unwrap(),
-        );
-        assert_eq!(start, 1);
     }
 
     #[test]

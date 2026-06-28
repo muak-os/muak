@@ -4,7 +4,8 @@ use std::io::{Cursor, Read, Seek, Write};
 
 use gptman::{GPT, GPTPartitionEntry, PartitionName};
 
-use super::types::{Partition, Placement, PlacementRequest, Size, Slot, Start};
+use super::serialize;
+use super::types::Partition;
 use crate::error::{ParttableError, Result};
 
 /// A GPT table wrapper with a stable workspace-local API.
@@ -20,8 +21,12 @@ impl Table {
     ///
     /// Returns an error when GPT initialization or arithmetic overflows.
     pub fn create(sector_count: u64, sector_size: u64, disk_guid: [u8; 16]) -> Result<Self> {
-        let size = usize::try_from(sector_count.saturating_mul(sector_size))
-            .map_err(|_err| ParttableError::Gpt("disk size overflow".to_owned()))?;
+        let size = usize::try_from(
+            sector_count
+                .checked_mul(sector_size)
+                .ok_or_else(|| ParttableError::Gpt("disk size overflow".to_owned()))?,
+        )
+        .map_err(|_err| ParttableError::Gpt("disk size overflow".to_owned()))?;
         let inner = GPT::new_from(&mut Cursor::new(vec![0; size]), sector_size, disk_guid)
             .map_err(|e| ParttableError::Gpt(e.to_string()))?;
 
@@ -37,6 +42,21 @@ impl Table {
         let inner = GPT::find_from(reader).map_err(|e| ParttableError::Gpt(e.to_string()))?;
 
         Ok(Self { inner })
+    }
+
+    /// Reads an existing GPT from `reader`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the GPT cannot be decoded from `reader`.
+    pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self> {
+        Self::read(reader)
+    }
+
+    /// Returns the sector size of the disk.
+    #[must_use]
+    pub fn sector_size(&self) -> u64 {
+        self.inner.sector_size
     }
 
     /// Returns the first usable LBA from the GPT header.
@@ -114,41 +134,6 @@ impl Table {
         self.inner[number] = partition.into();
     }
 
-    /// Places one partition using checked alignment and range rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when slot selection, sizing, alignment, or range validation fails.
-    pub fn place_partition(
-        &mut self,
-        request: PlacementRequest,
-        sector_size: u64,
-    ) -> Result<Placement> {
-        let number = match request.slot {
-            Slot::Auto => self.next_free_slot().ok_or_else(|| {
-                ParttableError::InvalidPlacement("no free GPT partition slots".to_owned())
-            })?,
-            Slot::Exact(number) => self.resolve_exact_slot(number)?,
-        };
-
-        let anchor = self.resolve_start_anchor(request.start)?;
-        let start = align_up_lba(anchor, request.alignment_lba);
-        let end = self.resolve_end_lba(start, request.size, sector_size)?;
-        self.validate_partition_range(number, start, end)?;
-
-        let partition = Partition {
-            type_guid: request.type_guid,
-            unique_guid: request.unique_guid,
-            starting_lba: start,
-            ending_lba: end,
-            attributes: request.attributes,
-            name: request.name,
-        };
-        self.set_partition(number, partition.clone());
-
-        Ok(Placement { number, partition })
-    }
-
     /// Removes the partition at `number`.
     ///
     /// # Errors
@@ -175,15 +160,11 @@ impl Table {
         );
         writer.write_all(&mbr)?;
 
-        let (header, entries_crc) = gpt_header_bytes(&self.inner, false, sector_count);
-        let entries = partition_entries_bytes(&self.inner);
+        let (header, entries_crc) = serialize::gpt_header_bytes(&self.inner, false, sector_count);
+        let header = serialize::finalize_gpt_header(header, entries_crc);
+        let entries = serialize::partition_entries_bytes(&self.inner);
 
-        let mut header_with_crc = header;
-        header_with_crc[88..92].copy_from_slice(&entries_crc.to_le_bytes());
-        let header_crc = crc32fast::hash(&header_with_crc);
-        header_with_crc[16..20].copy_from_slice(&header_crc.to_le_bytes());
-
-        write_gpt_header(&header_with_crc, writer)?;
+        serialize::write_gpt_header(&header, writer)?;
         writer.write_all(&entries)?;
 
         Ok(())
@@ -195,132 +176,21 @@ impl Table {
     ///
     /// Returns an error when writing the data fails.
     pub fn write_backup_to<W: Write>(&self, sector_count: u64, writer: &mut W) -> Result<()> {
-        let entries = partition_entries_bytes(&self.inner);
-        let (header, entries_crc) = gpt_header_bytes(&self.inner, true, sector_count);
-
-        let mut header_with_crc = header;
-        header_with_crc[88..92].copy_from_slice(&entries_crc.to_le_bytes());
-        let header_crc = crc32fast::hash(&header_with_crc);
-        header_with_crc[16..20].copy_from_slice(&header_crc.to_le_bytes());
+        let entries = serialize::partition_entries_bytes(&self.inner);
+        let (header, entries_crc) = serialize::gpt_header_bytes(&self.inner, true, sector_count);
+        let header = serialize::finalize_gpt_header(header, entries_crc);
 
         writer.write_all(&entries)?;
-        write_gpt_header(&header_with_crc, writer)?;
+        serialize::write_gpt_header(&header, writer)?;
 
         Ok(())
     }
+}
 
-    fn resolve_start_anchor(&self, start: Start) -> Result<u64> {
-        match start {
-            Start::FirstUsable => Ok(self.first_usable_lba()),
-            Start::AfterLastUsed => self.last_used_ending_lba().map_or_else(
-                || Ok(self.first_usable_lba()),
-                Self::checked_lba_after_last_used,
-            ),
-            Start::AtOrAfter(lba) => Ok(lba),
-            Start::AfterPartition(number) => self
-                .partition(number)
-                .map(|partition| Self::checked_lba_after_partition(partition.ending_lba, number))
-                .transpose()?
-                .ok_or_else(|| {
-                    ParttableError::InvalidPlacement(format!(
-                        "cannot place after missing partition {number}"
-                    ))
-                }),
-        }
-    }
-
-    fn resolve_exact_slot(&self, number: u32) -> Result<u32> {
-        if !self.is_partition_used(number) {
-            return Ok(number);
-        }
-
-        Err(ParttableError::InvalidPlacement(format!(
-            "partition slot {number} is already in use"
-        )))
-    }
-
-    fn resolve_end_lba(&self, start: u64, size: Size, sector_size: u64) -> Result<u64> {
-        match size {
-            Size::Bytes(bytes) => {
-                let lbas = Self::nonzero_lbas(bytes.div_ceil(sector_size))?;
-                Self::checked_end_lba(start, lbas)
-            }
-            Size::Lbas(lbas) => {
-                let lbas = Self::nonzero_lbas(lbas)?;
-                Self::checked_end_lba(start, lbas)
-            }
-            Size::FillToLastUsable => Ok(self.last_usable_lba()),
-        }
-    }
-
-    fn checked_lba_after_last_used(ending_lba: u64) -> Result<u64> {
-        ending_lba.checked_add(1).ok_or_else(|| {
-            ParttableError::InvalidPlacement(
-                "partition start LBA overflowed after last used partition".to_owned(),
-            )
-        })
-    }
-
-    fn checked_lba_after_partition(ending_lba: u64, number: u32) -> Result<u64> {
-        ending_lba.checked_add(1).ok_or_else(|| {
-            ParttableError::InvalidPlacement(format!(
-                "partition start LBA overflowed after partition {number}"
-            ))
-        })
-    }
-
-    fn checked_end_lba(start: u64, lbas: u64) -> Result<u64> {
-        start.checked_add(lbas.saturating_sub(1)).ok_or_else(|| {
-            ParttableError::InvalidPlacement("partition end LBA overflowed".to_owned())
-        })
-    }
-
-    fn nonzero_lbas(lbas: u64) -> Result<u64> {
-        if lbas != 0 {
-            return Ok(lbas);
-        }
-
-        Err(ParttableError::InvalidPlacement(
-            "partition size must be greater than zero".to_owned(),
-        ))
-    }
-
-    fn validate_partition_range(&self, number: u32, start: u64, end: u64) -> Result<()> {
-        if start > end {
-            return Err(ParttableError::InvalidPlacement(format!(
-                "partition {number} start LBA {start} is after end LBA {end}"
-            )));
-        }
-        if start < self.first_usable_lba() {
-            return Err(ParttableError::InvalidPlacement(format!(
-                "partition {number} starts before first usable LBA {}",
-                self.first_usable_lba()
-            )));
-        }
-        if end > self.last_usable_lba() {
-            return Err(ParttableError::InvalidPlacement(format!(
-                "partition {number} ends after last usable LBA {}",
-                self.last_usable_lba()
-            )));
-        }
-
-        if let Some(existing_number) =
-            self.used_partitions()
-                .into_iter()
-                .find_map(|(existing_number, existing)| {
-                    let overlaps_current_slot = existing_number == number;
-                    let overlaps_range =
-                        start <= existing.ending_lba && end >= existing.starting_lba;
-                    (!overlaps_current_slot && overlaps_range).then_some(existing_number)
-                })
-        {
-            return Err(ParttableError::InvalidPlacement(format!(
-                "partition {number} overlaps partition {existing_number}"
-            )));
-        }
-
-        Ok(())
-    }
+/// Rounds `lba` up to the nearest multiple of `align`.
+#[must_use]
+pub fn align_up_lba(lba: u64, align: u64) -> u64 {
+    lba.next_multiple_of(align)
 }
 
 impl From<&GPTPartitionEntry> for Partition {
@@ -349,104 +219,10 @@ impl From<Partition> for GPTPartitionEntry {
     }
 }
 
-/// Rounds `lba` up to the nearest multiple of `align`.
-#[must_use]
-pub fn align_up_lba(lba: u64, align: u64) -> u64 {
-    lba.next_multiple_of(align)
-}
-
-fn gpt_header_bytes(gpt: &GPT, backup: bool, sector_count: u64) -> ([u8; 92], u32) {
-    let mut hdr = [0_u8; 92];
-    hdr[0..8].copy_from_slice(b"EFI PART");
-    hdr[8..12].copy_from_slice(&0x0001_0000_u32.to_le_bytes());
-    hdr[12..16].copy_from_slice(&92_u32.to_le_bytes());
-    let current_lba = if backup {
-        sector_count.saturating_sub(1)
-    } else {
-        1
-    };
-    let backup_lba = if backup {
-        1
-    } else {
-        sector_count.saturating_sub(1)
-    };
-    hdr[24..32].copy_from_slice(&current_lba.to_le_bytes());
-    hdr[32..40].copy_from_slice(&backup_lba.to_le_bytes());
-    hdr[40..48].copy_from_slice(&gpt.header.first_usable_lba.to_le_bytes());
-    hdr[48..56].copy_from_slice(&gpt.header.last_usable_lba.to_le_bytes());
-    hdr[56..72].copy_from_slice(&gpt.header.disk_guid);
-    let entries_lba = if backup {
-        sector_count.saturating_sub(1).saturating_sub(
-            u64::from(gpt.header.number_of_partition_entries)
-                .saturating_mul(u64::from(gpt.header.size_of_partition_entry))
-                .div_ceil(gpt.sector_size),
-        )
-    } else {
-        gpt.header.partition_entry_lba
-    };
-    hdr[72..80].copy_from_slice(&entries_lba.to_le_bytes());
-    hdr[80..84].copy_from_slice(&gpt.header.number_of_partition_entries.to_le_bytes());
-    hdr[84..88].copy_from_slice(&gpt.header.size_of_partition_entry.to_le_bytes());
-
-    let entries = partition_entries_bytes(gpt);
-    (hdr, crc32fast::hash(&entries))
-}
-
-fn partition_entries_bytes(gpt: &GPT) -> Vec<u8> {
-    let count = usize::try_from(gpt.header.number_of_partition_entries).unwrap_or(0);
-    let entry_size = usize::try_from(gpt.header.size_of_partition_entry).unwrap_or(0);
-    let mut buf = vec![0_u8; count.saturating_mul(entry_size)];
-
-    for (i, entry) in gpt.iter() {
-        let offset = i
-            .saturating_sub(1)
-            .saturating_mul(u32::try_from(entry_size).unwrap_or(0));
-        let offset = usize::try_from(offset).unwrap_or(0);
-        let Some(dst) = buf.get_mut(offset..offset.saturating_add(128)) else {
-            continue;
-        };
-        let entry_bytes = partition_entry_to_bytes(entry);
-        dst.copy_from_slice(&entry_bytes);
-    }
-
-    buf
-}
-
-fn partition_entry_to_bytes(entry: &GPTPartitionEntry) -> [u8; 128] {
-    let mut bytes = [0_u8; 128];
-    bytes[0..16].copy_from_slice(&entry.partition_type_guid);
-    bytes[16..32].copy_from_slice(&entry.unique_partition_guid);
-    bytes[32..40].copy_from_slice(&entry.starting_lba.to_le_bytes());
-    bytes[40..48].copy_from_slice(&entry.ending_lba.to_le_bytes());
-    bytes[48..56].copy_from_slice(&entry.attribute_bits.to_le_bytes());
-    let name_bytes: Vec<u8> = entry
-        .partition_name
-        .as_str()
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    let name_len = name_bytes.len().min(72);
-    let name_end = 56_usize.saturating_add(name_len);
-    if let Some(dst) = bytes.get_mut(56..name_end) {
-        dst.copy_from_slice(name_bytes.get(..name_len).unwrap_or(&[]));
-    }
-
-    bytes
-}
-
-fn write_gpt_header<W: Write>(header: &[u8; 92], writer: &mut W) -> Result<()> {
-    writer.write_all(header)?;
-    let pad = [0_u8; 512 - 92];
-    writer.write_all(&pad)?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::types::*;
     use super::*;
-    use crate::error::ParttableError;
 
     fn efi_partition(starting_lba: u64, ending_lba: u64) -> Partition {
         Partition {
@@ -456,25 +232,6 @@ mod tests {
             ending_lba,
             attributes: 0,
             name: "EFI".to_owned(),
-        }
-    }
-
-    fn request(
-        slot: Slot,
-        start: Start,
-        size: Size,
-        type_guid: [u8; 16],
-        name: &str,
-    ) -> PlacementRequest {
-        PlacementRequest {
-            slot,
-            start,
-            size,
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid,
-            unique_guid: [0xCD; 16],
-            attributes: 0,
-            name: name.to_owned(),
         }
     }
 
@@ -529,7 +286,6 @@ mod tests {
 
     #[test]
     fn efi_guid_matches_uefi_spec_value() {
-        // ARRANGE / ACT / ASSERT
         assert_eq!(
             EFI_GUID,
             [
@@ -547,6 +303,15 @@ mod tests {
         // ASSERT
         assert!(table.first_usable_lba() > 0);
         assert!(table.last_usable_lba() >= table.first_usable_lba());
+    }
+
+    #[test]
+    fn sector_size_returns_configured_value() {
+        // ARRANGE / ACT
+        let table = Table::create(8 * 2048, 512, [0xCD; 16]).expect("table must be created");
+
+        // ASSERT
+        assert_eq!(table.sector_size(), 512);
     }
 
     #[test]
@@ -579,12 +344,14 @@ mod tests {
     }
 
     #[test]
-    fn sequential_write_matches_gptman_write_into() {
+    fn primary_entries_match_gptman_output() {
+        // ARRANGE
         let sector_count = 8 * 2048;
-
         let mut table =
             Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
         table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
         let mut seq_buf = Vec::new();
         table.write_primary_to(sector_count, &mut seq_buf).unwrap();
         table.write_backup_to(sector_count, &mut seq_buf).unwrap();
@@ -595,38 +362,81 @@ mod tests {
         ref_gpt.write_into(&mut disk).expect("gptman write");
         let ref_data = disk.into_inner();
 
-        let primary_start: usize = 512;
-        let entries_start: usize = primary_start + 512;
+        // ASSERT
+        let entries_start: usize = 512 + 512;
         let entries_end = entries_start.saturating_add(16384);
         assert_eq!(
             seq_buf.get(entries_start..entries_end).unwrap_or(&[]),
             ref_data.get(entries_start..entries_end).unwrap_or(&[]),
             "primary partition entries must match"
         );
+    }
 
+    #[test]
+    fn backup_entries_match_gptman_output() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
+        let mut seq_buf = Vec::new();
+        table.write_primary_to(sector_count, &mut seq_buf).unwrap();
+        table.write_backup_to(sector_count, &mut seq_buf).unwrap();
+
+        let mut disk = Cursor::new(vec![0_u8; 512 * usize::try_from(sector_count).unwrap_or(0)]);
+        let mut ref_gpt = GPT::new_from(&mut disk, 512, [0xCD; 16]).expect("gptman create");
+        ref_gpt[1] = efi_partition(2048, 4095).into();
+        ref_gpt.write_into(&mut disk).expect("gptman write");
+        let ref_data = disk.into_inner();
+
+        // ASSERT
         let backup_header_start = ref_data.len().saturating_sub(512);
         let backup_entries_start = backup_header_start.saturating_sub(16384);
         let seq_backup_header_start = seq_buf.len().saturating_sub(512);
         let seq_backup_entries_start = seq_backup_header_start.saturating_sub(16384);
-        let seq_backup_end = seq_backup_entries_start.saturating_add(16384);
-        let ref_backup_end = backup_entries_start.saturating_add(16384);
+
         assert_eq!(
             seq_buf
-                .get(seq_backup_entries_start..seq_backup_end)
+                .get(seq_backup_entries_start..seq_backup_entries_start.saturating_add(16384))
                 .unwrap_or(&[]),
             ref_data
-                .get(backup_entries_start..ref_backup_end)
+                .get(backup_entries_start..backup_entries_start.saturating_add(16384))
                 .unwrap_or(&[]),
             "backup partition entries must match"
         );
-        let seq_hdr_end = seq_backup_header_start.saturating_add(92);
-        let ref_hdr_end = backup_header_start.saturating_add(92);
+    }
+
+    #[test]
+    fn backup_header_matches_gptman_output() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+        table.set_partition(1, efi_partition(2048, 4095));
+
+        // ACT
+        let mut seq_buf = Vec::new();
+        table.write_primary_to(sector_count, &mut seq_buf).unwrap();
+        table.write_backup_to(sector_count, &mut seq_buf).unwrap();
+
+        let mut disk = Cursor::new(vec![0_u8; 512 * usize::try_from(sector_count).unwrap_or(0)]);
+        let mut ref_gpt = GPT::new_from(&mut disk, 512, [0xCD; 16]).expect("gptman create");
+        ref_gpt[1] = efi_partition(2048, 4095).into();
+        ref_gpt.write_into(&mut disk).expect("gptman write");
+        let ref_data = disk.into_inner();
+
+        // ASSERT
+        let backup_header_start = ref_data.len().saturating_sub(512);
+        let seq_backup_header_start = seq_buf.len().saturating_sub(512);
+
         assert_eq!(
             seq_buf
-                .get(seq_backup_header_start..seq_hdr_end)
+                .get(seq_backup_header_start..seq_backup_header_start.saturating_add(92))
                 .unwrap_or(&[]),
             ref_data
-                .get(backup_header_start..ref_hdr_end)
+                .get(backup_header_start..backup_header_start.saturating_add(92))
                 .unwrap_or(&[]),
             "backup GPT headers must match"
         );
@@ -709,179 +519,6 @@ mod tests {
     }
 
     #[test]
-    fn place_partition_aligns_first_usable_request() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-
-        // ACT
-        let placement = table
-            .place_partition(
-                request(
-                    Slot::Exact(1),
-                    Start::FirstUsable,
-                    Size::Bytes(1024 * 1024),
-                    EFI_GUID,
-                    "EFI",
-                ),
-                512,
-            )
-            .expect("placement must succeed");
-
-        // ASSERT
-        assert_eq!(placement.number, 1);
-        assert!(
-            placement
-                .partition
-                .starting_lba
-                .is_multiple_of(ALIGN_1_MIB_SECTORS)
-        );
-    }
-
-    #[test]
-    fn place_partition_after_partition_uses_previous_end() {
-        // ARRANGE
-        let sector_count = 32 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        let first = table
-            .place_partition(
-                request(
-                    Slot::Exact(1),
-                    Start::FirstUsable,
-                    Size::Bytes(1024 * 1024),
-                    EFI_GUID,
-                    "EFI",
-                ),
-                512,
-            )
-            .expect("first placement must succeed");
-
-        // ACT
-        let second = table
-            .place_partition(
-                request(
-                    Slot::Exact(2),
-                    Start::AfterPartition(first.number),
-                    Size::Bytes(1024 * 1024),
-                    LINUX_FS_GUID,
-                    "STATE",
-                ),
-                512,
-            )
-            .expect("second placement must succeed");
-
-        // ASSERT
-        assert!(second.partition.starting_lba > first.partition.ending_lba);
-        assert!(
-            second
-                .partition
-                .starting_lba
-                .is_multiple_of(ALIGN_1_MIB_SECTORS)
-        );
-    }
-
-    #[test]
-    fn place_partition_auto_slot_uses_next_free_slot() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        table.set_partition(1, efi_partition(2048, 4095));
-
-        // ACT
-        let placement = table
-            .place_partition(
-                request(
-                    Slot::Auto,
-                    Start::AfterLastUsed,
-                    Size::Bytes(1024 * 1024),
-                    LINUX_FS_GUID,
-                    "DATA",
-                ),
-                512,
-            )
-            .expect("placement must succeed");
-
-        // ASSERT
-        assert_eq!(placement.number, 2);
-    }
-
-    #[test]
-    fn place_partition_fill_to_last_usable_extends_to_table_end() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-
-        // ACT
-        let placement = table
-            .place_partition(
-                request(
-                    Slot::Exact(1),
-                    Start::FirstUsable,
-                    Size::FillToLastUsable,
-                    LINUX_FS_GUID,
-                    "DATA",
-                ),
-                512,
-            )
-            .expect("placement must succeed");
-
-        // ASSERT
-        assert_eq!(placement.partition.ending_lba, table.last_usable_lba());
-    }
-
-    #[test]
-    fn place_partition_rejects_overlap() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        table.set_partition(1, efi_partition(2048, 4095));
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(2),
-                Start::AtOrAfter(2048),
-                Size::Lbas(10),
-                LINUX_FS_GUID,
-                "BAD",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(matches!(result, Err(ParttableError::InvalidPlacement(_))));
-    }
-
-    #[test]
-    fn place_partition_rejects_used_exact_slot() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        table.set_partition(1, efi_partition(2048, 4095));
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(1),
-                Start::AfterLastUsed,
-                Size::Lbas(10),
-                LINUX_FS_GUID,
-                "BAD",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(matches!(result, Err(ParttableError::InvalidPlacement(_))));
-    }
-
-    #[test]
     fn remove_partition_clears_used_slot() {
         // ARRANGE
         let sector_count = 8 * 2048;
@@ -897,192 +534,5 @@ mod tests {
         // ASSERT
         assert!(!table.is_partition_used(1));
         assert!(!table.has_used_partitions());
-    }
-
-    #[test]
-    fn place_partition_auto_slot_rejects_fully_used_table() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        let max_slots = table
-            .inner
-            .iter()
-            .map(|(number, _)| number)
-            .max()
-            .expect("table must expose partition slots");
-        for slot in 1..=max_slots {
-            let start = 2048 + (u64::from(slot) - 1) * ALIGN_1_MIB_SECTORS;
-            let end = start + 1023;
-            table.set_partition(slot, efi_partition(start, end));
-        }
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Auto,
-                Start::AfterLastUsed,
-                Size::Lbas(1),
-                LINUX_FS_GUID,
-                "OVERFLOW",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message == "no free GPT partition slots")
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_missing_anchor_partition() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(1),
-                Start::AfterPartition(9),
-                Size::Lbas(1),
-                LINUX_FS_GUID,
-                "DATA",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message == "cannot place after missing partition 9")
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_zero_sized_bytes_request() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(1),
-                Start::FirstUsable,
-                Size::Bytes(0),
-                LINUX_FS_GUID,
-                "EMPTY",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message == "partition size must be greater than zero")
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_zero_sized_lba_request() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(1),
-                Start::FirstUsable,
-                Size::Lbas(0),
-                LINUX_FS_GUID,
-                "EMPTY",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message == "partition size must be greater than zero")
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_start_after_end() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        let invalid_start = table.last_usable_lba() + 1;
-        let mut request = request(
-            Slot::Exact(1),
-            Start::AtOrAfter(invalid_start),
-            Size::FillToLastUsable,
-            LINUX_FS_GUID,
-            "PAST-END",
-        );
-        request.alignment_lba = 1;
-
-        // ACT
-        let result = table.place_partition(request, 512);
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message.contains("start LBA") && message.contains("is after end LBA"))
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_start_before_first_usable() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        let invalid_start = table.first_usable_lba() - 1;
-        let mut request = request(
-            Slot::Exact(1),
-            Start::AtOrAfter(invalid_start),
-            Size::Lbas(1),
-            LINUX_FS_GUID,
-            "TOO-EARLY",
-        );
-        request.alignment_lba = 1;
-
-        // ACT
-        let result = table.place_partition(request, 512);
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message.contains("starts before first usable LBA"))
-        );
-    }
-
-    #[test]
-    fn place_partition_rejects_end_after_last_usable() {
-        // ARRANGE
-        let sector_count = 16 * 2048;
-        let mut table =
-            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
-        let invalid_start = table.last_usable_lba();
-
-        // ACT
-        let result = table.place_partition(
-            request(
-                Slot::Exact(1),
-                Start::AtOrAfter(invalid_start),
-                Size::Lbas(2),
-                LINUX_FS_GUID,
-                "TOO-LATE",
-            ),
-            512,
-        );
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(ParttableError::InvalidPlacement(message)) if message.contains("ends after last usable LBA"))
-        );
     }
 }
