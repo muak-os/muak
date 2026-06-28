@@ -8,32 +8,43 @@ use super::types::{
 };
 use crate::error::{ParttableError, Result};
 
-/// Returns the protective MBR partition size in LBAs.
+/// Returns a complete 512-byte MBR sector embedding `entry` at the partition slot and the boot signature at the end.
 #[must_use]
-pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
-    let Some(sectors) = disk_size.checked_div(sector_size) else {
-        return 0;
-    };
-    u32::try_from(sectors.saturating_sub(1).min(u64::from(u32::MAX))).unwrap_or(u32::MAX)
-}
-
-/// Returns a complete 512-byte protective MBR as a fixed-size array.
-#[must_use]
-pub fn protective_mbr_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES] {
+pub fn mbr_bytes(entry: &MbrPartitionEntry) -> [u8; MBR_BYTES] {
     let mut mbr = [0_u8; MBR_BYTES];
-    let entry = build_partition_entry(disk_size, sector_size);
-    let Some(off) = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).ok() else {
-        return mbr;
-    };
+    let off = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0);
     let end = off.saturating_add(MBR_ENTRY_SIZE);
     if let Some(dst) = mbr.get_mut(off..end) {
-        dst.copy_from_slice(&entry);
+        dst.copy_from_slice(&entry.to_bytes());
     }
     if let Some(dst) = mbr.get_mut(MBR_BYTES.saturating_sub(2)..) {
         dst.copy_from_slice(&MBR_BOOT_SIGNATURE);
     }
 
     mbr
+}
+
+/// Returns the protective MBR partition size in LBAs.
+#[must_use]
+pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
+    let Some(sectors) = disk_size.checked_div(sector_size) else {
+        return 0;
+    };
+
+    u32::try_from(sectors.saturating_sub(1).min(u64::from(u32::MAX))).unwrap_or(u32::MAX)
+}
+
+/// Returns a complete 512-byte protective MBR as a fixed-size array.
+#[must_use]
+pub fn protective_mbr_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES] {
+    let entry = MbrPartitionEntry {
+        bootable: false,
+        partition_type: MBR_PROTECTIVE_GPT_TYPE,
+        starting_lba: 1,
+        size_lba: protective_size_lba(disk_size, sector_size),
+    };
+
+    mbr_bytes(&entry)
 }
 
 /// Writes an MBR partition entry at the given slot index.
@@ -56,6 +67,7 @@ pub fn write_entry<W: Write + Seek>(
         .ok_or_else(|| ParttableError::Gpt("MBR entry offset overflow".to_owned()))?;
     writer.seek(SeekFrom::Start(u64::try_from(offset).unwrap_or(u64::MAX)))?;
     writer.write_all(&entry.to_bytes())?;
+
     Ok(())
 }
 
@@ -67,17 +79,8 @@ pub fn write_entry<W: Write + Seek>(
 pub fn write_signature<W: Write + Seek>(writer: &mut W) -> Result<()> {
     writer.seek(SeekFrom::Start(u64::try_from(MBR_BYTES - 2).unwrap_or(510)))?;
     writer.write_all(&MBR_BOOT_SIGNATURE)?;
-    Ok(())
-}
 
-fn build_partition_entry(disk_size: u64, sector_size: u64) -> [u8; MBR_ENTRY_SIZE] {
-    let entry = MbrPartitionEntry {
-        bootable: false,
-        partition_type: MBR_PROTECTIVE_GPT_TYPE,
-        starting_lba: 1,
-        size_lba: protective_size_lba(disk_size, sector_size),
-    };
-    entry.to_bytes()
+    Ok(())
 }
 
 #[cfg(test)]
