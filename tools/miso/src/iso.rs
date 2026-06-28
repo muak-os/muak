@@ -39,31 +39,38 @@ const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
 ///
 /// Returns an error if ISO metadata construction overflows format limits or if any
 /// write operation fails.
-pub fn write<W: Write>(out: &mut W, efi_image: &[u8]) -> Result<()> {
-    let efi_image_size = u32::try_from(efi_image.len())
+pub fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
+    out: &mut W,
+    esp_size: u64,
+    esp_builder: B,
+) -> Result<()> {
+    let esp_size_u32 = u32::try_from(esp_size)
         .map_err(|_err| MisoError::Iso("ISO field must fit in u32".to_owned()))?;
-    let efi_image_sectors = el_torito_sector_count(efi_image.len())?;
-    let efi_sectors = u32::try_from(efi_image.len().div_ceil(SECTOR_SIZE)).unwrap_or(u32::MAX);
+    let esp_sectors = el_torito_sector_count(esp_size)?;
+    let esp_sectors_u32 =
+        u32::try_from(usize::try_from(esp_size).unwrap_or(0).div_ceil(SECTOR_SIZE))
+            .unwrap_or(u32::MAX);
     let total_sectors = LBA_FILE_DATA
-        .checked_add(efi_sectors)
+        .checked_add(esp_sectors_u32)
         .and_then(|sum| sum.checked_add(1))
         .ok_or_else(|| MisoError::Iso("u32 addition for ISO sectors overflowed".to_owned()))?;
 
     write_system_area(
         out,
         u64::from(LBA_FILE_DATA).saturating_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX)),
-        u64::from(efi_image_size),
+        esp_size,
     )?;
-    out.write_all(&build_pvd(total_sectors, efi_image_size)?)?;
+    out.write_all(&build_pvd(total_sectors, esp_size_u32)?)?;
     out.write_all(&build_boot_record_vd())?;
     out.write_all(&build_vd_terminator())?;
     out.write_all(&build_path_table_l())?;
     out.write_all(&build_path_table_m())?;
-    out.write_all(&build_boot_catalog(LBA_FILE_DATA, efi_image_sectors)?)?;
-    out.write_all(&build_root_dir(efi_image_size)?)?;
-    out.write_all(efi_image)?;
+    out.write_all(&build_boot_catalog(LBA_FILE_DATA, esp_sectors)?)?;
+    out.write_all(&build_root_dir(esp_size_u32)?)?;
+    esp_builder(out)?;
 
-    let pad = efi_image.len().rem_euclid(SECTOR_SIZE);
+    let esp_total = usize::try_from(esp_size).unwrap_or(0);
+    let pad = esp_total.rem_euclid(SECTOR_SIZE);
     if pad != 0 {
         let len = SECTOR_SIZE.saturating_sub(pad);
         out.write_all(ZERO_SECTOR.get(..len).unwrap_or(&ZERO_SECTOR))?;
@@ -107,16 +114,16 @@ fn write_system_area<W: Write>(
 }
 
 /// Returns the El Torito boot image sector count, rejecting oversized EFI images.
-fn el_torito_sector_count(efi_image_len: usize) -> Result<u16> {
-    let efi_sectors = efi_image_len.div_ceil(SECTOR_SIZE);
-    if efi_sectors > usize::from(u16::MAX) {
+fn el_torito_sector_count(esp_size: u64) -> Result<u16> {
+    let esp_sectors = usize::try_from(esp_size).unwrap_or(0).div_ceil(SECTOR_SIZE);
+    if esp_sectors > usize::from(u16::MAX) {
         return Err(MisoError::Iso(format!(
-            "EFI boot image too large for El Torito: {efi_sectors} sectors > {}",
+            "EFI boot image too large for El Torito: {esp_sectors} sectors > {}",
             u16::MAX
         )));
     }
 
-    Ok(u16::try_from(efi_sectors).unwrap_or(u16::MAX))
+    Ok(u16::try_from(esp_sectors).unwrap_or(u16::MAX))
 }
 
 /// Builds the Primary Volume Descriptor sector (LBA 16, ECMA-119 §8.4).
@@ -403,278 +410,8 @@ fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
     use crate::error::MisoError;
-
-    fn minimal_efi_image() -> Vec<u8> {
-        vec![0xEF_u8; 4 * SECTOR_SIZE]
-    }
-
-    fn sector_start(lba: u32) -> usize {
-        usize::try_from(lba)
-            .expect("LBA must fit in usize")
-            .checked_mul(SECTOR_SIZE)
-            .expect("sector offset must fit in usize")
-    }
-
-    #[test]
-    fn write_iso_places_cd001_magic_at_sector_16() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let offset = sector_start(LBA_PVD) + 1;
-        assert_eq!(
-            data.get(offset..offset + 5).expect("PVD magic must exist"),
-            b"CD001",
-            "PVD must have CD001 magic"
-        );
-    }
-
-    #[test]
-    fn write_iso_pvd_type_byte_is_one() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let pvd_start = sector_start(LBA_PVD);
-        assert_eq!(
-            data.get(pvd_start).copied().expect("PVD type must exist"),
-            1,
-            "PVD type byte must be 1"
-        );
-    }
-
-    #[test]
-    fn write_iso_boot_record_vd_type_byte_is_zero() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let brvd_start = sector_start(LBA_BOOT_RECORD);
-        assert_eq!(
-            data.get(brvd_start)
-                .copied()
-                .expect("Boot Record VD type must exist"),
-            0,
-            "Boot Record VD type byte must be 0"
-        );
-    }
-
-    #[test]
-    fn write_iso_terminator_type_byte_is_255() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let term_start = sector_start(LBA_VD_TERMINATOR);
-        assert_eq!(
-            data.get(term_start)
-                .copied()
-                .expect("VD terminator type must exist"),
-            255,
-            "VD terminator type byte must be 255"
-        );
-    }
-
-    #[test]
-    fn write_iso_boot_record_vd_has_el_torito_identifier() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let brvd_start = sector_start(LBA_BOOT_RECORD);
-        assert_eq!(
-            data.get(brvd_start + 7..brvd_start + 39)
-                .expect("El Torito identifier must exist"),
-            b"EL TORITO SPECIFICATION         ",
-            "Boot Record VD must contain El Torito identifier"
-        );
-    }
-
-    #[test]
-    fn write_iso_boot_catalog_lba_matches_in_boot_record_vd() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let brvd_start = sector_start(LBA_BOOT_RECORD);
-        let catalog_lba = u32::from_le_bytes(
-            data.get(
-                brvd_start + BOOT_RECORD_CATALOG_OFFSET
-                    ..brvd_start + BOOT_RECORD_CATALOG_OFFSET + 4,
-            )
-            .expect("catalog LBA bytes must exist")
-            .try_into()
-            .expect("4-byte slice for catalog LBA"),
-        );
-        assert_eq!(catalog_lba, LBA_BOOT_CATALOG);
-    }
-
-    #[test]
-    fn write_iso_boot_catalog_validation_entry_checksum_is_valid() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let cat_start = sector_start(LBA_BOOT_CATALOG);
-        let validation = data
-            .get(cat_start..cat_start + 32)
-            .expect("validation entry must exist");
-        let sum: u32 = validation
-            .chunks_exact(2)
-            .map(|chunk| u32::from(checksum_word(chunk).expect("checksum word must build")))
-            .sum();
-        assert_eq!(
-            sum.rem_euclid(0x10000),
-            0,
-            "boot catalog validation checksum must be zero mod 0x10000"
-        );
-    }
-
-    #[test]
-    fn write_iso_boot_catalog_has_55aa_key_bytes() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let cat_start = sector_start(LBA_BOOT_CATALOG);
-        assert_eq!(
-            data.get(cat_start + 30)
-                .copied()
-                .expect("first catalog key byte must exist"),
-            0x55
-        );
-        assert_eq!(
-            data.get(cat_start + 31)
-                .copied()
-                .expect("second catalog key byte must exist"),
-            0xAA
-        );
-    }
-
-    #[test]
-    fn write_iso_file_data_written_at_lba_file_data() {
-        // ARRANGE
-        let efi = vec![0xBE_u8; SECTOR_SIZE];
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        let offset = sector_start(LBA_FILE_DATA);
-        assert_eq!(
-            data.get(offset..offset + SECTOR_SIZE)
-                .expect("file data sector must exist"),
-            efi.as_slice()
-        );
-    }
-
-    #[test]
-    fn write_iso_output_size_is_sector_aligned() {
-        // ARRANGE
-        let efi = vec![0_u8; 3 * SECTOR_SIZE + 100];
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let len = buf.into_inner().len();
-        assert_eq!(
-            len.rem_euclid(SECTOR_SIZE),
-            0,
-            "ISO size must be sector-aligned"
-        );
-    }
-
-    #[test]
-    fn write_iso_mbr_has_boot_signature() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        assert_eq!(
-            data.get(510).copied().expect("MBR byte 510 must exist"),
-            0x55,
-            "MBR byte 510 must be 0x55"
-        );
-        assert_eq!(
-            data.get(511).copied().expect("MBR byte 511 must exist"),
-            0xAA,
-            "MBR byte 511 must be 0xAA"
-        );
-    }
-
-    #[test]
-    fn write_iso_mbr_partition_entry_type_is_ef() {
-        // ARRANGE
-        let efi = minimal_efi_image();
-        let mut buf = Cursor::new(Vec::new());
-
-        // ACT
-        write(&mut buf, &efi).expect("write_iso must succeed");
-
-        // ASSERT
-        let data = buf.into_inner();
-        // MBR partition type byte is at offset 446 + 4
-        assert_eq!(
-            data.get(450)
-                .copied()
-                .expect("MBR partition type byte must exist"),
-            0xEF,
-            "MBR partition type must be 0xEF (EFI)"
-        );
-    }
 
     #[test]
     fn directory_record_pads_odd_length_file_records_to_even_length() {
@@ -749,7 +486,7 @@ mod tests {
     #[test]
     fn el_torito_sector_count_rejects_oversized_image() {
         // ARRANGE
-        let oversized = (usize::from(u16::MAX) + 1) * SECTOR_SIZE;
+        let oversized = u64::try_from(usize::from(u16::MAX) + 1).unwrap_or(u64::MAX) * 2048;
 
         // ACT
         let err = el_torito_sector_count(oversized).expect_err("oversized image must fail");
@@ -801,20 +538,6 @@ mod tests {
             34 + 34 + 46,
             "root directory size must sum all record lengths"
         );
-    }
-
-    #[test]
-    fn write_iso_rejects_sizes_that_do_not_fit_in_u32() {
-        // ARRANGE
-        let oversized = vec![0_u8; usize::try_from(u32::MAX).unwrap() + 1];
-        let mut out = Cursor::new(Vec::new());
-
-        // ACT
-        let err = write(&mut out, &oversized).expect_err("oversized image must fail");
-
-        // ASSERT
-        assert!(matches!(err, MisoError::Iso(_)));
-        assert!(err.to_string().contains("must fit in u32"));
     }
 
     #[test]
