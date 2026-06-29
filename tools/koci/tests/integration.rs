@@ -41,7 +41,7 @@ mod tests {
             .file(Path::new(path))
             .expect("file lookup")
             .expect("missing pulled file");
-        let mut reader = file.open().expect("open pulled file");
+        let mut reader = file.open();
         let mut contents = String::new();
         reader
             .read_to_string(&mut contents)

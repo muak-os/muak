@@ -260,7 +260,7 @@ mod tests {
             .file(Path::new("root.txt"))
             .expect("file lookup")
             .expect("missing root file");
-        let mut reader = file.open().expect("open file");
+        let mut reader = file.open();
         let mut contents = String::new();
         reader.read_to_string(&mut contents).expect("read file");
         assert_eq!(contents, "hello\n");
@@ -332,7 +332,7 @@ mod tests {
             .file(Path::new("etc/raw"))
             .expect("file lookup")
             .expect("missing raw file");
-        let mut reader = file.open().expect("open file");
+        let mut reader = file.open();
         let mut contents = String::new();
         reader.read_to_string(&mut contents).expect("read file");
         assert_eq!(contents, "raw tar layer\n");

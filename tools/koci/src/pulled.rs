@@ -9,7 +9,7 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use crate::error::{KociError, Result};
@@ -36,12 +36,9 @@ pub struct PulledFile {
 
 impl PulledFile {
     /// Open a readable stream for this file.
-    ///
-    /// # Errors
-    ///
-    /// This method currently cannot fail.
-    pub fn open(&self) -> Result<Box<dyn Read + '_>> {
-        Ok(Box::new(Cursor::new(self.data.as_ref())))
+    #[must_use]
+    pub fn open(&self) -> Cursor<Arc<[u8]>> {
+        Cursor::new(Arc::clone(&self.data))
     }
 }
 
@@ -223,7 +220,7 @@ fn write_entry_to_dir(output: &Path, entry: PulledEntry) -> Result<()> {
                     source,
                 })?;
             }
-            let mut reader = file.open()?;
+            let mut reader = file.open();
             let mut writer =
                 std::fs::File::create(&output_path).map_err(|source| KociError::WriteError {
                     file: output_path.display().to_string(),
@@ -240,6 +237,8 @@ fn write_entry_to_dir(output: &Path, entry: PulledEntry) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read as _;
+
     use super::*;
 
     #[test]
@@ -253,7 +252,7 @@ mod tests {
             .file(Path::new("etc/motd"))
             .expect("file lookup")
             .expect("missing file");
-        let mut reader = file.open().expect("open file");
+        let mut reader = file.open();
         let mut buf = String::new();
         reader.read_to_string(&mut buf).expect("read file");
 
