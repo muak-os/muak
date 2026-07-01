@@ -9,10 +9,10 @@ use koci::pulled::{PulledEntry, PulledImage};
 use ramune::Entry;
 use ramune::EntryStream;
 
-use super::stage;
-use super::stage::InstallerAssets;
+use super::source;
+use super::source::InstallerAssets;
 use crate::error::{Result, WizardError};
-use crate::resolve::ResolvedProfile;
+use crate::resolve::BuildPlan;
 
 /// Prebuilt components for the initramfs tail.
 #[derive(Clone)]
@@ -102,14 +102,14 @@ fn extension_archive_name(name: &str) -> String {
 }
 
 pub(crate) async fn pull_extensions(
-    resolved_profile: &ResolvedProfile,
+    resolved_profile: &BuildPlan,
 ) -> Result<Vec<(String, PulledImage)>> {
     let resolved_extensions = resolved_profile.extensions();
     if resolved_extensions.is_empty() {
         return Ok(vec![]);
     }
 
-    stage::pull_extensions(resolved_extensions, &resolved_profile.arch(), None)
+    source::pull_extensions(resolved_extensions, &resolved_profile.arch(), None)
         .await
         .map_err(|e| WizardError::BuildError(format!("pull extensions: {e}")))
 }
@@ -139,9 +139,7 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
         let rel_path = format!("/{}", entry.path().display());
         match entry {
             PulledEntry::File { file, .. } => {
-                let mut reader = file
-                    .open()
-                    .map_err(|e| WizardError::BuildError(format!("open entry: {e}")))?;
+                let mut reader = file.open();
                 let mut content = Vec::new();
                 reader
                     .read_to_end(&mut content)
@@ -208,10 +206,7 @@ pub fn write_combined_initramfs<W: Write>(
     tail_parts: &TailParts,
     writer: &mut W,
 ) -> Result<()> {
-    let mut base_reader = assets
-        .initramfs
-        .open()
-        .map_err(|e| WizardError::BuildError(format!("open initramfs: {e}")))?;
+    let mut base_reader = assets.initramfs.open();
     std::io::copy(&mut base_reader, writer)
         .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
 
@@ -293,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn prepare_tail_parts_builds_nonempty_tail() {
         // ARRANGE
-        let resolved = ResolvedProfile::new(
+        let resolved = BuildPlan::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,
@@ -313,7 +308,7 @@ mod tests {
     #[tokio::test]
     async fn pull_extensions_returns_empty_when_no_extensions() {
         // ARRANGE
-        let resolved = ResolvedProfile::new(
+        let resolved = BuildPlan::new(
             Platform::Metal,
             "v1.0.0".into(),
             Arch::Amd64,

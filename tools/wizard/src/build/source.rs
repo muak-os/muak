@@ -1,20 +1,25 @@
 //! Installer and extension staging helpers.
 
-use std::io::Read as _;
+use std::io::{Cursor, Read as _};
 use std::path::Path;
 
+use esp::model::EspFile;
 use koci::arch::Arch;
 use koci::pulled::{PulledEntry, PulledFile, PulledImage};
 
 use crate::error::{Result, WizardError};
-use crate::resolve::{ResolvedExtension, ResolvedProfile};
+use crate::resolve::{BuildPlan, ExtensionRef, OverlaySource};
 
 /// Installer asset handles extracted from the source OCI image.
 #[derive(Debug, Clone)]
 pub struct InstallerAssets {
+    /// Kernel image (vmlinuz).
     pub kernel: PulledFile,
+    /// Initramfs image.
     pub initramfs: PulledFile,
+    /// UEFI stub (stub.efi).
     pub stub: PulledFile,
+    /// Kernel command line.
     pub cmdline: PulledFile,
 }
 
@@ -24,7 +29,7 @@ pub struct InstallerAssets {
 ///
 /// Returns an error when the OCI pull fails.
 pub async fn pull_installer(
-    resolved_profile: &ResolvedProfile,
+    resolved_profile: &BuildPlan,
     signature_public_key: Option<&str>,
 ) -> Result<PulledImage> {
     koci::pull_arch(
@@ -42,7 +47,7 @@ pub async fn pull_installer(
 ///
 /// Returns an error when any extension OCI pull fails.
 pub async fn pull_extensions(
-    extensions: &[ResolvedExtension],
+    extensions: &[ExtensionRef],
     arch: &Arch,
     signature_public_key: Option<&str>,
 ) -> Result<Vec<(String, PulledImage)>> {
@@ -59,20 +64,17 @@ pub async fn pull_extensions(
     Ok(pulled)
 }
 
-/// Pulls the overlay OCI image if the resolved profile specifies one.
+/// Pulls the overlay OCI image and returns overlay files.
 ///
 /// # Errors
 ///
 /// Returns an error when the OCI pull or file collection fails.
-pub async fn pull_overlay(resolved_profile: &ResolvedProfile) -> Result<Vec<esp::EspFile>> {
-    let Some(overlay) = resolved_profile.overlay() else {
-        return Ok(vec![]);
-    };
-    let image = koci::pull_arch(overlay.source_ref(), &resolved_profile.arch(), None)
+pub async fn pull_overlay(overlay: &OverlaySource) -> Result<Vec<EspFile>> {
+    let image = koci::pull_arch(&overlay.source, &overlay.arch, None)
         .await
         .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))?;
 
-    collect_overlay_files(&image, overlay.name())
+    collect_overlay_files(&image, &overlay.name)
 }
 
 /// Loads required installer assets from the pulled OCI image.
@@ -95,9 +97,7 @@ pub fn load_installer_assets(installer: &PulledImage) -> Result<InstallerAssets>
 ///
 /// Returns an error when the file stream cannot be read.
 pub fn read_file(file: &PulledFile, name: &str) -> Result<Vec<u8>> {
-    let mut reader = file
-        .open()
-        .map_err(|e| WizardError::BuildError(format!("open {name}: {e}")))?;
+    let mut reader = file.open();
     let mut bytes = Vec::new();
     reader
         .read_to_end(&mut bytes)
@@ -113,7 +113,7 @@ fn installer_file(installer: &PulledImage, name: &str) -> Result<PulledFile> {
         .ok_or_else(|| WizardError::MissingInstallerFile(name.to_owned()))
 }
 
-fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<esp::EspFile>> {
+fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<EspFile>> {
     let prefix = Path::new(overlay_name);
     let mut files = Vec::new();
 
@@ -136,12 +136,12 @@ fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<
             .ok_or_else(|| {
                 WizardError::BuildError(format!("invalid overlay path: {}", path.display()))
             })?;
-        files.push(esp::EspFile {
+        files.push(EspFile {
             path: rel,
-            data: read_file(&file, "overlay file")?,
+            reader: Box::new(Cursor::new(file.data)),
+            size: file.len,
         });
     }
-
     files.sort_unstable_by(|left, right| left.path.cmp(&right.path));
 
     Ok(files)
@@ -196,14 +196,8 @@ mod tests {
         let files = collect_overlay_files(&image, "rpi").expect("collect overlay files");
 
         // ASSERT
-        assert_eq!(files.len(), 1);
-        assert_eq!(
-            files.first().map(|file| file.path.as_str()),
-            Some("EFI/BOOT/boot.cfg")
-        );
-        assert_eq!(
-            files.first().map(|file| file.data.as_slice()),
-            Some(b"cfg".as_slice())
-        );
+        let entry = files.first().expect("overlay entry must exist");
+        assert_eq!(entry.path, "EFI/BOOT/boot.cfg");
+        assert_eq!(entry.size, 3);
     }
 }

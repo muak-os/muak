@@ -5,7 +5,7 @@ use koci::arch::Arch;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Platform;
-use crate::resolve::{ResolvedExtension, ResolvedOverlay, ResolvedProfile, Sources};
+use crate::resolve::{BuildPlan, ExtensionRef, OverlaySource, Sources};
 
 const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
 
@@ -43,7 +43,7 @@ impl Resolver {
         platform: Platform,
         arch: Arch,
         profile: &Profile,
-    ) -> Result<ResolvedProfile> {
+    ) -> Result<BuildPlan> {
         let mut extensions = profile
             .customization()
             .extensions()
@@ -53,14 +53,15 @@ impl Resolver {
         extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
         let overlay = profile.overlay().map(|overlay_spec| {
-            ResolvedOverlay::new(
+            OverlaySource::new(
                 overlay_spec.name().to_owned(),
                 overlay_spec.image().to_owned(),
                 self.versioned_ref(overlay_spec.image(), version),
+                arch,
             )
         });
 
-        Ok(ResolvedProfile::new(
+        Ok(BuildPlan::new(
             platform,
             version.to_owned(),
             arch,
@@ -74,14 +75,14 @@ impl Resolver {
         format!("{}/{repository}:{version}", self.registry)
     }
 
-    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<ResolvedExtension> {
+    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<ExtensionRef> {
         let normalized = resolve_extension_name(name);
         if !is_official_extension(normalized) {
             return Err(WizardError::SourceResolution(format!(
                 "unknown official extension: {name}"
             )));
         }
-        Ok(ResolvedExtension::new(
+        Ok(ExtensionRef::new(
             normalized.to_owned(),
             self.versioned_ref(normalized, version),
         ))
@@ -99,7 +100,7 @@ pub(super) fn resolve(
     arch: Arch,
     profile: &Profile,
     sources: &Sources,
-) -> Result<ResolvedProfile> {
+) -> Result<BuildPlan> {
     let resolver = Resolver::new(sources);
     resolver.resolve(version, platform, arch, profile)
 }

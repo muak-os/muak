@@ -25,14 +25,14 @@ pub struct Sources {
     pub installer: String,
 }
 
-/// Resolved extension source.
+/// A reference to an extension source.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedExtension {
+pub struct ExtensionRef {
     name: String,
     source: String,
 }
 
-impl ResolvedExtension {
+impl ExtensionRef {
     #[must_use]
     pub(crate) fn new(name: String, source: String) -> Self {
         Self { name, source }
@@ -51,21 +51,27 @@ impl ResolvedExtension {
     }
 }
 
-/// Resolved overlay source selected by the profile.
+/// An overlay source resolved from the profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedOverlay {
-    name: String,
-    image: String,
-    source: String,
+pub struct OverlaySource {
+    /// Overlay name inside the OCI image.
+    pub name: String,
+    /// Logical overlay image name.
+    pub image: String,
+    /// Versioned OCI reference for the overlay image.
+    pub source: String,
+    /// Target architecture of the overlay.
+    pub arch: Arch,
 }
 
-impl ResolvedOverlay {
+impl OverlaySource {
     #[must_use]
-    pub(crate) fn new(name: String, image: String, source: String) -> Self {
+    pub(crate) fn new(name: String, image: String, source: String, arch: Arch) -> Self {
         Self {
             name,
             image,
             source,
+            arch,
         }
     }
 
@@ -88,25 +94,25 @@ impl ResolvedOverlay {
     }
 }
 
-/// Canonical resolved build description produced from a request and profile spec.
+/// Canonical build plan produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedProfile {
+pub struct BuildPlan {
     platform: Platform,
     version: String,
     arch: Arch,
-    extensions: Vec<ResolvedExtension>,
-    overlay: Option<ResolvedOverlay>,
+    extensions: Vec<ExtensionRef>,
+    overlay: Option<OverlaySource>,
     installer: String,
 }
 
-impl ResolvedProfile {
+impl BuildPlan {
     #[must_use]
     pub(crate) fn new(
         platform: Platform,
         version: String,
         arch: Arch,
-        extensions: Vec<ResolvedExtension>,
-        overlay: Option<ResolvedOverlay>,
+        extensions: Vec<ExtensionRef>,
+        overlay: Option<OverlaySource>,
         installer: String,
     ) -> Self {
         Self {
@@ -139,13 +145,13 @@ impl ResolvedProfile {
 
     /// Returns the resolved extension inputs in canonical order.
     #[must_use]
-    pub fn extensions(&self) -> &[ResolvedExtension] {
+    pub fn extensions(&self) -> &[ExtensionRef] {
         &self.extensions
     }
 
     /// Returns the resolved overlay input when present.
     #[must_use]
-    pub fn overlay(&self) -> Option<&ResolvedOverlay> {
+    pub fn overlay(&self) -> Option<&OverlaySource> {
         self.overlay.as_ref()
     }
 
@@ -156,12 +162,12 @@ impl ResolvedProfile {
     }
 }
 
-/// Resolves a profile and request into versioned OCI references.
+/// Resolves a profile and request into a build plan with versioned OCI references.
 ///
 /// # Errors
 ///
 /// Returns an error when the profile references an unknown source input.
-pub fn profile(request: &Request, profile: &Profile, sources: &Sources) -> Result<ResolvedProfile> {
+pub fn profile(request: &Request, profile: &Profile, sources: &Sources) -> Result<BuildPlan> {
     let host = arch::host();
     let arch = request.arch.unwrap_or(host);
 
@@ -175,8 +181,7 @@ mod tests {
     #[test]
     fn resolved_extension_accessors() {
         // ARRANGE
-        let ext =
-            ResolvedExtension::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
+        let ext = ExtensionRef::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
 
         // ACT / ASSERT
         assert_eq!(ext.name(), "muak-os/qemu");
@@ -186,10 +191,11 @@ mod tests {
     #[test]
     fn resolved_overlay_accessors() {
         // ARRANGE
-        let ov = ResolvedOverlay::new(
+        let ov = OverlaySource::new(
             "rpi_generic".into(),
             "muak-os/sbc-raspberrypi".into(),
             "ghcr.io/muak-os/sbc-raspberrypi:v1.0.0".into(),
+            Arch::Amd64,
         );
 
         // ACT / ASSERT
@@ -201,11 +207,10 @@ mod tests {
     #[test]
     fn resolved_profile_accessors() {
         // ARRANGE
-        let ext =
-            ResolvedExtension::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
+        let ext = ExtensionRef::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
 
         // ACT
-        let bp = ResolvedProfile::new(
+        let bp = BuildPlan::new(
             Platform::Metal,
             "v1.0.0-beta".into(),
             Arch::Amd64,

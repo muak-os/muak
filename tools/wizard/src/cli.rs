@@ -23,7 +23,7 @@ struct BuildArgs {
     extension: Vec<String>,
     overlay_image: Option<String>,
     overlay_name: Option<String>,
-    output: PathBuf,
+    output_dir: PathBuf,
     registry: String,
     installer: String,
     signing_key: Option<PathBuf>,
@@ -89,8 +89,8 @@ enum Command {
         #[arg(long)]
         overlay_name: Option<String>,
 
-        #[arg(short, long)]
-        output: PathBuf,
+        #[arg(short, long, default_value = ".")]
+        output_dir: PathBuf,
 
         #[arg(long, default_value = "ghcr.io")]
         registry: String,
@@ -190,7 +190,7 @@ async fn run_command(command: Command) -> Result<()> {
             extension,
             overlay_image,
             overlay_name,
-            output,
+            output_dir,
             registry,
             installer,
             signing_key,
@@ -205,7 +205,7 @@ async fn run_command(command: Command) -> Result<()> {
                 extension,
                 overlay_image,
                 overlay_name,
-                output,
+                output_dir,
                 registry,
                 installer,
                 signing_key,
@@ -315,8 +315,9 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         None => None,
     };
 
-    let file = std::fs::File::create(&args.output)
-        .with_context(|| format!("create output file {}", args.output.display()))?;
+    let output_path = args.output_dir.join(artifact.filename());
+    let file = std::fs::File::create(&output_path)
+        .with_context(|| format!("create output file {}", output_path.display()))?;
     let mut file = std::io::BufWriter::new(file);
     let writers = match artifact {
         Artifact::Uki => build::ArtifactWriters {
@@ -370,12 +371,12 @@ async fn run_build(args: BuildArgs) -> Result<()> {
     };
     let _metadata = build::artifacts(&request, &spec, &config, signing.as_ref(), writers)
         .await
-        .context(format!("build {} to {}", artifact, args.output.display()))?;
+        .context(format!("build {} to {}", artifact, output_path.display()))?;
 
     println!(
         "Successfully built {} at {}",
         artifact,
-        args.output.display()
+        output_path.display()
     );
 
     Ok(())
@@ -390,6 +391,7 @@ fn build_profile(
     if let Some(path) = profile_path {
         let bytes =
             std::fs::read(&path).with_context(|| format!("read profile {}", path.display()))?;
+
         Ok(Profile::from_toml(&bytes)?)
     } else {
         let overlay = if let Some(name) = overlay_name {
@@ -398,6 +400,7 @@ fn build_profile(
             None
         };
         let customization = CustomizationSpec::new(extensions)?;
+
         Ok(Profile::new(overlay, customization))
     }
 }

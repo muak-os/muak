@@ -14,8 +14,8 @@ use crate::resolve::{self, Config};
 pub(crate) mod archive;
 pub(crate) mod artifacts;
 pub(crate) mod media;
-pub(crate) mod prepare;
-pub(crate) mod stage;
+pub(crate) mod uki;
+pub mod source;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,12 +30,12 @@ pub struct SectionInfo {
     pub hash: [u8; 32],
 }
 
-/// Artifact build metadata (PE sections, overlay files).
+/// Artifact build metadata.
 pub struct Metadata {
     /// PE section descriptors for the built UKI.
     pub sections: Vec<SectionInfo>,
-    /// Overlay boot assets pulled from the resolved overlay image.
-    pub overlay_files: Vec<esp::EspFile>,
+    /// Overlay source information for deferred overlay pulling.
+    pub overlay: Option<resolve::OverlaySource>,
 }
 
 /// Per-artifact output sinks passed to [`artifacts`].
@@ -116,7 +116,7 @@ pub async fn artifacts<W: Write>(
 
     artifacts::write_standalone(&assets, tail_parts.as_ref(), kernel, cmdline, initramfs)?;
 
-    let overlay_files = stage::pull_overlay(&resolved).await?;
+    let overlay = resolved.overlay().cloned();
 
     Ok(Metadata {
         sections: sections
@@ -128,6 +128,6 @@ pub async fn artifacts<W: Write>(
                 hash: section.checksum,
             })
             .collect(),
-        overlay_files,
+        overlay,
     })
 }

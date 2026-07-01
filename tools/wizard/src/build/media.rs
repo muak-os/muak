@@ -1,80 +1,67 @@
-//! Bootable media builders (ISO, raw disk image, ESP overlay).
+//! Bootable media builders.
 
 use std::io::Write;
+use std::os::unix::net::UnixStream;
 
-use esp::Arch as EspArch;
-use esp::EspSpecBuilder;
+use esp::model::Arch as EspArch;
+use esp::model::EspFile;
+use esp::model::EspSpec;
 use koci::arch::Arch;
-use tokio::task::spawn_blocking;
 
 use crate::error::{Result, WizardError};
-use crate::resolve::ResolvedProfile;
+use crate::resolve::BuildPlan;
 
-/// Build an ISO image, writing to a `Write` sink.
+/// Build an ISO image, writing directly to a `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error when creating the ISO or writing it fails.
-pub async fn iso_to_writer<W: Write>(
-    resolved_profile: &ResolvedProfile,
-    uki_bytes: &[u8],
+pub fn iso_to_writer<W: Write>(
+    resolved_profile: &BuildPlan,
+    uki_reader: UnixStream,
+    uki_size: u64,
     writer: &mut W,
 ) -> Result<()> {
     let arch = esp_arch(resolved_profile.arch());
-    let spec = EspSpecBuilder::default()
-        .with_uki(arch, uki_bytes.to_vec())
+    let boot = EspFile::boot(arch, uki_reader, uki_size);
+    let mut spec = EspSpec::builder()
+        .add_file(boot)
         .map_err(|e| WizardError::BuildError(format!("add UKI to ISO ESP spec: {e}")))?
         .build()
         .map_err(|e| WizardError::BuildError(format!("build ISO ESP spec: {e}")))?;
 
-    let buf = spawn_blocking(move || {
-        let mut buf = Vec::new();
-        miso::build_iso(&spec, &mut buf).map_err(std::io::Error::other)?;
-        Ok::<_, std::io::Error>(buf)
-    })
-    .await
-    .map_err(|e| WizardError::BuildError(format!("join ISO build task: {e}")))?
-    .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
-
-    writer
-        .write_all(&buf)
-        .map_err(|e| WizardError::BuildError(format!("write ISO: {e}")))?;
+    miso::build_iso(&mut spec, writer)
+        .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     Ok(())
 }
 
-/// Build a raw disk image, writing to a `Write` sink.
+/// Build a raw disk image, writing directly to a `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error when creating the raw image or writing it fails.
-pub async fn raw_to_writer<W: Write>(
-    resolved_profile: &ResolvedProfile,
-    overlay_assets: &[esp::EspFile],
-    uki_bytes: &[u8],
+pub fn raw_to_writer<W: Write>(
+    resolved_profile: &BuildPlan,
+    overlay_assets: Vec<EspFile>,
+    uki_reader: UnixStream,
+    uki_size: u64,
     writer: &mut W,
 ) -> Result<()> {
     let arch = esp_arch(resolved_profile.arch());
-    let spec = EspSpecBuilder::default()
-        .with_uki(arch, uki_bytes.to_vec())
+    let boot = EspFile::boot(arch, uki_reader, uki_size);
+
+    let mut all: Vec<EspFile> = Vec::with_capacity(overlay_assets.len().saturating_add(1));
+    all.push(boot);
+    all.extend(overlay_assets);
+    let mut spec = EspSpec::builder()
+        .add_files(all)
         .map_err(|e| WizardError::BuildError(format!("add UKI to raw ESP spec: {e}")))?
-        .add_files(overlay_assets.to_vec())
-        .map_err(|e| WizardError::BuildError(format!("add overlay assets to raw ESP spec: {e}")))?
         .build()
         .map_err(|e| WizardError::BuildError(format!("build raw ESP spec: {e}")))?;
 
-    let buf = spawn_blocking(move || {
-        let mut buf = Vec::new();
-        miso::build_raw(&spec, &mut buf, Some(6)).map_err(std::io::Error::other)?;
-        Ok::<_, std::io::Error>(buf)
-    })
-    .await
-    .map_err(|e| WizardError::BuildError(format!("join IMG build task: {e}")))?
-    .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
-
-    writer
-        .write_all(&buf)
-        .map_err(|e| WizardError::BuildError(format!("write raw image: {e}")))?;
+    miso::build_raw(&mut spec, writer, Some(6))
+        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(())
 }
@@ -99,7 +86,7 @@ mod tests {
         let result = esp_arch(arch);
 
         // ASSERT
-        assert_eq!(result, esp::Arch::X86_64);
+        assert_eq!(result, EspArch::X86_64);
     }
 
     #[test]
@@ -111,6 +98,6 @@ mod tests {
         let result = esp_arch(arch);
 
         // ASSERT
-        assert_eq!(result, esp::Arch::Aarch64);
+        assert_eq!(result, EspArch::Aarch64);
     }
 }
