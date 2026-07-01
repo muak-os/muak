@@ -1,9 +1,14 @@
 //! Error types for ESP operations.
 
+use fatfs::error::FatError;
 use thiserror::Error;
 
 /// Errors produced while building or populating an ESP.
 #[derive(Debug, Error)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "EspError is the canonical error type"
+)]
 pub enum EspError {
     /// An I/O error occurred.
     #[error("I/O error: {0}")]
@@ -19,7 +24,7 @@ pub enum EspError {
 
     /// FAT filesystem construction or writing failed.
     #[error("FAT filesystem error: {0}")]
-    Fat(String),
+    Fat(#[from] FatError),
 }
 
 /// Result type alias for ESP operations.

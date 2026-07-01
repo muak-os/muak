@@ -3,10 +3,11 @@
 use std::path::{Component, Path};
 
 use crate::error::{EspError, Result};
+use crate::model::EspSpec;
 
 /// Validates all paths in an `EspSpec`.
-pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<()> {
-    for file in &spec.files {
+pub(crate) fn validate_spec(spec: &EspSpec) -> Result<()> {
+    for file in spec.files() {
         let normalized = normalize_relative_path(&file.path)?;
         if normalized != file.path {
             return Err(EspError::InvalidPath(format!(
@@ -15,6 +16,16 @@ pub(crate) fn validate_spec(spec: &crate::EspSpec) -> Result<()> {
             )));
         }
     }
+
+    Ok(())
+}
+
+/// Validates an iterator of ESP-relative file paths.
+pub(crate) fn validate_spec_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Result<()> {
+    for path in paths {
+        validate_relative_path(path)?;
+    }
+
     Ok(())
 }
 
@@ -30,6 +41,7 @@ pub(crate) fn normalize_relative_path(path: &str) -> Result<String> {
     }
 
     let normalized = components.join("/");
+
     Ok(normalized)
 }
 
@@ -71,10 +83,12 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<&Path> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::path::Path;
 
     use super::{normalize_relative_path, validate_relative_path, validate_spec};
-    use crate::{EspError, EspFile, EspSpec};
+    use crate::error::EspError;
+    use crate::model::{EspFile, EspSpec};
 
     #[test]
     fn validate_relative_path_accepts_nested_relative_paths() {
@@ -134,37 +148,39 @@ mod tests {
     }
 
     #[test]
-    fn validate_spec_checks_all_entries() {
+    fn validate_spec_accepts_normalized_paths() {
         // ARRANGE
-        let spec = EspSpec {
-            files: vec![
-                EspFile {
-                    path: "valid/file".to_owned(),
-                    data: vec![],
-                },
-                EspFile {
-                    path: "../escape".to_owned(),
-                    data: vec![],
-                },
-            ],
-        };
+        let spec = EspSpec::builder()
+            .add_file(EspFile {
+                path: "valid/file".to_owned(),
+                reader: Box::new(Cursor::new(vec![])),
+                size: 0,
+            })
+            .expect("file must be added")
+            .build()
+            .expect("spec must build");
 
         // ACT
         let result = validate_spec(&spec);
 
         // ASSERT
-        assert!(matches!(result, Err(EspError::InvalidPath(_))));
+        result.expect("normalized spec must validate");
     }
 
     #[test]
     fn validate_spec_rejects_non_normalized_paths() {
         // ARRANGE
-        let spec = EspSpec {
-            files: vec![EspFile {
-                path: "./EFI/BOOT/BOOTX64.EFI".to_owned(),
-                data: vec![],
-            }],
-        };
+        let mut spec = EspSpec::builder()
+            .add_file(EspFile {
+                path: "EFI/BOOT/BOOTX64.EFI".to_owned(),
+                reader: Box::new(Cursor::new(vec![])),
+                size: 0,
+            })
+            .expect("file must be added")
+            .build()
+            .expect("spec must build");
+        spec.files_mut().first_mut().expect("file must exist").path =
+            "./EFI/BOOT/BOOTX64.EFI".to_owned();
 
         // ACT
         let result = validate_spec(&spec);

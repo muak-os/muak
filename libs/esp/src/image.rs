@@ -1,361 +1,222 @@
 //! FAT32 ESP image builder.
 
-use std::io::{Cursor, Write as _};
-use std::path::Path;
+use std::io::Write;
 
-use fatfs::{Dir, FileSystem, FsOptions};
+use fatfs::builder;
+use fatfs::error::FatError;
 
-use crate::error::{EspError, Result};
-use crate::{EspSpec, format, path};
+use crate::error::EspError;
+use crate::model::EspFile;
+use crate::path;
 
-/// The minimum FAT32 ESP image size in bytes.
-const FAT_MIN_IMAGE_BYTES: usize = 1024 * 1024;
+const CLUSTER_SIZE: u64 = 4096;
+const SECTOR_SIZE: u64 = 512;
+const RESERVED_SECTORS: u64 = 32;
+pub(crate) const MIN_IMAGE_BYTES: u64 = 1_u64 << 20;
+const MAX_IMAGE_BYTES: u64 = 1_u64 << 29;
+const DIRECTORY_OVERHEAD: u64 = 1_u64 << 20;
 
-/// The minimum ESP image growth step in bytes.
-const FAT_GROWTH_MIN_BYTES: usize = 128 * 1024;
-
-/// The maximum number of ESP image growth attempts.
-const FAT_GROWTH_ATTEMPTS: usize = 16;
-
-/// Builds a FAT32 ESP image from an `EspSpec`.
+/// Builds a FAT32 ESP image, writing to any `Write` sink.
 ///
 /// # Errors
 ///
-/// Returns an error when the spec contains invalid paths or the FAT image cannot be
-/// created within the configured growth attempts.
-pub fn build(spec: &EspSpec) -> Result<Vec<u8>> {
-    path::validate_spec(spec)?;
-    let mut size = spec
-        .total_file_bytes()
-        .max(FAT_MIN_IMAGE_BYTES)
-        .next_multiple_of(512);
-    let mut last_error = None;
+/// Returns an error when a path is invalid or writing fails.
+pub fn build<W: Write>(files: &mut [EspFile], writer: &mut W) -> Result<(), EspError> {
+    let metas: Vec<(&str, u64)> = files
+        .iter()
+        .map(|file| (file.path.as_str(), file.size))
+        .collect();
+    let image_size = compute_fat_size(&metas)?;
 
-    for _ in 0..FAT_GROWTH_ATTEMPTS {
-        match try_build(size, spec) {
-            Ok(image) => return Ok(image),
-            Err(err) => {
-                last_error = Some(err);
-                size = size
-                    .saturating_add((size >> 4).max(FAT_GROWTH_MIN_BYTES))
-                    .next_multiple_of(512);
-            }
-        }
-    }
-
-    if let Some(error) = last_error {
-        Err(error)
-    } else {
-        Err(EspError::Fat("failed to size FAT image".to_owned()))
-    }
+    build_with_size(files, image_size, writer)
 }
 
-/// Attempts to build an ESP image of exactly `image_size` bytes.
-fn try_build(image_size: usize, spec: &EspSpec) -> Result<Vec<u8>> {
-    let mut cursor = Cursor::new(vec![0_u8; image_size]);
+/// Precomputes the exact FAT32 image size from file metadata without writing.
+///
+/// # Errors
+///
+/// Returns an error when a path is invalid, contains parent traversal, or the total data exceeds
+/// the supported image size.
+pub fn compute_fat_size(files: &[(&str, u64)]) -> Result<u64, EspError> {
+    path::validate_spec_paths(files.iter().map(|&(path, _size)| path))?;
+    let total_data: u64 = files.iter().map(|&(_path, size)| size).sum();
 
-    format(&mut cursor)?;
-
-    {
-        let fs = match FileSystem::new(&mut cursor, FsOptions::new()) {
-            Ok(fs) => fs,
-            Err(err) => return Err(EspError::Fat(err.to_string())),
-        };
-        let root = fs.root_dir();
-        for file in &spec.files {
-            write_file_at_path(&root, &file.path, &file.data)?;
-        }
-    }
-
-    Ok(cursor.into_inner())
+    image_size_for(total_data)
 }
 
-/// Creates intermediate FAT directories and writes one file.
-pub(crate) fn write_file_at_path<IO>(root: &Dir<'_, IO>, path: &str, data: &[u8]) -> Result<()>
-where
-    IO: fatfs::ReadWriteSeek,
-{
-    let rel_path = path::validate_relative_path(path)?;
-    let parent = rel_path.parent().unwrap_or(Path::new(""));
-    let Some(filename) = rel_path.file_name().and_then(|name| name.to_str()) else {
-        return Err(EspError::InvalidPath(format!("invalid file path: {path}")));
-    };
+fn build_with_size<W: Write>(
+    files: &mut [EspFile],
+    image_size: u64,
+    writer: &mut W,
+) -> Result<(), EspError> {
+    builder::build(files, image_size, writer)?;
 
-    let dir = if parent == Path::new("") {
-        root.clone()
-    } else {
-        open_or_create_dir(root, parent)?
-    };
-
-    let mut file = match dir.create_file(filename) {
-        Ok(file) => file,
-        Err(err) => return Err(EspError::Fat(err.to_string())),
-    };
-    file.write_all(data)?;
     Ok(())
 }
 
-/// Opens or creates all FAT directories beneath `root`.
-fn open_or_create_dir<'a, IO>(root: &Dir<'a, IO>, dir_path: &Path) -> Result<Dir<'a, IO>>
-where
-    IO: fatfs::ReadWriteSeek,
-{
-    let mut current = root.clone();
-    for component in dir_path.components() {
-        let name = component.as_os_str().to_string_lossy();
-        current = match current.create_dir(name.as_ref()) {
-            Ok(next) => next,
-            Err(err) => return Err(EspError::Fat(err.to_string())),
-        };
+fn image_size_for(total_data: u64) -> Result<u64, EspError> {
+    let padded = total_data.saturating_add(DIRECTORY_OVERHEAD);
+    let data_region = next_multiple_of(padded, CLUSTER_SIZE).max(MIN_IMAGE_BYTES);
+    if data_region > MAX_IMAGE_BYTES {
+        return Err(FatError::Fat(format!(
+            "ESP image size {data_region} exceeds {MAX_IMAGE_BYTES} byte limit"
+        ))
+        .into());
     }
-    Ok(current)
+    let reserved = RESERVED_SECTORS.saturating_mul(SECTOR_SIZE);
+    let fat_bytes = fat_bytes_for(data_region);
+    let fats_total = fat_bytes.saturating_mul(2);
+    let total = reserved
+        .saturating_add(fats_total)
+        .saturating_add(data_region);
+
+    Ok(next_multiple_of(total, SECTOR_SIZE))
+}
+
+fn fat_bytes_for(image_size: u64) -> u64 {
+    let clusters = image_size.saturating_div(CLUSTER_SIZE);
+    let entries = clusters.saturating_mul(4);
+
+    next_multiple_of(entries, SECTOR_SIZE)
+}
+
+fn next_multiple_of(value: u64, step: u64) -> u64 {
+    let quotient = value.div_ceil(step);
+
+    quotient.saturating_mul(step)
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use std::io::Read as _;
 
-    use fatfs::{FileSystem, FsOptions};
+    use fatfs::error::FatError;
 
-    use super::{FAT_MIN_IMAGE_BYTES, build, write_file_at_path};
-    use crate::{Arch, EspError, EspFile, EspSpec, format};
+    use super::{build, build_with_size, compute_fat_size};
+    use crate::error::EspError;
+    use crate::model::{Arch, EspFile};
 
-    /// Creates a simple ESP spec for tests.
-    fn test_spec() -> EspSpec {
-        EspSpec::with_uki(
-            Arch::X86_64,
-            b"uki".to_vec(),
-            vec![EspFile {
-                path: "overlays/rpi/config.txt".to_owned(),
-                data: b"arm_64bit=1".to_vec(),
-            }],
-        )
-    }
-
-    /// Opens a FAT filesystem from raw image bytes for one test closure.
-    fn with_fs<F: FnOnce(fatfs::Dir<'_, &mut Cursor<Vec<u8>>>)>(image: Vec<u8>, test: F) {
-        let mut cursor = Cursor::new(image);
-        let fs = FileSystem::new(&mut cursor, FsOptions::new()).expect("FAT filesystem must open");
-        test(fs.root_dir());
-    }
-
-    /// Creates a formatted FAT root directory for helper tests.
-    fn with_root<F: FnOnce(fatfs::Dir<'_, &mut Cursor<Vec<u8>>>)>(size: usize, test: F) {
-        let mut cursor = Cursor::new(vec![0_u8; size]);
-        format(&mut cursor).expect("FAT format must succeed");
-        let fs = FileSystem::new(&mut cursor, FsOptions::new()).expect("FAT open must succeed");
-        test(fs.root_dir());
+    fn fat_boot(data: &[u8]) -> EspFile {
+        let size = u64::try_from(data.len()).unwrap_or(u64::MAX);
+        EspFile::boot(Arch::X86_64, Cursor::new(data.to_vec()), size)
     }
 
     #[test]
-    fn build_returns_fat32_image_with_boot_file() {
-        // ARRANGE
-        let spec = test_spec();
-
-        // ACT
-        let image = build(&spec).expect("ESP build must succeed");
+    fn compute_fat_size_returns_minimum_for_empty_spec() {
+        // ARRANGE / ACT
+        let size = compute_fat_size(&[]).expect("size must compute");
 
         // ASSERT
-        with_fs(image, |root| {
-            let mut boot = root
-                .open_dir("EFI")
-                .expect("EFI dir must exist")
-                .open_dir("BOOT")
-                .expect("BOOT dir must exist")
-                .open_file("BOOTX64.EFI")
-                .expect("boot file must exist");
-            let mut content = Vec::new();
-            boot.read_to_end(&mut content).expect("boot file must read");
-            assert_eq!(content, b"uki");
-        });
+        assert!(size >= 1024 * 1024);
+        assert_eq!(size.rem_euclid(512), 0);
     }
 
     #[test]
-    fn build_preserves_recursive_extra_files() {
-        // ARRANGE
-        let spec = test_spec();
-
-        // ACT
-        let image = build(&spec).expect("ESP build must succeed");
+    fn compute_fat_size_grows_with_total_data() {
+        // ARRANGE / ACT
+        let small = compute_fat_size(&[("a", 4096)]).expect("small must compute");
+        let large = compute_fat_size(&[("a", 4 * 1024 * 1024)]).expect("large must compute");
 
         // ASSERT
-        with_fs(image, |root| {
-            let mut extra = root
-                .open_dir("overlays")
-                .expect("overlays dir must exist")
-                .open_dir("rpi")
-                .expect("rpi dir must exist")
-                .open_file("config.txt")
-                .expect("config file must exist");
-            let mut content = Vec::new();
-            extra
-                .read_to_end(&mut content)
-                .expect("config file must read");
-            assert_eq!(content, b"arm_64bit=1");
-        });
+        assert!(large > small);
+        assert_eq!(large.rem_euclid(512), 0);
     }
 
     #[test]
-    fn build_returns_sector_aligned_image() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(Arch::X86_64, vec![0xAB; 1024], vec![]);
-
-        // ACT
-        let image = build(&spec).expect("ESP build must succeed");
-
-        // ASSERT
-        assert!(image.len().is_multiple_of(512));
-        assert!(image.len() >= FAT_MIN_IMAGE_BYTES);
-    }
-
-    #[test]
-    fn build_grows_large_payload_beyond_minimum_size() {
-        // ARRANGE
-        let spec = EspSpec::with_uki(Arch::X86_64, vec![0xAB; 96 * 1024 * 1024], vec![]);
-
-        // ACT
-        let image = build(&spec).expect("ESP build must succeed");
-
-        // ASSERT
-        assert!(image.len() > FAT_MIN_IMAGE_BYTES);
-    }
-
-    #[test]
-    fn build_rejects_absolute_paths() {
-        // ARRANGE
-        let spec = EspSpec {
-            files: vec![EspFile {
-                path: "/EFI/BOOT/BOOTX64.EFI".to_owned(),
-                data: b"uki".to_vec(),
-            }],
-        };
-
-        // ACT
-        let result = build(&spec);
+    fn compute_fat_size_rejects_invalid_paths() {
+        // ARRANGE / ACT
+        let result = compute_fat_size(&[("../escape", 0)]);
 
         // ASSERT
         assert!(matches!(result, Err(EspError::InvalidPath(_))));
     }
 
     #[test]
-    fn build_rejects_parent_traversal() {
+    fn compute_fat_size_rejects_oversized_data() {
         // ARRANGE
-        let spec = EspSpec {
-            files: vec![EspFile {
-                path: "../escape".to_owned(),
-                data: b"x".to_vec(),
-            }],
-        };
+        let too_big = 600 * 1024 * 1024;
 
         // ACT
-        let result = build(&spec);
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::InvalidPath(_))));
-    }
-
-    #[test]
-    fn build_rejects_directory_only_paths() {
-        // ARRANGE
-        let spec = EspSpec {
-            files: vec![EspFile {
-                path: ".".to_owned(),
-                data: b"x".to_vec(),
-            }],
-        };
-
-        // ACT
-        let result = build(&spec);
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::InvalidPath(_))));
-    }
-
-    #[test]
-    fn build_propagates_file_creation_collisions() {
-        // ARRANGE
-        let spec = EspSpec {
-            files: vec![
-                EspFile {
-                    path: "EFI".to_owned(),
-                    data: b"file".to_vec(),
-                },
-                EspFile {
-                    path: "EFI/BOOT/BOOTX64.EFI".to_owned(),
-                    data: b"uki".to_vec(),
-                },
-            ],
-        };
-
-        // ACT
-        let result = build(&spec);
+        let result = compute_fat_size(&[("big", too_big)]);
 
         // ASSERT
         assert!(matches!(result, Err(EspError::Fat(_))));
     }
 
     #[test]
-    fn write_file_at_path_writes_root_level_file() {
+    fn build_with_size_emits_readable_fat_image() {
         // ARRANGE
-        with_root(FAT_MIN_IMAGE_BYTES, |root| {
-            // ACT
-            let result = write_file_at_path(&root, "flat.txt", b"hello");
+        let data = b"uki-payload".to_vec();
+        let mut files = vec![fat_boot(&data)];
 
-            // ASSERT
-            result.expect("file must be written");
-            let mut file = root.open_file("flat.txt").expect("file must exist");
-            let mut content = Vec::new();
-            file.read_to_end(&mut content).expect("file must read");
-            assert_eq!(content, b"hello");
-        });
+        // ACT
+        let mut out = Vec::new();
+        build(&mut files, &mut out).expect("build must succeed");
+
+        // ASSERT
+        assert!(!out.is_empty());
+        assert_eq!(
+            out.get(510..512),
+            Some(&[0x55, 0xAA][..]),
+            "boot signature must be valid"
+        );
+        let fs_type_54 = out.get(54..62).unwrap_or(&[]);
+        let fs_type_82 = out.get(82..90).unwrap_or(&[]);
+        let valid =
+            fs_type_54 == b"FAT12   " || fs_type_54 == b"FAT16   " || fs_type_82 == b"FAT32   ";
+        assert!(
+            valid,
+            "filesystem type must be FAT12/FAT16 at offset 54 or FAT32 at offset 82"
+        );
     }
 
     #[test]
-    fn write_file_at_path_writes_nested_file() {
+    fn build_with_size_uses_explicit_size() {
         // ARRANGE
-        with_root(FAT_MIN_IMAGE_BYTES, |root| {
-            // ACT
-            let result = write_file_at_path(&root, "nested/tree/file.txt", b"hello");
+        let data = b"uki".to_vec();
+        let mut files = vec![fat_boot(&data)];
+        let image_size =
+            compute_fat_size(&[("EFI/BOOT/BOOTX64.EFI", 3)]).expect("size must compute");
 
-            // ASSERT
-            result.expect("file must be written");
-            let mut file = root
-                .open_dir("nested")
-                .expect("nested dir must exist")
-                .open_dir("tree")
-                .expect("tree dir must exist")
-                .open_file("file.txt")
-                .expect("file must exist");
-            let mut content = Vec::new();
-            file.read_to_end(&mut content).expect("file must read");
-            assert_eq!(content, b"hello");
-        });
+        // ACT
+        let mut out = Vec::new();
+        build_with_size(&mut files, image_size, &mut out).expect("build must succeed");
+
+        // ASSERT
+        assert_eq!(out.len(), usize::try_from(image_size).unwrap_or(0));
+    }
+
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk on fire"))
+        }
     }
 
     #[test]
-    fn write_file_at_path_rejects_dotdot() {
+    fn build_propagates_io_errors_from_reader() {
         // ARRANGE
-        with_root(FAT_MIN_IMAGE_BYTES, |root| {
-            // ACT
-            let result = write_file_at_path(&root, "../blob", b"data");
+        let mut file = EspFile::boot(Arch::X86_64, FailingReader, 1024);
 
-            // ASSERT
-            assert!(matches!(result, Err(EspError::InvalidPath(_))));
-        });
+        // ACT
+        let mut out = Vec::new();
+        let result = build(core::slice::from_mut(&mut file), &mut out);
+
+        // ASSERT
+        assert!(matches!(result, Err(EspError::Fat(FatError::Io(_)))));
     }
 
     #[test]
-    fn open_or_create_dir_errors_when_path_collides_with_file() {
+    fn build_detects_short_reader() {
         // ARRANGE
-        with_root(FAT_MIN_IMAGE_BYTES, |root| {
-            write_file_at_path(&root, "blob", b"x").expect("seed file must be created");
+        let mut file = EspFile::boot(Arch::X86_64, Cursor::new(Vec::<u8>::new()), 16);
 
-            // ACT
-            let result = write_file_at_path(&root, "blob/sub.txt", b"data");
+        // ACT
+        let mut out = Vec::new();
+        let result = build(core::slice::from_mut(&mut file), &mut out);
 
-            // ASSERT
-            assert!(result.is_err());
-        });
+        // ASSERT
+        assert!(matches!(result, Err(EspError::Fat(_))));
     }
 }
