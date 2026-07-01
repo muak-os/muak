@@ -5,7 +5,7 @@ mod tests {
     use core::ops::Range;
     use std::io::Cursor;
 
-    use esp::{Arch, EspFile, EspSpec};
+    use esp::model::{Arch, EspFile, EspSpec};
     use miso::iso;
 
     fn fake_uki(size: usize) -> Vec<u8> {

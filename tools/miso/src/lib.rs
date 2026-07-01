@@ -10,24 +10,25 @@ pub mod raw;
 
 use std::io::Write;
 
-use esp::EspSpec;
+use esp::image;
+use esp::model::EspSpec;
 
 use crate::error::{MisoError, Result};
 
-/// Builds a bootable ISO 9660 image from an `esp::EspSpec`.
+/// Builds a bootable ISO 9660 image from an `esp::model::EspSpec`.
 ///
 /// # Errors
 ///
 /// Returns an error if ESP construction fails or writing the ISO image fails.
 pub fn build_iso<W: Write>(spec: &mut EspSpec, out: &mut W) -> Result<()> {
-    let esp_size = esp::compute_fat_size(&spec.metas().collect::<Vec<_>>())?;
+    let esp_size = image::compute_fat_size(&spec.metas().collect::<Vec<_>>())?;
     iso::write(out, esp_size, |w| {
-        esp::build(spec.files_mut(), w)?;
+        image::build(spec.files_mut(), w)?;
         Ok(())
     })
 }
 
-/// Builds a raw GPT disk image from an `esp::EspSpec` into any `Write` sink.
+/// Builds a raw GPT disk image from an `esp::model::EspSpec` into any `Write` sink.
 ///
 /// # Errors
 ///
@@ -37,19 +38,19 @@ pub fn build_raw<W: Write>(
     out: &mut W,
     compression_level: Option<i32>,
 ) -> Result<()> {
-    let esp_size = esp::compute_fat_size(&spec.metas().collect::<Vec<_>>())?;
+    let esp_size = image::compute_fat_size(&spec.metas().collect::<Vec<_>>())?;
 
     if let Some(level) = compression_level {
         let level = validate_compression_level(level)?;
         let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
         raw::write(&mut encoder, esp_size, |w| {
-            esp::build(spec.files_mut(), w)?;
+            image::build(spec.files_mut(), w)?;
             Ok(())
         })?;
         encoder.finish().map_err(MisoError::Compression)?;
     } else {
         raw::write(out, esp_size, |w| {
-            esp::build(spec.files_mut(), w)?;
+            image::build(spec.files_mut(), w)?;
             Ok(())
         })?;
     }

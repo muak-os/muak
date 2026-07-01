@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail, ensure};
 use clap::{Parser, Subcommand};
-use esp::{Arch, EspFile, EspSpec};
+use esp::model::{Arch, EspFile, EspSpec};
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -62,7 +62,7 @@ enum Command {
     },
 }
 
-/// Parses the architecture string into an `esp::Arch` value.
+/// Parses the architecture string into an `esp::model::Arch` value.
 fn parse_arch(arch: &str) -> Result<Arch> {
     match arch {
         "x86_64" => Ok(Arch::X86_64),

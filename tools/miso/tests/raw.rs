@@ -4,7 +4,7 @@
 mod tests {
     use std::io::Cursor;
 
-    use esp::{Arch, EspFile, EspSpec};
+    use esp::model::{Arch, EspFile, EspSpec};
     use miso::error::MisoError;
     use parttable::{
         gpt::{

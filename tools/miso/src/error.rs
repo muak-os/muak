@@ -1,6 +1,6 @@
 //! Error types for miso operations.
 
-use esp::EspError;
+use esp::error::EspError;
 use parttable::error::ParttableError;
 use thiserror::Error;
 
