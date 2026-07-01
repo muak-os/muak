@@ -1,0 +1,19 @@
+[package]
+name = "fatfs"
+description = "FAT12/FAT16/FAT32 filesystem writer"
+edition.workspace = true
+version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

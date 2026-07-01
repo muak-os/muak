@@ -32,6 +32,7 @@ members = [
     "libs/sbolt",
     "libs/tpm2",
     "libs/erofs",
+    "libs/fatfs",
     "libs/granola-macros",
     "libs/netlib",
 ]
@@ -59,6 +60,7 @@ btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
+fatfs = { path = "libs/fatfs" }
 granola = { path = "core/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
