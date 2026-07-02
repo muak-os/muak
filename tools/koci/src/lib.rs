@@ -8,7 +8,7 @@ pub mod cli;
 mod digest;
 pub mod error;
 mod image;
-mod pull;
+pub mod pull;
 pub mod pulled;
 mod registry;
 mod sign;

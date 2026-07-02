@@ -2,6 +2,7 @@
 
 use tokio::task::{JoinSet, spawn_blocking};
 
+use super::cache::BlobCache;
 use super::layer;
 use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor};
@@ -19,6 +20,7 @@ pub(super) async fn pull_layers(
     image_ref: &ImageReference,
     layers: &[OciDescriptor],
     token: Option<&str>,
+    cache: &BlobCache,
 ) -> Result<PulledImage> {
     let token = token.map(str::to_owned);
     let mut downloaded: Vec<Option<(Vec<u8>, Option<String>)>> = vec![None; layers.len()];
@@ -31,6 +33,7 @@ pub(super) async fn pull_layers(
         client,
         image_ref,
         token.as_deref(),
+        cache,
     );
 
     while let Some(result) = join_set.join_next().await {
@@ -60,6 +63,7 @@ pub(super) async fn pull_layers(
             client,
             image_ref,
             token.as_deref(),
+            cache,
         );
     }
 
@@ -94,12 +98,30 @@ fn store_layer(
     Ok(())
 }
 
+/// Download a layer blob, using the cache if available.
+async fn cached_download(
+    cache: &BlobCache,
+    client: &HttpClient,
+    image_ref: &ImageReference,
+    digest: &str,
+    token: Option<&str>,
+) -> Result<Vec<u8>> {
+    if let Some(cached) = cache.get_blob(digest) {
+        return Ok(cached);
+    }
+    let data = layer::download_blob(client, image_ref, digest, token).await?;
+    cache.put_blob(digest, &data);
+
+    Ok(data)
+}
+
 fn fill_download_slots<'a>(
     join_set: &mut DownloadJoinSet,
     iter: &mut impl Iterator<Item = (usize, &'a OciDescriptor)>,
     client: &HttpClient,
     image_ref: &ImageReference,
     token: Option<&str>,
+    cache: &BlobCache,
 ) {
     while join_set.len() < MAX_CONCURRENT_DOWNLOADS {
         let Some((index, layer_desc)) = iter.next() else {
@@ -110,9 +132,11 @@ fn fill_download_slots<'a>(
         let digest = layer_desc.digest.clone();
         let media_type = layer_desc.media_type.clone();
         let token = token.map(str::to_owned);
+        let cache = cache.clone();
         join_set.spawn(async move {
             let bytes =
-                layer::download_blob(&client, &image_ref, &digest, token.as_deref()).await?;
+                cached_download(&cache, &client, &image_ref, &digest, token.as_deref()).await?;
+
             Ok((index, bytes, media_type))
         });
     }
@@ -142,9 +166,10 @@ mod tests {
         // ARRANGE
         let client = build_client();
         let image_reference = ImageReference::parse("127.0.0.1:9/repo:test");
+        let cache = BlobCache::new();
 
         // ACT
-        let image = pull_layers(&client, &image_reference, &[], None)
+        let image = pull_layers(&client, &image_reference, &[], None, &cache)
             .await
             .expect("download should succeed");
 
