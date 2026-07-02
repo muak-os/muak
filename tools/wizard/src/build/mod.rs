@@ -14,8 +14,8 @@ use crate::resolve::{self, Config};
 pub(crate) mod archive;
 pub(crate) mod artifacts;
 pub(crate) mod media;
-pub(crate) mod uki;
 pub mod source;
+pub(crate) mod uki;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
