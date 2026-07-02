@@ -1,7 +1,9 @@
 //! Public artifact build API.
 
 use std::io::Write;
+use std::path::PathBuf;
 
+use koci::pull::cache;
 use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
@@ -130,4 +132,9 @@ pub async fn artifacts<W: Write>(
             .collect(),
         overlay,
     })
+}
+
+/// Set the OCI blob cache directory for all image pulls performed by koci.
+pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
+    cache::set_dir(path);
 }

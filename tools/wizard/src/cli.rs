@@ -171,6 +171,11 @@ pub async fn run() -> i32 {
 }
 
 async fn run_command(command: Command) -> Result<()> {
+    if let Some(home) = std::env::var_os("HOME") {
+        let path = Path::new(&home).join(".cache/muak/koci");
+        build::set_cache_dir(path);
+    }
+
     match command {
         Command::ProfileId { profile } => run_profile_id(&profile),
         Command::Resolve {
@@ -221,6 +226,7 @@ fn run_profile_id(profile_path: &Path) -> Result<()> {
     let spec = Profile::from_toml(&bytes)?;
     let id = spec.id()?;
     println!("{id}");
+
     Ok(())
 }
 
