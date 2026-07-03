@@ -1,62 +1,76 @@
 //! Bootable media builders.
 
-use std::io::Write;
-use std::os::unix::net::UnixStream;
+use std::io::{Cursor, Read, Write};
+use std::sync::Arc;
 
-use esp::model::Arch as EspArch;
-use esp::model::EspFile;
-use esp::model::EspSpec;
-use koci::arch::Arch;
+use esp::model::{Arch as EspArch, EspFile, EspSpec};
 
+use super::source::OverlayEntry;
 use crate::error::{Result, WizardError};
-use crate::resolve::BuildPlan;
 
-/// Build an ISO image, writing directly to a `Write` sink.
+/// Build an ISO image from scratch, writing directly to a `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error when creating the ISO or writing it fails.
-pub fn iso_to_writer<W: Write>(
-    resolved_profile: &BuildPlan,
-    uki_reader: UnixStream,
+pub fn write_iso<W: Write>(
+    arch: EspArch,
+    uki_reader: &mut impl Read,
     uki_size: u64,
     writer: &mut W,
 ) -> Result<()> {
-    let arch = esp_arch(resolved_profile.arch());
     let boot = EspFile::boot(arch, uki_reader, uki_size);
     let mut spec = EspSpec::builder()
         .add_file(boot)
         .map_err(|e| WizardError::BuildError(format!("add UKI to ISO ESP spec: {e}")))?
         .build()
         .map_err(|e| WizardError::BuildError(format!("build ISO ESP spec: {e}")))?;
-
     miso::build_iso(&mut spec, writer)
         .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     Ok(())
 }
 
-/// Build a raw disk image, writing directly to a `Write` sink.
+/// Build a raw disk image from scratch, writing directly to a `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error when creating the raw image or writing it fails.
-pub fn raw_to_writer<W: Write>(
-    resolved_profile: &BuildPlan,
-    overlay_assets: Vec<EspFile>,
-    uki_reader: UnixStream,
+pub fn write_raw<W: Write>(
+    arch: EspArch,
+    uki_reader: &mut impl Read,
     uki_size: u64,
+    overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
 ) -> Result<()> {
-    let arch = esp_arch(resolved_profile.arch());
-    let boot = EspFile::boot(arch, uki_reader, uki_size);
+    let count = overlay_entries.len();
+    let mut cursors: Vec<Cursor<Arc<[u8]>>> = Vec::with_capacity(count);
+    for entry in &overlay_entries {
+        cursors.push(Cursor::new(entry.data.clone()));
+    }
 
-    let mut all: Vec<EspFile> = Vec::with_capacity(overlay_assets.len().saturating_add(1));
-    all.push(boot);
-    all.extend(overlay_assets);
-    let mut spec = EspSpec::builder()
-        .add_files(all)
-        .map_err(|e| WizardError::BuildError(format!("add UKI to raw ESP spec: {e}")))?
+    let mut overlay_files: Vec<EspFile<'_>> = Vec::with_capacity(count);
+    for (file, entry) in cursors.iter_mut().zip(overlay_entries) {
+        overlay_files.push(EspFile {
+            path: entry.path,
+            reader: file,
+            size: entry.size,
+        });
+    }
+
+    let mut builder = EspSpec::builder();
+    let boot = EspFile::boot(arch, uki_reader, uki_size);
+    builder = builder
+        .add_file(boot)
+        .map_err(|e| WizardError::BuildError(format!("add UKI to raw ESP spec: {e}")))?;
+
+    for file in overlay_files {
+        builder = builder
+            .add_file(file)
+            .map_err(|e| WizardError::BuildError(format!("add overlay file: {e}")))?;
+    }
+
+    let mut spec = builder
         .build()
         .map_err(|e| WizardError::BuildError(format!("build raw ESP spec: {e}")))?;
 
@@ -64,40 +78,4 @@ pub fn raw_to_writer<W: Write>(
         .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(())
-}
-
-fn esp_arch(arch: Arch) -> EspArch {
-    match arch {
-        Arch::Amd64 => EspArch::X86_64,
-        Arch::Arm64 => EspArch::Aarch64,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn esp_arch_amd64() {
-        // ARRANGE
-        let arch = Arch::Amd64;
-
-        // ACT
-        let result = esp_arch(arch);
-
-        // ASSERT
-        assert_eq!(result, EspArch::X86_64);
-    }
-
-    #[test]
-    fn esp_arch_arm64() {
-        // ARRANGE
-        let arch = Arch::Arm64;
-
-        // ACT
-        let result = esp_arch(arch);
-
-        // ASSERT
-        assert_eq!(result, EspArch::Aarch64);
-    }
 }

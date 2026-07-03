@@ -12,6 +12,7 @@ use super::media;
 use super::source;
 use super::source::InstallerAssets;
 use super::uki;
+use crate::arch;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::resolve::BuildPlan;
@@ -53,20 +54,26 @@ pub(crate) async fn build_post<W: Write>(
     raw: Option<&mut W>,
 ) -> Result<Vec<Section>> {
     if let Some(w) = iso {
-        let (reader, uki_size, sections_handle) =
+        let (mut uki_reader, uki_size, sections_handle) =
             uki::build(assets, tail_parts, tail_size, signing_key)?;
-        media::iso_to_writer(resolved, reader, uki_size, w)?;
+        media::write_iso(arch::esp(resolved.arch()), &mut uki_reader, uki_size, w)?;
         sections_handle
             .await
             .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?
     } else if let Some(w) = raw {
-        let overlay = match resolved.overlay() {
+        let overlay_entries = match resolved.overlay() {
             Some(info) => source::pull_overlay(info).await?,
             None => Vec::new(),
         };
-        let (reader, uki_size, sections_handle) =
+        let (mut uki_reader, uki_size, sections_handle) =
             uki::build(assets, tail_parts, tail_size, signing_key)?;
-        media::raw_to_writer(resolved, overlay, reader, uki_size, w)?;
+        media::write_raw(
+            arch::esp(resolved.arch()),
+            &mut uki_reader,
+            uki_size,
+            overlay_entries,
+            w,
+        )?;
         sections_handle
             .await
             .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?

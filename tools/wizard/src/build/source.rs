@@ -1,9 +1,8 @@
 //! Installer and extension staging helpers.
 
-use std::io::{Cursor, Read as _};
+use std::io::Read as _;
 use std::path::Path;
 
-use esp::model::EspFile;
 use koci::arch::Arch;
 use koci::pulled::{PulledEntry, PulledFile, PulledImage};
 
@@ -64,12 +63,22 @@ pub async fn pull_extensions(
     Ok(pulled)
 }
 
-/// Pulls the overlay OCI image and returns overlay files.
+/// An overlay file entry with owned data.
+pub struct OverlayEntry {
+    /// Relative path within the ESP.
+    pub path: String,
+    /// Exact byte length of the content.
+    pub size: u64,
+    /// File content bytes.
+    pub data: std::sync::Arc<[u8]>,
+}
+
+/// Pulls the overlay OCI image and returns overlay entries with owned data.
 ///
 /// # Errors
 ///
 /// Returns an error when the OCI pull or file collection fails.
-pub async fn pull_overlay(overlay: &OverlaySource) -> Result<Vec<EspFile>> {
+pub async fn pull_overlay(overlay: &OverlaySource) -> Result<Vec<OverlayEntry>> {
     let image = koci::pull_arch(&overlay.source, &overlay.arch, None)
         .await
         .map_err(|e| WizardError::BuildError(format!("pull overlay: {e}")))?;
@@ -113,7 +122,7 @@ fn installer_file(installer: &PulledImage, name: &str) -> Result<PulledFile> {
         .ok_or_else(|| WizardError::MissingInstallerFile(name.to_owned()))
 }
 
-fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<EspFile>> {
+fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<OverlayEntry>> {
     let prefix = Path::new(overlay_name);
     let mut files = Vec::new();
 
@@ -136,10 +145,10 @@ fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<
             .ok_or_else(|| {
                 WizardError::BuildError(format!("invalid overlay path: {}", path.display()))
             })?;
-        files.push(EspFile {
+        files.push(OverlayEntry {
             path: rel,
-            reader: Box::new(Cursor::new(file.data)),
             size: file.len,
+            data: file.data.clone(),
         });
     }
     files.sort_unstable_by(|left, right| left.path.cmp(&right.path));
@@ -199,5 +208,6 @@ mod tests {
         let entry = files.first().expect("overlay entry must exist");
         assert_eq!(entry.path, "EFI/BOOT/boot.cfg");
         assert_eq!(entry.size, 3);
+        assert_eq!(&*entry.data, b"cfg");
     }
 }

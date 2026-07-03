@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 
+pub mod arch;
 pub mod artifact;
 pub mod build;
 #[cfg(feature = "cli")]
