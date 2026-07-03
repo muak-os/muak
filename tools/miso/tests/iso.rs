@@ -26,7 +26,8 @@ mod tests {
     fn build_iso(uki_size: usize) -> Vec<u8> {
         let uki_data = fake_uki(uki_size);
         let size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
-        let boot = EspFile::boot(Arch::X86_64, Cursor::new(uki_data), size);
+        let mut cursor = Cursor::new(uki_data);
+        let boot = EspFile::boot(Arch::X86_64, &mut cursor, size);
         let mut spec = EspSpec::builder()
             .add_file(boot)
             .expect("add boot")
@@ -107,7 +108,8 @@ mod tests {
         // ARRANGE
         let uki_data = fake_uki(1024);
         let size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
-        let boot = EspFile::boot(Arch::Aarch64, Cursor::new(uki_data), size);
+        let mut cursor = Cursor::new(uki_data);
+        let boot = EspFile::boot(Arch::Aarch64, &mut cursor, size);
         let mut spec = EspSpec::builder()
             .add_file(boot)
             .expect("add boot")
@@ -197,13 +199,15 @@ mod tests {
         // ARRANGE
         let uki_data = fake_uki(512);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
-        let boot = EspFile::boot(Arch::X86_64, Cursor::new(uki_data), uki_size);
+        let mut uki_cursor = Cursor::new(uki_data);
+        let boot = EspFile::boot(Arch::X86_64, &mut uki_cursor, uki_size);
 
         let extra_data = b"arm_64bit=1".to_vec();
         let extra_size = u64::try_from(extra_data.len()).unwrap_or(u64::MAX);
+        let mut extra_cursor = Cursor::new(extra_data);
         let extra = EspFile {
             path: "overlays/rpi/config.txt".to_owned(),
-            reader: Box::new(Cursor::new(extra_data)),
+            reader: &mut extra_cursor,
             size: extra_size,
         };
 

@@ -20,10 +20,11 @@ use crate::error::{MisoError, Result};
 /// # Errors
 ///
 /// Returns an error if ESP construction fails or writing the ISO image fails.
-pub fn build_iso<W: Write>(spec: &mut EspSpec, out: &mut W) -> Result<()> {
+pub fn build_iso<W: Write>(spec: &mut EspSpec<'_>, out: &mut W) -> Result<()> {
     let esp_size = image::compute_fat_size(&spec.metas().collect::<Vec<_>>())?;
     iso::write(out, esp_size, |w| {
         image::build(spec.files_mut(), w)?;
+
         Ok(())
     })
 }
@@ -34,7 +35,7 @@ pub fn build_iso<W: Write>(spec: &mut EspSpec, out: &mut W) -> Result<()> {
 ///
 /// Returns an error if ESP construction fails, compression level validation fails, raw image creation fails, or output writing/compression fails.
 pub fn build_raw<W: Write>(
-    spec: &mut EspSpec,
+    spec: &mut EspSpec<'_>,
     out: &mut W,
     compression_level: Option<i32>,
 ) -> Result<()> {

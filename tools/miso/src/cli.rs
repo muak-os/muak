@@ -2,7 +2,7 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use clap::{Parser, Subcommand};
@@ -84,29 +84,26 @@ fn parse_file_spec(spec: &str) -> Result<(&str, &str)> {
     Ok((src, dst))
 }
 
-fn build_spec(uki: &Path, arch: Arch, files: &[String]) -> Result<EspSpec> {
-    let uki_file = File::open(uki).context(format!("Failed to read {}", uki.display()))?;
-    let uki_len = uki_file.metadata()?.len();
+fn build_spec<'a>(
+    arch: Arch,
+    uki_file: &'a mut File,
+    uki_len: u64,
+    owned_files: &'a mut [File],
+    file_infos: Vec<(String, u64)>,
+) -> Result<EspSpec<'a>> {
+    let mut builder = EspSpec::builder();
     let boot = EspFile::boot(arch, uki_file, uki_len);
-
-    let mut all_files = Vec::with_capacity(files.len().saturating_add(1));
-    all_files.push(boot);
-    for spec in files {
-        let (src, dst) = parse_file_spec(spec)?;
-        let file = std::fs::File::open(src)?;
-        let size = file.metadata()?.len();
-        all_files.push(EspFile {
-            path: dst.to_owned(),
-            reader: Box::new(file),
+    builder = builder.add_file(boot).context("Failed to add boot file")?;
+    for (file, (dst, size)) in owned_files.iter_mut().zip(file_infos) {
+        let esp_file = EspFile {
+            path: dst,
+            reader: file,
             size,
-        });
+        };
+        builder = builder.add_file(esp_file).context("Failed to add file")?;
     }
 
-    EspSpec::builder()
-        .add_files(all_files)
-        .context("Failed to add files to ESP spec")?
-        .build()
-        .context("Failed to build ESP spec")
+    builder.build().context("Failed to build ESP spec")
 }
 
 fn run_command(command: Command) -> Result<()> {
@@ -118,7 +115,25 @@ fn run_command(command: Command) -> Result<()> {
             files,
         } => {
             let arch = parse_arch(&arch)?;
-            let mut spec = build_spec(&uki, arch, &files)?;
+            let mut uki_file =
+                File::open(&uki).with_context(|| format!("Failed to read {}", uki.display()))?;
+            let uki_len = uki_file
+                .metadata()
+                .with_context(|| format!("Failed to get metadata for {}", uki.display()))?
+                .len();
+
+            let mut owned_files = Vec::with_capacity(files.len());
+            let mut file_infos = Vec::with_capacity(files.len());
+            for spec in &files {
+                let (src, dst) = parse_file_spec(spec)?;
+                let file = std::fs::File::open(src)?;
+                let size = file.metadata()?.len();
+                owned_files.push(file);
+                file_infos.push((dst.to_owned(), size));
+            }
+
+            let mut spec = build_spec(arch, &mut uki_file, uki_len, &mut owned_files, file_infos)?;
+
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
             crate::build_iso(&mut spec, &mut writer).context("Failed to build ISO")?;
@@ -137,7 +152,25 @@ fn run_command(command: Command) -> Result<()> {
             compression_level,
         } => {
             let arch = parse_arch(&arch)?;
-            let mut spec = build_spec(&uki, arch, &files)?;
+            let mut uki_file =
+                File::open(&uki).with_context(|| format!("Failed to read {}", uki.display()))?;
+            let uki_len = uki_file
+                .metadata()
+                .with_context(|| format!("Failed to get metadata for {}", uki.display()))?
+                .len();
+
+            let mut owned_files = Vec::with_capacity(files.len());
+            let mut file_infos = Vec::with_capacity(files.len());
+            for spec in &files {
+                let (src, dst) = parse_file_spec(spec)?;
+                let file = std::fs::File::open(src)?;
+                let size = file.metadata()?.len();
+                owned_files.push(file);
+                file_infos.push((dst.to_owned(), size));
+            }
+
+            let mut spec = build_spec(arch, &mut uki_file, uki_len, &mut owned_files, file_infos)?;
+
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
             crate::build_raw(&mut spec, &mut writer, compression_level)
@@ -164,6 +197,7 @@ where
     T: Into<OsString> + Clone,
 {
     let args = Args::parse_from(args);
+
     run_command(args.command)
 }
 
