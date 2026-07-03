@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
 pub mod arch;
 pub mod artifact;
 pub mod build;

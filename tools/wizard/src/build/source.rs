@@ -70,7 +70,7 @@ pub struct OverlayEntry {
     /// Exact byte length of the content.
     pub size: u64,
     /// File content bytes.
-    pub data: std::sync::Arc<[u8]>,
+    pub data: alloc::sync::Arc<[u8]>,
 }
 
 /// Pulls the overlay OCI image and returns overlay entries with owned data.
@@ -148,7 +148,7 @@ fn collect_overlay_files(image: &PulledImage, overlay_name: &str) -> Result<Vec<
         files.push(OverlayEntry {
             path: rel,
             size: file.len,
-            data: file.data.clone(),
+            data: alloc::sync::Arc::clone(&file.data),
         });
     }
     files.sort_unstable_by(|left, right| left.path.cmp(&right.path));

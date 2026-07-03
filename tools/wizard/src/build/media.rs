@@ -1,7 +1,7 @@
 //! Bootable media builders.
 
+use alloc::sync::Arc;
 use std::io::{Cursor, Read, Write};
-use std::sync::Arc;
 
 use esp::model::{Arch as EspArch, EspFile, EspSpec};
 
@@ -13,9 +13,9 @@ use crate::error::{Result, WizardError};
 /// # Errors
 ///
 /// Returns an error when creating the ISO or writing it fails.
-pub fn write_iso<W: Write>(
+pub fn write_iso<R: Read, W: Write>(
     arch: EspArch,
-    uki_reader: &mut impl Read,
+    uki_reader: &mut R,
     uki_size: u64,
     overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
@@ -38,9 +38,9 @@ pub fn write_iso<W: Write>(
 /// # Errors
 ///
 /// Returns an error when creating the raw image or writing it fails.
-pub fn write_raw<W: Write>(
+pub fn write_raw<R: Read, W: Write>(
     arch: EspArch,
-    uki_reader: &mut impl Read,
+    uki_reader: &mut R,
     uki_size: u64,
     overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
@@ -58,9 +58,9 @@ pub fn write_raw<W: Write>(
     )
 }
 
-fn with_esp<W: Write>(
+fn with_esp<R: Read, W: Write>(
     arch: EspArch,
-    uki_reader: &mut impl Read,
+    uki_reader: &mut R,
     uki_size: u64,
     overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
@@ -69,7 +69,7 @@ fn with_esp<W: Write>(
     let count = overlay_entries.len();
     let mut cursors: Vec<Cursor<Arc<[u8]>>> = Vec::with_capacity(count);
     for entry in &overlay_entries {
-        cursors.push(Cursor::new(entry.data.clone()));
+        cursors.push(Cursor::new(Arc::clone(&entry.data)));
     }
 
     let mut overlay_files: Vec<EspFile<'_>> = Vec::with_capacity(count);
