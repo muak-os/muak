@@ -1,33 +1,33 @@
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use std::os::unix::ffi::OsStringExt as _;
     use std::os::unix::fs::PermissionsExt as _;
 
-    use esp::collect;
     use esp::error::EspError;
     use esp::image;
     use esp::model::{Arch, EspFile, EspSpec};
     use esp::populate;
     use fatfs::builder;
 
-    fn boot_file(data: &[u8]) -> EspFile {
-        let size = u64::try_from(data.len()).unwrap_or(0);
+    fn boot_file(data: &mut Cursor<Vec<u8>>) -> EspFile<'_> {
+        let size = u64::try_from(data.get_ref().len()).unwrap_or(0);
 
-        EspFile::boot(Arch::X86_64, Cursor::new(data.to_vec()), size)
+        EspFile::boot(Arch::X86_64, data, size)
     }
 
-    fn aarch64_boot_file(data: &[u8]) -> EspFile {
-        let size = u64::try_from(data.len()).unwrap_or(0);
+    fn aarch64_boot_file(data: &mut Cursor<Vec<u8>>) -> EspFile<'_> {
+        let size = u64::try_from(data.get_ref().len()).unwrap_or(0);
 
-        EspFile::boot(Arch::Aarch64, Cursor::new(data.to_vec()), size)
+        EspFile::boot(Arch::Aarch64, data, size)
     }
 
-    fn overlay_file(path: &str, data: &[u8]) -> EspFile {
+    fn overlay_file<'a>(path: &str, cursor: &'a mut Cursor<Vec<u8>>) -> EspFile<'a> {
+        let size = u64::try_from(cursor.get_ref().len()).unwrap_or(0);
+
         EspFile {
             path: path.to_owned(),
-            reader: Box::new(Cursor::new(data.to_vec())),
-            size: u64::try_from(data.len()).unwrap_or(0),
+            reader: cursor,
+            size,
         }
     }
 
@@ -35,14 +35,18 @@ mod tests {
     fn public_api_build_and_populate_match() {
         // ARRANGE
         let dest = tempfile::tempdir().expect("temp dir must be created");
+        let mut ukic = Cursor::new(b"uki-payload".to_vec());
+        let mut config_cursor = Cursor::new(b"arm_64bit=1".to_vec());
         let mut files = vec![
-            boot_file(b"uki-payload"),
-            overlay_file("overlays/rpi/config.txt", b"arm_64bit=1"),
+            boot_file(&mut ukic),
+            overlay_file("overlays/rpi/config.txt", &mut config_cursor),
         ];
+        let mut ukic2 = Cursor::new(b"uki-payload".to_vec());
+        let mut config_cursor2 = Cursor::new(b"arm_64bit=1".to_vec());
         let mut spec = EspSpec::builder()
-            .add_file(boot_file(b"uki-payload"))
+            .add_file(boot_file(&mut ukic2))
             .expect("boot file must be added")
-            .add_file(overlay_file("overlays/rpi/config.txt", b"arm_64bit=1"))
+            .add_file(overlay_file("overlays/rpi/config.txt", &mut config_cursor2))
             .expect("config file must be added")
             .build()
             .expect("spec must build");
@@ -69,7 +73,8 @@ mod tests {
     #[test]
     fn public_api_format_then_build_outputs_bootable_images() {
         // ARRANGE
-        let mut files = vec![aarch64_boot_file(b"uki")];
+        let mut ukic = Cursor::new(b"uki".to_vec());
+        let mut files = vec![aarch64_boot_file(&mut ukic)];
         let device_size = 1024_u64 * 1024;
         let mut device = Cursor::new(vec![0_u8; usize::try_from(device_size).unwrap_or(0)]);
 
@@ -92,54 +97,11 @@ mod tests {
     }
 
     #[test]
-    fn public_api_collect_tree_rejects_non_utf8_paths() {
-        // ARRANGE
-        let root = tempfile::tempdir().expect("temp dir must be created");
-        let invalid_name = std::ffi::OsString::from_vec(vec![0x66, 0x6f, 0x80, 0x6f]);
-        std::fs::write(root.path().join(invalid_name), b"data").expect("file must be written");
-
-        // ACT
-        let result = collect::tree(root.path());
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::InvalidPath(_))));
-    }
-
-    #[test]
-    fn public_api_collect_tree_propagates_recursive_errors() {
-        // ARRANGE
-        let root = tempfile::tempdir().expect("temp dir must be created");
-        let sub = root.path().join("sub");
-        std::fs::create_dir_all(&sub).expect("subdir must be created");
-        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o000))
-            .expect("permissions must be set");
-
-        // ACT
-        let result = collect::tree(root.path());
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::Io(_))));
-    }
-
-    #[test]
-    fn public_api_collect_tree_propagates_read_errors() {
-        // ARRANGE
-        let root = tempfile::tempdir().expect("temp dir must be created");
-        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o000))
-            .expect("permissions must be set");
-
-        // ACT
-        let result = collect::tree(root.path());
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::Io(_))));
-    }
-
-    #[test]
     fn public_api_populate_propagates_write_errors() {
         // ARRANGE
+        let mut ukic = Cursor::new(b"uki".to_vec());
         let mut spec = EspSpec::builder()
-            .add_file(boot_file(b"uki"))
+            .add_file(boot_file(&mut ukic))
             .expect("boot file must be added")
             .build()
             .expect("spec must build");
@@ -161,8 +123,9 @@ mod tests {
     fn public_api_populate_propagates_directory_creation_errors() {
         // ARRANGE
         let root_file = tempfile::NamedTempFile::new().expect("temp file must be created");
+        let mut ukic = Cursor::new(b"uki".to_vec());
         let mut spec = EspSpec::builder()
-            .add_file(boot_file(b"uki"))
+            .add_file(boot_file(&mut ukic))
             .expect("boot file must be added")
             .build()
             .expect("spec must build");

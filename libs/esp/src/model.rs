@@ -46,16 +46,16 @@ impl Arch {
 }
 
 /// A single file placed into the ESP at the given relative path.
-pub struct EspFile {
+pub struct EspFile<'a> {
     /// Relative path within the ESP.
     pub path: String,
     /// Readable stream for the file content.
-    pub reader: Box<dyn Read>,
+    pub reader: &'a mut dyn Read,
     /// Exact byte length of the content.
     pub size: u64,
 }
 
-impl fmt::Debug for EspFile {
+impl fmt::Debug for EspFile<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EspFile")
             .field("path", &self.path)
@@ -64,18 +64,18 @@ impl fmt::Debug for EspFile {
     }
 }
 
-impl EspFile {
+impl<'a> EspFile<'a> {
     /// Creates an `EspFile` at the UEFI fallback boot path for `arch`.
-    pub fn boot<R: Read + 'static>(arch: Arch, reader: R, size: u64) -> Self {
+    pub fn boot(arch: Arch, reader: &'a mut dyn Read, size: u64) -> Self {
         Self {
             path: format!("EFI/BOOT/{}", arch.boot_filename()),
-            reader: Box::new(reader),
+            reader,
             size,
         }
     }
 }
 
-impl FileSource for EspFile {
+impl FileSource for EspFile<'_> {
     fn path(&self) -> &str {
         &self.path
     }
@@ -90,25 +90,25 @@ impl FileSource for EspFile {
 }
 
 /// Describes the complete file layout of an EFI System Partition.
-pub struct EspSpec {
-    files: Vec<EspFile>,
+pub struct EspSpec<'a> {
+    files: Vec<EspFile<'a>>,
 }
 
-impl EspSpec {
+impl<'a> EspSpec<'a> {
     /// Returns a new builder for assembling a validated spec.
     #[must_use]
-    pub fn builder() -> EspSpecBuilder {
+    pub fn builder() -> EspSpecBuilder<'a> {
         EspSpecBuilder::default()
     }
 
     /// Returns the validated, deduplicated list of files.
     #[must_use]
-    pub fn files(&self) -> &[EspFile] {
+    pub fn files(&self) -> &[EspFile<'a>] {
         &self.files
     }
 
     /// Returns a mutable view of the validated file list for streaming consumers.
-    pub fn files_mut(&mut self) -> &mut [EspFile] {
+    pub fn files_mut(&mut self) -> &mut [EspFile<'a>] {
         &mut self.files
     }
 
@@ -122,28 +122,30 @@ impl EspSpec {
 
 /// Builds a validated `EspSpec` incrementally.
 #[derive(Default)]
-pub struct EspSpecBuilder {
-    files: Vec<EspFile>,
+pub struct EspSpecBuilder<'a> {
+    files: Vec<EspFile<'a>>,
     paths: BTreeSet<String>,
 }
 
-impl EspSpecBuilder {
+impl<'a> EspSpecBuilder<'a> {
     /// Adds one validated ESP file.
     ///
     /// # Errors
     ///
     /// Returns an error when the filepath is invalid or duplicates an existing normalized destination path.
-    pub fn add_file(mut self, file: EspFile) -> Result<Self> {
-        let normalized_path = path::normalize_relative_path(&file.path)?;
+    pub fn add_file(mut self, file: EspFile<'a>) -> Result<Self> {
+        let EspFile { path, reader, size } = file;
+        let normalized_path = path::normalize_relative_path(&path)?;
         if !self.paths.insert(normalized_path.clone()) {
             return Err(EspError::InvalidPath(format!(
                 "duplicate ESP destination path: {normalized_path}"
             )));
         }
+        core::mem::drop(path);
         self.files.push(EspFile {
             path: normalized_path,
-            reader: file.reader,
-            size: file.size,
+            reader,
+            size,
         });
 
         Ok(self)
@@ -154,7 +156,7 @@ impl EspSpecBuilder {
     /// # Errors
     ///
     /// Returns an error when any filepath is invalid or duplicates an existing normalized destination path.
-    pub fn add_files<I: IntoIterator<Item = EspFile>>(self, files: I) -> Result<Self> {
+    pub fn add_files<I: IntoIterator<Item = EspFile<'a>>>(self, files: I) -> Result<Self> {
         files.into_iter().try_fold(self, Self::add_file)
     }
 
@@ -163,7 +165,7 @@ impl EspSpecBuilder {
     /// # Errors
     ///
     /// Returns an error when any filepath is invalid or not normalized.
-    pub fn build(self) -> Result<EspSpec> {
+    pub fn build(self) -> Result<EspSpec<'a>> {
         let spec = EspSpec { files: self.files };
         path::validate_spec(&spec)?;
 
@@ -171,7 +173,7 @@ impl EspSpecBuilder {
     }
 }
 
-impl fmt::Debug for EspSpecBuilder {
+impl fmt::Debug for EspSpecBuilder<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EspSpecBuilder")
             .field("files", &self.files)
@@ -186,11 +188,12 @@ mod tests {
     use super::{Arch, EspFile, EspSpec};
     use crate::error::EspError;
 
-    fn dummy_file(path: &str, data: &[u8]) -> EspFile {
+    fn dummy_file<'a>(path: &str, cursor: &'a mut Cursor<Vec<u8>>) -> EspFile<'a> {
+        let size = u64::try_from(cursor.get_ref().len()).unwrap_or(u64::MAX);
         EspFile {
             path: path.to_owned(),
-            reader: Box::new(Cursor::new(data.to_vec())),
-            size: u64::try_from(data.len()).unwrap_or(u64::MAX),
+            reader: cursor,
+            size,
         }
     }
 
@@ -218,9 +221,10 @@ mod tests {
         // ARRANGE
         let size = 1024_u64;
         let data = vec![0xAB; usize::try_from(size).unwrap_or(0)];
+        let mut cursor = Cursor::new(data);
 
         // ACT
-        let file = EspFile::boot(Arch::X86_64, Cursor::new(data), size);
+        let file = EspFile::boot(Arch::X86_64, &mut cursor, size);
 
         // ASSERT
         assert_eq!(file.path, "EFI/BOOT/BOOTX64.EFI");
@@ -230,8 +234,9 @@ mod tests {
     #[test]
     fn builder_add_file_places_path_first() {
         // ARRANGE / ACT
+        let mut cursor = Cursor::new(b"uki".to_vec());
         let spec = EspSpec::builder()
-            .add_file(dummy_file("EFI/BOOT/BOOTX64.EFI", b"uki"))
+            .add_file(dummy_file("EFI/BOOT/BOOTX64.EFI", &mut cursor))
             .expect("file must be added")
             .build()
             .expect("spec must build");
@@ -243,10 +248,13 @@ mod tests {
     #[test]
     fn builder_rejects_duplicate_normalized_paths() {
         // ARRANGE
-        let builder = EspSpec::builder().add_file(dummy_file("EFI/BOOT/BOOTX64.EFI", b"first"));
+        let mut c1 = Cursor::new(b"first".to_vec());
+        let builder = EspSpec::builder().add_file(dummy_file("EFI/BOOT/BOOTX64.EFI", &mut c1));
+
+        let mut c2 = Cursor::new(b"second".to_vec());
+        let second = dummy_file("./EFI/BOOT/BOOTX64.EFI", &mut c2);
 
         // ACT
-        let second = dummy_file("./EFI/BOOT/BOOTX64.EFI", b"second");
         let result = builder.and_then(|builder| builder.add_file(second));
 
         // ASSERT
@@ -255,9 +263,12 @@ mod tests {
 
     #[test]
     fn builder_normalizes_curdir_components() {
-        // ARRANGE / ACT
+        // ARRANGE
+        let mut cursor = Cursor::new(b"x".to_vec());
+
+        // ACT
         let spec = EspSpec::builder()
-            .add_file(dummy_file("./nested/file.txt", b"x"))
+            .add_file(dummy_file("./nested/file.txt", &mut cursor))
             .expect("file must be added")
             .build()
             .expect("spec must build");
@@ -272,9 +283,11 @@ mod tests {
     #[test]
     fn builder_add_files_adds_all_entries() {
         // ARRANGE
+        let mut c1 = Cursor::new(b"a".to_vec());
+        let mut c2 = Cursor::new(b"bb".to_vec());
         let files = vec![
-            dummy_file("first.txt", b"a"),
-            dummy_file("second.txt", b"bb"),
+            dummy_file("first.txt", &mut c1),
+            dummy_file("second.txt", &mut c2),
         ];
 
         // ACT
@@ -292,8 +305,9 @@ mod tests {
     #[test]
     fn spec_metas_projects_path_and_size() {
         // ARRANGE
+        let mut cursor = Cursor::new(b"hello".to_vec());
         let spec = EspSpec::builder()
-            .add_file(dummy_file("a.txt", b"hello"))
+            .add_file(dummy_file("a.txt", &mut cursor))
             .expect("file must be added")
             .build()
             .expect("spec must build");

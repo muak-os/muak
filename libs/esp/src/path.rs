@@ -6,7 +6,7 @@ use crate::error::{EspError, Result};
 use crate::model::EspSpec;
 
 /// Validates all paths in an `EspSpec`.
-pub(crate) fn validate_spec(spec: &EspSpec) -> Result<()> {
+pub(crate) fn validate_spec(spec: &EspSpec<'_>) -> Result<()> {
     for file in spec.files() {
         let normalized = normalize_relative_path(&file.path)?;
         if normalized != file.path {
@@ -150,10 +150,11 @@ mod tests {
     #[test]
     fn validate_spec_accepts_normalized_paths() {
         // ARRANGE
+        let mut cursor = Cursor::new(Vec::<u8>::new());
         let spec = EspSpec::builder()
             .add_file(EspFile {
                 path: "valid/file".to_owned(),
-                reader: Box::new(Cursor::new(vec![])),
+                reader: &mut cursor,
                 size: 0,
             })
             .expect("file must be added")
@@ -170,10 +171,11 @@ mod tests {
     #[test]
     fn validate_spec_rejects_non_normalized_paths() {
         // ARRANGE
+        let mut cursor = Cursor::new(Vec::<u8>::new());
         let mut spec = EspSpec::builder()
             .add_file(EspFile {
                 path: "EFI/BOOT/BOOTX64.EFI".to_owned(),
-                reader: Box::new(Cursor::new(vec![])),
+                reader: &mut cursor,
                 size: 0,
             })
             .expect("file must be added")

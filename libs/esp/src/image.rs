@@ -21,7 +21,7 @@ const DIRECTORY_OVERHEAD: u64 = 1_u64 << 20;
 /// # Errors
 ///
 /// Returns an error when a path is invalid or writing fails.
-pub fn build<W: Write>(files: &mut [EspFile], writer: &mut W) -> Result<(), EspError> {
+pub fn build<W: Write>(files: &mut [EspFile<'_>], writer: &mut W) -> Result<(), EspError> {
     let metas: Vec<(&str, u64)> = files
         .iter()
         .map(|file| (file.path.as_str(), file.size))
@@ -45,7 +45,7 @@ pub fn compute_fat_size(files: &[(&str, u64)]) -> Result<u64, EspError> {
 }
 
 fn build_with_size<W: Write>(
-    files: &mut [EspFile],
+    files: &mut [EspFile<'_>],
     image_size: u64,
     writer: &mut W,
 ) -> Result<(), EspError> {
@@ -96,9 +96,10 @@ mod tests {
     use crate::error::EspError;
     use crate::model::{Arch, EspFile};
 
-    fn fat_boot(data: &[u8]) -> EspFile {
-        let size = u64::try_from(data.len()).unwrap_or(u64::MAX);
-        EspFile::boot(Arch::X86_64, Cursor::new(data.to_vec()), size)
+    fn fat_boot(data: &mut Cursor<Vec<u8>>) -> EspFile<'_> {
+        let size = u64::try_from(data.get_ref().len()).unwrap_or(u64::MAX);
+
+        EspFile::boot(Arch::X86_64, data, size)
     }
 
     #[test]
@@ -146,8 +147,8 @@ mod tests {
     #[test]
     fn build_with_size_emits_readable_fat_image() {
         // ARRANGE
-        let data = b"uki-payload".to_vec();
-        let mut files = vec![fat_boot(&data)];
+        let mut data = Cursor::new(b"uki-payload".to_vec());
+        let mut files = vec![fat_boot(&mut data)];
 
         // ACT
         let mut out = Vec::new();
@@ -173,8 +174,8 @@ mod tests {
     #[test]
     fn build_with_size_uses_explicit_size() {
         // ARRANGE
-        let data = b"uki".to_vec();
-        let mut files = vec![fat_boot(&data)];
+        let mut data = Cursor::new(b"uki".to_vec());
+        let mut files = vec![fat_boot(&mut data)];
         let image_size =
             compute_fat_size(&[("EFI/BOOT/BOOTX64.EFI", 3)]).expect("size must compute");
 
@@ -197,7 +198,8 @@ mod tests {
     #[test]
     fn build_propagates_io_errors_from_reader() {
         // ARRANGE
-        let mut file = EspFile::boot(Arch::X86_64, FailingReader, 1024);
+        let mut failing = FailingReader;
+        let mut file = EspFile::boot(Arch::X86_64, &mut failing, 1024);
 
         // ACT
         let mut out = Vec::new();
@@ -210,7 +212,8 @@ mod tests {
     #[test]
     fn build_detects_short_reader() {
         // ARRANGE
-        let mut file = EspFile::boot(Arch::X86_64, Cursor::new(Vec::<u8>::new()), 16);
+        let mut cursor = Cursor::new(Vec::<u8>::new());
+        let mut file = EspFile::boot(Arch::X86_64, &mut cursor, 16);
 
         // ACT
         let mut out = Vec::new();

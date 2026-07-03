@@ -4,7 +4,6 @@
 
 extern crate alloc;
 
-pub mod collect;
 pub mod error;
 pub mod image;
 pub mod model;
