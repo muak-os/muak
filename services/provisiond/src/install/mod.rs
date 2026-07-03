@@ -414,21 +414,23 @@ async fn deploy_uki(
 ) -> Result<()> {
     send_progress(progress, "Deploying UKI to EFI partition").await;
 
-    let mut esp_files: Vec<esp::model::EspFile> = match overlay {
+    let overlay = match overlay {
         Some(src) => wizard::build::source::pull_overlay(src).await?,
         None => Vec::new(),
     };
 
-    if let Some(key) = luks_key {
-        let len = u64::try_from(key.len()).unwrap_or(u64::MAX);
-        esp_files.push(esp::model::EspFile {
-            path: "luks".to_owned(),
-            reader: Box::new(std::io::Cursor::new(key.clone())),
-            size: len,
-        });
-    }
+    let mut uki_file = std::fs::File::open(staged_path)
+        .with_context(|| format!("Failed to open staged UKI {}", staged_path.display()))?;
+    let uki_len = uki_file
+        .metadata()
+        .with_context(|| format!("Failed to get metadata for {}", staged_path.display()))?
+        .len();
 
-    efi::deploy(efi_part, staged_path, esp_files)?;
+    let luks = match luks_key {
+        Some(k) => efi::LuksKey::EspKey(k.clone()),
+        None => efi::LuksKey::TpmSealed,
+    };
+    efi::deploy(efi_part, &mut uki_file, uki_len, overlay, luks)?;
 
     Ok(())
 }

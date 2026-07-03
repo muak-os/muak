@@ -37,8 +37,7 @@ pub async fn apply() -> Result<()> {
         serde_json::from_str(&data).context("Failed to deserialize UKI sections")?
     };
 
-    let mut esp_files: Vec<esp::model::EspFile> = vec![];
-    if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
+    let luks_key = if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
         if tpm2::is_available() {
             let token = match secrets::seal_luks_key(&key, &sections)? {
                 secrets::SealResult::Sealed(token) => token,
@@ -47,15 +46,13 @@ pub async fn apply() -> Result<()> {
             let devices: Vec<&str> = [state_device.as_deref()].into_iter().flatten().collect();
             secrets::write_token_to_devices(&token, &devices)?;
             kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
+            None
         } else {
-            let size = u64::try_from(key.len()).unwrap_or(u64::MAX);
-            esp_files.push(esp::model::EspFile {
-                path: "luks".to_owned(),
-                reader: Box::new(std::io::Cursor::new(key.to_vec())),
-                size,
-            });
+            Some(key.to_vec())
         }
-    }
+    } else {
+        None
+    };
 
     // Enroll PK if missing (signing keys are on STATE from prepare phase)
     if config::host().secureboot {
@@ -71,7 +68,18 @@ pub async fn apply() -> Result<()> {
         }
     }
 
-    efi::deploy(&efi_device, &staged, esp_files)?;
+    let mut uki_file = std::fs::File::open(&staged)
+        .with_context(|| format!("Failed to open staged UKI {}", staged.display()))?;
+    let uki_len = uki_file
+        .metadata()
+        .with_context(|| format!("Failed to get metadata for {}", staged.display()))?
+        .len();
+
+    let luks = match luks_key {
+        Some(k) => efi::LuksKey::EspKey(k),
+        None => efi::LuksKey::TpmSealed,
+    };
+    efi::deploy(&efi_device, &mut uki_file, uki_len, vec![], luks)?;
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {}", e);

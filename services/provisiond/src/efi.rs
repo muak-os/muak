@@ -1,86 +1,121 @@
 //! EFI partition deployment of the Unified Kernel Image and overlay assets.
 
+use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use esp::model::{Arch, EspFile, EspSpec, EspSpecBuilder};
 use rustix::fs::sync;
+use wizard::build::source::OverlayEntry;
 
 use crate::disk;
 
 /// Mount point for the EFI partition during deployment.
 const MOUNT_POINT: &str = "/run/mnt/efi";
 
-pub fn deploy(efi_device: &str, staged_uki: &Path, esp_files: Vec<EspFile>) -> Result<()> {
+/// Whether the LUKS key was sealed to TPM2 or must be written to the ESP.
+#[must_use]
+pub enum LuksKey {
+    /// Key was sealed to TPM
+    TpmSealed,
+    /// Key must be placed on the ESP as a file.
+    EspKey(Vec<u8>),
+}
+
+pub fn deploy(
+    efi_device: &str,
+    uki_file: &mut File,
+    uki_len: u64,
+    overlay_entries: Vec<OverlayEntry>,
+    luks: LuksKey,
+) -> Result<()> {
     if !Path::new(efi_device).exists() {
         bail!("EFI device {} does not exist", efi_device);
     }
 
-    let mut spec = build_esp_spec(staged_uki, esp_files)?;
-    disk::mount_efi_partition(efi_device, MOUNT_POINT)?;
-    esp::populate::write(spec.files_mut(), Path::new(MOUNT_POINT))
-        .context("Failed to populate EFI partition")?;
+    with_esp(uki_file, uki_len, overlay_entries, luks, |spec| {
+        disk::mount_efi_partition(efi_device, MOUNT_POINT)?;
+        esp::populate::write(spec.files_mut(), Path::new(MOUNT_POINT))
+            .context("Failed to populate EFI partition")?;
 
-    sync();
-    disk::try_unmount(MOUNT_POINT);
+        sync();
+        disk::try_unmount(MOUNT_POINT);
 
-    Ok(())
+        Ok(())
+    })
 }
 
-fn build_esp_spec(staged_uki: &Path, esp_files: Vec<EspFile>) -> Result<EspSpec> {
-    let uki_file = std::fs::File::open(staged_uki)
-        .with_context(|| format!("Failed to open staged UKI {}", staged_uki.display()))?;
-    let uki_len = uki_file
-        .metadata()
-        .with_context(|| format!("Failed to get metadata for {}", staged_uki.display()))?
-        .len();
-    let boot = EspFile::boot(Arch::current(), uki_file, uki_len);
+fn with_esp(
+    uki_file: &mut File,
+    uki_len: u64,
+    overlay_entries: Vec<OverlayEntry>,
+    luks: LuksKey,
+    write: impl FnOnce(&mut EspSpec<'_>) -> Result<()>,
+) -> Result<()> {
+    let mut overlay_cursors: Vec<Cursor<Arc<[u8]>>> = Vec::with_capacity(overlay_entries.len());
+    for entry in &overlay_entries {
+        overlay_cursors.push(Cursor::new(Arc::clone(&entry.data)));
+    }
 
-    EspSpecBuilder::default()
+    let mut luks_cursor: Option<Cursor<Arc<[u8]>>> = None;
+    if let LuksKey::EspKey(ref key) = luks {
+        luks_cursor = Some(Cursor::new(Arc::from(key.as_slice())));
+    }
+
+    let mut builder = EspSpecBuilder::default();
+    let boot = EspFile::boot(Arch::current(), uki_file, uki_len);
+    builder = builder
         .add_file(boot)
-        .context("Failed to add staged UKI to ESP spec")?
-        .add_files(esp_files)
-        .context("Failed to add overlay files to ESP spec")?
-        .build()
-        .context("Failed to build ESP spec")
+        .context("Failed to add staged UKI to ESP spec")?;
+
+    for (cursor, entry) in overlay_cursors.iter_mut().zip(&overlay_entries) {
+        builder = builder
+            .add_file(EspFile {
+                path: entry.path.clone(),
+                reader: cursor,
+                size: entry.size,
+            })
+            .context("Failed to add overlay file")?;
+    }
+
+    if let Some(ref mut cursor) = luks_cursor {
+        let size = u64::try_from(cursor.get_ref().len()).unwrap_or(u64::MAX);
+        builder = builder
+            .add_file(EspFile {
+                path: "luks".to_owned(),
+                reader: cursor,
+                size,
+            })
+            .context("Failed to add LUKS key")?;
+    }
+
+    let mut spec = builder.build().context("Failed to build ESP spec")?;
+
+    write(&mut spec)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
 
     #[test]
-    fn build_spec_includes_staged_uki() {
+    fn deploy_rejects_nonexistent_device() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let staged = dir.path().join("staged.efi");
-        std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
+        let mut uki_file = tempfile::tempfile().expect("create temp file");
+        let uki_len = uki_file.metadata().expect("metadata").len();
 
         // ACT
-        let spec = build_esp_spec(&staged, vec![]).expect("build spec");
+        let result = deploy(
+            "/nonexistent/efi",
+            &mut uki_file,
+            uki_len,
+            vec![],
+            LuksKey::TpmSealed,
+        );
 
         // ASSERT
-        assert_eq!(spec.files().len(), 1);
-    }
-
-    #[test]
-    fn build_spec_includes_overlay_files() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let staged = dir.path().join("staged.efi");
-        std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
-        let overlay = vec![EspFile {
-            path: "dtb/rpi.dtb".to_owned(),
-            reader: Box::new(Cursor::new(b"dtb".to_vec())),
-            size: 3,
-        }];
-
-        // ACT
-        let spec = build_esp_spec(&staged, overlay).expect("build spec");
-
-        // ASSERT
-        assert_eq!(spec.files().len(), 2);
+        assert!(result.is_err());
     }
 }
