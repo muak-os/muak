@@ -53,41 +53,44 @@ pub(crate) async fn build_post<W: Write>(
     iso: Option<&mut W>,
     raw: Option<&mut W>,
 ) -> Result<Vec<Section>> {
-    if let Some(w) = iso {
-        let (mut uki_reader, uki_size, sections_handle) =
-            uki::build(assets, tail_parts, tail_size, signing_key)?;
-        media::write_iso(arch::esp(resolved.arch()), &mut uki_reader, uki_size, w)?;
-        sections_handle
-            .await
-            .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?
-    } else if let Some(w) = raw {
-        let overlay_entries = match resolved.overlay() {
+    let overlay = if iso.is_some() || raw.is_some() {
+        match resolved.overlay() {
             Some(info) => source::pull_overlay(info).await?,
             None => Vec::new(),
-        };
-        let (mut uki_reader, uki_size, sections_handle) =
-            uki::build(assets, tail_parts, tail_size, signing_key)?;
+        }
+    } else {
+        Vec::new()
+    };
+
+    let (mut uki_reader, uki_size, sections_handle) =
+        uki::build(assets, tail_parts, tail_size, signing_key)?;
+
+    if let Some(w) = iso {
+        media::write_iso(
+            arch::esp(resolved.arch()),
+            &mut uki_reader,
+            uki_size,
+            overlay,
+            w,
+        )?;
+    } else if let Some(w) = raw {
         media::write_raw(
             arch::esp(resolved.arch()),
             &mut uki_reader,
             uki_size,
-            overlay_entries,
+            overlay,
             w,
         )?;
-        sections_handle
-            .await
-            .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?
     } else if let Some(w) = uki {
-        let (mut reader, _uki_size, sections_handle) =
-            uki::build(assets, tail_parts, tail_size, signing_key)?;
-        std::io::copy(&mut reader, w)
+        std::io::copy(&mut uki_reader, w)
             .map_err(|e| WizardError::BuildError(format!("write UKI: {e}")))?;
-        sections_handle
-            .await
-            .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?
     } else {
-        Ok(Vec::default())
+        return Ok(Vec::default());
     }
+
+    sections_handle
+        .await
+        .map_err(|e| WizardError::BuildError(format!("join UKI build task: {e}")))?
 }
 
 pub(crate) fn write_standalone<W: Write>(

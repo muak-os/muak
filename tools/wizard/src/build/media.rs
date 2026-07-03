@@ -17,18 +17,20 @@ pub fn write_iso<W: Write>(
     arch: EspArch,
     uki_reader: &mut impl Read,
     uki_size: u64,
+    overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
 ) -> Result<()> {
-    let boot = EspFile::boot(arch, uki_reader, uki_size);
-    let mut spec = EspSpec::builder()
-        .add_file(boot)
-        .map_err(|e| WizardError::BuildError(format!("add UKI to ISO ESP spec: {e}")))?
-        .build()
-        .map_err(|e| WizardError::BuildError(format!("build ISO ESP spec: {e}")))?;
-    miso::build_iso(&mut spec, writer)
-        .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
-
-    Ok(())
+    with_esp(
+        arch,
+        uki_reader,
+        uki_size,
+        overlay_entries,
+        writer,
+        |spec, w| {
+            miso::build_iso(spec, w)
+                .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
+        },
+    )
 }
 
 /// Build a raw disk image from scratch, writing directly to a `Write` sink.
@@ -42,6 +44,27 @@ pub fn write_raw<W: Write>(
     uki_size: u64,
     overlay_entries: Vec<OverlayEntry>,
     writer: &mut W,
+) -> Result<()> {
+    with_esp(
+        arch,
+        uki_reader,
+        uki_size,
+        overlay_entries,
+        writer,
+        |spec, w| {
+            miso::build_raw(spec, w, Some(6))
+                .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
+        },
+    )
+}
+
+fn with_esp<W: Write>(
+    arch: EspArch,
+    uki_reader: &mut impl Read,
+    uki_size: u64,
+    overlay_entries: Vec<OverlayEntry>,
+    writer: &mut W,
+    write: impl FnOnce(&mut EspSpec<'_>, &mut W) -> Result<()>,
 ) -> Result<()> {
     let count = overlay_entries.len();
     let mut cursors: Vec<Cursor<Arc<[u8]>>> = Vec::with_capacity(count);
@@ -62,7 +85,7 @@ pub fn write_raw<W: Write>(
     let boot = EspFile::boot(arch, uki_reader, uki_size);
     builder = builder
         .add_file(boot)
-        .map_err(|e| WizardError::BuildError(format!("add UKI to raw ESP spec: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("add UKI to ESP spec: {e}")))?;
 
     for file in overlay_files {
         builder = builder
@@ -72,10 +95,7 @@ pub fn write_raw<W: Write>(
 
     let mut spec = builder
         .build()
-        .map_err(|e| WizardError::BuildError(format!("build raw ESP spec: {e}")))?;
+        .map_err(|e| WizardError::BuildError(format!("build ESP spec: {e}")))?;
 
-    miso::build_raw(&mut spec, writer, Some(6))
-        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
-
-    Ok(())
+    write(&mut spec, writer)
 }
