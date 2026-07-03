@@ -37,7 +37,7 @@ pub(super) fn encode_ucs2(cmdline: &[u8]) -> Result<(*mut u8, u32)> {
     let terminator = bytes
         .get_mut(byte_size - size_of::<u16>()..byte_size)
         .context("command line terminator slice out of bounds")?;
-    terminator.copy_from_slice(&0u16.to_le_bytes());
+    terminator.copy_from_slice(&0_u16.to_le_bytes());
 
     Ok((ptr, load_options_size))
 }

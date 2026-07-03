@@ -55,10 +55,6 @@ fn main() -> Result<()> {
     let loaded_image = open_protocol_exclusive::<LoadedImage>(image_handle)
         .context("Failed to open LoadedImage protocol")?;
 
-    let device_handle = loaded_image
-        .device()
-        .context("Loaded image has null device handle")?;
-
     info!(
         "Setup Mode: {}",
         if security::is_setup_mode() {
@@ -116,7 +112,7 @@ fn main() -> Result<()> {
 
     let combined_cmdline: Vec<u8>;
     let cmdline: Option<&[u8]> = if !tpm2::is_available() {
-        if let Some(combined) = luks::try_inject(device_handle, sections.cmdline)? {
+        if let Some(combined) = luks::try_inject(sections.cmdline)? {
             info!("LUKS key read from ESP file");
             combined_cmdline = combined;
             Some(&combined_cmdline)
