@@ -68,6 +68,8 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
+    wizard::build::set_cache_dir("/run/state/cache/koci");
+
     streaming::send_progress(
         &progress,
         PrepareUpdateProgress {
@@ -145,20 +147,23 @@ pub async fn prepare(
         raw: None,
     };
 
-    let metadata = build::artifacts(
-        &request,
-        &install_profile,
-        &config,
-        signing_key.as_ref(),
-        writers,
-    )
-    .await
-    .context("wizard update prepare")?;
+    let sections = {
+        let metadata = build::artifacts(
+            &request,
+            &install_profile,
+            &config,
+            signing_key.as_ref(),
+            writers,
+        )
+        .await
+        .context("wizard update prepare")?;
+        metadata.sections
+    };
 
     let sections_path = assets_dir.join("sections.json");
     std::fs::write(
         &sections_path,
-        serde_json::to_string(&metadata.sections).context("Failed to serialize UKI sections")?,
+        serde_json::to_string(&sections).context("Failed to serialize UKI sections")?,
     )
     .with_context(|| format!("Failed to write sections to {}", sections_path.display()))?;
 

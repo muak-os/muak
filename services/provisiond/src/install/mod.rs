@@ -72,7 +72,7 @@ pub async fn run(
     deploy_uki(
         &partitions.efi_part,
         &uki.staged_path,
-        &uki.esp_files,
+        uki.overlay.as_ref(),
         &uki.luks_key,
         &progress,
     )
@@ -176,7 +176,7 @@ async fn generate_keys(
 struct PreparedUki {
     work_dir: PathBuf,
     staged_path: PathBuf,
-    esp_files: Vec<esp::EspFile>,
+    overlay: Option<wizard::resolve::OverlaySource>,
     seal_result: secrets::SealResult,
     luks_key: Option<Vec<u8>>,
 }
@@ -250,7 +250,7 @@ async fn prepare_uki(
     Ok(PreparedUki {
         work_dir: Path::new(INSTALL_DIR).to_path_buf(),
         staged_path,
-        esp_files: metadata.overlay_files,
+        overlay: metadata.overlay,
         seal_result,
         luks_key: luks_file,
     })
@@ -408,21 +408,27 @@ async fn format_btrfs_volumes(
 async fn deploy_uki(
     efi_part: &str,
     staged_path: &Path,
-    esp_files: &[esp::EspFile],
+    overlay: Option<&wizard::resolve::OverlaySource>,
     luks_key: &Option<Vec<u8>>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Deploying UKI to EFI partition").await;
 
-    let mut all_files = esp_files.to_vec();
+    let mut esp_files: Vec<esp::model::EspFile> = match overlay {
+        Some(src) => wizard::build::source::pull_overlay(src).await?,
+        None => Vec::new(),
+    };
+
     if let Some(key) = luks_key {
-        all_files.push(esp::EspFile {
-            path: "luks".into(),
-            data: key.clone(),
+        let len = u64::try_from(key.len()).unwrap_or(u64::MAX);
+        esp_files.push(esp::model::EspFile {
+            path: "luks".to_owned(),
+            reader: Box::new(std::io::Cursor::new(key.clone())),
+            size: len,
         });
     }
 
-    efi::deploy(efi_part, staged_path, &all_files)?;
+    efi::deploy(efi_part, staged_path, esp_files)?;
 
     Ok(())
 }

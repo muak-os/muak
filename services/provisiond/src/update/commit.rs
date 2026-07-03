@@ -37,7 +37,7 @@ pub async fn apply() -> Result<()> {
         serde_json::from_str(&data).context("Failed to deserialize UKI sections")?
     };
 
-    let mut esp_files: Vec<esp::EspFile> = vec![];
+    let mut esp_files: Vec<esp::model::EspFile> = vec![];
     if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
         if tpm2::is_available() {
             let token = match secrets::seal_luks_key(&key, &sections)? {
@@ -48,9 +48,11 @@ pub async fn apply() -> Result<()> {
             secrets::write_token_to_devices(&token, &devices)?;
             kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
         } else {
-            esp_files.push(esp::EspFile {
-                path: "luks".into(),
-                data: key.to_vec(),
+            let size = u64::try_from(key.len()).unwrap_or(u64::MAX);
+            esp_files.push(esp::model::EspFile {
+                path: "luks".to_owned(),
+                reader: Box::new(std::io::Cursor::new(key.to_vec())),
+                size,
             });
         }
     }
@@ -69,7 +71,7 @@ pub async fn apply() -> Result<()> {
         }
     }
 
-    efi::deploy(&efi_device, &staged, &esp_files)?;
+    efi::deploy(&efi_device, &staged, esp_files)?;
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {}", e);

@@ -38,6 +38,7 @@ tonic-prost = { workspace = true }
 # Internal
 btrfs = { workspace = true }
 esp = { workspace = true }
+fatfs = { workspace = true }
 wizard = { workspace = true }
 parttable = { workspace = true }
 granola = { workspace = true }

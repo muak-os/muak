@@ -9,7 +9,6 @@ use parttable::gpt::table::Table;
 use parttable::gpt::types::{
     ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start,
 };
-use parttable::mbr;
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
@@ -30,6 +29,7 @@ pub fn has_state_partition(disk: &str) -> Result<bool> {
 fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
     let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
     let size = f.seek(std::io::SeekFrom::End(0))?;
+
     Ok((f, size))
 }
 
@@ -53,7 +53,8 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
     let (mut f, disk_size) = open_disk_rw(disk)?;
     kmsg::info!("System disk size: {} GB", disk_size / super::constants::GB);
 
-    let mut gpt = Table::create(&mut f, SECTOR_SIZE, [0xff; 16])?;
+    let sector_count = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
+    let mut gpt = Table::create(sector_count, SECTOR_SIZE, [0xff; 16])?;
 
     let efi = gpt.place_partition(
         PlacementRequest {
@@ -83,8 +84,12 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
         SECTOR_SIZE,
     )?;
 
-    gpt.write(&mut f)?;
-    mbr::io::write_protective(&mut f, disk_size, SECTOR_SIZE)?;
+    f.seek(std::io::SeekFrom::Start(0))?;
+    gpt.write_primary_to(sector_count, &mut f)?;
+    f.seek(std::io::SeekFrom::Start(
+        gpt.backup_data_offset(sector_count),
+    ))?;
+    gpt.write_backup_to(sector_count, &mut f)?;
     f.sync_all()?;
     drop(f);
 
@@ -119,16 +124,18 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     kmsg::info!("Data disk size: {} GB", disk_size / super::constants::GB);
 
     f.seek(std::io::SeekFrom::Start(0))?;
-    let (mut gpt, start) = match Table::read(&mut f) {
+    let (mut gpt, sector_count, start) = match Table::read(&mut f) {
         Ok(existing) => {
+            let sc = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
             kmsg::info!("Appending DATA on existing GPT on {}", disk);
-            (existing, Start::AfterLastUsed)
+            (existing, sc, Start::AfterLastUsed)
         }
         Err(_) => {
             f.seek(std::io::SeekFrom::Start(0))?;
-            let gpt = Table::create(&mut f, SECTOR_SIZE, [0xff; 16])?;
+            let sc = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
+            let gpt = Table::create(sc, SECTOR_SIZE, [0xff; 16])?;
             kmsg::info!("Creating new GPT with DATA as partition 1 on {}", disk);
-            (gpt, Start::FirstUsable)
+            (gpt, sc, Start::FirstUsable)
         }
     };
 
@@ -146,8 +153,12 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
         SECTOR_SIZE,
     )?;
 
-    gpt.write(&mut f)?;
-    mbr::io::write_protective(&mut f, disk_size, SECTOR_SIZE)?;
+    f.seek(std::io::SeekFrom::Start(0))?;
+    gpt.write_primary_to(sector_count, &mut f)?;
+    f.seek(std::io::SeekFrom::Start(
+        gpt.backup_data_offset(sector_count),
+    ))?;
+    gpt.write_backup_to(sector_count, &mut f)?;
     f.sync_all()?;
     drop(f);
 
@@ -172,6 +183,7 @@ fn uuid_now() -> uuid::Timestamp {
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
+
     uuid::Timestamp::from_unix(uuid::NoContext, dur.as_secs(), dur.subsec_nanos())
 }
 
@@ -192,7 +204,16 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
         kmsg::info!("Removed partition {} from GPT", partition_num);
     }
 
-    gpt.write(&mut f)?;
+    let sc = f
+        .metadata()
+        .map(|m| m.len())
+        .unwrap_or(0)
+        .checked_div(SECTOR_SIZE)
+        .unwrap_or(0);
+    f.seek(std::io::SeekFrom::Start(0))?;
+    gpt.write_primary_to(sc, &mut f)?;
+    f.seek(std::io::SeekFrom::Start(gpt.backup_data_offset(sc)))?;
+    gpt.write_backup_to(sc, &mut f)?;
     f.sync_all()?;
     drop(f);
 
@@ -201,6 +222,7 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
     }
 
     kmsg::info!("Partitions deleted successfully");
+
     Ok(())
 }
 
@@ -231,7 +253,12 @@ mod tests {
             .write(true)
             .open(disk.path())
             .expect("open");
-        let mut gpt = Table::create(&mut f, 512, [0xff; 16]).expect("new gpt");
+        let mut gpt = Table::create(
+            u64::try_from(f.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            512,
+            [0xff; 16],
+        )
+        .expect("new gpt");
         for (i, &name) in names.iter().enumerate() {
             let mut guid = [0u8; 16];
             guid[0] = i as u8 + 1;
@@ -247,7 +274,9 @@ mod tests {
                 },
             );
         }
-        gpt.write(&mut f).expect("write gpt");
+        let sc = u64::try_from(f.metadata().expect("metadata").len()).unwrap_or(0) / 512;
+        gpt.write_primary_to(sc, &mut f).expect("write primary");
+        gpt.write_backup_to(sc, &mut f).expect("write backup");
         disk
     }
 

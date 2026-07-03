@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use esp::{Arch, EspFile, EspSpec, EspSpecBuilder};
+use esp::model::{Arch, EspFile, EspSpec, EspSpecBuilder};
 use rustix::fs::sync;
 
 use crate::disk;
@@ -11,15 +11,15 @@ use crate::disk;
 /// Mount point for the EFI partition during deployment.
 const MOUNT_POINT: &str = "/run/mnt/efi";
 
-/// Deploys the staged UKI and overlay ESP files to the EFI partition.
-pub fn deploy(efi_device: &str, staged_uki: &Path, esp_files: &[EspFile]) -> Result<()> {
+pub fn deploy(efi_device: &str, staged_uki: &Path, esp_files: Vec<EspFile>) -> Result<()> {
     if !Path::new(efi_device).exists() {
         bail!("EFI device {} does not exist", efi_device);
     }
 
-    let spec = build_esp_spec(staged_uki, esp_files)?;
+    let mut spec = build_esp_spec(staged_uki, esp_files)?;
     disk::mount_efi_partition(efi_device, MOUNT_POINT)?;
-    esp::populate(&spec, Path::new(MOUNT_POINT)).context("Failed to populate EFI partition")?;
+    esp::populate::write(spec.files_mut(), Path::new(MOUNT_POINT))
+        .context("Failed to populate EFI partition")?;
 
     sync();
     disk::try_unmount(MOUNT_POINT);
@@ -27,13 +27,19 @@ pub fn deploy(efi_device: &str, staged_uki: &Path, esp_files: &[EspFile]) -> Res
     Ok(())
 }
 
-fn build_esp_spec(staged_uki: &Path, esp_files: &[EspFile]) -> Result<EspSpec> {
-    let uki = std::fs::read(staged_uki)
-        .with_context(|| format!("Failed to read staged UKI {}", staged_uki.display()))?;
+fn build_esp_spec(staged_uki: &Path, esp_files: Vec<EspFile>) -> Result<EspSpec> {
+    let uki_file = std::fs::File::open(staged_uki)
+        .with_context(|| format!("Failed to open staged UKI {}", staged_uki.display()))?;
+    let uki_len = uki_file
+        .metadata()
+        .with_context(|| format!("Failed to get metadata for {}", staged_uki.display()))?
+        .len();
+    let boot = EspFile::boot(Arch::current(), uki_file, uki_len);
+
     EspSpecBuilder::default()
-        .with_uki(Arch::current(), uki)
+        .add_file(boot)
         .context("Failed to add staged UKI to ESP spec")?
-        .add_files(esp_files.to_vec())
+        .add_files(esp_files)
         .context("Failed to add overlay files to ESP spec")?
         .build()
         .context("Failed to build ESP spec")
@@ -41,6 +47,8 @@ fn build_esp_spec(staged_uki: &Path, esp_files: &[EspFile]) -> Result<EspSpec> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
     #[test]
@@ -51,11 +59,10 @@ mod tests {
         std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
 
         // ACT
-        let spec = build_esp_spec(&staged, &[]).expect("build spec");
+        let spec = build_esp_spec(&staged, vec![]).expect("build spec");
 
         // ASSERT
-        assert_eq!(spec.files.len(), 1);
-        assert_eq!(spec.files[0].data, b"uki-bytes");
+        assert_eq!(spec.files().len(), 1);
     }
 
     #[test]
@@ -65,15 +72,15 @@ mod tests {
         let staged = dir.path().join("staged.efi");
         std::fs::write(&staged, b"uki-bytes").expect("write staged UKI");
         let overlay = vec![EspFile {
-            path: "dtb/rpi.dtb".into(),
-            data: b"dtb".to_vec(),
+            path: "dtb/rpi.dtb".to_owned(),
+            reader: Box::new(Cursor::new(b"dtb".to_vec())),
+            size: 3,
         }];
 
         // ACT
-        let spec = build_esp_spec(&staged, &overlay).expect("build spec");
+        let spec = build_esp_spec(&staged, overlay).expect("build spec");
 
         // ASSERT
-        assert_eq!(spec.files.len(), 2);
-        assert_eq!(spec.files[1].data, b"dtb");
+        assert_eq!(spec.files().len(), 2);
     }
 }

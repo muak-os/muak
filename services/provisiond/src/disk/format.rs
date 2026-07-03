@@ -14,7 +14,8 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 
     let mut file = OpenOptions::new().read(true).write(true).open(device)?;
 
-    esp::format(&mut file).context("Failed to format partition as EFI FAT32")?;
+    fatfs::builder::format(&mut file, crate::disk::constants::EFI_SIZE)
+        .context("Failed to format partition as EFI FAT32")?;
 
     file.sync_all()?;
 

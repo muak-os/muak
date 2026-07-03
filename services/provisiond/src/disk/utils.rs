@@ -6,14 +6,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use parttable::gpt::table::Table;
-use parttable::mbr::types::{MBR_BOOT_SIGNATURE, MBR_PARTITION_ENTRY_OFFSET};
+use parttable::mbr::types::{
+    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_ENTRY_SIZE, MBR_PARTITION_ENTRY_OFFSET,
+};
 use rustix::fs::sync;
 use rustix::mount::{UnmountFlags, unmount};
 
 use super::constants::MB;
 
-const MBR_BYTES: usize = 512;
-const MBR_ENTRY_BYTES: usize = 16;
 const MBR_MAX_SLOTS: usize = 4;
 const MBR_PARTITION_TYPE_OFFSET: usize = 4;
 
@@ -119,7 +119,7 @@ pub fn disk_is_non_empty(disk: &str) -> Result<bool> {
     }
 
     Ok((0..MBR_MAX_SLOTS).any(|slot| {
-        let entry_offset = MBR_PARTITION_ENTRY_OFFSET as usize + slot * MBR_ENTRY_BYTES;
+        let entry_offset = MBR_PARTITION_ENTRY_OFFSET as usize + slot * MBR_ENTRY_SIZE;
         sector[entry_offset + MBR_PARTITION_TYPE_OFFSET] != 0x00
     }))
 }
@@ -270,8 +270,22 @@ mod tests {
             .open(disk.path())
             .expect("open");
         file.set_len(64 * 1024 * 1024).expect("resize");
-        let mut gpt = Table::create(&mut file, 512, [0xff; 16]).expect("new gpt");
-        gpt.write(&mut file).expect("write gpt");
+        let gpt = Table::create(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            512,
+            [0xff; 16],
+        )
+        .expect("new gpt");
+        gpt.write_primary_to(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            &mut file,
+        )
+        .expect("write primary gpt");
+        gpt.write_backup_to(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            &mut file,
+        )
+        .expect("write backup gpt");
 
         // ACT
         let result = disk_is_non_empty(disk.path().to_str().expect("path"))
