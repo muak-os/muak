@@ -5,7 +5,7 @@ use alloc::string::String;
 
 use super::super::{parent_rel, types::InodeLayout};
 use super::util::{header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
-use crate::dir::{self, DirEntry, EROFS_FT_DIR};
+use crate::dir::{self, EROFS_FT_DIR, Entry};
 use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
 
 pub(super) fn layout(
@@ -75,16 +75,16 @@ fn build_entries(
     children: &[String],
     path_to_idx: &BTreeMap<String, usize>,
     self_nid: u64,
-) -> Vec<DirEntry> {
+) -> Vec<Entry> {
     let parent_nid = parent_nid(all_inodes, path_to_idx, self_nid);
 
     let mut entries = vec![
-        DirEntry {
+        Entry {
             name: b".".to_vec(),
             nid: self_nid,
             file_type: EROFS_FT_DIR,
         },
-        DirEntry {
+        Entry {
             name: b"..".to_vec(),
             nid: parent_nid,
             file_type: EROFS_FT_DIR,
@@ -102,7 +102,7 @@ fn build_entries(
             .file_name()
             .map(|n| n.to_string_lossy().as_bytes().to_vec())
             .unwrap_or_default();
-        entries.push(DirEntry {
+        entries.push(Entry {
             name,
             nid: child.nid,
             file_type: child.file_type,
@@ -116,28 +116,71 @@ fn build_entries(
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
+    use std::io;
 
     use super::{layout, parent_nid};
     use crate::Compression;
-    use crate::dir::EROFS_FT_DIR;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
+    use crate::source::SizedFile;
     use crate::testutil::test_config;
+    use crate::tree::TreeEntry;
+
+    fn entry_root() -> TreeEntry {
+        TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }
+    }
+
+    fn make_files(entries: Vec<TreeEntry>) -> Vec<SizedFile<'static>> {
+        entries
+            .into_iter()
+            .map(|e| SizedFile {
+                entry: e,
+                reader: Box::leak(Box::new(io::empty())),
+            })
+            .collect()
+    }
+
+    fn children_entries<F: Fn(u16) -> String>(count: u16, name_fn: F) -> Vec<TreeEntry> {
+        let mut entries = vec![entry_root()];
+        for index in 0..count {
+            entries.push(TreeEntry {
+                rel_path: name_fn(index),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            });
+        }
+        entries
+    }
 
     #[test]
     fn layout_dir_inline_single_block() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        for index in 0..5_u8 {
-            std::fs::write(dir.path().join(format!("f{index}")), [index]).expect("write");
-        }
+        let entries = children_entries(5, |i| format!("/f{i}"));
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let planned = plan(&mut make_files(entries), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
-        // ACT
         // ASSERT
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(root.data_blocks, 0);
@@ -146,17 +189,13 @@ mod tests {
     #[test]
     fn layout_dir_inline_with_full_blocks() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        for index in 0..200_u8 {
-            let name = format!("file_{index:03}.txt");
-            std::fs::write(dir.path().join(&name), [index]).expect("write");
-        }
+        let entries = children_entries(200, |i| format!("/file_{i:03}.txt"));
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let planned = plan(&mut make_files(entries), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
-        // ACT
         // ASSERT
         assert!(root.data_blocks > 0);
     }
@@ -164,17 +203,13 @@ mod tests {
     #[test]
     fn layout_dir_flat_plain() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        for index in 0_u16..339 {
-            let name = format!("file_{index:03}.txt");
-            std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
-        }
+        let entries = children_entries(339, |i| format!("/file_{i:03}.txt"));
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let planned = plan(&mut make_files(entries), &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
-        // ACT
         // ASSERT
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_PLAIN);
     }
@@ -182,13 +217,16 @@ mod tests {
     #[test]
     fn empty_directory_layout() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let files = &mut [SizedFile {
+            entry: entry_root(),
+            reader: &mut io::empty(),
+        }];
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let planned = plan(files, &test_config(1)).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
-        // ACT
         // ASSERT
         assert_eq!(root.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(root.data_blocks, 0);
@@ -212,7 +250,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -222,8 +259,7 @@ mod tests {
             compressed: None,
         }];
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(parent_nid(&inodes, &BTreeMap::new(), 7), 7);
     }
 
@@ -245,7 +281,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -255,6 +290,7 @@ mod tests {
             compressed: None,
         }];
 
+        // ACT
         let advance = layout(
             &mut inodes,
             9,
@@ -265,7 +301,6 @@ mod tests {
             4096,
         );
 
-        // ACT
         // ASSERT
         assert_eq!(advance, 0);
         let _: Compression = Compression::None;

@@ -57,6 +57,7 @@ impl FileContexts {
             PatternKind::Exact(path) => exact.push((path, context)),
             PatternKind::Prefix(pfx) => prefix.push((pfx, context)),
         }
+
         Ok(())
     }
 
@@ -100,6 +101,7 @@ fn categorize_pattern(pattern: &str) -> PatternKind {
 /// Strip trailing glob characters to extract the fixed prefix.
 fn strip_glob_tail(pattern: &str) -> String {
     let end = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
+
     pattern.get(..end).unwrap_or_default().to_owned()
 }
 
@@ -119,6 +121,7 @@ fn parse_line(line: &str) -> Result<(String, String)> {
             "unexpected format: {line}"
         )));
     };
+
     Ok((pattern.to_owned(), context.to_owned()))
 }
 
@@ -137,8 +140,8 @@ mod tests {
             "/.*    system_u:object_r:file_t:s0\n\
              /sbin/init    system_u:object_r:granola_exec_t:s0\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(
             fc.label_for("/sbin/init"),
             Some("system_u:object_r:granola_exec_t:s0")
@@ -149,8 +152,8 @@ mod tests {
     fn default_label_for_unmatched_path() {
         // ARRANGE
         let fc = make_fc("/.*    system_u:object_r:file_t:s0\n");
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(
             fc.label_for("/anything"),
             Some("system_u:object_r:file_t:s0")
@@ -164,8 +167,8 @@ mod tests {
             "/.*    system_u:object_r:file_t:s0\n\
              /lib/modules/.*    system_u:object_r:modules_t:s0\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(
             fc.label_for("/lib/modules/foo.ko"),
             Some("system_u:object_r:modules_t:s0")
@@ -179,8 +182,8 @@ mod tests {
             "/lib/modules/.*    system_u:object_r:modules_t:s0\n\
              /lib/modules    system_u:object_r:modules_t:s0\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(
             fc.label_for("/lib/modules"),
             Some("system_u:object_r:modules_t:s0")
@@ -194,8 +197,8 @@ mod tests {
             "/a/.*    ctx_a\n\
              /a/b/.*    ctx_ab\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/a/b/c"), Some("ctx_ab"));
     }
 
@@ -206,8 +209,8 @@ mod tests {
             "/.*    system_u:object_r:file_t:s0\n\
              /skip    <<none>>\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/skip"), Some("system_u:object_r:file_t:s0"));
     }
 
@@ -215,8 +218,8 @@ mod tests {
     fn no_match_returns_none() {
         // ARRANGE
         let fc = make_fc("/sbin/init    system_u:object_r:granola_exec_t:s0\n");
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/other"), None);
     }
 
@@ -224,8 +227,8 @@ mod tests {
     fn empty_input() {
         // ARRANGE
         let fc = make_fc("");
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/anything"), None);
     }
 
@@ -237,8 +240,8 @@ mod tests {
              \n\
              /.*    system_u:object_r:file_t:s0\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(fc.label_for("/foo"), Some("system_u:object_r:file_t:s0"));
     }
 
@@ -249,8 +252,8 @@ mod tests {
             "/sbin/init    --    system_u:object_r:granola_exec_t:s0\n\
              /.*    system_u:object_r:file_t:s0\n",
         );
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(
             fc.label_for("/sbin/init"),
             Some("system_u:object_r:granola_exec_t:s0")
@@ -263,8 +266,6 @@ mod tests {
         let fc = make_fc("/.*    system_u:object_r:file_t:s0\n");
 
         // ACT & ASSERT
-        // ACT
-        // ASSERT
         assert_eq!(fc.label_for("/"), Some("system_u:object_r:file_t:s0"));
     }
 
@@ -274,8 +275,6 @@ mod tests {
         let fc = make_fc("/bin/b?sh    system_u:object_r:shell_exec_t:s0\n");
 
         // ACT & ASSERT
-        // ACT
-        // ASSERT
         assert_eq!(
             fc.label_for("/bin/bash"),
             Some("system_u:object_r:shell_exec_t:s0")
@@ -288,8 +287,6 @@ mod tests {
         let fc = make_fc("/lib/lib[a-z]*    system_u:object_r:lib_t:s0\n");
 
         // ACT & ASSERT
-        // ACT
-        // ASSERT
         assert_eq!(
             fc.label_for("/lib/libfoo.so"),
             Some("system_u:object_r:lib_t:s0")

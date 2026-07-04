@@ -1,8 +1,4 @@
-//! Source-tree abstractions for EROFS image building.
-
-use std::collections::HashMap;
-
-use crate::error::{ErofsError, Result};
+//! Source-tree entry type for EROFS image building.
 
 /// An entry in a source tree with all metadata pre-gathered.
 #[derive(Debug, Clone)]
@@ -31,61 +27,4 @@ pub struct TreeEntry {
     pub symlink_target: Vec<u8>,
     /// Device number for special/device files.
     pub rdev: u32,
-}
-
-/// Abstract source of a file tree.
-///
-/// Implementations enumerate entries deterministically and provide
-/// file content on demand without exposing filesystem paths.
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "Tree prefix disambiguates from other sources"
-)]
-pub trait TreeSource {
-    /// Enumerate all entries under the tree root.
-    ///
-    /// The returned list must be sorted by relative path in ascending
-    /// lexicographic order and must be deterministic across calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the underlying source cannot be read.
-    fn entries(&self) -> Result<Vec<TreeEntry>>;
-
-    /// Read the full content of an entry identified by its relative path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the entry cannot be read or does not exist.
-    fn read(&self, rel_path: &str) -> Result<Vec<u8>>;
-}
-
-/// A [`TreeSource`] backed by pre-loaded in-memory entries and file data.
-///
-/// Useful when the input already resides in memory (e.g. pulled OCI images).
-#[derive(Debug, Clone)]
-pub struct InMemoryTreeSource {
-    entries: Vec<TreeEntry>,
-    data: HashMap<String, Vec<u8>>,
-}
-
-impl InMemoryTreeSource {
-    /// Create a new in-memory source from pre-sorted entries and their data.
-    #[must_use]
-    pub fn new(entries: Vec<TreeEntry>, data: HashMap<String, Vec<u8>>) -> Self {
-        Self { entries, data }
-    }
-}
-
-impl TreeSource for InMemoryTreeSource {
-    fn entries(&self) -> Result<Vec<TreeEntry>> {
-        Ok(self.entries.clone())
-    }
-
-    fn read(&self, rel_path: &str) -> Result<Vec<u8>> {
-        self.data
-            .get(rel_path)
-            .cloned()
-            .ok_or_else(|| ErofsError::Walk(format!("missing in-memory entry: {rel_path}")))
-    }
 }

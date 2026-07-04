@@ -55,26 +55,62 @@ pub(super) fn write_header(buf: &mut [u8], inode: &InodeLayout, slot_offset: usi
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::write_header;
     use crate::SLOT_SIZE;
     use crate::compress;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
+    use crate::source::SizedFile;
     use crate::testutil::{compress_config, test_config};
+    use crate::tree::TreeEntry;
     use crate::writer::write_image;
 
     #[test]
     fn compact_inode_at_correct_offset() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("test"), b"data").expect("write");
+        let mut data_buf = [0_u8; 4];
+        let mut data_cursor = io::Cursor::new(data_buf.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/test".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 4,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut data_cursor,
+            },
+        ];
         let cfg = test_config(0);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let mut image = Vec::new();
         write_image(&mut image, &planned, &cfg).expect("write");
-
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
             image
@@ -83,7 +119,7 @@ mod tests {
                 .try_into()
                 .expect("2 bytes"),
         );
-        // ACT
+
         // ASSERT
         assert_eq!(i_format & 0x01, 0);
     }
@@ -91,14 +127,46 @@ mod tests {
     #[test]
     fn write_compressed_inode_has_compressed_compact_format() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+        let mut zeros = vec![0_u8; 8192];
+        let mut zeros_cursor = io::Cursor::new(zeros.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/zeros".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 8192,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut zeros_cursor,
+            },
+        ];
         let cfg = compress_config(0);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let mut image = Vec::new();
         write_image(&mut image, &planned, &cfg).expect("write");
-
         let file = planned
             .inodes
             .iter()
@@ -113,7 +181,7 @@ mod tests {
                 .expect("2b"),
         );
         let datalayout = (i_format >> 1) & 0x07;
-        // ACT
+
         // ASSERT
         assert_eq!(datalayout, EROFS_INODE_COMPRESSED_COMPACT);
     }
@@ -121,14 +189,46 @@ mod tests {
     #[test]
     fn write_compressed_inode_i_u_is_pcluster_blocks() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+        let mut zeros = vec![0_u8; 8192];
+        let mut zeros_cursor = io::Cursor::new(zeros.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/zeros".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 8192,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut zeros_cursor,
+            },
+        ];
         let cfg = compress_config(0);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let mut image = Vec::new();
         write_image(&mut image, &planned, &cfg).expect("write");
-
         let file = planned
             .inodes
             .iter()
@@ -143,7 +243,7 @@ mod tests {
                 .expect("4b"),
         );
         let cf = file.compressed.as_ref().expect("compressed");
-        // ACT
+
         // ASSERT
         assert_eq!(i_u, compress::pcluster_blocks(cf));
     }
@@ -166,7 +266,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -178,8 +277,8 @@ mod tests {
         let mut image = vec![0_u8; 8192];
         let slot_offset = usize::try_from(inode.nid).expect("nid fits usize") * SLOT_SIZE;
 
+        // ACT
         write_header(&mut image, &inode, slot_offset).expect("inode header");
-
         let stored = u32::from_le_bytes(
             image
                 .get(slot_offset + 0x10..slot_offset + 0x14)
@@ -187,7 +286,7 @@ mod tests {
                 .try_into()
                 .expect("4 bytes"),
         );
-        // ACT
+
         // ASSERT
         assert_eq!(stored, 0x0501);
     }

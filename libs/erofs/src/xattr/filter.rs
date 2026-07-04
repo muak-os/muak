@@ -18,26 +18,25 @@ pub(super) fn compute_name_filter(base_index: u8, name_suffix: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{XATTR_FILTER_SEED, compute_name_filter};
+    use super::compute_name_filter;
     use crate::xattr::selinux::EROFS_XATTR_INDEX_SECURITY;
 
     #[test]
     fn compute_name_filter_produces_valid_mask() {
-        // ARRANGE
-        let filter = compute_name_filter(EROFS_XATTR_INDEX_SECURITY, b"selinux");
         // ACT
+        let filter = compute_name_filter(EROFS_XATTR_INDEX_SECURITY, b"selinux");
+
         // ASSERT
         assert_ne!(filter, u32::MAX);
         assert_ne!(filter, 0);
-        assert_ne!(XATTR_FILTER_SEED, 0);
     }
 
     #[test]
     fn compute_name_filter_different_indices() {
-        // ARRANGE
+        // ACT
         let first = compute_name_filter(EROFS_XATTR_INDEX_SECURITY, b"selinux");
         let second = compute_name_filter(EROFS_XATTR_INDEX_SECURITY + 1, b"selinux");
-        // ACT
+
         // ASSERT
         assert_ne!(first, second);
     }

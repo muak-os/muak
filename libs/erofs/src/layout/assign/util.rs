@@ -85,13 +85,13 @@ pub(super) fn truncate_usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or_default()
 }
 
-pub(super) fn nid_slot_offset(nid: u64) -> usize {
+pub(crate) fn nid_slot_offset(nid: u64) -> usize {
     usize::try_from(nid)
         .unwrap_or_default()
         .saturating_mul(SLOT_SIZE)
 }
 
-pub(super) fn meta_size_bytes(inode: &InodeLayout) -> usize {
+pub(crate) fn meta_size_bytes(inode: &InodeLayout) -> usize {
     meta_slots(inode).saturating_mul(SLOT_SIZE)
 }
 
@@ -118,7 +118,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -136,8 +135,7 @@ mod tests {
         inode.size = 100;
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(inline_data_size(&inode), 0);
     }
 
@@ -149,8 +147,7 @@ mod tests {
         inode.symlink_target = b"/target".to_vec();
         inode.data_blocks = 0;
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(inline_data_size(&inode), b"/target".len());
     }
 
@@ -160,8 +157,7 @@ mod tests {
         let mut inode = flat_plain_inode("/dev/null", 0xFF);
         inode.datalayout = EROFS_INODE_FLAT_INLINE;
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(inline_data_size(&inode), 0);
     }
 
@@ -173,8 +169,7 @@ mod tests {
         inode.size = 100;
         inode.data_blocks = 0;
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(inline_data_size(&inode), 100);
     }
 
@@ -186,8 +181,7 @@ mod tests {
         inode.size = 4196;
         inode.data_blocks = 1;
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(inline_data_size(&inode), 100);
     }
 }

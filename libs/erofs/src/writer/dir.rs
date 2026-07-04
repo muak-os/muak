@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use std::path::Path;
 
 use crate::checked::align_up;
-use crate::dir::{DirEntry, EROFS_FT_DIR};
+use crate::dir::{EROFS_FT_DIR, Entry};
 use crate::layout::InodeLayout;
 
 pub(super) fn find_parent_nid(
@@ -43,14 +43,14 @@ pub(super) fn sorted_entries(
     all_inodes: &[InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
     parent_nid: u64,
-) -> Vec<DirEntry> {
+) -> Vec<Entry> {
     let mut entries = vec![
-        DirEntry {
+        Entry {
             name: b".".to_vec(),
             nid: inode.nid,
             file_type: EROFS_FT_DIR,
         },
-        DirEntry {
+        Entry {
             name: b"..".to_vec(),
             nid: parent_nid,
             file_type: EROFS_FT_DIR,
@@ -68,7 +68,7 @@ pub(super) fn sorted_entries(
             .file_name()
             .map(|name| name.to_string_lossy().as_bytes().to_vec())
             .unwrap_or_default();
-        entries.push(DirEntry {
+        entries.push(Entry {
             name,
             nid: child.nid,
             file_type: child.file_type,
@@ -82,25 +82,41 @@ pub(super) fn sorted_entries(
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
+    use std::io;
 
     use super::{find_parent_nid, sorted_entries};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{self, InodeLayout};
+    use crate::source::SizedFile;
     use crate::testutil::test_config;
+    use crate::tree::TreeEntry;
 
     #[test]
     fn find_parent_nid_for_root() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let files = &mut [SizedFile {
+            entry: TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            reader: &mut io::empty(),
+        }];
         let cfg = test_config(1);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
 
-        // ACT
         // ASSERT
         assert_eq!(find_parent_nid(root, inodes, &BTreeMap::new()), root.nid);
     }
@@ -108,12 +124,59 @@ mod tests {
     #[test]
     fn find_parent_nid_for_nested_file() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        std::fs::write(dir.path().join("subdir/file.txt"), b"content").expect("write");
+        let mut file_data = [0_u8; 7];
+        let mut file_cursor = io::Cursor::new(file_data.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/subdir".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/subdir/file.txt".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 7,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut file_cursor,
+            },
+        ];
         let cfg = test_config(1);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
@@ -129,7 +192,6 @@ mod tests {
             .find(|inode| inode.rel_path == "/subdir")
             .expect("found");
 
-        // ACT
         // ASSERT
         assert_eq!(find_parent_nid(file, inodes, &path_to_idx), subdir.nid);
     }
@@ -137,13 +199,78 @@ mod tests {
     #[test]
     fn build_sorted_dir_entries_smoke() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("z"), b"z").expect("write");
-        std::fs::write(dir.path().join("a"), b"a").expect("write");
-        std::fs::write(dir.path().join("m"), b"m").expect("write");
+        let mut d1 = [0_u8; 1];
+        let mut d2 = [0_u8; 1];
+        let mut d3 = [0_u8; 1];
+        let mut c1 = io::Cursor::new(d1.as_mut_slice());
+        let mut c2 = io::Cursor::new(d2.as_mut_slice());
+        let mut c3 = io::Cursor::new(d3.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/z".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 1,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut c1,
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/a".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 1,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut c2,
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/m".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 1,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut c3,
+            },
+        ];
         let cfg = test_config(1);
 
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        // ACT
+        let planned = layout::plan(files, &cfg).expect("plan");
         let inodes = &planned.inodes;
         let path_to_idx: BTreeMap<_, _> = inodes
             .iter()
@@ -153,7 +280,6 @@ mod tests {
         let root = inodes.first().expect("root inode");
         let entries = sorted_entries(root, inodes, &path_to_idx, root.nid);
 
-        // ACT
         // ASSERT
         assert_eq!(entries.len(), 5);
         assert_eq!(entries.first().expect("dot entry").name, b".");
@@ -181,7 +307,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -192,9 +317,12 @@ mod tests {
         };
 
         // ACT
+        let parent_nid = find_parent_nid(&inode, &[], &BTreeMap::new());
+        let dir_len = sorted_entries(&inode, &[], &BTreeMap::new(), 9).len();
+
         // ASSERT
-        assert_eq!(find_parent_nid(&inode, &[], &BTreeMap::new()), 0);
-        assert_eq!(sorted_entries(&inode, &[], &BTreeMap::new(), 9).len(), 2);
+        assert_eq!(parent_nid, 0);
+        assert_eq!(dir_len, 2);
     }
 
     #[test]
@@ -215,7 +343,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -233,9 +360,9 @@ mod tests {
         let mut path_to_idx = BTreeMap::new();
         path_to_idx.insert("/known".to_owned(), 1);
 
+        // ACT
         let dir_entries = sorted_entries(&inode, &[inode.clone(), known_child], &path_to_idx, 7);
 
-        // ACT
         // ASSERT
         assert_eq!(dir_entries.len(), 3);
         assert!(dir_entries.iter().any(|entry| entry.name == b"known"));

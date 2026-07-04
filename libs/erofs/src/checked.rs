@@ -83,8 +83,7 @@ mod tests {
 
     #[test]
     fn align_up_returns_none_when_alignment_or_sum_overflows() {
-        // ARRANGE
-        // ACT
+        // ARRANGE & ACT
         let zero_alignment = align_up(4, 0);
         let overflowing = align_up(usize::MAX, 8);
 

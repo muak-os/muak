@@ -48,8 +48,7 @@ mod tests {
             original_size: 8192,
         };
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(pcluster_blocks(&cf), 2);
     }
 
@@ -64,8 +63,7 @@ mod tests {
             original_size: 8192,
         };
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(lcluster_count(&cf), 2);
     }
 }

@@ -12,7 +12,7 @@ pub(crate) use assign::index_layout;
 
 use crate::MkfsConfig;
 use crate::error::Result;
-use crate::tree::TreeSource;
+use crate::source::SizedFile;
 
 /// Public inode layout type produced by layout planning.
 pub type InodeLayout = types::InodeLayout;
@@ -28,9 +28,9 @@ pub struct ImagePlan {
     pub do_compress: bool,
 }
 
-/// Plan the full image layout from a source tree.
-pub fn plan(source: &dyn TreeSource, config: &MkfsConfig<'_>) -> Result<ImagePlan> {
-    planner::plan(source, config)
+/// Plan the full image layout from sized file entries.
+pub fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<ImagePlan> {
+    planner::plan(files, config)
 }
 
 /// Compute parent relative path from a child relative path.
@@ -50,23 +50,30 @@ pub(super) fn parent_rel(rel: &str) -> String {
     }
 }
 
+pub(crate) fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
+    inodes
+        .iter()
+        .map(|inode| {
+            assign::util::nid_slot_offset(inode.nid)
+                .saturating_add(assign::util::meta_size_bytes(inode))
+        })
+        .max()
+        .unwrap_or(assign::meta_start(do_compress))
+}
+
 #[cfg(test)]
 mod tests {
     use super::parent_rel;
 
     #[test]
     fn parent_rel_root_is_root() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(parent_rel("/"), "/");
     }
 
     #[test]
     fn parent_rel_nested_path() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(parent_rel("/a"), "/");
         assert_eq!(parent_rel("/a/b"), "/a");
         assert_eq!(parent_rel("/a/b/c"), "/a/b");

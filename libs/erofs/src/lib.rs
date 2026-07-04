@@ -6,11 +6,12 @@ extern crate alloc;
 
 mod checked;
 mod compress;
-mod dir;
+pub mod dir;
 pub mod error;
 mod filecontexts;
 mod inode;
 mod layout;
+pub mod source;
 mod superblock;
 pub mod tree;
 mod writer;
@@ -24,10 +25,8 @@ pub type FileContexts = filecontexts::FileContexts;
 pub type InodeLayout = layout::InodeLayout;
 /// A fully-planned EROFS image.
 pub type ImagePlan = layout::ImagePlan;
-/// A filesystem-backed [`tree::TreeSource`].
-pub type FilesystemTreeSource<'a> = layout::collect::FilesystemTreeSource<'a>;
-/// An in-memory [`tree::TreeSource`].
-pub type InMemoryTreeSource = tree::InMemoryTreeSource;
+/// A sized file entry with metadata and a reader.
+pub type SizedFile<'a> = source::SizedFile<'a>;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
@@ -52,21 +51,21 @@ pub struct MkfsConfig<'a> {
     pub compression: Compression,
 }
 
-/// Build an EROFS filesystem image from a source tree.
+/// Build an EROFS filesystem image from sized file entries.
 ///
 /// # Errors
 ///
-/// Returns an error when the source is invalid, compression settings are invalid,
+/// Returns an error when entries are invalid, compression settings are invalid,
 /// filesystem metadata cannot be read, or the image cannot be serialized.
 pub fn mkfs<W: std::io::Write>(
     writer: &mut W,
-    source: &dyn tree::TreeSource,
+    files: &mut [SizedFile<'_>],
     config: &MkfsConfig<'_>,
 ) -> error::Result<()> {
     if let Some(level) = config.compression.level() {
         compress::validate_compression_level(level)?;
     }
-    let plan = layout::plan(source, config)?;
+    let plan = layout::plan(files, config)?;
 
     writer::write_image(writer, &plan, config)
 }
@@ -102,42 +101,60 @@ pub(crate) mod testutil {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
     use std::path::Path;
 
     use testutil::{compress_config, test_config};
 
     use super::*;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-    use crate::error::ErofsError;
-    use crate::layout::collect::FilesystemTreeSource;
-    use crate::tree::{TreeEntry, TreeSource};
+    use crate::tree::TreeEntry;
 
-    struct MockTreeSource {
+    fn run_mock(
         entries: Vec<TreeEntry>,
-    }
-
-    impl MockTreeSource {
-        fn new(entries: Vec<TreeEntry>) -> Self {
-            Self { entries }
-        }
-    }
-
-    impl TreeSource for MockTreeSource {
-        fn entries(&self) -> core::result::Result<Vec<TreeEntry>, ErofsError> {
-            Ok(self.entries.clone())
-        }
-
-        fn read(&self, rel_path: &str) -> core::result::Result<Vec<u8>, ErofsError> {
-            Ok(format!("content:{rel_path}").into_bytes())
-        }
-    }
-
-    fn run_mock(entries: Vec<TreeEntry>, config: &MkfsConfig<'_>) -> Vec<u8> {
-        let source = MockTreeSource::new(entries);
+        data_map: &std::collections::HashMap<String, Vec<u8>>,
+        config: &MkfsConfig<'_>,
+    ) -> Vec<u8> {
+        let files = entries
+            .iter()
+            .map(|e| data_map.get(&e.rel_path).cloned().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let mut cursors: Vec<Cursor<Vec<u8>>> = files.into_iter().map(Cursor::new).collect();
+        let mut sized: Vec<SizedFile<'_>> = entries
+            .into_iter()
+            .zip(cursors.iter_mut())
+            .map(|(entry, cursor)| SizedFile {
+                entry,
+                reader: cursor,
+            })
+            .collect();
         let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &source, config).expect("mkfs");
+        mkfs(&mut buf, &mut sized, config).expect("mkfs");
+        buf.into_inner()
+    }
 
+    fn open_reader(dir_path: &Path, ent: &TreeEntry) -> Box<dyn Read> {
+        let should_open = ent.file_type == EROFS_FT_REG_FILE && ent.size > 0;
+        if !should_open {
+            return Box::new(std::io::empty());
+        }
+        let full = dir_path.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+        Box::new(std::fs::File::open(&full).expect("open"))
+    }
+
+    fn mkfs_from_dir(dir_path: &Path, config: &MkfsConfig<'_>) -> Vec<u8> {
+        let entries = source::collect_entries(dir_path).expect("collect_entries");
+        let mut readers: Vec<Box<dyn Read>> = entries
+            .iter()
+            .map(|ent| open_reader(dir_path, ent))
+            .collect();
+        let mut files: Vec<SizedFile<'_>> = entries
+            .into_iter()
+            .zip(readers.iter_mut())
+            .map(|(entry, reader)| SizedFile { entry, reader })
+            .collect();
+        let mut buf = Cursor::new(Vec::new());
+        mkfs(&mut buf, &mut files, config).expect("mkfs");
         buf.into_inner()
     }
 
@@ -147,12 +164,7 @@ mod tests {
         let nonexistent = Path::new("/this/path/does/not/exist/at/all");
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        let result = mkfs(
-            &mut buf,
-            &FilesystemTreeSource::new(nonexistent),
-            &test_config(0),
-        );
+        let result = source::collect_entries(nonexistent);
 
         // ASSERT
         result.unwrap_err();
@@ -171,10 +183,7 @@ mod tests {
         };
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config)
-            .expect("mkfs should succeed");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
         assert!(!image.is_empty());
@@ -193,10 +202,7 @@ mod tests {
         };
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config)
-            .expect("mkfs should succeed");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
         assert!(!image.is_empty());
@@ -209,14 +215,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(
-            &mut buf,
-            &FilesystemTreeSource::new(dir.path()),
-            &compress_config(0),
-        )
-        .expect("mkfs should succeed");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
         // ASSERT
         assert!(!image.is_empty());
@@ -230,14 +229,7 @@ mod tests {
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(
-            &mut buf,
-            &FilesystemTreeSource::new(dir.path()),
-            &compress_config(0),
-        )
-        .expect("mkfs");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
         // ASSERT
         let sb_off = 1024_usize;
@@ -272,12 +264,8 @@ mod tests {
         };
 
         // ACT
-        let mut buf1 = Cursor::new(Vec::new());
-        mkfs(&mut buf1, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 1");
-        let image1 = buf1.into_inner();
-        let mut buf2 = Cursor::new(Vec::new());
-        mkfs(&mut buf2, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs 2");
-        let image2 = buf2.into_inner();
+        let image1 = mkfs_from_dir(dir.path(), &config);
+        let image2 = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
         assert_eq!(image1, image2);
@@ -290,14 +278,7 @@ mod tests {
         std::fs::write(dir.path().join("empty"), b"").expect("write");
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(
-            &mut buf,
-            &FilesystemTreeSource::new(dir.path()),
-            &compress_config(0),
-        )
-        .expect("mkfs");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
         // ASSERT
         assert!(!image.is_empty());
@@ -307,13 +288,15 @@ mod tests {
     #[test]
     fn compression_default_uses_default_zstd_level() {
         // ARRANGE
+        let expected = Compression::Zstd {
+            level: DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        };
+
+        // ACT
+        let default = Compression::default();
+
         // ASSERT
-        assert_eq!(
-            Compression::default(),
-            Compression::Zstd {
-                level: DEFAULT_ZSTD_COMPRESSION_LEVEL,
-            }
-        );
+        assert_eq!(default, expected);
     }
 
     #[test]
@@ -326,8 +309,16 @@ mod tests {
         };
 
         // ACT
+        let entries = source::collect_entries(dir.path()).expect("collect_entries");
+        let mut empties = entries
+            .into_iter()
+            .map(|e| SizedFile {
+                entry: e,
+                reader: Box::leak(Box::new(std::io::empty())),
+            })
+            .collect::<Vec<_>>();
         let mut buf = Cursor::new(Vec::new());
-        let result = mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config);
+        let result = mkfs(&mut buf, &mut empties, &config);
 
         // ASSERT
         assert!(matches!(
@@ -342,7 +333,7 @@ mod tests {
         let file_path = Path::new("/etc/passwd");
 
         // ACT
-        let result = layout::plan(&FilesystemTreeSource::new(file_path), &test_config(0));
+        let result = source::collect_entries(file_path);
 
         // ASSERT
         result.unwrap_err();
@@ -350,8 +341,7 @@ mod tests {
 
     #[test]
     fn block_size_and_slot_size_constants() {
-        // ARRANGE
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(BLOCK_SIZE, 4096);
         assert_eq!(SLOT_SIZE, 32);
     }
@@ -368,9 +358,7 @@ mod tests {
         };
 
         // ACT
-        let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &FilesystemTreeSource::new(dir.path()), &config).expect("mkfs");
-        let image = buf.into_inner();
+        let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
         assert!(!image.is_empty());
@@ -415,10 +403,12 @@ mod tests {
             source_date_epoch: 1000,
             ..test_config(0)
         };
+        let mut map = std::collections::HashMap::new();
+        map.insert("/a".to_owned(), vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
         // ACT
-        let img1 = run_mock(entries.clone(), &cfg);
-        let img2 = run_mock(entries, &cfg);
+        let img1 = run_mock(entries.clone(), &map, &cfg);
+        let img2 = run_mock(entries, &map, &cfg);
 
         // ASSERT
         assert_eq!(img1, img2);
@@ -482,9 +472,11 @@ mod tests {
             source_date_epoch: 0,
             ..test_config(0)
         };
+        let mut map = std::collections::HashMap::new();
+        map.insert("/file".to_owned(), b"abcd".to_vec());
 
         // ACT
-        let image = run_mock(entries, &cfg);
+        let image = run_mock(entries, &map, &cfg);
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
@@ -533,16 +525,17 @@ mod tests {
             },
         ];
         let cfg = test_config(0);
+        let mut map = std::collections::HashMap::new();
+        map.insert("/z".to_owned(), vec![0x42]);
+        map.insert("/a".to_owned(), vec![0x42]);
 
         // ACT
-        let image = run_mock(entries, &cfg);
+        let image = run_mock(entries, &map, &cfg);
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
         assert!(image.len() >= 4096);
     }
-
-    // ---- 3. Large files ----
 
     #[test]
     fn large_file_blocks() {
@@ -574,9 +567,11 @@ mod tests {
             },
         ];
         let cfg = test_config(0);
+        let mut map = std::collections::HashMap::new();
+        map.insert("/big".to_owned(), vec![0_u8; 20_000]);
 
         // ACT
-        let image = run_mock(entries, &cfg);
+        let image = run_mock(entries, &map, &cfg);
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));
@@ -619,9 +614,11 @@ mod tests {
             compression: Compression::Zstd { level: 1 },
             ..test_config(0)
         };
+        let mut map = std::collections::HashMap::new();
+        map.insert("/zeros".to_owned(), vec![0_u8; 32_768]);
 
         // ACT
-        let image = run_mock(entries, &cfg);
+        let image = run_mock(entries, &map, &cfg);
 
         // ASSERT
         assert!(image.len().is_multiple_of(4096));

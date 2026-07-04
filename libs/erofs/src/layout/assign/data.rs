@@ -57,29 +57,63 @@ fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::{data_block_addrs, total_image_size};
     use crate::BLOCK_SIZE;
-    use crate::dir::EROFS_FT_DIR;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
+    use crate::source::SizedFile;
     use crate::testutil::compress_config;
+    use crate::tree::TreeEntry;
 
     #[test]
     fn compressed_data_blkaddr_assigned() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+        let mut zeros_data = vec![0_u8; 8192];
+        let mut zeros_cursor = io::Cursor::new(zeros_data.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/zeros".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 8192,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut zeros_cursor,
+            },
+        ];
 
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        // ACT
+        let planned = plan(files, &compress_config(0)).expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
 
-        // ACT
         // ASSERT
         assert!(file.data_blocks > 0);
         assert!(file.data_blkaddr > 0);
@@ -103,7 +137,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 1,
@@ -114,10 +147,10 @@ mod tests {
         };
         let mut inodes = vec![inode];
 
+        // ACT
         data_block_addrs(&mut inodes, false);
         let total_size = total_image_size(&inodes, false);
 
-        // ACT
         // ASSERT
         assert_eq!(inodes.first().expect("root inode").data_blkaddr, 0);
         assert!(total_size >= usize::try_from(BLOCK_SIZE).expect("block size fits usize"));

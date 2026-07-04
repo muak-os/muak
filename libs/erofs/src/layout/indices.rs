@@ -150,18 +150,50 @@ mod tests {
     use super::*;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::collect::{FilesystemTreeSource, initial_inodes};
+    use crate::layout::collect::initial_inodes;
     use crate::testutil::test_config;
-    use crate::tree::TreeSource as _;
 
     #[test]
     fn build_indices_mixed_types() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("file"), b"x").expect("write");
-        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        let source = FilesystemTreeSource::new(dir.path());
-        let entries = source.entries().expect("entries");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
@@ -175,11 +207,44 @@ mod tests {
     #[test]
     fn assign_inos_handles_all_paths() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("file"), b"x").expect("write");
-        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        let source = FilesystemTreeSource::new(dir.path());
-        let entries = source.entries().expect("entries");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let idx = build_from_entries(&entries, &inodes);
 
@@ -223,7 +288,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: vec![],
             xattr_icount: 0,
-            inline_data: vec![],
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -260,7 +324,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: vec![],
             xattr_icount: 0,
-            inline_data: vec![],
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -287,11 +350,68 @@ mod tests {
     #[test]
     fn assign_inos_with_nested_directories() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(dir.path().join("a/b/c")).expect("mkdir");
-        std::fs::write(dir.path().join("a/b/c/file"), b"x").expect("write");
-        let source = FilesystemTreeSource::new(dir.path());
-        let entries = source.entries().expect("entries");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a/b".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a/b/c".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a/b/c/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let mut inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
         let idx = build_from_entries(&entries, &inodes);
 
@@ -307,11 +427,44 @@ mod tests {
     #[test]
     fn build_indices_creates_nlink_map() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(dir.path().join("subdir")).expect("mkdir");
-        std::fs::write(dir.path().join("subdir/file"), b"x").expect("write");
-        let source = FilesystemTreeSource::new(dir.path());
-        let entries = source.entries().expect("entries");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/subdir/file".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let inodes = initial_inodes(&entries, &test_config(0)).expect("inodes");
 
         // ACT
@@ -366,7 +519,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -402,7 +554,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,

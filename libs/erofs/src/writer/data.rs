@@ -4,7 +4,7 @@ use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
 
 use super::dir::{find_parent_nid, sorted_entries};
-use super::util::{block_offset, full_block_bytes, usize_from_u32};
+use super::util::{full_block_bytes, usize_from_u32};
 use crate::checked::write_bytes;
 use crate::dir;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
@@ -110,26 +110,16 @@ pub(super) fn plain_blocks<'a>(
     plain_data(inode, all_inodes, path_to_idx, block_size)
 }
 
-pub(super) fn write_block_data(
-    buf: &mut [u8],
-    inode: &InodeLayout,
-    data: &[u8],
-    block_size: usize,
-) -> Result<()> {
-    let data_start = block_offset(inode.data_blkaddr, block_size, "plain data")?;
-    if !write_bytes(buf, data_start, data) {
-        return Err(ErofsError::Internal("plain data write out of bounds"));
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
     use crate::layout;
-    use crate::layout::collect::FilesystemTreeSource;
+    use crate::source::SizedFile;
     use crate::testutil::test_config;
+    use crate::tree::TreeEntry;
     use crate::writer::write_image;
 
     fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
@@ -138,15 +128,64 @@ mod tests {
         image
     }
 
+    fn placeholder_data(e: &TreeEntry) -> Vec<u8> {
+        if e.file_type == EROFS_FT_REG_FILE && e.size > 0 {
+            vec![0_u8; usize::try_from(e.size).expect("size fits usize")]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn plan_from_entries(entries: &[TreeEntry], cfg: &crate::MkfsConfig<'_>) -> layout::ImagePlan {
+        let mut datas: Vec<Vec<u8>> = entries.iter().map(placeholder_data).collect();
+        let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
+            .iter_mut()
+            .map(|data| io::Cursor::new(data.as_mut_slice()))
+            .collect();
+        let mut files: Vec<SizedFile<'_>> = entries
+            .iter()
+            .zip(cursors.iter_mut())
+            .map(|(entry, cursor)| SizedFile {
+                entry: entry.clone(),
+                reader: cursor,
+            })
+            .collect();
+        layout::plan(&mut files, cfg).expect("plan")
+    }
+
     #[test]
     fn write_image_with_inline_file() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("small"), b"hello").expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/small".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 5,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -162,14 +201,36 @@ mod tests {
     #[test]
     fn write_dir_data_inline() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let mut entry_entries = vec![TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
         for index in 0..5_u8 {
-            std::fs::write(dir.path().join(format!("f{index}")), [index]).expect("write");
+            entry_entries.push(TreeEntry {
+                rel_path: format!("/f{index}"),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            });
         }
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(&entry_entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -181,15 +242,36 @@ mod tests {
     #[test]
     fn write_dir_data_plain() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let mut entry_entries = vec![TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
         for index in 0_u16..339 {
-            let name = format!("file_{index:03}.txt");
-            std::fs::write(dir.path().join(&name), [index.to_le_bytes()[0]]).expect("write");
+            entry_entries.push(TreeEntry {
+                rel_path: format!("/file_{index:03}.txt"),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            });
         }
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(&entry_entries, &cfg);
 
         // ASSERT
         let root = planned.inodes.first().expect("root inode");
@@ -200,12 +282,36 @@ mod tests {
     #[test]
     fn write_symlink_data_inline() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::os::unix::fs::symlink("/short", dir.path().join("link")).expect("symlink");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/link".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120_777,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: b"/short".to_vec(),
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -221,13 +327,37 @@ mod tests {
     #[test]
     fn write_symlink_data_plain() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
         let long_target = "/".to_owned() + &"x".repeat(4080);
-        std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/longlink".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120_777,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: long_target.as_bytes().to_vec(),
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
@@ -243,13 +373,36 @@ mod tests {
     #[test]
     fn write_file_data_with_inline_tail() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        let data = vec![0_u8; 4100];
-        std::fs::write(dir.path().join("partial"), &data).expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/partial".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 4100,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
@@ -265,12 +418,36 @@ mod tests {
     #[test]
     fn write_inline_data_only_tail() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("tiny"), b"hi").expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/tiny".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 2,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
@@ -285,13 +462,45 @@ mod tests {
     #[test]
     fn write_file_data_plain_layout() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
         let data = vec![0xAB_u8; 4096];
-        std::fs::write(dir.path().join("full"), &data).expect("write");
+        let mut data_copy = data.clone();
+        let mut data_cursor = io::Cursor::new(data_copy.as_mut_slice());
+        let files = &mut [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/full".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 4096,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut data_cursor,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = layout::plan(files, &cfg).expect("plan");
         let image = run_write(&planned, &cfg);
 
         // ASSERT

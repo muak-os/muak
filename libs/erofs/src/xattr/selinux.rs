@@ -85,9 +85,9 @@ mod tests {
 
     #[test]
     fn selinux_xattr_header_magic() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"system_u:object_r:file_t:s0");
-        // ACT
+
         // ASSERT
         assert!(payload.len().is_multiple_of(4));
         let filter = u32::from_le_bytes(
@@ -104,8 +104,10 @@ mod tests {
     fn selinux_xattr_entry_fields() {
         // ARRANGE
         let label = b"system_u:object_r:file_t:s0";
-        let payload = payload(label);
+
         // ACT
+        let payload = payload(label);
+
         // ASSERT
         assert_eq!(*payload.get(XATTR_HEADER_SIZE).expect("name size byte"), 7);
         assert_eq!(
@@ -126,12 +128,11 @@ mod tests {
 
     #[test]
     fn xattr_icount_formula() {
-        // ARRANGE
-        // ACT
-        // ASSERT
-        assert_eq!(icount(0), 0);
+        // ARRANGE & ACT
         let payload = payload(b"system_u:object_r:file_t:s0");
         let count = icount(payload.len());
+
+        // ASSERT
         assert!(count > 0);
         let ibody_size = XATTR_HEADER_SIZE + (usize::from(count) - 1) * 4;
         assert!(ibody_size >= payload.len());
@@ -139,10 +140,10 @@ mod tests {
 
     #[test]
     fn xattr_4byte_alignment() {
-        // ARRANGE
+        // ARRANGE & ACT
         let first_payload = payload(b"x");
         let second_payload = payload(b"xx");
-        // ACT
+
         // ASSERT
         assert!(first_payload.len().is_multiple_of(4));
         assert!(second_payload.len().is_multiple_of(4));
@@ -150,17 +151,13 @@ mod tests {
 
     #[test]
     fn empty_xattr_produces_no_data() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(icount(0), 0);
     }
 
     #[test]
     fn align4_edge_cases() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(align4(0), 0);
         assert_eq!(align4(1), 4);
         assert_eq!(align4(2), 4);
@@ -178,9 +175,9 @@ mod tests {
 
     #[test]
     fn build_selinux_xattr_empty_label() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"");
-        // ACT
+
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 4);
         assert!(payload.len().is_multiple_of(4));
@@ -188,9 +185,9 @@ mod tests {
 
     #[test]
     fn build_selinux_xattr_one_byte_value() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"x");
-        // ACT
+
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 8);
         assert!(payload.len().is_multiple_of(4));
@@ -198,9 +195,9 @@ mod tests {
 
     #[test]
     fn build_selinux_xattr_four_byte_value() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"xxxx");
-        // ACT
+
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 8);
         assert!(payload.len().is_multiple_of(4));
@@ -208,9 +205,9 @@ mod tests {
 
     #[test]
     fn build_selinux_xattr_five_byte_value() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"xxxxx");
-        // ACT
+
         // ASSERT
         assert!(payload.len() >= XATTR_HEADER_SIZE + 12);
         assert!(payload.len().is_multiple_of(4));
@@ -218,21 +215,20 @@ mod tests {
 
     #[test]
     fn xattr_icount_minimum_payload() {
-        // ARRANGE
+        // ARRANGE & ACT
         let payload = payload(b"x");
         let count = icount(payload.len());
-        // ACT
+
         // ASSERT
         assert_eq!(count, 4);
     }
 
     #[test]
     fn xattr_icount_with_full_payload() {
-        // ARRANGE
-        let label = b"system_u:object_r:admin_home_t:s0";
-        let payload = payload(label);
+        // ARRANGE & ACT
+        let payload = payload(b"system_u:object_r:admin_home_t:s0");
         let count = icount(payload.len());
-        // ACT
+
         // ASSERT
         assert_eq!(count, 12);
     }
@@ -242,8 +238,10 @@ mod tests {
         // ARRANGE
         let huge_value_len = usize::from(u16::MAX).saturating_add(1);
         let huge_label = vec![b'x'; huge_value_len];
-        let payload = payload(&huge_label);
+
         // ACT
+        let payload = payload(&huge_label);
+
         // ASSERT
         assert!(u8_from_usize(b"selinux".len()).is_some());
         assert!(u16_from_usize(huge_value_len).is_none());
@@ -252,9 +250,9 @@ mod tests {
 
     #[test]
     fn xattr_icount_saturates_for_huge_payload() {
-        // ARRANGE
+        // ARRANGE & ACT
         let count = icount(usize::MAX);
-        // ACT
+
         // ASSERT
         assert_eq!(count, u16::MAX);
     }

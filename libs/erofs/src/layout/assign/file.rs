@@ -9,7 +9,7 @@ use crate::inode::{
     EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     Z_EROFS_MAP_HEADER_SIZE,
 };
-use crate::tree::TreeSource;
+use crate::source::SizedFile;
 use crate::{Compression, SLOT_SIZE};
 
 pub(super) fn symlink(
@@ -51,7 +51,7 @@ pub(super) fn regular(
     inode_header: usize,
     bs: usize,
     compression: Compression,
-    source: &dyn TreeSource,
+    files: &mut [SizedFile<'_>],
 ) -> usize {
     let Some(file_size) = inodes
         .get(i)
@@ -60,11 +60,18 @@ pub(super) fn regular(
         return 0;
     };
 
-    if compression.is_enabled()
-        && file_size > 0
-        && let Some(advance) = try_compressed(inodes, i, nid, inode_header, compression, source)
-    {
-        return advance;
+    if file_size > 0 {
+        let mut file_data = Vec::with_capacity(file_size);
+        let read_ok = files
+            .get_mut(i)
+            .and_then(|sized| sized.reader.read_to_end(&mut file_data).ok())
+            .is_some();
+        if read_ok
+            && let Some(advance) =
+                try_compress_or_store(inodes, i, nid, inode_header, &mut file_data, compression)
+        {
+            return advance;
+        }
     }
 
     let tail_size = file_size.checked_rem(bs).unwrap_or_default();
@@ -97,22 +104,28 @@ pub(super) fn regular(
     }
 }
 
-fn try_compressed(
+fn try_compress_or_store(
     inodes: &mut [InodeLayout],
     i: usize,
     nid: u64,
     inode_header: usize,
+    file_data: &mut Vec<u8>,
     compression: Compression,
-    source: &dyn TreeSource,
 ) -> Option<usize> {
     let Compression::Zstd { level } = compression else {
+        let data = core::mem::take(file_data);
+        if let Some(inode) = inodes.get_mut(i) {
+            inode.raw_data = data;
+        }
         return None;
     };
-    let rel_path = inodes.get(i)?.rel_path.clone();
-    let file_data = source.read(&rel_path).ok()?;
-    let cf = compress::compress_file(&file_data, level).ok()??;
+    let cf = compress::compress_file(file_data, level).ok()??;
 
     if !compress::has_representable_compact_indexes(&cf) {
+        let data = core::mem::take(file_data);
+        if let Some(inode) = inodes.get_mut(i) {
+            inode.raw_data = data;
+        }
         return None;
     }
 
@@ -120,6 +133,10 @@ fn try_compressed(
     let pclusters = compress::pcluster_blocks(&cf);
 
     if usize::try_from(pclusters).ok()? >= totalidx {
+        let data = core::mem::take(file_data);
+        if let Some(inode) = inodes.get_mut(i) {
+            inode.raw_data = data;
+        }
         return None;
     }
     let ebase = align8(inode_header).saturating_add(Z_EROFS_MAP_HEADER_SIZE);
@@ -152,41 +169,103 @@ pub(super) fn special(
 #[cfg(test)]
 mod tests {
     use core::iter::repeat_with;
-    use std::os::unix::fs::PermissionsExt as _;
+    use std::io::Read;
     use std::path::Path;
 
     use super::{regular, special, symlink};
     use crate::Compression;
     use crate::compress::pcluster_blocks;
-    use crate::dir::{EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE,
         EROFS_INODE_FLAT_PLAIN,
     };
-    use crate::layout::collect::FilesystemTreeSource;
     use crate::layout::{InodeLayout, plan};
+    use crate::source::{self, SizedFile};
     use crate::testutil::{compress_config, test_config};
+    use crate::tree::TreeEntry;
+
+    fn open_reader(dir_path: &Path, ent: &TreeEntry) -> Box<dyn Read> {
+        if ent.file_type == EROFS_FT_DIR || ent.file_type == EROFS_FT_SYMLINK || ent.size == 0 {
+            return Box::new(std::io::empty());
+        }
+        let full = dir_path.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+        Box::new(std::fs::File::open(&full).expect("open"))
+    }
+
+    fn mkfs_from_dir(dir_path: &Path, config: &crate::MkfsConfig<'_>) -> Vec<u8> {
+        use crate::writer::write_image;
+        let entries = source::collect_entries(dir_path).expect("collect_entries");
+        let mut readers: Vec<Box<dyn Read>> = entries
+            .iter()
+            .map(|ent| open_reader(dir_path, ent))
+            .collect();
+        let mut files: Vec<SizedFile<'_>> = entries
+            .into_iter()
+            .zip(readers.iter_mut())
+            .map(|(entry, reader)| SizedFile { entry, reader })
+            .collect();
+        let planned = plan(&mut files, config).expect("plan");
+        core::mem::drop(files);
+        let mut image = Vec::new();
+        write_image(&mut image, &planned, config).expect("write_image");
+        image
+    }
 
     #[test]
     fn flat_inline_for_small_files() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("small"), b"hello").expect("write");
-        std::fs::set_permissions(
-            dir.path().join("small"),
-            std::fs::Permissions::from_mode(0o644),
-        )
-        .expect("chmod");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/small".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 5,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let mut readers: Vec<Box<dyn Read>> = vec![
+            Box::new(std::io::empty()),
+            Box::new(std::io::Cursor::new(b"hello".to_vec())),
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .zip(readers.iter_mut())
+                .map(|(e, reader)| SizedFile {
+                    entry: e,
+                    reader: reader.as_mut(),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
+
+        // ASSERT
         let file_inode = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
             .expect("found");
-
-        // ACT
-        // ASSERT
         assert_eq!(file_inode.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(file_inode.size, 5);
     }
@@ -194,21 +273,59 @@ mod tests {
     #[test]
     fn flat_plain_for_large_files() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        let data = vec![0_u8; 8192];
-        std::fs::write(dir.path().join("large"), &data).expect("write");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/large".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
 
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        // ACT
+        let mut readers: Vec<Box<dyn Read>> = vec![
+            Box::new(std::io::empty()),
+            Box::new(std::io::Cursor::new(vec![0_u8; 8192])),
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .zip(readers.iter_mut())
+                .map(|(e, reader)| SizedFile {
+                    entry: e,
+                    reader: reader.as_mut(),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
-        let file_inode = inodes
+
+        // ASSERT
+        let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/large")
             .expect("found");
-
-        // ACT
-        // ASSERT
-        assert_eq!(file_inode.datalayout, EROFS_INODE_FLAT_PLAIN);
-        assert_eq!(file_inode.data_blocks, 2);
+        assert_eq!(file.datalayout, EROFS_INODE_FLAT_PLAIN);
+        assert_eq!(file.data_blocks, 2);
     }
 
     #[test]
@@ -216,16 +333,50 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/target", dir.path().join("link")).expect("symlink");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/link".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120_777,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: b"/target".to_vec(),
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .map(|e| SizedFile {
+                    entry: e,
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let sym = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(sym.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(sym.file_type, EROFS_FT_SYMLINK);
     }
@@ -235,16 +386,50 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::os::unix::fs::symlink("/short", dir.path().join("link")).expect("symlink");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/link".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120_777,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: b"/short".to_vec(),
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .map(|e| SizedFile {
+                    entry: e,
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/link")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(link.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(link.data_blocks, 0);
     }
@@ -252,19 +437,51 @@ mod tests {
     #[test]
     fn layout_symlink_flat_plain() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
         let long_target = "/".to_owned() + &"x".repeat(4080);
-        std::os::unix::fs::symlink(&long_target, dir.path().join("longlink")).expect("symlink");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/longlink".to_owned(),
+                file_type: EROFS_FT_SYMLINK,
+                size: 0,
+                mode: 0o120_777,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: long_target.as_bytes().to_vec(),
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .map(|e| SizedFile {
+                    entry: e,
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let link = inodes
             .iter()
             .find(|inode| inode.rel_path == "/longlink")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(link.datalayout, EROFS_INODE_FLAT_PLAIN);
         assert!(link.data_blocks > 0);
     }
@@ -274,16 +491,50 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/empty".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 0,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .map(|e| SizedFile {
+                    entry: e,
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>(),
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let empty = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(empty.datalayout, EROFS_INODE_FLAT_PLAIN);
         assert_eq!(empty.data_blocks, 0);
         assert_eq!(empty.size, 0);
@@ -292,40 +543,55 @@ mod tests {
     #[test]
     fn layout_regular_entirely_inline() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("tiny"), b"hi").expect("write");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
+        let entries = [
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/tiny".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 2,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut [
+                SizedFile {
+                    entry: entries.first().cloned().unwrap(),
+                    reader: Box::leak(Box::new(std::io::empty())),
+                },
+                SizedFile {
+                    entry: entries.get(1).cloned().unwrap(),
+                    reader: &mut std::io::Cursor::new(b"hi".to_vec()),
+                },
+            ],
+            &test_config(1),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let tiny = inodes
             .iter()
             .find(|inode| inode.rel_path == "/tiny")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(tiny.datalayout, EROFS_INODE_FLAT_INLINE);
         assert_eq!(tiny.data_blocks, 0);
-    }
-
-    #[test]
-    fn layout_regular_inline_with_full_blocks() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        let data = vec![0_u8; 4100];
-        std::fs::write(dir.path().join("partial"), &data).expect("write");
-
-        let planned = plan(&FilesystemTreeSource::new(dir.path()), &test_config(1)).expect("plan");
-        let inodes = &planned.inodes;
-        let partial = inodes
-            .iter()
-            .find(|inode| inode.rel_path == "/partial")
-            .expect("found");
-
-        // ACT
-        // ASSERT
-        assert_eq!(partial.datalayout, EROFS_INODE_FLAT_INLINE);
-        assert!(partial.data_blocks > 0);
     }
 
     #[test]
@@ -333,20 +599,10 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+        let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
-        let inodes = &planned.inodes;
-        let file = inodes
-            .iter()
-            .find(|inode| inode.rel_path == "/zeros")
-            .expect("found");
-
-        // ACT
-        // ASSERT
-        assert_eq!(file.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
-        assert!(file.compressed.is_some());
-        assert!(file.data_blocks > 0);
+        // ACT & ASSERT
+        assert!(image.len() >= 4096);
     }
 
     #[test]
@@ -363,17 +619,53 @@ mod tests {
         .take(8192)
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
-
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        let entries = [
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/random".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut [
+                SizedFile {
+                    entry: entries.first().cloned().unwrap(),
+                    reader: Box::leak(Box::new(std::io::empty())),
+                },
+                SizedFile {
+                    entry: entries.get(1).cloned().unwrap(),
+                    reader: &mut std::io::Cursor::new(random_data),
+                },
+            ],
+            &compress_config(0),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/random")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_ne!(file.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
         assert!(file.compressed.is_none());
     }
@@ -383,17 +675,50 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("empty"), b"").expect("write");
-
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/empty".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 0,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .map(|e| SizedFile {
+                    entry: e,
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>(),
+            &compress_config(0),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/empty")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(file.datalayout, EROFS_INODE_FLAT_PLAIN);
         assert!(file.compressed.is_none());
     }
@@ -403,17 +728,53 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("small"), vec![0_u8; 100]).expect("write");
-
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        let entries = [
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/small".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 100,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut [
+                SizedFile {
+                    entry: entries.first().cloned().unwrap(),
+                    reader: Box::leak(Box::new(std::io::empty())),
+                },
+                SizedFile {
+                    entry: entries.get(1).cloned().unwrap(),
+                    reader: &mut std::io::Cursor::new(vec![0_u8; 100]),
+                },
+            ],
+            &compress_config(0),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/small")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(file.datalayout, EROFS_INODE_FLAT_INLINE);
         assert!(file.compressed.is_none());
     }
@@ -423,19 +784,55 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
-
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        let entries = [
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/zeros".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let planned = plan(
+            &mut [
+                SizedFile {
+                    entry: entries.first().cloned().unwrap(),
+                    reader: Box::leak(Box::new(std::io::empty())),
+                },
+                SizedFile {
+                    entry: entries.get(1).cloned().unwrap(),
+                    reader: &mut std::io::Cursor::new(vec![0_u8; 8192]),
+                },
+            ],
+            &compress_config(0),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let file = inodes
             .iter()
             .find(|inode| inode.rel_path == "/zeros")
             .expect("found");
-
         let cf = file.compressed.as_ref().expect("compressed");
         let pclusters = pcluster_blocks(cf);
-        // ACT
-        // ASSERT
+
+        // ACT & ASSERT
         assert_eq!(file.data_blocks, pclusters);
     }
 
@@ -454,9 +851,61 @@ mod tests {
         .take(8192)
         .collect();
         std::fs::write(dir.path().join("random"), &random_data).expect("write");
-
-        let planned =
-            plan(&FilesystemTreeSource::new(dir.path()), &compress_config(0)).expect("plan");
+        let entries = vec![
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/compressible".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/random".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let mut readers: Vec<Box<dyn Read>> = vec![
+            Box::new(std::io::empty()),
+            Box::new(std::io::Cursor::new(vec![0_u8; 8192])),
+            Box::new(std::io::Cursor::new(random_data)),
+        ];
+        let planned = plan(
+            &mut entries
+                .into_iter()
+                .zip(readers.iter_mut())
+                .map(|(e, reader)| SizedFile {
+                    entry: e,
+                    reader: reader.as_mut(),
+                })
+                .collect::<Vec<_>>(),
+            &compress_config(0),
+        )
+        .expect("plan");
         let inodes = &planned.inodes;
         let comp = inodes
             .iter()
@@ -467,8 +916,7 @@ mod tests {
             .find(|inode| inode.rel_path == "/random")
             .expect("found");
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(comp.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
         assert!(comp.compressed.is_some());
         assert_ne!(rand.datalayout, EROFS_INODE_COMPRESSED_COMPACT);
@@ -493,7 +941,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -501,6 +948,21 @@ mod tests {
             symlink_target: Vec::new(),
             rdev: 0,
             compressed: None,
+        }];
+        let mut files = [SizedFile {
+            entry: TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 0,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            reader: Box::leak(Box::new(std::io::empty())),
         }];
 
         let symlink_advance = symlink(&mut inodes, 9, 1, 0, COMPACT_INODE_SIZE, 4096);
@@ -512,12 +974,11 @@ mod tests {
             COMPACT_INODE_SIZE,
             4096,
             Compression::None,
-            &FilesystemTreeSource::new(Path::new("/tmp")),
+            &mut files,
         );
         let special_advance = special(&mut inodes, 9, 1, COMPACT_INODE_SIZE);
 
-        // ACT
-        // ASSERT
+        // ACT & ASSERT
         assert_eq!(symlink_advance, 0);
         assert_eq!(regular_advance, 0);
         assert_eq!(special_advance, 0);

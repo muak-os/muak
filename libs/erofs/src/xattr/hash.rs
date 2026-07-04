@@ -75,65 +75,49 @@ mod tests {
 
     #[test]
     fn xxhash32_empty_input() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"", 0), 0);
     }
 
     #[test]
     fn xxhash32_single_byte() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"a", 0), 0);
     }
 
     #[test]
     fn xxhash32_four_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"test", 0), 0);
     }
 
     #[test]
     fn xxhash32_eight_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"12345678", 0), 0);
     }
 
     #[test]
     fn xxhash32_twelve_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"123456789012", 0), 0);
     }
 
     #[test]
     fn xxhash32_sixteen_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"1234567890123456", 0), 0);
     }
 
     #[test]
     fn xxhash32_seventeen_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"12345678901234567", 0), 0);
     }
 
     #[test]
     fn xxhash32_thirty_two_bytes() {
-        // ARRANGE
-        // ACT
-        // ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_ne!(xxhash32(b"12345678901234567890123456789012", 0), 0);
     }
 
@@ -141,10 +125,12 @@ mod tests {
     fn xxhash32_different_seeds() {
         // ARRANGE
         let data = b"test data for hashing";
+
+        // ACT
         let first = xxhash32(data, 0);
         let second = xxhash32(data, 100);
         let third = xxhash32(data, u32::MAX);
-        // ACT
+
         // ASSERT
         assert_ne!(first, second);
         assert_ne!(second, third);
@@ -155,9 +141,11 @@ mod tests {
     fn xxhash32_consistent_for_same_input() {
         // ARRANGE
         let data = b"consistent input";
+
+        // ACT
         let first = xxhash32(data, 42);
         let second = xxhash32(data, 42);
-        // ACT
+
         // ASSERT
         assert_eq!(first, second);
     }
@@ -166,8 +154,10 @@ mod tests {
     fn read_u32_le_returns_zero_when_offset_is_out_of_bounds() {
         // ARRANGE
         let buf = [1_u8, 2, 3];
-        let value = read_u32_le(&buf, 1);
+
         // ACT
+        let value = read_u32_le(&buf, 1);
+
         // ASSERT
         assert_eq!(value, 0);
     }

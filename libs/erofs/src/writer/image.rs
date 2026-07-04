@@ -2,17 +2,45 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use std::io::Write;
 
 use super::compressed;
 use super::data;
 use super::inode::write_header;
 use super::util::{block_size_usize, slot_offset};
-use crate::checked::{add, u32_from_usize};
+use crate::checked::{add, align_up, u32_from_usize};
 use crate::error::{ErofsError, Result};
 use crate::inode::COMPACT_INODE_SIZE;
-use crate::layout::ImagePlan;
+use crate::layout::{self, ImagePlan, InodeLayout};
 use crate::superblock::{self, SuperblockParams};
+
+const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
+
+fn write_plain_blocks<W: Write>(
+    writer: &mut W,
+    inode: &InodeLayout,
+    all_inodes: &[InodeLayout],
+    path_to_idx: &BTreeMap<String, usize>,
+    block_size: usize,
+) -> Result<()> {
+    let Some(data_bytes) = data::plain_blocks(inode, all_inodes, path_to_idx, block_size)? else {
+        return Ok(());
+    };
+    writer.write_all(&data_bytes).map_err(ErofsError::Io)?;
+    let full = usize::try_from(inode.data_blocks)
+        .unwrap_or_default()
+        .saturating_mul(block_size);
+    let padding = full.saturating_sub(data_bytes.len());
+    if padding == 0 {
+        return Ok(());
+    }
+    let padding_slice = ZERO_BLOCK
+        .get(..padding)
+        .ok_or(ErofsError::Internal("padding exceeds ZERO_BLOCK"))?;
+
+    writer.write_all(padding_slice).map_err(ErofsError::Io)
+}
 
 /// Build a complete EROFS image from a planned image plan into a `Write` sink.
 pub fn write_image<W: Write>(
@@ -20,21 +48,17 @@ pub fn write_image<W: Write>(
     plan: &ImagePlan,
     config: &crate::MkfsConfig<'_>,
 ) -> Result<()> {
-    let image = build_image(plan, config)?;
-
-    writer.write_all(&image).map_err(ErofsError::Io)
-}
-
-fn build_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u8>> {
     let block_size = block_size_usize();
-    let total_size = plan.total_size;
     let inodes = &plan.inodes;
-    let mut image = vec![0_u8; total_size];
-    let path_to_idx = inodes
+    let path_to_idx: BTreeMap<_, _> = inodes
         .iter()
         .enumerate()
         .map(|(index, inode)| (inode.rel_path.clone(), index))
         .collect();
+
+    let meta_end = layout::compute_meta_end(inodes, plan.do_compress).max(block_size);
+    let meta_end_aligned = align_up(meta_end, block_size).unwrap_or(meta_end);
+    let mut meta_buf = vec![0_u8; meta_end];
 
     for inode in inodes {
         let slot_offset = slot_offset(inode.nid)?;
@@ -43,13 +67,13 @@ fn build_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u
             .and_then(|offset| add(offset, xattr_size))
             .ok_or(ErofsError::Internal("inode header offset overflow"))?;
 
-        write_header(&mut image, inode, slot_offset)?;
+        write_header(&mut meta_buf, inode, slot_offset)?;
 
         if inode.compressed.is_some() {
-            compressed::write_metadata(&mut image, inode, slot_offset)?;
+            compressed::write_metadata(&mut meta_buf, inode, slot_offset)?;
         } else {
             data::write_inline_tail(
-                &mut image,
+                &mut meta_buf,
                 inode,
                 inodes,
                 &path_to_idx,
@@ -62,13 +86,14 @@ fn build_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u
     let root_nid = inodes
         .first()
         .map_or(0, |inode| u16::try_from(inode.nid).ok().unwrap_or(u16::MAX));
-    let blocks = total_size
+    let blocks = plan
+        .total_size
         .checked_div(block_size)
         .and_then(u32_from_usize)
         .unwrap_or(u32::MAX);
 
     superblock::write(
-        &mut image,
+        &mut meta_buf,
         &SuperblockParams {
             root_nid,
             inos: u64::try_from(inodes.len()).ok().unwrap_or(u64::MAX),
@@ -78,47 +103,106 @@ fn build_image(plan: &ImagePlan, config: &crate::MkfsConfig<'_>) -> Result<Vec<u
             has_compression: plan.do_compress,
         },
     )?;
-    superblock::write_checksum(&mut image)?;
+    superblock::write_checksum(&mut meta_buf)?;
+
+    writer.write_all(&meta_buf).map_err(ErofsError::Io)?;
+
+    let pad = meta_end_aligned.saturating_sub(meta_end);
+    if pad > 0 {
+        let padding_slice = ZERO_BLOCK
+            .get(..pad)
+            .ok_or(ErofsError::Internal("pad exceeds ZERO_BLOCK"))?;
+        writer.write_all(padding_slice).map_err(ErofsError::Io)?;
+    }
 
     for inode in inodes {
         if inode.compressed.is_some() {
-            compressed::compressed_blocks(&mut image, inode)?;
-            continue;
-        }
-
-        if let Some(data_blocks) = data::plain_blocks(inode, inodes, &path_to_idx, block_size)? {
-            data::write_block_data(&mut image, inode, data_blocks.as_ref(), block_size)?;
+            compressed::compressed_blocks(writer, inode)?;
+        } else {
+            write_plain_blocks(writer, inode, inodes, &path_to_idx, block_size)?;
         }
     }
 
-    Ok(image)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::write_image;
+    use std::io;
+
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::layout;
-    use crate::layout::collect::FilesystemTreeSource;
+    use crate::source::SizedFile;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
     use crate::testutil::{compress_config, test_config};
+    use crate::tree::TreeEntry;
 
     fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
         let mut image = Vec::new();
-        write_image(&mut image, planned, cfg).expect("write_image");
+        super::write_image(&mut image, planned, cfg).expect("write_image");
         image
+    }
+
+    fn placeholder_data(e: &TreeEntry) -> Vec<u8> {
+        if e.file_type == EROFS_FT_REG_FILE && e.size > 0 {
+            vec![0_u8; usize::try_from(e.size).expect("size fits usize")]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn plan_from_entries(entries: &[TreeEntry], cfg: &MkfsConfig<'_>) -> layout::ImagePlan {
+        let mut datas: Vec<Vec<u8>> = entries.iter().map(placeholder_data).collect();
+        let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
+            .iter_mut()
+            .map(|data| io::Cursor::new(data.as_mut_slice()))
+            .collect();
+        let mut files: Vec<SizedFile<'_>> = entries
+            .iter()
+            .zip(cursors.iter_mut())
+            .map(|(entry, cursor)| SizedFile {
+                entry: entry.clone(),
+                reader: cursor,
+            })
+            .collect();
+        layout::plan(&mut files, cfg).expect("plan")
     }
 
     #[test]
     fn write_image_empty_file_has_zero_startblk() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("empty"), b"").expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/empty".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 0,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -141,11 +225,22 @@ mod tests {
     #[test]
     fn superblock_at_correct_offset() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let entries = &[TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 1,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -162,11 +257,22 @@ mod tests {
     #[test]
     fn root_nid_matches_root_dir() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let entries = &[TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 1,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -187,11 +293,22 @@ mod tests {
     #[test]
     fn root_nid_is_36_in_image() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
+        let entries = &[TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 1,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
         let cfg = test_config(1);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -208,18 +325,53 @@ mod tests {
     #[test]
     fn reproducible_output() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("a"), b"aaa").expect("write");
-        std::fs::write(dir.path().join("b"), b"bbb").expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 1000,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/a".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 3,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1000,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/b".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 3,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 1000,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = MkfsConfig {
             uuid: [1_u8; 16],
             ..test_config(1000)
         };
 
         // ACT
-        let planned1 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned1 = plan_from_entries(entries, &cfg);
         let image1 = run_write(&planned1, &cfg);
-        let planned2 = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned2 = plan_from_entries(entries, &cfg);
         let image2 = run_write(&planned2, &cfg);
 
         // ASSERT
@@ -229,8 +381,32 @@ mod tests {
     #[test]
     fn write_image_with_selinux_xattr() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("f"), b"x").expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/f".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let fc =
             crate::FileContexts::from_reader("/.*    system_u:object_r:file_t:s0\n".as_bytes())
                 .expect("fc");
@@ -240,7 +416,7 @@ mod tests {
         };
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let _: Vec<u8> = run_write(&planned, &cfg);
 
         // ASSERT
@@ -255,12 +431,36 @@ mod tests {
     #[test]
     fn write_compressed_image_valid_size() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/zeros".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -271,12 +471,36 @@ mod tests {
     #[test]
     fn write_compressed_superblock_compr_cfgs() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 4096]).expect("write");
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/zeros".to_owned(),
+                file_type: EROFS_FT_REG_FILE,
+                size: 4096,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = plan_from_entries(entries, &cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT

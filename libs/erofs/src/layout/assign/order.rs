@@ -82,9 +82,9 @@ mod tests {
         let inodes: Vec<InodeLayout> = Vec::new();
         let path_to_idx: BTreeMap<String, usize> = BTreeMap::new();
 
+        // ACT
         let order = bfs_order(&inodes, &path_to_idx);
 
-        // ACT
         // ASSERT
         assert!(order.is_empty());
     }
@@ -107,7 +107,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            inline_data: Vec::new(),
             raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
@@ -118,9 +117,9 @@ mod tests {
         };
         let path_to_idx = BTreeMap::new();
 
+        // ACT
         let order = bfs_order(&[inode], &path_to_idx);
 
-        // ACT
         // ASSERT
         assert!(order.is_empty());
     }

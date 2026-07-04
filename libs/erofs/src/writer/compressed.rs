@@ -1,12 +1,16 @@
 //! Compressed inode map encoding and pcluster data emission.
 
+use std::io::Write;
+
 use super::dir::align8;
-use super::util::{block_offset, block_size_usize, mul, usize_from_u32};
+use super::util::{block_size_usize, mul, usize_from_u32};
 use crate::checked::{add, u16_from_usize, write_byte, write_bytes};
 use crate::compress::{self, CompressedFile};
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, Z_EROFS_COMPRESSION_ZSTD, Z_EROFS_MAP_HEADER_SIZE};
 use crate::layout::{self, InodeLayout};
+
+const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 
 #[derive(Clone, Copy)]
 pub(super) struct LegacyIndexEntry {
@@ -121,23 +125,21 @@ pub(super) fn write_metadata(
     )
 }
 
-pub(super) fn compressed_blocks(buf: &mut [u8], inode: &InodeLayout) -> Result<()> {
+pub(super) fn compressed_blocks<W: Write>(writer: &mut W, inode: &InodeLayout) -> Result<()> {
     let block_size = block_size_usize();
     let compressed_file = inode
         .compressed
         .as_ref()
         .ok_or(ErofsError::Internal("compressed data present"))?;
-    let mut data_offset = block_offset(inode.data_blkaddr, block_size, "compressed data")?;
     for pcluster in &compressed_file.pclusters {
-        let write_start = add(
-            data_offset,
-            block_size.saturating_sub(pcluster.compressed_data.len()),
-        )
-        .ok_or(ErofsError::Internal("compressed write start overflow"))?;
-        if !write_bytes(buf, write_start, &pcluster.compressed_data) {
-            return Err(ErofsError::Internal("compressed block write out of bounds"));
-        }
-        data_offset = data_offset.saturating_add(block_size);
+        let pad_len = block_size.saturating_sub(pcluster.compressed_data.len());
+        let Some(slice) = ZERO_BLOCK.get(..pad_len) else {
+            return Err(ErofsError::Internal("pad_len exceeds ZERO_BLOCK"));
+        };
+        writer.write_all(slice).map_err(ErofsError::Io)?;
+        writer
+            .write_all(&pcluster.compressed_data)
+            .map_err(ErofsError::Io)?;
     }
 
     Ok(())
@@ -452,10 +454,12 @@ mod tests {
     };
     use crate::SLOT_SIZE;
     use crate::compress::{self, CompressedFile};
+    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::COMPACT_INODE_SIZE;
     use crate::layout;
-    use crate::layout::collect::FilesystemTreeSource;
+    use crate::source::SizedFile;
     use crate::testutil::compress_config;
+    use crate::tree::TreeEntry;
     use crate::writer::write_image;
 
     fn compressed_file(data_len: usize) -> CompressedFile {
@@ -463,6 +467,44 @@ mod tests {
         compress::compress_file(&data, 3)
             .expect("compress")
             .expect("compressed file")
+    }
+
+    fn make_compressed_plan(cfg: &crate::MkfsConfig<'_>) -> layout::ImagePlan {
+        let mut zeros_data = vec![0_u8; 8192];
+        let mut zeros_cursor = std::io::Cursor::new(zeros_data.as_mut_slice());
+        let mut files = [
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/".to_owned(),
+                    file_type: EROFS_FT_DIR,
+                    size: 0,
+                    mode: 0o40755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut std::io::empty(),
+            },
+            SizedFile {
+                entry: TreeEntry {
+                    rel_path: "/zeros".to_owned(),
+                    file_type: EROFS_FT_REG_FILE,
+                    size: 8192,
+                    mode: 0o644,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                    mtime_nsec: 0,
+                    symlink_target: vec![],
+                    rdev: 0,
+                },
+                reader: &mut zeros_cursor,
+            },
+        ];
+        layout::plan(&mut files, cfg).expect("plan")
     }
 
     fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
@@ -474,12 +516,10 @@ mod tests {
     #[test]
     fn write_compressed_map_header_zstd() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = make_compressed_plan(&cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -498,12 +538,10 @@ mod tests {
     #[test]
     fn write_compressed_data_at_blkaddr() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = make_compressed_plan(&cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -529,12 +567,10 @@ mod tests {
     #[test]
     fn write_compressed_compact_index_entries() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("zeros"), vec![0_u8; 8192]).expect("write");
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = make_compressed_plan(&cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT
@@ -632,13 +668,11 @@ mod tests {
     #[test]
     fn write_compressed_decompresses_correctly() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
         let original = vec![0_u8; 8192];
-        std::fs::write(dir.path().join("zeros"), &original).expect("write");
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(&FilesystemTreeSource::new(dir.path()), &cfg).expect("plan");
+        let planned = make_compressed_plan(&cfg);
         let image = run_write(&planned, &cfg);
 
         // ASSERT

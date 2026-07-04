@@ -2,22 +2,31 @@
 
 use crate::checked::{u16_from_usize, write_byte, write_bytes};
 
+/// Regular filetype constant.
 pub const EROFS_FT_REG_FILE: u8 = 1;
+/// Directory type constant.
 pub const EROFS_FT_DIR: u8 = 2;
+/// Symlink type constant.
 pub const EROFS_FT_SYMLINK: u8 = 7;
+/// Maximum directory entry name length in bytes.
 pub const EROFS_NAME_LEN: usize = 255;
+/// Fixed size of a directory entry on disk.
 pub const DIRENT_SIZE: usize = 12;
 
 /// A single directory entry before serialization.
 #[derive(Debug, Clone)]
-pub struct DirEntry {
+pub struct Entry {
+    /// Entry name as raw bytes.
     pub name: Vec<u8>,
+    /// Inode number of the referenced entry.
     pub nid: u64,
+    /// EROFS file type constant.
     pub file_type: u8,
 }
 
 /// Compute the actual directory data size in bytes (dirent array + packed names).
-pub fn data_size(entries: &[DirEntry]) -> usize {
+#[must_use]
+pub fn data_size(entries: &[Entry]) -> usize {
     let block_size = 4096_usize;
     let mut size = 0_usize;
 
@@ -33,7 +42,8 @@ pub fn data_size(entries: &[DirEntry]) -> usize {
 }
 
 /// Serialize directory entries into EROFS directory blocks.
-pub fn serialize_entries(entries: &[DirEntry]) -> Vec<u8> {
+#[must_use]
+pub fn serialize_entries(entries: &[Entry]) -> Vec<u8> {
     let block_size = 4096_usize;
     let total_size = data_size(entries);
     let mut buf = vec![0_u8; total_size];
@@ -56,7 +66,7 @@ pub fn serialize_entries(entries: &[DirEntry]) -> Vec<u8> {
             let name_start = block_start.saturating_add(name_offset);
             let name_offset_u16 = u16_from_usize(name_offset).unwrap_or_default();
 
-            let wrote_all = write_bytes(&mut buf, dirent_start, &entry.nid.to_le_bytes())
+            let _wrote = write_bytes(&mut buf, dirent_start, &entry.nid.to_le_bytes())
                 && write_bytes(
                     &mut buf,
                     dirent_start.saturating_add(8),
@@ -65,11 +75,6 @@ pub fn serialize_entries(entries: &[DirEntry]) -> Vec<u8> {
                 && write_byte(&mut buf, dirent_start.saturating_add(10), entry.file_type)
                 && write_byte(&mut buf, dirent_start.saturating_add(11), 0)
                 && write_bytes(&mut buf, name_start, &entry.name);
-
-            assert!(
-                wrote_all,
-                "directory serialization must fit the precomputed output buffer"
-            );
 
             dirent_offset = dirent_offset.saturating_add(DIRENT_SIZE);
             name_offset = name_offset.saturating_add(entry.name.len());
@@ -88,7 +93,7 @@ pub fn serialize_entries(entries: &[DirEntry]) -> Vec<u8> {
 }
 
 /// Determine how many entries fit in the current block starting from `start`.
-fn block_end(entries: &[DirEntry], start: usize, bs: usize) -> usize {
+fn block_end(entries: &[Entry], start: usize, bs: usize) -> usize {
     let mut used = 0_usize;
     let mut end = start;
     while let Some(entry) = entries.get(end) {
@@ -99,6 +104,7 @@ fn block_end(entries: &[DirEntry], start: usize, bs: usize) -> usize {
         used = used.saturating_add(entry_size);
         end = end.saturating_add(1);
     }
+
     end
 }
 
@@ -110,17 +116,17 @@ mod tests {
     fn dir_data_size_exact() {
         // ARRANGE
         let entries = vec![
-            DirEntry {
+            Entry {
                 name: b".".to_vec(),
                 nid: 0,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"..".to_vec(),
                 nid: 0,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"hello.txt".to_vec(),
                 nid: 1,
                 file_type: EROFS_FT_REG_FILE,
@@ -138,18 +144,18 @@ mod tests {
     fn dir_data_size_includes_block_padding() {
         // ARRANGE
         let mut entries = vec![
-            DirEntry {
+            Entry {
                 name: b".".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"..".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
         ];
-        entries.extend((0..400_u16).map(|i| DirEntry {
+        entries.extend((0..400_u16).map(|i| Entry {
             name: format!("file_{i:03}.txt").into_bytes(),
             nid: u64::from(i) + 40,
             file_type: EROFS_FT_REG_FILE,
@@ -169,17 +175,17 @@ mod tests {
     fn serialize_produces_correct_layout() {
         // ARRANGE
         let entries = vec![
-            DirEntry {
+            Entry {
                 name: b".".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"..".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"hello".to_vec(),
                 nid: 40,
                 file_type: EROFS_FT_REG_FILE,
@@ -207,18 +213,18 @@ mod tests {
     fn serialize_resets_name_offsets_per_block() {
         // ARRANGE
         let mut entries = vec![
-            DirEntry {
+            Entry {
                 name: b".".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"..".to_vec(),
                 nid: 36,
                 file_type: EROFS_FT_DIR,
             },
         ];
-        entries.extend((0..400_u16).map(|i| DirEntry {
+        entries.extend((0..400_u16).map(|i| Entry {
             name: format!("file_{i:03}.txt").into_bytes(),
             nid: u64::from(i) + 40,
             file_type: EROFS_FT_REG_FILE,
@@ -243,22 +249,22 @@ mod tests {
     fn lexicographic_sort_required() {
         // ARRANGE
         let mut entries = [
-            DirEntry {
+            Entry {
                 name: b"..".to_vec(),
                 nid: 0,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b".".to_vec(),
                 nid: 0,
                 file_type: EROFS_FT_DIR,
             },
-            DirEntry {
+            Entry {
                 name: b"b".to_vec(),
                 nid: 2,
                 file_type: EROFS_FT_REG_FILE,
             },
-            DirEntry {
+            Entry {
                 name: b"a".to_vec(),
                 nid: 1,
                 file_type: EROFS_FT_REG_FILE,

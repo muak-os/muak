@@ -47,6 +47,7 @@ mod tests {
     fn compress_invalid_level_errors() {
         // ARRANGE & ACT
         let result = new_cctx(i32::MAX);
+
         // ASSERT
         assert!(matches!(
             result,
@@ -60,10 +61,10 @@ mod tests {
         let mut cctx = new_cctx(3).expect("cctx");
         let data = vec![0_u8; 8192];
 
+        // ACT
         let compressed = compress_whole_input(&mut cctx, &data).expect("compress");
         let decompressed = decompress(&compressed, data.len()).expect("decompress");
 
-        // ACT
         // ASSERT
         assert_eq!(decompressed, data);
     }

@@ -12,20 +12,6 @@ pub(super) fn full_block_bytes(data_blocks: u32, block_size: usize) -> Result<us
         .ok_or(ErofsError::Internal("inline block byte count overflow"))
 }
 
-pub(super) fn block_offset(
-    data_blkaddr: u32,
-    block_size: usize,
-    context: &'static str,
-) -> Result<usize> {
-    let base = usize_from_u32(data_blkaddr);
-
-    mul(base, block_size).ok_or(match context {
-        "inline data" => ErofsError::Internal("inline data offset overflow"),
-        "plain data" => ErofsError::Internal("plain data offset overflow"),
-        _ => ErofsError::Internal("compressed data offset overflow"),
-    })
-}
-
 pub(super) fn block_size_usize() -> usize {
     usize_from_u32(BLOCK_SIZE)
 }
@@ -46,34 +32,20 @@ pub(super) fn slot_offset(nid: u64) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{block_offset, full_block_bytes};
+    use super::full_block_bytes;
     use crate::error::ErofsError;
 
     #[test]
     fn helper_offsets_report_expected_errors() {
         // ARRANGE
-        let full_block_error = full_block_bytes(u32::MAX, usize::MAX);
-        let inline_offset_error = block_offset(u32::MAX, usize::MAX, "inline data");
-        let plain_offset_error = block_offset(u32::MAX, usize::MAX, "plain data");
-        let compressed_offset_error = block_offset(u32::MAX, usize::MAX, "compressed data");
 
         // ACT
+        let full_block_error = full_block_bytes(u32::MAX, usize::MAX);
+
         // ASSERT
         assert!(matches!(
             full_block_error,
             Err(ErofsError::Internal("inline block byte count overflow"))
-        ));
-        assert!(matches!(
-            inline_offset_error,
-            Err(ErofsError::Internal("inline data offset overflow"))
-        ));
-        assert!(matches!(
-            plain_offset_error,
-            Err(ErofsError::Internal("plain data offset overflow"))
-        ));
-        assert!(matches!(
-            compressed_offset_error,
-            Err(ErofsError::Internal("compressed data offset overflow"))
         ));
     }
 }
