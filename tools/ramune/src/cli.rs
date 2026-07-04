@@ -58,7 +58,7 @@ enum Command {
     },
 }
 
-fn parse_extra(raw: &str) -> core::result::Result<(PathBuf, PathBuf), String> {
+fn parse_extra(raw: &str) -> Result<(PathBuf, PathBuf), String> {
     let invalid = || format!("expected SRC:DEST, got: {raw}");
     let mut parts = raw.split(':');
     let src = parts.next().ok_or_else(invalid)?;
