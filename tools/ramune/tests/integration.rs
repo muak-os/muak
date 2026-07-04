@@ -3,7 +3,6 @@ mod fixtures;
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::io::Cursor;
     use std::path::Path;
 
@@ -17,18 +16,17 @@ mod tests {
         // ARRANGE
         let env = TestEnv::new();
         let init_path = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let init_bytes = std::fs::read(&init_path).expect("read init");
+        let mut init_file = std::fs::File::open(&init_path).expect("open init");
+        let init_len = init_file.metadata().expect("init metadata").len();
         let rootfs = env.write_rootfs();
         let output = env.path("initramfs.img");
 
         let rootfs_erofs = rootfs::prepare(&rootfs, None, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
             .expect("prepare rootfs");
-        let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
         let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
-        let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_file, init_len),
             ramune::EntryStream::new(
                 Path::new("rootfs.erofs"),
                 0o100_644,
@@ -60,7 +58,8 @@ mod tests {
         // ARRANGE
         let env = TestEnv::new();
         let init_path = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let init_bytes = std::fs::read(&init_path).expect("read init");
+        let mut init_file = std::fs::File::open(&init_path).expect("open init");
+        let init_len = init_file.metadata().expect("init metadata").len();
         let rootfs = env.write_rootfs();
         let output = env.path("initramfs.img");
         let contexts =
@@ -68,12 +67,10 @@ mod tests {
                 .expect("file contexts should parse");
 
         let rootfs_erofs = rootfs::prepare(&rootfs, Some(&contexts), 3).expect("prepare rootfs");
-        let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
         let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
-        let mut init_reader = Cursor::new(init_bytes);
         let mut erofs_reader = Cursor::new(rootfs_erofs);
         let mut entries = [
-            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_file, init_len),
             ramune::EntryStream::new(
                 Path::new("rootfs.erofs"),
                 0o100_644,
@@ -116,25 +113,25 @@ mod tests {
     fn archive_with_entries_writes_named_archive() {
         // ARRANGE
         let env = TestEnv::new();
-        let profile_data =
-            fs::read(env.write("profile.toml", b"profile = true\n")).expect("read profile");
-        let extension_data =
-            fs::read(env.write("test-ext.erofs", b"erofs-bytes")).expect("read extension");
-        let profile_len = profile_data.len().try_into().unwrap_or(u64::MAX);
-        let extension_len = extension_data.len().try_into().unwrap_or(u64::MAX);
-        let mut profile_reader = Cursor::new(profile_data.clone());
-        let mut extension_reader = Cursor::new(extension_data.clone());
+        let profile_data = b"profile = true\n".to_vec();
+        let extension_data = b"erofs-bytes".to_vec();
+        let profile_path = env.write("profile.toml", &profile_data);
+        let extension_path = env.write("test-ext.erofs", &extension_data);
+        let mut profile_file = std::fs::File::open(&profile_path).expect("open profile");
+        let mut extension_file = std::fs::File::open(&extension_path).expect("open extension");
+        let profile_len = profile_file.metadata().expect("profile metadata").len();
+        let extension_len = extension_file.metadata().expect("extension metadata").len();
         let mut entries = [
             ramune::EntryStream::new(
                 Path::new("profile.toml"),
                 0o100_644,
-                &mut profile_reader,
+                &mut profile_file,
                 profile_len,
             ),
             ramune::EntryStream::new(
                 Path::new("extensions/test-ext.erofs"),
                 0o100_644,
-                &mut extension_reader,
+                &mut extension_file,
                 extension_len,
             ),
         ];

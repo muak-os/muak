@@ -1,6 +1,7 @@
 //! Command-line interface for ramune.
 
 use std::ffi::OsString;
+use std::fs::File;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
@@ -140,25 +141,26 @@ fn run_create(
 ) -> Result<()> {
     let file_contexts = match file_contexts {
         Some(path) => {
-            let file = std::fs::File::open(path)
+            let file = File::open(path)
                 .context(format!("Failed to open file_contexts: {}", path.display()))?;
             Some(erofs::FileContexts::from_reader(file).context("Failed to parse file_contexts")?)
         }
         None => None,
     };
 
-    let init_bytes = std::fs::read(init)
-        .with_context(|| format!("Failed to read init binary: {}", init.display()))?;
+    let mut init_file = File::open(init)
+        .with_context(|| format!("Failed to open init binary: {}", init.display()))?;
+    let init_len = init_file
+        .metadata()
+        .with_context(|| format!("Failed to get metadata for init binary: {}", init.display()))?
+        .len();
     let rootfs_erofs =
         rootfs::prepare(rootfs_dir, file_contexts.as_ref(), rootfs_compression_level)
             .context("Failed to prepare rootfs")?;
-
-    let init_len = init_bytes.len().try_into().unwrap_or(u64::MAX);
     let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
-    let mut init_reader = Cursor::new(init_bytes);
     let mut erofs_reader = Cursor::new(rootfs_erofs);
     let mut entries = [
-        EntryStream::new(Path::new("init"), 0o100_755, &mut init_reader, init_len),
+        EntryStream::new(Path::new("init"), 0o100_755, &mut init_file, init_len),
         EntryStream::new(
             Path::new("rootfs.erofs"),
             0o100_644,
@@ -167,7 +169,7 @@ fn run_create(
         ),
     ];
 
-    let mut file = std::fs::File::create(output)
+    let mut file = File::create(output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
     crate::archive(&mut entries, compression_level, &mut file)
         .context("Failed to create initramfs")?;
@@ -182,18 +184,18 @@ fn run_create(
 }
 
 fn run_tail(entry: &[(PathBuf, PathBuf)], output: &Path, compression_level: i32) -> Result<()> {
-    let sources: Vec<Vec<u8>> = entry
+    let mut files: Vec<(File, u64, u32)> = entry
         .iter()
-        .map(|entry| read_entry_source(&entry.0))
-        .collect::<Result<_>>()?;
-    let mut readers: Vec<Cursor<Vec<u8>>> = sources.into_iter().map(Cursor::new).collect();
-    let mut entries: Vec<EntryStream<'_>> = entry
-        .iter()
-        .zip(readers.iter_mut())
-        .map(|(entry, reader)| entry_from_source(&entry.0, entry.1.as_path(), reader))
+        .map(|e| open_entry_source(&e.0))
         .collect::<Result<_>>()?;
 
-    let mut file = std::fs::File::create(output)
+    let mut entries: Vec<EntryStream<'_>> = entry
+        .iter()
+        .zip(files.iter_mut())
+        .map(|(e, &mut (ref mut file, len, mode))| EntryStream::new(e.1.as_path(), mode, file, len))
+        .collect();
+
+    let mut file = File::create(output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
     crate::archive(&mut entries, compression_level, &mut file)
         .context("Failed to build initramfs tail")?;
@@ -207,23 +209,20 @@ fn run_tail(entry: &[(PathBuf, PathBuf)], output: &Path, compression_level: i32)
     Ok(())
 }
 
-fn read_entry_source(source: &Path) -> Result<Vec<u8>> {
-    std::fs::read(source)
-        .with_context(|| format!("Failed to read input entry: {}", source.display()))
-}
-
-fn entry_from_source<'a>(
-    source: &Path,
-    path: &'a Path,
-    reader: &'a mut Cursor<Vec<u8>>,
-) -> Result<EntryStream<'a>> {
-    let metadata = std::fs::metadata(source)
+fn open_entry_source(source: &Path) -> Result<(File, u64, u32)> {
+    let file = File::open(source)
+        .with_context(|| format!("Failed to open input entry: {}", source.display()))?;
+    let metadata = file
+        .metadata()
         .with_context(|| format!("Failed to inspect entry metadata: {}", source.display()))?;
-    let readonly = metadata.permissions().readonly();
-    let mode = if readonly { 0o100_444 } else { 0o100_644 };
-    let len = reader.get_ref().len().try_into().unwrap_or(u64::MAX);
+    let len = metadata.len();
+    let mode = if metadata.permissions().readonly() {
+        0o100_444
+    } else {
+        0o100_644
+    };
 
-    Ok(EntryStream::new(path, mode, reader, len))
+    Ok((file, len, mode))
 }
 
 fn initramfs_size(output: &Path) -> Result<u64> {

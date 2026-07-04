@@ -102,7 +102,7 @@ mod tests {
         // ASSERT
         assert!(!process_output.status.success());
         assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Failed to read init binary")
+            String::from_utf8_lossy(&process_output.stderr).contains("Failed to open init binary")
         );
     }
 
@@ -202,7 +202,7 @@ mod tests {
         // ASSERT
         assert!(!process_output.status.success());
         assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Failed to read input entry")
+            String::from_utf8_lossy(&process_output.stderr).contains("Failed to open input entry")
         );
     }
 
