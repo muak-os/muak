@@ -42,7 +42,7 @@ impl<'a> EntryStream<'a> {
 ///
 /// Returns an error when validation fails, an entry exceeds CPIO limits,
 /// reading an entry fails, or zstd compression fails.
-pub fn archive<W: Write>(
+pub fn compressed<W: Write>(
     streams: &mut [EntryStream],
     compression_level: i32,
     writer: &mut W,
@@ -304,7 +304,7 @@ mod tests {
         let mut buf = Vec::new();
 
         // ACT
-        archive(&mut entries, 3, &mut buf).expect("archive should succeed");
+        compressed(&mut entries, 3, &mut buf).expect("archive should succeed");
 
         // ASSERT
         assert!(buf.is_empty());
@@ -326,7 +326,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        archive(&mut entries, 3, &mut buf).expect("archive should succeed");
+        compressed(&mut entries, 3, &mut buf).expect("archive should succeed");
 
         // ASSERT
         let decoded = zstd::decode_all(buf.as_slice()).expect("decode");
@@ -347,7 +347,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, 3, &mut buf);
+        let result = compressed(&mut entries, 3, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not be empty")));
@@ -361,7 +361,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, 3, &mut buf);
+        let result = compressed(&mut entries, 3, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not be absolute")));
@@ -375,7 +375,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, 3, &mut buf);
+        let result = compressed(&mut entries, 3, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not contain ..")));
@@ -393,7 +393,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, 3, &mut buf);
+        let result = compressed(&mut entries, 3, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("duplicate")));
@@ -412,7 +412,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, 3, &mut buf);
+        let result = compressed(&mut entries, 3, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("ended early")));
@@ -430,7 +430,7 @@ mod tests {
 
         // ACT
         let mut buf = Vec::new();
-        let result = archive(&mut entries, i32::MAX, &mut buf);
+        let result = compressed(&mut entries, i32::MAX, &mut buf);
 
         // ASSERT
         assert!(matches!(

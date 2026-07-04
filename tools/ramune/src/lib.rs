@@ -31,11 +31,10 @@ pub fn archive<W: std::io::Write>(
     compression_level: i32,
     writer: &mut W,
 ) -> error::Result<()> {
-    archive::archive(streams, compression_level, writer)
+    archive::compressed(streams, compression_level, writer)
 }
 
-/// Writes a raw CPIO newc archive (no zstd compression) containing the given
-/// entries and returns the exact number of bytes written.
+/// Writes a raw uncompressed CPIO `newc` archive containing the given entries.
 ///
 /// # Errors
 ///
@@ -45,8 +44,7 @@ pub fn raw<W: std::io::Write>(streams: &mut [EntryStream], writer: &mut W) -> er
     archive::raw(streams, writer)
 }
 
-/// Returns the exact byte length of a raw CPIO newc archive (no zstd compression)
-/// containing the given entries. Pure computation — no I/O is performed.
+/// Returns the exact byte length of a raw uncompressed CPIO `newc` archive.
 #[must_use]
 pub fn raw_size(entries: &[Entry]) -> u64 {
     archive::raw_size(entries)
