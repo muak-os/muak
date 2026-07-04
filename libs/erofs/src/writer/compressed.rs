@@ -460,7 +460,7 @@ mod tests {
     use crate::source::SizedFile;
     use crate::testutil::compress_config;
     use crate::tree::TreeEntry;
-    use crate::writer::write_image;
+    use crate::writer::image;
 
     fn compressed_file(data_len: usize) -> CompressedFile {
         let data = vec![0_u8; data_len];
@@ -508,9 +508,9 @@ mod tests {
     }
 
     fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
-        let mut image = Vec::new();
-        write_image(&mut image, planned, cfg).expect("write_image");
-        image
+        let mut buf = Vec::new();
+        image(&mut buf, planned, cfg).expect("image");
+        buf
     }
 
     #[test]

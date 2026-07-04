@@ -42,8 +42,7 @@ fn write_plain_blocks<W: Write>(
     writer.write_all(padding_slice).map_err(ErofsError::Io)
 }
 
-/// Build a complete EROFS image from a planned image plan into a `Write` sink.
-pub fn write_image<W: Write>(
+pub fn image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
     config: &crate::MkfsConfig<'_>,
@@ -141,7 +140,7 @@ mod tests {
 
     fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
         let mut image = Vec::new();
-        super::write_image(&mut image, planned, cfg).expect("write_image");
+        super::image(&mut image, planned, cfg).expect("image");
         image
     }
 

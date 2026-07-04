@@ -66,7 +66,7 @@ mod tests {
     use crate::source::SizedFile;
     use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
-    use crate::writer::write_image;
+    use crate::writer::image;
 
     #[test]
     fn compact_inode_at_correct_offset() {
@@ -109,12 +109,11 @@ mod tests {
 
         // ACT
         let planned = layout::plan(files, &cfg).expect("plan");
-        let mut image = Vec::new();
-        write_image(&mut image, &planned, &cfg).expect("write");
+        let mut buf = Vec::new();
+        image(&mut buf, &planned, &cfg).expect("write");
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
-            image
-                .get(root_offset..root_offset + 2)
+            buf.get(root_offset..root_offset + 2)
                 .expect("root i_format bytes")
                 .try_into()
                 .expect("2 bytes"),
@@ -165,8 +164,8 @@ mod tests {
 
         // ACT
         let planned = layout::plan(files, &cfg).expect("plan");
-        let mut image = Vec::new();
-        write_image(&mut image, &planned, &cfg).expect("write");
+        let mut buf = Vec::new();
+        image(&mut buf, &planned, &cfg).expect("write");
         let file = planned
             .inodes
             .iter()
@@ -174,8 +173,7 @@ mod tests {
             .expect("found");
         let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
-            image
-                .get(slot_off..slot_off + 2)
+            buf.get(slot_off..slot_off + 2)
                 .expect("i_format bytes")
                 .try_into()
                 .expect("2b"),
@@ -227,8 +225,8 @@ mod tests {
 
         // ACT
         let planned = layout::plan(files, &cfg).expect("plan");
-        let mut image = Vec::new();
-        write_image(&mut image, &planned, &cfg).expect("write");
+        let mut buf = Vec::new();
+        image(&mut buf, &planned, &cfg).expect("write");
         let file = planned
             .inodes
             .iter()
@@ -236,8 +234,7 @@ mod tests {
             .expect("found");
         let slot_off = usize::try_from(file.nid).expect("nid fits usize") * SLOT_SIZE;
         let i_u = u32::from_le_bytes(
-            image
-                .get(slot_off + 0x10..slot_off + 0x14)
+            buf.get(slot_off + 0x10..slot_off + 0x14)
                 .expect("i_u bytes")
                 .try_into()
                 .expect("4b"),

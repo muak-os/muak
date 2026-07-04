@@ -15,6 +15,10 @@ use crate::error::Result;
 use crate::source::SizedFile;
 
 /// Public inode layout type produced by layout planning.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the repetition is necessary for a distinct public type alias"
+)]
 pub type InodeLayout = types::InodeLayout;
 
 /// A fully-planned EROFS image, ready for emission.
@@ -29,6 +33,10 @@ pub struct ImagePlan {
 }
 
 /// Plan the full image layout from sized file entries.
+///
+/// # Errors
+///
+/// Returns an error when entries are invalid, file data cannot be read or compression fails.
 pub fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<ImagePlan> {
     planner::plan(files, config)
 }

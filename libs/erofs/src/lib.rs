@@ -10,11 +10,11 @@ pub mod dir;
 pub mod error;
 mod filecontexts;
 mod inode;
-mod layout;
+pub mod layout;
 pub mod source;
 mod superblock;
 pub mod tree;
-mod writer;
+pub mod writer;
 mod xattr;
 
 /// EROFS compression algorithm and level.
@@ -36,6 +36,7 @@ pub const BLOCK_SIZE: u32 = 4096;
 pub const SLOT_SIZE: usize = 32;
 
 /// Configuration for EROFS image creation.
+#[derive(Debug)]
 pub struct MkfsConfig<'a> {
     /// Timestamp for reproducible builds (seconds since epoch).
     pub source_date_epoch: u64,
@@ -67,7 +68,7 @@ pub fn mkfs<W: std::io::Write>(
     }
     let plan = layout::plan(files, config)?;
 
-    writer::write_image(writer, &plan, config)
+    writer::image(writer, &plan, config)
 }
 
 #[cfg(test)]

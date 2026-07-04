@@ -35,6 +35,7 @@ pub(super) fn symlink(
     } else {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
         inode.data_blocks = truncate_usize_to_u32(target_len.div_ceil(bs));
+
         header_only_padded(inode_header)
     }
 }
@@ -100,6 +101,7 @@ pub(super) fn regular(
     } else {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
         inode.data_blocks = truncate_usize_to_u32(file_size.div_ceil(bs));
+
         header_only_padded(inode_header)
     }
 }
@@ -163,6 +165,7 @@ pub(super) fn special(
     };
     inode.nid = nid;
     inode.datalayout = EROFS_INODE_FLAT_PLAIN;
+
     header_only_padded(inode_header)
 }
 
@@ -184,6 +187,7 @@ mod tests {
     use crate::source::{self, SizedFile};
     use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
+    use crate::writer::image;
 
     fn open_reader(dir_path: &Path, ent: &TreeEntry) -> Box<dyn Read> {
         if ent.file_type == EROFS_FT_DIR || ent.file_type == EROFS_FT_SYMLINK || ent.size == 0 {
@@ -194,7 +198,6 @@ mod tests {
     }
 
     fn mkfs_from_dir(dir_path: &Path, config: &crate::MkfsConfig<'_>) -> Vec<u8> {
-        use crate::writer::write_image;
         let entries = source::collect_entries(dir_path).expect("collect_entries");
         let mut readers: Vec<Box<dyn Read>> = entries
             .iter()
@@ -207,9 +210,9 @@ mod tests {
             .collect();
         let planned = plan(&mut files, config).expect("plan");
         core::mem::drop(files);
-        let mut image = Vec::new();
-        write_image(&mut image, &planned, config).expect("write_image");
-        image
+        let mut buf = Vec::new();
+        image(&mut buf, &planned, config).expect("image");
+        buf
     }
 
     #[test]
