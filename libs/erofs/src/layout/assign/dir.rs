@@ -20,6 +20,9 @@ pub(super) fn layout(
     let Some(children) = inodes.get(i).map(|inode| inode.children.clone()) else {
         return 0;
     };
+    if let Some(inode) = inodes.get_mut(i) {
+        inode.nid = nid;
+    }
     let dir_entries = build_entries(inodes, &children, path_to_idx, nid);
     let dir_data_size = dir::data_size(&dir_entries);
     let tail_size = dir_data_size.checked_rem(bs).unwrap_or_default();
@@ -28,7 +31,6 @@ pub(super) fn layout(
     let Some(inode) = inodes.get_mut(i) else {
         return 0;
     };
-    inode.nid = nid;
     inode.size = truncate_usize_to_u32(dir_data_size);
 
     if dir_data_size > 0 && inline_fits(slot_offset, inode_header, dir_data_size, bs) {
@@ -142,12 +144,23 @@ mod tests {
         }
     }
 
+    fn make_reader(size: u64) -> Box<dyn io::Read> {
+        if size > 0 {
+            Box::new(io::Cursor::new(vec![0_u8; usize::try_from(size).unwrap()]))
+        } else {
+            Box::new(io::empty())
+        }
+    }
+
     fn make_files(entries: Vec<TreeEntry>) -> Vec<SizedFile<'static>> {
+        let readers: Vec<Box<dyn io::Read>> =
+            entries.iter().map(|ent| make_reader(ent.size)).collect();
         entries
             .into_iter()
-            .map(|e| SizedFile {
-                entry: e,
-                reader: Box::leak(Box::new(io::empty())),
+            .zip(readers)
+            .map(|(entry, reader)| SizedFile {
+                entry,
+                reader: Box::leak(reader),
             })
             .collect()
     }

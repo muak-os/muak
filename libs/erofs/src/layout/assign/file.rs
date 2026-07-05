@@ -5,6 +5,7 @@ use super::compact::index_bytes;
 use super::util::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::checked::align_up;
 use crate::compress;
+use crate::error::{ErofsError, Result};
 use crate::inode::{
     EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     Z_EROFS_MAP_HEADER_SIZE,
@@ -53,25 +54,34 @@ pub(super) fn regular(
     bs: usize,
     compression: Compression,
     files: &mut [SizedFile<'_>],
-) -> usize {
+) -> Result<usize> {
     let Some(file_size) = inodes
         .get(i)
         .map(|inode| usize::try_from(inode.size).unwrap_or_default())
     else {
-        return 0;
+        return Ok(0);
     };
 
     if file_size > 0 {
         let mut file_data = Vec::with_capacity(file_size);
-        let read_ok = files
+        let sized = files
             .get_mut(i)
-            .and_then(|sized| sized.reader.read_to_end(&mut file_data).ok())
-            .is_some();
-        if read_ok
-            && let Some(advance) =
-                try_compress_or_store(inodes, i, nid, inode_header, &mut file_data, compression)
+            .ok_or(ErofsError::Internal("file index out of bounds"))?;
+        sized.reader.read_to_end(&mut file_data)?;
+
+        if file_data.len() != file_size {
+            let rel = inodes.get(i).map_or("?", |inode| inode.rel_path.as_str());
+            return Err(ErofsError::FileReadMismatch {
+                path: rel.to_owned(),
+                expected: file_size,
+                actual: file_data.len(),
+            });
+        }
+
+        if let Some(advance) =
+            try_compress_or_store(inodes, i, nid, inode_header, &mut file_data, compression)
         {
-            return advance;
+            return Ok(advance);
         }
     }
 
@@ -80,13 +90,13 @@ pub(super) fn regular(
     let can_inline_tail = tail_size > 0 && inline_fits(slot_offset, inode_header, tail_size, bs);
 
     let Some(inode) = inodes.get_mut(i) else {
-        return 0;
+        return Ok(0);
     };
     inode.nid = nid;
 
     if file_size == 0 {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
-        return header_only_padded(inode_header);
+        return Ok(header_only_padded(inode_header));
     }
 
     if can_inline_tail {
@@ -97,12 +107,12 @@ pub(super) fn regular(
         } else {
             tail_size
         };
-        padded_slots(inode_header, inline_len)
+        Ok(padded_slots(inode_header, inline_len))
     } else {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
         inode.data_blocks = truncate_usize_to_u32(file_size.div_ceil(bs));
 
-        header_only_padded(inode_header)
+        Ok(header_only_padded(inode_header))
     }
 }
 
@@ -121,7 +131,13 @@ fn try_compress_or_store(
         }
         return None;
     };
-    let cf = compress::compress_file(file_data, level).ok()??;
+    let Some(cf) = compress::compress_file(file_data, level).ok().flatten() else {
+        let data = core::mem::take(file_data);
+        if let Some(inode) = inodes.get_mut(i) {
+            inode.raw_data = data;
+        }
+        return None;
+    };
 
     if !compress::has_representable_compact_indexes(&cf) {
         let data = core::mem::take(file_data);
@@ -978,7 +994,8 @@ mod tests {
             4096,
             Compression::None,
             &mut files,
-        );
+        )
+        .expect("regular for missing index");
         let special_advance = special(&mut inodes, 9, 1, COMPACT_INODE_SIZE);
 
         // ACT & ASSERT

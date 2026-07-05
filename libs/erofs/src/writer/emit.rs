@@ -37,7 +37,11 @@ fn write_plain_blocks<W: Write>(
     }
     let padding_slice = ZERO_BLOCK
         .get(..padding)
-        .ok_or(ErofsError::Internal("padding exceeds ZERO_BLOCK"))?;
+        .ok_or_else(|| ErofsError::BlockPadding {
+            path: inode.rel_path.clone(),
+            data_blocks: inode.data_blocks,
+            data_len: data_bytes.len(),
+        })?;
 
     writer.write_all(padding_slice).map_err(ErofsError::Io)
 }

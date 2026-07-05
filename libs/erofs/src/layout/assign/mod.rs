@@ -12,6 +12,7 @@ use alloc::collections::BTreeMap;
 use super::types::InodeLayout;
 use crate::checked::align_up;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
+use crate::error::Result;
 use crate::inode::COMPACT_INODE_SIZE;
 use crate::source::SizedFile;
 use crate::superblock::EROFS_SUPER_OFFSET;
@@ -34,12 +35,16 @@ pub(super) fn meta_start(has_compression: bool) -> usize {
 }
 
 /// Assign NIDs and decide data layout for each inode.
+///
+/// # Errors
+///
+/// Returns an error when a regular file cannot be read.
 pub fn nids_and_layouts(
     inodes: &mut [InodeLayout],
     path_to_idx: &BTreeMap<String, usize>,
     compression: Compression,
     files: &mut [SizedFile<'_>],
-) {
+) -> Result<()> {
     let bs = util::block_size();
     let do_compress = compression.is_enabled();
     let mut meta_offset = meta_start(do_compress);
@@ -69,11 +74,13 @@ pub fn nids_and_layouts(
                 bs,
                 compression,
                 files,
-            ),
+            )?,
             _ => file::special(inodes, i, nid, inode_header),
         };
         meta_offset = meta_offset.saturating_add(advance);
     }
+
+    Ok(())
 }
 
 /// Assign data block addresses after all NIDs are computed.
@@ -484,7 +491,8 @@ mod tests {
         ];
 
         // ACT
-        nids_and_layouts(&mut inodes, &path_to_idx, Compression::None, &mut files);
+        nids_and_layouts(&mut inodes, &path_to_idx, Compression::None, &mut files)
+            .expect("nids_and_layouts");
 
         // ASSERT
         let special = inodes.get(1).expect("special inode");

@@ -34,6 +34,17 @@ pub enum ErofsError {
     #[error("failed to read symlink target: {0}")]
     SymlinkRead(std::path::PathBuf),
 
+    /// Metadata size differs from bytes actually read.
+    #[error("file read mismatch: {path} (expected {expected} bytes, got {actual} bytes)")]
+    FileReadMismatch {
+        /// Relative path of the file.
+        path: String,
+        /// Expected size in bytes from metadata.
+        expected: usize,
+        /// Actual bytes read from the input stream.
+        actual: usize,
+    },
+
     /// Directory walk failed.
     #[error("directory walk error: {0}")]
     Walk(String),
@@ -63,6 +74,19 @@ pub enum ErofsError {
     /// Internal invariant violated.
     #[error("internal error: {0}")]
     Internal(&'static str),
+
+    /// Data block padding overflow: data byte count doesn't match allocated blocks.
+    #[error(
+        "block padding overflow: {path} (allocated {data_blocks} blocks, data is {data_len} bytes)"
+    )]
+    BlockPadding {
+        /// Relative path of the inode.
+        path: String,
+        /// Number of 4 KiB blocks allocated for data.
+        data_blocks: u32,
+        /// Actual data length in bytes.
+        data_len: usize,
+    },
 }
 
 /// Result type alias for erofs operations.

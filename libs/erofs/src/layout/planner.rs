@@ -18,7 +18,7 @@ pub fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<Imag
     indices::apply_nlinks(&mut inodes, &idx.nlink_map, &idx.path_to_idx);
     indices::apply_children(&mut inodes, &idx.dir_children, &idx.path_to_idx);
     indices::assign_inos(&mut inodes, &idx.path_to_idx, &idx.dir_children);
-    assign::nids_and_layouts(&mut inodes, &idx.path_to_idx, config.compression, files);
+    assign::nids_and_layouts(&mut inodes, &idx.path_to_idx, config.compression, files)?;
     assign::data_block_addrs(&mut inodes, config.compression.is_enabled());
 
     let total_size = assign::total_image_size(&inodes, config.compression.is_enabled());
