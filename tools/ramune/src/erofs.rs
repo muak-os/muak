@@ -1,18 +1,22 @@
 //! EROFS image creation from a source directory.
 
+use std::io::Read;
 use std::path::Path;
 
+use erofs::dir::EROFS_FT_REG_FILE;
+use erofs::layout::{self, ImagePlan};
+use erofs::source;
+use erofs::tree::TreeEntry;
 use erofs::{Compression, FileContexts, MkfsConfig};
 
 use crate::compress;
 use crate::error::{RamuneError, Result};
 
-/// Creates a reproducible EROFS image with optional `SELinux` file contexts.
-pub(crate) fn create(
+pub(crate) fn plan_image<'a>(
     source_dir: &Path,
-    file_contexts: Option<&FileContexts>,
+    file_contexts: Option<&'a FileContexts>,
     compression_level: i32,
-) -> Result<Vec<u8>> {
+) -> Result<(ImagePlan, MkfsConfig<'a>, u64)> {
     let compression_level = compress::validate_level(compression_level)?;
     let config = MkfsConfig {
         source_date_epoch: 0,
@@ -25,20 +29,72 @@ pub(crate) fn create(
         },
     };
 
-    let mut buf = Vec::new();
-    let source = erofs::FilesystemTreeSource::new(source_dir);
-    erofs::mkfs(&mut buf, &source, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))?;
+    let entries =
+        source::collect_entries(source_dir).map_err(|e| RamuneError::ErofsError(e.to_string()))?;
+    let mut readers = build_readers(source_dir, &entries)?;
+    let mut files: Vec<erofs::SizedFile<'_>> = entries
+        .into_iter()
+        .zip(readers.iter_mut())
+        .map(|(entry, reader)| erofs::SizedFile { entry, reader })
+        .collect();
 
-    Ok(buf)
+    let plan =
+        layout::plan(&mut files, &config).map_err(|e| RamuneError::ErofsError(e.to_string()))?;
+    let total_size = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
+
+    Ok((plan, config, total_size))
+}
+
+enum EntryReader {
+    File(std::fs::File),
+    Empty(std::io::Empty),
+}
+
+impl Read for EntryReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match *self {
+            Self::File(ref mut file) => file.read(buf),
+            Self::Empty(ref mut empty) => empty.read(buf),
+        }
+    }
+}
+
+fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<Vec<EntryReader>> {
+    entries
+        .iter()
+        .map(|ent| {
+            if ent.file_type == EROFS_FT_REG_FILE && ent.size > 0 {
+                let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+                match std::fs::File::open(&path) {
+                    Ok(file) => Ok(EntryReader::File(file)),
+                    Err(source) => Err(RamuneError::ReadError {
+                        file: path.display().to_string(),
+                        source,
+                    }),
+                }
+            } else {
+                Ok(EntryReader::Empty(std::io::empty()))
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
+    use erofs::writer;
     use tempfile::NamedTempFile;
 
     use super::*;
+
+    fn run_create(dir: &Path, fc: Option<&FileContexts>, clevel: i32) -> Vec<u8> {
+        let (plan, config, _size) = plan_image(dir, fc, clevel).expect("plan_image");
+        let mut buf = Vec::new();
+        writer::image(&mut buf, &plan, &config).expect("image");
+
+        buf
+    }
 
     #[test]
     fn create_empty_dir() {
@@ -46,7 +102,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
 
         // ACT
-        let image = create(dir.path(), None, 3).expect("create");
+        let image = run_create(dir.path(), None, 3);
 
         // ASSERT
         assert!(!image.is_empty());
@@ -61,7 +117,7 @@ mod tests {
         file.write_all(b"hello world").expect("write");
 
         // ACT
-        let image = create(dir.path(), None, 3).expect("create");
+        let image = run_create(dir.path(), None, 3);
 
         // ASSERT
         assert!(image.len() >= 4096);
@@ -75,7 +131,7 @@ mod tests {
         std::fs::write(dir.path().join("sub").join("file.txt"), b"data").expect("write");
 
         // ACT
-        let image = create(dir.path(), None, 3).expect("create");
+        let image = run_create(dir.path(), None, 3);
 
         // ASSERT
         assert!(image.len() >= 4096);
@@ -88,8 +144,8 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), b"aaa").expect("write");
 
         // ACT
-        let img1 = create(dir.path(), None, 3).expect("create 1");
-        let img2 = create(dir.path(), None, 3).expect("create 2");
+        let img1 = run_create(dir.path(), None, 3);
+        let img2 = run_create(dir.path(), None, 3);
 
         // ASSERT
         assert_eq!(img1, img2);
@@ -104,7 +160,7 @@ mod tests {
             .expect("fc");
 
         // ACT
-        let image = create(dir.path(), Some(&fc), 3).expect("create");
+        let image = run_create(dir.path(), Some(&fc), 3);
 
         // ASSERT
         assert!(!image.is_empty());
@@ -114,7 +170,7 @@ mod tests {
     #[test]
     fn create_missing_source_dir_errors() {
         // ARRANGE / ACT
-        let result = create(Path::new("/nonexistent/erofs-source"), None, 3);
+        let result = plan_image(Path::new("/nonexistent/erofs-source"), None, 3);
 
         // ASSERT
         assert!(
@@ -130,7 +186,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
 
         // ACT
-        let result = create(dir.path(), None, i32::MAX);
+        let result = plan_image(dir.path(), None, i32::MAX);
 
         // ASSERT
         assert!(

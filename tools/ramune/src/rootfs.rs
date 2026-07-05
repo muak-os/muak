@@ -3,22 +3,24 @@
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
+use ::erofs::layout::ImagePlan;
+use ::erofs::{FileContexts, MkfsConfig};
+
 use crate::erofs;
 use crate::error::{RamuneError, Result};
 
 const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "etc/selinux"];
 
-/// Stages a rootfs directory and compresses it into an EROFS image.
+/// Stages a rootfs directory and plans the EROFS image layout.
 ///
 /// # Errors
 ///
-/// Returns an error when copying the rootfs, creating required directories,
-/// or creating the EROFS image fails.
-pub fn prepare(
+/// Returns an error when copying the rootfs, creating required directories or planning the EROFS image fails.
+pub fn prepare_and_plan<'a>(
     rootfs_dir: &Path,
-    file_contexts: Option<&::erofs::FileContexts>,
+    file_contexts: Option<&'a FileContexts>,
     rootfs_compression_level: i32,
-) -> Result<Vec<u8>> {
+) -> Result<(ImagePlan, MkfsConfig<'a>, u64)> {
     let parent = rootfs_dir.parent().unwrap_or(rootfs_dir);
     let staging = tempfile::Builder::new()
         .tempdir_in(parent)
@@ -31,7 +33,7 @@ pub fn prepare(
     inject_required_dirs(staging.path())?;
     ensure_default_resolv_conf(&staging.path().join("etc/resolv.conf"))?;
 
-    erofs::create(staging.path(), file_contexts, rootfs_compression_level)
+    erofs::plan_image(staging.path(), file_contexts, rootfs_compression_level)
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
@@ -115,7 +117,22 @@ fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use ::erofs::writer;
+
     use super::*;
+
+    fn prepare_image(
+        rootfs_dir: &Path,
+        fc: Option<&::erofs::FileContexts>,
+        clevel: i32,
+    ) -> Vec<u8> {
+        let (plan, config, _size) =
+            prepare_and_plan(rootfs_dir, fc, clevel).expect("prepare_and_plan");
+        let mut buf = Vec::new();
+        writer::image(&mut buf, &plan, &config).expect("image");
+
+        buf
+    }
 
     #[test]
     fn prepare_rootfs_copies_existing_files() {
@@ -126,7 +143,7 @@ mod tests {
         std::fs::write(rootfs.join("sbin/init"), b"binary").expect("write");
 
         // ACT
-        let erofs = prepare(&rootfs, None, 3).expect("prepare_rootfs");
+        let erofs = prepare_image(&rootfs, None, 3);
 
         // ASSERT
         assert!(!erofs.is_empty());
@@ -181,7 +198,7 @@ mod tests {
         let rootfs = tmp.path().join("missing-rootfs");
 
         // ACT
-        let result = prepare(&rootfs, None, 3);
+        let result = prepare_and_plan(&rootfs, None, 3);
 
         // ASSERT
         assert!(
@@ -296,7 +313,7 @@ mod tests {
         let rootfs = parent.join("rootfs");
 
         // ACT
-        let result = prepare(&rootfs, None, 3);
+        let result = prepare_and_plan(&rootfs, None, 3);
 
         // ASSERT
         assert!(
@@ -315,7 +332,7 @@ mod tests {
         std::fs::write(rootfs.join("etc"), b"not a directory").expect("write");
 
         // ACT
-        let result = prepare(&rootfs, None, 3);
+        let result = prepare_and_plan(&rootfs, None, 3);
 
         // ASSERT
         assert!(

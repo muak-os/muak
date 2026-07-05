@@ -3,9 +3,10 @@ mod fixtures;
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-    use std::path::Path;
+    use std::io::Read;
 
+    use erofs::writer;
+    use ramune::archive;
     use ramune::error::RamuneError;
     use ramune::rootfs;
 
@@ -21,36 +22,52 @@ mod tests {
         let rootfs = env.write_rootfs();
         let output = env.path("initramfs.img");
 
-        let rootfs_erofs = rootfs::prepare(&rootfs, None, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
-            .expect("prepare rootfs");
-        let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
-        let mut erofs_reader = Cursor::new(rootfs_erofs);
+        let (erofs_plan, erofs_config, erofs_len) =
+            rootfs::prepare_and_plan(&rootfs, None, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)
+                .expect("prepare rootfs");
+
         let mut entries = [
-            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_file, init_len),
-            ramune::EntryStream::new(
-                Path::new("rootfs.erofs"),
-                0o100_644,
-                &mut erofs_reader,
-                erofs_len,
-            ),
+            ramune::Entry {
+                path: "init".into(),
+                mode: 0o100_755,
+                len: init_len,
+            },
+            ramune::Entry {
+                path: "rootfs.erofs".into(),
+                mode: 0o100_644,
+                len: erofs_len,
+            },
         ];
 
         // ACT
         let mut buf = Vec::new();
-        ramune::archive(&mut entries, 19, &mut buf).expect("archive should succeed");
+        archive::compressed(&mut entries, &mut buf, 19, |entry, w| {
+            match entry.path.as_str() {
+                "init" => std::io::copy(&mut (&mut init_file).take(init_len), w)
+                    .map(|_| ())
+                    .map_err(|e| RamuneError::WriteError {
+                        file: String::new(),
+                        source: e,
+                    }),
+                "rootfs.erofs" => writer::image(w, &erofs_plan, &erofs_config)
+                    .map_err(|e| RamuneError::ErofsError(e.to_string())),
+                other => panic!("unexpected entry: {other}"),
+            }
+        })
+        .expect("archive should succeed");
         std::fs::write(&output, &buf).expect("write output");
 
         // ASSERT
         let entries = decode_initramfs(&output);
-        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+        let names: Vec<&str> = entries.iter().map(|entry| entry.0.as_str()).collect();
         assert_eq!(names, ["init", "rootfs.erofs"]);
 
         let init_entry = entries
             .iter()
-            .find(|entry| entry.name == "init")
+            .find(|entry| entry.0 == "init")
             .expect("missing init entry");
-        assert_eq!(init_entry.mode, 0o100_755);
-        assert_eq!(init_entry.data, b"#!/bin/sh\nexec /sbin/init\n");
+        assert_eq!(init_entry.1, 0o100_755);
+        assert_eq!(init_entry.2, b"#!/bin/sh\nexec /sbin/init\n");
     }
 
     #[test]
@@ -66,22 +83,38 @@ mod tests {
             erofs::FileContexts::from_reader(b"/.*    system_u:object_r:file_t:s0\n".as_slice())
                 .expect("file contexts should parse");
 
-        let rootfs_erofs = rootfs::prepare(&rootfs, Some(&contexts), 3).expect("prepare rootfs");
-        let erofs_len = rootfs_erofs.len().try_into().unwrap_or(u64::MAX);
-        let mut erofs_reader = Cursor::new(rootfs_erofs);
+        let (erofs_plan, erofs_config, erofs_len) =
+            rootfs::prepare_and_plan(&rootfs, Some(&contexts), 3).expect("prepare rootfs");
+
         let mut entries = [
-            ramune::EntryStream::new(Path::new("init"), 0o100_755, &mut init_file, init_len),
-            ramune::EntryStream::new(
-                Path::new("rootfs.erofs"),
-                0o100_644,
-                &mut erofs_reader,
-                erofs_len,
-            ),
+            ramune::Entry {
+                path: "init".into(),
+                mode: 0o100_755,
+                len: init_len,
+            },
+            ramune::Entry {
+                path: "rootfs.erofs".into(),
+                mode: 0o100_644,
+                len: erofs_len,
+            },
         ];
 
         // ACT
         let mut buf = Vec::new();
-        ramune::archive(&mut entries, 19, &mut buf).expect("archive should succeed");
+        archive::compressed(&mut entries, &mut buf, 19, |entry, w| {
+            match entry.path.as_str() {
+                "init" => std::io::copy(&mut (&mut init_file).take(init_len), w)
+                    .map(|_| ())
+                    .map_err(|e| RamuneError::WriteError {
+                        file: String::new(),
+                        source: e,
+                    }),
+                "rootfs.erofs" => writer::image(w, &erofs_plan, &erofs_config)
+                    .map_err(|e| RamuneError::ErofsError(e.to_string())),
+                other => panic!("unexpected entry: {other}"),
+            }
+        })
+        .expect("archive should succeed");
         std::fs::write(&output, &buf).expect("write output");
 
         // ASSERT
@@ -96,14 +129,14 @@ mod tests {
         let missing_rootfs = env.path("nonexistent-rootfs");
 
         // ACT / ASSERT
-        rootfs::prepare(&missing_rootfs, None, 3).unwrap_err();
+        rootfs::prepare_and_plan(&missing_rootfs, None, 3).unwrap_err();
     }
 
     #[test]
     fn archive_empty_entries() {
         // ARRANGE / ACT
         let mut buf = Vec::new();
-        ramune::archive(&mut [], 19, &mut buf).unwrap();
+        archive::cpio(&mut [], &mut buf, |_, _| Ok(())).unwrap();
 
         // ASSERT
         assert!(buf.is_empty());
@@ -121,53 +154,43 @@ mod tests {
         let mut extension_file = std::fs::File::open(&extension_path).expect("open extension");
         let profile_len = profile_file.metadata().expect("profile metadata").len();
         let extension_len = extension_file.metadata().expect("extension metadata").len();
+
         let mut entries = [
-            ramune::EntryStream::new(
-                Path::new("profile.toml"),
-                0o100_644,
-                &mut profile_file,
-                profile_len,
-            ),
-            ramune::EntryStream::new(
-                Path::new("extensions/test-ext.erofs"),
-                0o100_644,
-                &mut extension_file,
-                extension_len,
-            ),
+            ramune::Entry {
+                path: "profile.toml".into(),
+                mode: 0o100_644,
+                len: profile_len,
+            },
+            ramune::Entry {
+                path: "extensions/test-ext.erofs".into(),
+                mode: 0o100_644,
+                len: extension_len,
+            },
         ];
 
         // ACT
         let mut buf = Vec::new();
-        ramune::archive(&mut entries, 19, &mut buf).expect("archive should succeed");
+        archive::cpio(&mut entries, &mut buf, |entry, w| {
+            let reader: &mut dyn Read = match entry.path.as_str() {
+                "profile.toml" => &mut profile_file,
+                "extensions/test-ext.erofs" => &mut extension_file,
+                other => panic!("unexpected entry: {other}"),
+            };
+            let mut limited = reader.take(entry.len);
+            std::io::copy(&mut limited, w).map_err(|e| RamuneError::WriteError {
+                file: String::new(),
+                source: e,
+            })?;
+            Ok(())
+        })
+        .expect("write_cpio should succeed");
 
         // ASSERT
-        let archive = zstd::decode_all(buf.as_slice()).expect("decode tail");
-        let parsed = parse_newc_archive(&archive);
-        let names: Vec<&str> = parsed.iter().map(|entry| entry.name.as_str()).collect();
+        let parsed = parse_newc_archive(&buf);
+        let names: Vec<&str> = parsed.iter().map(|entry| entry.0.as_str()).collect();
         assert_eq!(names, ["extensions/test-ext.erofs", "profile.toml"]);
-        assert_eq!(parsed.first().expect("first entry").mode, 0o100_644);
-        assert_eq!(parsed.first().expect("first entry").data, extension_data);
-        assert_eq!(parsed.get(1).expect("second entry").data, profile_data);
-    }
-
-    #[test]
-    fn archive_returns_error_for_short_reader() {
-        // ARRANGE
-        let mut reader = Cursor::new(b"small".to_vec());
-        let mut entries = [ramune::EntryStream::new(
-            Path::new("profile.toml"),
-            0o100_644,
-            &mut reader,
-            64,
-        )];
-
-        // ACT
-        let mut buf = Vec::new();
-        let result = ramune::archive(&mut entries, 19, &mut buf);
-
-        // ASSERT
-        assert!(
-            matches!(result, Err(RamuneError::CpioError(message)) if message.contains("ended early"))
-        );
+        assert_eq!(parsed.first().expect("first entry").1, 0o100_644);
+        assert_eq!(parsed.first().expect("first entry").2, extension_data);
+        assert_eq!(parsed.get(1).expect("second entry").2, profile_data);
     }
 }

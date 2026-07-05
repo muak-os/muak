@@ -8,13 +8,6 @@ const HEADER_LEN: usize = 110;
 const MAGIC: &[u8; 6] = b"070701";
 const TRAILER: &str = "TRAILER!!!";
 
-#[derive(Debug)]
-pub struct ArchiveEntry {
-    pub name: String,
-    pub mode: u32,
-    pub data: Vec<u8>,
-}
-
 pub struct TestEnv {
     temp: TempDir,
 }
@@ -55,7 +48,7 @@ fn parse_hex(field: &[u8]) -> u32 {
     u32::from_str_radix(field, 16).expect("cpio header field should be hex")
 }
 
-pub fn parse_newc_archive(bytes: &[u8]) -> Vec<ArchiveEntry> {
+pub fn parse_newc_archive(bytes: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
     let mut offset = 0_usize;
     let mut entries = Vec::new();
 
@@ -111,13 +104,13 @@ pub fn parse_newc_archive(bytes: &[u8]) -> Vec<ArchiveEntry> {
             break;
         }
 
-        entries.push(ArchiveEntry { name, mode, data });
+        entries.push((name, mode, data));
     }
 
     entries
 }
 
-pub fn decode_initramfs(path: &Path) -> Vec<ArchiveEntry> {
+pub fn decode_initramfs(path: &Path) -> Vec<(String, u32, Vec<u8>)> {
     let compressed = fs::read(path).expect("failed to read initramfs");
     let archive = zstd::decode_all(compressed.as_slice()).expect("failed to decode initramfs");
     parse_newc_archive(&archive)
