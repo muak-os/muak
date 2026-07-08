@@ -101,13 +101,13 @@ pub(crate) fn write_standalone<W: Write>(
     initramfs: Option<&mut W>,
 ) -> Result<()> {
     if let Some(w) = kernel {
-        let data = source::read_file(&assets.kernel, "kernel")?;
-        w.write_all(&data)
+        let mut reader = assets.kernel.open();
+        std::io::copy(&mut reader, w)
             .map_err(|e| WizardError::BuildError(format!("write kernel: {e}")))?;
     }
     if let Some(w) = cmdline {
-        let data = source::read_file(&assets.cmdline, "cmdline")?;
-        w.write_all(&data)
+        let mut reader = assets.cmdline.open();
+        std::io::copy(&mut reader, w)
             .map_err(|e| WizardError::BuildError(format!("write cmdline: {e}")))?;
     }
     if let Some(w) = initramfs {

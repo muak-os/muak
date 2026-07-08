@@ -1,6 +1,5 @@
 //! Installer and extension staging helpers.
 
-use std::io::Read as _;
 use std::path::Path;
 
 use koci::arch::Arch;
@@ -98,21 +97,6 @@ pub fn load_installer_assets(installer: &PulledImage) -> Result<InstallerAssets>
         stub: installer_file(installer, "stub.efi")?,
         cmdline: installer_file(installer, "cmdline")?,
     })
-}
-
-/// Reads all bytes from a pulled file.
-///
-/// # Errors
-///
-/// Returns an error when the file stream cannot be read.
-pub fn read_file(file: &PulledFile, name: &str) -> Result<Vec<u8>> {
-    let mut reader = file.open();
-    let mut bytes = Vec::new();
-    reader
-        .read_to_end(&mut bytes)
-        .map_err(|e| WizardError::BuildError(format!("read {name}: {e}")))?;
-
-    Ok(bytes)
 }
 
 fn installer_file(installer: &PulledImage, name: &str) -> Result<PulledFile> {
