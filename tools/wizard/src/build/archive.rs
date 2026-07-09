@@ -1,102 +1,144 @@
 //! Initramfs archive building.
 
-use std::collections::HashMap;
-use std::io::{Cursor, Read as _, Write};
-use std::path::Path;
+use std::io::{self, Write};
 
+use erofs::layout;
 use erofs::tree::TreeEntry;
+use erofs::writer;
 use koci::pulled::{PulledEntry, PulledImage};
 use ramune::Entry;
-use ramune::EntryStream;
+use ramune::archive;
+use ramune::error::RamuneError;
 
 use super::source;
 use super::source::InstallerAssets;
 use crate::error::{Result, WizardError};
 use crate::resolve::BuildPlan;
 
-/// Prebuilt components for the initramfs tail.
-#[derive(Clone)]
 pub(crate) struct TailParts {
-    paths: Vec<String>,
-    blobs: Vec<Vec<u8>>,
+    entries: Vec<TailEntry>,
 }
 
 impl TailParts {
     fn is_empty(&self) -> bool {
-        self.paths.is_empty()
+        self.entries.is_empty()
     }
 }
 
-/// Builds EROFS blobs from pre-pulled extensions and profile bytes.
+enum TailEntry {
+    Erofs {
+        path: String,
+        plan: erofs::ImagePlan,
+        config: erofs::MkfsConfig<'static>,
+        size: u64,
+    },
+    Raw {
+        path: String,
+        data: Vec<u8>,
+    },
+}
+
 pub(crate) fn prepare_tail_parts(
     extensions: &[(String, PulledImage)],
     profile_bytes: &[u8],
 ) -> Result<TailParts> {
-    let mut paths = Vec::new();
-    let mut blobs = Vec::new();
+    let mut entries = Vec::new();
     for entry in extensions {
-        let blob = erofs_blob_from_image(&entry.1, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
-        paths.push(format!(
-            "extensions/{}.erofs",
-            extension_archive_name(&entry.0)
-        ));
-        blobs.push(blob);
+        let (plan, config, size) =
+            plan_erofs_from_image(&entry.1, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
+        entries.push(TailEntry::Erofs {
+            path: format!("extensions/{}.erofs", extension_archive_name(&entry.0)),
+            plan,
+            config,
+            size,
+        });
     }
     if !profile_bytes.is_empty() {
-        paths.push("profile.toml".to_owned());
-        blobs.push(profile_bytes.to_vec());
+        entries.push(TailEntry::Raw {
+            path: "profile.toml".to_owned(),
+            data: profile_bytes.to_vec(),
+        });
     }
 
-    Ok(TailParts { paths, blobs })
+    Ok(TailParts { entries })
 }
 
-/// Returns the exact byte length of the raw CPIO archive for a prebuilt tail.
 pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
     let metas: Vec<Entry> = parts
-        .paths
+        .entries
         .iter()
-        .zip(parts.blobs.iter())
-        .map(|(path, blob)| Entry {
-            path: Path::new(path),
-            len: u64::try_from(blob.len()).unwrap_or(u64::MAX),
+        .map(|entry| match *entry {
+            TailEntry::Erofs { ref path, size, .. } => Entry {
+                path: path.clone(),
+                mode: 0o100_644,
+                len: size,
+            },
+            TailEntry::Raw { ref path, ref data } => Entry {
+                path: path.clone(),
+                mode: 0o100_644,
+                len: u64::try_from(data.len()).unwrap_or(u64::MAX),
+            },
         })
         .collect();
 
-    ramune::raw_size(&metas)
+    archive::size(&metas)
 }
 
-/// Writes a raw CPIO archive from prebuilt tail parts into `writer`.
 pub(crate) fn build_tail_from_parts(parts: &TailParts, writer: &mut impl Write) -> Result<()> {
     if parts.is_empty() {
         return Ok(());
     }
 
-    let mut readers: Vec<Cursor<&[u8]>> = parts
-        .blobs
+    let mut entries: Vec<Entry> = parts
+        .entries
         .iter()
-        .map(|blob| Cursor::new(blob.as_slice()))
-        .collect();
-    let mut entries: Vec<EntryStream<'_>> = parts
-        .paths
-        .iter()
-        .zip(readers.iter_mut())
-        .zip(parts.blobs.iter())
-        .map(|((path, reader), blob)| {
-            EntryStream::new(
-                Path::new(path),
-                0o100_644,
-                reader,
-                u64::try_from(blob.len()).unwrap_or(u64::MAX),
-            )
+        .map(|entry| match *entry {
+            TailEntry::Erofs { ref path, size, .. } => Entry {
+                path: path.clone(),
+                mode: 0o100_644,
+                len: size,
+            },
+            TailEntry::Raw { ref path, ref data } => Entry {
+                path: path.clone(),
+                mode: 0o100_644,
+                len: u64::try_from(data.len()).unwrap_or(u64::MAX),
+            },
         })
         .collect();
 
-    ramune::raw(&mut entries, writer)
-        .map(|_| ())
-        .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))
+    archive::cpio(&mut entries, writer, |entry, w| {
+        let tail_entry = parts
+            .entries
+            .iter()
+            .find(|e| entry_path(e) == entry.path)
+            .ok_or_else(|| RamuneError::CpioError(format!("unknown tail entry: {}", entry.path)))?;
+
+        write_tail_entry(tail_entry, w).map_err(|e| RamuneError::CpioError(e.to_string()))
+    })
+    .map(|_| ())
+    .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))
 }
 
-/// Derives the stable archive base name for an extension.
+fn write_tail_entry<W: Write>(entry: &TailEntry, writer: &mut W) -> Result<()> {
+    match *entry {
+        TailEntry::Erofs {
+            ref plan,
+            ref config,
+            ..
+        } => writer::image(writer, plan, config)
+            .map_err(|e| WizardError::BuildError(format!("write EROFS image: {e}"))),
+        TailEntry::Raw { ref data, .. } => writer
+            .write_all(data)
+            .map_err(|e| WizardError::BuildError(format!("write raw data: {e}"))),
+    }
+}
+
+fn entry_path(entry: &TailEntry) -> &str {
+    match *entry {
+        TailEntry::Erofs { ref path, .. } | TailEntry::Raw { ref path, .. } => path,
+    }
+}
+
 fn extension_archive_name(name: &str) -> String {
     name.replace('/', "-")
 }
@@ -114,7 +156,10 @@ pub(crate) async fn pull_extensions(
         .map_err(|e| WizardError::BuildError(format!("pull extensions: {e}")))
 }
 
-fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<Vec<u8>> {
+fn plan_erofs_from_image(
+    image: &PulledImage,
+    compression_level: i32,
+) -> Result<(erofs::ImagePlan, erofs::MkfsConfig<'static>, u64)> {
     const EROFS_FT_DIR: u8 = 2;
     const EROFS_FT_REG_FILE: u8 = 1;
 
@@ -130,7 +175,7 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
         symlink_target: vec![],
         rdev: 0,
     }];
-    let mut data = HashMap::new();
+    let mut readers: Vec<Box<dyn io::Read>> = vec![Box::new(io::empty())];
 
     for entry in image
         .entries()
@@ -139,12 +184,7 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
         let rel_path = format!("/{}", entry.path().display());
         match entry {
             PulledEntry::File { file, .. } => {
-                let mut reader = file.open();
-                let mut content = Vec::new();
-                reader
-                    .read_to_end(&mut content)
-                    .map_err(|e| WizardError::BuildError(format!("read entry: {e}")))?;
-                data.insert(rel_path.clone(), content);
+                readers.push(Box::new(file.open()));
                 entries.push(TreeEntry {
                     rel_path,
                     file_type: EROFS_FT_REG_FILE,
@@ -159,6 +199,7 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
                 });
             }
             PulledEntry::Dir { mode, .. } => {
+                readers.push(Box::new(io::empty()));
                 entries.push(TreeEntry {
                     rel_path,
                     file_type: EROFS_FT_DIR,
@@ -175,39 +216,37 @@ fn erofs_blob_from_image(image: &PulledImage, compression_level: i32) -> Result<
         }
     }
 
-    let source = erofs::InMemoryTreeSource::new(entries, data);
-    let mut buf = Vec::new();
-    erofs::mkfs(
-        &mut buf,
-        &source,
-        &erofs::MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: None,
-            uuid: [0; 16],
-            force_uid: Some(0),
-            force_gid: Some(0),
-            compression: erofs::Compression::Zstd {
-                level: compression_level,
-            },
-        },
-    )
-    .map_err(|error| WizardError::BuildError(format!("build EROFS blob: {error}")))?;
+    let mut files: Vec<erofs::SizedFile<'_>> = entries
+        .into_iter()
+        .zip(readers.iter_mut())
+        .map(|(entry, reader)| erofs::SizedFile { entry, reader })
+        .collect();
 
-    Ok(buf)
+    let config = erofs::MkfsConfig {
+        source_date_epoch: 0,
+        file_contexts: None,
+        uuid: [0; 16],
+        force_uid: Some(0),
+        force_gid: Some(0),
+        compression: erofs::Compression::Zstd {
+            level: compression_level,
+        },
+    };
+
+    let plan = layout::plan(&mut files, &config)
+        .map_err(|e| WizardError::BuildError(format!("plan EROFS blob: {e}")))?;
+    let total_size = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
+
+    Ok((plan, config, total_size))
 }
 
-/// Writes the base initramfs followed by a freshly built tail to a `Write` sink.
-///
-/// # Errors
-///
-/// Returns an error when reading the base initramfs, building the tail, or writing fails.
 pub fn write_combined_initramfs<W: Write>(
     assets: &InstallerAssets,
     tail_parts: &TailParts,
     writer: &mut W,
 ) -> Result<()> {
     let mut base_reader = assets.initramfs.open();
-    std::io::copy(&mut base_reader, writer)
+    io::copy(&mut base_reader, writer)
         .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
 
     build_tail_from_parts(tail_parts, writer)
@@ -234,11 +273,16 @@ mod tests {
     fn build_tail_from_parts_writes_archive() {
         // ARRANGE
         let parts = TailParts {
-            paths: vec![
-                "profile.toml".to_owned(),
-                "extensions/test.erofs".to_owned(),
+            entries: vec![
+                TailEntry::Raw {
+                    path: "profile.toml".to_owned(),
+                    data: b"profile = true\n".to_vec(),
+                },
+                TailEntry::Raw {
+                    path: "extensions/test.erofs".to_owned(),
+                    data: b"erofs-bytes".to_vec(),
+                },
             ],
-            blobs: vec![b"profile = true\n".to_vec(), b"erofs-bytes".to_vec()],
         };
 
         // ACT
@@ -253,11 +297,16 @@ mod tests {
     fn tail_exact_size_matches_built_size() {
         // ARRANGE
         let parts = TailParts {
-            paths: vec![
-                "profile.toml".to_owned(),
-                "extensions/test.erofs".to_owned(),
+            entries: vec![
+                TailEntry::Raw {
+                    path: "profile.toml".to_owned(),
+                    data: b"profile = true\n".to_vec(),
+                },
+                TailEntry::Raw {
+                    path: "extensions/test.erofs".to_owned(),
+                    data: b"erofs-bytes".to_vec(),
+                },
             ],
-            blobs: vec![b"profile = true\n".to_vec(), b"erofs-bytes".to_vec()],
         };
 
         // ACT
@@ -272,10 +321,7 @@ mod tests {
     #[test]
     fn build_tail_from_parts_empty_returns_ok() {
         // ARRANGE
-        let parts = TailParts {
-            paths: vec![],
-            blobs: vec![],
-        };
+        let parts = TailParts { entries: vec![] };
         let mut buf = Vec::new();
 
         // ACT
@@ -302,7 +348,7 @@ mod tests {
             prepare_tail_parts(&extensions, b"profile = true\n").expect("prepare tail parts");
 
         // ASSERT
-        assert!(!parts.paths.is_empty());
+        assert!(!parts.entries.is_empty());
     }
 
     #[tokio::test]
