@@ -4,7 +4,7 @@ use crate::arch::Arch;
 use crate::error::Result;
 
 pub mod cache;
-pub mod download;
+pub(crate) mod download;
 pub mod entries;
 pub(crate) mod layer;
 pub(crate) mod resolve;

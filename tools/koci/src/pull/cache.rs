@@ -1,6 +1,7 @@
 //! OCI blob cache backed by the local filesystem.
 
 use core::time::Duration;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::SystemTime;
@@ -10,19 +11,27 @@ static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
 #[derive(Clone)]
-pub(crate) struct BlobCache {
+pub struct Store {
     root: Option<PathBuf>,
     ttl: Duration,
 }
 
-impl BlobCache {
+impl Store {
+    /// Set the cache directory programmatically.
+    ///
+    /// This is overridden by the `MUAK_KOCI_CACHE` environment variable if set.
+    /// Must be called before creating any `Store` instances.
+    pub fn set_dir(path: PathBuf) {
+        drop(CACHE_DIR.set(Some(path)));
+    }
+
     /// Create a new cache.
     ///
     /// Resolution order:
     /// 1. `MUAK_KOCI_CACHE` environment variable (highest priority)
     /// 2. [`set_dir`]
     /// 3. No cache (all methods become no-ops)
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let root = std::env::var("MUAK_KOCI_CACHE")
             .ok()
             .map(PathBuf::from)
@@ -35,26 +44,37 @@ impl BlobCache {
         Self { root, ttl }
     }
 
-    /// Return cached blob bytes for the given digest, or `None`.
-    pub fn get_blob(&self, digest: &str) -> Option<Vec<u8>> {
+    /// Return a reader for the cached blob, or `None`.
+    pub(crate) fn get_blob_reader(&self, digest: &str) -> Option<File> {
         let path = self.blob_path(digest)?;
-
-        std::fs::read(&path).ok()
+        File::open(&path).ok()
     }
 
-    /// Store blob bytes for the given digest.
-    ///
-    /// Writes atomically via a temporary file followed by rename.
-    pub fn put_blob(&self, digest: &str, data: &[u8]) {
-        let Some(path) = self.blob_path(digest) else {
+    /// Store a blob by renaming the source file into the cache.
+    pub(crate) fn put_blob_from_file(&self, digest: &str, src: &Path) {
+        let Some(dest) = self.blob_path(digest) else {
             return;
         };
-        atomic_write(&path, data);
+        let Some(parent) = dest.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+        drop(std::fs::rename(src, dest));
+    }
+
+    /// Return the filesystem path for a blob digest.
+    pub(crate) fn blob_path(&self, digest: &str) -> Option<PathBuf> {
+        let root = self.root.as_ref()?;
+        let hash = digest.strip_prefix("sha256:")?;
+
+        Some(root.join("blobs").join("sha256").join(hash))
     }
 
     /// Return cached manifest JSON for a tag reference, or `None` if
     /// missing or the TTL has expired.
-    pub fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
+    pub(crate) fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
         let metadata = std::fs::metadata(&path).ok()?;
 
@@ -72,18 +92,11 @@ impl BlobCache {
     }
 
     /// Store manifest JSON for a tag reference.
-    pub fn put_ref(&self, registry: &str, name: &str, tag: &str, manifest: &str) {
+    pub(crate) fn put_ref(&self, registry: &str, name: &str, tag: &str, manifest: &str) {
         let Some(path) = self.ref_path(registry, name, tag) else {
             return;
         };
         atomic_write(&path, manifest.as_bytes());
-    }
-
-    fn blob_path(&self, digest: &str) -> Option<PathBuf> {
-        let root = self.root.as_ref()?;
-        let hash = digest.strip_prefix("sha256:")?;
-
-        Some(root.join("blobs").join("sha256").join(hash))
     }
 
     fn ref_path(&self, registry: &str, name: &str, tag: &str) -> Option<PathBuf> {
@@ -117,8 +130,8 @@ mod tests {
 
     use super::*;
 
-    fn new_cache(dir: &TempDir) -> BlobCache {
-        BlobCache {
+    fn new_cache(dir: &TempDir) -> Store {
+        Store {
             root: Some(dir.path().to_path_buf()),
             ttl: Duration::from_mins(5),
         }
@@ -131,10 +144,13 @@ mod tests {
         let cache = new_cache(&tmp);
         let digest = "sha256:abcd1234";
         let data = b"hello blob";
+        let src = tmp.path().join("src");
+        std::fs::write(&src, data).expect("write src");
 
         // ACT
-        cache.put_blob(digest, data);
-        let got = cache.get_blob(digest).expect("should find blob");
+        cache.put_blob_from_file(digest, &src);
+        let path = cache.blob_path(digest).expect("blob path");
+        let got = std::fs::read(path).expect("read blob");
 
         // ASSERT
         assert_eq!(got, data);
@@ -147,7 +163,7 @@ mod tests {
         let cache = new_cache(&tmp);
 
         // ACT / ASSERT
-        assert!(cache.get_blob("sha256:nonexistent").is_none());
+        assert!(cache.get_blob_reader("sha256:nonexistent").is_none());
     }
 
     #[test]
@@ -155,10 +171,12 @@ mod tests {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let cache = new_cache(&tmp);
-        cache.put_blob("sha256:abc", b"data");
+        let src = tmp.path().join("src");
+        std::fs::write(&src, b"data").expect("write src");
+        cache.put_blob_from_file("sha256:abc", &src);
 
         // ACT / ASSERT
-        assert!(cache.get_blob("sha512:abc").is_none());
+        assert!(cache.get_blob_reader("sha512:abc").is_none());
     }
 
     #[test]
@@ -182,7 +200,7 @@ mod tests {
     fn ref_expires_after_ttl() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
-        let cache = BlobCache {
+        let cache = Store {
             root: Some(tmp.path().to_path_buf()),
             ttl: Duration::from_millis(10),
         };
@@ -198,17 +216,18 @@ mod tests {
     #[test]
     fn no_cache_dir_all_methods_are_noops() {
         // ARRANGE
-        let cache = BlobCache {
+        let cache = Store {
             root: None,
             ttl: Duration::from_mins(5),
         };
+        let src = PathBuf::from("/nonexistent");
 
         // ACT
-        cache.put_blob("sha256:abc", b"data");
+        cache.put_blob_from_file("sha256:abc", &src);
         cache.put_ref("r", "n", "t", "{}");
 
         // ASSERT
-        assert!(cache.get_blob("sha256:abc").is_none());
+        assert!(cache.get_blob_reader("sha256:abc").is_none());
         assert!(cache.get_ref("r", "n", "t").is_none());
     }
 
@@ -232,7 +251,7 @@ mod tests {
         let _: Option<()> = CACHE_DIR.set(Some(PathBuf::from("/some/cache"))).ok();
 
         // ACT
-        let cache = BlobCache::new();
+        let cache = Store::new();
 
         // ASSERT
         assert_eq!(cache.root, Some(PathBuf::from("/some/cache")));

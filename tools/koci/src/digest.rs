@@ -1,10 +1,57 @@
 //! Cryptographic digest utilities for OCI blob integrity.
 
+use ring::digest;
+
 use crate::error::{KociError, Result};
+
+/// Streaming SHA-256 digest verifier.
+pub(crate) struct StreamingDigest {
+    context: digest::Context,
+    expected: String,
+}
+
+impl StreamingDigest {
+    /// Create a new streaming digest verifier for the given OCI digest.
+    pub(crate) fn new(expected_digest: &str) -> Result<Self> {
+        let expected_hash =
+            expected_digest
+                .strip_prefix("sha256:")
+                .ok_or_else(|| KociError::DigestMismatch {
+                    resource: "blob".to_owned(),
+                    expected: expected_digest.to_owned(),
+                    actual: "unsupported digest algorithm".to_owned(),
+                })?;
+
+        Ok(Self {
+            context: digest::Context::new(&digest::SHA256),
+            expected: expected_hash.to_owned(),
+        })
+    }
+
+    /// Feed a chunk of data into the digest.
+    pub(crate) fn update(&mut self, chunk: &[u8]) {
+        self.context.update(chunk);
+    }
+
+    /// Finalize and verify the digest matches the expected value.
+    pub(crate) fn verify(self) -> Result<()> {
+        let hash = self.context.finish();
+        let actual = hex_encode(hash.as_ref());
+
+        if actual != self.expected {
+            return Err(KociError::DigestMismatch {
+                resource: "blob".to_owned(),
+                expected: format!("sha256:{}", self.expected),
+                actual,
+            });
+        }
+
+        Ok(())
+    }
+}
 
 /// Compute the SHA-256 hex digest of the given bytes.
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
-    use ring::digest;
     let hash = digest::digest(&digest::SHA256, data);
     hex_encode(hash.as_ref())
 }
@@ -23,73 +70,42 @@ fn hex_digit(nibble: u8) -> char {
     char::from_digit(u32::from(nibble), 16).unwrap_or('0')
 }
 
-/// Verify that the SHA-256 digest of a downloaded blob matches its expected OCI digest.
-pub(crate) fn verify_blob_digest(data: &[u8], expected_digest: &str) -> Result<()> {
-    let expected_hash =
-        expected_digest
-            .strip_prefix("sha256:")
-            .ok_or_else(|| KociError::DigestMismatch {
-                resource: "blob".to_owned(),
-                expected: expected_digest.to_owned(),
-                actual: "unsupported digest algorithm".to_owned(),
-            })?;
-
-    let actual_hash = sha256_hex(data);
-
-    if actual_hash != expected_hash {
-        return Err(KociError::DigestMismatch {
-            resource: expected_digest.to_owned(),
-            expected: expected_hash.to_owned(),
-            actual: actual_hash,
-        });
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sha256_hex_empty() {
-        // ACT & ASSERT
-        assert_eq!(
-            sha256_hex(b""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-    }
-
-    #[test]
-    fn sha256_hex_hello() {
-        // ACT & ASSERT
-        assert_eq!(
-            sha256_hex(b"hello"),
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-        );
-    }
-
-    #[test]
-    fn verify_blob_digest_ok() {
+    fn streaming_digest_verifies_hello() {
         // ARRANGE
-        let data = b"hello";
         let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let mut verifier = StreamingDigest::new(digest).expect("create verifier");
 
         // ACT
-        let result = verify_blob_digest(data, digest);
+        verifier.update(b"hello");
+        let result = verifier.verify();
 
         // ASSERT
         result.expect("digest should verify");
     }
 
     #[test]
-    fn verify_blob_digest_unsupported_algorithm() {
+    fn streaming_digest_detects_mismatch() {
         // ARRANGE
-        let data = b"hello";
-        let digest = "md5:abcdef";
+        let digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let mut verifier = StreamingDigest::new(digest).expect("create verifier");
 
         // ACT
-        let result = verify_blob_digest(data, digest);
+        verifier.update(b"wrong");
+        let result = verifier.verify();
+
+        // ASSERT
+        assert!(matches!(result, Err(KociError::DigestMismatch { .. })));
+    }
+
+    #[test]
+    fn streaming_digest_rejects_unsupported_algorithm() {
+        // ACT
+        let result = StreamingDigest::new("md5:abcdef");
 
         // ASSERT
         assert!(matches!(result, Err(KociError::DigestMismatch { .. })));

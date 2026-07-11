@@ -62,7 +62,7 @@ pub(crate) fn classify_tar_entry(entry: &tar::Entry<impl Read>) -> Result<EntryI
 }
 
 /// Scan a single layer and collect its whiteout targets.
-pub(crate) fn scan_whiteouts(data: &[u8]) -> Result<Vec<PathBuf>> {
+pub(crate) fn scan_whiteouts<R: Read>(data: R) -> Result<Vec<PathBuf>> {
     let mut whiteouts: Vec<PathBuf> = Vec::new();
 
     let mut archive = tar::Archive::new(data);

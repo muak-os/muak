@@ -2,6 +2,8 @@
 
 use core::result::Result as CoreResult;
 use core::time::Duration;
+use std::fs::File;
+use std::io::Write as _;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
@@ -13,10 +15,11 @@ use hyper_util::rt::TokioExecutor;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::time::timeout;
 
-const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
-
+use crate::digest::StreamingDigest;
 use crate::error::{KociError, Result};
 use crate::registry::USER_AGENT;
+
+const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// HTTPS connector backed by rustls that also supports plain HTTP.
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
@@ -124,6 +127,32 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
         })?
         .map(http_body_util::Collected::to_bytes)
         .map_err(|error| KociError::NetworkError(format!("Failed to read response body: {error}")))
+}
+
+/// Stream an HTTP response body to a file while computing a digest.
+pub(crate) async fn stream_body_to_file(
+    resp: Response<Incoming>,
+    file: &mut File,
+    digest: &mut StreamingDigest,
+) -> Result<()> {
+    let mut body = resp.into_body();
+
+    while let Some(frame) = timeout(HTTP_TIMEOUT, body.frame()).await.map_err(|error| {
+        KociError::NetworkError(format!(
+            "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
+        ))
+    })? {
+        let frame = frame.map_err(|error| {
+            KociError::NetworkError(format!("Failed to read response body: {error}"))
+        })?;
+
+        if let Some(data) = frame.data_ref() {
+            file.write_all(data)?;
+            digest.update(data);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

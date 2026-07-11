@@ -1,8 +1,8 @@
 //! Resolving an image reference to its ordered list of OCI layer descriptors.
 
-use super::cache::BlobCache;
+use super::cache::Store;
 use crate::arch::Arch;
-use crate::error::{KociError, Result};
+use crate::error::Result;
 use crate::image::manifest;
 use crate::image::{ImageReference, OciDescriptor};
 use crate::registry::http::HttpClient;
@@ -10,7 +10,7 @@ use crate::sign::verify;
 
 /// Resolve an image reference to the ordered list of layers for the target platform.
 pub(crate) async fn layers(
-    cache: &BlobCache,
+    cache: &Store,
     client: &HttpClient,
     image_ref: &ImageReference,
     token: Option<&str>,
@@ -40,7 +40,7 @@ pub(crate) async fn layers(
 
 /// Fetch a manifest, checking the local cache before hitting the network.
 async fn fetch_cached_manifest(
-    cache: &BlobCache,
+    cache: &Store,
     client: &HttpClient,
     image_ref: &ImageReference,
     manifest_ref: &str,
@@ -49,12 +49,17 @@ async fn fetch_cached_manifest(
     let is_digest = manifest_ref.starts_with("sha256:");
 
     if is_digest {
-        if let Some(cached) = cache.get_blob(manifest_ref) {
-            return utf8_bytes_to_string(cached);
+        let cached = cache
+            .blob_path(manifest_ref)
+            .and_then(|path| std::fs::read_to_string(&path).ok());
+        if let Some(cached) = cached {
+            return Ok(cached);
         }
         let url = manifest::build_url(image_ref, manifest_ref);
         let json = manifest::fetch(client, &url, token).await?;
-        cache.put_blob(manifest_ref, json.as_bytes());
+        if let Some(path) = cache.blob_path(manifest_ref) {
+            drop(std::fs::write(&path, json.as_bytes()));
+        }
 
         Ok(json)
     } else {
@@ -67,10 +72,4 @@ async fn fetch_cached_manifest(
 
         Ok(json)
     }
-}
-
-fn utf8_bytes_to_string(bytes: Vec<u8>) -> Result<String> {
-    String::from_utf8(bytes).map_err(|err| {
-        KociError::OciParseError(format!("cached manifest is not valid UTF-8: {err}"))
-    })
 }

@@ -1,18 +1,39 @@
 //! OCI layer blob downloading and cache integration.
 
-use super::cache::BlobCache;
-use crate::digest::verify_blob_digest;
-use crate::error::Result;
-use crate::image::ImageReference;
-use crate::registry::http::{HttpClient, collect_body, get};
+use std::fs::File;
+use std::io::Read;
 
-/// Download a blob from the registry, verify its SHA-256 digest, and return the raw bytes.
+use flate2::read::GzDecoder;
+
+use super::cache::Store;
+use crate::digest::StreamingDigest;
+use crate::error::{KociError, Result};
+use crate::image::ImageReference;
+use crate::registry::http::{HttpClient, get, stream_body_to_file};
+
+/// A streaming reader that decompresses layer data on the fly.
+pub(crate) enum LayerReader {
+    Plain(File),
+    Gzipped(GzDecoder<File>),
+}
+
+impl Read for LayerReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match *self {
+            Self::Plain(ref mut file) => file.read(buf),
+            Self::Gzipped(ref mut decoder) => decoder.read(buf),
+        }
+    }
+}
+
+/// Download a blob from the registry to a file, verifying its SHA-256 digest.
 pub(crate) async fn blob(
     client: &HttpClient,
     image_ref: &ImageReference,
     digest: &str,
     token: Option<&str>,
-) -> Result<Vec<u8>> {
+    dest: &std::path::Path,
+) -> Result<()> {
     let blob_url = format!(
         "{}://{}/v2/{}/blobs/{}",
         image_ref.scheme(),
@@ -22,25 +43,54 @@ pub(crate) async fn blob(
     );
 
     let resp = get(client, &blob_url, token, &[]).await?;
-    let bytes = collect_body(resp).await?.to_vec();
-    verify_blob_digest(&bytes, digest)?;
+    let mut file = File::create(dest)?;
+    let mut digest_verifier = StreamingDigest::new(digest)?;
 
-    Ok(bytes)
+    stream_body_to_file(resp, &mut file, &mut digest_verifier).await?;
+
+    digest_verifier.verify()
 }
 
 /// Download a blob, checking the local cache before hitting the network.
 pub(crate) async fn cached(
-    cache: &BlobCache,
+    cache: &Store,
     client: &HttpClient,
     image_ref: &ImageReference,
     digest: &str,
     token: Option<&str>,
-) -> Result<Vec<u8>> {
-    if let Some(cached) = cache.get_blob(digest) {
-        return Ok(cached);
+) -> Result<File> {
+    if let Some(reader) = cache.get_blob_reader(digest) {
+        return Ok(reader);
     }
-    let data = blob(client, image_ref, digest, token).await?;
-    cache.put_blob(digest, &data);
 
-    Ok(data)
+    let dest_path = cache.blob_path(digest).unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("koci-blob-{}", digest.replace(':', "-")))
+    });
+
+    blob(client, image_ref, digest, token, &dest_path).await?;
+
+    if cache.blob_path(digest).is_some() {
+        cache.put_blob_from_file(digest, &dest_path);
+        cache
+            .get_blob_reader(digest)
+            .ok_or_else(|| KociError::DownloadError("Failed to open cached blob".to_owned()))
+    } else {
+        File::open(&dest_path).map_err(Into::into)
+    }
+}
+
+/// Wrap a file in the appropriate decompressor based on media type.
+pub(crate) fn decompress(file: File, media_type: Option<&str>) -> Result<LayerReader> {
+    match media_type {
+        Some(
+            "application/vnd.oci.image.layer.v1.tar+gzip"
+            | "application/vnd.docker.image.rootfs.diff.tar.gzip",
+        ) => Ok(LayerReader::Gzipped(GzDecoder::new(file))),
+        Some(
+            "application/vnd.oci.image.layer.v1.tar"
+            | "application/vnd.docker.image.rootfs.diff.tar",
+        )
+        | None => Ok(LayerReader::Plain(file)),
+        Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
+    }
 }

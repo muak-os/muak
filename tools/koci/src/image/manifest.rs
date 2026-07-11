@@ -24,9 +24,12 @@ pub(crate) async fn fetch(
 ) -> Result<String> {
     let resp = get(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS).await?;
     let body = collect_body(resp).await?;
-    String::from_utf8(body.to_vec()).map_err(|error| {
-        KociError::NetworkError(format!("Manifest response is not UTF-8: {error}"))
-    })
+    match core::str::from_utf8(&body) {
+        Ok(text) => Ok(text.to_owned()),
+        Err(error) => Err(KociError::NetworkError(format!(
+            "Manifest response is not UTF-8: {error}"
+        ))),
+    }
 }
 
 /// Parse manifest JSON into an [`OciManifest`].

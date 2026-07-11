@@ -9,6 +9,7 @@ use super::{cache, download, resolve, scan};
 use crate::arch::Arch;
 use crate::error::{KociError, Result};
 use crate::image::ImageReference;
+use crate::pull::download::LayerReader;
 use crate::registry::auth::fetch_auth_token;
 use crate::registry::http::build_client;
 
@@ -20,9 +21,14 @@ pub(crate) async fn process<F>(
     mut on_entry: F,
 ) -> Result<()>
 where
-    F: FnMut(usize, tar::Entry<&[u8]>, scan::EntryInfo, &HashMap<PathBuf, usize>) -> Result<()>,
+    F: FnMut(
+        usize,
+        tar::Entry<&mut LayerReader>,
+        scan::EntryInfo,
+        &HashMap<PathBuf, usize>,
+    ) -> Result<()>,
 {
-    let cache = cache::BlobCache::new();
+    let cache = cache::Store::new();
     let image_ref = ImageReference::parse(reference);
     let client = build_client();
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
@@ -39,21 +45,21 @@ where
 
     let mut whiteout_layers: HashMap<PathBuf, usize> = HashMap::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let bytes =
+        let file =
             download::cached(&cache, &client, &image_ref, &layer.digest, token.as_deref()).await?;
-        let data = download::decompress(&bytes, layer.media_type.as_deref())?;
-        let whiteouts = scan::scan_whiteouts(&data)?;
+        let reader = download::decompress(file, layer.media_type.as_deref())?;
+        let whiteouts = scan::scan_whiteouts(reader)?;
         for w in whiteouts {
             whiteout_layers.entry(w).or_insert(layer_idx);
         }
     }
 
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let bytes =
+        let file =
             download::cached(&cache, &client, &image_ref, &layer.digest, token.as_deref()).await?;
-        let data = download::decompress(&bytes, layer.media_type.as_deref())?;
+        let mut reader = download::decompress(file, layer.media_type.as_deref())?;
 
-        let mut archive = Archive::new(data.as_slice());
+        let mut archive = Archive::new(&mut reader);
         let entries = archive.entries()?;
         for entry_result in entries {
             let entry = entry_result?;

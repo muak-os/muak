@@ -57,6 +57,7 @@ pub async fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     }
 
     let (signed_bytes, content_type) = build_signed_manifest(&manifest_json, &key_pair, &rng)?;
+
     push_manifest(
         &client,
         &image_ref,
@@ -68,8 +69,15 @@ pub async fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     .await
 }
 
-/// Compute the canonical payload for signing a manifest JSON string.
-pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, Vec<u8>)> {
+/// Compute the canonical digest for signing a manifest JSON string.
+pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<String> {
+    let canonical = canonicalize_manifest(manifest_json)?;
+
+    Ok(format!("sha256:{}", sha256_hex(&canonical)))
+}
+
+/// Strip the signature annotation and produce canonical (sorted-key) JSON bytes.
+fn canonicalize_manifest(manifest_json: &str) -> Result<Vec<u8>> {
     let mut value: serde_json::Value = match serde_json::from_str(manifest_json) {
         Ok(value) => value,
         Err(error) => {
@@ -96,10 +104,7 @@ pub(crate) fn manifest_signing_payload(manifest_json: &str) -> Result<(String, V
 
     sort_keys(&mut value);
 
-    let canonical = serde_json::to_vec(&value)?;
-
-    let digest = format!("sha256:{}", sha256_hex(&canonical));
-    Ok((digest, canonical))
+    serde_json::to_vec(&value).map_err(Into::into)
 }
 
 /// Recursively sort all JSON object keys in lexicographic order.
@@ -131,7 +136,7 @@ pub(crate) fn build_signed_manifest(
     key_pair: &EcdsaKeyPair,
     rng: &SystemRandom,
 ) -> Result<(Bytes, String)> {
-    let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
+    let digest = manifest_signing_payload(manifest_json)?;
 
     let sig = match key_pair.sign(rng, digest.as_bytes()) {
         Ok(signature) => signature,
@@ -188,6 +193,7 @@ async fn push_manifest(
 ) -> Result<()> {
     let url = manifest::build_url(image_ref, reference);
     put(client, &url, token, content_type, body).await?;
+
     Ok(())
 }
 
@@ -237,8 +243,9 @@ mod tests {
         let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig","other":"keep"},"layers":[]}"#;
 
         // ACT
-        let (digest, canonical) =
+        let digest =
             manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
+        let canonical = canonicalize_manifest(manifest_json).expect("canonicalize manifest");
 
         // ASSERT
         let canonical_str = decode_utf8(&canonical);
@@ -271,7 +278,7 @@ mod tests {
             .and_then(serde_json::Value::as_str)
             .expect("signed manifest must include the signature annotation");
         let sig_bytes = decode_base64url(sig_b64);
-        let (digest, _) =
+        let digest =
             manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
         let pub_key =
             UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, key_pair.public_key().as_ref());
@@ -287,7 +294,7 @@ mod tests {
     fn manifest_signing_payload_idempotent() {
         // ARRANGE
         let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
-        let (digest1, _) = manifest_signing_payload(manifest_json)
+        let digest1 = manifest_signing_payload(manifest_json)
             .expect("compute initial manifest signing payload");
         let mut value: serde_json::Value =
             serde_json::from_str(manifest_json).expect("parse manifest json");
@@ -305,7 +312,7 @@ mod tests {
         let signed_json = serde_json::to_string(&value).expect("serialize signed manifest");
 
         // ACT
-        let (digest2, _) =
+        let digest2 =
             manifest_signing_payload(&signed_json).expect("compute signed manifest payload");
 
         // ASSERT
@@ -322,8 +329,7 @@ mod tests {
             r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"oldsig"},"layers":[]}"#;
 
         // ACT
-        let (_digest, canonical) =
-            manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
+        let canonical = canonicalize_manifest(manifest_json).expect("canonicalize manifest");
         let canonical_str = decode_utf8(&canonical);
 
         // ASSERT

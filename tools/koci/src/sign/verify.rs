@@ -33,7 +33,7 @@ pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> 
         })?
         .to_owned();
 
-    let (digest, _canonical) = manifest_signing_payload(manifest_json)?;
+    let digest = manifest_signing_payload(manifest_json)?;
 
     let sig_bytes = Base64Url::decode_vec(&sig_b64).map_err(|error| {
         KociError::SignatureVerificationFailed(format!(
@@ -127,7 +127,7 @@ mod tests {
         });
         let manifest_bare_json = serde_json::to_string(&manifest_bare).expect("serialize manifest");
 
-        let (digest, _) = manifest_signing_payload(&manifest_bare_json)
+        let digest = manifest_signing_payload(&manifest_bare_json)
             .expect("compute manifest signing payload");
         let sig_b64 = sign_test_digest(&key_pair, &rng, &digest);
 
@@ -165,7 +165,7 @@ mod tests {
             "layers": []
         });
         let manifest_bare_json = serde_json::to_string(&manifest_bare).expect("serialize manifest");
-        let (digest, _) = manifest_signing_payload(&manifest_bare_json)
+        let digest = manifest_signing_payload(&manifest_bare_json)
             .expect("compute manifest signing payload");
         let sig_b64 = sign_test_digest(&key_pair, &rng, &digest);
 
