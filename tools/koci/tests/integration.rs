@@ -7,15 +7,14 @@ mod registry;
 
 #[cfg(test)]
 mod tests {
-    use core::time::Duration;
-    use std::io::Read as _;
+    use std::collections::HashMap;
     use std::path::Path;
     use std::process::Command;
-    use std::time::Instant;
 
     use koci::arch::Arch;
     use koci::error::KociError;
-    use koci::pulled::PulledImage;
+    use koci::pull;
+    use koci::sign;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -36,33 +35,56 @@ mod tests {
         Path::new(env!("CARGO_BIN_EXE_koci"))
     }
 
-    fn read_pulled_file(image: &PulledImage, path: &str) -> String {
-        let file = image
-            .file(Path::new(path))
-            .expect("file lookup")
-            .expect("missing pulled file");
-        let mut reader = file.open();
-        let mut contents = String::new();
-        reader
-            .read_to_string(&mut contents)
-            .expect("read pulled file");
-        contents
+    struct CollectedFile {
+        path: String,
+        contents: Vec<u8>,
     }
 
-    async fn expect_pull_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
-        koci::pull(reference, pubkey_pem)
-            .await
-            .expect_err("pull should fail")
+    async fn collect_files(
+        reference: &str,
+        arch: &Arch,
+        pubkey_pem: Option<&str>,
+    ) -> Vec<CollectedFile> {
+        let mut files = Vec::new();
+        pull::files(reference, arch, pubkey_pem, |entry| {
+            let path = entry.path.clone();
+            let mut contents = Vec::new();
+            entry.reader.read_to_end(&mut contents)?;
+            files.push(CollectedFile { path, contents });
+            Ok(())
+        })
+        .await
+        .expect("stream files should succeed");
+        files
     }
 
-    async fn expect_pull_image(reference: &str, pubkey_pem: Option<&str>) -> PulledImage {
-        koci::pull(reference, pubkey_pem)
+    async fn collect_metadata(
+        reference: &str,
+        arch: &Arch,
+        pubkey_pem: Option<&str>,
+    ) -> Vec<pull::entries::MetadataEntry> {
+        let mut entries = Vec::new();
+        pull::metadata(reference, arch, pubkey_pem, |entry| {
+            entries.push(pull::entries::MetadataEntry {
+                path: entry.path.clone(),
+                size: entry.size,
+                mode: entry.mode,
+            });
+            Ok(())
+        })
+        .await
+        .expect("extract metadata should succeed");
+        entries
+    }
+
+    async fn expect_stream_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
+        pull::files(reference, &Arch::Amd64, pubkey_pem, |_entry| Ok(()))
             .await
-            .expect("pull should succeed")
+            .expect_err("stream should fail")
     }
 
     async fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
-        koci::sign(reference, private_key_pem)
+        sign::manifest(reference, private_key_pem)
             .await
             .expect_err("sign should fail")
     }
@@ -88,7 +110,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pull_extracts_single_layer_from_local_registry() {
+    async fn stream_files_yields_files_from_single_layer() {
         // ARRANGE
         let layer = layer_archive(&[
             ("etc/motd", b"hello from koci\n"),
@@ -98,7 +120,7 @@ mod tests {
         let layer_digest = sha256_digest(&layer);
         let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
 
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{layer_digest}"),
@@ -106,19 +128,20 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
+        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
 
         // ASSERT
-        assert_eq!(read_pulled_file(&image, "etc/motd"), "hello from koci\n");
-        assert_eq!(
-            read_pulled_file(&image, "usr/share/koci/message.txt"),
-            "integration test\n"
-        );
+        assert_eq!(files.len(), 2);
+        assert_eq!(files.first().unwrap().path, "etc/motd");
+        assert_eq!(&files.first().unwrap().contents, b"hello from koci\n");
+        assert_eq!(files.get(1).unwrap().path, "usr/share/koci/message.txt");
+        assert_eq!(&files.get(1).unwrap().contents, b"integration test\n");
     }
 
     #[tokio::test]
-    async fn pull_selects_requested_platform_manifest_from_index() {
+    async fn stream_files_selects_requested_platform() {
         // ARRANGE
         let layer = layer_archive(&[("etc/platform", b"selected requested manifest\n")])
             .expect("build layer archive");
@@ -141,7 +164,7 @@ mod tests {
         )
         .expect("build fallback manifest json");
 
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::index(index)),
             get(
                 format!("/v2/repo/manifests/{selected_manifest_digest}"),
@@ -157,20 +180,20 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let image = koci::pull_arch(&registry.reference("repo", "test"), &Arch::Arm64, None)
-            .await
-            .expect("pull image");
+        let files = collect_files(&registry.reference("repo", "test"), &Arch::Arm64, None).await;
 
         // ASSERT
+        assert_eq!(files.len(), 1);
         assert_eq!(
-            read_pulled_file(&image, "etc/platform"),
-            "selected requested manifest\n"
+            &files.first().unwrap().contents,
+            b"selected requested manifest\n"
         );
     }
 
     #[tokio::test]
-    async fn pull_rejects_index_without_requested_platform_match() {
+    async fn stream_files_rejects_missing_platform() {
         // ARRANGE
         let index = index_for_arches_json(&[(
             "sha256:3333333333333333333333333333333333333333333333333333333333333333",
@@ -178,29 +201,35 @@ mod tests {
             "windows",
         )])
         .expect("build index json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
             HttpResponse::index(index),
         )]))
         .expect("start mock registry");
+
         // ACT
-        let error = koci::pull_arch(&registry.reference("repo", "test"), &Arch::Arm64, None)
-            .await
-            .expect_err("pull should fail");
+        let error = pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Arm64,
+            None,
+            |_entry| Ok(()),
+        )
+        .await
+        .expect_err("stream should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
     }
 
     #[tokio::test]
-    async fn pull_supports_digest_manifest_reference() {
+    async fn stream_files_supports_digest_reference() {
         // ARRANGE
         let layer = layer_archive(&[("etc/digest", b"pulled by digest\n")]).expect("build layer");
         let layer_digest = sha256_digest(&layer);
         let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
         let manifest_digest = sha256_digest(&manifest);
 
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 format!("/v2/repo/manifests/{manifest_digest}"),
                 HttpResponse::json(manifest),
@@ -211,12 +240,18 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let image =
-            expect_pull_image(&registry.digest_reference("repo", &manifest_digest), None).await;
+        let files = collect_files(
+            &registry.digest_reference("repo", &manifest_digest),
+            &Arch::Amd64,
+            None,
+        )
+        .await;
 
         // ASSERT
-        assert_eq!(read_pulled_file(&image, "etc/digest"), "pulled by digest\n");
+        assert_eq!(files.len(), 1);
+        assert_eq!(&files.first().unwrap().contents, b"pulled by digest\n");
         let request = required_request(
             &registry,
             "GET",
@@ -229,7 +264,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pull_rejects_blob_with_digest_mismatch() {
+    async fn stream_files_rejects_blob_digest_mismatch() {
         // ARRANGE
         let layer =
             layer_archive(&[("etc/invalid", b"digest mismatch\n")]).expect("build layer archive");
@@ -239,16 +274,17 @@ mod tests {
         )
         .expect("build manifest json");
 
-        let registry = MockRegistry::start(std::collections::HashMap::from([
-        get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
-        get(
-            "/v2/repo/blobs/sha256:0000000000000000000000000000000000000000000000000000000000000000",
-            HttpResponse::octet_stream(layer),
-        ),
-    ]))
-    .expect("start mock registry");
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
+            get(
+                "/v2/repo/blobs/sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+
         // ACT
-        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::DigestMismatch { .. }));
@@ -264,7 +300,7 @@ mod tests {
         let second_platform_digest =
             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 top_level_path,
                 HttpResponse::index(
@@ -293,7 +329,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
             .await
             .expect("sign image");
 
@@ -311,7 +347,7 @@ mod tests {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 path,
                 HttpResponse::json(
@@ -323,7 +359,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
             .await
             .expect("sign image");
 
@@ -341,7 +377,7 @@ mod tests {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 path,
                 HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
@@ -351,7 +387,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        koci::sign(&registry.reference("repo", "test"), &keys.private_key_pem)
+        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
             .await
             .expect("sign image");
 
@@ -416,7 +452,7 @@ mod tests {
     async fn sign_rejects_non_object_manifest_annotations() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 "/v2/repo/manifests/test",
                 HttpResponse::json(
@@ -452,7 +488,7 @@ mod tests {
             &keys.private_key_pem,
         )
         .expect("sign manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{layer_digest}"),
@@ -538,7 +574,7 @@ mod tests {
         let selected_manifest = manifest_json(&selected_layer_digest, selected_layer.len())
             .expect("build manifest json");
         let other_manifest = minimal_manifest_json().expect("build fallback manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::index(index)),
             get(
                 format!("/v2/repo/manifests/{selected_manifest_digest}"),
@@ -580,7 +616,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pull_applies_multiple_layers_in_order() {
+    async fn stream_files_applies_multiple_layers_with_whiteouts() {
         // ARRANGE
         let first_layer = layer_archive(&[("etc/message", b"first\n")]).expect("build first layer");
         let second_layer = layer_archive(&[("etc/.wh.message", b""), ("etc/message", b"second\n")])
@@ -600,7 +636,7 @@ mod tests {
             ),
         ])
         .expect("build manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{first_digest}"),
@@ -612,22 +648,25 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
+        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
 
         // ASSERT
-        assert_eq!(read_pulled_file(&image, "etc/message"), "second\n");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files.first().unwrap().path, "etc/message");
+        assert_eq!(&files.first().unwrap().contents, b"second\n");
     }
 
     #[tokio::test]
-    async fn pull_rejects_unsupported_layer_media_type() {
+    async fn stream_files_rejects_unsupported_layer_media_type() {
         // ARRANGE
         let layer = b"plain bytes".to_vec();
         let layer_digest = sha256_digest(&layer);
         let manifest =
             manifest_with_layers_json(&[(&layer_digest, layer.len(), "application/test")])
                 .expect("build manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{layer_digest}"),
@@ -635,55 +674,87 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
     }
 
     #[tokio::test]
-    async fn pull_allows_empty_layer_list() {
+    async fn stream_files_allows_empty_layer_list() {
         // ARRANGE
-        let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
             HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
         )]))
         .expect("start mock registry");
+
         // ACT
-        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
+        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
 
         // ASSERT
-        assert!(image.entries().expect("entries").is_empty());
+        assert!(files.is_empty());
     }
 
     #[tokio::test]
-    async fn pull_rejects_missing_blob() {
+    async fn stream_files_rejects_missing_blob() {
         // ARRANGE
         let layer_digest =
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let manifest = manifest_json(layer_digest, 1).expect("build manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
             HttpResponse::json(manifest),
         )]))
         .expect("start mock registry");
+
         // ACT
-        let error = expect_pull_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
 
         // ASSERT
         assert!(matches!(error, KociError::DownloadError(_)));
     }
 
     #[tokio::test]
-    async fn pull_downloads_layers_in_parallel() {
+    async fn extract_metadata_returns_file_information() {
         // ARRANGE
-        let first_layer = layer_archive(&[("etc/first", b"first\n")]).expect("build first layer");
-        let second_layer =
-            layer_archive(&[("etc/second", b"second\n")]).expect("build second layer");
+        let layer = layer_archive(&[("etc/motd", b"hello\n"), ("usr/bin/app", b"binary\n")])
+            .expect("build layer archive");
+        let layer_digest = sha256_digest(&layer);
+        let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
+
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{layer_digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let metadata =
+            collect_metadata(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+
+        // ASSERT
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata.first().unwrap().path, "etc/motd");
+        assert_eq!(metadata.first().unwrap().size, 6);
+        assert_eq!(metadata.get(1).unwrap().path, "usr/bin/app");
+        assert_eq!(metadata.get(1).unwrap().size, 7);
+    }
+
+    #[tokio::test]
+    async fn extract_metadata_skips_whiteout_files() {
+        // ARRANGE
+        let first_layer = layer_archive(&[("etc/keep", b"keep\n"), ("etc/remove", b"remove\n")])
+            .expect("build first layer");
+        let second_layer = layer_archive(&[("etc/.wh.remove", b""), ("etc/add", b"add\n")])
+            .expect("build second layer");
         let first_digest = sha256_digest(&first_layer);
         let second_digest = sha256_digest(&second_layer);
-        let delay = Duration::from_millis(500);
         let manifest = manifest_with_layers_json(&[
             (
                 &first_digest,
@@ -697,57 +768,70 @@ mod tests {
             ),
         ])
         .expect("build manifest json");
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{first_digest}"),
-                HttpResponse::octet_stream(first_layer).with_delay(delay),
+                HttpResponse::octet_stream(first_layer),
             ),
             get(
                 format!("/v2/repo/blobs/{second_digest}"),
-                HttpResponse::octet_stream(second_layer).with_delay(delay),
+                HttpResponse::octet_stream(second_layer),
             ),
         ]))
         .expect("start mock registry");
+
         // ACT
-        let started_at = Instant::now();
-        let image = expect_pull_image(&registry.reference("repo", "test"), None).await;
+        let metadata =
+            collect_metadata(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
 
         // ASSERT
-        assert!(started_at.elapsed() < Duration::from_millis(900));
-        assert_eq!(read_pulled_file(&image, "etc/first"), "first\n");
-        assert_eq!(read_pulled_file(&image, "etc/second"), "second\n");
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata.first().unwrap().path, "etc/keep");
+        assert_eq!(metadata.get(1).unwrap().path, "etc/add");
     }
 
     #[tokio::test]
-    async fn pull_rejects_non_utf8_manifest_response() {
+    async fn stream_files_rejects_non_utf8_manifest_response() {
         // ARRANGE
-        let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
             HttpResponse::json(vec![0xff, 0xfe, 0xfd]),
         )]))
         .expect("start mock registry");
+
         // ACT
-        let error = koci::pull(&registry.reference("repo", "test"), None)
-            .await
-            .expect_err("pull should fail");
+        let error = pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            |_entry| Ok(()),
+        )
+        .await
+        .expect_err("stream should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));
     }
 
     #[tokio::test]
-    async fn pull_rejects_invalid_manifest_json() {
+    async fn stream_files_rejects_invalid_manifest_json() {
         // ARRANGE
-        let registry = MockRegistry::start(std::collections::HashMap::from([get(
+        let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
             HttpResponse::json(b"not json".to_vec()),
         )]))
         .expect("start mock registry");
+
         // ACT
-        let error = koci::pull(&registry.reference("repo", "test"), None)
-            .await
-            .expect_err("pull should fail");
+        let error = pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            |_entry| Ok(()),
+        )
+        .await
+        .expect_err("stream should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::OciParseError(_)));
@@ -762,7 +846,7 @@ mod tests {
         std::fs::write(&key_path, &keys.private_key_pem).expect("write private key");
 
         let path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(std::collections::HashMap::from([
+        let registry = MockRegistry::start(HashMap::from([
             get(
                 path,
                 HttpResponse::json(minimal_manifest_json().expect("build manifest json")),

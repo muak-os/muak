@@ -22,7 +22,11 @@ pub(crate) mod verify;
 pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 
 /// Sign an OCI image manifest in the registry.
-pub(crate) async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
+///
+/// # Errors
+///
+/// Returns an error if the manifest cannot be fetched, signed, or pushed.
+pub async fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = build_client();
 

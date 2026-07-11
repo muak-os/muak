@@ -8,14 +8,6 @@ use std::time::SystemTime;
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Set the OCI blob cache directory for all subsequent pulls.
-///
-/// Must be called before any pull operation. Thread-safe and idempotent —
-/// only the first call takes effect.
-pub fn set_dir<P: Into<PathBuf>>(path: P) {
-    drop(CACHE_DIR.set(Some(path.into())));
-}
-
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
 #[derive(Clone)]
 pub(crate) struct BlobCache {

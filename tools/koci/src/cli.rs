@@ -7,7 +7,11 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use tokio::runtime::Builder;
 
+use crate::arch;
 use crate::arch::Arch;
+use crate::error;
+use crate::pull;
+use crate::sign;
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -48,6 +52,20 @@ fn read_key_file(path: &Path) -> Result<String> {
         .with_context(|| format!("Failed to read key from {}", path.display()))
 }
 
+fn write_entry_to_dir(
+    mut entry: pull::entries::FileEntry<'_>,
+    output: &std::path::Path,
+) -> error::Result<()> {
+    let file_path = output.join(&entry.path);
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(&file_path)?;
+    std::io::copy(&mut entry.reader, &mut file)?;
+
+    Ok(())
+}
+
 async fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Pull {
@@ -61,19 +79,13 @@ async fn run_command(command: Command) -> Result<()> {
                 .map(|path| read_key_file(path))
                 .transpose()?;
 
-            let image = if let Some(ref target_arch) = arch {
-                crate::pull_arch(&image, target_arch, key_contents.as_deref())
-                    .await
-                    .context("Failed to pull image with specified architecture")?
-            } else {
-                crate::pull(&image, key_contents.as_deref())
-                    .await
-                    .context("Failed to pull image")?
-            };
+            let target_arch = arch.unwrap_or(arch::host());
 
-            image
-                .write_to_dir(&output)
-                .context("Failed to write pulled image to output directory")?;
+            pull::files(&image, &target_arch, key_contents.as_deref(), |entry| {
+                write_entry_to_dir(entry, &output)
+            })
+            .await
+            .context("Failed to stream image")?;
 
             println!("Successfully extracted image to {}", output.display());
 
@@ -82,7 +94,7 @@ async fn run_command(command: Command) -> Result<()> {
         Command::Sign { image, key } => {
             let private_key_pem = read_key_file(&key)?;
 
-            crate::sign(&image, &private_key_pem)
+            sign::manifest(&image, &private_key_pem)
                 .await
                 .context("Failed to sign image")?;
             println!("Successfully signed {image}");
