@@ -88,10 +88,10 @@ RUN ["/ramune", "create", \
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
-COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
-COPY --link --from=pkg-kernel        /cmdline       /cmdline
 COPY --link --from=pkg-stub          /stub.efi      /stub.efi
+COPY --link --from=pkg-kernel        /cmdline       /cmdline
+COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
+COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
 
 LABEL org.opencontainers.image.title="installer"
 LABEL org.opencontainers.image.description="Muak boot assets"
