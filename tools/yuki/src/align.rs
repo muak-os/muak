@@ -6,7 +6,7 @@ use crate::error::{Result, YukiError};
 ///
 /// `alignment` must be a power of two, or 0 (which is treated as 1).
 #[inline]
-pub const fn align_to(value: u32, alignment: u32) -> u32 {
+pub const fn to(value: u32, alignment: u32) -> u32 {
     let alignment = if alignment == 0 { 1 } else { alignment };
     let mask = alignment.wrapping_sub(1);
 
@@ -30,14 +30,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn align_to_zero_alignment_returns_value_unchanged() {
+    fn to_zero_alignment_returns_value_unchanged() {
         // ARRANGE
         let test_cases = vec![(100, 0, 100), (0, 0, 0), (u32::MAX, 0, u32::MAX)];
 
         // ACT
         for (value, alignment, expected) in test_cases {
             // ASSERT
-            assert_eq!(align_to(value, alignment), expected);
+            assert_eq!(to(value, alignment), expected);
         }
     }
 
@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn align_to_rounds_up_to_alignment_boundary() {
+    fn to_rounds_up_to_alignment_boundary() {
         // ARRANGE
         let test_cases = vec![
             (1, 4, 4),
@@ -86,7 +86,7 @@ mod tests {
         // ACT
         for (value, alignment, expected) in test_cases {
             // ASSERT
-            assert_eq!(align_to(value, alignment), expected);
+            assert_eq!(to(value, alignment), expected);
         }
     }
 }

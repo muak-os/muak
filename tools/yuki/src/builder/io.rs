@@ -6,8 +6,8 @@ use crate::error::{Result, YukiError};
 
 const ZERO_BUF: [u8; 8192] = [0; 8192];
 
-pub(crate) fn copy_exact<W: Write>(
-    reader: &mut dyn Read,
+pub(crate) fn copy_exact<R: Read + ?Sized, W: Write>(
+    reader: &mut R,
     writer: &mut W,
     len: u64,
     name: &'static str,

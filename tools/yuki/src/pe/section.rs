@@ -3,9 +3,9 @@
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
 
+use super::parse::{self, Metadata};
 use crate::align;
 use crate::error::{Result, YukiError};
-use crate::pe::PeMetadata;
 
 const SECTION_NAME_MAX_LEN: usize = 8;
 const SECTION_NAME_OFFSET: usize = 0;
@@ -35,7 +35,8 @@ pub struct Section {
     pub checksum: [u8; 32],
 }
 
-pub(crate) struct Layout {
+#[derive(Debug)]
+pub(crate) struct Table {
     pub(crate) sections: Vec<Section>,
     pub(crate) headers: Vec<ImageSectionHeader>,
     pub(crate) current_file_offset: u32,
@@ -45,16 +46,13 @@ pub(crate) struct Layout {
     pub(crate) section_alignment: u32,
 }
 
-impl Layout {
-    pub fn new(metadata: &PeMetadata) -> Self {
+impl Table {
+    pub fn new(metadata: &Metadata) -> Self {
         Self {
             sections: Vec::new(),
             headers: Vec::new(),
-            current_file_offset: align::align_to(
-                metadata.last_section_file_end,
-                metadata.file_alignment,
-            ),
-            current_virtual_address: align::align_to(
+            current_file_offset: align::to(metadata.last_section_file_end, metadata.file_alignment),
+            current_virtual_address: align::to(
                 metadata.last_section_virtual_end,
                 metadata.section_alignment,
             ),
@@ -69,8 +67,8 @@ impl Layout {
             YukiError::InvalidPeStructure(format!("section '{name}' too large"))
         })?;
 
-        let size_of_raw_data = align::align_to(virtual_size, self.file_alignment);
-        let aligned_virtual_size = align::align_to(virtual_size, self.section_alignment);
+        let size_of_raw_data = align::to(virtual_size, self.file_alignment);
+        let aligned_virtual_size = align::to(virtual_size, self.section_alignment);
 
         let Ok(section_file_offset) = usize::try_from(self.current_file_offset) else {
             return Err(YukiError::InvalidPeStructure(
@@ -163,6 +161,57 @@ pub(crate) fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> 
     Ok(len)
 }
 
+pub(crate) fn build_table(
+    metadata: &Metadata,
+    stub_len: u64,
+    has_dtb: bool,
+    sizes: &[(&'static str, Option<u64>)],
+) -> Result<(Table, u64)> {
+    let count = new_section_count(has_dtb);
+    if usize::from(metadata.existing_section_count).saturating_add(usize::from(count))
+        > usize::from(u16::MAX)
+    {
+        return Err(YukiError::TooManySections);
+    }
+    parse::validate_section_header_capacity(metadata, usize::from(count))?;
+
+    let mut table = Table::new(metadata);
+    let Ok(stub_file_off) = u32::try_from(stub_len) else {
+        return Err(YukiError::InvalidPeStructure(
+            "stub file offset overflow".to_owned(),
+        ));
+    };
+    table.current_file_offset = table.current_file_offset.max(stub_file_off);
+
+    for &(name, maybe_len) in sizes {
+        let Some(len) = maybe_len else {
+            continue;
+        };
+        table.finalize_section(name, validate_size(len, name)?)?;
+    }
+
+    let Some(first) = table.sections.first() else {
+        return Err(YukiError::InvalidPeStructure(
+            "missing generated sections".to_owned(),
+        ));
+    };
+    let Ok(gap_start) = u64::try_from(first.file_offset) else {
+        return Err(YukiError::InvalidPeStructure(
+            "first section offset overflow".to_owned(),
+        ));
+    };
+
+    Ok((table, gap_start))
+}
+
+pub(crate) fn count(has_dtb: bool) -> u16 {
+    new_section_count(has_dtb)
+}
+
+fn new_section_count(has_dtb: bool) -> u16 {
+    3_u16.saturating_add(u16::from(has_dtb))
+}
+
 pub(crate) fn header_to_bytes(
     header: &ImageSectionHeader,
 ) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
@@ -191,14 +240,13 @@ mod tests {
 
     use super::*;
     use crate::error::YukiError;
-    use crate::pe::PeMetadata;
 
     fn byte_range(bytes: &[u8], range: core::ops::Range<usize>) -> &[u8] {
         bytes.get(range).unwrap()
     }
 
-    fn create_test_metadata() -> PeMetadata {
-        PeMetadata {
+    fn create_test_metadata() -> Metadata {
+        Metadata {
             file_header_offset: 0,
             optional_header_offset: 0,
             section_table_offset: 0,
@@ -232,7 +280,7 @@ mod tests {
     fn layout_state_finalize_section_basic() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".linux", 100).unwrap();
@@ -260,7 +308,7 @@ mod tests {
     fn layout_state_sequential_offsets() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
@@ -286,7 +334,7 @@ mod tests {
     fn layout_state_characteristics() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
@@ -307,7 +355,7 @@ mod tests {
     fn layout_state_max_virtual_end() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
@@ -321,7 +369,7 @@ mod tests {
     fn layout_state_name_truncation() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state
@@ -346,7 +394,7 @@ mod tests {
     fn layout_state_alignment() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
@@ -368,7 +416,7 @@ mod tests {
     fn layout_state_rejects_oversized_section() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
         let oversized = usize::try_from(u32::MAX).unwrap().saturating_add(1);
 
         // ACT
@@ -384,11 +432,11 @@ mod tests {
     #[test]
     fn layout_state_rejects_virtual_overflow() {
         // ARRANGE
-        let metadata = PeMetadata {
+        let metadata = Metadata {
             last_section_virtual_end: u32::MAX - 1024,
             ..create_test_metadata()
         };
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         let result = state.finalize_section(".ok", 2048);
@@ -403,11 +451,11 @@ mod tests {
     #[test]
     fn layout_state_rejects_file_offset_overflow() {
         // ARRANGE
-        let metadata = PeMetadata {
+        let metadata = Metadata {
             last_section_file_end: u32::MAX - 256,
             ..create_test_metadata()
         };
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         let result = state.finalize_section(".ok", 512);
@@ -423,7 +471,7 @@ mod tests {
     fn layout_state_virtual_address_is_sequential() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".first", 1).unwrap();
@@ -436,7 +484,7 @@ mod tests {
             .unwrap()
             .virtual_address
             .get(LE)
-            .saturating_add(align::align_to(
+            .saturating_add(align::to(
                 state.headers.first().unwrap().virtual_size.get(LE),
                 metadata.section_alignment,
             ));
@@ -450,7 +498,7 @@ mod tests {
     fn layout_state_with_dtb_order() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
@@ -469,7 +517,7 @@ mod tests {
     fn layout_state_exact_virtual_size() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".ok", 16).unwrap();
@@ -483,7 +531,7 @@ mod tests {
     fn layout_state_file_offset_increases() {
         // ARRANGE
         let metadata = create_test_metadata();
-        let mut state = Layout::new(&metadata);
+        let mut state = Table::new(&metadata);
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();

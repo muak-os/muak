@@ -318,7 +318,7 @@ mod tests {
         .expect_err("invalid stub should fail build");
 
         // ASSERT
-        assert!(error.to_string().contains("Failed to create UKI"));
+        assert!(error.to_string().contains("Failed to compute UKI layout"));
     }
 
     #[test]

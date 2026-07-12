@@ -2,50 +2,50 @@
 
 use object::pe::ImageSectionHeader;
 
+use super::parse::{self, Metadata};
+use super::section::{self, Table};
 use crate::align;
 use crate::error::{Result, YukiError};
-use crate::pe::{self, PeMetadata};
-use crate::section::{self, Layout};
 
 pub(crate) fn patch(
     prefix: &mut [u8],
-    metadata: &PeMetadata,
-    layout: &Layout,
+    metadata: &Metadata,
+    table: &Table,
     new_section_count: u16,
 ) -> Result<()> {
     let total_sections = metadata
         .existing_section_count
         .saturating_add(new_section_count);
-    header_fields(prefix, metadata, layout, total_sections)?;
+    header_fields(prefix, metadata, table, total_sections)?;
 
-    section_headers(prefix, metadata, layout)
+    section_headers(prefix, metadata, table)
 }
 
 fn header_fields(
     prefix: &mut [u8],
-    metadata: &PeMetadata,
-    layout: &Layout,
+    metadata: &Metadata,
+    table: &Table,
     total_sections: u16,
 ) -> Result<()> {
     range(
         prefix,
-        pe::section_count_offset(metadata),
+        parse::section_count_offset(metadata),
         &total_sections.to_le_bytes(),
         "section count",
     )?;
 
-    let size_of_image = align::align_to(layout.max_virtual_end(), metadata.section_alignment);
+    let size_of_image = align::to(table.max_virtual_end(), metadata.section_alignment);
 
     range(
         prefix,
-        pe::size_of_image_offset(metadata),
+        parse::size_of_image_offset(metadata),
         &size_of_image.to_le_bytes(),
         "size of image",
     )
 }
 
-fn section_headers(prefix: &mut [u8], metadata: &PeMetadata, layout: &Layout) -> Result<()> {
-    for (i, header) in layout.headers.iter().enumerate() {
+fn section_headers(prefix: &mut [u8], metadata: &Metadata, table: &Table) -> Result<()> {
+    for (i, header) in table.headers.iter().enumerate() {
         let section_index = usize::from(metadata.existing_section_count).saturating_add(i);
         let offset = metadata.section_table_offset.saturating_add(
             section_index.saturating_mul(core::mem::size_of::<ImageSectionHeader>()),
@@ -77,8 +77,8 @@ fn range(prefix: &mut [u8], offset: usize, data: &[u8], field: &'static str) -> 
 mod tests {
     use super::*;
 
-    fn test_metadata() -> PeMetadata {
-        PeMetadata {
+    fn test_metadata() -> Metadata {
+        Metadata {
             file_header_offset: 64,
             optional_header_offset: 84,
             section_table_offset: 324,
@@ -97,14 +97,14 @@ mod tests {
         let metadata = test_metadata();
         let size = usize::try_from(metadata.size_of_headers).unwrap_or(0);
         let mut prefix = vec![0_u8; size.max(1024)];
-        let mut layout = Layout::new(&metadata);
-        layout.finalize_section(".test", 100).unwrap();
+        let mut table = Table::new(&metadata);
+        table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &layout, 1).unwrap();
+        patch(&mut prefix, &metadata, &table, 1).unwrap();
 
         // ASSERT
-        let section_count_offset = pe::section_count_offset(&metadata);
+        let section_count_offset = parse::section_count_offset(&metadata);
         let count = u16::from_le_bytes(
             prefix
                 .get(section_count_offset..section_count_offset + 2)
@@ -121,14 +121,14 @@ mod tests {
         let metadata = test_metadata();
         let size = usize::try_from(metadata.size_of_headers).unwrap_or(0);
         let mut prefix = vec![0_u8; size.max(1024)];
-        let mut layout = Layout::new(&metadata);
-        layout.finalize_section(".test", 100).unwrap();
+        let mut table = Table::new(&metadata);
+        table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &layout, 1).unwrap();
+        patch(&mut prefix, &metadata, &table, 1).unwrap();
 
         // ASSERT
-        let soi_offset = pe::size_of_image_offset(&metadata);
+        let soi_offset = parse::size_of_image_offset(&metadata);
         let size_of_image = u32::from_le_bytes(
             prefix
                 .get(soi_offset..soi_offset + 4)
@@ -145,12 +145,12 @@ mod tests {
         let metadata = test_metadata();
         let size = usize::try_from(metadata.size_of_headers).unwrap_or(0);
         let mut prefix = vec![0_u8; size.max(2048)];
-        let mut layout = Layout::new(&metadata);
-        layout.finalize_section(".cmdline", 10).unwrap();
-        layout.finalize_section(".linux", 200).unwrap();
+        let mut table = Table::new(&metadata);
+        table.finalize_section(".cmdline", 10).unwrap();
+        table.finalize_section(".linux", 200).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &layout, 2).unwrap();
+        patch(&mut prefix, &metadata, &table, 2).unwrap();
 
         // ASSERT
         let hdr_size = core::mem::size_of::<ImageSectionHeader>();
@@ -166,11 +166,11 @@ mod tests {
         // ARRANGE
         let metadata = test_metadata();
         let mut prefix = vec![0_u8; 8];
-        let mut layout = Layout::new(&metadata);
-        layout.finalize_section(".test", 100).unwrap();
+        let mut table = Table::new(&metadata);
+        table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        let result = patch(&mut prefix, &metadata, &layout, 1);
+        let result = patch(&mut prefix, &metadata, &table, 1);
 
         // ASSERT
         assert!(matches!(

@@ -7,6 +7,9 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::Parser;
 
+use crate::builder::Builder;
+use crate::layout;
+
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -53,17 +56,30 @@ where
     run(&args)
 }
 
-fn sized_file(file: &mut File) -> Result<crate::SizedPart<'_>> {
-    let len = file
-        .metadata()
-        .context("Failed to read input file metadata")?
-        .len();
-
-    Ok(crate::SizedPart { len, reader: file })
-}
-
 fn run(args: &Cli) -> Result<String> {
-    let mut stub = File::open(&args.stub)
+    let stub_size = std::fs::metadata(&args.stub)
+        .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?
+        .len();
+    let cmdline_size = std::fs::metadata(&args.cmdline)
+        .with_context(|| format!("Failed to read cmdline from {}", args.cmdline.display()))?
+        .len();
+    let kernel_size = std::fs::metadata(&args.linux)
+        .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?
+        .len();
+    let initrd_size = std::fs::metadata(&args.initrd)
+        .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?
+        .len();
+    let dtb_size = args
+        .dtb
+        .as_ref()
+        .map(|path| {
+            std::fs::metadata(path)
+                .with_context(|| format!("Failed to read DTB from {}", path.display()))
+                .map(|meta| meta.len())
+        })
+        .transpose()?;
+
+    let mut stub_file = File::open(&args.stub)
         .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?;
     let mut kernel = File::open(&args.linux)
         .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?;
@@ -79,22 +95,40 @@ fn run(args: &Cli) -> Result<String> {
         })
         .transpose()?;
 
+    let (_layout, state) = layout::compute(
+        &mut stub_file,
+        stub_size,
+        cmdline_size,
+        kernel_size,
+        initrd_size,
+        dtb_size,
+    )
+    .context("Failed to compute UKI layout")?;
+
     let mut output = File::create(&args.output)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
 
-    let dtb_part = dtb.as_mut().map(sized_file).transpose()?;
+    let builder = Builder::new(state, &mut output);
+    let builder = builder
+        .add_stub(&mut stub_file)
+        .context("Failed to add stub")?;
+    let builder = builder
+        .add_cmdline(&mut cmdline)
+        .context("Failed to add cmdline")?;
 
-    crate::build(
-        crate::BuildInput {
-            stub: sized_file(&mut stub)?,
-            kernel: sized_file(&mut kernel)?,
-            initramfs: sized_file(&mut initrd)?,
-            cmdline: sized_file(&mut cmdline)?,
-            dtb: dtb_part,
-        },
-        &mut output,
-    )
-    .context("Failed to create UKI")?;
+    let builder = if let Some(dtb_file) = dtb.as_mut() {
+        builder.add_dtb(dtb_file).context("Failed to add DTB")?
+    } else {
+        builder
+    };
+
+    let builder = builder
+        .add_kernel(&mut kernel)
+        .context("Failed to add kernel")?;
+    let builder = builder
+        .add_initramfs(&mut initrd)
+        .context("Failed to add initramfs")?;
+    builder.finish().context("Failed to finalize UKI")?;
 
     Ok(format!(
         "Successfully created UKI at {} ({} bytes)",

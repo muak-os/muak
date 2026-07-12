@@ -10,20 +10,35 @@ use crate::error::{Result, YukiError};
 const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = 2;
 const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = 56;
 
+/// Metadata extracted from a PE file header.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PeMetadata {
+pub struct Metadata {
+    /// Offset to the COFF file header.
     pub file_header_offset: usize,
+    /// Offset to the optional header.
     pub optional_header_offset: usize,
+    /// Offset to the section table.
     pub section_table_offset: usize,
+    /// Size of all headers combined.
     pub size_of_headers: u32,
+    /// Alignment of sections in memory.
     pub section_alignment: u32,
+    /// Alignment of sections in the file.
     pub file_alignment: u32,
+    /// File offset of the end of the last section.
     pub last_section_file_end: u32,
+    /// Virtual address of the end of the last section.
     pub last_section_virtual_end: u32,
+    /// Number of sections in the section table.
     pub existing_section_count: u16,
 }
 
-pub fn extract_metadata(reader: &mut dyn Read) -> Result<(PeMetadata, Vec<u8>)> {
+/// Extracts metadata from a PE file reader.
+///
+/// # Errors
+///
+/// Returns an error if the PE file is malformed or cannot be parsed.
+pub fn extract_metadata(reader: &mut dyn Read) -> Result<(Metadata, Vec<u8>)> {
     let mut buf = read_prefix(reader)?;
     let size_of_headers = parse_size_of_headers(&buf)?;
     if size_of_headers > buf.len() {
@@ -47,7 +62,7 @@ pub fn extract_metadata(reader: &mut dyn Read) -> Result<(PeMetadata, Vec<u8>)> 
     Ok((metadata, buf))
 }
 
-fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
+fn parse_metadata(buf: &[u8]) -> Result<Metadata> {
     let pe_offset = parse_e_lfanew(buf)?;
 
     let Some(coff_header_offset) = pe_offset.checked_add(4) else {
@@ -104,7 +119,7 @@ fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
     let (last_section_file_end, last_section_virtual_end) =
         find_section_ends(buf, section_table_offset, num_sections, section_alignment)?;
 
-    Ok(PeMetadata {
+    Ok(Metadata {
         file_header_offset: coff_header_offset,
         optional_header_offset,
         section_table_offset,
@@ -117,20 +132,25 @@ fn parse_metadata(buf: &[u8]) -> Result<PeMetadata> {
     })
 }
 
-pub(crate) fn section_count_offset(metadata: &PeMetadata) -> usize {
+pub(crate) fn section_count_offset(metadata: &Metadata) -> usize {
     metadata
         .file_header_offset
         .saturating_add(COFF_NUMBER_OF_SECTIONS_OFFSET)
 }
 
-pub(crate) fn size_of_image_offset(metadata: &PeMetadata) -> usize {
+pub(crate) fn size_of_image_offset(metadata: &Metadata) -> usize {
     metadata
         .optional_header_offset
         .saturating_add(OPT_HEADER_SIZE_OF_IMAGE_OFFSET)
 }
 
+/// Validates that the section header table has capacity for additional sections.
+///
+/// # Errors
+///
+/// Returns an error if adding the additional sections would exceed the header capacity.
 pub fn validate_section_header_capacity(
-    metadata: &PeMetadata,
+    metadata: &Metadata,
     additional_sections: usize,
 ) -> Result<()> {
     let total_sections =
@@ -208,7 +228,7 @@ fn find_section_ends(
                 "section raw data end overflow".to_owned(),
             ));
         };
-        let aligned_virtual_size = align::align_to(virtual_size, section_alignment);
+        let aligned_virtual_size = align::to(virtual_size, section_alignment);
         let Some(virt_end) = virtual_addr.checked_add(aligned_virtual_size) else {
             return Err(YukiError::InvalidPeStructure(
                 "section virtual end overflow".to_owned(),
@@ -295,9 +315,9 @@ mod tests {
     }
 
     #[test]
-    fn pe_metadata_structure() {
+    fn metadata_structure() {
         // ARRANGE
-        let metadata = PeMetadata {
+        let metadata = Metadata {
             file_header_offset: 64,
             optional_header_offset: 84,
             section_table_offset: 324,
@@ -354,7 +374,7 @@ mod tests {
 
     #[test]
     fn validate_section_header_capacity_accepts_available_space() {
-        let metadata = PeMetadata {
+        let metadata = Metadata {
             file_header_offset: 64,
             optional_header_offset: 88,
             section_table_offset: 328,
@@ -375,7 +395,7 @@ mod tests {
 
     #[test]
     fn validate_section_header_capacity_rejects_expansion_past_headers() {
-        let metadata = PeMetadata {
+        let metadata = Metadata {
             file_header_offset: 64,
             optional_header_offset: 88,
             section_table_offset: 328,
