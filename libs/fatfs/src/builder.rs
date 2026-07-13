@@ -7,8 +7,8 @@ use crate::dir;
 use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
-    ClusterMap, FAT_COUNT, FAT16_MIN_CLUSTERS, FAT32_MIN_CLUSTERS, FatKind, FatLayout, Precomputed,
-    ROOT_CLUSTER, SECTOR_SIZE, fat12_16_cluster, fat32_cluster,
+    ClusterMap, FAT_COUNT, FAT16_MIN_CLUSTERS, FAT32_MIN_CLUSTERS, FatKind, FatLayout, FileMeta,
+    Precomputed, ROOT_CLUSTER, SECTOR_SIZE, fat12_16_cluster, fat32_cluster,
 };
 
 /// Precomputes all FAT metadata from file paths and sizes.
@@ -16,7 +16,7 @@ use crate::types::{
 /// # Errors
 ///
 /// Returns `Error::Fat` when layout computation fails or files don't fit.
-pub fn precompute(files: &[(&str, u64)], image_size: u64) -> Result<Precomputed> {
+pub fn precompute(files: &[FileMeta<'_>], image_size: u64) -> Result<Precomputed> {
     let layout = compute_layout(image_size)?;
     let dirs = collect_dir_paths(files);
     let cluster_map = assign_clusters(files, &dirs, &layout)?;
@@ -87,7 +87,7 @@ pub fn build<R: Read, W: Write>(
 /// Returns `Error::Fat` when layout computation fails, or
 /// `Error::Io` when writing the empty volume fails.
 pub fn format<W: Write>(writer: &mut W, size: u64) -> Result<()> {
-    let files: &[(&str, u64)] = &[];
+    let files: &[FileMeta<'_>] = &[];
     let precomputed = precompute(files, size)?;
     let readers: &mut [std::io::Empty] = &mut [];
 
@@ -164,7 +164,7 @@ fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Res
 }
 
 fn build_all_dir_data(
-    files: &[(&str, u64)],
+    files: &[FileMeta<'_>],
     dirs: &[String],
     map: &ClusterMap,
     layout: &FatLayout,
@@ -273,11 +273,11 @@ fn check_kind(final_clusters: u64, kind: FatKind) -> bool {
     }
 }
 
-fn collect_dir_paths(files: &[(&str, u64)]) -> Vec<String> {
+fn collect_dir_paths(files: &[FileMeta<'_>]) -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
     dirs.push(String::new());
-    for &(path, _size) in files {
-        let target = std::path::Path::new(path);
+    for file in files {
+        let target = std::path::Path::new(file.path);
         push_parent_dirs(&mut dirs, target);
     }
     dirs.sort_by(|left, right| left.len().cmp(&right.len()).then(left.cmp(right)));
@@ -297,7 +297,7 @@ fn push_parent_dirs(dirs: &mut Vec<String>, target: &std::path::Path) {
 }
 
 fn assign_clusters(
-    files: &[(&str, u64)],
+    files: &[FileMeta<'_>],
     dirs: &[String],
     layout: &FatLayout,
 ) -> Result<ClusterMap> {
@@ -319,11 +319,11 @@ fn assign_clusters(
     let mut file_counts = Vec::with_capacity(files.len());
     let mut file_sizes = Vec::with_capacity(files.len());
     let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
-    for &(_path, size) in files {
-        let count = size.div_ceil(cluster_bytes);
+    for file in files {
+        let count = file.size.div_ceil(cluster_bytes);
         file_starts.push(u32::try_from(next_cluster).unwrap_or(u32::MAX));
         file_counts.push(count);
-        file_sizes.push(size);
+        file_sizes.push(file.size);
         next_cluster = next_cluster
             .checked_add(count)
             .ok_or_else(|| FatError::Fat("cluster overflow".into()))?;
@@ -533,9 +533,9 @@ mod tests {
     }
 
     fn build_image(files: &[(&str, &[u8])], image_size: u64) -> Vec<u8> {
-        let metas: Vec<(&str, u64)> = files
+        let metas: Vec<FileMeta<'_>> = files
             .iter()
-            .map(|&(path, data)| (path, u64::try_from(data.len()).unwrap_or(0)))
+            .map(|&(path, data)| FileMeta::new(path, u64::try_from(data.len()).unwrap_or(0)))
             .collect();
         let precomputed = precompute(&metas, image_size).expect("precompute must succeed");
         let mut readers: Vec<Cursor<&[u8]>> = files
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn build_detects_short_reader() {
         // ARRANGE
-        let files: &[(&str, u64)] = &[("test.bin", 16)];
+        let files = &[FileMeta::new("test.bin", 16)];
         let precomputed = precompute(files, 1024 * 1024).expect("precompute must succeed");
         let mut empty_reader = std::io::empty();
 
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn rejected_too_small_image() {
         // ARRANGE
-        let files: &[(&str, u64)] = &[("test.bin", 100_000)];
+        let files = &[FileMeta::new("test.bin", 100_000)];
 
         // ACT
         let err = precompute(files, 512);

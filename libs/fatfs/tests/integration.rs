@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use fatfs::builder;
+use fatfs::types::FileMeta;
 
 #[cfg(test)]
 mod tests {
@@ -26,7 +27,7 @@ mod tests {
     #[test]
     fn build_creates_image_with_content() {
         // ARRANGE
-        let files: &[(&str, u64)] = &[("EFI/BOOT/BOOTX64.EFI", 11)];
+        let files = &[FileMeta::new("EFI/BOOT/BOOTX64.EFI", 11)];
         let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
         let mut readers = vec![Cursor::new(b"uki-payload".as_slice())];
 
@@ -58,7 +59,10 @@ mod tests {
     #[test]
     fn build_with_nested_paths_succeeds() {
         // ARRANGE
-        let files: &[(&str, u64)] = &[("EFI/BOOT/BOOTX64.EFI", 3), ("overlays/rpi/config.txt", 11)];
+        let files = &[
+            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 3),
+            FileMeta::new("overlays/rpi/config.txt", 11),
+        ];
         let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
         let mut readers = vec![
             Cursor::new(b"uki".as_slice()),

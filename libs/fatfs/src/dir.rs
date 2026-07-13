@@ -2,12 +2,12 @@ use std::io::Write;
 
 use crate::error::Result;
 use crate::types::{
-    ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_LFN, ClusterMap, FatKind, FatLayout, ROOT_CLUSTER,
+    ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_LFN, ClusterMap, FatKind, FatLayout, FileMeta, ROOT_CLUSTER,
     fat12_16_cluster, fat32_cluster,
 };
 
 pub(crate) fn build_data(
-    files: &[(&str, u64)],
+    files: &[FileMeta<'_>],
     dirs: &[String],
     map: &ClusterMap,
     dir_index: usize,
@@ -47,8 +47,8 @@ pub(crate) fn build_data(
         data.resize(idx, 0);
         data.extend_from_slice(&dir_entry_bytes(&name, dir_cluster(other_idx, layout)));
     }
-    for (file_index, &(path, size)) in files.iter().enumerate() {
-        let fp = std::path::Path::new(path);
+    for (file_index, file) in files.iter().enumerate() {
+        let fp = std::path::Path::new(file.path);
         let parent = fp.parent().unwrap_or(std::path::Path::new(""));
         let parent_str = parent.to_string_lossy().into_owned();
         if dirs.get(dir_index).is_none_or(|dir| parent_str != *dir) {
@@ -64,7 +64,7 @@ pub(crate) fn build_data(
             .get(file_index)
             .copied()
             .unwrap_or(ROOT_CLUSTER);
-        let size = u32::try_from(size).unwrap_or(u32::MAX);
+        let size = u32::try_from(file.size).unwrap_or(u32::MAX);
         let idx = data.len().next_multiple_of(32);
         data.resize(idx, 0);
         data.extend_from_slice(&file_entry_bytes(&file_name, cluster, size));

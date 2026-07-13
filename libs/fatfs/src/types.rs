@@ -29,6 +29,23 @@ pub(crate) const FAT32_MIN_CLUSTERS: u64 = 65525;
 /// Minimum cluster count for FAT16.
 pub(crate) const FAT16_MIN_CLUSTERS: u64 = 4085;
 
+/// Metadata for a file in a FAT filesystem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileMeta<'a> {
+    /// Path of the file relative to the filesystem root.
+    pub path: &'a str,
+    /// Size of the file in bytes.
+    pub size: u64,
+}
+
+impl<'a> FileMeta<'a> {
+    /// Creates a new `FileMeta` with the given path and size.
+    #[must_use]
+    pub const fn new(path: &'a str, size: u64) -> Self {
+        Self { path, size }
+    }
+}
+
 /// Precomputed FAT filesystem metadata.
 #[derive(Clone, Debug)]
 pub struct Precomputed {
