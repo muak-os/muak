@@ -29,6 +29,17 @@ pub(crate) const FAT32_MIN_CLUSTERS: u64 = 65525;
 /// Minimum cluster count for FAT16.
 pub(crate) const FAT16_MIN_CLUSTERS: u64 = 4085;
 
+/// Precomputed FAT filesystem metadata.
+#[derive(Clone, Debug)]
+pub struct Precomputed {
+    pub(crate) layout: FatLayout,
+    pub(crate) dirs: Vec<String>,
+    pub(crate) cluster_map: ClusterMap,
+    pub(crate) fat_bytes: Vec<u8>,
+    pub(crate) dir_data: Vec<Vec<u8>>,
+    pub(crate) image_size: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum FatKind {
     Fat12,
@@ -52,6 +63,7 @@ pub(crate) struct ClusterMap {
     pub dir_clusters: Vec<u32>,
     pub file_starts: Vec<u32>,
     pub file_counts: Vec<u64>,
+    pub file_sizes: Vec<u64>,
 }
 
 pub(crate) fn fat32_cluster(index: usize) -> u32 {
@@ -65,20 +77,4 @@ pub(crate) fn fat12_16_cluster(index: usize) -> u32 {
     ROOT_CLUSTER
         .wrapping_add(u32::try_from(index).unwrap_or(0))
         .wrapping_sub(1)
-}
-
-/// Trait for readable file sources used by the FAT image builder.
-pub trait FileSource {
-    /// The relative path of the file within the FAT volume.
-    fn path(&self) -> &str;
-
-    /// The exact byte size of the file content.
-    fn size(&self) -> u64;
-
-    /// Read bytes into the buffer, returning the number read.
-    ///
-    /// # Errors
-    ///
-    /// Returns an I/O error when reading from the underlying source fails.
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
 }

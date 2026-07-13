@@ -1,48 +1,113 @@
 //! FAT image building API.
 
-use std::io::Write;
+use std::io::{Read, Write};
 
 use crate::boot;
 use crate::dir;
-use crate::error::FatError;
-use crate::error::Result;
+use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
-    ClusterMap, FAT_COUNT, FAT16_MIN_CLUSTERS, FAT32_MIN_CLUSTERS, FatKind, FatLayout, FileSource,
+    ClusterMap, FAT_COUNT, FAT16_MIN_CLUSTERS, FAT32_MIN_CLUSTERS, FatKind, FatLayout, Precomputed,
     ROOT_CLUSTER, SECTOR_SIZE, fat12_16_cluster, fat32_cluster,
 };
 
-/// Builds a FAT image with the given files, size, and writer.
+/// Precomputes all FAT metadata from file paths and sizes.
 ///
 /// # Errors
 ///
-/// Returns `FatError::Fat` when layout computation fails or files don't fit,
-/// or `FatError::Io` when writing fails.
-pub fn build<T: FileSource, W: Write>(
-    files: &mut [T],
-    image_size: u64,
-    writer: &mut W,
-) -> Result<()> {
+/// Returns `Error::Fat` when layout computation fails or files don't fit.
+pub fn precompute(files: &[(&str, u64)], image_size: u64) -> Result<Precomputed> {
     let layout = compute_layout(image_size)?;
     let dirs = collect_dir_paths(files);
-    let map = assign_clusters(files, &dirs, &layout)?;
+    let cluster_map = assign_clusters(files, &dirs, &layout)?;
+    let fat_bytes = table::make_fat(&cluster_map, &layout);
+    let dir_data: Vec<Vec<u8>> = build_all_dir_data(files, &dirs, &cluster_map, &layout);
 
+    Ok(Precomputed {
+        layout,
+        dirs,
+        cluster_map,
+        fat_bytes,
+        dir_data,
+        image_size,
+    })
+}
+
+/// Builds a FAT image by writing precomputed metadata and streaming file data.
+///
+/// # Errors
+///
+/// Returns `Error::Io` when writing fails, or `Error::Fat` when a reader
+/// returns EOF before its declared size.
+pub fn build<R: Read, W: Write>(
+    precomputed: &Precomputed,
+    readers: &mut [R],
+    writer: &mut W,
+) -> Result<()> {
     let mut cw = CountWriter {
         inner: writer,
         written: 0,
     };
-    let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
+    let cluster_bytes = precomputed.layout.spc.wrapping_mul(SECTOR_SIZE);
 
-    match layout.kind {
-        FatKind::Fat32 => {
-            boot::write_boot32(&mut cw, &layout)?;
-            boot::write_fsinfo(&mut cw)?;
-        }
-        FatKind::Fat12 | FatKind::Fat16 => {
-            boot::write_boot12_16(&mut cw, &layout)?;
+    write_boot_sector(&mut cw, &precomputed.layout)?;
+    write_reserved_padding(&mut cw, &precomputed.layout)?;
+
+    cw.write_all(&precomputed.fat_bytes)?;
+    cw.write_all(&precomputed.fat_bytes)?;
+
+    write_dir_entries(&mut cw, precomputed)?;
+
+    for (i, reader) in readers.iter_mut().enumerate() {
+        let declared_size = precomputed
+            .cluster_map
+            .file_sizes
+            .get(i)
+            .copied()
+            .unwrap_or(0);
+        stream_reader(&mut cw, reader, declared_size)?;
+        let pad = cluster_bytes.wrapping_sub(declared_size.rem_euclid(cluster_bytes));
+        if pad != cluster_bytes {
+            dir::write_zeros(&mut cw, pad)?;
         }
     }
 
+    let written = cw.written;
+    if written < precomputed.image_size {
+        dir::write_zeros(&mut cw, precomputed.image_size.wrapping_sub(written))?;
+    }
+
+    Ok(())
+}
+
+/// Formats a writable target as an empty FAT volume.
+///
+/// # Errors
+///
+/// Returns `Error::Fat` when layout computation fails, or
+/// `Error::Io` when writing the empty volume fails.
+pub fn format<W: Write>(writer: &mut W, size: u64) -> Result<()> {
+    let files: &[(&str, u64)] = &[];
+    let precomputed = precompute(files, size)?;
+    let readers: &mut [std::io::Empty] = &mut [];
+
+    build(&precomputed, readers, writer)
+}
+
+fn write_boot_sector<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
+    match layout.kind {
+        FatKind::Fat32 => {
+            boot::write_boot32(writer, layout)?;
+            boot::write_fsinfo(writer)?;
+        }
+        FatKind::Fat12 | FatKind::Fat16 => {
+            boot::write_boot12_16(writer, layout)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_reserved_padding<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
     let sectors_written_for_boot = match layout.kind {
         FatKind::Fat32 => 2_u64,
         FatKind::Fat12 | FatKind::Fat16 => 1_u64,
@@ -52,80 +117,84 @@ pub fn build<T: FileSource, W: Write>(
         .wrapping_sub(sectors_written_for_boot)
         .wrapping_mul(SECTOR_SIZE);
     if extra_reserved > 0 {
-        dir::write_zeros(&mut cw, extra_reserved)?;
+        dir::write_zeros(writer, extra_reserved)?;
     }
+    Ok(())
+}
 
-    let fat = table::make_fat(&map, &layout);
-    cw.write_all(&fat)?;
-    cw.write_all(&fat)?;
+fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Result<()> {
+    let cluster_bytes = precomputed.layout.spc.wrapping_mul(SECTOR_SIZE);
 
-    match layout.kind {
+    match precomputed.layout.kind {
         FatKind::Fat12 | FatKind::Fat16 => {
-            let root_dir_data = dir::build_data(files, &dirs, &map, 0, &layout);
-            cw.write_all(&root_dir_data)?;
-            let root_size = layout.root_dir_sectors.wrapping_mul(SECTOR_SIZE);
+            let root_dir_data = precomputed
+                .dir_data
+                .first()
+                .map_or(&[][..], |dir_bytes| dir_bytes.as_slice());
+            writer.write_all(root_dir_data)?;
+            let root_size = precomputed
+                .layout
+                .root_dir_sectors
+                .wrapping_mul(SECTOR_SIZE);
             let remaining =
                 root_size.wrapping_sub(u64::try_from(root_dir_data.len()).unwrap_or(u64::MAX));
             if remaining > 0 && remaining < root_size {
-                dir::write_zeros(&mut cw, remaining)?;
+                dir::write_zeros(writer, remaining)?;
             }
         }
         FatKind::Fat32 => {}
     }
 
-    for i in 0..dirs.len() {
-        if i == 0 && layout.kind != FatKind::Fat32 {
+    for i in 0..precomputed.dirs.len() {
+        if i == 0 && precomputed.layout.kind != FatKind::Fat32 {
             continue;
         }
-        let dir_data = dir::build_data(files, &dirs, &map, i, &layout);
-        cw.write_all(&dir_data)?;
+        let dir_data = precomputed
+            .dir_data
+            .get(i)
+            .map_or(&[][..], |dir_bytes| dir_bytes.as_slice());
+        writer.write_all(dir_data)?;
         let dir_len = u64::try_from(dir_data.len()).unwrap_or(u64::MAX);
         let pad = cluster_bytes.wrapping_sub(dir_len.rem_euclid(cluster_bytes));
         if pad != cluster_bytes {
-            dir::write_zeros(&mut cw, pad)?;
+            dir::write_zeros(writer, pad)?;
         }
     }
-
-    for file in files.iter_mut() {
-        stream_file(&mut cw, file)?;
-        let pad = cluster_bytes.wrapping_sub(file.size().rem_euclid(cluster_bytes));
-        if pad != cluster_bytes {
-            dir::write_zeros(&mut cw, pad)?;
-        }
-    }
-
-    let written = cw.written;
-    if written < image_size {
-        dir::write_zeros(&mut cw, image_size.wrapping_sub(written))?;
-    }
-
     Ok(())
 }
 
-/// Formats a writable target as a FAT volume.
-///
-/// # Errors
-///
-/// Returns `FatError::Fat` when layout computation fails, or
-/// `FatError::Io` when writing the empty volume fails.
-pub fn format<W: Write>(writer: &mut W, size: u64) -> Result<()> {
-    struct NeverSource;
-    impl FileSource for NeverSource {
-        fn path(&self) -> &'static str {
-            ""
-        }
+fn build_all_dir_data(
+    files: &[(&str, u64)],
+    dirs: &[String],
+    map: &ClusterMap,
+    layout: &FatLayout,
+) -> Vec<Vec<u8>> {
+    dirs.iter()
+        .enumerate()
+        .map(|(i, _)| dir::build_data(files, dirs, map, i, layout))
+        .collect()
+}
 
-        fn size(&self) -> u64 {
-            0
+fn stream_reader<W: Write>(writer: &mut W, reader: &mut impl Read, size: u64) -> Result<()> {
+    let mut buf = [0_u8; 8192];
+    let buf_len = u64::try_from(buf.len()).unwrap_or(u64::MAX);
+    let mut rem = size;
+    while rem > 0 {
+        let chunk = rem.min(buf_len);
+        let n = usize::try_from(chunk).unwrap_or(buf.len());
+        let read = reader
+            .read(buf.get_mut(..n).unwrap_or(&mut []))
+            .map_err(FatError::Io)?;
+        if read == 0 {
+            return Err(FatError::Fat(format!(
+                "reader EOF before declared size: {size} bytes expected, {rem} remaining"
+            )));
         }
-
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Ok(0)
-        }
+        writer.write_all(buf.get(..read).unwrap_or(&[]))?;
+        rem = rem.wrapping_sub(u64::try_from(read).unwrap_or(u64::MAX));
     }
-    let files: &mut [NeverSource] = &mut [];
 
-    build(files, size, writer)
+    Ok(())
 }
 
 fn compute_layout(image_size: u64) -> Result<FatLayout> {
@@ -204,11 +273,11 @@ fn check_kind(final_clusters: u64, kind: FatKind) -> bool {
     }
 }
 
-fn collect_dir_paths(files: &[impl FileSource]) -> Vec<String> {
+fn collect_dir_paths(files: &[(&str, u64)]) -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
     dirs.push(String::new());
-    for ef in files {
-        let target = std::path::Path::new(ef.path());
+    for &(path, _size) in files {
+        let target = std::path::Path::new(path);
         push_parent_dirs(&mut dirs, target);
     }
     dirs.sort_by(|left, right| left.len().cmp(&right.len()).then(left.cmp(right)));
@@ -228,7 +297,7 @@ fn push_parent_dirs(dirs: &mut Vec<String>, target: &std::path::Path) {
 }
 
 fn assign_clusters(
-    files: &[impl FileSource],
+    files: &[(&str, u64)],
     dirs: &[String],
     layout: &FatLayout,
 ) -> Result<ClusterMap> {
@@ -248,11 +317,13 @@ fn assign_clusters(
     let mut next_cluster = u64::from(ROOT_CLUSTER).wrapping_add(dir_count);
     let mut file_starts = Vec::with_capacity(files.len());
     let mut file_counts = Vec::with_capacity(files.len());
+    let mut file_sizes = Vec::with_capacity(files.len());
     let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
-    for ef in files {
-        let count = ef.size().div_ceil(cluster_bytes);
+    for &(_path, size) in files {
+        let count = size.div_ceil(cluster_bytes);
         file_starts.push(u32::try_from(next_cluster).unwrap_or(u32::MAX));
         file_counts.push(count);
+        file_sizes.push(size);
         next_cluster = next_cluster
             .checked_add(count)
             .ok_or_else(|| FatError::Fat("cluster overflow".into()))?;
@@ -269,30 +340,8 @@ fn assign_clusters(
         dir_clusters,
         file_starts,
         file_counts,
+        file_sizes,
     })
-}
-
-fn stream_file<W: Write>(writer: &mut W, file: &mut impl FileSource) -> Result<()> {
-    let mut buf = [0_u8; 8192];
-    let buf_len = u64::try_from(buf.len()).unwrap_or(u64::MAX);
-    let mut rem = file.size();
-    while rem > 0 {
-        let chunk = rem.min(buf_len);
-        let n = usize::try_from(chunk).unwrap_or(buf.len());
-        let read = file
-            .read(buf.get_mut(..n).unwrap_or(&mut []))
-            .map_err(FatError::Io)?;
-        if read == 0 {
-            return Err(FatError::Fat(format!(
-                "reader EOF before declared size: {}",
-                file.path()
-            )));
-        }
-        writer.write_all(buf.get(..read).unwrap_or(&[]))?;
-        rem = rem.wrapping_sub(u64::try_from(read).unwrap_or(u64::MAX));
-    }
-
-    Ok(())
 }
 
 struct CountWriter<W: Write> {
@@ -316,60 +365,10 @@ impl<W: Write> Write for CountWriter<W> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
     use crate::types::SECTOR_SIZE;
-
-    struct TestFile {
-        path: String,
-        size: u64,
-        data: Vec<u8>,
-        pos: usize,
-    }
-
-    impl TestFile {
-        fn boot(data: &[u8]) -> Self {
-            Self {
-                path: "EFI/BOOT/BOOTX64.EFI".into(),
-                size: u64::try_from(data.len()).unwrap_or(0),
-                data: data.to_vec(),
-                pos: 0,
-            }
-        }
-
-        fn overlay(path: &str, data: &[u8]) -> Self {
-            Self {
-                path: path.into(),
-                size: u64::try_from(data.len()).unwrap_or(0),
-                data: data.to_vec(),
-                pos: 0,
-            }
-        }
-    }
-
-    impl FileSource for TestFile {
-        fn path(&self) -> &str {
-            &self.path
-        }
-
-        fn size(&self) -> u64 {
-            self.size
-        }
-
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let remaining = self.data.len().wrapping_sub(self.pos);
-            let to_read = buf.len().min(remaining);
-            let end = self.pos.wrapping_add(to_read);
-            let chunk = self.data.get(self.pos..end).unwrap_or(&[]);
-            let dst = buf.get_mut(..to_read).unwrap_or(&mut []);
-            let copy_len = dst.len().min(chunk.len());
-            let chunk_part = chunk.get(..copy_len).unwrap_or(&[]);
-            let dst_part = dst.get_mut(..copy_len).unwrap_or(&mut []);
-            dst_part.copy_from_slice(chunk_part);
-            self.pos = self.pos.wrapping_add(to_read);
-
-            Ok(to_read)
-        }
-    }
 
     fn read_u16_le(buf: &[u8], off: usize) -> u16 {
         let bytes = buf.get(off..off.wrapping_add(2)).unwrap_or(&[0, 0]);
@@ -533,6 +532,21 @@ mod tests {
         img.get(off..off.wrapping_add(cluster_bytes)).unwrap_or(&[])
     }
 
+    fn build_image(files: &[(&str, &[u8])], image_size: u64) -> Vec<u8> {
+        let metas: Vec<(&str, u64)> = files
+            .iter()
+            .map(|&(path, data)| (path, u64::try_from(data.len()).unwrap_or(0)))
+            .collect();
+        let precomputed = precompute(&metas, image_size).expect("precompute must succeed");
+        let mut readers: Vec<Cursor<&[u8]>> = files
+            .iter()
+            .map(|&(_path, data)| Cursor::new(data))
+            .collect();
+        let mut out = Vec::new();
+        build(&precomputed, &mut readers, &mut out).expect("build must succeed");
+        out
+    }
+
     #[test]
     fn format_produces_bootable_image() {
         // ARRANGE
@@ -571,12 +585,10 @@ mod tests {
     #[test]
     fn build_produces_valid_image() {
         // ARRANGE
-        let mut files = vec![TestFile::boot(b"uki-payload")];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki-payload".as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         assert_eq!(out.get(510..512), Some(&[0x55, 0xAA][..]), "boot signature");
@@ -585,15 +597,13 @@ mod tests {
     #[test]
     fn build_multiple_files() {
         // ARRANGE
-        let mut files = vec![
-            TestFile::boot(b"uki"),
-            TestFile::overlay("cfg.txt", b"config"),
+        let files = &[
+            ("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice()),
+            ("cfg.txt", b"config".as_slice()),
         ];
-        let size = 1024 * 1024;
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         assert!(!out.is_empty());
@@ -602,15 +612,13 @@ mod tests {
     #[test]
     fn build_nested_directories() {
         // ARRANGE
-        let mut files = vec![
-            TestFile::boot(b"uki"),
-            TestFile::overlay("overlays/rpi/config.txt", b"arm_64bit=1"),
+        let files = &[
+            ("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice()),
+            ("overlays/rpi/config.txt", b"arm_64bit=1".as_slice()),
         ];
-        let size = 1024 * 1024;
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         assert!(!out.is_empty());
@@ -620,12 +628,10 @@ mod tests {
     fn image_has_boot_file_at_expected_path() {
         // ARRANGE
         let payload = b"uki-binary-data-1234";
-        let mut files = vec![TestFile::boot(payload)];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", payload.as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         let bps = u64::from(read_u16_le(&out, 11));
@@ -655,15 +661,13 @@ mod tests {
     #[test]
     fn image_with_nested_overlay_files() {
         // ARRANGE
-        let mut files = vec![
-            TestFile::boot(b"uki"),
-            TestFile::overlay("overlays/rpi/config.txt", b"arm_64bit=1"),
+        let files = &[
+            ("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice()),
+            ("overlays/rpi/config.txt", b"arm_64bit=1".as_slice()),
         ];
-        let size = 1024 * 1024;
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         let is_32 = bpb_is_fat32(&out);
@@ -679,12 +683,10 @@ mod tests {
     #[test]
     fn fat16_bpb_for_small_volumes() {
         // ARRANGE
-        let mut files = vec![TestFile::boot(b"uki")];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         assert!(
@@ -705,12 +707,10 @@ mod tests {
     #[test]
     fn fat16_root_dir_accessible() {
         // ARRANGE
-        let mut files = vec![TestFile::boot(b"uki")];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         let is_32 = bpb_is_fat32(&out);
@@ -737,12 +737,10 @@ mod tests {
     fn fat32_used_for_large_volumes() {
         // ARRANGE
         let data = vec![0xAB_u8; 300 * 1024 * 1024];
-        let mut files = vec![TestFile::boot(&data)];
-        let size = 400 * 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", data.as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 400 * 1024 * 1024);
 
         // ASSERT
         assert!(
@@ -777,16 +775,17 @@ mod tests {
     #[test]
     fn build_detects_short_reader() {
         // ARRANGE
-        let mut file = TestFile {
-            path: "test.bin".into(),
-            size: 16,
-            data: Vec::new(),
-            pos: 0,
-        };
+        let files: &[(&str, u64)] = &[("test.bin", 16)];
+        let precomputed = precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let mut empty_reader = std::io::empty();
 
         // ACT
         let mut out = Vec::new();
-        let result = build(core::slice::from_mut(&mut file), 1024 * 1024, &mut out);
+        let result = build(
+            &precomputed,
+            core::slice::from_mut(&mut empty_reader),
+            &mut out,
+        );
 
         // ASSERT
         assert!(result.is_err(), "short reader must produce an error");
@@ -807,27 +806,23 @@ mod tests {
     fn build_with_large_payload() {
         // ARRANGE
         let data = vec![0xAB_u8; 100_000];
-        let mut files = vec![TestFile::boot(&data)];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", data.as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
-        assert_eq!(u64::try_from(out.len()).unwrap_or(u64::MAX), size);
+        assert_eq!(u64::try_from(out.len()).unwrap_or(u64::MAX), 1024 * 1024);
     }
 
     #[test]
     fn fat16_bpb_matches_actual_layout() {
         // ARRANGE
         let data = vec![0xAB_u8; 100_000];
-        let mut files = vec![TestFile::boot(&data)];
-        let size = 1024 * 1024;
+        let files = &[("EFI/BOOT/BOOTX64.EFI", data.as_slice())];
 
         // ACT
-        let mut out = Vec::new();
-        build(&mut files, size, &mut out).expect("build must succeed");
+        let out = build_image(files, 1024 * 1024);
 
         // ASSERT
         let is_32 = bpb_is_fat32(&out);
@@ -853,11 +848,10 @@ mod tests {
     #[test]
     fn rejected_too_small_image() {
         // ARRANGE
-        let mut files = vec![TestFile::boot(&[0_u8; 100_000])];
+        let files: &[(&str, u64)] = &[("test.bin", 100_000)];
 
         // ACT
-        let mut out = Vec::new();
-        let err = build(&mut files, 512, &mut out);
+        let err = precompute(files, 512);
 
         // ASSERT
         assert!(err.is_err(), "too-small image must be rejected");

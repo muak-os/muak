@@ -1,45 +1,6 @@
+use std::io::Cursor;
+
 use fatfs::builder;
-use fatfs::types::FileSource;
-
-struct TestFile {
-    path: String,
-    size: u64,
-    data: Vec<u8>,
-    pos: usize,
-}
-
-impl TestFile {
-    fn new(path: &str, data: &[u8]) -> Self {
-        Self {
-            path: path.into(),
-            size: u64::try_from(data.len()).unwrap_or(0),
-            data: data.to_vec(),
-            pos: 0,
-        }
-    }
-}
-
-impl FileSource for TestFile {
-    fn path(&self) -> &str {
-        &self.path
-    }
-
-    fn size(&self) -> u64 {
-        self.size
-    }
-
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let remaining = self.data.len().wrapping_sub(self.pos);
-        let to_read = buf.len().min(remaining);
-        if let Some(data) = self.data.get(self.pos..self.pos.wrapping_add(to_read))
-            && let Some(dst) = buf.get_mut(..to_read)
-        {
-            dst.copy_from_slice(data);
-        }
-        self.pos = self.pos.wrapping_add(to_read);
-        Ok(to_read)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -65,11 +26,13 @@ mod tests {
     #[test]
     fn build_creates_image_with_content() {
         // ARRANGE
-        let mut files = vec![TestFile::new("EFI/BOOT/BOOTX64.EFI", b"uki-payload")];
+        let files: &[(&str, u64)] = &[("EFI/BOOT/BOOTX64.EFI", 11)];
+        let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let mut readers = vec![Cursor::new(b"uki-payload".as_slice())];
 
         // ACT
         let mut buf = Vec::new();
-        builder::build(&mut files, 1024 * 1024, &mut buf).expect("build must succeed");
+        builder::build(&precomputed, &mut readers, &mut buf).expect("build must succeed");
 
         // ASSERT
         assert_eq!(
@@ -95,14 +58,16 @@ mod tests {
     #[test]
     fn build_with_nested_paths_succeeds() {
         // ARRANGE
-        let mut files = vec![
-            TestFile::new("EFI/BOOT/BOOTX64.EFI", b"uki"),
-            TestFile::new("overlays/rpi/config.txt", b"arm_64bit=1"),
+        let files: &[(&str, u64)] = &[("EFI/BOOT/BOOTX64.EFI", 3), ("overlays/rpi/config.txt", 11)];
+        let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let mut readers = vec![
+            Cursor::new(b"uki".as_slice()),
+            Cursor::new(b"arm_64bit=1".as_slice()),
         ];
 
         // ACT
         let mut buf = Vec::new();
-        builder::build(&mut files, 1024 * 1024, &mut buf).expect("build must succeed");
+        builder::build(&precomputed, &mut readers, &mut buf).expect("build must succeed");
 
         // ASSERT
         assert!(!buf.is_empty());
