@@ -43,7 +43,7 @@ pub fn compute_layout<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
 
 /// Builder for ESP images with streaming file data.
 pub struct Builder<'a, W: Write> {
-    layout: Layout<'a>,
+    layout: &'a Layout<'a>,
     writer: &'a mut W,
     current_index: usize,
     readers: Vec<&'a mut (dyn Read + 'a)>,
@@ -52,19 +52,13 @@ pub struct Builder<'a, W: Write> {
 impl<'a, W: Write> Builder<'a, W> {
     /// Creates a new ESP builder with the given layout and writer.
     #[must_use]
-    pub fn new(layout: Layout<'a>, writer: &'a mut W) -> Self {
+    pub fn new(layout: &'a Layout<'a>, writer: &'a mut W) -> Self {
         Self {
             layout,
             writer,
             current_index: 0,
             readers: Vec::new(),
         }
-    }
-
-    /// Returns a reference to the layout.
-    #[must_use]
-    pub fn layout(&self) -> &Layout<'a> {
-        &self.layout
     }
 
     /// Adds a file to the ESP, validating path and size against the layout.
@@ -206,7 +200,7 @@ mod tests {
         ])
         .expect("layout must compute");
         let mut output = Vec::new();
-        let mut builder = Builder::new(layout, &mut output);
+        let mut builder = Builder::new(&layout, &mut output);
         let mut reader1 = Cursor::new(b"uki".as_slice());
         let mut reader2 = Cursor::new(b"config".as_slice());
 
@@ -237,7 +231,7 @@ mod tests {
         ])
         .expect("layout must compute");
         let mut output = Vec::new();
-        let mut builder = Builder::new(layout, &mut output);
+        let mut builder = Builder::new(&layout, &mut output);
         let mut reader = Cursor::new(b"config".as_slice());
 
         // ACT
@@ -253,7 +247,7 @@ mod tests {
         let layout =
             compute_layout(&[FileMeta::new("config.txt", 6)]).expect("layout must compute");
         let mut output = Vec::new();
-        let mut builder = Builder::new(layout, &mut output);
+        let mut builder = Builder::new(&layout, &mut output);
         let mut reader = Cursor::new(b"config".as_slice());
 
         // ACT
@@ -272,7 +266,7 @@ mod tests {
         ])
         .expect("layout must compute");
         let mut output = Vec::new();
-        let mut builder = Builder::new(layout, &mut output);
+        let mut builder = Builder::new(&layout, &mut output);
         let mut reader = Cursor::new(b"uki".as_slice());
         builder
             .add_file("EFI/BOOT/BOOTX64.EFI", &mut reader, 3)

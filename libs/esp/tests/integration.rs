@@ -29,7 +29,7 @@ mod tests {
         // ACT
         let layout = compute_layout(files).expect("layout must compute");
         let mut buf = Vec::new();
-        let mut builder = Builder::new(layout, &mut buf);
+        let mut builder = Builder::new(&layout, &mut buf);
         let mut uki_reader = Cursor::new(uki_data.as_slice());
         let mut config_reader = Cursor::new(config_data.as_slice());
         builder
@@ -84,7 +84,7 @@ mod tests {
 
         let layout = compute_layout(files).expect("layout must compute");
         let mut buf = Vec::new();
-        let mut builder = Builder::new(layout, &mut buf);
+        let mut builder = Builder::new(&layout, &mut buf);
         let mut uki_reader = Cursor::new(uki_data.as_slice());
         builder
             .add_file(
