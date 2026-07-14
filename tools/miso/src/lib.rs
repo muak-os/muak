@@ -19,9 +19,9 @@ use crate::error::{MisoError, Result};
 /// # Errors
 ///
 /// Returns an error if ESP construction fails or writing the ISO image fails.
-pub fn build_iso<'a, W: Write>(
-    layout: &'a Layout<'a>,
-    readers: &mut [&'a mut (dyn Read + 'a)],
+pub fn build_iso<'data, 'ctx, W: Write>(
+    layout: &'ctx Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
     out: &mut W,
 ) -> Result<()> {
     iso::write(out, layout.total_size, |w| build_esp(layout, readers, w))
@@ -32,9 +32,9 @@ pub fn build_iso<'a, W: Write>(
 /// # Errors
 ///
 /// Returns an error if ESP construction fails, compression level validation fails, raw image creation fails, or output writing/compression fails.
-pub fn build_raw<'a, W: Write>(
-    layout: &'a Layout<'a>,
-    readers: &mut [&'a mut (dyn Read + 'a)],
+pub fn build_raw<'data, 'ctx, W: Write>(
+    layout: &'ctx Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
     out: &mut W,
     compression_level: Option<i32>,
 ) -> Result<()> {
@@ -52,9 +52,9 @@ pub fn build_raw<'a, W: Write>(
     Ok(())
 }
 
-fn build_esp<'a, W: Write>(
-    layout: &'a Layout<'a>,
-    readers: &mut [&'a mut (dyn Read + 'a)],
+fn build_esp<'data, 'ctx, W: Write>(
+    layout: &'ctx Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
     writer: &mut W,
 ) -> Result<()> {
     let mut builder = Builder::new(layout, writer);

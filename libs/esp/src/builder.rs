@@ -42,17 +42,17 @@ pub fn compute_layout<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
 }
 
 /// Builder for ESP images with streaming file data.
-pub struct Builder<'a, W: Write> {
-    layout: &'a Layout<'a>,
-    writer: &'a mut W,
+pub struct Builder<'data, 'ctx, W: Write> {
+    layout: &'ctx Layout<'data>,
+    writer: &'ctx mut W,
     current_index: usize,
-    readers: Vec<&'a mut (dyn Read + 'a)>,
+    readers: Vec<&'data mut (dyn Read + 'data)>,
 }
 
-impl<'a, W: Write> Builder<'a, W> {
+impl<'data, 'ctx, W: Write> Builder<'data, 'ctx, W> {
     /// Creates a new ESP builder with the given layout and writer.
     #[must_use]
-    pub fn new(layout: &'a Layout<'a>, writer: &'a mut W) -> Self {
+    pub fn new(layout: &'ctx Layout<'data>, writer: &'ctx mut W) -> Self {
         Self {
             layout,
             writer,
@@ -71,7 +71,7 @@ impl<'a, W: Write> Builder<'a, W> {
     /// - The path doesn't match the expected path in the layout
     /// - The size doesn't match the expected size in the layout
     /// - All files have already been added
-    pub fn add_file(&mut self, path: &str, data: &'a mut (dyn Read + 'a), size: u64) -> Result<()> {
+    pub fn add_file(&mut self, path: &str, data: &'data mut (dyn Read + 'data), size: u64) -> Result<()> {
         let expected = self.layout.files.get(self.current_index).ok_or_else(|| {
             EspError::InvalidOrder(format!(
                 "all {} files already added, cannot add more",
@@ -117,7 +117,7 @@ impl<'a, W: Write> Builder<'a, W> {
 
         let precomputed = precompute(&self.layout.files, self.layout.total_size)?;
 
-        let mut readers: Vec<&mut (dyn Read + 'a)> = self.readers;
+        let mut readers: Vec<&mut (dyn Read + 'data)> = self.readers;
         build(&precomputed, &mut readers, self.writer)?;
 
         Ok(())
