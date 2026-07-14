@@ -5,7 +5,9 @@ mod tests {
     use core::ops::Range;
     use std::io::Cursor;
 
-    use esp::model::{Arch, EspFile, EspSpec};
+    use esp::FileMeta;
+    use esp::arch::Arch;
+    use esp::builder::compute_layout;
     use miso::iso;
 
     fn fake_uki(size: usize) -> Vec<u8> {
@@ -27,14 +29,12 @@ mod tests {
         let uki_data = fake_uki(uki_size);
         let size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut cursor, size);
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .build()
-            .expect("build spec");
+
+        let files = &[FileMeta::new(Arch::X86_64.boot_path(), size)];
+        let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
-        miso::build_iso(&mut spec, &mut out).expect("build_iso must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
+        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
         out.into_inner()
     }
 
@@ -109,16 +109,14 @@ mod tests {
         let uki_data = fake_uki(1024);
         let size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::Aarch64, &mut cursor, size);
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .build()
-            .expect("build spec");
+
+        let files = &[FileMeta::new(Arch::Aarch64.boot_path(), size)];
+        let layout = compute_layout(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
-        miso::build_iso(&mut spec, &mut out).expect("build_iso must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
+        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
         let iso = out.into_inner();
 
         // ASSERT
@@ -200,28 +198,21 @@ mod tests {
         let uki_data = fake_uki(512);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut uki_cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut uki_cursor, uki_size);
 
         let extra_data = b"arm_64bit=1".to_vec();
         let extra_size = u64::try_from(extra_data.len()).unwrap_or(u64::MAX);
         let mut extra_cursor = Cursor::new(extra_data);
-        let extra = EspFile {
-            path: "overlays/rpi/config.txt".to_owned(),
-            reader: &mut extra_cursor,
-            size: extra_size,
-        };
 
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .add_file(extra)
-            .expect("add extra")
-            .build()
-            .expect("build spec");
+        let files = &[
+            FileMeta::new(Arch::X86_64.boot_path(), uki_size),
+            FileMeta::new("overlays/rpi/config.txt", extra_size),
+        ];
+        let layout = compute_layout(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
-        miso::build_iso(&mut spec, &mut out).expect("build_iso must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
+        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
         let iso = out.into_inner();
 
         // ASSERT

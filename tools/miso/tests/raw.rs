@@ -4,7 +4,9 @@
 mod tests {
     use std::io::Cursor;
 
-    use esp::model::{Arch, EspFile, EspSpec};
+    use esp::FileMeta;
+    use esp::arch::Arch;
+    use esp::builder::compute_layout;
     use miso::error::MisoError;
     use parttable::{
         gpt::{
@@ -29,14 +31,12 @@ mod tests {
         let uki_data = fake_uki(size);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut cursor, uki_size);
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .build()
-            .expect("build spec");
+
+        let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
+        let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
-        miso::build_raw(&mut spec, &mut out, None).expect("build_raw must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
+        miso::build_raw(layout, &mut readers, &mut out, None).expect("build_raw must succeed");
         out.into_inner()
     }
 
@@ -119,16 +119,15 @@ mod tests {
         let uki_data = fake_uki(1024);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut cursor, uki_size);
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .build()
-            .expect("build spec");
+
+        let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
+        let layout = compute_layout(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
-        miso::build_raw(&mut spec, &mut out, Some(3)).expect("compressed build_raw must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
+        miso::build_raw(layout, &mut readers, &mut out, Some(3))
+            .expect("compressed build_raw must succeed");
         let compressed = out.into_inner();
         let raw = zstd::decode_all(&*compressed).expect("decode compressed raw");
 
@@ -144,28 +143,21 @@ mod tests {
         let uki_data = fake_uki(1024);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut uki_cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut uki_cursor, uki_size);
 
         let extra_data = vec![0x5A_u8; 2 * 1024 * 1024];
         let extra_size = u64::try_from(extra_data.len()).unwrap_or(u64::MAX);
         let mut extra_cursor = Cursor::new(extra_data);
-        let extra = EspFile {
-            path: "assets/rootfs.img".to_owned(),
-            reader: &mut extra_cursor,
-            size: extra_size,
-        };
 
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .add_file(extra)
-            .expect("add extra")
-            .build()
-            .expect("build spec");
+        let files = &[
+            FileMeta::new(Arch::X86_64.boot_path(), uki_size),
+            FileMeta::new("assets/rootfs.img", extra_size),
+        ];
+        let layout = compute_layout(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
-        miso::build_raw(&mut spec, &mut out, None).expect("build_raw must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
+        miso::build_raw(layout, &mut readers, &mut out, None).expect("build_raw must succeed");
         let img = out.into_inner();
 
         // ASSERT
@@ -194,16 +186,14 @@ mod tests {
         let uki_data = fake_uki(1024);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
-        let boot = EspFile::boot(Arch::X86_64, &mut cursor, uki_size);
-        let mut spec = EspSpec::builder()
-            .add_file(boot)
-            .expect("add boot")
-            .build()
-            .expect("build spec");
+
+        let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
+        let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
 
         // ACT
-        let result = miso::build_raw(&mut spec, &mut out, Some(i32::MAX));
+        let result = miso::build_raw(layout, &mut readers, &mut out, Some(i32::MAX));
 
         // ASSERT
         assert!(matches!(

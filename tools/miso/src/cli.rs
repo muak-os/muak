@@ -2,11 +2,14 @@
 
 use std::ffi::OsString;
 use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use clap::{Parser, Subcommand};
-use esp::model::{Arch, EspFile, EspSpec};
+use esp::FileMeta;
+use esp::arch::Arch;
+use esp::builder::{Layout, compute_layout};
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -62,7 +65,7 @@ enum Command {
     },
 }
 
-/// Parses the architecture string into an `esp::model::Arch` value.
+/// Parses the architecture string into an `esp::arch::Arch` value.
 fn parse_arch(arch: &str) -> Result<Arch> {
     match arch {
         "x86_64" => Ok(Arch::X86_64),
@@ -84,26 +87,28 @@ fn parse_file_spec(spec: &str) -> Result<(&str, &str)> {
     Ok((src, dst))
 }
 
-fn build_spec<'a>(
+fn build_layout_and_readers<'a>(
     arch: Arch,
     uki_file: &'a mut File,
     uki_len: u64,
     owned_files: &'a mut [File],
-    file_infos: Vec<(String, u64)>,
-) -> Result<EspSpec<'a>> {
-    let mut builder = EspSpec::builder();
-    let boot = EspFile::boot(arch, uki_file, uki_len);
-    builder = builder.add_file(boot).context("Failed to add boot file")?;
-    for (file, (dst, size)) in owned_files.iter_mut().zip(file_infos) {
-        let esp_file = EspFile {
-            path: dst,
-            reader: file,
-            size,
-        };
-        builder = builder.add_file(esp_file).context("Failed to add file")?;
+    file_infos: Vec<(&'a str, u64)>,
+) -> Result<(Layout<'a>, Vec<&'a mut (dyn Read + 'a)>)> {
+    let mut file_metas = Vec::with_capacity(file_infos.len().saturating_add(1));
+    file_metas.push(FileMeta::new(arch.boot_path(), uki_len));
+    for (path, size) in file_infos {
+        file_metas.push(FileMeta::new(path, size));
     }
 
-    builder.build().context("Failed to build ESP spec")
+    let layout = compute_layout(&file_metas).context("Failed to compute layout")?;
+
+    let mut readers: Vec<&'a mut (dyn Read + 'a)> = Vec::with_capacity(file_metas.len());
+    readers.push(uki_file);
+    for file in owned_files.iter_mut() {
+        readers.push(file);
+    }
+
+    Ok((layout, readers))
 }
 
 fn run_command(command: Command) -> Result<()> {
@@ -129,14 +134,20 @@ fn run_command(command: Command) -> Result<()> {
                 let file = std::fs::File::open(src)?;
                 let size = file.metadata()?.len();
                 owned_files.push(file);
-                file_infos.push((dst.to_owned(), size));
+                file_infos.push((dst, size));
             }
 
-            let mut spec = build_spec(arch, &mut uki_file, uki_len, &mut owned_files, file_infos)?;
+            let (layout, mut readers) = build_layout_and_readers(
+                arch,
+                &mut uki_file,
+                uki_len,
+                &mut owned_files,
+                file_infos,
+            )?;
 
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
-            crate::build_iso(&mut spec, &mut writer).context("Failed to build ISO")?;
+            crate::build_iso(layout, &mut readers, &mut writer).context("Failed to build ISO")?;
             let size = writer
                 .metadata()
                 .context(format!("Failed to stat {}", output.display()))?
@@ -166,14 +177,20 @@ fn run_command(command: Command) -> Result<()> {
                 let file = std::fs::File::open(src)?;
                 let size = file.metadata()?.len();
                 owned_files.push(file);
-                file_infos.push((dst.to_owned(), size));
+                file_infos.push((dst, size));
             }
 
-            let mut spec = build_spec(arch, &mut uki_file, uki_len, &mut owned_files, file_infos)?;
+            let (layout, mut readers) = build_layout_and_readers(
+                arch,
+                &mut uki_file,
+                uki_len,
+                &mut owned_files,
+                file_infos,
+            )?;
 
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
-            crate::build_raw(&mut spec, &mut writer, compression_level)
+            crate::build_raw(layout, &mut readers, &mut writer, compression_level)
                 .context("Failed to build disk image")?;
             let size = writer
                 .metadata()

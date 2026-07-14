@@ -25,12 +25,12 @@ impl Arch {
         panic!("unsupported target architecture")
     }
 
-    /// Returns the UEFI fallback boot filename for this architecture.
+    /// Returns the UEFI fallback boot path for this architecture.
     #[must_use]
-    pub const fn boot_filename(self) -> &'static str {
+    pub const fn boot_path(self) -> &'static str {
         match self {
-            Self::X86_64 => "BOOTX64.EFI",
-            Self::Aarch64 => "BOOTAA64.EFI",
+            Self::X86_64 => "EFI/BOOT/BOOTX64.EFI",
+            Self::Aarch64 => "EFI/BOOT/BOOTAA64.EFI",
         }
     }
 }
@@ -40,10 +40,10 @@ mod tests {
     use super::Arch;
 
     #[test]
-    fn arch_boot_filename_matches_uefi_fallback_names() {
+    fn arch_boot_path_matches_uefi_fallback_paths() {
         // ARRANGE / ACT / ASSERT
-        assert_eq!(Arch::X86_64.boot_filename(), "BOOTX64.EFI");
-        assert_eq!(Arch::Aarch64.boot_filename(), "BOOTAA64.EFI");
+        assert_eq!(Arch::X86_64.boot_path(), "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(Arch::Aarch64.boot_path(), "EFI/BOOT/BOOTAA64.EFI");
     }
 
     #[test]
