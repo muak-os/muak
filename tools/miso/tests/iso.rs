@@ -34,7 +34,7 @@ mod tests {
         let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
+        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
         out.into_inner()
     }
 
@@ -116,7 +116,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
+        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
         let iso = out.into_inner();
 
         // ASSERT
@@ -212,7 +212,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        miso::build_iso(layout, &mut readers, &mut out).expect("build_iso must succeed");
+        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
         let iso = out.into_inner();
 
         // ASSERT

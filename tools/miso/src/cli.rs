@@ -147,7 +147,7 @@ fn run_command(command: Command) -> Result<()> {
 
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
-            crate::build_iso(layout, &mut readers, &mut writer).context("Failed to build ISO")?;
+            crate::build_iso(&layout, &mut readers, &mut writer).context("Failed to build ISO")?;
             let size = writer
                 .metadata()
                 .context(format!("Failed to stat {}", output.display()))?
@@ -190,7 +190,7 @@ fn run_command(command: Command) -> Result<()> {
 
             let mut writer =
                 File::create(&output).context(format!("Failed to create {}", output.display()))?;
-            crate::build_raw(layout, &mut readers, &mut writer, compression_level)
+            crate::build_raw(&layout, &mut readers, &mut writer, compression_level)
                 .context("Failed to build disk image")?;
             let size = writer
                 .metadata()

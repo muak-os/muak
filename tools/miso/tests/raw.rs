@@ -36,7 +36,7 @@ mod tests {
         let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_raw(layout, &mut readers, &mut out, None).expect("build_raw must succeed");
+        miso::build_raw(&layout, &mut readers, &mut out, None).expect("build_raw must succeed");
         out.into_inner()
     }
 
@@ -126,7 +126,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_raw(layout, &mut readers, &mut out, Some(3))
+        miso::build_raw(&layout, &mut readers, &mut out, Some(3))
             .expect("compressed build_raw must succeed");
         let compressed = out.into_inner();
         let raw = zstd::decode_all(&*compressed).expect("decode compressed raw");
@@ -157,7 +157,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        miso::build_raw(layout, &mut readers, &mut out, None).expect("build_raw must succeed");
+        miso::build_raw(&layout, &mut readers, &mut out, None).expect("build_raw must succeed");
         let img = out.into_inner();
 
         // ASSERT
@@ -193,7 +193,7 @@ mod tests {
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
 
         // ACT
-        let result = miso::build_raw(layout, &mut readers, &mut out, Some(i32::MAX));
+        let result = miso::build_raw(&layout, &mut readers, &mut out, Some(i32::MAX));
 
         // ASSERT
         assert!(matches!(
