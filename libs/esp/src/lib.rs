@@ -4,8 +4,13 @@
 
 extern crate alloc;
 
+pub mod arch;
+pub mod builder;
 pub mod error;
-pub mod image;
-pub mod model;
 pub mod path;
 pub mod populate;
+
+use fatfs::types;
+
+/// Metadata for a file in the ESP (path and size).
+pub type FileMeta<'a> = types::FileMeta<'a>;

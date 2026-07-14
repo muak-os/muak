@@ -25,6 +25,30 @@ pub enum EspError {
     /// FAT filesystem construction or writing failed.
     #[error("FAT filesystem error: {0}")]
     Fat(#[from] FatError),
+
+    /// Files were added in the wrong order.
+    #[error("Invalid file order: {0}")]
+    InvalidOrder(String),
+
+    /// A file size didn't match the expected size from the layout.
+    #[error("Size mismatch for '{path}': expected {expected}, got {actual}")]
+    SizeMismatch {
+        /// The path of the file.
+        path: String,
+        /// The expected size.
+        expected: u64,
+        /// The actual size provided.
+        actual: u64,
+    },
+
+    /// Not all files from the layout were added.
+    #[error("Incomplete ESP: expected {expected} files, got {actual}")]
+    Incomplete {
+        /// The expected number of files.
+        expected: usize,
+        /// The actual number of files added.
+        actual: usize,
+    },
 }
 
 /// Result type alias for ESP operations.
