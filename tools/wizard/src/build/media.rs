@@ -1,101 +1,50 @@
-//! Bootable media builders.
+//! Bootable media builder.
 
-use alloc::sync::Arc;
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 
-use esp::model::{Arch as EspArch, EspFile, EspSpec};
+use esp::FileMeta;
+use esp::builder::compute_layout;
+use koci::arch::Arch;
 
-use super::source::OverlayEntry;
+use crate::arch;
 use crate::error::{Result, WizardError};
 
-/// Build an ISO image from scratch, writing directly to a `Write` sink.
+/// Writes a UKI and optional overlay files into bootable media.
 ///
 /// # Errors
 ///
-/// Returns an error when creating the ISO or writing it fails.
-pub fn write_iso<R: Read, W: Write>(
-    arch: EspArch,
-    uki_reader: &mut R,
+/// Returns an error when writing the media fails.
+pub(crate) fn write<W: Write>(
+    arch: Arch,
+    uki: &mut dyn Read,
     uki_size: u64,
-    overlay_entries: Vec<OverlayEntry>,
-    writer: &mut W,
+    overlay_files: &[FileMeta<'_>],
+    overlay_readers: Option<&mut [&mut dyn Read]>,
+    iso: Option<&mut W>,
+    raw: Option<&mut W>,
 ) -> Result<()> {
-    with_esp(
-        arch,
-        uki_reader,
-        uki_size,
-        overlay_entries,
-        writer,
-        |spec, w| {
-            miso::build_iso(spec, w)
-                .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
-        },
-    )
-}
+    let mut file_metas = Vec::with_capacity(overlay_files.len().saturating_add(1));
+    file_metas.push(FileMeta::new(arch::esp(arch).boot_path(), uki_size));
+    file_metas.extend_from_slice(overlay_files);
 
-/// Build a raw disk image from scratch, writing directly to a `Write` sink.
-///
-/// # Errors
-///
-/// Returns an error when creating the raw image or writing it fails.
-pub fn write_raw<R: Read, W: Write>(
-    arch: EspArch,
-    uki_reader: &mut R,
-    uki_size: u64,
-    overlay_entries: Vec<OverlayEntry>,
-    writer: &mut W,
-) -> Result<()> {
-    with_esp(
-        arch,
-        uki_reader,
-        uki_size,
-        overlay_entries,
-        writer,
-        |spec, w| {
-            miso::build_raw(spec, w, Some(6))
-                .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
-        },
-    )
-}
-
-fn with_esp<R: Read, W: Write>(
-    arch: EspArch,
-    uki_reader: &mut R,
-    uki_size: u64,
-    overlay_entries: Vec<OverlayEntry>,
-    writer: &mut W,
-    write: impl FnOnce(&mut EspSpec<'_>, &mut W) -> Result<()>,
-) -> Result<()> {
-    let count = overlay_entries.len();
-    let mut cursors: Vec<Cursor<Arc<[u8]>>> = Vec::with_capacity(count);
-    for entry in &overlay_entries {
-        cursors.push(Cursor::new(Arc::clone(&entry.data)));
+    let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(file_metas.len());
+    readers.push(uki);
+    if let Some(overlay_readers) = overlay_readers {
+        for reader in overlay_readers {
+            readers.push(*reader);
+        }
     }
 
-    let mut overlay_files: Vec<EspFile<'_>> = Vec::with_capacity(count);
-    for (file, entry) in cursors.iter_mut().zip(overlay_entries) {
-        overlay_files.push(EspFile {
-            path: entry.path,
-            reader: file,
-            size: entry.size,
-        });
+    let layout = compute_layout(&file_metas)
+        .map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))?;
+
+    if let Some(writer) = iso {
+        miso::build_iso(&layout, &mut readers, writer)
+            .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
+    } else if let Some(writer) = raw {
+        miso::build_raw(&layout, &mut readers, writer, Some(6))
+            .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
+    } else {
+        Ok(())
     }
-
-    let mut builder = EspSpec::builder();
-    let boot = EspFile::boot(arch, uki_reader, uki_size);
-    builder = builder
-        .add_file(boot)
-        .map_err(|e| WizardError::BuildError(format!("add UKI to ESP spec: {e}")))?;
-
-    for file in overlay_files {
-        builder = builder
-            .add_file(file)
-            .map_err(|e| WizardError::BuildError(format!("add overlay file: {e}")))?;
-    }
-
-    let mut spec = builder
-        .build()
-        .map_err(|e| WizardError::BuildError(format!("build ESP spec: {e}")))?;
-
-    write(&mut spec, writer)
 }

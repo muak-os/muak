@@ -12,11 +12,11 @@ use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Request;
 use crate::resolve::{self, Config};
+use crate::source::{self, installer, overlay::Overlay};
 
 pub(crate) mod archive;
 pub(crate) mod artifacts;
 pub(crate) mod media;
-pub mod source;
 pub(crate) mod uki;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
@@ -37,7 +37,7 @@ pub struct Metadata {
     /// PE section descriptors for the built UKI.
     pub sections: Vec<SectionInfo>,
     /// Overlay source information for deferred overlay pulling.
-    pub overlay: Option<resolve::OverlaySource>,
+    pub overlay: Option<Overlay>,
 }
 
 /// Per-artifact output sinks passed to [`artifacts`].
@@ -79,13 +79,18 @@ pub async fn artifacts<W: Write>(
         raw,
     } = writers;
 
-    let assets = artifacts::pull_installer_assets(&resolved).await?;
-    let extensions = artifacts::prepare_extensions(&resolved, &request.artifacts).await?;
+    let meta = installer::metadata(resolved.installer(), &resolved.arch(), None).await?;
     let needs_post = request
         .artifacts
         .iter()
         .any(|art| matches!(art, Artifact::Uki | Artifact::Iso | Artifact::Raw));
     let needs_tail = needs_post || initramfs.is_some();
+
+    let extensions = if needs_tail {
+        Some(source::extension::pull(&resolved).await?)
+    } else {
+        None
+    };
 
     let (tail_parts, tail_size) = if needs_tail {
         let parts =
@@ -102,8 +107,8 @@ pub async fn artifacts<W: Write>(
             WizardError::BuildError("tail parts required for post processing".to_owned())
         })?;
         artifacts::build_post(
-            &assets,
             &resolved,
+            &meta,
             parts,
             tail_size,
             signing_key,
@@ -116,7 +121,7 @@ pub async fn artifacts<W: Write>(
         Vec::default()
     };
 
-    artifacts::write_standalone(&assets, tail_parts.as_ref(), kernel, cmdline, initramfs)?;
+    artifacts::write_standalone(&resolved, tail_parts.as_ref(), kernel, cmdline, initramfs).await?;
 
     let overlay = resolved.overlay().cloned();
 
@@ -136,5 +141,5 @@ pub async fn artifacts<W: Write>(
 
 /// Set the OCI blob cache directory for all image pulls performed by koci.
 pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
-    cache::set_dir(path);
+    cache::Store::set_dir(path.into());
 }

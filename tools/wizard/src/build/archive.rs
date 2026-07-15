@@ -5,20 +5,19 @@ use std::io::{self, Write};
 use erofs::layout;
 use erofs::tree::TreeEntry;
 use erofs::writer;
-use koci::pulled::{PulledEntry, PulledImage};
 use ramune::Entry;
 use ramune::archive;
 use ramune::error::RamuneError;
 
-use super::source;
-use super::source::InstallerAssets;
 use crate::error::{Result, WizardError};
-use crate::resolve::BuildPlan;
+use crate::source::extension::Metadata as ExtensionMetadata;
 
+/// Tail parts for initramfs: EROFS extensions and raw files.
 pub(crate) struct TailParts {
     entries: Vec<TailEntry>,
 }
 
+// TODO: update erofs api to prevent buffering
 impl TailParts {
     fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -38,16 +37,17 @@ enum TailEntry {
     },
 }
 
+/// Prepares tail parts from extension metadata and buffered file data.
 pub(crate) fn prepare_tail_parts(
-    extensions: &[(String, PulledImage)],
+    extensions: &[(String, ExtensionMetadata, Vec<Vec<u8>>)],
     profile_bytes: &[u8],
 ) -> Result<TailParts> {
     let mut entries = Vec::new();
-    for entry in extensions {
+    for ext in extensions {
         let (plan, config, size) =
-            plan_erofs_from_image(&entry.1, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
+            plan_erofs_from_metadata(&ext.1.files, &ext.2, erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
         entries.push(TailEntry::Erofs {
-            path: format!("extensions/{}.erofs", extension_archive_name(&entry.0)),
+            path: format!("extensions/{}.erofs", extension_archive_name(&ext.0)),
             plan,
             config,
             size,
@@ -63,6 +63,7 @@ pub(crate) fn prepare_tail_parts(
     Ok(TailParts { entries })
 }
 
+/// Computes the exact size of the tail archive.
 pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
     let metas: Vec<Entry> = parts
         .entries
@@ -84,6 +85,7 @@ pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
     archive::size(&metas)
 }
 
+/// Builds the tail archive from prepared parts.
 pub(crate) fn build_tail_from_parts(parts: &TailParts, writer: &mut impl Write) -> Result<()> {
     if parts.is_empty() {
         return Ok(());
@@ -143,29 +145,17 @@ fn extension_archive_name(name: &str) -> String {
     name.replace('/', "-")
 }
 
-pub(crate) async fn pull_extensions(
-    resolved_profile: &BuildPlan,
-) -> Result<Vec<(String, PulledImage)>> {
-    let resolved_extensions = resolved_profile.extensions();
-    if resolved_extensions.is_empty() {
-        return Ok(vec![]);
-    }
-
-    source::pull_extensions(resolved_extensions, &resolved_profile.arch(), None)
-        .await
-        .map_err(|e| WizardError::BuildError(format!("pull extensions: {e}")))
-}
-
-fn plan_erofs_from_image(
-    image: &PulledImage,
+fn plan_erofs_from_metadata(
+    files: &[(String, u64, u32)],
+    buffered_data: &[Vec<u8>],
     compression_level: i32,
 ) -> Result<(erofs::ImagePlan, erofs::MkfsConfig<'static>, u64)> {
-    const EROFS_FT_DIR: u8 = 2;
+    const EROFS_FTDIR: u8 = 2;
     const EROFS_FT_REG_FILE: u8 = 1;
 
     let mut entries = vec![TreeEntry {
         rel_path: "/".into(),
-        file_type: EROFS_FT_DIR,
+        file_type: EROFS_FTDIR,
         size: 0,
         mode: 0o40755,
         uid: 0,
@@ -177,46 +167,25 @@ fn plan_erofs_from_image(
     }];
     let mut readers: Vec<Box<dyn io::Read>> = vec![Box::new(io::empty())];
 
-    for entry in image
-        .entries()
-        .map_err(|e| WizardError::BuildError(format!("list entries: {e}")))?
-    {
-        let rel_path = format!("/{}", entry.path().display());
-        match entry {
-            PulledEntry::File { file, .. } => {
-                readers.push(Box::new(file.open()));
-                entries.push(TreeEntry {
-                    rel_path,
-                    file_type: EROFS_FT_REG_FILE,
-                    size: file.len,
-                    mode: 0o100_000 | file.mode,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                });
-            }
-            PulledEntry::Dir { mode, .. } => {
-                readers.push(Box::new(io::empty()));
-                entries.push(TreeEntry {
-                    rel_path,
-                    file_type: EROFS_FT_DIR,
-                    size: 0,
-                    mode: 0o040_000 | mode,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                });
-            }
-        }
+    for (file_entry, data) in files.iter().zip(buffered_data) {
+        let &(ref path, size, mode) = file_entry;
+        let rel_path = format!("/{path}");
+        readers.push(Box::new(io::Cursor::new(data.clone())));
+        entries.push(TreeEntry {
+            rel_path,
+            file_type: EROFS_FT_REG_FILE,
+            size,
+            mode: 0o100_000 | mode,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        });
     }
 
-    let mut files: Vec<erofs::SizedFile<'_>> = entries
+    let mut sized_files: Vec<erofs::SizedFile<'_>> = entries
         .into_iter()
         .zip(readers.iter_mut())
         .map(|(entry, reader)| erofs::SizedFile { entry, reader })
@@ -233,31 +202,16 @@ fn plan_erofs_from_image(
         },
     };
 
-    let plan = layout::plan(&mut files, &config)
+    let plan = layout::plan(&mut sized_files, &config)
         .map_err(|e| WizardError::BuildError(format!("plan EROFS blob: {e}")))?;
     let total_size = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
 
     Ok((plan, config, total_size))
 }
 
-pub fn write_combined_initramfs<W: Write>(
-    assets: &InstallerAssets,
-    tail_parts: &TailParts,
-    writer: &mut W,
-) -> Result<()> {
-    let mut base_reader = assets.initramfs.open();
-    io::copy(&mut base_reader, writer)
-        .map_err(|e| WizardError::BuildError(format!("write initramfs base: {e}")))?;
-
-    build_tail_from_parts(tail_parts, writer)
-}
-
 #[cfg(test)]
 mod tests {
-    use koci::arch::Arch;
-
     use super::*;
-    use crate::request::Platform;
 
     #[test]
     fn derives_stable_archive_names() {
@@ -329,44 +283,5 @@ mod tests {
 
         // ASSERT
         assert!(buf.is_empty());
-    }
-
-    #[tokio::test]
-    async fn prepare_tail_parts_builds_nonempty_tail() {
-        // ARRANGE
-        let resolved = BuildPlan::new(
-            Platform::Metal,
-            "v1.0.0".into(),
-            Arch::Amd64,
-            vec![],
-            None,
-            "ghcr.io/muak-os/installer:v1.0.0".into(),
-        );
-        // ACT
-        let extensions = pull_extensions(&resolved).await.expect("pull extensions");
-        let parts =
-            prepare_tail_parts(&extensions, b"profile = true\n").expect("prepare tail parts");
-
-        // ASSERT
-        assert!(!parts.entries.is_empty());
-    }
-
-    #[tokio::test]
-    async fn pull_extensions_returns_empty_when_no_extensions() {
-        // ARRANGE
-        let resolved = BuildPlan::new(
-            Platform::Metal,
-            "v1.0.0".into(),
-            Arch::Amd64,
-            vec![],
-            None,
-            "ghcr.io/muak-os/installer:v1.0.0".into(),
-        );
-
-        // ACT
-        let extensions = pull_extensions(&resolved).await.expect("pull extensions");
-
-        // ASSERT
-        assert!(extensions.is_empty());
     }
 }

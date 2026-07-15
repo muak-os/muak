@@ -5,7 +5,9 @@ use koci::arch::Arch;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Platform;
-use crate::resolve::{BuildPlan, ExtensionRef, OverlaySource, Sources};
+use crate::resolve::{BuildPlan, Sources};
+use crate::source::extension::Extension;
+use crate::source::overlay::Overlay;
 
 const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
 
@@ -53,7 +55,7 @@ impl Resolver {
         extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
         let overlay = profile.overlay().map(|overlay_spec| {
-            OverlaySource::new(
+            Overlay::new(
                 overlay_spec.name().to_owned(),
                 overlay_spec.image().to_owned(),
                 self.versioned_ref(overlay_spec.image(), version),
@@ -75,14 +77,14 @@ impl Resolver {
         format!("{}/{repository}:{version}", self.registry)
     }
 
-    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<ExtensionRef> {
+    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<Extension> {
         let normalized = resolve_extension_name(name);
         if !is_official_extension(normalized) {
             return Err(WizardError::SourceResolution(format!(
                 "unknown official extension: {name}"
             )));
         }
-        Ok(ExtensionRef::new(
+        Ok(Extension::new(
             normalized.to_owned(),
             self.versioned_ref(normalized, version),
         ))
@@ -102,6 +104,7 @@ pub(super) fn resolve(
     sources: &Sources,
 ) -> Result<BuildPlan> {
     let resolver = Resolver::new(sources);
+
     resolver.resolve(version, platform, arch, profile)
 }
 
