@@ -68,6 +68,12 @@ pub async fn artifacts<W: Write>(
     signing_key: Option<&SigningPair<'_>>,
     writers: ArtifactWriters<'_, W>,
 ) -> Result<Metadata> {
+    if request.artifacts.is_empty() {
+        return Err(WizardError::BuildError(
+            "at least one artifact must be requested".to_owned(),
+        ));
+    }
+
     let resolved = resolve::profile(request, profile, &config.sources)?;
     let profile_bytes = profile.canonical_bytes()?;
     let ArtifactWriters {
@@ -102,26 +108,27 @@ pub async fn artifacts<W: Write>(
         (None, 0)
     };
 
-    let sections = if needs_post {
-        let parts = tail_parts.as_ref().ok_or_else(|| {
-            WizardError::BuildError("tail parts required for post processing".to_owned())
-        })?;
-        artifacts::build_post(
-            &resolved,
-            &meta,
-            parts,
+    let sections = if needs_post || kernel.is_some() || cmdline.is_some() || initramfs.is_some() {
+        let error_msg = if needs_post {
+            "tail parts required for post processing"
+        } else {
+            "tail parts required for initramfs"
+        };
+        let parts = tail_parts
+            .as_ref()
+            .ok_or_else(|| WizardError::BuildError(error_msg.to_owned()))?;
+
+        let post_config = artifacts::BuildPostConfig {
+            resolved: &resolved,
+            installer_meta: &meta,
+            tail_parts: parts,
             tail_size,
             signing_key,
-            uki,
-            iso,
-            raw,
-        )
-        .await?
+        };
+        artifacts::build(&post_config, uki, iso, raw, kernel, cmdline, initramfs).await?
     } else {
         Vec::default()
     };
-
-    artifacts::write_standalone(&resolved, tail_parts.as_ref(), kernel, cmdline, initramfs).await?;
 
     let overlay = resolved.overlay().cloned();
 
