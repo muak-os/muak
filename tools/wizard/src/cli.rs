@@ -269,10 +269,6 @@ fn run_resolve(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "match on 6 artifact variants is verbose"
-)]
 async fn run_build(args: BuildArgs) -> Result<()> {
     let arch = parse_arch(&args.arch)?;
     let platform = parse_platform(&args.platform)?;
@@ -325,57 +321,15 @@ async fn run_build(args: BuildArgs) -> Result<()> {
     let file = std::fs::File::create(&output_path)
         .with_context(|| format!("create output file {}", output_path.display()))?;
     let mut file = std::io::BufWriter::new(file);
-    let writers = match artifact {
-        Artifact::Uki => build::ArtifactWriters {
-            uki: Some(&mut file),
-            kernel: None,
-            cmdline: None,
-            initramfs: None,
-            iso: None,
-            raw: None,
-        },
-        Artifact::Kernel => build::ArtifactWriters {
-            kernel: Some(&mut file),
-            uki: None,
-            cmdline: None,
-            initramfs: None,
-            iso: None,
-            raw: None,
-        },
-        Artifact::Cmdline => build::ArtifactWriters {
-            cmdline: Some(&mut file),
-            uki: None,
-            kernel: None,
-            initramfs: None,
-            iso: None,
-            raw: None,
-        },
-        Artifact::Initramfs => build::ArtifactWriters {
-            initramfs: Some(&mut file),
-            uki: None,
-            kernel: None,
-            cmdline: None,
-            iso: None,
-            raw: None,
-        },
-        Artifact::Iso => build::ArtifactWriters {
-            iso: Some(&mut file),
-            uki: None,
-            kernel: None,
-            cmdline: None,
-            initramfs: None,
-            raw: None,
-        },
-        Artifact::Raw => build::ArtifactWriters {
-            raw: Some(&mut file),
-            uki: None,
-            kernel: None,
-            cmdline: None,
-            initramfs: None,
-            iso: None,
-        },
+    let target = match artifact {
+        Artifact::Uki => build::ArtifactTarget::Uki(&mut file),
+        Artifact::Kernel => build::ArtifactTarget::Kernel(&mut file),
+        Artifact::Cmdline => build::ArtifactTarget::Cmdline(&mut file),
+        Artifact::Initramfs => build::ArtifactTarget::Initramfs(&mut file),
+        Artifact::Iso => build::ArtifactTarget::Iso(&mut file),
+        Artifact::Raw => build::ArtifactTarget::Raw(&mut file),
     };
-    let _metadata = build::artifacts(&request, &spec, &config, signing.as_ref(), writers)
+    let _metadata = build::artifacts(&request, &spec, &config, signing.as_ref(), [target])
         .await
         .context(format!("build {} to {}", artifact, output_path.display()))?;
 

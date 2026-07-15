@@ -71,15 +71,12 @@ async fn setup_overlay_pipes(overlay: &overlay::Overlay) -> Result<OverlayPipes>
 pub(crate) struct BuildPostConfig<'a> {
     pub resolved: &'a BuildPlan,
     pub installer_meta: &'a installer::Metadata,
-    pub tail_parts: &'a TailParts,
+    pub tail_parts: Option<&'a TailParts>,
     pub tail_size: u64,
     pub signing_key: Option<&'a SigningPair<'a>>,
 }
 
 /// Builds all requested artifacts with a single installer pull.
-///
-/// This function handles all artifact types (UKI, ISO, Raw, kernel, cmdline, initramfs)
-/// in a single pass, eliminating redundant installer pulls.
 pub(crate) async fn build<W: Write>(
     config: &BuildPostConfig<'_>,
     uki: Option<&mut W>,
@@ -115,7 +112,12 @@ pub(crate) async fn build<W: Write>(
 
     // Write tail to UKI pipes if we have them
     if let Some(ref mut build) = uki_build {
-        uki::write_tail(build, config.tail_parts)?;
+        uki::write_tail(
+            build,
+            config.tail_parts.ok_or_else(|| {
+                WizardError::BuildError("tail_parts required for UKI build".to_owned())
+            })?,
+        )?;
     }
 
     // Single pull with tee to all consumers
@@ -132,7 +134,7 @@ pub(crate) async fn build<W: Write>(
         kernel,
         cmdline,
         initramfs,
-        needs_uki.then_some(config.tail_parts),
+        config.tail_parts,
     )
     .await?;
 

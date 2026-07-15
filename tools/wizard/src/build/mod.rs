@@ -40,20 +40,33 @@ pub struct Metadata {
     pub overlay: Option<Overlay>,
 }
 
-/// Per-artifact output sinks passed to [`artifacts`].
-pub struct ArtifactWriters<'a, W: Write> {
-    /// Sink for the signed UKI `.efi` file.
-    pub uki: Option<&'a mut W>,
-    /// Sink for the extracted kernel image.
-    pub kernel: Option<&'a mut W>,
-    /// Sink for the kernel command line.
-    pub cmdline: Option<&'a mut W>,
-    /// Sink for the combined initramfs (base + tail).
-    pub initramfs: Option<&'a mut W>,
-    /// Sink for the bootable ISO image.
-    pub iso: Option<&'a mut W>,
-    /// Sink for the raw disk image.
-    pub raw: Option<&'a mut W>,
+/// An artifact type paired with its output writer.
+pub enum ArtifactTarget<'a, W: Write> {
+    /// Linux kernel image.
+    Kernel(&'a mut W),
+    /// Initial RAM filesystem image.
+    Initramfs(&'a mut W),
+    /// Kernel command-line file.
+    Cmdline(&'a mut W),
+    /// Unified kernel image (UKI) EFI binary.
+    Uki(&'a mut W),
+    /// ISO 9660 bootable image.
+    Iso(&'a mut W),
+    /// Raw disk image (compressed via zstd).
+    Raw(&'a mut W),
+}
+
+impl<W: Write> ArtifactTarget<'_, W> {
+    fn kind(&self) -> Artifact {
+        match *self {
+            Self::Kernel(_) => Artifact::Kernel,
+            Self::Initramfs(_) => Artifact::Initramfs,
+            Self::Cmdline(_) => Artifact::Cmdline,
+            Self::Uki(_) => Artifact::Uki,
+            Self::Iso(_) => Artifact::Iso,
+            Self::Raw(_) => Artifact::Raw,
+        }
+    }
 }
 
 /// Builds the requested artifacts sharing a single resolution.
@@ -61,29 +74,49 @@ pub struct ArtifactWriters<'a, W: Write> {
 /// # Errors
 ///
 /// Returns an error when resolution, pulling, building, or signing fails.
-pub async fn artifacts<W: Write>(
+pub async fn artifacts<'a, W: Write + 'a>(
     request: &Request,
     profile: &Profile,
     config: &Config,
     signing_key: Option<&SigningPair<'_>>,
-    writers: ArtifactWriters<'_, W>,
+    targets: impl IntoIterator<Item = ArtifactTarget<'a, W>>,
 ) -> Result<Metadata> {
-    if request.artifacts.is_empty() {
+    let targets: Vec<ArtifactTarget<'a, W>> = targets.into_iter().collect();
+
+    if targets.is_empty() {
         return Err(WizardError::BuildError(
             "at least one artifact must be requested".to_owned(),
         ));
     }
 
+    for target in &targets {
+        if !request.artifacts.contains(&target.kind()) {
+            return Err(WizardError::BuildError(format!(
+                "target artifact {:?} was not requested",
+                target.kind()
+            )));
+        }
+    }
+
+    let mut uki: Option<&mut W> = None;
+    let mut kernel: Option<&mut W> = None;
+    let mut cmdline: Option<&mut W> = None;
+    let mut initramfs: Option<&mut W> = None;
+    let mut iso: Option<&mut W> = None;
+    let mut raw: Option<&mut W> = None;
+
+    for target in targets {
+        match target {
+            ArtifactTarget::Kernel(w) => kernel = Some(w),
+            ArtifactTarget::Initramfs(w) => initramfs = Some(w),
+            ArtifactTarget::Cmdline(w) => cmdline = Some(w),
+            ArtifactTarget::Uki(w) => uki = Some(w),
+            ArtifactTarget::Iso(w) => iso = Some(w),
+            ArtifactTarget::Raw(w) => raw = Some(w),
+        }
+    }
+
     let resolved = resolve::profile(request, profile, &config.sources)?;
-    let profile_bytes = profile.canonical_bytes()?;
-    let ArtifactWriters {
-        uki,
-        kernel,
-        cmdline,
-        initramfs,
-        iso,
-        raw,
-    } = writers;
 
     let meta = installer::metadata(resolved.installer(), &resolved.arch(), None).await?;
     let needs_post = request
@@ -99,8 +132,10 @@ pub async fn artifacts<W: Write>(
     };
 
     let (tail_parts, tail_size) = if needs_tail {
-        let parts =
-            archive::prepare_tail_parts(extensions.as_deref().unwrap_or(&[]), &profile_bytes)?;
+        let parts = archive::prepare_tail_parts(
+            extensions.as_deref().unwrap_or(&[]),
+            &profile.canonical_bytes()?,
+        )?;
         let size = archive::tail_exact_size(&parts);
 
         (Some(parts), size)
@@ -108,27 +143,14 @@ pub async fn artifacts<W: Write>(
         (None, 0)
     };
 
-    let sections = if needs_post || kernel.is_some() || cmdline.is_some() || initramfs.is_some() {
-        let error_msg = if needs_post {
-            "tail parts required for post processing"
-        } else {
-            "tail parts required for initramfs"
-        };
-        let parts = tail_parts
-            .as_ref()
-            .ok_or_else(|| WizardError::BuildError(error_msg.to_owned()))?;
-
-        let post_config = artifacts::BuildPostConfig {
-            resolved: &resolved,
-            installer_meta: &meta,
-            tail_parts: parts,
-            tail_size,
-            signing_key,
-        };
-        artifacts::build(&post_config, uki, iso, raw, kernel, cmdline, initramfs).await?
-    } else {
-        Vec::default()
+    let post_config = artifacts::BuildPostConfig {
+        resolved: &resolved,
+        installer_meta: &meta,
+        tail_parts: tail_parts.as_ref(),
+        tail_size,
+        signing_key,
     };
+    let sections = artifacts::build(&post_config, uki, iso, raw, kernel, cmdline, initramfs).await?;
 
     let overlay = resolved.overlay().cloned();
 
