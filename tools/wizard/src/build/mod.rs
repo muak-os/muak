@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use koci::pull::cache;
 use sbolt::keys::SigningPair;
@@ -10,9 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
-use crate::request::Request;
-use crate::resolve::{self, Config};
-use crate::source::{self, installer, overlay::Overlay};
+use crate::resolve::{self, Sources};
+use crate::source::{extension, installer, overlay::Overlay};
 
 pub(crate) mod archive;
 pub(crate) mod artifacts;
@@ -40,93 +40,54 @@ pub struct Metadata {
     pub overlay: Option<Overlay>,
 }
 
-/// An artifact type paired with its output writer.
-pub enum ArtifactTarget<'a, W: Write> {
-    /// Linux kernel image.
-    Kernel(&'a mut W),
-    /// Initial RAM filesystem image.
-    Initramfs(&'a mut W),
-    /// Kernel command-line file.
-    Cmdline(&'a mut W),
-    /// Unified kernel image (UKI) EFI binary.
-    Uki(&'a mut W),
-    /// ISO 9660 bootable image.
-    Iso(&'a mut W),
-    /// Raw disk image (compressed via zstd).
-    Raw(&'a mut W),
+static SOURCES: OnceLock<Sources> = OnceLock::new();
+
+/// Configure global source addresses. Must be called once before building.
+///
+/// # Panics
+///
+/// Panics when called more than once.
+pub fn configure(sources: Sources) {
+    assert!(SOURCES.set(sources).is_ok(), "sources already configured");
 }
 
-impl<W: Write> ArtifactTarget<'_, W> {
-    fn kind(&self) -> Artifact {
-        match *self {
-            Self::Kernel(_) => Artifact::Kernel,
-            Self::Initramfs(_) => Artifact::Initramfs,
-            Self::Cmdline(_) => Artifact::Cmdline,
-            Self::Uki(_) => Artifact::Uki,
-            Self::Iso(_) => Artifact::Iso,
-            Self::Raw(_) => Artifact::Raw,
-        }
-    }
-}
-
-/// Builds the requested artifacts sharing a single resolution.
+/// Returns the globally configured sources.
 ///
 /// # Errors
 ///
-/// Returns an error when resolution, pulling, building, or signing fails.
-pub async fn artifacts<'a, W: Write + 'a>(
-    request: &Request,
-    profile: &Profile,
-    config: &Config,
-    signing_key: Option<&SigningPair<'_>>,
-    targets: impl IntoIterator<Item = ArtifactTarget<'a, W>>,
-) -> Result<Metadata> {
-    let targets: Vec<ArtifactTarget<'a, W>> = targets.into_iter().collect();
+/// Returns an error when [`configure`] has not been called.
+pub fn sources() -> Result<&'static Sources> {
+    SOURCES.get().ok_or_else(|| {
+        WizardError::BuildError("sources not configured; call build::configure() first".to_owned())
+    })
+}
 
+/// Builds the requested artifacts from a resolved plan.
+///
+/// # Errors
+///
+/// Returns an error when pulling, building, or signing fails.
+pub(crate) async fn execute(
+    plan: &resolve::BuildPlan,
+    profile: &Profile,
+    targets: Vec<(Artifact, &mut dyn Write)>,
+    signing_key: Option<&SigningPair<'_>>,
+) -> Result<Metadata> {
     if targets.is_empty() {
         return Err(WizardError::BuildError(
             "at least one artifact must be requested".to_owned(),
         ));
     }
 
-    for target in &targets {
-        if !request.artifacts.contains(&target.kind()) {
-            return Err(WizardError::BuildError(format!(
-                "target artifact {:?} was not requested",
-                target.kind()
-            )));
-        }
-    }
+    let meta = installer::metadata(plan.installer(), &plan.arch(), None).await?;
 
-    let mut uki: Option<&mut W> = None;
-    let mut kernel: Option<&mut W> = None;
-    let mut cmdline: Option<&mut W> = None;
-    let mut initramfs: Option<&mut W> = None;
-    let mut iso: Option<&mut W> = None;
-    let mut raw: Option<&mut W> = None;
-
-    for target in targets {
-        match target {
-            ArtifactTarget::Kernel(w) => kernel = Some(w),
-            ArtifactTarget::Initramfs(w) => initramfs = Some(w),
-            ArtifactTarget::Cmdline(w) => cmdline = Some(w),
-            ArtifactTarget::Uki(w) => uki = Some(w),
-            ArtifactTarget::Iso(w) => iso = Some(w),
-            ArtifactTarget::Raw(w) => raw = Some(w),
-        }
-    }
-
-    let resolved = resolve::profile(request, profile, &config.sources)?;
-
-    let meta = installer::metadata(resolved.installer(), &resolved.arch(), None).await?;
-    let needs_post = request
-        .artifacts
+    let needs_post = targets
         .iter()
-        .any(|art| matches!(art, Artifact::Uki | Artifact::Iso | Artifact::Raw));
-    let needs_tail = needs_post || initramfs.is_some();
+        .any(|item| matches!(item.0, Artifact::Uki | Artifact::Iso | Artifact::Raw));
+    let needs_tail = needs_post || targets.iter().any(|item| item.0 == Artifact::Initramfs);
 
     let extensions = if needs_tail {
-        Some(source::extension::pull(&resolved).await?)
+        Some(extension::pull(plan.extensions(), &plan.arch()).await?)
     } else {
         None
     };
@@ -137,22 +98,21 @@ pub async fn artifacts<'a, W: Write + 'a>(
             &profile.canonical_bytes()?,
         )?;
         let size = archive::tail_exact_size(&parts);
-
         (Some(parts), size)
     } else {
         (None, 0)
     };
 
     let post_config = artifacts::BuildPostConfig {
-        resolved: &resolved,
+        resolved: plan,
         installer_meta: &meta,
         tail_parts: tail_parts.as_ref(),
         tail_size,
         signing_key,
     };
-    let sections = artifacts::build(&post_config, uki, iso, raw, kernel, cmdline, initramfs).await?;
+    let sections = artifacts::build(post_config, targets).await?;
 
-    let overlay = resolved.overlay().cloned();
+    let overlay = plan.overlay().cloned();
 
     Ok(Metadata {
         sections: sections

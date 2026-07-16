@@ -9,7 +9,6 @@ use koci::pull::{
 };
 
 use crate::error::{Result, WizardError};
-use crate::resolve::BuildPlan;
 
 /// A reference to an extension source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,32 +85,27 @@ pub async fn metadata(
 ///
 /// Returns an error when any extension OCI metadata extraction or file pull fails.
 pub(crate) async fn pull(
-    resolved_profile: &BuildPlan,
+    extensions: &[Extension],
+    arch: &Arch,
 ) -> Result<Vec<(String, Metadata, Vec<Vec<u8>>)>> {
-    let resolved_extensions = resolved_profile.extensions();
-    if resolved_extensions.is_empty() {
+    if extensions.is_empty() {
         return Ok(vec![]);
     }
 
-    let metadata_list = metadata(resolved_extensions, &resolved_profile.arch(), None).await?;
+    let metadata_list = metadata(extensions, arch, None).await?;
 
     let mut result = Vec::with_capacity(metadata_list.len());
-    for (ext_ref, meta) in resolved_extensions.iter().zip(metadata_list) {
+    for (ext_ref, meta) in extensions.iter().zip(metadata_list) {
         let mut buffered_data = Vec::with_capacity(meta.files.len());
 
-        pull::files(
-            ext_ref.source(),
-            &resolved_profile.arch(),
-            None,
-            |entry: FileEntry| {
-                let capacity = usize::try_from(entry.size).unwrap_or(usize::MAX);
-                let mut data = Vec::with_capacity(capacity);
-                Read::read_to_end(entry.reader, &mut data)?;
-                buffered_data.push(data);
+        pull::files(ext_ref.source(), arch, None, |entry: FileEntry| {
+            let capacity = usize::try_from(entry.size).unwrap_or(usize::MAX);
+            let mut data = Vec::with_capacity(capacity);
+            Read::read_to_end(entry.reader, &mut data)?;
+            buffered_data.push(data);
 
-                Ok(())
-            },
-        )
+            Ok(())
+        })
         .await
         .map_err(|e| {
             WizardError::BuildError(format!("pull extension {}: {e}", ext_ref.source()))

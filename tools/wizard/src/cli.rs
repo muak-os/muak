@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
@@ -12,7 +12,7 @@ use crate::artifact::Artifact;
 use crate::build;
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Platform, Request};
-use crate::resolve::{self, Config, Sources};
+use crate::resolve::{self, Sources};
 
 struct BuildArgs {
     profile: Option<PathBuf>,
@@ -240,18 +240,13 @@ fn run_resolve(
 ) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
-    let spec = Profile::from_toml(&bytes)?;
-    let request = Request {
-        version: version.to_owned(),
-        platform: parse_platform(platform)?,
-        arch: Some(parse_arch(arch)?),
-        artifacts: vec![],
-    };
+    let profile = Profile::from_toml(&bytes)?;
     let sources = Sources {
         registry,
         installer,
     };
-    let resolved = resolve::profile(&request, &spec, &sources)?;
+    let request = Request::new(version, parse_platform(platform)?).arch(parse_arch(arch)?);
+    let resolved = resolve::plan(&request, &profile, &sources)?;
 
     println!("resolved installer: {}", resolved.installer());
     for ext in resolved.extensions() {
@@ -275,29 +270,20 @@ async fn run_build(args: BuildArgs) -> Result<()> {
     let artifact = parse_artifact(&args.artifact)?;
 
     if args.signing_key.is_some() != args.signing_cert.is_some() {
-        anyhow::bail!("--signing-key and --signing-cert must be provided together");
+        bail!("--signing-key and --signing-cert must be provided together");
     }
 
-    let spec = build_profile(
+    build::configure(Sources {
+        registry: args.registry,
+        installer: args.installer,
+    });
+
+    let profile = build_profile(
         args.profile,
         args.extension,
         args.overlay_image,
         args.overlay_name,
     )?;
-
-    let request = Request {
-        version: args.version,
-        platform,
-        arch: Some(arch),
-        artifacts: vec![artifact],
-    };
-
-    let config = Config {
-        sources: Sources {
-            registry: args.registry,
-            installer: args.installer,
-        },
-    };
 
     let owned_pair = match (args.signing_key.as_ref(), args.signing_cert.as_ref()) {
         (Some(key_path), Some(cert_path)) => {
@@ -306,7 +292,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
             Some((signer, cert))
         }
         (None, None) => None,
-        _ => anyhow::bail!("--signing-key and --signing-cert must be provided together"),
+        _ => bail!("--signing-key and --signing-cert must be provided together"),
     };
 
     let signing = match owned_pair {
@@ -318,25 +304,20 @@ async fn run_build(args: BuildArgs) -> Result<()> {
     };
 
     let output_path = args.output_dir.join(artifact.filename());
-    let file = std::fs::File::create(&output_path)
+    let mut file = std::fs::File::create(&output_path)
         .with_context(|| format!("create output file {}", output_path.display()))?;
-    let mut file = std::io::BufWriter::new(file);
-    let target = match artifact {
-        Artifact::Uki => build::ArtifactTarget::Uki(&mut file),
-        Artifact::Kernel => build::ArtifactTarget::Kernel(&mut file),
-        Artifact::Cmdline => build::ArtifactTarget::Cmdline(&mut file),
-        Artifact::Initramfs => build::ArtifactTarget::Initramfs(&mut file),
-        Artifact::Iso => build::ArtifactTarget::Iso(&mut file),
-        Artifact::Raw => build::ArtifactTarget::Raw(&mut file),
-    };
-    let _metadata = build::artifacts(&request, &spec, &config, signing.as_ref(), [target])
+    let meta = Request::new(&args.version, platform)
+        .arch(arch)
+        .artifact(artifact, &mut file)?
+        .build(&profile, signing.as_ref())
         .await
-        .context(format!("build {} to {}", artifact, output_path.display()))?;
+        .context(format!("build {artifact} to {}", output_path.display()))?;
 
     println!(
-        "Successfully built {} at {}",
+        "Successfully built {} ({artifact} sections={}) at {}",
+        output_path.display(),
+        meta.sections.len(),
         artifact,
-        output_path.display()
     );
 
     Ok(())

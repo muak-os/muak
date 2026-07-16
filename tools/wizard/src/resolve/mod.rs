@@ -11,13 +11,6 @@ use crate::request::{Platform, Request};
 use crate::source::extension::Extension;
 use crate::source::overlay::Overlay;
 
-/// Pipeline configuration shared across build and install paths.
-#[derive(Debug, Clone)]
-pub struct Config {
-    /// OCI image registry and installer repository.
-    pub sources: Sources,
-}
-
 /// Source configuration for the build pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sources {
@@ -95,16 +88,22 @@ impl BuildPlan {
     }
 }
 
-/// Resolves a profile and request into a build plan with versioned OCI references.
+/// Resolves a request and profile into a build plan with versioned OCI references.
 ///
 /// # Errors
 ///
 /// Returns an error when the profile references an unknown source input.
-pub fn profile(request: &Request, profile: &Profile, sources: &Sources) -> Result<BuildPlan> {
+pub fn plan(request: &Request, profile: &Profile, sources: &Sources) -> Result<BuildPlan> {
     let host = arch::host();
-    let arch = request.arch.unwrap_or(host);
+    let arch = request.target_arch().unwrap_or(host);
 
-    engine::resolve(&request.version, request.platform, arch, profile, sources)
+    engine::resolve(
+        request.version(),
+        request.platform(),
+        arch,
+        profile,
+        sources,
+    )
 }
 
 #[cfg(test)]
