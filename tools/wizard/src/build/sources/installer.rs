@@ -2,7 +2,6 @@ use std::io::{self, Read, Write as _};
 use std::os::unix::net::UnixStream;
 
 use crate::artifact::Artifact;
-use crate::build::archive::{self, TailParts};
 use crate::build::fanout::FanoutWriter;
 use crate::build::router::Router;
 use crate::error::Result;
@@ -23,7 +22,7 @@ pub(crate) async fn pull(
     router: &mut Router<'_>,
     stub_w: Option<UnixStream>,
     data_w: Option<UnixStream>,
-    tail_parts: Option<&TailParts>,
+    tail_pipe: Option<UnixStream>,
 ) -> Result<()> {
     let mut route_table = Routes {
         stub: stub_w,
@@ -34,7 +33,7 @@ pub(crate) async fn pull(
     };
 
     installer::pull(plan.installer(), &plan.arch(), |path, _size, reader| {
-        route(path, reader, &mut route_table, tail_parts)
+        route(path, reader, &mut route_table, tail_pipe.as_ref())
     })
     .await
 }
@@ -43,7 +42,7 @@ fn route(
     path: &str,
     reader: &mut dyn Read,
     routes: &mut Routes<'_>,
-    tail_parts: Option<&TailParts>,
+    tail_pipe: Option<&UnixStream>,
 ) -> io::Result<()> {
     match path {
         "stub.efi" => {
@@ -54,7 +53,7 @@ fn route(
         "vmlinuz" => fanout2(reader, &mut routes.data, &mut routes.kernel)?,
         "cmdline" => fanout2(reader, &mut routes.data, &mut routes.cmdline)?,
         "initramfs.img" => {
-            fanout_initramfs(reader, &mut routes.data, &mut routes.initramfs, tail_parts)?;
+            fanout_initramfs(reader, &mut routes.data, &mut routes.initramfs, tail_pipe)?;
         }
         _ => {}
     }
@@ -84,18 +83,19 @@ fn fanout_initramfs(
     reader: &mut dyn Read,
     data_stream: &mut Option<UnixStream>,
     initramfs_writer: &mut Option<&mut dyn std::io::Write>,
-    tail_parts: Option<&TailParts>,
+    tail_pipe: Option<&UnixStream>,
 ) -> io::Result<()> {
-    let needs_tee = data_stream.is_some() && initramfs_writer.is_some() && tail_parts.is_some();
+    let needs_tee = data_stream.is_some() && initramfs_writer.is_some() && tail_pipe.is_some();
     if needs_tee {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         if let Some(w) = data_stream.as_mut() {
             w.write_all(&buf)?;
         }
-        if let (Some(w), Some(tail)) = (initramfs_writer.as_mut(), tail_parts) {
+        if let (Some(w), Some(tail)) = (initramfs_writer.as_mut(), tail_pipe) {
             w.write_all(&buf)?;
-            archive::build_tail_from_parts(tail, w).map_err(io::Error::other)?;
+            let mut clone = tail.try_clone().map_err(io::Error::other)?;
+            io::copy(&mut clone, w)?;
         }
         return Ok(());
     }
@@ -104,8 +104,9 @@ fn fanout_initramfs(
     }
     if let Some(w) = initramfs_writer.as_mut() {
         io::copy(reader, w)?;
-        if let Some(tail) = tail_parts {
-            archive::build_tail_from_parts(tail, w).map_err(io::Error::other)?;
+        if let Some(tail) = tail_pipe {
+            let mut clone = tail.try_clone().map_err(io::Error::other)?;
+            io::copy(&mut clone, w)?;
         }
     }
     Ok(())

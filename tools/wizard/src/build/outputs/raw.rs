@@ -6,7 +6,6 @@ use crate::build::media;
 use crate::build::sources::overlay::OverlayPipes;
 use crate::error::Result;
 
-/// Writes a UKI binary and overlay files into a raw disk image.
 pub(crate) fn raw(
     arch: Arch,
     uki: &mut dyn Read,

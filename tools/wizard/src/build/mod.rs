@@ -4,11 +4,14 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use koci::arch::Arch;
 use koci::pull::cache;
 use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
+use yuki::pe::section::Section;
 
 use crate::artifact::Artifact;
+use crate::build::sources::overlay::OverlayPipes;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::resolve::{self, Sources};
@@ -71,6 +74,33 @@ pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
     cache::Store::set_dir(path.into());
 }
 
+struct BuildNeeds {
+    needs_tail: bool,
+    needs_uki: bool,
+    needs_media: bool,
+}
+
+fn determine_needs(targets: &[(Artifact, &mut dyn Write)]) -> BuildNeeds {
+    let needs_tail = targets.iter().any(|&(artifact, _)| {
+        matches!(
+            artifact,
+            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
+        )
+    });
+    let needs_uki = targets
+        .iter()
+        .any(|&(artifact, _)| matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw));
+    let needs_media = targets
+        .iter()
+        .any(|&(artifact, _)| matches!(artifact, Artifact::Iso | Artifact::Raw));
+
+    BuildNeeds {
+        needs_tail,
+        needs_uki,
+        needs_media,
+    }
+}
+
 /// Builds the requested artifacts from a resolved plan.
 ///
 /// # Errors
@@ -88,44 +118,33 @@ pub(crate) async fn execute(
         ));
     }
 
-    // Phase 1: fetch metadata + profile (needed before we know tail requirements)
+    let needs = determine_needs(&targets);
+
     let meta = sources::meta::fetch(plan).await?;
     let profile_bytes = profile.canonical_bytes()?;
 
-    // Determine needs from targets directly
-    let needs_tail = targets.iter().any(|&(artifact, _)| {
-        matches!(
-            artifact,
-            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
-        )
-    });
-    let needs_uki = targets
-        .iter()
-        .any(|&(artifact, _)| matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw));
-    let needs_media = targets
-        .iter()
-        .any(|&(artifact, _)| matches!(artifact, Artifact::Iso | Artifact::Raw));
-
-    // Build tail BEFORE router so references can be shared
-    let tail = if needs_tail {
+    let tail = if needs.needs_tail {
         let ext_data = sources::extensions::fetch(plan).await?;
         Some(transforms::tail::build(&ext_data, &profile_bytes)?)
     } else {
         None
     };
 
-    let mut uki = if needs_uki {
+    let mut uki = if needs.needs_uki {
+        let tail_pipe = tail
+            .as_ref()
+            .and_then(|tailed| tailed.reader.try_clone().ok());
         Some(transforms::uki::open(
             &meta,
-            tail.as_ref().map_or(0, |tail_info| tail_info.size),
-            tail.as_ref().map(|tail_info| &tail_info.parts),
+            tail.as_ref().map_or(0, |tailed| tailed.size),
+            tail_pipe,
             signing_key,
         )?)
     } else {
         None
     };
 
-    let overlay = if needs_media {
+    let overlay = if needs.needs_media {
         Some(sources::overlay::setup(plan).await?)
     } else {
         None
@@ -134,51 +153,17 @@ pub(crate) async fn execute(
     let mut router = router::Router::new(targets);
     let stub_pipe = uki.as_mut().and_then(transforms::uki::Uki::stub_w);
     let data_pipe = uki.as_mut().and_then(transforms::uki::Uki::data_w);
-    let tail_parts = tail.as_ref().map(|tail_info| &tail_info.parts);
+    let tail_pipe = tail
+        .as_ref()
+        .and_then(|tailed| tailed.reader.try_clone().ok());
 
-    sources::installer::pull(plan, &mut router, stub_pipe, data_pipe, tail_parts).await?;
+    sources::installer::pull(plan, &mut router, stub_pipe, data_pipe, tail_pipe).await?;
 
-    // ── Finalize ──
-
-    let mut sections = Vec::new();
-
-    if let Some(uki) = uki {
-        let outcome = transforms::uki::collect(uki).await?;
-        sections = outcome.sections;
-
-        let mut overlay = overlay;
-
-        let uki_reader = outcome.reader;
-
-        if let Some(w) = router.take(Artifact::Iso) {
-            let mut clone = uki_reader
-                .try_clone()
-                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
-            let ov = overlay
-                .as_mut()
-                .ok_or_else(|| WizardError::BuildError("overlay required for ISO".to_owned()))?;
-            outputs::iso::iso(plan.arch(), &mut clone, outcome.size, ov, w)?;
-        }
-        if let Some(w) = router.take(Artifact::Raw) {
-            let mut clone = uki_reader
-                .try_clone()
-                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
-            let ov = overlay
-                .as_mut()
-                .ok_or_else(|| WizardError::BuildError("overlay required for RAW".to_owned()))?;
-            outputs::raw::raw(plan.arch(), &mut clone, outcome.size, ov, w)?;
-        }
-        if let Some(w) = router.take(Artifact::Uki) {
-            let mut clone = uki_reader
-                .try_clone()
-                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
-            outputs::uki::uki(&mut clone, w)?;
-        }
-
-        if let Some(ov) = overlay {
-            ov.join().await?;
-        }
-    }
+    let sections = if let Some(uki) = uki {
+        finalize_uki(uki, router, overlay, plan.arch()).await?
+    } else {
+        Vec::new()
+    };
 
     Ok(Metadata {
         sections: sections
@@ -192,4 +177,47 @@ pub(crate) async fn execute(
             .collect(),
         overlay: plan.overlay().cloned(),
     })
+}
+
+async fn finalize_uki(
+    uki: transforms::uki::Uki,
+    mut router: router::Router<'_>,
+    mut overlay_pipes: Option<OverlayPipes>,
+    arch: Arch,
+) -> Result<Vec<Section>> {
+    let outcome = transforms::uki::collect(uki).await?;
+
+    if let Some(w) = router.take(Artifact::Iso) {
+        let mut ukic = outcome
+            .reader
+            .try_clone()
+            .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+        let ov = overlay_pipes
+            .as_mut()
+            .ok_or_else(|| WizardError::BuildError("overlay required for ISO".to_owned()))?;
+        outputs::iso::iso(arch, &mut ukic, outcome.size, ov, w)?;
+    }
+    if let Some(w) = router.take(Artifact::Raw) {
+        let mut ukic = outcome
+            .reader
+            .try_clone()
+            .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+        let ov = overlay_pipes
+            .as_mut()
+            .ok_or_else(|| WizardError::BuildError("overlay required for RAW".to_owned()))?;
+        outputs::raw::raw(arch, &mut ukic, outcome.size, ov, w)?;
+    }
+    if let Some(w) = router.take(Artifact::Uki) {
+        let mut ukic = outcome
+            .reader
+            .try_clone()
+            .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+        outputs::uki::uki(&mut ukic, w)?;
+    }
+
+    if let Some(ov) = overlay_pipes {
+        ov.join().await?;
+    }
+
+    Ok(outcome.sections)
 }

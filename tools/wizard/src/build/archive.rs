@@ -12,19 +12,7 @@ use ramune::error::RamuneError;
 use crate::error::{Result, WizardError};
 use crate::source::extension::Metadata as ExtensionMetadata;
 
-/// Tail parts for initramfs: EROFS extensions and raw files.
-pub(crate) struct TailParts {
-    entries: Vec<TailEntry>,
-}
-
-// TODO: update erofs api to prevent buffering
-impl TailParts {
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
-
-enum TailEntry {
+pub(crate) enum TailEntry {
     Erofs {
         path: String,
         plan: erofs::ImagePlan,
@@ -41,7 +29,7 @@ enum TailEntry {
 pub(crate) fn prepare_tail_parts(
     extensions: &[(String, ExtensionMetadata, Vec<Vec<u8>>)],
     profile_bytes: &[u8],
-) -> Result<TailParts> {
+) -> Result<Vec<TailEntry>> {
     let mut entries = Vec::new();
     for ext in extensions {
         let (plan, config, size) =
@@ -60,13 +48,12 @@ pub(crate) fn prepare_tail_parts(
         });
     }
 
-    Ok(TailParts { entries })
+    Ok(entries)
 }
 
 /// Computes the exact size of the tail archive.
-pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
-    let metas: Vec<Entry> = parts
-        .entries
+pub(crate) fn tail_exact_size(entries: &[TailEntry]) -> u64 {
+    let metas: Vec<Entry> = entries
         .iter()
         .map(|entry| match *entry {
             TailEntry::Erofs { ref path, size, .. } => Entry {
@@ -86,13 +73,12 @@ pub(crate) fn tail_exact_size(parts: &TailParts) -> u64 {
 }
 
 /// Builds the tail archive from prepared parts.
-pub(crate) fn build_tail_from_parts(parts: &TailParts, writer: &mut impl Write) -> Result<()> {
+pub(crate) fn build_tail_from_parts(parts: &[TailEntry], writer: &mut impl Write) -> Result<()> {
     if parts.is_empty() {
         return Ok(());
     }
 
     let mut entries: Vec<Entry> = parts
-        .entries
         .iter()
         .map(|entry| match *entry {
             TailEntry::Erofs { ref path, size, .. } => Entry {
@@ -110,7 +96,6 @@ pub(crate) fn build_tail_from_parts(parts: &TailParts, writer: &mut impl Write) 
 
     archive::cpio(&mut entries, writer, |entry, w| {
         let tail_entry = parts
-            .entries
             .iter()
             .find(|e| entry_path(e) == entry.path)
             .ok_or_else(|| RamuneError::CpioError(format!("unknown tail entry: {}", entry.path)))?;
@@ -226,18 +211,16 @@ mod tests {
     #[test]
     fn build_tail_from_parts_writes_archive() {
         // ARRANGE
-        let parts = TailParts {
-            entries: vec![
-                TailEntry::Raw {
-                    path: "profile.toml".to_owned(),
-                    data: b"profile = true\n".to_vec(),
-                },
-                TailEntry::Raw {
-                    path: "extensions/test.erofs".to_owned(),
-                    data: b"erofs-bytes".to_vec(),
-                },
-            ],
-        };
+        let parts = vec![
+            TailEntry::Raw {
+                path: "profile.toml".to_owned(),
+                data: b"profile = true\n".to_vec(),
+            },
+            TailEntry::Raw {
+                path: "extensions/test.erofs".to_owned(),
+                data: b"erofs-bytes".to_vec(),
+            },
+        ];
 
         // ACT
         let mut buf = Vec::new();
@@ -250,18 +233,16 @@ mod tests {
     #[test]
     fn tail_exact_size_matches_built_size() {
         // ARRANGE
-        let parts = TailParts {
-            entries: vec![
-                TailEntry::Raw {
-                    path: "profile.toml".to_owned(),
-                    data: b"profile = true\n".to_vec(),
-                },
-                TailEntry::Raw {
-                    path: "extensions/test.erofs".to_owned(),
-                    data: b"erofs-bytes".to_vec(),
-                },
-            ],
-        };
+        let parts = vec![
+            TailEntry::Raw {
+                path: "profile.toml".to_owned(),
+                data: b"profile = true\n".to_vec(),
+            },
+            TailEntry::Raw {
+                path: "extensions/test.erofs".to_owned(),
+                data: b"erofs-bytes".to_vec(),
+            },
+        ];
 
         // ACT
         let expected = tail_exact_size(&parts);
@@ -275,7 +256,7 @@ mod tests {
     #[test]
     fn build_tail_from_parts_empty_returns_ok() {
         // ARRANGE
-        let parts = TailParts { entries: vec![] };
+        let parts: Vec<TailEntry> = vec![];
         let mut buf = Vec::new();
 
         // ACT

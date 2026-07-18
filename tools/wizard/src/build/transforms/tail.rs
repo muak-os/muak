@@ -1,21 +1,22 @@
-use crate::build::archive::{self, TailParts};
-use crate::error::Result;
+use std::os::unix::net::UnixStream;
+
+use crate::build::archive;
+use crate::error::{Result, WizardError};
 use crate::source::extension::Metadata as ExtensionMetadata;
 
-/// Tail parts produced by the tail archive build.
 pub(crate) struct Tail {
-    /// The prepared tail archive parts.
-    pub parts: TailParts,
-    /// Exact size in bytes of the tail archive.
     pub size: u64,
+    pub reader: UnixStream,
 }
 
-/// Builds the initramfs tail archive from extension data and profile bytes.
 pub(crate) fn build(
     ext_data: &[(String, ExtensionMetadata, Vec<Vec<u8>>)],
     profile_bytes: &[u8],
 ) -> Result<Tail> {
     let parts = archive::prepare_tail_parts(ext_data, profile_bytes)?;
     let size = archive::tail_exact_size(&parts);
-    Ok(Tail { parts, size })
+    let (mut writer, reader) = UnixStream::pair()
+        .map_err(|e| WizardError::BuildError(format!("create tail pipe: {e}")))?;
+    archive::build_tail_from_parts(&parts, &mut writer)?;
+    Ok(Tail { size, reader })
 }

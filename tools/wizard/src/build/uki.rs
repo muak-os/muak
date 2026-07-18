@@ -8,7 +8,6 @@ use yuki::builder::Builder;
 use yuki::layout;
 use yuki::pe::section::Section;
 
-use super::archive::{TailParts, build_tail_from_parts};
 use crate::error::{Result, WizardError};
 use crate::source::installer::Metadata;
 
@@ -91,19 +90,6 @@ pub(crate) fn build(
         output_r,
         total_size: uki_layout.total_size,
         sections_handle,
-    })
-}
-
-/// Writes the initramfs tail archive into the tail pipe.
-pub(crate) fn write_tail(build: &mut Build, tail_parts: &TailParts) -> Result<()> {
-    let mut tail_w = build
-        .tail_w
-        .try_clone()
-        .map_err(|e| WizardError::BuildError(format!("clone tail pipe: {e}")))?;
-
-    block_in_place(|| {
-        build_tail_from_parts(tail_parts, &mut tail_w)
-            .map_err(|e| WizardError::BuildError(format!("write tail: {e}")))
     })
 }
 

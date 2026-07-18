@@ -32,8 +32,9 @@ impl Artifact {
     /// Number of artifact variants. Update when variants are added.
     pub(crate) const COUNT: usize = 6;
 
-    /// Returns the zero-based discriminant for use as an array index.
-    pub(crate) fn discriminant(self) -> usize {
+    /// Returns a zero-based index for use as an array index.
+    #[must_use]
+    pub(crate) fn to_index(self) -> usize {
         match self {
             Self::Kernel => 0,
             Self::Initramfs => 1,
