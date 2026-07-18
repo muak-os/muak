@@ -1,52 +1,62 @@
-//! Bootable media builder.
-
 use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 
 use esp::FileMeta;
-use esp::builder::compute_layout;
+use esp::builder::{Layout, compute_layout};
 use koci::arch::Arch;
 
 use crate::arch;
 use crate::error::{Result, WizardError};
 
-/// Writes a UKI and optional overlay files into bootable media.
-///
-/// # Errors
-///
-/// Returns an error when writing the media fails.
-pub(crate) fn write(
+pub(crate) fn build_iso(
     arch: Arch,
     uki: &mut dyn Read,
     uki_size: u64,
     overlay_files: &[FileMeta<'_>],
-    overlay_readers: Option<&mut [&mut dyn Read]>,
-    iso: Option<&mut dyn Write>,
-    raw: Option<&mut dyn Write>,
+    overlay_readers: &mut [UnixStream],
+    output: &mut dyn Write,
 ) -> Result<()> {
+    let (layout, mut readers) =
+        compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
+    miso::build_iso(&layout, &mut readers, &mut DynWriter(output))
+        .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
+}
+
+pub(crate) fn build_raw(
+    arch: Arch,
+    uki: &mut dyn Read,
+    uki_size: u64,
+    overlay_files: &[FileMeta<'_>],
+    overlay_readers: &mut [UnixStream],
+    output: &mut dyn Write,
+) -> Result<()> {
+    let (layout, mut readers) =
+        compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
+    miso::build_raw(&layout, &mut readers, &mut DynWriter(output), Some(6))
+        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
+}
+
+fn compute_esp_layout<'a>(
+    arch: Arch,
+    uki: &'a mut dyn Read,
+    uki_size: u64,
+    overlay_files: &[FileMeta<'a>],
+    overlay_readers: &'a mut [UnixStream],
+) -> Result<(Layout<'a>, Vec<&'a mut dyn Read>)> {
     let mut file_metas = Vec::with_capacity(overlay_files.len().saturating_add(1));
     file_metas.push(FileMeta::new(arch::esp(arch).boot_path(), uki_size));
     file_metas.extend_from_slice(overlay_files);
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(file_metas.len());
     readers.push(uki);
-    if let Some(overlay_readers) = overlay_readers {
-        for reader in overlay_readers {
-            readers.push(*reader);
-        }
+    for reader in overlay_readers.iter_mut() {
+        readers.push(reader);
     }
 
     let layout = compute_layout(&file_metas)
         .map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))?;
 
-    if let Some(writer) = iso {
-        miso::build_iso(&layout, &mut readers, &mut DynWriter(writer))
-            .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
-    } else if let Some(writer) = raw {
-        miso::build_raw(&layout, &mut readers, &mut DynWriter(writer), Some(6))
-            .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
-    } else {
-        Ok(())
-    }
+    Ok((layout, readers))
 }
 
 struct DynWriter<'a>(&'a mut dyn Write);

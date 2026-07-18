@@ -29,6 +29,21 @@ impl fmt::Display for Artifact {
 }
 
 impl Artifact {
+    /// Number of artifact variants. Update when variants are added.
+    pub(crate) const COUNT: usize = 6;
+
+    /// Returns the zero-based discriminant for use as an array index.
+    pub(crate) fn discriminant(self) -> usize {
+        match self {
+            Self::Kernel => 0,
+            Self::Initramfs => 1,
+            Self::Cmdline => 2,
+            Self::Uki => 3,
+            Self::Iso => 4,
+            Self::Raw => 5,
+        }
+    }
+
     /// Returns the canonical on-disk filename or directory for this artifact.
     #[must_use]
     pub fn filename(self) -> &'static str {

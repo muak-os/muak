@@ -12,11 +12,15 @@ use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::resolve::{self, Sources};
-use crate::source::{extension, installer, overlay::Overlay};
+use crate::source::overlay::Overlay;
 
 pub(crate) mod archive;
-pub(crate) mod artifacts;
+pub(crate) mod fanout;
 pub(crate) mod media;
+pub(crate) mod outputs;
+pub(crate) mod router;
+pub(crate) mod sources;
+pub(crate) mod transforms;
 pub(crate) mod uki;
 
 /// PE section metadata needed for TPM PCR#11 prediction.
@@ -62,6 +66,11 @@ pub fn sources() -> Result<&'static Sources> {
     })
 }
 
+/// Set the OCI blob cache directory for all image pulls performed by koci.
+pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
+    cache::Store::set_dir(path.into());
+}
+
 /// Builds the requested artifacts from a resolved plan.
 ///
 /// # Errors
@@ -79,40 +88,97 @@ pub(crate) async fn execute(
         ));
     }
 
-    let meta = installer::metadata(plan.installer(), &plan.arch(), None).await?;
+    // Phase 1: fetch metadata + profile (needed before we know tail requirements)
+    let meta = sources::meta::fetch(plan).await?;
+    let profile_bytes = profile.canonical_bytes()?;
 
-    let needs_post = targets
+    // Determine needs from targets directly
+    let needs_tail = targets.iter().any(|&(artifact, _)| {
+        matches!(
+            artifact,
+            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
+        )
+    });
+    let needs_uki = targets
         .iter()
-        .any(|item| matches!(item.0, Artifact::Uki | Artifact::Iso | Artifact::Raw));
-    let needs_tail = needs_post || targets.iter().any(|item| item.0 == Artifact::Initramfs);
+        .any(|&(artifact, _)| matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw));
+    let needs_media = targets
+        .iter()
+        .any(|&(artifact, _)| matches!(artifact, Artifact::Iso | Artifact::Raw));
 
-    let extensions = if needs_tail {
-        Some(extension::pull(plan.extensions(), &plan.arch()).await?)
+    // Build tail BEFORE router so references can be shared
+    let tail = if needs_tail {
+        let ext_data = sources::extensions::fetch(plan).await?;
+        Some(transforms::tail::build(&ext_data, &profile_bytes)?)
     } else {
         None
     };
 
-    let (tail_parts, tail_size) = if needs_tail {
-        let parts = archive::prepare_tail_parts(
-            extensions.as_deref().unwrap_or(&[]),
-            &profile.canonical_bytes()?,
-        )?;
-        let size = archive::tail_exact_size(&parts);
-        (Some(parts), size)
+    let mut uki = if needs_uki {
+        Some(transforms::uki::open(
+            &meta,
+            tail.as_ref().map_or(0, |tail_info| tail_info.size),
+            tail.as_ref().map(|tail_info| &tail_info.parts),
+            signing_key,
+        )?)
     } else {
-        (None, 0)
+        None
     };
 
-    let post_config = artifacts::BuildPostConfig {
-        resolved: plan,
-        installer_meta: &meta,
-        tail_parts: tail_parts.as_ref(),
-        tail_size,
-        signing_key,
+    let overlay = if needs_media {
+        Some(sources::overlay::setup(plan).await?)
+    } else {
+        None
     };
-    let sections = artifacts::build(post_config, targets).await?;
 
-    let overlay = plan.overlay().cloned();
+    let mut router = router::Router::new(targets);
+    let stub_pipe = uki.as_mut().and_then(transforms::uki::Uki::stub_w);
+    let data_pipe = uki.as_mut().and_then(transforms::uki::Uki::data_w);
+    let tail_parts = tail.as_ref().map(|tail_info| &tail_info.parts);
+
+    sources::installer::pull(plan, &mut router, stub_pipe, data_pipe, tail_parts).await?;
+
+    // ── Finalize ──
+
+    let mut sections = Vec::new();
+
+    if let Some(uki) = uki {
+        let outcome = transforms::uki::collect(uki).await?;
+        sections = outcome.sections;
+
+        let mut overlay = overlay;
+
+        let uki_reader = outcome.reader;
+
+        if let Some(w) = router.take(Artifact::Iso) {
+            let mut clone = uki_reader
+                .try_clone()
+                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+            let ov = overlay
+                .as_mut()
+                .ok_or_else(|| WizardError::BuildError("overlay required for ISO".to_owned()))?;
+            outputs::iso::iso(plan.arch(), &mut clone, outcome.size, ov, w)?;
+        }
+        if let Some(w) = router.take(Artifact::Raw) {
+            let mut clone = uki_reader
+                .try_clone()
+                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+            let ov = overlay
+                .as_mut()
+                .ok_or_else(|| WizardError::BuildError("overlay required for RAW".to_owned()))?;
+            outputs::raw::raw(plan.arch(), &mut clone, outcome.size, ov, w)?;
+        }
+        if let Some(w) = router.take(Artifact::Uki) {
+            let mut clone = uki_reader
+                .try_clone()
+                .map_err(|e| WizardError::BuildError(format!("clone UKI reader: {e}")))?;
+            outputs::uki::uki(&mut clone, w)?;
+        }
+
+        if let Some(ov) = overlay {
+            ov.join().await?;
+        }
+    }
 
     Ok(Metadata {
         sections: sections
@@ -124,11 +190,6 @@ pub(crate) async fn execute(
                 hash: section.checksum,
             })
             .collect(),
-        overlay,
+        overlay: plan.overlay().cloned(),
     })
-}
-
-/// Set the OCI blob cache directory for all image pulls performed by koci.
-pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
-    cache::Store::set_dir(path.into());
 }
