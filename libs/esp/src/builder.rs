@@ -71,7 +71,12 @@ impl<'data, 'ctx, W: Write> Builder<'data, 'ctx, W> {
     /// - The path doesn't match the expected path in the layout
     /// - The size doesn't match the expected size in the layout
     /// - All files have already been added
-    pub fn add_file(&mut self, path: &str, data: &'data mut (dyn Read + 'data), size: u64) -> Result<()> {
+    pub fn add_file(
+        &mut self,
+        path: &str,
+        data: &'data mut (dyn Read + 'data),
+        size: u64,
+    ) -> Result<()> {
         let expected = self.layout.files.get(self.current_index).ok_or_else(|| {
             EspError::InvalidOrder(format!(
                 "all {} files already added, cannot add more",
