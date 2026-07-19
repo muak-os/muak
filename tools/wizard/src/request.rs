@@ -158,8 +158,7 @@ impl<'a> Request<'a> {
         profile: &Profile,
         signing_key: Option<&SigningPair<'_>>,
     ) -> Result<build::Metadata> {
-        let sources = build::sources()?;
-        let plan = resolve::plan(&self, profile, sources)?;
+        let plan = resolve::plan(&self, profile)?;
 
         build::execute(&plan, profile, self.targets, signing_key).await
     }

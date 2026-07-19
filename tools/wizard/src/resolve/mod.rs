@@ -5,6 +5,7 @@ mod engine;
 use koci::arch;
 use koci::arch::Arch;
 
+use crate::config;
 use crate::error::Result;
 use crate::profile::Profile;
 use crate::request::{Platform, Request};
@@ -92,8 +93,10 @@ impl BuildPlan {
 ///
 /// # Errors
 ///
-/// Returns an error when the profile references an unknown source input.
-pub fn plan(request: &Request, profile: &Profile, sources: &Sources) -> Result<BuildPlan> {
+/// Returns an error when the profile references an unknown source input or
+/// when the global configuration has not been set.
+pub fn plan(request: &Request, profile: &Profile) -> Result<BuildPlan> {
+    let sources = &config::config()?.sources;
     let host = arch::host();
     let arch = request.target_arch().unwrap_or(host);
 

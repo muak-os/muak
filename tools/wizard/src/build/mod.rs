@@ -1,11 +1,8 @@
 //! Public artifact build API.
 
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use koci::arch::Arch;
-use koci::pull::cache;
 use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 use yuki::pe::section::Section;
@@ -14,7 +11,7 @@ use crate::artifact::Artifact;
 use crate::build::sources::overlay::OverlayPipes;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
-use crate::resolve::{self, Sources};
+use crate::resolve;
 use crate::source::overlay::Overlay;
 
 pub(crate) mod archive;
@@ -45,33 +42,6 @@ pub struct Metadata {
     pub sections: Vec<SectionInfo>,
     /// Overlay source information for deferred overlay pulling.
     pub overlay: Option<Overlay>,
-}
-
-static SOURCES: OnceLock<Sources> = OnceLock::new();
-
-/// Configure global source addresses. Must be called once before building.
-///
-/// # Panics
-///
-/// Panics when called more than once.
-pub fn configure(sources: Sources) {
-    assert!(SOURCES.set(sources).is_ok(), "sources already configured");
-}
-
-/// Returns the globally configured sources.
-///
-/// # Errors
-///
-/// Returns an error when [`configure`] has not been called.
-pub fn sources() -> Result<&'static Sources> {
-    SOURCES.get().ok_or_else(|| {
-        WizardError::BuildError("sources not configured; call build::configure() first".to_owned())
-    })
-}
-
-/// Set the OCI blob cache directory for all image pulls performed by koci.
-pub fn set_cache_dir<P: Into<PathBuf>>(path: P) {
-    cache::Store::set_dir(path.into());
 }
 
 struct BuildNeeds {

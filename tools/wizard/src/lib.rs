@@ -9,6 +9,7 @@ pub mod artifact;
 pub mod build;
 #[cfg(feature = "cli")]
 pub mod cli;
+pub mod config;
 pub mod error;
 pub mod profile;
 pub mod request;

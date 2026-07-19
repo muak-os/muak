@@ -9,7 +9,7 @@ use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 
 use crate::artifact::Artifact;
-use crate::build;
+use crate::config;
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Platform, Request};
 use crate::resolve::{self, Sources};
@@ -171,11 +171,6 @@ pub async fn run() -> i32 {
 }
 
 async fn run_command(command: Command) -> Result<()> {
-    if let Some(home) = std::env::var_os("HOME") {
-        let path = Path::new(&home).join(".cache/muak/koci");
-        build::set_cache_dir(path);
-    }
-
     match command {
         Command::ProfileId { profile } => run_profile_id(&profile),
         Command::Resolve {
@@ -241,12 +236,15 @@ fn run_resolve(
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
-    let sources = Sources {
-        registry,
-        installer,
-    };
+    config::configure(config::Config {
+        sources: Sources {
+            registry,
+            installer,
+        },
+        cache_dir: None,
+    })?;
     let request = Request::new(version, parse_platform(platform)?).arch(parse_arch(arch)?);
-    let resolved = resolve::plan(&request, &profile, &sources)?;
+    let resolved = resolve::plan(&request, &profile)?;
 
     println!("resolved installer: {}", resolved.installer());
     for ext in resolved.extensions() {
@@ -273,10 +271,14 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         bail!("--signing-key and --signing-cert must be provided together");
     }
 
-    build::configure(Sources {
-        registry: args.registry,
-        installer: args.installer,
-    });
+    let cache_dir = std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache/muak/koci"));
+    config::configure(config::Config {
+        sources: Sources {
+            registry: args.registry,
+            installer: args.installer,
+        },
+        cache_dir,
+    })?;
 
     let profile = build_profile(
         args.profile,
