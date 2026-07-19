@@ -11,6 +11,45 @@ use crate::source::overlay::Overlay;
 
 const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
 
+/// Resolves a profile and request into versioned OCI references.
+///
+/// # Errors
+///
+/// Returns an error when the profile references an unknown source input.
+pub(super) fn resolve(
+    version: &str,
+    platform: Platform,
+    arch: Arch,
+    profile: &Profile,
+    sources: &Sources,
+) -> Result<BuildPlan> {
+    let mut extensions = profile
+        .customization()
+        .extensions()
+        .iter()
+        .map(|name| resolve_one_extension(name, version, &sources.registry))
+        .collect::<Result<Vec<_>>>()?;
+    extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+
+    let overlay = profile.overlay().map(|overlay_spec| {
+        Overlay::new(
+            overlay_spec.name().to_owned(),
+            overlay_spec.image().to_owned(),
+            versioned_ref(overlay_spec.image(), version, &sources.registry),
+            arch,
+        )
+    });
+
+    Ok(BuildPlan::new(
+        platform,
+        version.to_owned(),
+        arch,
+        extensions,
+        overlay,
+        versioned_ref(&sources.installer, version, &sources.registry),
+    ))
+}
+
 /// Normalizes legacy extension names to canonical logical names.
 fn resolve_extension_name(name: &str) -> &str {
     match name {
@@ -24,88 +63,21 @@ fn is_official_extension(name: &str) -> bool {
     OFFICIAL_EXTENSION_REPOSITORIES.binary_search(&name).is_ok()
 }
 
-/// Internal OCI reference resolver.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Resolver {
-    registry: String,
-    installer: String,
+fn versioned_ref(repository: &str, version: &str, registry: &str) -> String {
+    format!("{registry}/{repository}:{version}")
 }
 
-impl Resolver {
-    fn new(sources: &Sources) -> Self {
-        Self {
-            registry: sources.registry.clone(),
-            installer: sources.installer.clone(),
-        }
+fn resolve_one_extension(name: &str, version: &str, registry: &str) -> Result<Extension> {
+    let normalized = resolve_extension_name(name);
+    if !is_official_extension(normalized) {
+        return Err(WizardError::SourceResolution(format!(
+            "unknown official extension: {name}"
+        )));
     }
-
-    fn resolve(
-        &self,
-        version: &str,
-        platform: Platform,
-        arch: Arch,
-        profile: &Profile,
-    ) -> Result<BuildPlan> {
-        let mut extensions = profile
-            .customization()
-            .extensions()
-            .iter()
-            .map(|name| self.resolve_one_extension(name, version))
-            .collect::<Result<Vec<_>>>()?;
-        extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
-
-        let overlay = profile.overlay().map(|overlay_spec| {
-            Overlay::new(
-                overlay_spec.name().to_owned(),
-                overlay_spec.image().to_owned(),
-                self.versioned_ref(overlay_spec.image(), version),
-                arch,
-            )
-        });
-
-        Ok(BuildPlan::new(
-            platform,
-            version.to_owned(),
-            arch,
-            extensions,
-            overlay,
-            self.versioned_ref(&self.installer, version),
-        ))
-    }
-
-    fn versioned_ref(&self, repository: &str, version: &str) -> String {
-        format!("{}/{repository}:{version}", self.registry)
-    }
-
-    fn resolve_one_extension(&self, name: &str, version: &str) -> Result<Extension> {
-        let normalized = resolve_extension_name(name);
-        if !is_official_extension(normalized) {
-            return Err(WizardError::SourceResolution(format!(
-                "unknown official extension: {name}"
-            )));
-        }
-        Ok(Extension::new(
-            normalized.to_owned(),
-            self.versioned_ref(normalized, version),
-        ))
-    }
-}
-
-/// Resolves a profile and request into versioned OCI references.
-///
-/// # Errors
-///
-/// Returns an error when the profile references an unknown source input.
-pub(super) fn resolve(
-    version: &str,
-    platform: Platform,
-    arch: Arch,
-    profile: &Profile,
-    sources: &Sources,
-) -> Result<BuildPlan> {
-    let resolver = Resolver::new(sources);
-
-    resolver.resolve(version, platform, arch, profile)
+    Ok(Extension::new(
+        normalized.to_owned(),
+        versioned_ref(normalized, version, registry),
+    ))
 }
 
 #[cfg(test)]
