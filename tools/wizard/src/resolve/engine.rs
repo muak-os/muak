@@ -2,10 +2,11 @@
 
 use koci::arch::Arch;
 
+use crate::config::Sources;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Platform;
-use crate::resolve::{BuildPlan, Sources};
+use crate::resolve::BuildPlan;
 use crate::source::extension::Extension;
 use crate::source::overlay::Overlay;
 

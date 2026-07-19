@@ -9,10 +9,10 @@ use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 
 use crate::artifact::Artifact;
-use crate::config;
+use crate::config::{self, Sources};
 use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Platform, Request};
-use crate::resolve::{self, Sources};
+use crate::resolve;
 
 struct BuildArgs {
     profile: Option<PathBuf>,

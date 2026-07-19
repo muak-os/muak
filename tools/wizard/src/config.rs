@@ -6,7 +6,15 @@ use std::sync::OnceLock;
 use koci::pull::cache;
 
 use crate::error::{Result, WizardError};
-use crate::resolve::Sources;
+
+/// OCI registry and installer source addresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sources {
+    /// OCI registry hostname.
+    pub registry: String,
+    /// Installer repository path within the registry.
+    pub installer: String,
+}
 
 /// Build configuration used throughout the pipeline.
 #[derive(Debug, Clone)]

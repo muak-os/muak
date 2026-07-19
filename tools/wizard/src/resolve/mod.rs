@@ -12,15 +12,6 @@ use crate::request::{Platform, Request};
 use crate::source::extension::Extension;
 use crate::source::overlay::Overlay;
 
-/// Source configuration for the build pipeline.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sources {
-    /// OCI registry hostname.
-    pub registry: String,
-    /// Installer repository path within the registry.
-    pub installer: String,
-}
-
 /// Canonical build plan produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
