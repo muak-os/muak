@@ -582,6 +582,80 @@ mod tests {
     }
 
     #[test]
+    fn extract_metadata_rejects_raw_data_overflow() {
+        // ARRANGE
+        let mut stub = vec![0_u8; 512];
+        write_bytes(&mut stub, 0, b"MZ");
+        write_u32(&mut stub, 0x3C, 64);
+        write_bytes(&mut stub, 64, b"PE\0\0");
+        write_u16(&mut stub, 68, 0x8664);
+        write_u16(&mut stub, 70, 1);
+        write_u16(&mut stub, 84, 240);
+        write_u16(&mut stub, 86, 0x0222);
+        let opt_start = 88;
+        write_u16(&mut stub, opt_start, 0x020B);
+        write_u32(&mut stub, opt_start + 32, 4096);
+        write_u32(&mut stub, opt_start + 36, 512);
+        write_u32(&mut stub, opt_start + 56, 8192);
+        write_u32(&mut stub, opt_start + 60, 512);
+        write_u16(&mut stub, opt_start + 68, 10);
+        let section_start = opt_start + 240;
+        write_bytes(&mut stub, section_start, b".text");
+        write_u32(&mut stub, section_start + 8, 16);
+        write_u32(&mut stub, section_start + 12, 4096);
+        write_u32(&mut stub, section_start + 16, 1);
+        write_u32(&mut stub, section_start + 20, u32::MAX);
+        write_u32(&mut stub, section_start + 36, 0x6000_0020);
+
+        // ACT
+        let result = extract_metadata(&mut Cursor::new(stub));
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("section raw data end overflow")
+        ));
+    }
+
+    #[test]
+    fn extract_metadata_rejects_virtual_end_overflow() {
+        // ARRANGE
+        let mut stub = vec![0_u8; 512];
+        write_bytes(&mut stub, 0, b"MZ");
+        write_u32(&mut stub, 0x3C, 64);
+        write_bytes(&mut stub, 64, b"PE\0\0");
+        write_u16(&mut stub, 68, 0x8664);
+        write_u16(&mut stub, 70, 1);
+        write_u16(&mut stub, 84, 240);
+        write_u16(&mut stub, 86, 0x0222);
+        let opt_start = 88;
+        write_u16(&mut stub, opt_start, 0x020B);
+        write_u32(&mut stub, opt_start + 32, 4096);
+        write_u32(&mut stub, opt_start + 36, 512);
+        write_u32(&mut stub, opt_start + 56, 8192);
+        write_u32(&mut stub, opt_start + 60, 512);
+        write_u16(&mut stub, opt_start + 68, 10);
+        let section_start = opt_start + 240;
+        write_bytes(&mut stub, section_start, b".text");
+        write_u32(&mut stub, section_start + 8, 4096);
+        write_u32(&mut stub, section_start + 12, u32::MAX - 4095);
+        write_u32(&mut stub, section_start + 16, 512);
+        write_u32(&mut stub, section_start + 20, 512);
+        write_u32(&mut stub, section_start + 36, 0x6000_0020);
+
+        // ACT
+        let result = extract_metadata(&mut Cursor::new(stub));
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("section virtual end overflow")
+        ));
+    }
+
+    #[test]
     fn parse_metadata_rejects_missing_coff_header() {
         // ARRANGE
         let mut buf = vec![0_u8; 128];

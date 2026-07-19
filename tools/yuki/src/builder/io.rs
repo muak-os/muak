@@ -136,6 +136,40 @@ mod tests {
     }
 
     #[test]
+    fn error_writer_flush_succeeds() {
+        // ARRANGE
+        let mut writer = ErrorWriter;
+
+        // ACT & ASSERT
+        writer.flush().unwrap();
+    }
+
+    #[test]
+    fn write_gap_zero_size() {
+        // ARRANGE
+        let mut output = Vec::new();
+
+        // ACT
+        write_gap(&mut output, 0).unwrap();
+
+        // ASSERT
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn copy_exact_empty_input() {
+        // ARRANGE
+        let mut reader: &[u8] = b"";
+        let mut output = Vec::new();
+
+        // ACT
+        copy_exact(&mut reader, &mut output, 0, ".empty", &mut |_| {}).unwrap();
+
+        // ASSERT
+        assert!(output.is_empty());
+    }
+
+    #[test]
     fn copy_exact_invokes_callback() {
         // ARRANGE
         let data = b"hello world";

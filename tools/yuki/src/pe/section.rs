@@ -638,6 +638,45 @@ mod tests {
     }
 
     #[test]
+    fn build_table_rejects_stub_len_overflow() {
+        // ARRANGE
+        let metadata = create_test_metadata();
+        let oversized_stub_len = u64::from(u32::MAX).saturating_add(1);
+        let sizes: [(&str, Option<u64>); 3] = [
+            (".cmdline", Some(10)),
+            (".linux", Some(100)),
+            (".initrd", Some(100)),
+        ];
+
+        // ACT
+        let result = build_table(&metadata, oversized_stub_len, false, &sizes);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("stub file offset overflow")
+        ));
+    }
+
+    #[test]
+    fn build_table_rejects_missing_sections() {
+        // ARRANGE
+        let metadata = create_test_metadata();
+        let sizes: [(&str, Option<u64>); 0] = [];
+
+        // ACT
+        let result = build_table(&metadata, 100, false, &sizes);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("missing generated sections")
+        ));
+    }
+
+    #[test]
     fn validate_size_rejects_overflow() {
         // ARRANGE
         let oversized = u64::from(u32::MAX).saturating_add(1);

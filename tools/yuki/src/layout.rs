@@ -198,6 +198,7 @@ mod tests {
         assert!(layout.kernel_offset > layout.cmdline_offset);
         assert!(layout.initramfs_offset > layout.kernel_offset);
         assert!(layout.total_size > layout.initramfs_offset);
+        assert!(!format!("{layout:?}").is_empty());
     }
 
     #[test]

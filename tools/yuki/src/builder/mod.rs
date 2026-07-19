@@ -420,6 +420,82 @@ mod tests {
     }
 
     #[test]
+    fn builder_add_dtb_when_not_in_layout() {
+        // ARRANGE
+        let stub_bytes = minimal_stub();
+        let stub_size = u64::try_from(stub_bytes.len()).unwrap();
+        let (_layout, state) = layout::compute(
+            &mut Cursor::new(&stub_bytes),
+            stub_size,
+            10,
+            1024,
+            2048,
+            None,
+        )
+        .unwrap();
+
+        let mut output = Vec::new();
+        let mut stub_reader = Cursor::new(&stub_bytes);
+        let mut cmdline_data = Cursor::new(vec![0xAA; 10]);
+        let mut dtb_data = Cursor::new(vec![0xDD; 512]);
+        let mut kernel_data = Cursor::new(vec![0xBB; 1024]);
+        let mut initrd_data = Cursor::new(vec![0xCC; 2048]);
+
+        // ACT
+        let builder = Builder::new(state, &mut output);
+        let builder = builder.add_stub(&mut stub_reader).unwrap();
+        let builder = builder.add_cmdline(&mut cmdline_data).unwrap();
+        let builder = builder.add_dtb(&mut dtb_data).unwrap();
+        let builder = builder.add_kernel(&mut kernel_data).unwrap();
+        let builder = builder.add_initramfs(&mut initrd_data).unwrap();
+        let sections = builder.finish().unwrap();
+
+        // ASSERT
+        assert_eq!(sections.len(), 3);
+        assert!(sections.iter().all(|section| section.name != ".dtb"));
+    }
+
+    #[test]
+    fn builder_rejects_stub_size_smaller_than_prefix() {
+        // ARRANGE
+        let stub_bytes = minimal_stub();
+        let small_stub_size = 50;
+
+        let (_layout, state) = layout::compute(
+            &mut Cursor::new(&stub_bytes),
+            small_stub_size,
+            10,
+            1024,
+            2048,
+            None,
+        )
+        .unwrap();
+
+        let mut output = Vec::new();
+        let mut stub_reader = Cursor::new(&stub_bytes);
+
+        // ACT
+        let builder = Builder::new(state, &mut output);
+        let result = builder.add_stub(&mut stub_reader);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("stub length smaller than copied prefix")
+        ));
+    }
+
+    #[test]
+    fn error_writer_flush_succeeds() {
+        // ARRANGE
+        let mut writer = ErrorWriter;
+
+        // ACT & ASSERT
+        writer.flush().unwrap();
+    }
+
+    #[test]
     fn sections_have_nonzero_checksums() {
         // ARRANGE
         let stub_bytes = minimal_stub();

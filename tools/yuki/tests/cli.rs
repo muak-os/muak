@@ -421,6 +421,69 @@ mod tests {
     }
 
     #[test]
+    fn cli_help_succeeds() {
+        // ARRANGE & ACT
+        let status = std::process::Command::new(yuki_bin())
+            .arg("--help")
+            .status()
+            .expect("failed to run yuki --help");
+
+        // ASSERT
+        assert!(status.success(), "yuki --help should exit successfully");
+    }
+
+    #[test]
+    fn cli_version_succeeds() {
+        // ARRANGE & ACT
+        let status = std::process::Command::new(yuki_bin())
+            .arg("--version")
+            .status()
+            .expect("failed to run yuki --version");
+
+        // ASSERT
+        assert!(status.success(), "yuki --version should exit successfully");
+    }
+
+    #[test]
+    fn cli_help_contains_expected_flags() {
+        // ARRANGE & ACT
+        let output = std::process::Command::new(yuki_bin())
+            .arg("--help")
+            .output()
+            .expect("failed to run yuki --help");
+
+        // ASSERT
+        let help_text = String::from_utf8_lossy(&output.stdout);
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{help_text}{stderr_text}");
+        assert!(combined.contains("--stub"));
+        assert!(combined.contains("--linux"));
+        assert!(combined.contains("--initrd"));
+        assert!(combined.contains("--cmdline"));
+        assert!(combined.contains("--dtb"));
+        assert!(combined.contains("--output"));
+    }
+
+    #[test]
+    fn run_with_reports_invalid_args() {
+        // ARRANGE
+        let env = CliEnv::new();
+        let stub = env.write("stub.efi", &generate_minimal_stub());
+
+        // ACT
+        let error = cli::run_with([
+            "yuki",
+            "--stub",
+            stub.to_str().expect("stub path"),
+            "--nonexistent",
+        ])
+        .expect_err("invalid args should error");
+
+        // ASSERT
+        assert!(!error.to_string().is_empty());
+    }
+
+    #[test]
     fn cli_exits_with_error_on_unwritable_output() {
         // ARRANGE
         let env = CliEnv::new();
