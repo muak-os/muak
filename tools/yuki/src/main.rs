@@ -1,4 +1,4 @@
-//! CLI tool for creating Unified Kernel Images (UKI) for Linux on UEFI systems.
+//! CLI tool for creating Unified Kernel Images (UKI) bootable on UEFI systems.
 
 use yuki::cli;
 

@@ -53,13 +53,13 @@ mod tests {
     #[test]
     fn public_api_stays_connected() {
         // ARRANGE
-        let linux_hash = {
+        let kernel_hash = {
             let digest = digest::digest(&digest::SHA256, &[1_u8, 2]);
             let mut hash = [0; 32];
             hash.copy_from_slice(digest.as_ref());
             hash
         };
-        let sections = [(".linux", &linux_hash)];
+        let sections = [(".kernel", &kernel_hash)];
         let pcr = [0x42_u8; 32];
         let blob =
             SealedBlob::try_new(Vec::new(), Vec::new()).expect("empty sealed blob should be valid");

@@ -132,7 +132,11 @@ mod tests {
                 .iter()
                 .any(|name| name.starts_with(b".cmdline"))
         );
-        assert!(section_names.iter().any(|name| name.starts_with(b".linux")));
+        assert!(
+            section_names
+                .iter()
+                .any(|name| name.starts_with(b".kernel"))
+        );
         assert!(
             section_names
                 .iter()
@@ -319,7 +323,7 @@ mod tests {
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
         let sections = pe.section_table();
         let expected_sections = [
-            (b".linux".as_slice(), kernel_data.as_slice()),
+            (b".kernel".as_slice(), kernel_data.as_slice()),
             (b".initrd".as_slice(), initrd_data.as_slice()),
             (b".cmdline".as_slice(), cmdline_data.as_slice()),
         ];
@@ -340,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn linux_section_is_executable() {
+    fn kernel_section_is_executable() {
         // ARRANGE
         let stub = generate_minimal_stub();
         let kernel = fake_kernel(1024);
@@ -353,12 +357,12 @@ mod tests {
 
         // ASSERT
         let pe = PeFile64::parse(&*uki).expect("should be valid PE");
-        let linux_section = pe
+        let kernel_section = pe
             .section_table()
             .iter()
-            .find(|section| section.name.starts_with(b".linux"))
-            .expect("should have .linux section");
-        let chars = linux_section.characteristics.get(LE);
+            .find(|section| section.name.starts_with(b".kernel"))
+            .expect("should have .kernel section");
+        let chars = kernel_section.characteristics.get(LE);
 
         assert!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE != 0);
         assert!(chars & object_pe::IMAGE_SCN_MEM_READ != 0);

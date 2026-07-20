@@ -147,7 +147,7 @@ mod tests {
         let mut prefix = vec![0_u8; size.max(2048)];
         let mut table = Table::new(&metadata);
         table.finalize_section(".cmdline", 10).unwrap();
-        table.finalize_section(".linux", 200).unwrap();
+        table.finalize_section(".kernel", 200).unwrap();
 
         // ACT
         patch(&mut prefix, &metadata, &table, 2).unwrap();
@@ -158,7 +158,7 @@ mod tests {
             metadata.section_table_offset + usize::from(metadata.existing_section_count) * hdr_size;
         assert_eq!(prefix.get(first_new..first_new + 8).unwrap(), b".cmdline");
         let second_new = first_new + hdr_size;
-        assert_eq!(prefix.get(second_new..second_new + 6).unwrap(), b".linux");
+        assert_eq!(prefix.get(second_new..second_new + 7).unwrap(), b".kernel");
     }
 
     #[test]

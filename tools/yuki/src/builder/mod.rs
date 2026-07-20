@@ -119,7 +119,7 @@ impl<'a, W: Write> Builder<'a, W, NeedsKernel> {
     ///
     /// Returns an error if writing fails or the kernel data is incomplete.
     pub fn add_kernel(mut self, reader: &mut dyn Read) -> Result<Builder<'a, W, NeedsInitramfs>> {
-        self.write_section(reader, ".linux")?;
+        self.write_section(reader, ".kernel")?;
 
         Ok(Builder {
             writer: self.writer,
@@ -318,7 +318,7 @@ mod tests {
         // ASSERT
         assert_eq!(sections.len(), 3);
         assert_eq!(sections.first().unwrap().name, ".cmdline");
-        assert_eq!(sections.get(1).unwrap().name, ".linux");
+        assert_eq!(sections.get(1).unwrap().name, ".kernel");
         assert_eq!(sections.get(2).unwrap().name, ".initrd");
         assert_eq!(output.len(), usize::try_from(layout.total_size).unwrap());
     }
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(sections.len(), 4);
         assert_eq!(sections.first().unwrap().name, ".cmdline");
         assert_eq!(sections.get(1).unwrap().name, ".dtb");
-        assert_eq!(sections.get(2).unwrap().name, ".linux");
+        assert_eq!(sections.get(2).unwrap().name, ".kernel");
         assert_eq!(sections.get(3).unwrap().name, ".initrd");
     }
 

@@ -1,6 +1,6 @@
 //! Direct PE kernel loader.
 //!
-//! Loads the embedded Linux kernel PE image by manually mapping its sections into memory and
+//! Loads the embedded kernel PE image by manually mapping its sections into memory and
 //! jumping to the entry point.
 
 pub(crate) mod cmdline;
@@ -73,7 +73,7 @@ pub fn start(
     // SAFETY: entry_addr is within the mapped kernel image.
     let entry: EfiEntryPoint = unsafe { mem::transmute(entry_addr) };
     let system_table = std::os::uefi::env::system_table().as_ptr().cast();
-    // SAFETY: entry points to the Linux EFI stub entry point and receives the current firmware
+    // SAFETY: entry points to the kernel EFI stub entry point and receives the current firmware
     // image handle and system table.
     let status = unsafe { entry(image_handle, system_table) };
 

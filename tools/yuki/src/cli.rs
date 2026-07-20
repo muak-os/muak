@@ -19,7 +19,7 @@ struct Cli {
     stub: PathBuf,
 
     #[arg(short = 'l', long, help = "Path to the Linux kernel image")]
-    linux: PathBuf,
+    kernel: PathBuf,
 
     #[arg(short = 'i', long, help = "Path to the initramfs image")]
     initrd: PathBuf,
@@ -63,8 +63,8 @@ fn run(args: &Cli) -> Result<String> {
     let cmdline_size = std::fs::metadata(&args.cmdline)
         .with_context(|| format!("Failed to read cmdline from {}", args.cmdline.display()))?
         .len();
-    let kernel_size = std::fs::metadata(&args.linux)
-        .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?
+    let kernel_size = std::fs::metadata(&args.kernel)
+        .with_context(|| format!("Failed to read kernel from {}", args.kernel.display()))?
         .len();
     let initrd_size = std::fs::metadata(&args.initrd)
         .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?
@@ -81,8 +81,8 @@ fn run(args: &Cli) -> Result<String> {
 
     let mut stub_file = File::open(&args.stub)
         .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?;
-    let mut kernel = File::open(&args.linux)
-        .with_context(|| format!("Failed to read kernel from {}", args.linux.display()))?;
+    let mut kernel = File::open(&args.kernel)
+        .with_context(|| format!("Failed to read kernel from {}", args.kernel.display()))?;
     let mut initrd = File::open(&args.initrd)
         .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?;
     let mut cmdline = File::open(&args.cmdline)

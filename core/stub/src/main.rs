@@ -1,4 +1,4 @@
-//! UEFI stub for Muak - Loads and starts the Linux kernel from a Unified Kernel Image.
+//! UEFI stub for Muak - Loads and starts a kernel from a Unified Kernel Image.
 
 #![feature(uefi_std)]
 
@@ -91,11 +91,11 @@ fn main() -> Result<()> {
 
     info!(
         "Kernel: {} bytes at {:p}",
-        sections.linux.len(),
-        sections.linux.as_ptr()
+        sections.kernel.len(),
+        sections.kernel.as_ptr()
     );
 
-    let kernel = pe::kernel::Image::parse(sections.linux)?;
+    let kernel = pe::kernel::Image::parse(sections.kernel)?;
     info!(
         "Kernel PE: entry=0x{:x}, base=0x{:x}, size=0x{:x}",
         kernel.entry_point_rva, kernel.base_address, kernel.size

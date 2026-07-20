@@ -1,4 +1,4 @@
-//! TTY device access for rendering to a Linux virtual console.
+//! TTY device access for rendering to a virtual console.
 
 use std::fs::File;
 use std::io;

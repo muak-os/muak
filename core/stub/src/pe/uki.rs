@@ -10,7 +10,7 @@ use object::read::pe::PeFile64;
 /// Parsed UKI sections from the PE image.
 #[derive(Debug)]
 pub struct Sections<'a> {
-    pub linux: &'a [u8],
+    pub kernel: &'a [u8],
     pub initrd: Option<&'a [u8]>,
     pub cmdline: Option<&'a [u8]>,
     pub dtb: Option<&'a [u8]>,
@@ -22,14 +22,14 @@ impl<'a> Sections<'a> {
     /// # Errors
     ///
     /// Returns an error if the image is not a valid PE file, a section is malformed, or the
-    /// required `.linux` section is missing.
+    /// required `.kernel` section is missing.
     pub fn parse(data: &'a [u8]) -> Result<Self> {
         if data.len() < 0x40 {
             bail!("PE file too small (minimum 64 bytes required)");
         }
         let pe = PeFile64::parse(data).context("Failed to parse PE file")?;
 
-        let mut linux: Option<&'a [u8]> = None;
+        let mut kernel: Option<&'a [u8]> = None;
         let mut initrd: Option<&'a [u8]> = None;
         let mut cmdline: Option<&'a [u8]> = None;
         let mut dtb: Option<&'a [u8]> = None;
@@ -44,7 +44,7 @@ impl<'a> Sections<'a> {
             set_uki_section(
                 name,
                 section_data,
-                &mut linux,
+                &mut kernel,
                 &mut initrd,
                 &mut cmdline,
                 &mut dtb,
@@ -52,7 +52,7 @@ impl<'a> Sections<'a> {
         }
 
         Ok(Sections {
-            linux: linux.ok_or_else(|| anyhow!("UKI missing required .linux section"))?,
+            kernel: kernel.ok_or_else(|| anyhow!("UKI missing required .kernel section"))?,
             initrd,
             cmdline,
             dtb,
@@ -62,7 +62,7 @@ impl<'a> Sections<'a> {
     /// Returns an iterator over sections to measure, in spec canonical order.
     pub fn iter_sections(&self) -> impl Iterator<Item = (&'static str, &'a [u8])> {
         [
-            (".linux", Some(self.linux)),
+            (".kernel", Some(self.kernel)),
             (".cmdline", self.cmdline),
             (".initrd", self.initrd),
             (".dtb", self.dtb),
@@ -75,13 +75,13 @@ impl<'a> Sections<'a> {
 fn set_uki_section<'a>(
     name: &'static str,
     section_data: &'a [u8],
-    linux: &mut Option<&'a [u8]>,
+    kernel: &mut Option<&'a [u8]>,
     initrd: &mut Option<&'a [u8]>,
     cmdline: &mut Option<&'a [u8]>,
     dtb: &mut Option<&'a [u8]>,
 ) -> Result<()> {
     match name {
-        ".linux" => *linux = Some(section_data),
+        ".kernel" => *kernel = Some(section_data),
         ".initrd" => *initrd = Some(section_data),
         ".cmdline" => *cmdline = Some(section_data),
         ".dtb" => *dtb = Some(section_data),
@@ -126,7 +126,7 @@ fn uki_section_data<'a>(
 
 fn canonical_uki_section_name(name: &str) -> Option<&'static str> {
     match name {
-        ".linux" => Some(".linux"),
+        ".kernel" => Some(".kernel"),
         ".initrd" => Some(".initrd"),
         ".cmdline" => Some(".cmdline"),
         ".dtb" => Some(".dtb"),
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_missing_linux_section() {
+    fn parse_missing_kernel_section() {
         // ARRANGE
         let mut builder = Builder::new();
         builder.add_section(*b".text\0\0\0", b"placeholder");
@@ -174,21 +174,24 @@ mod tests {
         let err = Sections::parse(&data).unwrap_err();
 
         // ASSERT
-        assert!(err.to_string().contains("missing required .linux"), "{err}");
+        assert!(
+            err.to_string().contains("missing required .kernel"),
+            "{err}"
+        );
     }
 
     #[test]
-    fn parse_linux_only() {
+    fn parse_kernel_only() {
         // ARRANGE
         let mut builder = Builder::new();
-        builder.add_section(*b".linux\0\0", b"kernel_data");
+        builder.add_section(*b".kernel\0", b"kernel_data");
         let data = builder.build();
 
         // ACT
         let sections = Sections::parse(&data).expect("parse should succeed");
 
         // ASSERT
-        assert_eq!(sections.linux, b"kernel_data");
+        assert_eq!(sections.kernel, b"kernel_data");
         assert!(sections.initrd.is_none());
         assert!(sections.cmdline.is_none());
         assert!(sections.dtb.is_none());
@@ -198,7 +201,7 @@ mod tests {
     fn parse_all_sections() {
         // ARRANGE
         let mut builder = Builder::new();
-        builder.add_section(*b".linux\0\0", b"linux");
+        builder.add_section(*b".kernel\0", b"kernel");
         builder.add_section(*b".initrd\0", b"initrd");
         builder.add_section(*b".cmdline", b"cmdline");
         builder.add_section(*b".dtb\0\0\0\0", b"dtb");
@@ -208,7 +211,7 @@ mod tests {
         let sections = Sections::parse(&data).expect("parse should succeed");
 
         // ASSERT
-        assert_eq!(sections.linux, b"linux");
+        assert_eq!(sections.kernel, b"kernel");
         assert_eq!(sections.initrd.expect("initrd"), b"initrd");
         assert_eq!(sections.cmdline.expect("cmdline"), b"cmdline");
         assert_eq!(sections.dtb.expect("dtb"), b"dtb");
@@ -219,21 +222,21 @@ mod tests {
         // ARRANGE
         let mut builder = Builder::new();
         builder.add_section(*b".unknwn\0", b"ignored");
-        builder.add_section(*b".linux\0\0", b"kernel");
+        builder.add_section(*b".kernel\0", b"kernel");
         let data = builder.build();
 
         // ACT
         let sections = Sections::parse(&data).expect("parse should succeed");
 
         // ASSERT
-        assert_eq!(sections.linux, b"kernel");
+        assert_eq!(sections.kernel, b"kernel");
     }
 
     #[test]
     fn parse_zero_virtual_size_skipped() {
         // ARRANGE
         let mut builder = Builder::new();
-        builder.add_section(*b".linux\0\0", b"kernel");
+        builder.add_section(*b".kernel\0", b"kernel");
         builder.add_section(*b".initrd\0", b"initrd_data");
         builder.set_last_virtual_size(0);
         let data = builder.build();
@@ -252,7 +255,7 @@ mod tests {
     fn parse_section_out_of_bounds() {
         // ARRANGE
         let mut builder = Builder::new();
-        builder.add_section(*b".linux\0\0", b"kernel");
+        builder.add_section(*b".kernel\0", b"kernel");
         builder.set_last_virtual_size(0xFFFF_FF00);
         let data = builder.build();
 
@@ -264,10 +267,10 @@ mod tests {
     }
 
     #[test]
-    fn iter_sections_linux_only() {
+    fn iter_sections_kernel_only() {
         // ARRANGE
         let sections = Sections {
-            linux: b"kern",
+            kernel: b"kern",
             initrd: None,
             cmdline: None,
             dtb: None,
@@ -277,14 +280,14 @@ mod tests {
         let items: Vec<_> = sections.iter_sections().collect();
 
         // ASSERT
-        assert_eq!(items, vec![(".linux", &b"kern"[..])]);
+        assert_eq!(items, vec![(".kernel", &b"kern"[..])]);
     }
 
     #[test]
     fn iter_sections_all_present() {
         // ARRANGE
         let sections = Sections {
-            linux: b"kern",
+            kernel: b"kern",
             initrd: Some(b"initrd"),
             cmdline: Some(b"quiet"),
             dtb: Some(b"dtb"),
@@ -297,7 +300,7 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                (".linux", &b"kern"[..]),
+                (".kernel", &b"kern"[..]),
                 (".cmdline", &b"quiet"[..]),
                 (".initrd", &b"initrd"[..]),
                 (".dtb", &b"dtb"[..]),
@@ -309,7 +312,7 @@ mod tests {
     fn iter_sections_canonical_order() {
         // ARRANGE
         let sections = Sections {
-            linux: b"l",
+            kernel: b"l",
             initrd: Some(b"i"),
             cmdline: Some(b"c"),
             dtb: None,
@@ -319,6 +322,6 @@ mod tests {
         let names: Vec<&str> = sections.iter_sections().map(|(name, _)| name).collect();
 
         // ASSERT
-        assert_eq!(names, vec![".linux", ".cmdline", ".initrd"]);
+        assert_eq!(names, vec![".kernel", ".cmdline", ".initrd"]);
     }
 }

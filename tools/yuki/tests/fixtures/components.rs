@@ -1,4 +1,6 @@
-/// Generates a fake Linux kernel image.
+//! This module provides functions to generate fake components for testing purposes.
+
+/// Generates a fake kernel image.
 #[must_use]
 pub fn fake_kernel(size: usize) -> Vec<u8> {
     let mut kernel = Vec::with_capacity(size);
@@ -9,6 +11,7 @@ pub fn fake_kernel(size: usize) -> Vec<u8> {
             .take(size.saturating_sub(kernel.len())),
     );
     kernel.truncate(size);
+
     kernel
 }
 
@@ -19,6 +22,7 @@ pub fn fake_initrd(size: usize) -> Vec<u8> {
     initrd.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00]);
     initrd.resize(size, 0xAA);
     initrd.truncate(size);
+
     initrd
 }
 

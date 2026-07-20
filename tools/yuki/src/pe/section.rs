@@ -136,7 +136,7 @@ fn build_header(
     header.pointer_to_raw_data.set(LE, pointer_to_raw_data);
     header.characteristics.set(
         LE,
-        if name == ".linux" {
+        if name == ".kernel" {
             IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
         } else {
             IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
@@ -283,11 +283,11 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".linux", 100).unwrap();
+        state.finalize_section(".kernel", 100).unwrap();
 
         // ASSERT
         assert_eq!(state.sections.len(), 1);
-        assert_eq!(state.sections.first().unwrap().name, ".linux");
+        assert_eq!(state.sections.first().unwrap().name, ".kernel");
         assert_eq!(state.sections.first().unwrap().size, 100);
         assert_eq!(state.sections.first().unwrap().file_offset, 512);
         assert_eq!(state.sections.first().unwrap().checksum, [0_u8; 32]);
@@ -295,7 +295,7 @@ mod tests {
         assert_eq!(state.headers.len(), 1);
         assert_section_header(
             state.headers.first().unwrap(),
-            b".linux",
+            b".kernel",
             100,
             4096,
             512,
@@ -312,7 +312,7 @@ mod tests {
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".linux", 200).unwrap();
+        state.finalize_section(".kernel", 200).unwrap();
         state.finalize_section(".initrd", 300).unwrap();
 
         // ASSERT
@@ -338,7 +338,7 @@ mod tests {
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".linux", 100).unwrap();
+        state.finalize_section(".kernel", 100).unwrap();
 
         // ASSERT
         assert_eq!(
@@ -359,7 +359,7 @@ mod tests {
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".linux", 1000).unwrap();
+        state.finalize_section(".kernel", 1000).unwrap();
 
         // ASSERT
         assert!(state.max_virtual_end() > metadata.last_section_virtual_end);
@@ -398,7 +398,7 @@ mod tests {
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".linux", 100).unwrap();
+        state.finalize_section(".kernel", 100).unwrap();
 
         // ASSERT
         let file_alignment = usize::try_from(metadata.file_alignment).unwrap();
@@ -503,13 +503,13 @@ mod tests {
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
         state.finalize_section(".dtb", 100).unwrap();
-        state.finalize_section(".linux", 200).unwrap();
+        state.finalize_section(".kernel", 200).unwrap();
         state.finalize_section(".initrd", 300).unwrap();
 
         assert_eq!(state.sections.len(), 4);
         assert_eq!(state.sections.first().unwrap().name, ".cmdline");
         assert_eq!(state.sections.get(1).unwrap().name, ".dtb");
-        assert_eq!(state.sections.get(2).unwrap().name, ".linux");
+        assert_eq!(state.sections.get(2).unwrap().name, ".kernel");
         assert_eq!(state.sections.get(3).unwrap().name, ".initrd");
     }
 
@@ -535,7 +535,7 @@ mod tests {
 
         // ACT
         state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".linux", 50).unwrap();
+        state.finalize_section(".kernel", 50).unwrap();
 
         assert!(
             state.sections.first().unwrap().file_offset > 0,
@@ -644,7 +644,7 @@ mod tests {
         let oversized_stub_len = u64::from(u32::MAX).saturating_add(1);
         let sizes: [(&str, Option<u64>); 3] = [
             (".cmdline", Some(10)),
-            (".linux", Some(100)),
+            (".kernel", Some(100)),
             (".initrd", Some(100)),
         ];
 

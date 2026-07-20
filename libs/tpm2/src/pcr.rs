@@ -78,15 +78,15 @@ mod tests {
     fn predict_pcr11_deterministic() {
         // ARRANGE
         let mut h_cmdline = [0; 32];
-        let mut h_linux = [0; 32];
+        let mut h_kernel = [0; 32];
         let mut h_initrd = [0; 32];
         h_cmdline.copy_from_slice(digest::digest(&digest::SHA256, b"console=ttyS0").as_ref());
-        h_linux.copy_from_slice(digest::digest(&digest::SHA256, &[0xDE, 0xAD]).as_ref());
+        h_kernel.copy_from_slice(digest::digest(&digest::SHA256, &[0xDE, 0xAD]).as_ref());
         h_initrd.copy_from_slice(digest::digest(&digest::SHA256, &[0xBE, 0xEF]).as_ref());
 
         let sections: [(&str, &[u8; 32]); 3] = [
             (".cmdline", &h_cmdline),
-            (".linux", &h_linux),
+            (".kernel", &h_kernel),
             (".initrd", &h_initrd),
         ];
 
@@ -104,8 +104,8 @@ mod tests {
         let h_a = sha256_arr(b"a");
         let h_b = sha256_arr(b"b");
 
-        let ordered: [(&str, &[u8; 32]); 2] = [(".cmdline", &h_a), (".linux", &h_b)];
-        let reordered: [(&str, &[u8; 32]); 2] = [(".linux", &h_b), (".cmdline", &h_a)];
+        let ordered: [(&str, &[u8; 32]); 2] = [(".cmdline", &h_a), (".kernel", &h_b)];
+        let reordered: [(&str, &[u8; 32]); 2] = [(".kernel", &h_b), (".cmdline", &h_a)];
 
         // ACT / ASSERT
         assert_ne!(predict_pcr11(&ordered), predict_pcr11(&reordered));

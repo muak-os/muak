@@ -54,7 +54,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -97,7 +97,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -128,7 +128,7 @@ mod tests {
             "yuki",
             "--stub",
             env.path("missing.efi").to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -157,7 +157,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             env.path("missing-kernel").to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -186,7 +186,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             env.path("missing-initrd").to_str().expect("initrd path"),
@@ -215,7 +215,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -245,7 +245,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -276,7 +276,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -306,7 +306,7 @@ mod tests {
             "yuki",
             "--stub",
             stub.to_str().expect("stub path"),
-            "--linux",
+            "--kernel",
             kernel.to_str().expect("kernel path"),
             "--initrd",
             initrd.to_str().expect("initrd path"),
@@ -336,7 +336,7 @@ mod tests {
             .args([
                 "--stub",
                 stub.to_str().expect("stub path"),
-                "--linux",
+                "--kernel",
                 kernel.to_str().expect("kernel path"),
                 "--initrd",
                 initrd.to_str().expect("initrd path"),
@@ -371,7 +371,7 @@ mod tests {
             .args([
                 "--stub",
                 stub.to_str().expect("stub path"),
-                "--linux",
+                "--kernel",
                 kernel.to_str().expect("kernel path"),
                 "--initrd",
                 initrd.to_str().expect("initrd path"),
@@ -404,7 +404,7 @@ mod tests {
             .args([
                 "--stub",
                 env.path("nonexistent.efi").to_str().expect("stub path"),
-                "--linux",
+                "--kernel",
                 kernel.to_str().expect("kernel path"),
                 "--initrd",
                 initrd.to_str().expect("initrd path"),
@@ -457,7 +457,7 @@ mod tests {
         let stderr_text = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{help_text}{stderr_text}");
         assert!(combined.contains("--stub"));
-        assert!(combined.contains("--linux"));
+        assert!(combined.contains("--kernel"));
         assert!(combined.contains("--initrd"));
         assert!(combined.contains("--cmdline"));
         assert!(combined.contains("--dtb"));
@@ -497,7 +497,7 @@ mod tests {
             .args([
                 "--stub",
                 stub.to_str().expect("stub path"),
-                "--linux",
+                "--kernel",
                 kernel.to_str().expect("kernel path"),
                 "--initrd",
                 initrd.to_str().expect("initrd path"),

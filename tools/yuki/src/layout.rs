@@ -14,7 +14,7 @@ pub struct Layout {
     pub stub_offset: u64,
     /// File offset of the `.cmdline` section.
     pub cmdline_offset: u64,
-    /// File offset of the `.linux` section.
+    /// File offset of the `.kernel` section.
     pub kernel_offset: u64,
     /// File offset of the `.initrd` section.
     pub initramfs_offset: u64,
@@ -53,7 +53,7 @@ pub fn compute(
     let sizes = [
         (".cmdline", Some(cmdline_size)),
         (".dtb", dtb_size),
-        (".linux", Some(kernel_size)),
+        (".kernel", Some(kernel_size)),
         (".initrd", Some(initramfs_size)),
     ];
 
@@ -98,7 +98,7 @@ fn extract_layout(section_table: &section::Table) -> Result<Layout> {
     for sec in &section_table.sections {
         match sec.name {
             ".cmdline" => layout.cmdline_offset = offset_to_u64(sec.file_offset, "cmdline")?,
-            ".linux" => layout.kernel_offset = offset_to_u64(sec.file_offset, "kernel")?,
+            ".kernel" => layout.kernel_offset = offset_to_u64(sec.file_offset, "kernel")?,
             ".initrd" => layout.initramfs_offset = offset_to_u64(sec.file_offset, "initrd")?,
             _ => {}
         }
