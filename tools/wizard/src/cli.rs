@@ -1,6 +1,7 @@
 //! Command-line interface for the wizard.
 
 use std::ffi::OsString;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -16,7 +17,7 @@ use crate::resolve;
 
 struct BuildArgs {
     profile: Option<PathBuf>,
-    artifact: String,
+    artifacts: Vec<String>,
     version: String,
     arch: String,
     platform: String,
@@ -69,7 +70,7 @@ enum Command {
         profile: Option<PathBuf>,
 
         #[arg(long)]
-        artifact: String,
+        artifacts: Vec<String>,
 
         #[arg(long)]
         version: String,
@@ -183,7 +184,7 @@ async fn run_command(command: Command) -> Result<()> {
         } => run_resolve(&profile, &version, &arch, &platform, registry, installer),
         Command::Build {
             profile,
-            artifact,
+            artifacts,
             version,
             arch,
             platform,
@@ -198,7 +199,7 @@ async fn run_command(command: Command) -> Result<()> {
         } => {
             run_build(BuildArgs {
                 profile,
-                artifact,
+                artifacts,
                 version,
                 arch,
                 platform,
@@ -265,7 +266,16 @@ fn run_resolve(
 async fn run_build(args: BuildArgs) -> Result<()> {
     let arch = parse_arch(&args.arch)?;
     let platform = parse_platform(&args.platform)?;
-    let artifact = parse_artifact(&args.artifact)?;
+
+    let artifacts: Vec<Artifact> = args
+        .artifacts
+        .iter()
+        .map(|name| parse_artifact(name))
+        .collect::<Result<_>>()?;
+
+    if artifacts.is_empty() {
+        bail!("at least one artifact must be specified");
+    }
 
     if args.signing_key.is_some() != args.signing_cert.is_some() {
         bail!("--signing-key and --signing-cert must be provided together");
@@ -305,22 +315,36 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         None => None,
     };
 
-    let output_path = args.output_dir.join(artifact.filename());
-    let mut file = std::fs::File::create(&output_path)
-        .with_context(|| format!("create output file {}", output_path.display()))?;
-    let meta = Request::new(&args.version, platform)
-        .arch(arch)
-        .artifact(artifact, &mut file)?
+    let mut files: Vec<(Artifact, File)> = Vec::new();
+    for &artifact in &artifacts {
+        let output_path = args.output_dir.join(artifact.filename());
+        let file = File::create(&output_path)
+            .with_context(|| format!("create output file {}", output_path.display()))?;
+        files.push((artifact, file));
+    }
+
+    let mut request = Request::new(&args.version, platform).arch(arch);
+    let mut remaining: &mut [(Artifact, File)] = &mut files;
+    while let Some((first, rest)) = remaining.split_first_mut() {
+        let artifact = first.0;
+        let file: &mut dyn std::io::Write = &mut first.1;
+        request = request.artifact(artifact, file)?;
+        remaining = rest;
+    }
+
+    let meta = request
         .build(&profile, signing.as_ref())
         .await
-        .context(format!("build {artifact} to {}", output_path.display()))?;
+        .context("build artifacts")?;
 
-    println!(
-        "Successfully built {} ({artifact} sections={}) at {}",
-        output_path.display(),
-        meta.sections.len(),
-        artifact,
-    );
+    for &artifact in &artifacts {
+        let path = args.output_dir.join(artifact.filename());
+        println!(
+            "Successfully built {} ({artifact} sections={})",
+            path.display(),
+            meta.sections.len(),
+        );
+    }
 
     Ok(())
 }
