@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/var/cache/apk \
   bison \
   ccache \
   clang \
+  compiler-rt \
   diffutils \
   elfutils-dev \
   findutils \
@@ -55,12 +56,12 @@ EOF
 COPY core/kernel/config-${TARGETARCH} .config
 COPY core/kernel/kernel-signing-cert.pem certs/kernel-signing-cert.pem
 
-RUN make LLVM=1 olddefconfig
+RUN make LLVM=1 LD=ld.lld HOSTLDFLAGS="-fuse-ld=lld --rtlib=compiler-rt -unwindlib=none" olddefconfig
 
 RUN --mount=type=cache,target=/root/.ccache \
   export PATH="/usr/lib/ccache/bin:$PATH" && \
-  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld && \
-  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld modules
+  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld HOSTLDFLAGS="-fuse-ld=lld --rtlib=compiler-rt -unwindlib=none" && \
+  make -j$(nproc) LLVM=1 CC="ccache clang" LD=ld.lld HOSTLDFLAGS="-fuse-ld=lld --rtlib=compiler-rt -unwindlib=none" modules
 
 RUN --mount=type=secret,id=kernel_key,target=/run/secrets/kernel-signing-key.pem <<EOF
 set -euo pipefail
