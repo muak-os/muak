@@ -31,7 +31,6 @@ RUN --mount=type=cache,target=/var/cache/apk \
   musl-dev \
   openssl \
   openssl-dev \
-  pahole \
   perl \
   python3 \
   sbsigntool \
