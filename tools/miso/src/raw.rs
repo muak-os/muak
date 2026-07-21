@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 
 use ::esp::builder::Layout;
 use parttable::error::ParttableError;
-use parttable::error::Result as ParttableResult;
+use parttable::error::Result as PlacementResult;
 use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 
@@ -12,8 +12,6 @@ use crate::error::{MisoError, Result};
 use crate::esp;
 
 const SECTOR_SIZE: u64 = 512;
-
-type PlacementResult = ParttableResult<()>;
 
 /// Builds a raw GPT disk image containing the ESP into any `Write` sink.
 ///
@@ -131,7 +129,7 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
     }
 }
 
-fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u64>> {
+fn try_layout(placement: PlacementResult<()>, disk_sectors: u64) -> Result<Option<u64>> {
     match placement {
         Ok(()) => Ok(Some(disk_sectors)),
         Err(ParttableError::InvalidPlacement(_)) => Ok(None),
