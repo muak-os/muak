@@ -13,7 +13,7 @@ pub enum SealResult {
 
 /// Seals a LUKS key to TPM2 or signals writing it to the ESP as a fallback.
 pub fn seal_luks_key(key: &[u8], sections: &[SectionInfo]) -> Result<SealResult> {
-    if tpm2::is_available() {
+    if tpm2::device::is_available(None) {
         let token = seal_to_token(key, sections).context("Failed to seal LUKS key to TPM2")?;
         return Ok(SealResult::Sealed(token));
     }
@@ -25,9 +25,9 @@ pub fn seal_luks_key(key: &[u8], sections: &[SectionInfo]) -> Result<SealResult>
 pub fn unseal_luks_key(state_device: Option<&str>) -> Option<Zeroizing<Vec<u8>>> {
     let token = luks2::read_tpm2_token(state_device?).ok()?;
     let blob_bytes = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob).ok()?;
-    let blob = tpm2::SealedBlob::deserialize(&blob_bytes).ok()?;
+    let blob = tpm2::blob::Sealed::deserialize(&blob_bytes).ok()?;
 
-    match tpm2::unseal(&blob) {
+    match tpm2::operations::unseal(&blob) {
         Ok(key) => {
             println!("LUKS key unsealed from TPM2 for re-seal");
             Some(key)
@@ -41,7 +41,7 @@ pub fn unseal_luks_key(state_device: Option<&str>) -> Option<Zeroizing<Vec<u8>>>
 
 /// Resolves the LUKS key for an update: unseal from TPM2 or read from cmdline.
 pub fn resolve_luks_key(state_device: Option<&str>) -> Option<Zeroizing<Vec<u8>>> {
-    if tpm2::is_available() {
+    if tpm2::device::is_available(None) {
         if let Some(key) = unseal_luks_key(state_device) {
             return Some(key);
         }
@@ -78,7 +78,8 @@ fn seal_to_token(luks_key: &[u8], sections: &[SectionInfo]) -> Result<luks2::Tpm
         .map(|s| (s.name.as_str(), &s.hash))
         .collect();
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
-    let sealed = tpm2::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
+    let sealed = tpm2::operations::seal(luks_key, &expected_pcr)
+        .context("Failed to seal LUKS key to TPM2")?;
 
     Ok(Tpm2Token {
         r#type: "tpm2".to_string(),

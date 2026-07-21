@@ -1,6 +1,9 @@
 //! LUKS key resolution.
 
 use anyhow::{Context as _, Result};
+use tpm2::blob;
+use tpm2::device;
+use tpm2::operations;
 use zeroize::Zeroizing;
 
 /// Resolve the LUKS key for the given device, first trying TPM2 unseal and falling back to cmdline parsing.
@@ -13,7 +16,7 @@ pub(super) fn resolve_key(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
 }
 
 fn try_tpm2_unseal(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
-    if !tpm2::is_available() {
+    if !device::is_available(None) {
         return Ok(None);
     }
 
@@ -23,10 +26,9 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
 
     let blob_bytes = <base64ct::Base64 as base64ct::Encoding>::decode_vec(&token.tpm2_blob)
         .context("Failed to decode TPM2 blob from LUKS token")?;
-    let blob =
-        tpm2::SealedBlob::deserialize(&blob_bytes).context("Failed to deserialize TPM2 blob")?;
+    let blob = blob::Sealed::deserialize(&blob_bytes).context("Failed to deserialize TPM2 blob")?;
 
-    match tpm2::unseal(&blob) {
+    match operations::unseal(&blob) {
         Ok(key) => {
             kmsg::info!("LUKS key unsealed from TPM2");
             Ok(Some(key))

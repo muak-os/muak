@@ -5,12 +5,12 @@ use crate::error::{Result, Tpm2Error};
 
 /// Sealed blob format: `[pub_size:u16][pub_data][priv_size:u16][priv_data]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SealedBlob {
+pub struct Sealed {
     pub_data: Vec<u8>,
     priv_data: Vec<u8>,
 }
 
-impl SealedBlob {
+impl Sealed {
     /// Creates a validated sealed blob.
     ///
     /// # Errors
@@ -19,20 +19,11 @@ impl SealedBlob {
     pub fn try_new(pub_data: Vec<u8>, priv_data: Vec<u8>) -> Result<Self> {
         u16_len(pub_data.len())?;
         u16_len(priv_data.len())?;
+
         Ok(Self {
             pub_data,
             priv_data,
         })
-    }
-
-    #[must_use]
-    pub fn public(&self) -> &[u8] {
-        &self.pub_data
-    }
-
-    #[must_use]
-    pub fn private(&self) -> &[u8] {
-        &self.priv_data
     }
 
     /// Serializes into wire format.
@@ -49,6 +40,7 @@ impl SealedBlob {
         let priv_size = u16_len(self.priv_data.len()).unwrap_or(u16::MAX);
         buf.extend_from_slice(&priv_size.to_le_bytes());
         buf.extend_from_slice(&self.priv_data);
+
         buf
     }
 
@@ -71,6 +63,16 @@ impl SealedBlob {
 
         Self::try_new(pub_data.to_vec(), priv_data.to_vec())
     }
+
+    #[must_use]
+    pub(crate) fn public(&self) -> &[u8] {
+        &self.pub_data
+    }
+
+    #[must_use]
+    pub(crate) fn private(&self) -> &[u8] {
+        &self.priv_data
+    }
 }
 
 fn u16_from_le_slice(bytes: &[u8]) -> Result<u16> {
@@ -79,6 +81,7 @@ fn u16_from_le_slice(bytes: &[u8]) -> Result<u16> {
         return Err(Tpm2Error::InvalidBlob);
     }
     array.copy_from_slice(bytes);
+
     Ok(u16::from_le_bytes(array))
 }
 
@@ -89,12 +92,12 @@ mod tests {
     #[test]
     fn sealed_blob_roundtrip() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1, 2, 3, 4, 5], vec![10, 20, 30])
-            .expect("blob should be valid");
+        let blob =
+            Sealed::try_new(vec![1, 2, 3, 4, 5], vec![10, 20, 30]).expect("blob should be valid");
 
         // ACT
         let serialized = blob.serialize();
-        let deserialized = SealedBlob::deserialize(&serialized);
+        let deserialized = Sealed::deserialize(&serialized);
 
         // ASSERT
         let deserialized = deserialized.expect("blob should deserialize");
@@ -113,11 +116,11 @@ mod tests {
     #[test]
     fn sealed_blob_empty() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![], vec![]).expect("empty blob should be valid");
+        let blob = Sealed::try_new(vec![], vec![]).expect("empty blob should be valid");
 
         // ACT
         let serialized = blob.serialize();
-        let deserialized = SealedBlob::deserialize(&serialized);
+        let deserialized = Sealed::deserialize(&serialized);
 
         // ASSERT
         let deserialized = deserialized.expect("blob should deserialize");
@@ -134,7 +137,7 @@ mod tests {
     #[test]
     fn accessors_return_original_slices() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![1, 2], vec![3, 4]).expect("small blob should be valid");
+        let blob = Sealed::try_new(vec![1, 2], vec![3, 4]).expect("small blob should be valid");
 
         // ACT
         let public = blob.public();
@@ -156,7 +159,7 @@ mod tests {
     #[test]
     fn serialize_clamps_oversized_sections() {
         // ARRANGE
-        let blob = SealedBlob {
+        let blob = Sealed {
             pub_data: vec![0xAA; usize::from(u16::MAX) + 1],
             priv_data: vec![0xBB; usize::from(u16::MAX) + 1],
         };
@@ -181,16 +184,13 @@ mod tests {
     #[test]
     fn sealed_blob_invalid() {
         // ACT & ASSERT
+        assert!(Sealed::deserialize(&[]).is_err(), "empty blob should fail");
         assert!(
-            SealedBlob::deserialize(&[]).is_err(),
-            "empty blob should fail"
-        );
-        assert!(
-            SealedBlob::deserialize(&[0, 0]).is_err(),
+            Sealed::deserialize(&[0, 0]).is_err(),
             "missing private size should fail"
         );
         assert!(
-            SealedBlob::deserialize(&[5, 0, 1]).is_err(),
+            Sealed::deserialize(&[5, 0, 1]).is_err(),
             "truncated public data should fail"
         );
     }
@@ -201,7 +201,7 @@ mod tests {
         let data = [1, 0, 0xAA, 2, 0, 0xBB];
 
         // ACT
-        let result = SealedBlob::deserialize(&data);
+        let result = Sealed::deserialize(&data);
 
         // ASSERT
         assert!(result.is_err(), "truncated private data should fail");
@@ -213,7 +213,7 @@ mod tests {
         let data = [1, 0, 0xAA, 1, 0, 0xBB, 0xCC];
 
         // ACT
-        let result = SealedBlob::deserialize(&data);
+        let result = Sealed::deserialize(&data);
 
         // ASSERT
         let blob = result.expect("blob should deserialize");
@@ -227,8 +227,8 @@ mod tests {
         let oversized = vec![0_u8; usize::from(u16::MAX) + 1];
 
         // ACT
-        let public_result = SealedBlob::try_new(oversized.clone(), Vec::new());
-        let private_result = SealedBlob::try_new(Vec::new(), oversized);
+        let public_result = Sealed::try_new(oversized.clone(), Vec::new());
+        let private_result = Sealed::try_new(Vec::new(), oversized);
 
         // ASSERT
         assert!(public_result.is_err(), "oversized public data should fail");
@@ -256,7 +256,7 @@ mod tests {
         let data = [0, 0, 1];
 
         // ACT
-        let result = SealedBlob::deserialize(&data);
+        let result = Sealed::deserialize(&data);
 
         // ASSERT
         assert!(result.is_err(), "missing private size bytes should fail");

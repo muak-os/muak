@@ -2,7 +2,7 @@
 
 use zeroize::Zeroizing;
 
-use crate::blob::SealedBlob;
+use crate::blob::Sealed;
 use crate::commands::{
     self, CreateCommand, CreatePrimaryCommand, EvictControlCommand, FlushContextCommand,
     HandleExistsCommand, LoadCommand, PolicyPcrCommand, StartAuthSessionCommand, UnsealCommand,
@@ -14,8 +14,11 @@ use crate::pcr::{Digest, compute_policy_digest};
 
 const SRK_HANDLE: PersistentHandle = PersistentHandle::new(0x8100_0001);
 
+/// Result returned from a seal operation.
 pub struct SealResult {
-    pub blob: SealedBlob,
+    /// The sealed TPM2 blob.
+    pub blob: Sealed,
+    /// The policy digest used for sealing.
     pub policy_digest: Digest,
 }
 
@@ -26,6 +29,7 @@ pub struct SealResult {
 /// Returns an error if TPM access or command execution fails.
 pub fn seal(data: &[u8], expected_pcr: &Digest) -> Result<SealResult> {
     let mut dev = device::open(None)?;
+
     seal_with_device(&mut dev, data, expected_pcr)
 }
 
@@ -47,7 +51,7 @@ fn seal_with_device(
     )?;
 
     Ok(SealResult {
-        blob: SealedBlob::try_new(pub_data, priv_data)?,
+        blob: Sealed::try_new(pub_data, priv_data)?,
         policy_digest,
     })
 }
@@ -57,12 +61,13 @@ fn seal_with_device(
 /// # Errors
 ///
 /// Returns an error if TPM access, object loading, policy setup, or unsealing fails.
-pub fn unseal(blob: &SealedBlob) -> Result<Zeroizing<Vec<u8>>> {
+pub fn unseal(blob: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
     let mut dev = device::open(None)?;
+
     unseal_with_device(&mut dev, blob)
 }
 
-fn unseal_with_device(dev: &mut impl TpmDevice, blob: &SealedBlob) -> Result<Zeroizing<Vec<u8>>> {
+fn unseal_with_device(dev: &mut impl TpmDevice, blob: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
     ensure_srk(dev)?;
 
     let obj_handle = commands::execute(
@@ -127,6 +132,7 @@ fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
         },
     ));
     result?;
+
     Ok(())
 }
 
@@ -297,8 +303,7 @@ mod tests {
     #[test]
     fn unseal_with_device_loads_policy_and_flushes() {
         // ARRANGE
-        let blob =
-            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let mut unseal_body = Vec::new();
@@ -325,8 +330,7 @@ mod tests {
     #[test]
     fn unseal_with_device_propagates_load_failure() {
         // ARRANGE
-        let blob =
-            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
 
         // ACT
@@ -339,8 +343,7 @@ mod tests {
     #[test]
     fn unseal_with_device_propagates_policy_failure() {
         // ARRANGE
-        let blob =
-            SealedBlob::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let policy_failure = {
@@ -384,7 +387,7 @@ mod tests {
     #[test]
     fn public_entrypoints_propagate_open_failures() {
         // ARRANGE
-        let blob = SealedBlob::try_new(vec![], vec![]).expect("empty blob should be valid");
+        let blob = Sealed::try_new(vec![], vec![]).expect("empty blob should be valid");
 
         // ACT
         let seal_result = seal(&[], &[0x11; 32]);
