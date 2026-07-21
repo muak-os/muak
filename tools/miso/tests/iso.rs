@@ -14,6 +14,7 @@ mod tests {
         let mut uki = Vec::with_capacity(size);
         uki.extend_from_slice(b"MZ");
         uki.resize(size, 0xCC);
+
         uki
     }
 
@@ -34,7 +35,8 @@ mod tests {
         let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
+        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
+
         out.into_inner()
     }
 
@@ -116,7 +118,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
+        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
         let iso = out.into_inner();
 
         // ASSERT
@@ -212,7 +214,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        miso::build_iso(&layout, &mut readers, &mut out).expect("build_iso must succeed");
+        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
         let iso = out.into_inner();
 
         // ASSERT
@@ -227,21 +229,5 @@ mod tests {
 
         // ASSERT
         assert!(!iso.is_empty());
-    }
-
-    #[test]
-    fn rejects_sizes_that_do_not_fit_in_u32() {
-        // ARRANGE
-        use std::io::Cursor as IoCursor;
-
-        let oversized = u64::from(u32::MAX) + 1;
-        let mut out = IoCursor::new(Vec::new());
-
-        // ACT
-        let result = iso::write(&mut out, oversized, |_| Ok(()));
-
-        // ASSERT
-        let err = result.expect_err("oversized image must fail");
-        assert!(err.to_string().contains("must fit in u32"));
     }
 }

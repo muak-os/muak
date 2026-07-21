@@ -4,6 +4,7 @@ use std::os::unix::net::UnixStream;
 use esp::FileMeta;
 use esp::builder::{Layout, compute_layout};
 use koci::arch::Arch;
+use miso::{iso, raw};
 
 use crate::arch;
 use crate::error::{Result, WizardError};
@@ -18,7 +19,7 @@ pub(crate) fn build_iso(
 ) -> Result<()> {
     let (layout, mut readers) =
         compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
-    miso::build_iso(&layout, &mut readers, &mut DynWriter(output))
+    iso::build(&layout, &mut readers, &mut DynWriter(output))
         .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))
 }
 
@@ -32,7 +33,7 @@ pub(crate) fn build_raw(
 ) -> Result<()> {
     let (layout, mut readers) =
         compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
-    miso::build_raw(&layout, &mut readers, &mut DynWriter(output), Some(6))
+    raw::build(&layout, &mut readers, &mut DynWriter(output), Some(6))
         .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))
 }
 

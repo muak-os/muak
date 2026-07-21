@@ -1,11 +1,13 @@
 //! ISO 9660 + El Torito EFI bootable image writer.
 
-use std::io::Write;
+use std::io::{Read, Write};
 
+use ::esp::builder::Layout;
 use parttable::mbr::io::mbr_bytes;
 use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
 
 use crate::error::{MisoError, Result};
+use crate::esp;
 
 /// Logical block size for ISO 9660, mandated by ECMA-119.
 pub const SECTOR_SIZE: usize = 2048;
@@ -33,17 +35,21 @@ const LBA_FILE_DATA: u32 = LBA_ROOT_DIR + 1;
 /// Volume identifier written into the PVD (padded to 32 bytes by callers).
 const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
 
-/// Writes a complete bootable ISO 9660 image.
+/// A zero-filled ISO 9660 sector used for padding.
+const ZERO_SECTOR: [u8; SECTOR_SIZE] = [0; SECTOR_SIZE];
+
+/// Builds a complete bootable ISO 9660 image from a [`Layout`].
 ///
 /// # Errors
 ///
-/// Returns an error if ISO metadata construction overflows format limits or if any
-/// write operation fails.
-pub fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
+/// Returns an error if ISO metadata construction overflows format limits, ESP construction
+/// fails, or any write operation fails.
+pub fn build<'data, 'ctx, W: Write>(
+    layout: &'ctx Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
     out: &mut W,
-    esp_size: u64,
-    esp_builder: B,
 ) -> Result<()> {
+    let esp_size = layout.total_size;
     let esp_size_u32 = u32::try_from(esp_size)
         .map_err(|_err| MisoError::Iso("ISO field must fit in u32".to_owned()))?;
     let esp_sectors = el_torito_sector_count(esp_size)?;
@@ -67,7 +73,7 @@ pub fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
     out.write_all(&build_path_table_m())?;
     out.write_all(&build_boot_catalog(LBA_FILE_DATA, esp_sectors)?)?;
     out.write_all(&build_root_dir(esp_size_u32)?)?;
-    esp_builder(out)?;
+    esp::build(layout, readers, out)?;
 
     let esp_total = usize::try_from(esp_size).unwrap_or(0);
     let pad = esp_total.rem_euclid(SECTOR_SIZE);
@@ -78,9 +84,6 @@ pub fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
 
     Ok(())
 }
-
-/// A zero-filled ISO 9660 sector used for padding.
-const ZERO_SECTOR: [u8; SECTOR_SIZE] = [0; SECTOR_SIZE];
 
 /// Writes 16 sectors of system area (bytes 0–32767) with a hybrid MBR at byte 446.
 fn write_system_area<W: Write>(
@@ -551,5 +554,27 @@ mod tests {
         // ASSERT
         assert!(matches!(err, MisoError::Iso(_)));
         assert!(err.to_string().contains("2 bytes"));
+    }
+
+    #[test]
+    fn rejects_sizes_that_do_not_fit_in_u32() {
+        // ARRANGE
+        use std::io::Cursor as IoCursor;
+
+        use ::esp::builder::Layout;
+
+        let oversized = u64::from(u32::MAX) + 1;
+        let layout = Layout {
+            files: vec![],
+            total_size: oversized,
+        };
+        let mut out = IoCursor::new(Vec::new());
+
+        // ACT
+        let result = build(&layout, &mut [], &mut out);
+
+        // ASSERT
+        let err = result.expect_err("oversized image must fail");
+        assert!(err.to_string().contains("must fit in u32"));
     }
 }

@@ -1,25 +1,50 @@
 //! Raw disk image writer with protective MBR + GPT + EFI System Partition.
 
-use std::io::Write;
+use std::io::{Read, Write};
 
+use ::esp::builder::Layout;
 use parttable::error::ParttableError;
 use parttable::error::Result as ParttableResult;
 use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 
 use crate::error::{MisoError, Result};
+use crate::esp;
 
 const SECTOR_SIZE: u64 = 512;
 
 type PlacementResult = ParttableResult<()>;
 
-/// Writes a raw GPT disk image containing the FAT32 ESP into any `Write` sink.
+/// Builds a raw GPT disk image containing the ESP into any `Write` sink.
+///
+/// When `compression_level` is `Some`, the output is transparently compressed
+/// with zstd at the given level.
 ///
 /// # Errors
 ///
-/// Returns an error if the image layout overflows, GPT/MBR generation fails,
-/// or any write operation fails.
-pub fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
+/// Returns an error if ESP construction fails, compression level validation fails,
+/// raw image creation fails, or output writing/compression fails.
+pub fn build<'data, 'ctx, W: Write>(
+    layout: &'ctx Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
+    out: &mut W,
+    compression_level: Option<i32>,
+) -> Result<()> {
+    if let Some(level) = compression_level {
+        let level = validate_compression_level(level)?;
+        let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
+        write(&mut encoder, layout.total_size, |w| {
+            esp::build(layout, readers, w)
+        })?;
+        encoder.finish().map_err(MisoError::Compression)?;
+    } else {
+        write(out, layout.total_size, |w| esp::build(layout, readers, w))?;
+    }
+
+    Ok(())
+}
+
+fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
     out: &mut W,
     esp_size: u64,
     esp_builder: B,
@@ -111,6 +136,20 @@ fn try_layout(placement: PlacementResult, disk_sectors: u64) -> Result<Option<u6
         Ok(()) => Ok(Some(disk_sectors)),
         Err(ParttableError::InvalidPlacement(_)) => Ok(None),
         Err(err) => Err(err.into()),
+    }
+}
+
+fn validate_compression_level(level: i32) -> Result<i32> {
+    let range = zstd::compression_level_range();
+
+    if level == 0 || range.contains(&level) {
+        Ok(level)
+    } else {
+        Err(MisoError::InvalidCompressionLevel {
+            level,
+            min: *range.start(),
+            max: *range.end(),
+        })
     }
 }
 

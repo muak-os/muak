@@ -8,6 +8,7 @@ mod tests {
     use esp::arch::Arch;
     use esp::builder::compute_layout;
     use miso::error::MisoError;
+    use miso::raw;
     use parttable::{
         gpt::{
             table::Table,
@@ -20,6 +21,7 @@ mod tests {
         let mut uki = Vec::with_capacity(size);
         uki.extend_from_slice(b"MZ");
         uki.resize(size, 0xCC);
+
         uki
     }
 
@@ -36,7 +38,8 @@ mod tests {
         let layout = compute_layout(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_raw(&layout, &mut readers, &mut out, None).expect("build_raw must succeed");
+        raw::build(&layout, &mut readers, &mut out, None).expect("raw::build must succeed");
+
         out.into_inner()
     }
 
@@ -126,8 +129,8 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        miso::build_raw(&layout, &mut readers, &mut out, Some(3))
-            .expect("compressed build_raw must succeed");
+        raw::build(&layout, &mut readers, &mut out, Some(3))
+            .expect("compressed raw::build must succeed");
         let compressed = out.into_inner();
         let raw = zstd::decode_all(&*compressed).expect("decode compressed raw");
 
@@ -157,7 +160,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        miso::build_raw(&layout, &mut readers, &mut out, None).expect("build_raw must succeed");
+        raw::build(&layout, &mut readers, &mut out, None).expect("raw::build must succeed");
         let img = out.into_inner();
 
         // ASSERT
@@ -193,7 +196,7 @@ mod tests {
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
 
         // ACT
-        let result = miso::build_raw(&layout, &mut readers, &mut out, Some(i32::MAX));
+        let result = raw::build(&layout, &mut readers, &mut out, Some(i32::MAX));
 
         // ASSERT
         assert!(matches!(
