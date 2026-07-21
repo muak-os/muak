@@ -18,6 +18,7 @@ pub struct Request<'a> {
     version: String,
     platform: Platform,
     arch: Option<Arch>,
+    signing_key: Option<&'a SigningPair<'a>>,
     targets: Vec<(Artifact, &'a mut dyn Write)>,
 }
 
@@ -27,6 +28,7 @@ impl fmt::Debug for Request<'_> {
             .field("version", &self.version)
             .field("platform", &self.platform)
             .field("arch", &self.arch)
+            .field("signing_key", &self.signing_key.is_some())
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -43,6 +45,7 @@ impl<'a> Request<'a> {
             version: version.into(),
             platform,
             arch: None,
+            signing_key: None,
             targets: Vec::new(),
         }
     }
@@ -143,6 +146,13 @@ impl<'a> Request<'a> {
         self.arch
     }
 
+    /// Sets the optional signing key for Authenticode PE signing of the UKI.
+    #[must_use]
+    pub fn sign(mut self, key: &'a SigningPair<'a>) -> Self {
+        self.signing_key = Some(key);
+        self
+    }
+
     /// Returns the artifact kinds targeted by this request.
     pub fn targets(&self) -> impl Iterator<Item = &Artifact> {
         self.targets.iter().map(|item| &item.0)
@@ -153,14 +163,10 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when resolution, pulling, building, or signing fails.
-    pub async fn build(
-        self,
-        profile: &Profile,
-        signing_key: Option<&SigningPair<'_>>,
-    ) -> Result<build::Metadata> {
+    pub async fn build(self, profile: &Profile) -> Result<build::Metadata> {
         let plan = resolve::plan(&self, profile)?;
 
-        build::execute(&plan, profile, self.targets, signing_key).await
+        build::execute(&plan, profile, self.signing_key, self.targets).await
     }
 }
 

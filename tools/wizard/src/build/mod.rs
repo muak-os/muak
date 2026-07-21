@@ -79,8 +79,8 @@ fn determine_needs(targets: &[(Artifact, &mut dyn Write)]) -> BuildNeeds {
 pub(crate) async fn execute(
     plan: &resolve::BuildPlan,
     profile: &Profile,
-    targets: Vec<(Artifact, &mut dyn Write)>,
     signing_key: Option<&SigningPair<'_>>,
+    targets: Vec<(Artifact, &mut dyn Write)>,
 ) -> Result<Metadata> {
     if targets.is_empty() {
         return Err(WizardError::BuildError(

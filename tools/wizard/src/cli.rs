@@ -332,10 +332,12 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         remaining = rest;
     }
 
-    let meta = request
-        .build(&profile, signing.as_ref())
-        .await
-        .context("build artifacts")?;
+    let request = match signing {
+        Some(ref pair) => request.sign(pair),
+        None => request,
+    };
+
+    let meta = request.build(&profile).await.context("build artifacts")?;
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());
