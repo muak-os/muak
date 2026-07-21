@@ -25,10 +25,12 @@ impl Seek for SizedDisk {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         match pos {
             SeekFrom::End(0) => Ok(self.0),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "only SeekFrom::End(0) is supported",
-            )),
+            SeekFrom::Start(_) | SeekFrom::End(_) | SeekFrom::Current(_) => {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "only SeekFrom::End(0) is supported",
+                ))
+            }
         }
     }
 }
