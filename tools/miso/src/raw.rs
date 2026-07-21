@@ -2,14 +2,14 @@
 
 use std::io::{Read, Write};
 
-use ::esp::builder::Layout;
+use ::esp::image;
+use ::esp::layout::Layout;
 use parttable::error::ParttableError;
 use parttable::error::Result as PlacementResult;
 use parttable::gpt::table::Table;
 use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 
 use crate::error::{MisoError, Result};
-use crate::esp;
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -32,11 +32,13 @@ pub fn build<'data, 'ctx, W: Write>(
         let level = validate_compression_level(level)?;
         let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
         write(&mut encoder, layout.total_size, |w| {
-            esp::build(layout, readers, w)
+            image::build(layout, readers, w).map_err(MisoError::Esp)
         })?;
         encoder.finish().map_err(MisoError::Compression)?;
     } else {
-        write(out, layout.total_size, |w| esp::build(layout, readers, w))?;
+        write(out, layout.total_size, |w| {
+            image::build(layout, readers, w).map_err(MisoError::Esp)
+        })?;
     }
 
     Ok(())

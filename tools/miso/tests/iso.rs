@@ -7,7 +7,7 @@ mod tests {
 
     use esp::FileMeta;
     use esp::arch::Arch;
-    use esp::builder::compute_layout;
+    use esp::layout::compute;
     use miso::iso;
 
     fn fake_uki(size: usize) -> Vec<u8> {
@@ -32,7 +32,7 @@ mod tests {
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), size)];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
         iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
@@ -113,7 +113,7 @@ mod tests {
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::Aarch64.boot_path(), size)];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
@@ -209,7 +209,7 @@ mod tests {
             FileMeta::new(Arch::X86_64.boot_path(), uki_size),
             FileMeta::new("overlays/rpi/config.txt", extra_size),
         ];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());

@@ -1,4 +1,4 @@
-//! Mounted-directory population helpers for ESP contents.
+//! Deploy ESP files to a mounted directory.
 
 use std::io::{Read, Write as _};
 use std::path::Path;
@@ -14,13 +14,12 @@ use crate::path;
 /// # Errors
 ///
 /// Returns an error when the paths are invalid or the destination cannot be created or written.
-pub fn write(files: &[FileMeta<'_>], readers: &mut [&mut dyn Read], root: &Path) -> Result<()> {
+pub fn files(files: &[FileMeta<'_>], readers: &mut [&mut dyn Read], root: &Path) -> Result<()> {
     if files.len() != readers.len() {
-        return Err(EspError::InvalidOrder(format!(
-            "files count ({}) doesn't match readers count ({})",
-            files.len(),
-            readers.len()
-        )));
+        return Err(EspError::Incomplete {
+            expected: files.len(),
+            actual: readers.len(),
+        });
     }
 
     path::validate_spec_paths(files.iter().map(|file| file.path))?;
@@ -70,7 +69,7 @@ mod tests {
 
     use fatfs::types::FileMeta;
 
-    use super::write;
+    use super::files;
 
     #[test]
     fn populate_streams_files_into_mounted_dir() {
@@ -80,7 +79,7 @@ mod tests {
         let config_data = b"arm_64bit=1";
         let mut boot_reader = Cursor::new(boot_data.as_slice());
         let mut config_reader = Cursor::new(config_data.as_slice());
-        let files = &[
+        let file_metas = &[
             FileMeta::new(
                 "EFI/BOOT/BOOTX64.EFI",
                 u64::try_from(boot_data.len()).unwrap_or(0),
@@ -93,7 +92,7 @@ mod tests {
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut boot_reader, &mut config_reader];
 
         // ACT
-        write(files, &mut readers, dir.path()).expect("populate must succeed");
+        files(file_metas, &mut readers, dir.path()).expect("deploy must succeed");
 
         // ASSERT
         assert_eq!(
@@ -117,14 +116,14 @@ mod tests {
             .expect("permissions must be set");
         let boot_data = b"uki";
         let mut boot_reader = Cursor::new(boot_data.as_slice());
-        let files = &[FileMeta::new(
+        let file_metas = &[FileMeta::new(
             "EFI/BOOT/BOOTX64.EFI",
             u64::try_from(boot_data.len()).unwrap_or(0),
         )];
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut boot_reader];
 
         // ACT
-        let result = write(files, &mut readers, &read_only);
+        let result = files(file_metas, &mut readers, &read_only);
 
         // ASSERT
         assert!(result.is_err());

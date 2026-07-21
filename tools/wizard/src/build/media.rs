@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 
 use esp::FileMeta;
-use esp::builder::{Layout, compute_layout};
+use esp::layout::{Layout, compute};
 use koci::arch::Arch;
 use miso::{iso, raw};
 
@@ -54,7 +54,7 @@ fn compute_esp_layout<'a>(
         readers.push(reader);
     }
 
-    let layout = compute_layout(&file_metas)
+    let layout = compute(&file_metas)
         .map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))?;
 
     Ok((layout, readers))

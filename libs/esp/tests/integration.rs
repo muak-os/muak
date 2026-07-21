@@ -4,9 +4,10 @@ mod tests {
     use std::os::unix::fs::PermissionsExt as _;
 
     use esp::FileMeta;
-    use esp::builder::{Builder, compute_layout};
+    use esp::deploy;
     use esp::error::EspError;
-    use esp::populate;
+    use esp::image;
+    use esp::layout::compute;
     use fatfs::builder;
 
     #[test]
@@ -27,31 +28,17 @@ mod tests {
         ];
 
         // ACT
-        let layout = compute_layout(files).expect("layout must compute");
+        let layout = compute(files).expect("layout must compute");
         let mut buf = Vec::new();
-        let mut builder = Builder::new(&layout, &mut buf);
         let mut uki_reader = Cursor::new(uki_data.as_slice());
         let mut config_reader = Cursor::new(config_data.as_slice());
-        builder
-            .add_file(
-                "EFI/BOOT/BOOTX64.EFI",
-                &mut uki_reader,
-                u64::try_from(uki_data.len()).unwrap_or(0),
-            )
-            .expect("boot file must be added");
-        builder
-            .add_file(
-                "overlays/rpi/config.txt",
-                &mut config_reader,
-                u64::try_from(config_data.len()).unwrap_or(0),
-            )
-            .expect("config file must be added");
-        builder.finish().expect("build must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_reader, &mut config_reader];
+        image::build(&layout, &mut readers, &mut buf).expect("image::build must succeed");
 
         let mut uki_reader2 = Cursor::new(uki_data.as_slice());
         let mut config_reader2 = Cursor::new(config_data.as_slice());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_reader2, &mut config_reader2];
-        populate::write(files, &mut readers, dest.path()).expect("populate must succeed");
+        deploy::files(files, &mut readers, dest.path()).expect("deploy must succeed");
 
         // ASSERT
         assert!(!buf.is_empty());
@@ -82,18 +69,11 @@ mod tests {
         builder::format(&mut device, device_size).expect("format must succeed");
         let device_data = device.into_inner();
 
-        let layout = compute_layout(files).expect("layout must compute");
+        let layout = compute(files).expect("layout must compute");
         let mut buf = Vec::new();
-        let mut builder = Builder::new(&layout, &mut buf);
         let mut uki_reader = Cursor::new(uki_data.as_slice());
-        builder
-            .add_file(
-                "EFI/BOOT/BOOTAA64.EFI",
-                &mut uki_reader,
-                u64::try_from(uki_data.len()).unwrap_or(0),
-            )
-            .expect("boot file must be added");
-        builder.finish().expect("build must succeed");
+        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_reader];
+        image::build(&layout, &mut readers, &mut buf).expect("image::build must succeed");
 
         // ASSERT
         let vol_label_43 = device_data.get(43..54).unwrap_or(&[]);
@@ -125,7 +105,7 @@ mod tests {
             .expect("permissions must be set");
 
         // ACT
-        let result = populate::write(files, &mut readers, temp_dir.path());
+        let result = deploy::files(files, &mut readers, temp_dir.path());
 
         // ASSERT
         assert!(matches!(result, Err(EspError::Io(_))));
@@ -144,7 +124,7 @@ mod tests {
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_reader];
 
         // ACT
-        let result = populate::write(files, &mut readers, root_file.path());
+        let result = deploy::files(files, &mut readers, root_file.path());
 
         // ASSERT
         assert!(matches!(result, Err(EspError::Io(_))));

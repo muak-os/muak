@@ -5,10 +5,11 @@
 extern crate alloc;
 
 pub mod arch;
-pub mod builder;
+pub mod deploy;
 pub mod error;
+pub mod image;
+pub mod layout;
 pub mod path;
-pub mod populate;
 
 use fatfs::types;
 

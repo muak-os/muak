@@ -2,12 +2,12 @@
 
 use std::io::{Read, Write};
 
-use ::esp::builder::Layout;
+use ::esp::image;
+use ::esp::layout::Layout;
 use parttable::mbr::io::mbr_bytes;
 use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
 
 use crate::error::{MisoError, Result};
-use crate::esp;
 
 /// Logical block size for ISO 9660, mandated by ECMA-119.
 pub const SECTOR_SIZE: usize = 2048;
@@ -73,7 +73,7 @@ pub fn build<'data, 'ctx, W: Write>(
     out.write_all(&build_path_table_m())?;
     out.write_all(&build_boot_catalog(LBA_FILE_DATA, esp_sectors)?)?;
     out.write_all(&build_root_dir(esp_size_u32)?)?;
-    esp::build(layout, readers, out)?;
+    image::build(layout, readers, out).map_err(MisoError::Esp)?;
 
     let esp_total = usize::try_from(esp_size).unwrap_or(0);
     let pad = esp_total.rem_euclid(SECTOR_SIZE);
@@ -561,7 +561,7 @@ mod tests {
         // ARRANGE
         use std::io::Cursor as IoCursor;
 
-        use ::esp::builder::Layout;
+        use ::esp::layout::Layout;
 
         let oversized = u64::from(u32::MAX) + 1;
         let layout = Layout {

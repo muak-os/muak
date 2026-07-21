@@ -6,7 +6,7 @@ mod tests {
 
     use esp::FileMeta;
     use esp::arch::Arch;
-    use esp::builder::compute_layout;
+    use esp::layout::compute;
     use miso::error::MisoError;
     use miso::raw;
     use parttable::{
@@ -35,7 +35,7 @@ mod tests {
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
         raw::build(&layout, &mut readers, &mut out, None).expect("raw::build must succeed");
@@ -124,7 +124,7 @@ mod tests {
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
@@ -155,7 +155,7 @@ mod tests {
             FileMeta::new(Arch::X86_64.boot_path(), uki_size),
             FileMeta::new("assets/rootfs.img", extra_size),
         ];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
@@ -191,7 +191,7 @@ mod tests {
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
-        let layout = compute_layout(files).expect("compute layout");
+        let layout = compute(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
 

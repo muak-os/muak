@@ -26,27 +26,12 @@ pub enum EspError {
     #[error("FAT filesystem error: {0}")]
     Fat(#[from] FatError),
 
-    /// Files were added in the wrong order.
-    #[error("Invalid file order: {0}")]
-    InvalidOrder(String),
-
-    /// A file size didn't match the expected size from the layout.
-    #[error("Size mismatch for '{path}': expected {expected}, got {actual}")]
-    SizeMismatch {
-        /// The path of the file.
-        path: String,
-        /// The expected size.
-        expected: u64,
-        /// The actual size provided.
-        actual: u64,
-    },
-
-    /// Not all files from the layout were added.
-    #[error("Incomplete ESP: expected {expected} files, got {actual}")]
+    /// The number of readers doesn't match the number of files in the layout.
+    #[error("Incomplete ESP: expected {expected} files, got {actual} readers")]
     Incomplete {
         /// The expected number of files.
         expected: usize,
-        /// The actual number of files added.
+        /// The actual number of readers provided.
         actual: usize,
     },
 }

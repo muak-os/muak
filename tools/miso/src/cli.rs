@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use esp::FileMeta;
 use esp::arch::Arch;
-use esp::builder::{Layout, compute_layout};
+use esp::layout::{Layout, compute};
 
 use crate::iso;
 use crate::raw;
@@ -103,7 +103,7 @@ fn build_layout_and_readers<'a>(
         file_metas.push(FileMeta::new(path, size));
     }
 
-    let layout = compute_layout(&file_metas).context("Failed to compute layout")?;
+    let layout = compute(&file_metas).context("Failed to compute layout")?;
 
     let mut readers: Vec<&'a mut (dyn Read + 'a)> = Vec::with_capacity(file_metas.len());
     readers.push(uki_file);
