@@ -1,12 +1,37 @@
 //! GPT table wrapper with a stable workspace-local API.
 
-use std::io::{Cursor, Read, Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use gptman::{GPT, GPTPartitionEntry, PartitionName};
 
 use super::serialize;
 use super::types::Partition;
 use crate::error::{ParttableError, Result};
+
+/// A zero-allocation reader that reports a fixed disk size.
+///
+/// Only [`SeekFrom::End(0)`] is supported — no actual I/O occurs.
+/// This satisfies [`GPT::new_from`]'s [`Read`] + [`Seek`] bounds while
+/// avoiding a full-disk `Vec` allocation.
+struct SizedDisk(u64);
+
+impl Read for SizedDisk {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(0)
+    }
+}
+
+impl Seek for SizedDisk {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        match pos {
+            SeekFrom::End(0) => Ok(self.0),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "only SeekFrom::End(0) is supported",
+            )),
+        }
+    }
+}
 
 /// A GPT table wrapper with a stable workspace-local API.
 #[derive(Debug)]
@@ -21,13 +46,10 @@ impl Table {
     ///
     /// Returns an error when GPT initialization or arithmetic overflows.
     pub fn create(sector_count: u64, sector_size: u64, disk_guid: [u8; 16]) -> Result<Self> {
-        let size = usize::try_from(
-            sector_count
-                .checked_mul(sector_size)
-                .ok_or_else(|| ParttableError::Gpt("disk size overflow".to_owned()))?,
-        )
-        .map_err(|_err| ParttableError::Gpt("disk size overflow".to_owned()))?;
-        let inner = GPT::new_from(&mut Cursor::new(vec![0; size]), sector_size, disk_guid)
+        let disk_size = sector_count
+            .checked_mul(sector_size)
+            .ok_or_else(|| ParttableError::Gpt("disk size overflow".to_owned()))?;
+        let inner = GPT::new_from(&mut SizedDisk(disk_size), sector_size, disk_guid)
             .map_err(|e| ParttableError::Gpt(e.to_string()))?;
 
         Ok(Self { inner })
@@ -69,6 +91,27 @@ impl Table {
     #[must_use]
     pub fn last_usable_lba(&self) -> u64 {
         self.inner.header.last_usable_lba
+    }
+
+    /// Returns the size in bytes of the primary GPT region
+    /// (protective MBR + GPT header + partition entries).
+    #[must_use]
+    pub fn primary_gpt_size(&self) -> u64 {
+        self.first_usable_lba().saturating_mul(self.sector_size())
+    }
+
+    /// Returns the byte offset on disk where the backup GPT
+    /// (partition entries + header) should be placed.
+    #[must_use]
+    pub fn backup_data_offset(&self, sector_count: u64) -> u64 {
+        let entries_size = u64::from(self.inner.header.number_of_partition_entries)
+            .saturating_mul(u64::from(self.inner.header.size_of_partition_entry));
+        let entries_sectors = entries_size.div_ceil(self.inner.sector_size);
+        let backup_start_lba = sector_count
+            .saturating_sub(1)
+            .saturating_sub(entries_sectors);
+
+        backup_start_lba.saturating_mul(self.inner.sector_size)
     }
 
     /// Returns all used partitions as `(number, partition)` pairs.
@@ -221,6 +264,8 @@ impl From<Partition> for GPTPartitionEntry {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::super::types::*;
     use super::*;
 
