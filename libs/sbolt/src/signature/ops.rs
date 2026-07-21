@@ -74,14 +74,3 @@ pub(super) fn put_u32_le(data: &mut [u8], offset: usize, value: u32) -> Result<(
 
     Ok(())
 }
-
-pub(super) fn align_to(value: usize, alignment: usize, context: &str) -> Result<usize> {
-    let alignment_mask = alignment
-        .checked_sub(1)
-        .ok_or_else(|| SboltError::PeOperation(format!("{context} invalid alignment")))?;
-    let adjusted = value
-        .checked_add(alignment_mask)
-        .ok_or_else(|| SboltError::PeOperation(format!("{context} overflow")))?;
-
-    Ok(adjusted & !alignment_mask)
-}

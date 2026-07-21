@@ -30,6 +30,9 @@ const-oid = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
+# Internal
+uki = { workspace = true }
+
 # System/platform APIs
 rustix = { workspace = true, optional = true }
 uefi = { workspace = true }

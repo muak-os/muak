@@ -1,6 +1,7 @@
 //! Error types for yuki operations.
 
 use thiserror::Error;
+use uki::error::UkiError;
 
 /// Error type for custom errors in yuki operations.
 #[expect(
@@ -28,6 +29,10 @@ pub enum YukiError {
     /// Numeric conversion failed (overflow or impossible cast).
     #[error("Conversion error: {0}")]
     ConversionError(String),
+
+    /// Error from the underlying UKI library.
+    #[error("UKI error: {0}")]
+    Uki(#[from] UkiError),
 }
 
 /// Result type alias for yuki operations.

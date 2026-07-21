@@ -2,9 +2,10 @@
 
 use object::LittleEndian as LE;
 use object::pe::ImageSectionHeader;
+use uki::align;
+use uki::metadata::Metadata;
+use uki::section::KERNEL;
 
-use super::parse::{self, Metadata};
-use crate::align;
 use crate::error::{Result, YukiError};
 
 const SECTION_NAME_MAX_LEN: usize = 8;
@@ -136,7 +137,7 @@ fn build_header(
     header.pointer_to_raw_data.set(LE, pointer_to_raw_data);
     header.characteristics.set(
         LE,
-        if name == ".kernel" {
+        if name == KERNEL {
             IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
         } else {
             IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
@@ -144,6 +145,29 @@ fn build_header(
     );
 
     header
+}
+
+fn validate_header_capacity(metadata: &Metadata, additional_sections: usize) -> Result<()> {
+    let total_sections =
+        usize::from(metadata.existing_section_count).saturating_add(additional_sections);
+    let section_table_size =
+        total_sections.saturating_mul(core::mem::size_of::<ImageSectionHeader>());
+    let section_table_end = metadata
+        .section_table_offset
+        .saturating_add(section_table_size);
+    let Ok(size_of_headers) = usize::try_from(metadata.size_of_headers) else {
+        return Err(YukiError::InvalidPeStructure(
+            "size of headers does not fit in usize".to_owned(),
+        ));
+    };
+
+    if section_table_end > size_of_headers {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "section table exceeds size of headers: {section_table_end}>{size_of_headers}"
+        )));
+    }
+
+    Ok(())
 }
 
 pub(crate) fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> {
@@ -173,7 +197,7 @@ pub(crate) fn build_table(
     {
         return Err(YukiError::TooManySections);
     }
-    parse::validate_section_header_capacity(metadata, usize::from(count))?;
+    validate_header_capacity(metadata, usize::from(count))?;
 
     let mut table = Table::new(metadata);
     let Ok(stub_file_off) = u32::try_from(stub_len) else {
@@ -237,6 +261,7 @@ pub(crate) fn header_to_bytes(
 mod tests {
     use object::LittleEndian as LE;
     use object::pe::ImageSectionHeader;
+    use uki::section::{CMDLINE, DTB, INITRD};
 
     use super::*;
     use crate::error::YukiError;
@@ -256,6 +281,7 @@ mod tests {
             last_section_file_end: 512,
             last_section_virtual_end: 4096,
             existing_section_count: 1,
+            num_data_directories: 16,
         }
     }
 
@@ -283,11 +309,11 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".kernel", 100).unwrap();
+        state.finalize_section(KERNEL, 100).unwrap();
 
         // ASSERT
         assert_eq!(state.sections.len(), 1);
-        assert_eq!(state.sections.first().unwrap().name, ".kernel");
+        assert_eq!(state.sections.first().unwrap().name, KERNEL);
         assert_eq!(state.sections.first().unwrap().size, 100);
         assert_eq!(state.sections.first().unwrap().file_offset, 512);
         assert_eq!(state.sections.first().unwrap().checksum, [0_u8; 32]);
@@ -311,9 +337,9 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".kernel", 200).unwrap();
-        state.finalize_section(".initrd", 300).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(KERNEL, 200).unwrap();
+        state.finalize_section(INITRD, 300).unwrap();
 
         // ASSERT
         assert_eq!(state.sections.len(), 3);
@@ -337,8 +363,8 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".kernel", 100).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(KERNEL, 100).unwrap();
 
         // ASSERT
         assert_eq!(
@@ -358,8 +384,8 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".kernel", 1000).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(KERNEL, 1000).unwrap();
 
         // ASSERT
         assert!(state.max_virtual_end() > metadata.last_section_virtual_end);
@@ -397,8 +423,8 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".kernel", 100).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(KERNEL, 100).unwrap();
 
         // ASSERT
         let file_alignment = usize::try_from(metadata.file_alignment).unwrap();
@@ -501,16 +527,16 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".dtb", 100).unwrap();
-        state.finalize_section(".kernel", 200).unwrap();
-        state.finalize_section(".initrd", 300).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(DTB, 100).unwrap();
+        state.finalize_section(KERNEL, 200).unwrap();
+        state.finalize_section(INITRD, 300).unwrap();
 
         assert_eq!(state.sections.len(), 4);
-        assert_eq!(state.sections.first().unwrap().name, ".cmdline");
-        assert_eq!(state.sections.get(1).unwrap().name, ".dtb");
-        assert_eq!(state.sections.get(2).unwrap().name, ".kernel");
-        assert_eq!(state.sections.get(3).unwrap().name, ".initrd");
+        assert_eq!(state.sections.first().unwrap().name, CMDLINE);
+        assert_eq!(state.sections.get(1).unwrap().name, DTB);
+        assert_eq!(state.sections.get(2).unwrap().name, KERNEL);
+        assert_eq!(state.sections.get(3).unwrap().name, INITRD);
     }
 
     #[test]
@@ -534,8 +560,8 @@ mod tests {
         let mut state = Table::new(&metadata);
 
         // ACT
-        state.finalize_section(".cmdline", 10).unwrap();
-        state.finalize_section(".kernel", 50).unwrap();
+        state.finalize_section(CMDLINE, 10).unwrap();
+        state.finalize_section(KERNEL, 50).unwrap();
 
         assert!(
             state.sections.first().unwrap().file_offset > 0,
@@ -643,9 +669,9 @@ mod tests {
         let metadata = create_test_metadata();
         let oversized_stub_len = u64::from(u32::MAX).saturating_add(1);
         let sizes: [(&str, Option<u64>); 3] = [
-            (".cmdline", Some(10)),
-            (".kernel", Some(100)),
-            (".initrd", Some(100)),
+            (CMDLINE, Some(10)),
+            (KERNEL, Some(100)),
+            (INITRD, Some(100)),
         ];
 
         // ACT

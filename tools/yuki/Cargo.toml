@@ -17,12 +17,15 @@ required-features = ["cli"]
 # CLI
 clap = { workspace = true, optional = true }
 
+# Cryptography
+ring = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
-# Cryptography
-ring = { workspace = true }
+# Internal
+uki = { workspace = true }
 
 # Utilities
 object = { workspace = true }

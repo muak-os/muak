@@ -2,7 +2,6 @@
 
 #![warn(missing_docs)]
 
-mod align;
 pub mod builder;
 #[cfg(feature = "cli")]
 pub mod cli;

@@ -1,11 +1,14 @@
 //! In-place PE prefix patching.
 
 use object::pe::ImageSectionHeader;
+use uki::align;
+use uki::metadata::Metadata;
 
-use super::parse::{self, Metadata};
 use super::section::{self, Table};
-use crate::align;
 use crate::error::{Result, YukiError};
+
+const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = 2;
+const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = 56;
 
 pub(crate) fn patch(
     prefix: &mut [u8],
@@ -29,7 +32,7 @@ fn header_fields(
 ) -> Result<()> {
     range(
         prefix,
-        parse::section_count_offset(metadata),
+        section_count_offset(metadata),
         &total_sections.to_le_bytes(),
         "section count",
     )?;
@@ -38,7 +41,7 @@ fn header_fields(
 
     range(
         prefix,
-        parse::size_of_image_offset(metadata),
+        size_of_image_offset(metadata),
         &size_of_image.to_le_bytes(),
         "size of image",
     )
@@ -73,6 +76,18 @@ fn range(prefix: &mut [u8], offset: usize, data: &[u8], field: &'static str) -> 
     Ok(())
 }
 
+fn section_count_offset(metadata: &Metadata) -> usize {
+    metadata
+        .file_header_offset
+        .saturating_add(COFF_NUMBER_OF_SECTIONS_OFFSET)
+}
+
+fn size_of_image_offset(metadata: &Metadata) -> usize {
+    metadata
+        .optional_header_offset
+        .saturating_add(OPT_HEADER_SIZE_OF_IMAGE_OFFSET)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,6 +103,7 @@ mod tests {
             last_section_file_end: 512,
             last_section_virtual_end: 4096,
             existing_section_count: 1,
+            num_data_directories: 16,
         }
     }
 
@@ -104,10 +120,10 @@ mod tests {
         patch(&mut prefix, &metadata, &table, 1).unwrap();
 
         // ASSERT
-        let section_count_offset = parse::section_count_offset(&metadata);
+        let count_offset = section_count_offset(&metadata);
         let count = u16::from_le_bytes(
             prefix
-                .get(section_count_offset..section_count_offset + 2)
+                .get(count_offset..count_offset + 2)
                 .unwrap()
                 .try_into()
                 .unwrap(),
@@ -128,7 +144,7 @@ mod tests {
         patch(&mut prefix, &metadata, &table, 1).unwrap();
 
         // ASSERT
-        let soi_offset = parse::size_of_image_offset(&metadata);
+        let soi_offset = size_of_image_offset(&metadata);
         let size_of_image = u32::from_le_bytes(
             prefix
                 .get(soi_offset..soi_offset + 4)

@@ -2,9 +2,11 @@
 
 use std::io::Read;
 
+use uki::metadata;
+use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
+
 use crate::error::{Result, YukiError};
 use crate::pe::header;
-use crate::pe::parse;
 use crate::pe::section;
 
 /// Computed byte offsets for each UKI component within the output PE image.
@@ -47,24 +49,19 @@ pub fn compute(
     initramfs_size: u64,
     dtb_size: Option<u64>,
 ) -> Result<(Layout, BuildState)> {
-    let (metadata, mut prefix_bytes) = parse::extract_metadata(stub)?;
+    let (mut prefix_bytes, meta) = metadata::extract(stub)?;
     let has_dtb = dtb_size.is_some();
 
     let sizes = [
-        (".cmdline", Some(cmdline_size)),
-        (".dtb", dtb_size),
-        (".kernel", Some(kernel_size)),
-        (".initrd", Some(initramfs_size)),
+        (CMDLINE, Some(cmdline_size)),
+        (DTB, dtb_size),
+        (KERNEL, Some(kernel_size)),
+        (INITRD, Some(initramfs_size)),
     ];
 
-    let (table, _gap_start) = section::build_table(&metadata, stub_size, has_dtb, &sizes)?;
+    let (table, _gap_start) = section::build_table(&meta, stub_size, has_dtb, &sizes)?;
 
-    header::patch(
-        &mut prefix_bytes,
-        &metadata,
-        &table,
-        section::count(has_dtb),
-    )?;
+    header::patch(&mut prefix_bytes, &meta, &table, section::count(has_dtb))?;
 
     let layout = extract_layout(&table)?;
     let file_alignment = table.file_alignment;
@@ -97,9 +94,9 @@ fn extract_layout(section_table: &section::Table) -> Result<Layout> {
 
     for sec in &section_table.sections {
         match sec.name {
-            ".cmdline" => layout.cmdline_offset = offset_to_u64(sec.file_offset, "cmdline")?,
-            ".kernel" => layout.kernel_offset = offset_to_u64(sec.file_offset, "kernel")?,
-            ".initrd" => layout.initramfs_offset = offset_to_u64(sec.file_offset, "initrd")?,
+            CMDLINE => layout.cmdline_offset = offset_to_u64(sec.file_offset, "cmdline")?,
+            KERNEL => layout.kernel_offset = offset_to_u64(sec.file_offset, "kernel")?,
+            INITRD => layout.initramfs_offset = offset_to_u64(sec.file_offset, "initrd")?,
             _ => {}
         }
     }

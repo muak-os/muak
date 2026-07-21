@@ -4,4 +4,3 @@
 mod fixtures;
 pub mod kernel;
 pub mod loader;
-pub mod uki;

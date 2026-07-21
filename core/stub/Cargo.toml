@@ -22,11 +22,14 @@ required-features = ["uefi"]
 # Error handling
 anyhow = { workspace = true }
 
-# System/platform APIs
-uefi = { workspace = true }
-
 # Encoding
 base64ct = { workspace = true }
+
+# Internal
+uki = { workspace = true }
+
+# System/platform APIs
+uefi = { workspace = true }
 
 # Utilities
 object = { workspace = true }

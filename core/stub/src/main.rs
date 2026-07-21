@@ -80,7 +80,7 @@ fn main() -> Result<()> {
     // image is valid and loaded in memory for the entire boot services phase. The slice is used
     // only for reading PE section data.
     let image_data = unsafe { slice::from_raw_parts(base_addr.cast::<u8>(), image_size) };
-    let sections = pe::uki::Sections::parse(image_data)?;
+    let sections = uki::section::Sections::parse(image_data)?;
 
     for (name, data) in sections.iter_sections() {
         match tpm2::measure_section(name, data) {

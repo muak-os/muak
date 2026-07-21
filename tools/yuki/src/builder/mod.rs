@@ -6,8 +6,9 @@ use core::marker::PhantomData;
 use std::io::{Read, Write};
 
 use ring::digest;
+use uki::align;
+use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
 
-use crate::align;
 use crate::error::{Result, YukiError};
 use crate::layout::BuildState;
 use crate::pe::section;
@@ -88,7 +89,7 @@ impl<'a, W: Write> Builder<'a, W, NeedsCmdline> {
     ///
     /// Returns an error if writing fails or the cmdline data is incomplete.
     pub fn add_cmdline(mut self, reader: &mut dyn Read) -> Result<Builder<'a, W, NeedsKernel>> {
-        self.write_section(reader, ".cmdline")?;
+        self.write_section(reader, CMDLINE)?;
 
         Ok(Builder {
             writer: self.writer,
@@ -107,7 +108,7 @@ impl<'a, W: Write> Builder<'a, W, NeedsKernel> {
     /// Returns an error if writing fails or the DTB data is incomplete.
     pub fn add_dtb(mut self, reader: &mut dyn Read) -> Result<Builder<'a, W, NeedsKernel>> {
         if self.state.has_dtb {
-            self.write_section(reader, ".dtb")?;
+            self.write_section(reader, DTB)?;
         }
 
         Ok(self)
@@ -119,7 +120,7 @@ impl<'a, W: Write> Builder<'a, W, NeedsKernel> {
     ///
     /// Returns an error if writing fails or the kernel data is incomplete.
     pub fn add_kernel(mut self, reader: &mut dyn Read) -> Result<Builder<'a, W, NeedsInitramfs>> {
-        self.write_section(reader, ".kernel")?;
+        self.write_section(reader, KERNEL)?;
 
         Ok(Builder {
             writer: self.writer,
@@ -137,7 +138,7 @@ impl<'a, W: Write> Builder<'a, W, NeedsInitramfs> {
     ///
     /// Returns an error if writing fails or the initramfs data is incomplete.
     pub fn add_initramfs(mut self, reader: &mut dyn Read) -> Result<Builder<'a, W, Finished>> {
-        self.write_section(reader, ".initrd")?;
+        self.write_section(reader, INITRD)?;
 
         Ok(Builder {
             writer: self.writer,
@@ -182,7 +183,8 @@ impl<W: Write, State> Builder<'_, W, State> {
         write_zero_padding(
             self.writer,
             self.state.file_alignment,
-            align::u64_to_usize(size)?,
+            usize::try_from(size)
+                .map_err(|_source| YukiError::ConversionError("u64 to usize".into()))?,
         )?;
 
         let digest = ctx.finish();
@@ -199,7 +201,8 @@ fn write_zero_padding<W: Write>(
     file_alignment: u32,
     actual_size: usize,
 ) -> Result<()> {
-    let actual_u32 = align::usize_to_u32(actual_size)?;
+    let actual_u32 = u32::try_from(actual_size)
+        .map_err(|_source| YukiError::ConversionError("usize to u32".into()))?;
     let aligned = align::to(actual_u32, file_alignment);
 
     io::write_gap(writer, u64::from(aligned.saturating_sub(actual_u32)))
@@ -317,9 +320,9 @@ mod tests {
 
         // ASSERT
         assert_eq!(sections.len(), 3);
-        assert_eq!(sections.first().unwrap().name, ".cmdline");
-        assert_eq!(sections.get(1).unwrap().name, ".kernel");
-        assert_eq!(sections.get(2).unwrap().name, ".initrd");
+        assert_eq!(sections.first().unwrap().name, CMDLINE);
+        assert_eq!(sections.get(1).unwrap().name, KERNEL);
+        assert_eq!(sections.get(2).unwrap().name, INITRD);
         assert_eq!(output.len(), usize::try_from(layout.total_size).unwrap());
     }
 
@@ -356,10 +359,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(sections.len(), 4);
-        assert_eq!(sections.first().unwrap().name, ".cmdline");
-        assert_eq!(sections.get(1).unwrap().name, ".dtb");
-        assert_eq!(sections.get(2).unwrap().name, ".kernel");
-        assert_eq!(sections.get(3).unwrap().name, ".initrd");
+        assert_eq!(sections.first().unwrap().name, CMDLINE);
+        assert_eq!(sections.get(1).unwrap().name, DTB);
+        assert_eq!(sections.get(2).unwrap().name, KERNEL);
+        assert_eq!(sections.get(3).unwrap().name, INITRD);
     }
 
     #[test]
@@ -452,7 +455,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(sections.len(), 3);
-        assert!(sections.iter().all(|section| section.name != ".dtb"));
+        assert!(sections.iter().all(|section| section.name != DTB));
     }
 
     #[test]
