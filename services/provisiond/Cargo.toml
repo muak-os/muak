@@ -20,6 +20,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 prost = { workspace = true }
 
+# Compression
+tar = { workspace = true }
+
 # Cryptography
 ring = { workspace = true }
 x509-cert = { workspace = true }
@@ -27,9 +30,6 @@ zeroize = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
-
-# Filesystem
-tempfile = { workspace = true }
 
 # gRPC
 tonic = { workspace = true }
@@ -55,6 +55,9 @@ libc = { workspace = true }
 
 # Utilities
 uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

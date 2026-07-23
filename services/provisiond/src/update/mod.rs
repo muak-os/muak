@@ -6,7 +6,7 @@ pub(crate) mod rollback;
 pub(super) mod snapshot;
 mod validation;
 
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -15,11 +15,9 @@ use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use sbolt::keys::SigningPair;
 use tokio::sync::mpsc;
-use wizard::artifact::Artifact;
-use wizard::build;
+use wizard::config::{Config, Sources};
 use wizard::profile::Profile;
 use wizard::request::{Platform, Request};
-use wizard::resolve::Config;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::history::{self, ChangeKind};
@@ -68,8 +66,6 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    wizard::build::set_cache_dir("/run/state/cache/koci");
-
     streaming::send_progress(
         &progress,
         PrepareUpdateProgress {
@@ -101,62 +97,55 @@ pub async fn prepare(
         None
     };
 
-    let signing_key = sb_hierarchy.as_ref().map(|h| SigningPair {
+    let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
         signer: &h.db.signer,
         certificate: &h.db.certificate,
     });
 
     let (registry, installer, version) = image_parts(image)?;
-    let config = Config {
-        sources: wizard::resolve::Sources {
+    wizard::config::configure(Config {
+        sources: Sources {
             registry,
             installer,
         },
-    };
-    let request = Request {
-        version,
-        platform: Platform::Metal,
-        arch: None,
-        artifacts: vec![Artifact::Uki],
-    };
+        cache_dir: Some("/run/state/cache/koci".into()),
+    })
+    .context("configure wizard")?;
 
     let assets_dir = staging_dir.join("assets");
     fs::create_dir_all(&assets_dir)
         .with_context(|| format!("create assets dir {}", assets_dir.display()))?;
     let uki_path = assets_dir.join("uki.efi");
-    let uki_file = std::fs::File::create(&uki_path)
+    let mut uki_file = File::create(&uki_path)
         .with_context(|| format!("create UKI file {}", uki_path.display()))?;
-    let mut uki_file = std::io::BufWriter::new(uki_file);
 
     let kernel_path = assets_dir.join("kernel");
-    let kernel_file = std::fs::File::create(&kernel_path)
+    let mut kernel_file = fs::File::create(&kernel_path)
         .with_context(|| format!("create kernel file {}", kernel_path.display()))?;
-    let mut kernel_file = std::io::BufWriter::new(kernel_file);
 
     let initramfs_path = assets_dir.join("initramfs");
-    let initramfs_file = std::fs::File::create(&initramfs_path)
+    let mut initramfs_file = File::create(&initramfs_path)
         .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
-    let mut initramfs_file = std::io::BufWriter::new(initramfs_file);
-
-    let writers = build::ArtifactWriters {
-        uki: Some(&mut uki_file),
-        kernel: Some(&mut kernel_file),
-        cmdline: None,
-        initramfs: Some(&mut initramfs_file),
-        iso: None,
-        raw: None,
-    };
 
     let sections = {
-        let metadata = build::artifacts(
-            &request,
-            &install_profile,
-            &config,
-            signing_key.as_ref(),
-            writers,
-        )
-        .await
-        .context("wizard update prepare")?;
+        let request = Request::new(version, Platform::Metal)
+            .uki(&mut uki_file)
+            .context("set UKI target")?
+            .kernel(&mut kernel_file)
+            .context("set kernel target")?
+            .initramfs(&mut initramfs_file)
+            .context("set initramfs target")?;
+
+        let request = match signing {
+            Some(ref pair) => request.sign(pair),
+            None => request,
+        };
+
+        let metadata = request
+            .build(&install_profile)
+            .await
+            .context("wizard update prepare")?;
+
         metadata.sections
     };
 
@@ -193,6 +182,7 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     let booted = profile::load().context("failed to load booted profile")?;
     let customization = wizard::profile::CustomizationSpec::new(extensions.to_vec())
         .context("invalid extensions")?;
+
     Ok(Profile::new(booted.overlay().cloned(), customization))
 }
 

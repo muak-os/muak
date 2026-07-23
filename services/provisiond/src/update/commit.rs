@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use esp::arch::Arch;
 use wizard::build::SectionInfo;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
@@ -38,7 +39,7 @@ pub async fn apply() -> Result<()> {
     };
 
     let luks_key = if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
-        if tpm2::is_available() {
+        if tpm2::device::is_available(None) {
             let token = match secrets::seal_luks_key(&key, &sections)? {
                 secrets::SealResult::Sealed(token) => token,
                 _ => unreachable!(),
@@ -75,11 +76,17 @@ pub async fn apply() -> Result<()> {
         .with_context(|| format!("Failed to get metadata for {}", staged.display()))?
         .len();
 
-    let luks = match luks_key {
-        Some(k) => efi::LuksKey::EspKey(k),
-        None => efi::LuksKey::TpmSealed,
-    };
-    efi::deploy(&efi_device, &mut uki_file, uki_len, vec![], luks)?;
+    efi::mount(&efi_device)?;
+    efi::write_file(
+        Path::new(efi::MOUNT_POINT),
+        Arch::current().boot_path(),
+        uki_len,
+        &mut uki_file,
+    )?;
+    if let Some(ref key) = luks_key {
+        efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
+    }
+    efi::unmount();
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {}", e);

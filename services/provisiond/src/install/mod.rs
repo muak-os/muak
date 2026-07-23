@@ -3,19 +3,18 @@
 mod pki;
 mod state;
 
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use config::SystemConfig;
+use esp::arch::Arch;
 pub use pki::InstallResult;
-use rustix::fs::sync;
 use sbolt::keys::SigningPair;
 use tokio::sync::mpsc;
-use wizard::artifact::Artifact;
-use wizard::build;
+use wizard::config::{Config, Sources};
 use wizard::profile::Profile;
 use wizard::request::{Platform, Request};
-use wizard::resolve::Config;
 
 use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
@@ -24,9 +23,6 @@ use crate::ipc::proto::provision::InstallProgress;
 use crate::profile;
 use crate::secrets;
 use crate::streaming;
-
-/// Working directory for installation operations.
-const INSTALL_DIR: &str = "/run/install";
 
 /// Installs Muak to the specified disks with the given configuration.
 pub async fn run(
@@ -40,43 +36,50 @@ pub async fn run(
     validate_disks(system_disk, data_disk, force, &progress).await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
-    let uki = prepare_uki(
-        &config.host.image,
-        &config.host.extensions,
-        &luks_key,
-        &progress,
-        sb_hierarchy.as_ref(),
-    )
-    .await?;
+
+    let tpm_available = tpm2::device::is_available(None);
 
     let partitions = partition_disks(system_disk, data_disk, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
-    match uki.seal_result {
-        secrets::SealResult::Sealed(ref token) => {
-            secrets::write_token_to_devices(
-                token,
-                &[&partitions.state_part, &partitions.data_part],
-            )?;
-            println!("LUKS key sealed to TPM2 with PCR#11 values");
+    let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
+        signer: &h.db.signer,
+        certificate: &h.db.certificate,
+    });
+
+    let sections = build_and_deploy_efi(
+        &partitions.efi_part,
+        &config.host.image,
+        &config.host.extensions,
+        &luks_key,
+        tpm_available,
+        signing.as_ref(),
+        &progress,
+    )
+    .await?;
+
+    if tpm_available {
+        let seal_result = secrets::seal_luks_key(&luks_key, &sections)?;
+        match seal_result {
+            secrets::SealResult::Sealed(token) => {
+                secrets::write_token_to_devices(
+                    &token,
+                    &[&partitions.state_part, &partitions.data_part],
+                )?;
+                println!("LUKS key sealed to TPM2 with PCR#11 values");
+            }
+            secrets::SealResult::EspKey => {
+                unreachable!("TPM available but seal returned EspKey");
+            }
         }
-        secrets::SealResult::EspKey => {
-            println!("TPM2 unavailable, LUKS key will be written to ESP");
-        }
+    } else {
+        println!("TPM2 unavailable, LUKS key written to ESP");
     }
 
     let (dm_state, dm_data) =
         open_luks_volumes(&partitions.state_part, &partitions.data_part, &luks_key).await?;
     format_btrfs_volumes(&dm_state, &dm_data, &progress).await?;
 
-    deploy_uki(
-        &partitions.efi_part,
-        &uki.staged_path,
-        uki.overlay.as_ref(),
-        &uki.luks_key,
-        &progress,
-    )
-    .await?;
     initialize_state(
         &dm_state,
         config,
@@ -88,11 +91,8 @@ pub async fn run(
     .await?;
 
     close_luks_volumes()?;
-    cleanup_work_dir(uki.work_dir)?;
 
     enroll_secureboot_keys(sb_hierarchy.as_ref(), &progress).await?;
-
-    sync();
 
     Ok(pki_result.client_result)
 }
@@ -173,87 +173,59 @@ async fn generate_keys(
     ))
 }
 
-struct PreparedUki {
-    work_dir: PathBuf,
-    staged_path: PathBuf,
-    overlay: Option<wizard::resolve::OverlaySource>,
-    seal_result: secrets::SealResult,
-    luks_key: Option<Vec<u8>>,
-}
-
-async fn prepare_uki(
+async fn build_and_deploy_efi(
+    efi_part: &str,
     image: &str,
     extensions: &[String],
     luks_key: &[u8],
+    tpm_available: bool,
+    signing: Option<&SigningPair<'_>>,
     progress: &mpsc::Sender<InstallProgress>,
-    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
-) -> Result<PreparedUki> {
+) -> Result<Vec<wizard::build::SectionInfo>> {
+    send_progress(progress, "Building and deploying EFI").await;
+
     let install_profile = derive_install_profile(extensions)?;
 
-    send_progress(progress, &format!("Pulling installer image: {}", image)).await;
-    let output_dir = Path::new(INSTALL_DIR).join("assets");
-    std::fs::create_dir_all(&output_dir)
-        .with_context(|| format!("Failed to create assets dir {}", output_dir.display()))?;
     let (registry, installer, version) = image_parts(image)?;
-    let config = Config {
-        sources: wizard::resolve::Sources {
+    wizard::config::configure(Config {
+        sources: Sources {
             registry,
             installer,
         },
-    };
-    let request = Request {
-        version,
-        platform: Platform::Metal,
-        arch: None,
-        artifacts: vec![Artifact::Uki],
-    };
-
-    let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
-        signer: &h.db.signer,
-        certificate: &h.db.certificate,
-    });
-
-    let staged_path = output_dir.join("signed.efi");
-    let uki_file = std::fs::File::create(&staged_path)
-        .with_context(|| format!("create UKI file {}", staged_path.display()))?;
-    let mut uki_file = std::io::BufWriter::new(uki_file);
-
-    let writers = build::ArtifactWriters {
-        uki: Some(&mut uki_file),
-        kernel: None,
-        cmdline: None,
-        initramfs: None,
-        iso: None,
-        raw: None,
-    };
-
-    let metadata = build::artifacts(
-        &request,
-        &install_profile,
-        &config,
-        signing.as_ref(),
-        writers,
-    )
-    .await
-    .context("wizard build artifacts")?;
-
-    drop(uki_file);
-
-    let seal_result = secrets::seal_luks_key(luks_key, &metadata.sections)?;
-
-    let luks_file = if matches!(seal_result, secrets::SealResult::EspKey) {
-        Some(luks_key.to_vec())
-    } else {
-        None
-    };
-
-    Ok(PreparedUki {
-        work_dir: Path::new(INSTALL_DIR).to_path_buf(),
-        staged_path,
-        overlay: metadata.overlay,
-        seal_result,
-        luks_key: luks_file,
+        cache_dir: None,
     })
+    .context("configure wizard")?;
+
+    efi::mount(efi_part)?;
+
+    let mut uki_file = efi::create(Path::new(efi::MOUNT_POINT), Arch::current().boot_path())?;
+
+    let (mut overlay_r, mut overlay_w) = UnixStream::pair()?;
+
+    let esp_root = PathBuf::from(efi::MOUNT_POINT);
+    let demux = tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut overlay_r));
+
+    let request = Request::new(version, Platform::Metal)
+        .uki(&mut uki_file)?
+        .overlays(&mut overlay_w)?;
+
+    let request = match signing {
+        Some(pair) => request.sign(pair),
+        None => request,
+    };
+
+    let metadata = request.build(&install_profile).await?;
+    drop(overlay_w);
+
+    if !tpm_available {
+        efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", luks_key)?;
+    }
+
+    demux.await??;
+
+    efi::unmount();
+
+    Ok(metadata.sections)
 }
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
@@ -405,36 +377,6 @@ async fn format_btrfs_volumes(
     Ok(())
 }
 
-async fn deploy_uki(
-    efi_part: &str,
-    staged_path: &Path,
-    overlay: Option<&wizard::resolve::OverlaySource>,
-    luks_key: &Option<Vec<u8>>,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<()> {
-    send_progress(progress, "Deploying UKI to EFI partition").await;
-
-    let overlay = match overlay {
-        Some(src) => wizard::build::source::pull_overlay(src).await?,
-        None => Vec::new(),
-    };
-
-    let mut uki_file = std::fs::File::open(staged_path)
-        .with_context(|| format!("Failed to open staged UKI {}", staged_path.display()))?;
-    let uki_len = uki_file
-        .metadata()
-        .with_context(|| format!("Failed to get metadata for {}", staged_path.display()))?
-        .len();
-
-    let luks = match luks_key {
-        Some(k) => efi::LuksKey::EspKey(k.clone()),
-        None => efi::LuksKey::TpmSealed,
-    };
-    efi::deploy(efi_part, &mut uki_file, uki_len, overlay, luks)?;
-
-    Ok(())
-}
-
 async fn initialize_state(
     dm_state: &str,
     config: &SystemConfig,
@@ -452,14 +394,6 @@ async fn initialize_state(
 fn close_luks_volumes() -> Result<()> {
     luks2::close(DM_STATE).context("Failed to close LUKS STATE mapping")?;
     luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
-
-    Ok(())
-}
-
-fn cleanup_work_dir(work_dir: PathBuf) -> Result<()> {
-    if let Err(e) = std::fs::remove_dir_all(&work_dir) {
-        eprintln!("Failed to cleanup work dir: {}", e);
-    }
 
     Ok(())
 }
