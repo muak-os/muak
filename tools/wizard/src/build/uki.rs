@@ -25,7 +25,7 @@ pub(crate) struct Build {
 pub(crate) fn build(
     meta: &Metadata,
     tail_size: u64,
-    signing_key: Option<&SigningPair<'_>>,
+    signing: Option<&SigningPair<'_>>,
 ) -> Result<Build> {
     let initramfs_len = meta
         .initramfs_size
@@ -78,7 +78,7 @@ pub(crate) fn build(
             .map_err(|e| WizardError::BuildError(format!("finish UKI: {e}")))
     });
 
-    let output_r = match signing_key {
+    let output_r = match signing {
         Some(key) => create_signed_output(&mut unsigned_r, key)?,
         None => unsigned_r,
     };

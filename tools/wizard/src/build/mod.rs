@@ -25,7 +25,7 @@ pub(crate) mod uki;
 /// PE section metadata needed for TPM PCR#11 prediction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionInfo {
-    /// PE section name (e.g. ".linux", ".initrd", ".cmdline").
+    /// PE section name.
     pub name: String,
     /// File offset of the section data within the PE image.
     pub file_offset: usize,
@@ -49,7 +49,7 @@ pub struct Metadata {
 pub(crate) async fn execute(
     plan: &resolve::BuildPlan,
     profile: &Profile,
-    signing_key: Option<&SigningPair<'_>>,
+    signing: Option<&SigningPair<'_>>,
     targets: Vec<(Artifact, &mut dyn Write)>,
 ) -> Result<Metadata> {
     if targets.is_empty() {
@@ -98,7 +98,7 @@ pub(crate) async fn execute(
             &meta,
             tail.as_ref().map_or(0, |tailed| tailed.size),
             tail_pipe,
-            signing_key,
+            signing,
         )?)
     } else {
         None

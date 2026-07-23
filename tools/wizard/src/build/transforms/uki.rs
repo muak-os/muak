@@ -26,9 +26,9 @@ pub(crate) fn open(
     meta: &Metadata,
     tail_size: u64,
     tail_pipe: Option<UnixStream>,
-    signing_key: Option<&SigningPair<'_>>,
+    signing: Option<&SigningPair<'_>>,
 ) -> Result<Uki> {
-    let mut build = uki::build(meta, tail_size, signing_key)?;
+    let mut build = uki::build(meta, tail_size, signing)?;
     if let Some(mut tail) = tail_pipe {
         io::copy(&mut tail, &mut build.tail_w)
             .map_err(|e| WizardError::BuildError(format!("write tail to UKI pipe: {e}")))?;

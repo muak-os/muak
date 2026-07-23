@@ -18,7 +18,7 @@ pub struct Request<'a> {
     version: String,
     platform: Platform,
     arch: Option<Arch>,
-    signing_key: Option<&'a SigningPair<'a>>,
+    signing: Option<&'a SigningPair<'a>>,
     targets: Vec<(Artifact, &'a mut dyn Write)>,
 }
 
@@ -28,7 +28,7 @@ impl fmt::Debug for Request<'_> {
             .field("version", &self.version)
             .field("platform", &self.platform)
             .field("arch", &self.arch)
-            .field("signing_key", &self.signing_key.is_some())
+            .field("signing", &self.signing.is_some())
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -45,7 +45,7 @@ impl<'a> Request<'a> {
             version: version.into(),
             platform,
             arch: None,
-            signing_key: None,
+            signing: None,
             targets: Vec::new(),
         }
     }
@@ -158,7 +158,8 @@ impl<'a> Request<'a> {
     /// Sets the optional signing key for Authenticode PE signing of the UKI.
     #[must_use]
     pub fn sign(mut self, key: &'a SigningPair<'a>) -> Self {
-        self.signing_key = Some(key);
+        self.signing = Some(key);
+
         self
     }
 
@@ -175,7 +176,7 @@ impl<'a> Request<'a> {
     pub async fn build(self, profile: &Profile) -> Result<build::Metadata> {
         let plan = resolve::plan(&self, profile)?;
 
-        build::execute(&plan, profile, self.signing_key, self.targets).await
+        build::execute(&plan, profile, self.signing, self.targets).await
     }
 }
 
