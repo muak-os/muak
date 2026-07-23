@@ -69,7 +69,7 @@ enum Command {
         #[arg(short, long)]
         profile: Option<PathBuf>,
 
-        #[arg(long)]
+        #[arg(long, num_args(1..))]
         artifacts: Vec<String>,
 
         #[arg(long)]
