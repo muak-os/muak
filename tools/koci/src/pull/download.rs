@@ -63,20 +63,21 @@ pub(crate) async fn cached(
         return Ok(reader);
     }
 
-    let dest_path = cache.blob_path(digest).unwrap_or_else(|| {
-        std::env::temp_dir().join(format!("koci-blob-{}", digest.replace(':', "-")))
-    });
+    let dest_path = cache.blob_path(digest).ok_or_else(|| {
+        KociError::DownloadError("no cache directory configured".to_owned())
+    })?;
+
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| KociError::DownloadError(format!("create cache directory: {e}")))?;
+    }
 
     blob(client, image_ref, digest, token, &dest_path).await?;
 
-    if cache.blob_path(digest).is_some() {
-        cache.put_blob_from_file(digest, &dest_path);
-        cache
-            .get_blob_reader(digest)
-            .ok_or_else(|| KociError::DownloadError("Failed to open cached blob".to_owned()))
-    } else {
-        File::open(&dest_path).map_err(Into::into)
-    }
+    cache.put_blob_from_file(digest, &dest_path);
+    cache
+        .get_blob_reader(digest)
+        .ok_or_else(|| KociError::DownloadError("failed to open cached blob".to_owned()))
 }
 
 /// Wrap a file in the appropriate decompressor based on media type.
