@@ -50,7 +50,7 @@ pub(crate) async fn execute(
     plan: &resolve::BuildPlan,
     profile: &Profile,
     signing: Option<&SigningPair<'_>>,
-    targets: Vec<(Artifact, &mut dyn Write)>,
+    targets: Vec<(Artifact, &mut (dyn Write + Send))>,
 ) -> Result<Metadata> {
     if targets.is_empty() {
         return Err(WizardError::BuildError(

@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 pub(crate) struct FanoutWriter<'a> {
-    pub sinks: &'a mut [&'a mut dyn Write],
+    pub sinks: &'a mut [&'a mut (dyn Write + Send)],
 }
 
 impl Write for FanoutWriter<'_> {

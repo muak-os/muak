@@ -327,7 +327,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
     let mut remaining: &mut [(Artifact, File)] = &mut files;
     while let Some((first, rest)) = remaining.split_first_mut() {
         let artifact = first.0;
-        let file: &mut dyn std::io::Write = &mut first.1;
+        let file: &mut (dyn std::io::Write + Send) = &mut first.1;
         request = request.artifact(artifact, file)?;
         remaining = rest;
     }

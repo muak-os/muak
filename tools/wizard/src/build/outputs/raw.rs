@@ -11,7 +11,7 @@ pub(crate) fn raw(
     uki: &mut dyn Read,
     uki_size: u64,
     overlay: &mut OverlayPipes,
-    output: &mut dyn std::io::Write,
+    output: &mut (dyn std::io::Write + Send),
 ) -> Result<()> {
     media::build_raw(
         arch,

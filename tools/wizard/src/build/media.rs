@@ -15,7 +15,7 @@ pub(crate) fn build_iso(
     uki_size: u64,
     overlay_files: &[FileMeta<'_>],
     overlay_readers: &mut [UnixStream],
-    output: &mut dyn Write,
+    output: &mut (dyn Write + Send),
 ) -> Result<()> {
     let (layout, mut readers) =
         compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
@@ -29,7 +29,7 @@ pub(crate) fn build_raw(
     uki_size: u64,
     overlay_files: &[FileMeta<'_>],
     overlay_readers: &mut [UnixStream],
-    output: &mut dyn Write,
+    output: &mut (dyn Write + Send),
 ) -> Result<()> {
     let (layout, mut readers) =
         compute_esp_layout(arch, uki, uki_size, overlay_files, overlay_readers)?;
@@ -60,7 +60,7 @@ fn compute_esp_layout<'a>(
     Ok((layout, readers))
 }
 
-struct DynWriter<'a>(&'a mut dyn Write);
+struct DynWriter<'a>(&'a mut (dyn Write + Send));
 
 impl Write for DynWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

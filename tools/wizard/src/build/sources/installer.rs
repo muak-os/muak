@@ -11,9 +11,9 @@ use crate::source::installer;
 struct Routes<'a> {
     stub: Option<UnixStream>,
     data: Option<UnixStream>,
-    kernel: Option<&'a mut dyn std::io::Write>,
-    cmdline: Option<&'a mut dyn std::io::Write>,
-    initramfs: Option<&'a mut dyn std::io::Write>,
+    kernel: Option<&'a mut (dyn std::io::Write + Send)>,
+    cmdline: Option<&'a mut (dyn std::io::Write + Send)>,
+    initramfs: Option<&'a mut (dyn std::io::Write + Send)>,
 }
 
 /// Pulls the installer OCI image once and fans each file to all interested consumers.
@@ -63,9 +63,9 @@ fn route(
 fn fanout2(
     reader: &mut dyn Read,
     stream: &mut Option<UnixStream>,
-    writer_slot: &mut Option<&mut dyn std::io::Write>,
+    writer_slot: &mut Option<&mut (dyn std::io::Write + Send)>,
 ) -> io::Result<()> {
-    let mut sinks: Vec<&mut dyn std::io::Write> = Vec::with_capacity(2);
+    let mut sinks: Vec<&mut (dyn std::io::Write + Send)> = Vec::with_capacity(2);
     if let Some(w) = stream.as_mut() {
         sinks.push(w);
     }
@@ -82,7 +82,7 @@ fn fanout2(
 fn fanout_initramfs(
     reader: &mut dyn Read,
     data_stream: &mut Option<UnixStream>,
-    initramfs_writer: &mut Option<&mut dyn std::io::Write>,
+    initramfs_writer: &mut Option<&mut (dyn std::io::Write + Send)>,
     tail_pipe: Option<&UnixStream>,
 ) -> io::Result<()> {
     let needs_tee = data_stream.is_some() && initramfs_writer.is_some() && tail_pipe.is_some();

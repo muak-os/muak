@@ -19,7 +19,7 @@ pub struct Request<'a> {
     platform: Platform,
     arch: Option<Arch>,
     signing: Option<&'a SigningPair<'a>>,
-    targets: Vec<(Artifact, &'a mut dyn Write)>,
+    targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
 impl fmt::Debug for Request<'_> {
@@ -63,7 +63,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when a target for the same artifact kind was already set.
-    pub fn artifact(mut self, kind: Artifact, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn artifact(mut self, kind: Artifact, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         if self.targets.iter().any(|item| item.0 == kind) {
             return Err(WizardError::BuildError(format!(
                 "duplicate artifact target: {kind}"
@@ -79,7 +79,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when a kernel target was already set.
-    pub fn kernel(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn kernel(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Kernel, writer)
     }
 
@@ -88,7 +88,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when an initramfs target was already set.
-    pub fn initramfs(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn initramfs(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Initramfs, writer)
     }
 
@@ -97,7 +97,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when a cmdline target was already set.
-    pub fn cmdline(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn cmdline(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Cmdline, writer)
     }
 
@@ -106,7 +106,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when a UKI target was already set.
-    pub fn uki(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn uki(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Uki, writer)
     }
 
@@ -115,7 +115,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when an ISO target was already set.
-    pub fn iso(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn iso(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Iso, writer)
     }
 
@@ -124,7 +124,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when a raw target was already set.
-    pub fn raw(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn raw(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Raw, writer)
     }
 
@@ -133,7 +133,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when an overlays target was already set.
-    pub fn overlays(self, writer: &'a mut dyn Write) -> Result<Self> {
+    pub fn overlays(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         self.artifact(Artifact::Overlays, writer)
     }
 
