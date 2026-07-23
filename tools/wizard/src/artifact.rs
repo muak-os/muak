@@ -20,6 +20,8 @@ pub enum Artifact {
     Iso,
     /// Raw disk image (compressed via zstd).
     Raw,
+    /// Board-specific overlay boot assets as a tar archive.
+    Overlays,
 }
 
 impl fmt::Display for Artifact {
@@ -30,7 +32,7 @@ impl fmt::Display for Artifact {
 
 impl Artifact {
     /// Number of artifact variants. Update when variants are added.
-    pub(crate) const COUNT: usize = 6;
+    pub(crate) const COUNT: usize = 7;
 
     /// Returns a zero-based index for use as an array index.
     #[must_use]
@@ -42,6 +44,7 @@ impl Artifact {
             Self::Uki => 3,
             Self::Iso => 4,
             Self::Raw => 5,
+            Self::Overlays => 6,
         }
     }
 
@@ -55,6 +58,7 @@ impl Artifact {
             Self::Uki => "uki.efi",
             Self::Iso => "muak.iso",
             Self::Raw => "muak.raw.zst",
+            Self::Overlays => "overlays.tar",
         }
     }
 
@@ -65,6 +69,7 @@ impl Artifact {
             Self::Cmdline => "text/plain; charset=utf-8",
             Self::Iso => "application/x-iso9660-image",
             Self::Kernel | Self::Initramfs | Self::Uki | Self::Raw => "application/octet-stream",
+            Self::Overlays => "application/x-tar",
         }
     }
 }
@@ -90,6 +95,7 @@ mod tests {
         assert_eq!(Artifact::Uki.filename(), "uki.efi");
         assert_eq!(Artifact::Iso.filename(), "muak.iso");
         assert_eq!(Artifact::Raw.filename(), "muak.raw.zst");
+        assert_eq!(Artifact::Overlays.filename(), "overlays.tar");
     }
 
     #[test]
@@ -101,5 +107,6 @@ mod tests {
         assert_eq!(Artifact::Initramfs.media_type(), "application/octet-stream");
         assert_eq!(Artifact::Uki.media_type(), "application/octet-stream");
         assert_eq!(Artifact::Raw.media_type(), "application/octet-stream");
+        assert_eq!(Artifact::Overlays.media_type(), "application/x-tar");
     }
 }

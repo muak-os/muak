@@ -128,6 +128,15 @@ impl<'a> Request<'a> {
         self.artifact(Artifact::Raw, writer)
     }
 
+    /// Sets the output writer for the overlays tarball.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an overlays target was already set.
+    pub fn overlays(self, writer: &'a mut dyn Write) -> Result<Self> {
+        self.artifact(Artifact::Overlays, writer)
+    }
+
     /// Returns the requested version.
     #[must_use]
     pub fn version(&self) -> &str {

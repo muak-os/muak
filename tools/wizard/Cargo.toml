@@ -17,6 +17,9 @@ required-features = ["cli"]
 # Asynchronous
 tokio = { workspace = true }
 
+# Compression
+tar = { workspace = true }
+
 # Cryptography
 ring = { workspace = true }
 

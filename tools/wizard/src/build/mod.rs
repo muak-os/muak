@@ -12,7 +12,6 @@ use crate::build::sources::overlay::OverlayPipes;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::resolve;
-use crate::source::overlay::Overlay;
 
 pub(crate) mod archive;
 pub(crate) mod fanout;
@@ -40,35 +39,6 @@ pub struct SectionInfo {
 pub struct Metadata {
     /// PE section descriptors for the built UKI.
     pub sections: Vec<SectionInfo>,
-    /// Overlay source information for deferred overlay pulling.
-    pub overlay: Option<Overlay>,
-}
-
-struct BuildNeeds {
-    needs_tail: bool,
-    needs_uki: bool,
-    needs_media: bool,
-}
-
-fn determine_needs(targets: &[(Artifact, &mut dyn Write)]) -> BuildNeeds {
-    let needs_tail = targets.iter().any(|&(artifact, _)| {
-        matches!(
-            artifact,
-            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
-        )
-    });
-    let needs_uki = targets
-        .iter()
-        .any(|&(artifact, _)| matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw));
-    let needs_media = targets
-        .iter()
-        .any(|&(artifact, _)| matches!(artifact, Artifact::Iso | Artifact::Raw));
-
-    BuildNeeds {
-        needs_tail,
-        needs_uki,
-        needs_media,
-    }
 }
 
 /// Builds the requested artifacts from a resolved plan.
@@ -88,19 +58,39 @@ pub(crate) async fn execute(
         ));
     }
 
-    let needs = determine_needs(&targets);
+    let mut needs_tail = false;
+    let mut needs_uki = false;
+    let mut needs_media = false;
+    let mut needs_overlays = false;
+    for &(artifact, _) in &targets {
+        if matches!(
+            artifact,
+            Artifact::Initramfs | Artifact::Uki | Artifact::Iso | Artifact::Raw
+        ) {
+            needs_tail = true;
+        }
+        if matches!(artifact, Artifact::Uki | Artifact::Iso | Artifact::Raw) {
+            needs_uki = true;
+        }
+        if matches!(artifact, Artifact::Iso | Artifact::Raw) {
+            needs_media = true;
+        }
+        if artifact == Artifact::Overlays {
+            needs_overlays = true;
+        }
+    }
 
     let meta = sources::meta::fetch(plan).await?;
     let profile_bytes = profile.canonical_bytes()?;
 
-    let tail = if needs.needs_tail {
+    let tail = if needs_tail {
         let ext_data = sources::extensions::fetch(plan).await?;
         Some(transforms::tail::build(&ext_data, &profile_bytes)?)
     } else {
         None
     };
 
-    let mut uki = if needs.needs_uki {
+    let mut uki = if needs_uki {
         let tail_pipe = tail
             .as_ref()
             .and_then(|tailed| tailed.reader.try_clone().ok());
@@ -114,8 +104,18 @@ pub(crate) async fn execute(
         None
     };
 
-    let overlay = if needs.needs_media {
+    // TODO: single overlay setup with single pulling
+    let overlay = if needs_media {
         Some(sources::overlay::setup(plan).await?)
+    } else {
+        None
+    };
+
+    let overlay_tar = if needs_overlays {
+        let ov = plan.overlay().ok_or_else(|| {
+            WizardError::BuildError("overlay tar requested but no overlay configured".to_owned())
+        })?;
+        Some(sources::overlay::setup_tar(ov)?)
     } else {
         None
     };
@@ -129,11 +129,27 @@ pub(crate) async fn execute(
 
     sources::installer::pull(plan, &mut router, stub_pipe, data_pipe, tail_pipe).await?;
 
+    let overlay_w = if needs_overlays {
+        router.take(Artifact::Overlays)
+    } else {
+        None
+    };
+
     let sections = if let Some(uki) = uki {
         finalize_uki(uki, router, overlay, plan.arch()).await?
     } else {
         Vec::new()
     };
+
+    if let Some(mut tar) = overlay_tar {
+        if let Some(w) = overlay_w {
+            std::io::copy(&mut tar.reader, w)
+                .map_err(|e| WizardError::BuildError(format!("write overlay tar: {e}")))?;
+        }
+        tar.handle
+            .await
+            .map_err(|e| WizardError::BuildError(format!("join overlay tar task: {e}")))??;
+    }
 
     Ok(Metadata {
         sections: sections
@@ -145,7 +161,6 @@ pub(crate) async fn execute(
                 hash: section.checksum,
             })
             .collect(),
-        overlay: plan.overlay().cloned(),
     })
 }
 
