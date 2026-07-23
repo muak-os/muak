@@ -28,7 +28,7 @@ pub struct Layout<'a> {
 ///
 /// Returns an error when a path is invalid or the total data exceeds the supported image size.
 pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
-    path::validate_spec_paths(files.iter().map(|file| file.path))?;
+    path::validate_spec(files.iter().map(|file| file.path))?;
 
     let total_data: u64 = files.iter().map(|file| file.size).sum();
     let total_size = image_size_for(total_data)?;

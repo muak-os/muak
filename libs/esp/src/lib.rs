@@ -8,7 +8,7 @@ pub mod arch;
 pub mod error;
 pub mod image;
 pub mod layout;
-mod path;
+pub mod path;
 
 use fatfs::types;
 

@@ -5,16 +5,16 @@ use std::path::{Component, Path};
 use crate::error::{EspError, Result};
 
 /// Validates an iterator of ESP-relative file paths.
-pub(crate) fn validate_spec_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Result<()> {
+pub fn validate_spec<'a>(paths: impl Iterator<Item = &'a str>) -> Result<()> {
     for path in paths {
-        validate_relative_path(path)?;
+        validate_relative(path)?;
     }
 
     Ok(())
 }
 
 /// Validates an ESP-relative path and returns it as a `Path`.
-pub(crate) fn validate_relative_path(path: &str) -> Result<&Path> {
+pub fn validate_relative(path: &str) -> Result<&Path> {
     let rel_path = Path::new(path);
     if path.is_empty() {
         return Err(EspError::InvalidPath("path is empty".to_owned()));
@@ -53,13 +53,13 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<&Path> {
 mod tests {
     use std::path::Path;
 
-    use super::validate_relative_path;
+    use super::validate_relative;
     use crate::error::EspError;
 
     #[test]
     fn validate_relative_path_accepts_nested_relative_paths() {
         // ARRANGE / ACT
-        let result = validate_relative_path("EFI/BOOT/BOOTX64.EFI");
+        let result = validate_relative("EFI/BOOT/BOOTX64.EFI");
 
         // ASSERT
         assert_eq!(
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn validate_relative_path_rejects_empty_paths() {
         // ARRANGE / ACT
-        let result = validate_relative_path("");
+        let result = validate_relative("");
 
         // ASSERT
         assert!(matches!(result, Err(EspError::InvalidPath(_))));
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn validate_relative_path_rejects_absolute_paths() {
         // ARRANGE / ACT
-        let result = validate_relative_path("/EFI/BOOT/BOOTX64.EFI");
+        let result = validate_relative("/EFI/BOOT/BOOTX64.EFI");
 
         // ASSERT
         assert!(matches!(result, Err(EspError::InvalidPath(_))));
@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn validate_relative_path_rejects_parent_traversal() {
         // ARRANGE / ACT
-        let result = validate_relative_path("../escape");
+        let result = validate_relative("../escape");
 
         // ASSERT
         assert!(matches!(result, Err(EspError::InvalidPath(_))));
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn validate_relative_path_rejects_directory_only_path() {
         // ARRANGE / ACT
-        let result = validate_relative_path(".");
+        let result = validate_relative(".");
 
         // ASSERT
         assert!(matches!(result, Err(EspError::InvalidPath(_))));
