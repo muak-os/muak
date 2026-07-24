@@ -5,7 +5,11 @@ use std::path::{Component, Path};
 use crate::error::{EspError, Result};
 
 /// Validates an iterator of ESP-relative file paths.
-pub fn validate_spec<'a>(paths: impl Iterator<Item = &'a str>) -> Result<()> {
+///
+/// # Errors
+///
+/// Returns `EspError::InvalidPath` if any path is invalid.
+pub fn validate_spec<'a, I: Iterator<Item = &'a str>>(paths: I) -> Result<()> {
     for path in paths {
         validate_relative(path)?;
     }
@@ -14,6 +18,11 @@ pub fn validate_spec<'a>(paths: impl Iterator<Item = &'a str>) -> Result<()> {
 }
 
 /// Validates an ESP-relative path and returns it as a `Path`.
+///
+/// # Errors
+///
+/// Returns `EspError::InvalidPath` if the path is empty, absolute, contains
+/// unsupported components, or does not contain a file name.
 pub fn validate_relative(path: &str) -> Result<&Path> {
     let rel_path = Path::new(path);
     if path.is_empty() {
