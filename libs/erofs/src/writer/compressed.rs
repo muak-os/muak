@@ -285,6 +285,8 @@ pub(super) fn write_pack(
     for (index, entry) in pack.iter().enumerate() {
         let offset = if entry.clustertype == Z_EROFS_LCLUSTER_TYPE_NONHEAD {
             nonhead_offset(entry, index, value_count, state)
+        } else if entry.clustertype == Z_EROFS_LCLUSTER_TYPE_PLAIN {
+            entry.clusterofs
         } else {
             head_offset(entry, index, value_count, final_pack, state)
         };
@@ -662,7 +664,7 @@ mod tests {
                 .expect("4b"),
         );
         assert_eq!(trailer_blkaddr, 200);
-        assert_eq!(state.blkaddr_ret, 201);
+        assert_eq!(state.blkaddr_ret, 200);
     }
 
     #[test]
