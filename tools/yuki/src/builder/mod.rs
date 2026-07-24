@@ -54,6 +54,13 @@ impl<'a, W: Write> Builder<'a, W, NeedsStub> {
         let prefix_len = u64::try_from(self.state.stub_prefix.len()).map_err(|_e| {
             YukiError::InvalidPeStructure("stub prefix length overflow".to_owned())
         })?;
+        io::copy_exact(
+            stub_reader,
+            &mut std::io::sink(),
+            prefix_len,
+            "stub prefix skip",
+            &mut |_| {},
+        )?;
         let remaining = self
             .state
             .stub_size
