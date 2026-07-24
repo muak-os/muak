@@ -47,9 +47,11 @@ fn write_overlay_file(
 /// Sets up overlay file pipes and spawns a streaming task.
 pub(crate) async fn setup(plan: &BuildPlan) -> Result<OverlayPipes> {
     let Some(ov) = plan.overlay() else {
-        return Err(WizardError::BuildError(
-            "overlay requested but none configured".to_owned(),
-        ));
+        return Ok(OverlayPipes {
+            files: Vec::new(),
+            readers: Vec::new(),
+            handle: tokio::spawn(async { Ok(()) }),
+        });
     };
 
     let files = overlay::metadata(ov).await?;

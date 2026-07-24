@@ -112,10 +112,9 @@ pub(crate) async fn execute(
     };
 
     let overlay_tar = if needs_overlays {
-        let ov = plan.overlay().ok_or_else(|| {
-            WizardError::BuildError("overlay tar requested but no overlay configured".to_owned())
-        })?;
-        Some(sources::overlay::setup_tar(ov)?)
+        plan.overlay()
+            .map(|ov| sources::overlay::setup_tar(ov))
+            .transpose()?
     } else {
         None
     };
