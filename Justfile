@@ -58,9 +58,9 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (build → installer → sign → extract → uki → iso)
-dev: (build "--release" "") installer sign (extract (registry + "/installer:" + tag)) uki iso
-    @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
+# Full local development build (build → installer → sign → uki + iso)
+dev: (build "--release" "") installer sign (artifact "uki iso")
+    @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak.iso\n"
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
 kernel:
@@ -136,6 +136,7 @@ extract image: _ensure-artifacts
 # Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
 sign image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -v "{{ absolute_path(signature) }}:/key:ro" \
         {{ tools }} \
@@ -143,43 +144,26 @@ sign image=(registry + "/installer:" + tag):
             --image "{{ image }}" \
             --key /key
 
-# Build UKI (Unified Kernel Image)
+# Build boot artifacts (e.g., just artifact uki iso, just artifact raw)
 [script]
-uki: _ensure-artifacts (_require artifacts / "stub.efi" "just installer") (_require artifacts / "vmlinuz" "just kernel") (_require artifacts / "initramfs.img" "just installer")
-    printf "{{ cyan }}Building UKI for {{ arch }}{{ reset }}\n"
-    {{ container_runtime }} run --rm \
+artifact *types:
+    if [ -z "{{ types }}" ]; then
+        printf "{{ red }}{{ bold }}Error:{{ reset }} No artifacts specified. Usage: just artifact <type> [type...]\n"
+        exit 1
+    fi
+    printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network host \
+        -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ artifacts }}:/out" \
         {{ tools }} \
-        /yuki \
-            --stub /out/stub.efi \
-            --linux /out/vmlinuz \
-            --initrd /out/initramfs.img \
-            --cmdline /out/cmdline \
-            ${DTB:+--dtb "$DTB"} \
-            --output /out/muak-{{ arch }}.efi
-    printf "{{ green }}UKI built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.efi\n"
-
-# Build bootable ISO
-iso: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
-    @printf "{{ cyan }}Building ISO for {{ arch }}{{ reset }}\n"
-    {{ container_runtime }} run --rm -v {{ artifacts }}:/out \
-        {{ tools }} \
-        /miso iso \
-            --uki /out/muak-{{ arch }}.efi \
-            --output /out/muak-{{ arch }}.iso \
-            --arch {{ arch }}
-    @printf "{{ green }}ISO built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.iso\n"
-
-# Build bootable raw disk image containing an EFI System Partition
-raw: _ensure-artifacts (_require artifacts / "muak-" + arch + ".efi" "just uki")
-    @printf "{{ cyan }}Building RAW for {{ arch }}{{ reset }}\n"
-    {{ container_runtime }} run --rm -v {{ artifacts }}:/out \
-        {{ tools }} \
-        /miso raw \
-            --uki /out/muak-{{ arch }}.efi \
-            --output /out/muak-{{ arch }}.raw \
-            --arch {{ arch }}
-    @printf "{{ green }}RAW built:{{ reset }} {{ artifacts }}/muak-{{ arch }}.raw\n"
+        /wizard build \
+            --artifacts {{ types }} \
+            --version {{ tag }} \
+            --arch {{ oci_arch }} \
+            --platform metal \
+            --registry {{ registry }} \
+            --installer installer \
+            -o /out
 
 # Build OCI images (e.g., just oci granola kernel installer cli)
 [script]
@@ -289,7 +273,7 @@ e2e: (build "--release" "muakctl") _ensure-fw
 # Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
 [arg("clean", long="reset", value="true")]
 [script]
-start clean="false": (_require artifacts / "muak-" + arch + ".iso" "just dev") _ensure-fw
+start clean="false": (_require artifacts / "muak.iso" "just dev") _ensure-fw
     if [ "{{ clean }}" = "true" ]; then
         printf "{{ cyan }}Resetting VM state{{ reset }}\n"
         rm -f "/tmp/nvme-disk.img" "/tmp/OVMF_VARS.fd"
@@ -322,7 +306,7 @@ start clean="false": (_require artifacts / "muak-" + arch + ".iso" "just dev") _
         -display none \
         -netdev user,id=net0,hostfwd=tcp:127.0.0.1:50051-:50051 \
         -device virtio-net-pci,netdev=net0 \
-        -drive file="{{ artifacts }}/muak-{{ arch }}.iso",format=raw,media=cdrom,if=none,id=cdrom0,readonly=on \
+        -drive file="{{ artifacts }}/muak.iso",format=raw,media=cdrom,if=none,id=cdrom0,readonly=on \
         -device ide-cd,drive=cdrom0,bootindex=2 \
         -drive file="/tmp/nvme-disk.img",format=raw,if=none,id=nvme0 \
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
