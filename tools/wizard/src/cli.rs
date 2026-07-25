@@ -337,15 +337,11 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         None => request,
     };
 
-    let meta = request.build(&profile).await.context("build artifacts")?;
+    let _meta = request.build(&profile).await.context("build artifacts")?;
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());
-        println!(
-            "Successfully built {} ({artifact} sections={})",
-            path.display(),
-            meta.sections.len(),
-        );
+        println!("Successfully built {}", path.display(),);
     }
 
     Ok(())
