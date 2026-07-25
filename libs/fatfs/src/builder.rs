@@ -205,7 +205,7 @@ fn compute_layout(image_size: u64) -> Result<FatLayout> {
     let root_dir_sectors = 512_u64.wrapping_mul(32).div_euclid(SECTOR_SIZE);
     let spc_values: &[u64] = &[64, 32, 16, 8, 4, 2, 1];
     for &(rsvd, kind) in &[
-        (32_u64, FatKind::Fat32),
+        (8_u64, FatKind::Fat32),
         (1, FatKind::Fat16),
         (1, FatKind::Fat12),
     ] {
@@ -217,7 +217,7 @@ fn compute_layout(image_size: u64) -> Result<FatLayout> {
             FatKind::Fat12 | FatKind::Fat16 => root_dir_sectors,
         };
         let valid_spcs: &[u64] = match kind {
-            FatKind::Fat32 => &[64, 32, 16, 8],
+            FatKind::Fat32 => &[64, 32, 16, 8, 4, 2, 1],
             FatKind::Fat12 | FatKind::Fat16 => spc_values,
         };
         for &spc in valid_spcs {
