@@ -77,7 +77,7 @@ uki = { path = "libs/uki" }
 # External crates
 
 ## Asynchronous
-tokio = { version = "1.52", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 tokio-rustls = { version = "0.26", default-features = false }
 
@@ -129,7 +129,7 @@ tonic-prost-build = { version = "0.14", default-features = false, features = ["t
 protox = "0.9"
 
 ## HTTP
-hyper = { version = "1.9", features = ["http2", "server", "client"] }
+hyper = { version = "1.11", features = ["http2", "server", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "client", "http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring"] }
 http-body-util = "0.1"
@@ -144,10 +144,10 @@ uefi = "0.37"
 
 ## Utilities
 object = { version = "0.39", default-features = false, features = ["read", "pe"] }
-uuid = { version = "1.23", default-features = false, features = ["v4", "v7"] }
+uuid = { version = "1.24", default-features = false, features = ["v4", "v7"] }
 
 ## Procedural macros
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "3.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 

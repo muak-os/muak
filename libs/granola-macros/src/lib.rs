@@ -117,8 +117,7 @@ fn extract_notifier_param(input: &mut ItemFn) -> Result<syn::Ident, syn::Error> 
         .sig
         .inputs
         .pop()
-        .ok_or_else(|| syn::Error::new_spanned(&input.sig, "expected exactly one parameter"))?
-        .into_value();
+        .ok_or_else(|| syn::Error::new_spanned(&input.sig, "expected exactly one parameter"))?;
     let FnArg::Typed(pat_type) = arg else {
         return Err(syn::Error::new_spanned(arg, "expected a typed parameter"));
     };
