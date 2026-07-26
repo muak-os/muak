@@ -1,10 +1,21 @@
 //! Filesystem formatting utilities for EFI and Btrfs partitions.
 
 use std::fs::OpenOptions;
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
-use super::utils::wait_for_device;
+// Wait for a device node to appear.
+pub fn wait_for_device(device: &str) -> Result<()> {
+    for _ in 0..30 {
+        if Path::new(device).exists() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    bail!("Timeout waiting for device {} to appear", device)
+}
 
 /// Formats a partition as FAT32 for EFI System Partition use.
 pub fn format_efi_partition(device: &str) -> Result<()> {

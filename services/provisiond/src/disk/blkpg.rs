@@ -7,7 +7,7 @@ use rustix::ioctl::{Opcode, Setter, ioctl};
 
 use super::constants::SECTOR_SIZE;
 use super::types::{BlkpgIoctlArg, BlkpgPartition};
-use super::utils::format_partition_name;
+use super::gpt::format_partition_name;
 
 const BLKPG_ADD_PARTITION: i32 = 1;
 const BLKPG_DEL_PARTITION: i32 = 2;

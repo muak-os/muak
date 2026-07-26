@@ -1,7 +1,7 @@
 //! GPT partition table management and manipulation.
 
 use std::fs::{File, OpenOptions};
-use std::io::Seek;
+use std::io::{Read, Seek, SeekFrom};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -9,10 +9,51 @@ use parttable::gpt::table::Table;
 use parttable::gpt::types::{
     ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start,
 };
+use parttable::mbr::types::{
+    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_ENTRY_SIZE, MBR_PARTITION_ENTRY_OFFSET,
+};
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
-use super::utils::{format_partition_name, wait_for_device};
+use super::format::wait_for_device;
+
+const MBR_MAX_SLOTS: usize = 4;
+const MBR_PARTITION_TYPE_OFFSET: usize = 4;
+
+/// Formats a partition device path based on disk naming convention.
+pub fn format_partition_name(disk: &str, partition: u32) -> String {
+    if disk.contains("nvme") || disk.contains("mmcblk") {
+        format!("{}p{}", disk, partition)
+    } else {
+        format!("{}{}", disk, partition)
+    }
+}
+
+/// Returns `true` when `disk` contains GPT or MBR partition state.
+pub fn disk_is_non_empty(disk: &str) -> Result<bool> {
+    let mut f = OpenOptions::new().read(true).open(disk)?;
+
+    if Table::read(&mut f).is_ok() {
+        return Ok(true);
+    }
+
+    f.seek(SeekFrom::Start(0))?;
+
+    let mut sector = [0u8; MBR_BYTES];
+    if f.read_exact(&mut sector).is_err() {
+        return Ok(false);
+    }
+
+    let boot_sig = [sector[510], sector[511]];
+    if boot_sig != MBR_BOOT_SIGNATURE {
+        return Ok(false);
+    }
+
+    Ok((0..MBR_MAX_SLOTS).any(|slot| {
+        let entry_offset = MBR_PARTITION_ENTRY_OFFSET as usize + slot * MBR_ENTRY_SIZE;
+        sector[entry_offset + MBR_PARTITION_TYPE_OFFSET] != 0x00
+    }))
+}
 
 /// Returns `true` when `disk` already has a Muak STATE partition installed.
 pub fn has_state_partition(disk: &str) -> Result<bool> {
@@ -280,6 +321,12 @@ mod tests {
         disk
     }
 
+    fn disk_with_contents(bytes: &[u8]) -> NamedTempFile {
+        let mut f = NamedTempFile::new().expect("temp file");
+        f.write_all(bytes).expect("write");
+        f
+    }
+
     #[test]
     fn has_state_partition_returns_false_for_blank_disk() {
         // ARRANGE
@@ -358,5 +405,134 @@ mod tests {
 
         // ASSERT
         assert_eq!(result, u32::MAX);
+    }
+
+    #[test]
+    fn format_partition_name_nvme_uses_p_separator() {
+        // ARRANGE
+        let disk = "/dev/nvme0n1";
+
+        // ACT
+        let name = format_partition_name(disk, 1);
+
+        // ASSERT
+        assert_eq!(name, "/dev/nvme0n1p1");
+    }
+
+    #[test]
+    fn format_partition_name_mmcblk_uses_p_separator() {
+        // ARRANGE
+        let disk = "/dev/mmcblk0";
+
+        // ACT
+        let name = format_partition_name(disk, 2);
+
+        // ASSERT
+        assert_eq!(name, "/dev/mmcblk0p2");
+    }
+
+    #[test]
+    fn format_partition_name_sda_uses_no_separator() {
+        // ARRANGE
+        let disk = "/dev/sda";
+
+        // ACT
+        let name = format_partition_name(disk, 3);
+
+        // ASSERT
+        assert_eq!(name, "/dev/sda3");
+    }
+
+    #[test]
+    fn format_partition_name_vda_uses_no_separator() {
+        // ARRANGE
+        let disk = "/dev/vda";
+
+        // ACT
+        let name = format_partition_name(disk, 1);
+
+        // ASSERT
+        assert_eq!(name, "/dev/vda1");
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_false_for_zeroed_disk() {
+        // ARRANGE
+        let disk = disk_with_contents(&[0; 4096]);
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(!result);
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_true_for_gpt_disk() {
+        // ARRANGE
+        let disk = NamedTempFile::new().expect("temp file");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open");
+        file.set_len(64 * 1024 * 1024).expect("resize");
+        let gpt = Table::create(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            512,
+            [0xff; 16],
+        )
+        .expect("new gpt");
+        gpt.write_primary_to(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            &mut file,
+        )
+        .expect("write primary gpt");
+        gpt.write_backup_to(
+            u64::try_from(file.metadata().expect("metadata").len()).unwrap_or(0) / 512,
+            &mut file,
+        )
+        .expect("write backup gpt");
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(result);
+    }
+
+    #[test]
+    fn disk_is_non_empty_returns_true_for_mbr_disk() {
+        // ARRANGE
+        use parttable::mbr::types::MbrPartitionEntry;
+
+        let disk = NamedTempFile::new().expect("temp file");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open");
+        file.set_len(4096).expect("resize");
+        mbr::io::write_entry(
+            &mut file,
+            0,
+            &MbrPartitionEntry {
+                bootable: false,
+                partition_type: 0x83,
+                starting_lba: 1,
+                size_lba: 1,
+            },
+        )
+        .expect("write mbr entry");
+        mbr::io::write_signature(&mut file).expect("write mbr signature");
+
+        // ACT
+        let result = disk_is_non_empty(disk.path().to_str().expect("path"))
+            .expect("disk emptiness check should succeed");
+
+        // ASSERT
+        assert!(result);
     }
 }

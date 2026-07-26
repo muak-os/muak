@@ -107,7 +107,7 @@ async fn validate_disks(
     tokio::task::spawn_blocking({
         let system_disk = system_disk.to_string();
         let data_disk = data_disk.to_string();
-        move || disk::validate_install_target(&system_disk, &data_disk, force)
+        move || disk::install_target(&system_disk, &data_disk, force)
     })
     .await??;
 
@@ -274,12 +274,12 @@ async fn partition_disks(
         let data_disk = data_disk.to_string();
         move || {
             disk::delete_all_partitions_blkpg(&system_disk)?;
-            disk::wipe_disk(&system_disk)?;
+            disk::wipe(&system_disk)?;
             let (efi_part, state_part) = disk::create_system_partitions(&system_disk)?;
 
             if system_disk != data_disk {
                 disk::delete_all_partitions_blkpg(&data_disk)?;
-                disk::wipe_disk(&data_disk)?;
+                disk::wipe(&data_disk)?;
             }
             let data_part = disk::create_data_partition(&data_disk)?;
 
