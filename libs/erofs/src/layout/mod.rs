@@ -62,8 +62,8 @@ pub(crate) fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usi
     inodes
         .iter()
         .map(|inode| {
-            assign::util::nid_slot_offset(inode.nid)
-                .saturating_add(assign::util::meta_size_bytes(inode))
+            assign::sizes::nid_slot_offset(inode.nid)
+                .saturating_add(assign::sizes::meta_size_bytes(inode))
         })
         .max()
         .unwrap_or(assign::meta_start(do_compress))

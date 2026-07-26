@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use super::super::{parent_rel, types::InodeLayout};
-use super::util::{header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
+use super::sizes::{header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::dir::{self, EROFS_FT_DIR, Entry};
 use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
 

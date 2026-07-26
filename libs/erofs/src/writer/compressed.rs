@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use super::dir::align8;
-use super::util::{block_size_usize, mul, usize_from_u32};
+use super::sizes::{block_size_usize, mul, usize_from_u32};
 use crate::checked::{add, u16_from_usize, write_byte, write_bytes};
 use crate::compress::{self, CompressedFile};
 use crate::error::{ErofsError, Result};

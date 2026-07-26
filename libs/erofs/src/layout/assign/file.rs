@@ -2,7 +2,7 @@
 
 use super::super::types::InodeLayout;
 use super::compact::index_bytes;
-use super::util::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
+use super::sizes::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::checked::align_up;
 use crate::compress;
 use crate::error::{ErofsError, Result};

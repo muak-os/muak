@@ -1,11 +1,11 @@
 //! Data block address assignment and total image size computation.
 
 use super::super::types::InodeLayout;
-use super::{meta_start, util};
+use super::{meta_start, sizes};
 use crate::checked::{align_up, u32_from_usize};
 
 pub(super) fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
-    let bs = util::block_size();
+    let bs = sizes::block_size();
     let meta_end = compute_meta_end(inodes, do_compress);
     let meta_end_aligned = align_up(meta_end, bs).unwrap_or(meta_end);
 
@@ -23,12 +23,12 @@ pub(super) fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
 }
 
 pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usize {
-    let bs = util::block_size();
+    let bs = sizes::block_size();
     let mut max_end = meta_start(do_compress);
 
     for inode in inodes {
         let slot_end =
-            util::nid_slot_offset(inode.nid).saturating_add(util::meta_size_bytes(inode));
+            sizes::nid_slot_offset(inode.nid).saturating_add(sizes::meta_size_bytes(inode));
         max_end = max_end.max(slot_end);
 
         if inode.data_blocks > 0 {
@@ -50,7 +50,7 @@ pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usi
 fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
     inodes
         .iter()
-        .map(|inode| util::nid_slot_offset(inode.nid).saturating_add(util::meta_size_bytes(inode)))
+        .map(|inode| sizes::nid_slot_offset(inode.nid).saturating_add(sizes::meta_size_bytes(inode)))
         .max()
         .unwrap_or(meta_start(do_compress))
 }

@@ -8,7 +8,7 @@ use std::io::Write;
 use super::compressed;
 use super::data;
 use super::inode::write_header;
-use super::util::{block_size_usize, slot_offset};
+use super::sizes::{block_size_usize, slot_offset};
 use crate::checked::{add, align_up, u32_from_usize};
 use crate::error::{ErofsError, Result};
 use crate::inode::COMPACT_INODE_SIZE;

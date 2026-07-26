@@ -5,7 +5,7 @@ mod data;
 mod dir;
 mod emit;
 mod inode;
-mod util;
+mod sizes;
 
 use std::io::Write;
 

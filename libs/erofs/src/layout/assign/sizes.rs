@@ -1,4 +1,4 @@
-//! Shared sizing and alignment helpers for inode layout assignment.
+//! Inode layout slot sizing and alignment helpers.
 
 use super::super::types::InodeLayout;
 use super::compact::index_bytes;

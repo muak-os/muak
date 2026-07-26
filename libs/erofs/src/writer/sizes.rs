@@ -1,4 +1,4 @@
-//! Shared offset and size helpers for writer submodules.
+//! Size and offset arithmetic helpers for writer submodules.
 
 use crate::error::{ErofsError, Result};
 use crate::{BLOCK_SIZE, SLOT_SIZE};

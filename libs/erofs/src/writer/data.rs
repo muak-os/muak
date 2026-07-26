@@ -4,7 +4,7 @@ use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
 
 use super::dir::{find_parent_nid, sorted_entries};
-use super::util::{full_block_bytes, usize_from_u32};
+use super::sizes::{full_block_bytes, usize_from_u32};
 use crate::checked::write_bytes;
 use crate::dir;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};

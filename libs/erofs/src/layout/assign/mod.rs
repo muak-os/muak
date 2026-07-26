@@ -5,7 +5,7 @@ mod data;
 mod dir;
 mod file;
 mod order;
-pub(super) mod util;
+pub(super) mod sizes;
 
 use alloc::collections::BTreeMap;
 
@@ -45,7 +45,7 @@ pub fn nids_and_layouts(
     compression: Compression,
     files: &mut [SizedFile<'_>],
 ) -> Result<()> {
-    let bs = util::block_size();
+    let bs = sizes::block_size();
     let do_compress = compression.is_enabled();
     let mut meta_offset = meta_start(do_compress);
     let visit_order = order::bfs_order(inodes, path_to_idx);
@@ -54,7 +54,7 @@ pub fn nids_and_layouts(
         let slot_offset = meta_offset;
         let nid = meta_offset
             .checked_div(SLOT_SIZE)
-            .map(util::truncate_usize_to_u64)
+            .map(sizes::truncate_usize_to_u64)
             .unwrap_or_default();
         let Some(inode) = inodes.get(i) else {
             continue;
