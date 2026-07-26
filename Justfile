@@ -59,8 +59,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer sign (artifact "uki iso")
-    @printf "{{ green }}{{ bold }}Build complete:{{ reset }} {{ artifacts }}/muak.iso\n"
+dev: (build "--release" "") installer sign (artifact "iso")
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
 kernel:
