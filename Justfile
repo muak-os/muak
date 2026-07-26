@@ -23,7 +23,7 @@ latest := env_var_or_default("LATEST", "false")
 ci_args := env_var_or_default("CI_ARGS", "")
 kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
 signature := env_var_or_default("SIGNATURE", "signature.key")
-artifacts := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
+out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
 # Architecture
 
@@ -59,7 +59,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer sign (artifact "iso")
+dev: (build "--release" "") installer sign (artifacts "iso")
 
 # Build kernel image (use `just extract --image ...` to extract artifacts locally)
 kernel:
@@ -95,9 +95,9 @@ installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
     pkgs="granola provisiond modd networkd apid vmd timed consoled init"
     if [ "{{ prod }}" = "false" ]; then
-        test -f {{ artifacts }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ artifacts }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} and extract\n"; exit 1; }
+        test -f {{ out }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ out }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} and extract\n"; exit 1; }
         pkg_args=(
-            --build-context pkg-kernel={{ artifacts }}
+            --build-context pkg-kernel={{ out }}
             --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
         )
         for pkg in $pkgs; do
@@ -125,12 +125,12 @@ installer prod="false":
 # Extract an OCI image filesystem to local artifacts
 [arg("image", long="image")]
 [script]
-extract image: _ensure-artifacts
+extract image: _ensure-out
     printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
     cid=$({{ container_runtime }} create "{{ image }}")
-    {{ container_runtime }} export "$cid" | tar -x -C {{ artifacts }}
+    {{ container_runtime }} export "$cid" | tar -x -C {{ out }}
     {{ container_runtime }} rm "$cid" >/dev/null
-    printf "{{ green }}Assets extracted to {{ artifacts }}/{{ reset }}\n"
+    printf "{{ green }}Assets extracted to {{ out }}/{{ reset }}\n"
 
 # Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
@@ -145,7 +145,7 @@ sign image=(registry + "/installer:" + tag):
 
 # Build boot artifacts (e.g., just artifact uki iso, just artifact raw)
 [script]
-artifact *types:
+artifacts *types:
     if [ -z "{{ types }}" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} No artifacts specified. Usage: just artifact <type> [type...]\n"
         exit 1
@@ -153,7 +153,7 @@ artifact *types:
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
-        -v "{{ artifacts }}:/out" \
+        -v "{{ out }}:/out" \
         {{ tools }} \
         /wizard build \
             --artifacts {{ types }} \
@@ -267,12 +267,12 @@ test *pkgs:
 [script]
 e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
-    MUAK_ARTIFACTS={{ artifacts }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
+    MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
 
 # Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
 [arg("clean", long="reset", value="true")]
 [script]
-start clean="false": (_require artifacts / "muak.iso" "just dev") _ensure-fw
+start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
     if [ "{{ clean }}" = "true" ]; then
         printf "{{ cyan }}Resetting VM state{{ reset }}\n"
         rm -f "/tmp/nvme-disk.img" "/tmp/OVMF_VARS.fd"
@@ -285,7 +285,7 @@ start clean="false": (_require artifacts / "muak.iso" "just dev") _ensure-fw
 
     if [ ! -f "/tmp/OVMF_VARS.fd" ]; then
         printf "{{ cyan }}Creating persistent OVMF vars{{ reset }}\n"
-        cp "{{ artifacts }}/OVMF_VARS.fd" "/tmp/OVMF_VARS.fd"
+        cp "{{ out }}/OVMF_VARS.fd" "/tmp/OVMF_VARS.fd"
     fi
 
     printf "{{ cyan }}Starting QEMU{{ reset }}\n"
@@ -299,13 +299,13 @@ start clean="false": (_require artifacts / "muak.iso" "just dev") _ensure-fw
         -cpu host \
         -m 2G \
         -smp 2 \
-        -drive if=pflash,format=raw,readonly=on,file="{{ artifacts }}/OVMF_CODE.secboot.fd" \
+        -drive if=pflash,format=raw,readonly=on,file="{{ out }}/OVMF_CODE.secboot.fd" \
         -drive if=pflash,format=raw,file="/tmp/OVMF_VARS.fd" \
         -serial stdio \
         -display none \
         -netdev user,id=net0,hostfwd=tcp:127.0.0.1:50051-:50051 \
         -device virtio-net-pci,netdev=net0 \
-        -drive file="{{ artifacts }}/muak.iso",format=raw,media=cdrom,if=none,id=cdrom0,readonly=on \
+        -drive file="{{ out }}/muak.iso",format=raw,media=cdrom,if=none,id=cdrom0,readonly=on \
         -device ide-cd,drive=cdrom0,bootindex=2 \
         -drive file="/tmp/nvme-disk.img",format=raw,if=none,id=nvme0 \
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
@@ -355,7 +355,7 @@ policy:
 clean:
     @printf "{{ cyan }}Cleaning build artifacts{{ reset }}\n"
     cargo clean
-    rm -rf {{ artifacts }}
+    rm -rf {{ out }}
     @printf "{{ green }}Clean complete{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -364,15 +364,15 @@ clean:
 
 [private]
 [script]
-_ensure-fw: _ensure-artifacts
+_ensure-fw: _ensure-out
     if [ "{{ arch }}" != "x86_64" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} QEMU helpers currently support only x86_64\n"
         exit 1
     fi
 
-    if [ ! -f "{{ artifacts }}/OVMF_VARS.fd" ] || [ ! -f "{{ artifacts }}/OVMF_CODE.secboot.fd" ]; then
+    if [ ! -f "{{ out }}/OVMF_VARS.fd" ] || [ ! -f "{{ out }}/OVMF_CODE.secboot.fd" ]; then
         printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
-        {{ container_runtime }} run --rm --network=host -v {{ artifacts }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
+        {{ container_runtime }} run --rm --network=host -v {{ out }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
         set -euo pipefail
         apk add --no-cache wget libarchive-tools >/dev/null 2>&1
         wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm
@@ -383,8 +383,8 @@ _ensure-fw: _ensure-artifacts
     fi
 
 [private]
-_ensure-artifacts:
-    @mkdir -p {{ artifacts }}
+_ensure-out:
+    @mkdir -p {{ out }}
 
 [private]
 _require file hint:
