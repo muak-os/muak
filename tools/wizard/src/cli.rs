@@ -132,6 +132,7 @@ fn parse_artifact(input: &str) -> Result<Artifact> {
         "uki" => Ok(Artifact::Uki),
         "iso" => Ok(Artifact::Iso),
         "raw" => Ok(Artifact::Raw),
+        "overlays" => Ok(Artifact::Overlays),
         _ => Err(anyhow::anyhow!("unknown artifact: {input}")),
     }
 }
@@ -341,7 +342,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());
-        println!("Successfully built {}", path.display(),);
+        println!("Successfully built {}", path.display());
     }
 
     Ok(())
