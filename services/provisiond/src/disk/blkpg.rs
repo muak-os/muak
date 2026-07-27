@@ -6,8 +6,8 @@ use rustix::io::Errno;
 use rustix::ioctl::{Opcode, Setter, ioctl};
 
 use super::constants::SECTOR_SIZE;
-use super::types::{BlkpgIoctlArg, BlkpgPartition};
 use super::gpt::format_partition_name;
+use super::types::{BlkpgIoctlArg, BlkpgPartition};
 
 const BLKPG_ADD_PARTITION: i32 = 1;
 const BLKPG_DEL_PARTITION: i32 = 2;
