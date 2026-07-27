@@ -50,7 +50,9 @@ pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usi
 fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
     inodes
         .iter()
-        .map(|inode| sizes::nid_slot_offset(inode.nid).saturating_add(sizes::meta_size_bytes(inode)))
+        .map(|inode| {
+            sizes::nid_slot_offset(inode.nid).saturating_add(sizes::meta_size_bytes(inode))
+        })
         .max()
         .unwrap_or(meta_start(do_compress))
 }
