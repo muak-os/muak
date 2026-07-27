@@ -1,7 +1,7 @@
 //! Command-line interface for the wizard.
 
 use std::ffi::OsString;
-use std::fs::File;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -342,7 +342,8 @@ async fn run_build(args: BuildArgs) -> Result<()> {
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());
-        println!("Successfully built {}", path.display());
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        println!("Successfully built {} ({} B)", path.display(), size);
     }
 
     Ok(())
