@@ -7,8 +7,8 @@ use crate::dir;
 use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
-    ClusterMap, FAT_COUNT, FAT16_MIN_CLUSTERS, FAT32_MIN_CLUSTERS, FatKind, FatLayout, FileMeta,
-    Precomputed, ROOT_CLUSTER, SECTOR_SIZE, fat12_16_cluster, fat32_cluster,
+    ClusterMap, FAT_COUNT, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, Precomputed, ROOT_CLUSTER,
+    SECTOR_SIZE, fat32_cluster,
 };
 
 /// Precomputes all FAT metadata from file paths and sizes.
@@ -95,60 +95,27 @@ pub fn format<W: Write>(writer: &mut W, size: u64) -> Result<()> {
 }
 
 fn write_boot_sector<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
-    match layout.kind {
-        FatKind::Fat32 => {
-            boot::write_boot32(writer, layout)?;
-            boot::write_fsinfo(writer)?;
-        }
-        FatKind::Fat12 | FatKind::Fat16 => {
-            boot::write_boot12_16(writer, layout)?;
-        }
-    }
-    Ok(())
+    boot::write_boot32(writer, layout)?;
+
+    boot::write_fsinfo(writer)
 }
 
 fn write_reserved_padding<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
-    let sectors_written_for_boot = match layout.kind {
-        FatKind::Fat32 => 2_u64,
-        FatKind::Fat12 | FatKind::Fat16 => 1_u64,
-    };
     let extra_reserved = layout
         .reserved_sectors
-        .wrapping_sub(sectors_written_for_boot)
+        .wrapping_sub(2)
         .wrapping_mul(SECTOR_SIZE);
     if extra_reserved > 0 {
         dir::write_zeros(writer, extra_reserved)?;
     }
+
     Ok(())
 }
 
 fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Result<()> {
     let cluster_bytes = precomputed.layout.spc.wrapping_mul(SECTOR_SIZE);
 
-    match precomputed.layout.kind {
-        FatKind::Fat12 | FatKind::Fat16 => {
-            let root_dir_data = precomputed
-                .dir_data
-                .first()
-                .map_or(&[][..], |dir_bytes| dir_bytes.as_slice());
-            writer.write_all(root_dir_data)?;
-            let root_size = precomputed
-                .layout
-                .root_dir_sectors
-                .wrapping_mul(SECTOR_SIZE);
-            let remaining =
-                root_size.wrapping_sub(u64::try_from(root_dir_data.len()).unwrap_or(u64::MAX));
-            if remaining > 0 && remaining < root_size {
-                dir::write_zeros(writer, remaining)?;
-            }
-        }
-        FatKind::Fat32 => {}
-    }
-
     for i in 0..precomputed.dirs.len() {
-        if i == 0 && precomputed.layout.kind != FatKind::Fat32 {
-            continue;
-        }
         let dir_data = precomputed
             .dir_data
             .get(i)
@@ -160,6 +127,7 @@ fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Res
             dir::write_zeros(writer, pad)?;
         }
     }
+
     Ok(())
 }
 
@@ -202,40 +170,21 @@ fn compute_layout(image_size: u64) -> Result<FatLayout> {
     if total_sectors < 2 {
         return Err(FatError::Fat("image too small for reserved area".into()));
     }
-    let root_dir_sectors = 512_u64.wrapping_mul(32).div_euclid(SECTOR_SIZE);
+    let rsvd = 8_u64;
     let spc_values: &[u64] = &[64, 32, 16, 8, 4, 2, 1];
-    for &(rsvd, kind) in &[
-        (8_u64, FatKind::Fat32),
-        (1, FatKind::Fat16),
-        (1, FatKind::Fat12),
-    ] {
-        if total_sectors <= rsvd {
-            continue;
-        }
-        let root_secs = match kind {
-            FatKind::Fat32 => 0,
-            FatKind::Fat12 | FatKind::Fat16 => root_dir_sectors,
+    for &spc in spc_values {
+        let result = test_spc(spc, total_sectors, rsvd, 0);
+        let (fat_sectors, final_clusters, _) = match result {
+            Some(triple) if triple.1 >= FAT32_MIN_CLUSTERS => triple,
+            _ => continue,
         };
-        let valid_spcs: &[u64] = match kind {
-            FatKind::Fat32 => &[64, 32, 16, 8, 4, 2, 1],
-            FatKind::Fat12 | FatKind::Fat16 => spc_values,
-        };
-        for &spc in valid_spcs {
-            let result = test_spc(spc, total_sectors, rsvd, root_secs);
-            let (fat_sectors, final_clusters, _) = match result {
-                Some(triple) if check_kind(triple.1, kind) => triple,
-                _ => continue,
-            };
-            return Ok(FatLayout {
-                total_sectors,
-                reserved_sectors: rsvd,
-                fat_sectors,
-                spc,
-                root_dir_sectors: root_secs,
-                data_cluster_count: final_clusters,
-                kind,
-            });
-        }
+        return Ok(FatLayout {
+            total_sectors,
+            reserved_sectors: rsvd,
+            fat_sectors,
+            spc,
+            data_cluster_count: final_clusters,
+        });
     }
 
     Err(FatError::Fat(
@@ -263,14 +212,6 @@ fn test_spc(spc: u64, total_sectors: u64, rsvd: u64, root_secs: u64) -> Option<(
     }
 
     Some((fat_sectors, final_clusters, spc))
-}
-
-fn check_kind(final_clusters: u64, kind: FatKind) -> bool {
-    match kind {
-        FatKind::Fat12 => final_clusters < FAT16_MIN_CLUSTERS,
-        FatKind::Fat16 => (FAT16_MIN_CLUSTERS..FAT32_MIN_CLUSTERS).contains(&final_clusters),
-        FatKind::Fat32 => final_clusters >= FAT32_MIN_CLUSTERS,
-    }
 }
 
 fn collect_dir_paths(files: &[FileMeta<'_>]) -> Vec<String> {
@@ -301,17 +242,8 @@ fn assign_clusters(
     dirs: &[String],
     layout: &FatLayout,
 ) -> Result<ClusterMap> {
-    let is_fat32 = layout.kind == FatKind::Fat32;
-    let dir_clusters: Vec<u32> = if is_fat32 {
-        (0..dirs.len()).map(fat32_cluster).collect()
-    } else {
-        (0..dirs.len()).map(fat12_16_cluster).collect()
-    };
-    let dir_data_count = if is_fat32 {
-        dirs.len()
-    } else {
-        dirs.len().saturating_sub(1)
-    };
+    let dir_clusters: Vec<u32> = (0..dirs.len()).map(fat32_cluster).collect();
+    let dir_data_count = dirs.len();
     let dir_count =
         u64::try_from(dir_data_count).map_err(|_conv| FatError::Fat("too many dirs".into()))?;
     let mut next_cluster = u64::from(ROOT_CLUSTER).wrapping_add(dir_count);
@@ -355,6 +287,7 @@ impl<W: Write> Write for CountWriter<W> {
         self.written = self
             .written
             .wrapping_add(u64::try_from(n).unwrap_or(u64::MAX));
+
         Ok(n)
     }
 
@@ -553,7 +486,7 @@ mod tests {
         let mut buf = Vec::new();
 
         // ACT
-        format(&mut buf, 1024 * 1024).expect("format must succeed");
+        format(&mut buf, 36 * 1024 * 1024).expect("format must succeed");
 
         // ASSERT
         assert_eq!(
@@ -561,7 +494,10 @@ mod tests {
             Some(&[0x55, 0xAA][..]),
             "boot signature must be valid"
         );
-        assert!(buf.len() >= 1024 * 1024, "image must be at least 1 MiB");
+        assert!(
+            buf.len() >= 36 * 1024 * 1024,
+            "image must be at least 36 MiB"
+        );
     }
 
     #[test]
@@ -570,16 +506,16 @@ mod tests {
         let mut buf = Vec::new();
 
         // ACT
-        format(&mut buf, 1024 * 1024).expect("format must succeed");
+        format(&mut buf, 36 * 1024 * 1024).expect("format must succeed");
 
         // ASSERT
-        let jump = buf.get(0..3).unwrap_or(&[]);
-        assert!(
-            jump == [0xEB, 0x58, 0x90] || jump == [0xEB, 0x3C, 0x90],
-            "jump instruction must be valid {jump:?}"
+        assert_eq!(
+            buf.get(0..3),
+            Some(&[0xEB, 0x58, 0x90][..]),
+            "jump instruction"
         );
         assert_eq!(buf.get(3..11), Some(&b"MSWIN4.1"[..]), "OEM ID");
-        assert_eq!(buf.get(43..54), Some(&b"EFI        "[..]), "volume label");
+        assert_eq!(buf.get(71..82), Some(&b"EFI        "[..]), "volume label");
     }
 
     #[test]
@@ -588,7 +524,7 @@ mod tests {
         let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki-payload".as_slice())];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
         assert_eq!(out.get(510..512), Some(&[0x55, 0xAA][..]), "boot signature");
@@ -603,7 +539,7 @@ mod tests {
         ];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
         assert!(!out.is_empty());
@@ -618,7 +554,7 @@ mod tests {
         ];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
         assert!(!out.is_empty());
@@ -631,7 +567,7 @@ mod tests {
         let files = &[("EFI/BOOT/BOOTX64.EFI", payload.as_slice())];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
         let bps = u64::from(read_u16_le(&out, 11));
@@ -667,7 +603,7 @@ mod tests {
         ];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
         let is_32 = bpb_is_fat32(&out);
@@ -678,59 +614,6 @@ mod tests {
             find_in_dir(&out, overlays_cluster, "rpi").expect("must find rpi directory");
         let (_cfg_cluster, _) = find_in_dir(&out, rpi_cluster, "config.txt")
             .expect("must find config.txt in overlays/rpi");
-    }
-
-    #[test]
-    fn fat16_bpb_for_small_volumes() {
-        // ARRANGE
-        let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice())];
-
-        // ACT
-        let out = build_image(files, 1024 * 1024);
-
-        // ASSERT
-        assert!(
-            !bpb_is_fat32(&out),
-            "small volume must be FAT12/16 not FAT32"
-        );
-        let fat_sectors = u64::from(read_u16_le(&out, 22));
-        assert!(fat_sectors > 0, "FATSz16 must be non-zero");
-        let root_entries = read_u16_le(&out, 17);
-        assert!(root_entries > 0, "RootEntCnt must be non-zero");
-        let fs_type = out.get(54..62).unwrap_or(&[]);
-        assert!(
-            fs_type == b"FAT12   " || fs_type == b"FAT16   ",
-            "file system type must be FAT12 or FAT16 at offset 54, got {fs_type:?}"
-        );
-    }
-
-    #[test]
-    fn fat16_root_dir_accessible() {
-        // ARRANGE
-        let files = &[("EFI/BOOT/BOOTX64.EFI", b"uki".as_slice())];
-
-        // ACT
-        let out = build_image(files, 1024 * 1024);
-
-        // ASSERT
-        let is_32 = bpb_is_fat32(&out);
-        assert!(!is_32, "must be FAT16 for this test");
-        let (efi_cluster, _) = find_in_dir(&out, 0, "EFI").expect("must find EFI in root dir");
-        assert!(
-            efi_cluster >= ROOT_CLUSTER,
-            "EFI dir must have valid cluster"
-        );
-        let (boot_cluster, _) =
-            find_in_dir(&out, efi_cluster, "BOOT").expect("must find BOOT in EFI dir");
-        let (file_cluster, file_size) = find_in_dir(&out, boot_cluster, "BOOTX64.EFI")
-            .expect("must find BOOTX64.EFI in EFI/BOOT");
-        assert!(file_size > 0);
-        let file_data = cluster_data_slice(&out, file_cluster);
-        assert_eq!(
-            file_data.get(..3),
-            Some(&b"uki"[..]),
-            "file data must be correct"
-        );
     }
 
     #[test]
@@ -776,7 +659,7 @@ mod tests {
     fn build_detects_short_reader() {
         // ARRANGE
         let files = &[FileMeta::new("test.bin", 16)];
-        let precomputed = precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let precomputed = precompute(files, 36 * 1024 * 1024).expect("precompute must succeed");
         let mut empty_reader = std::io::empty();
 
         // ACT
@@ -792,56 +675,18 @@ mod tests {
     }
 
     #[test]
-    fn compute_layout_basic() {
-        // ARRANGE / ACT
-        let layout = compute_layout(1024 * 1024).expect("layout must compute");
-
-        // ASSERT
-        assert_eq!(layout.kind, FatKind::Fat12, "1 MiB image must be FAT12");
-        assert_eq!(layout.total_sectors, 2048);
-        assert!(layout.fat_sectors > 0);
-    }
-
-    #[test]
     fn build_with_large_payload() {
         // ARRANGE
         let data = vec![0xAB_u8; 100_000];
         let files = &[("EFI/BOOT/BOOTX64.EFI", data.as_slice())];
 
         // ACT
-        let out = build_image(files, 1024 * 1024);
+        let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
-        assert_eq!(u64::try_from(out.len()).unwrap_or(u64::MAX), 1024 * 1024);
-    }
-
-    #[test]
-    fn fat16_bpb_matches_actual_layout() {
-        // ARRANGE
-        let data = vec![0xAB_u8; 100_000];
-        let files = &[("EFI/BOOT/BOOTX64.EFI", data.as_slice())];
-
-        // ACT
-        let out = build_image(files, 1024 * 1024);
-
-        // ASSERT
-        let is_32 = bpb_is_fat32(&out);
-        assert!(!is_32, "small volume must be FAT16");
-        let fat_sectors = u64::from(read_u16_le(&out, 22));
-        let bps = u64::from(read_u16_le(&out, 11));
-        let reserved = u64::from(read_u16_le(&out, 14));
-        let expected_fat_bytes = fat_sectors.wrapping_mul(bps);
-        let fat1_start = usize::try_from(reserved.wrapping_mul(bps)).unwrap_or(0);
-        let fat1_end = fat1_start.wrapping_add(usize::try_from(expected_fat_bytes).unwrap_or(0));
-        let fat2_end = fat1_end.wrapping_add(usize::try_from(expected_fat_bytes).unwrap_or(0));
-        assert!(
-            out.len() >= fat2_end,
-            "image must be large enough for two FATs"
-        );
         assert_eq!(
-            out.get(fat1_start..fat1_end),
-            out.get(fat1_end..fat2_end),
-            "FAT1 and FAT2 must be identical"
+            u64::try_from(out.len()).unwrap_or(u64::MAX),
+            36 * 1024 * 1024
         );
     }
 

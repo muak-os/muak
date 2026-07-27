@@ -1,4 +1,4 @@
-//! FAT12/FAT16/FAT32 filesystem image builder.
+//! FAT32 filesystem image builder.
 
 #![warn(missing_docs)]
 

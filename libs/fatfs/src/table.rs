@@ -1,21 +1,14 @@
-use crate::types::{
-    ClusterMap, FAT12_EOC, FAT16_EOC, FAT32_EOC, FatKind, FatLayout, ROOT_CLUSTER, SECTOR_SIZE,
-};
+use crate::types::{ClusterMap, FAT32_EOC, FatLayout, ROOT_CLUSTER, SECTOR_SIZE};
 
 pub(crate) fn make_fat(map: &ClusterMap, layout: &FatLayout) -> Vec<u8> {
     let total_entries = usize::try_from(layout.data_cluster_count.wrapping_add(2)).unwrap_or(0);
     let fat_byte_count = layout.fat_sectors.wrapping_mul(SECTOR_SIZE);
     let mut fat: Vec<u32> = vec![0; total_entries];
-    let eoc = eoc_value(layout.kind);
     if let Some(entry) = fat.get_mut(0) {
-        *entry = match layout.kind {
-            FatKind::Fat12 => 0x0FF8,
-            FatKind::Fat16 => 0xFFF8,
-            FatKind::Fat32 => 0x0FFF_FFF8,
-        };
+        *entry = 0x0FFF_FFF8;
     }
     if let Some(entry) = fat.get_mut(1) {
-        *entry = eoc;
+        *entry = FAT32_EOC;
     }
     for &dc in &map.dir_clusters {
         if dc < 2 {
@@ -23,30 +16,18 @@ pub(crate) fn make_fat(map: &ClusterMap, layout: &FatLayout) -> Vec<u8> {
         }
         let dc_idx = usize::try_from(dc).unwrap_or(0);
         if let Some(entry) = fat.get_mut(dc_idx) {
-            *entry = eoc;
+            *entry = FAT32_EOC;
         }
     }
     for i in 0..map.file_starts.len() {
         let start =
             usize::try_from(map.file_starts.get(i).copied().unwrap_or(ROOT_CLUSTER)).unwrap_or(0);
         let count = usize::try_from(map.file_counts.get(i).copied().unwrap_or(0)).unwrap_or(0);
-        fill_fat_chain(&mut fat, start, count, eoc);
+        fill_fat_chain(&mut fat, start, count, FAT32_EOC);
     }
     let mut bytes = Vec::with_capacity(usize::try_from(fat_byte_count).unwrap_or(0));
-    match layout.kind {
-        FatKind::Fat12 => {
-            pack_fat12_entries(&fat, &mut bytes);
-        }
-        FatKind::Fat16 => {
-            for &e in &fat {
-                bytes.extend_from_slice(&u16::try_from(e).unwrap_or(0).to_le_bytes());
-            }
-        }
-        FatKind::Fat32 => {
-            for &e in &fat {
-                bytes.extend_from_slice(&e.to_le_bytes());
-            }
-        }
+    for &e in &fat {
+        bytes.extend_from_slice(&e.to_le_bytes());
     }
     let needed = usize::try_from(fat_byte_count).unwrap_or(0);
     if bytes.len() < needed {
@@ -54,15 +35,6 @@ pub(crate) fn make_fat(map: &ClusterMap, layout: &FatLayout) -> Vec<u8> {
     }
 
     bytes
-}
-
-fn pack_fat12_entries(fat: &[u32], bytes: &mut Vec<u8>) {
-    for i in (0..fat.len()).step_by(2) {
-        let e = fat.get(i).copied().unwrap_or(0);
-        let next = fat.get(i.wrapping_add(1)).copied().unwrap_or(0);
-        let packed = (e & 0x0FFF) | ((next & 0x0FFF) << 12);
-        bytes.extend_from_slice(packed.to_le_bytes().get(..3).unwrap_or(&[0; 3]));
-    }
 }
 
 fn fill_fat_chain(fat: &mut [u32], start: usize, count: usize, eoc: u32) {
@@ -76,13 +48,5 @@ fn fill_fat_chain(fat: &mut [u32], start: usize, count: usize, eoc: u32) {
         if let Some(entry) = fat.get_mut(idx) {
             *entry = value;
         }
-    }
-}
-
-fn eoc_value(kind: FatKind) -> u32 {
-    match kind {
-        FatKind::Fat12 => FAT12_EOC,
-        FatKind::Fat16 => FAT16_EOC,
-        FatKind::Fat32 => FAT32_EOC,
     }
 }

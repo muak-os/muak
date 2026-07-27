@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::error::Result;
 use crate::types::{
-    ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_LFN, ClusterMap, FatKind, FatLayout, FileMeta, ROOT_CLUSTER,
-    fat12_16_cluster, fat32_cluster,
+    ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_LFN, ClusterMap, FatLayout, FileMeta, ROOT_CLUSTER,
+    fat32_cluster,
 };
 
 pub(crate) fn build_data(
@@ -14,9 +14,9 @@ pub(crate) fn build_data(
     layout: &FatLayout,
 ) -> Vec<u8> {
     let cluster_bytes = layout.spc.wrapping_mul(512);
-    let me = dir_cluster(dir_index, layout);
+    let me = fat32_cluster(dir_index);
     let parent_idx = parent_dir_index(dirs, dir_index);
-    let parent_cluster = dir_cluster(parent_idx, layout);
+    let parent_cluster = fat32_cluster(parent_idx);
     let capacity = usize::try_from(cluster_bytes).unwrap_or(0);
     let mut data = Vec::with_capacity(capacity);
     data.extend_from_slice(&short_entry(&dot_entry(b"."), ATTR_DIRECTORY, me, 0));
@@ -45,7 +45,7 @@ pub(crate) fn build_data(
             .into_owned();
         let idx = data.len().next_multiple_of(32);
         data.resize(idx, 0);
-        data.extend_from_slice(&dir_entry_bytes(&name, dir_cluster(other_idx, layout)));
+        data.extend_from_slice(&dir_entry_bytes(&name, fat32_cluster(other_idx)));
     }
     for (file_index, file) in files.iter().enumerate() {
         let fp = std::path::Path::new(file.path);
@@ -84,14 +84,6 @@ fn parent_dir_index(dirs: &[String], dir_index: usize) -> usize {
         .unwrap_or_default();
 
     dirs.iter().position(|dir| *dir == parent_dir).unwrap_or(0)
-}
-
-fn dir_cluster(index: usize, layout: &FatLayout) -> u32 {
-    if layout.kind == FatKind::Fat32 {
-        fat32_cluster(index)
-    } else {
-        fat12_16_cluster(index)
-    }
 }
 
 fn short_entry(name: &[u8; 11], attr: u8, cluster: u32, size: u32) -> [u8; 32] {

@@ -1,6 +1,6 @@
 [package]
 name = "fatfs"
-description = "FAT12/FAT16/FAT32 filesystem writer"
+description = "FAT32 filesystem writer"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true

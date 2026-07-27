@@ -1,60 +1,7 @@
 use std::io::Write;
 
 use crate::error::Result;
-use crate::types::{FAT_COUNT, FatKind, FatLayout, SECTOR_SIZE, VOLUME_ID};
-
-pub(crate) fn write_boot12_16<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
-    let fs_type = match layout.kind {
-        FatKind::Fat12 => b"FAT12   ",
-        FatKind::Fat16 => b"FAT16   ",
-        FatKind::Fat32 => b"FAT32   ",
-    };
-    let mut bs = [0_u8; 512];
-    write_bytes(&mut bs, 0, &[0xEB, 0x3C, 0x90]);
-    write_bytes(&mut bs, 3, b"MSWIN4.1");
-    write_bytes(
-        &mut bs,
-        11,
-        &u16::try_from(SECTOR_SIZE).unwrap_or(0).to_le_bytes(),
-    );
-    let spc_u8 = u8::try_from(layout.spc).unwrap_or(1);
-    write_bytes(&mut bs, 13, &[spc_u8]);
-    write_bytes(
-        &mut bs,
-        14,
-        &u16::try_from(layout.reserved_sectors)
-            .unwrap_or(0)
-            .to_le_bytes(),
-    );
-    write_bytes(&mut bs, 16, &[u8::try_from(FAT_COUNT).unwrap_or(0)]);
-    write_bytes(&mut bs, 17, &512_u16.to_le_bytes());
-    let tot16 = u16::try_from(layout.total_sectors).unwrap_or(0);
-    write_bytes(&mut bs, 19, &tot16.to_le_bytes());
-    write_bytes(&mut bs, 21, &[0xF8]);
-    write_bytes(
-        &mut bs,
-        22,
-        &u16::try_from(layout.fat_sectors).unwrap_or(0).to_le_bytes(),
-    );
-    write_bytes(&mut bs, 24, &0x0020_u16.to_le_bytes());
-    write_bytes(&mut bs, 26, &0x0040_u16.to_le_bytes());
-    let tot32 = if tot16 == 0 {
-        u32::try_from(layout.total_sectors).unwrap_or(0)
-    } else {
-        0
-    };
-    write_bytes(&mut bs, 32, &tot32.to_le_bytes());
-    write_bytes(&mut bs, 36, &[0x80]);
-    write_bytes(&mut bs, 37, &[0x00]);
-    write_bytes(&mut bs, 38, &[0x29]);
-    write_bytes(&mut bs, 39, &VOLUME_ID.to_le_bytes());
-    write_bytes(&mut bs, 43, b"EFI        ");
-    write_bytes(&mut bs, 54, fs_type);
-    write_bytes(&mut bs, 510, &[0x55, 0xAA]);
-    writer.write_all(&bs)?;
-
-    Ok(())
-}
+use crate::types::{FAT_COUNT, FatLayout, SECTOR_SIZE, VOLUME_ID};
 
 pub(crate) fn write_boot32<W: Write>(writer: &mut W, layout: &FatLayout) -> Result<()> {
     let mut bs = [0_u8; 512];

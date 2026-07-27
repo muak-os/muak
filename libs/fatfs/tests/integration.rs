@@ -13,7 +13,7 @@ mod tests {
         let mut buf = Vec::new();
 
         // ACT
-        builder::format(&mut buf, 1024 * 1024).expect("format must succeed");
+        builder::format(&mut buf, 36 * 1024 * 1024).expect("format must succeed");
 
         // ASSERT
         assert_eq!(
@@ -28,7 +28,8 @@ mod tests {
     fn build_creates_image_with_content() {
         // ARRANGE
         let files = &[FileMeta::new("EFI/BOOT/BOOTX64.EFI", 11)];
-        let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let precomputed =
+            builder::precompute(files, 36 * 1024 * 1024).expect("precompute must succeed");
         let mut readers = vec![Cursor::new(b"uki-payload".as_slice())];
 
         // ACT
@@ -41,7 +42,7 @@ mod tests {
             Some(&[0x55, 0xAA][..]),
             "boot signature must be valid"
         );
-        assert!(buf.len() >= 1024 * 1024);
+        assert!(buf.len() >= 36 * 1024 * 1024);
     }
 
     #[test]
@@ -63,7 +64,8 @@ mod tests {
             FileMeta::new("EFI/BOOT/BOOTX64.EFI", 3),
             FileMeta::new("overlays/rpi/config.txt", 11),
         ];
-        let precomputed = builder::precompute(files, 1024 * 1024).expect("precompute must succeed");
+        let precomputed =
+            builder::precompute(files, 36 * 1024 * 1024).expect("precompute must succeed");
         let mut readers = vec![
             Cursor::new(b"uki".as_slice()),
             Cursor::new(b"arm_64bit=1".as_slice()),

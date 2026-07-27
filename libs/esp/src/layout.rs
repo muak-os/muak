@@ -1,16 +1,12 @@
 //! Layout computation for ESP partitions.
 
-use fatfs::error::FatError;
-
 use crate::FileMeta;
-use crate::error::{EspError, Result};
+use crate::error::Result;
 use crate::path;
 
 const CLUSTER_SIZE: u64 = 4096;
 const SECTOR_SIZE: u64 = 512;
 const RESERVED_SECTORS: u64 = 32;
-const MIN_IMAGE_BYTES: u64 = 1_u64 << 20;
-const MAX_IMAGE_BYTES: u64 = 1_u64 << 29;
 const DIRECTORY_OVERHEAD: u64 = 1_u64 << 20;
 
 /// Precomputed layout for an ESP image.
@@ -26,7 +22,7 @@ pub struct Layout<'a> {
 ///
 /// # Errors
 ///
-/// Returns an error when a path is invalid or the total data exceeds the supported image size.
+/// Returns an error when a path is invalid.
 pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
     path::validate_spec(files.iter().map(|file| file.path))?;
 
@@ -40,12 +36,7 @@ pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
 
 fn image_size_for(total_data: u64) -> Result<u64> {
     let padded = total_data.saturating_add(DIRECTORY_OVERHEAD);
-    let data_region = next_multiple_of(padded, CLUSTER_SIZE).max(MIN_IMAGE_BYTES);
-    if data_region > MAX_IMAGE_BYTES {
-        return Err(EspError::Fat(FatError::Fat(format!(
-            "ESP image size {data_region} exceeds {MAX_IMAGE_BYTES} byte limit"
-        ))));
-    }
+    let data_region = next_multiple_of(padded, CLUSTER_SIZE);
     let reserved = RESERVED_SECTORS.saturating_mul(SECTOR_SIZE);
     let fat_bytes = fat_bytes_for(data_region);
     let fats_total = fat_bytes.saturating_mul(2);
@@ -74,6 +65,7 @@ mod tests {
     use std::io::{Cursor, Read};
 
     use super::*;
+    use crate::error::EspError;
     use crate::image;
 
     #[test]
@@ -91,16 +83,16 @@ mod tests {
         let layout = compute(&[]).expect("layout must compute");
 
         // ASSERT
-        assert!(layout.total_size >= MIN_IMAGE_BYTES);
         assert_eq!(layout.total_size.rem_euclid(SECTOR_SIZE), 0);
     }
 
     #[test]
     fn compute_layout_grows_with_data() {
         // ARRANGE / ACT
-        let small = compute(&[FileMeta::new("a.txt", 4096)]).expect("small must compute");
+        let small =
+            compute(&[FileMeta::new("a.txt", 36 * 1024 * 1024)]).expect("small must compute");
         let large =
-            compute(&[FileMeta::new("a.txt", 4 * 1024 * 1024)]).expect("large must compute");
+            compute(&[FileMeta::new("a.txt", 72 * 1024 * 1024)]).expect("large must compute");
 
         // ASSERT
         assert!(large.total_size > small.total_size);
@@ -109,15 +101,15 @@ mod tests {
     #[test]
     fn build_produces_bootable_image() {
         // ARRANGE
-        let layout = compute(&[
-            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 3),
-            FileMeta::new("config.txt", 6),
-        ])
+        let data = vec![0xAB_u8; 33 * 1024 * 1024];
+        let layout = compute(&[FileMeta::new(
+            "EFI/BOOT/BOOTX64.EFI",
+            u64::try_from(data.len()).unwrap_or(0),
+        )])
         .expect("layout must compute");
         let mut output = Vec::new();
-        let mut uki_reader = Cursor::new(b"uki".as_slice());
-        let mut cfg_reader = Cursor::new(b"config".as_slice());
-        let mut readers: Vec<&mut dyn Read> = vec![&mut uki_reader, &mut cfg_reader];
+        let mut uki_reader = Cursor::new(data.as_slice());
+        let mut readers: Vec<&mut dyn Read> = vec![&mut uki_reader];
 
         // ACT
         image::build(&layout, &mut readers, &mut output).expect("build must succeed");
@@ -134,13 +126,17 @@ mod tests {
     #[test]
     fn build_rejects_reader_count_mismatch() {
         // ARRANGE
+        let data = vec![0xAB_u8; 33 * 1024 * 1024];
         let layout = compute(&[
-            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 3),
-            FileMeta::new("config.txt", 6),
+            FileMeta::new(
+                "EFI/BOOT/BOOTX64.EFI",
+                u64::try_from(data.len()).unwrap_or(0),
+            ),
+            FileMeta::new("config.txt", 0),
         ])
         .expect("layout must compute");
         let mut output = Vec::new();
-        let mut reader = Cursor::new(b"uki".as_slice());
+        let mut reader = Cursor::new(data.as_slice());
         let mut readers: Vec<&mut dyn Read> = vec![&mut reader];
 
         // ACT
@@ -153,7 +149,12 @@ mod tests {
     #[test]
     fn build_rejects_empty_readers_for_nonempty_layout() {
         // ARRANGE
-        let layout = compute(&[FileMeta::new("config.txt", 6)]).expect("layout must compute");
+        let data = vec![0xAB_u8; 33 * 1024 * 1024];
+        let layout = compute(&[FileMeta::new(
+            "config.txt",
+            u64::try_from(data.len()).unwrap_or(0),
+        )])
+        .expect("layout must compute");
         let mut output = Vec::new();
         let mut readers: Vec<&mut dyn Read> = vec![];
 
