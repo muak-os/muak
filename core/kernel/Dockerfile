@@ -49,7 +49,6 @@ rm sha256sums.asc
 tar -xJf linux-${KERNEL_VERSION}.tar.xz --strip-components=1
 rm linux-${KERNEL_VERSION}.tar.xz
 mkdir -p certs
-make mrproper
 EOF
 
 COPY core/kernel/config-${TARGETARCH} .config
