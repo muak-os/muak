@@ -1,0 +1,29 @@
+[package]
+name = "mumi"
+description = "Seals a rootfs directory into a compressed immutable image"
+edition.workspace = true
+version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "mumi"
+
+[dependencies]
+# CLI
+clap = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Internal
+erofs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

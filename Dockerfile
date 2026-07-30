@@ -77,10 +77,14 @@ COPY --link --from=selinux     /policy/policy.*      /rootfs/etc/selinux/
 COPY --link --from=selinux     /policy/file_contexts /file_contexts
 COPY --link --from=pkg-init    /init                 /init
 
-RUN ["/ramune", "create", \
-  "--init", "/init", \
-  "--rootfs-dir", "/rootfs", \
+RUN ["/mumi", \
+  "--dir", "/rootfs", \
   "--file-contexts", "/file_contexts", \
+  "--output", "/rootfs.erofs"]
+
+RUN ["/ramune", "create", \
+  "--file", "init=/init:755", \
+  "--file", "rootfs.erofs=/rootfs.erofs:644", \
   "--output", "/initramfs.img"]
 
 # ─────────────────────────────────────────────────────────────────────────────

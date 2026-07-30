@@ -18,6 +18,7 @@ members = [
     "tools/wizard",
     "tools/koci",
     "tools/miso",
+    "tools/mumi",
     "tools/ramune",
     "tools/yuki",
 
@@ -54,6 +55,7 @@ categories = ["os"]
 wizard = { path = "tools/wizard", default-features = false }
 koci = { path = "tools/koci", default-features = false }
 miso = { path = "tools/miso", default-features = false }
+mumi = { path = "tools/mumi" }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
