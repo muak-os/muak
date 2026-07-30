@@ -80,6 +80,7 @@ pub(crate) fn entry_size(name: &str, payload_len: u64) -> u64 {
     let name_len = u64::try_from(name.len()).unwrap_or(u64::MAX);
     let header_end = 110_u64.saturating_add(name_len).saturating_add(1);
     let after_name = header_end.next_multiple_of(4);
+
     if payload_len > 0 {
         after_name.saturating_add(payload_len).next_multiple_of(4)
     } else {

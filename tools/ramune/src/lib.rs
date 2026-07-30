@@ -7,9 +7,7 @@ pub mod archive;
 pub mod cli;
 mod compress;
 mod cpio;
-mod erofs;
 pub mod error;
-pub mod rootfs;
 
 /// An archive entry to include in a CPIO archive.
 pub type Entry = archive::Entry;

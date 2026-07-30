@@ -1,6 +1,6 @@
 [package]
 name = "ramune"
-description = "Create and extend initramfs images"
+description = "Packs arbitrary files into a compressed initramfs CPIO archive."
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
@@ -24,11 +24,8 @@ zstd = { workspace = true }
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
-# Filesystem
+[dev-dependencies]
 tempfile = { workspace = true }
-
-# Internal
-erofs = { workspace = true }
 
 [features]
 default = ["cli"]

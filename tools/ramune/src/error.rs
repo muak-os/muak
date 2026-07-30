@@ -46,10 +46,6 @@ pub enum RamuneError {
         max: i32,
     },
 
-    /// EROFS filesystem creation failed.
-    #[error("Failed to create EROFS image: {0}")]
-    ErofsError(String),
-
     /// CPIO archive creation failed.
     #[error("Failed to create CPIO archive: {0}")]
     CpioError(String),

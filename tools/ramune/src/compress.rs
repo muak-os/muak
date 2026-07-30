@@ -1,10 +1,25 @@
-//! Shared zstd compression helpers for ramune image builders.
+//! Compression of initramfs data using zstd.
 
 use std::io::Write;
 
 use crate::error::{RamuneError, Result};
 
 const ZSTD_WORKERS: u32 = 8;
+
+/// Creates a zstd encoder with the specified compression level and number of workers.
+pub(crate) fn encoder<W: Write>(
+    writer: W,
+    compression_level: i32,
+) -> Result<zstd::Encoder<'static, W>> {
+    let compression_level = validate_level(compression_level)?;
+    let mut encoder =
+        zstd::Encoder::new(writer, compression_level).map_err(RamuneError::ZstdInitError)?;
+    encoder
+        .multithread(ZSTD_WORKERS)
+        .map_err(RamuneError::ZstdInitError)?;
+
+    Ok(encoder)
+}
 
 /// Validates that the provided compression level is within the valid range.
 pub(crate) fn validate_level(compression_level: i32) -> Result<i32> {
@@ -19,20 +34,6 @@ pub(crate) fn validate_level(compression_level: i32) -> Result<i32> {
             max: *range.end(),
         })
     }
-}
-
-/// Creates a zstd encoder with the specified compression level and number of workers.
-pub(crate) fn encoder<W: Write>(
-    writer: W,
-    compression_level: i32,
-) -> Result<zstd::Encoder<'static, W>> {
-    let compression_level = validate_level(compression_level)?;
-    let mut encoder =
-        zstd::Encoder::new(writer, compression_level).map_err(RamuneError::ZstdInitError)?;
-    encoder
-        .multithread(ZSTD_WORKERS)
-        .map_err(RamuneError::ZstdInitError)?;
-    Ok(encoder)
 }
 
 #[cfg(test)]

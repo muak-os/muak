@@ -1,6 +1,6 @@
 use core::str;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use tempfile::TempDir;
 
@@ -33,13 +33,6 @@ impl TestEnv {
         let path = self.path(name);
         fs::write(&path, data).expect("failed to write fixture file");
         path
-    }
-
-    pub fn write_rootfs(&self) -> PathBuf {
-        let rootfs = self.path("rootfs");
-        fs::create_dir_all(rootfs.join("sbin")).expect("failed to create rootfs sbin");
-        fs::write(rootfs.join("sbin/init"), b"rootfs-init").expect("failed to write rootfs init");
-        rootfs
     }
 }
 
@@ -108,10 +101,4 @@ pub fn parse_newc_archive(bytes: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
     }
 
     entries
-}
-
-pub fn decode_initramfs(path: &Path) -> Vec<(String, u32, Vec<u8>)> {
-    let compressed = fs::read(path).expect("failed to read initramfs");
-    let archive = zstd::decode_all(compressed.as_slice()).expect("failed to decode initramfs");
-    parse_newc_archive(&archive)
 }

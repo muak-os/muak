@@ -8,10 +8,21 @@ mod tests {
 
     use ramune::cli;
 
-    use super::fixtures::{TestEnv, decode_initramfs};
+    use super::fixtures::{TestEnv, parse_newc_archive};
 
     fn ramune_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_BIN_EXE_ramune"))
+    }
+
+    fn decode_initramfs(output: &std::path::Path) -> Vec<(String, u32, Vec<u8>)> {
+        let compressed = std::fs::read(output).expect("failed to read initramfs");
+        let archive = zstd::decode_all(compressed.as_slice()).expect("failed to decode initramfs");
+
+        parse_newc_archive(&archive)
+    }
+
+    fn file_arg(name: &str, path: &std::path::Path, mode: &str) -> String {
+        format!("{}={}:{}", name, path.to_str().expect("path"), mode)
     }
 
     #[test]
@@ -19,17 +30,17 @@ mod tests {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
+        let rootfs = env.write("rootfs.erofs", b"fake-erofs-content");
         let output = env.path("initramfs.img");
 
         // ACT
         let process_output = Command::new(ramune_bin())
             .args([
                 "create",
-                "--init",
-                init.to_str().expect("init path"),
-                "--rootfs-dir",
-                rootfs.to_str().expect("rootfs path"),
+                "--file",
+                &file_arg("init", &init, "755"),
+                "--file",
+                &file_arg("rootfs.erofs", &rootfs, "644"),
                 "--output",
                 output.to_str().expect("output path"),
             ])
@@ -48,50 +59,20 @@ mod tests {
     }
 
     #[test]
-    fn cli_create_with_file_contexts_builds_initramfs() {
+    fn cli_create_missing_file_exits_with_error() {
         // ARRANGE
         let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
-        let file_contexts = env.write("file_contexts", b"/.*    system_u:object_r:file_t:s0\n");
         let output = env.path("initramfs.img");
 
         // ACT
         let process_output = Command::new(ramune_bin())
             .args([
                 "create",
-                "--init",
-                init.to_str().expect("init path"),
-                "--rootfs-dir",
-                rootfs.to_str().expect("rootfs path"),
-                "--file-contexts",
-                file_contexts.to_str().expect("file contexts path"),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .output()
-            .expect("failed to run ramune create with file contexts");
-
-        // ASSERT
-        assert!(process_output.status.success());
-        assert!(output.exists());
-    }
-
-    #[test]
-    fn cli_create_missing_init_exits_with_error() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let rootfs = env.write_rootfs();
-        let output = env.path("initramfs.img");
-
-        // ACT
-        let process_output = Command::new(ramune_bin())
-            .args([
-                "create",
-                "--init",
-                env.path("missing-init").to_str().expect("init path"),
-                "--rootfs-dir",
-                rootfs.to_str().expect("rootfs path"),
+                "--file",
+                &format!(
+                    "init={}:755",
+                    env.path("missing-init").to_str().expect("path")
+                ),
                 "--output",
                 output.to_str().expect("output path"),
             ])
@@ -101,7 +82,7 @@ mod tests {
         // ASSERT
         assert!(!process_output.status.success());
         assert!(
-            String::from_utf8_lossy(&process_output.stderr).contains("Failed to open init binary")
+            String::from_utf8_lossy(&process_output.stderr).contains("Failed to open 'init' at")
         );
     }
 
@@ -140,17 +121,17 @@ mod tests {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
+        let rootfs = env.write("rootfs.erofs", b"fake-erofs-content");
         let output = env.path("run-from-initramfs.img");
 
         // ACT
         cli::run_from([
             "ramune",
             "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
+            "--file",
+            &file_arg("init", &init, "755"),
+            "--file",
+            &file_arg("rootfs.erofs", &rootfs, "644"),
             "--output",
             output.to_str().expect("output path"),
         ])
@@ -165,17 +146,17 @@ mod tests {
         // ARRANGE
         let env = TestEnv::new();
         let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write_rootfs();
+        let rootfs = env.write("rootfs.erofs", b"fake-erofs-content");
         let output = env.path("run-with-initramfs.img");
 
         // ACT
         let exit_code = cli::run_with([
             "ramune",
             "create",
-            "--init",
-            init.to_str().expect("init path"),
-            "--rootfs-dir",
-            rootfs.to_str().expect("rootfs path"),
+            "--file",
+            &file_arg("init", &init, "755"),
+            "--file",
+            &file_arg("rootfs.erofs", &rootfs, "644"),
             "--output",
             output.to_str().expect("output path"),
         ]);
@@ -194,10 +175,11 @@ mod tests {
         let exit_code = cli::run_with([
             "ramune",
             "create",
-            "--init",
-            env.path("missing-init").to_str().expect("init path"),
-            "--rootfs-dir",
-            env.path("missing-rootfs").to_str().expect("rootfs path"),
+            "--file",
+            &format!(
+                "init={}:755",
+                env.path("missing-init").to_str().expect("path")
+            ),
             "--output",
             output.to_str().expect("output path"),
         ]);
