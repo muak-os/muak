@@ -1,8 +1,10 @@
 //! Raw TTY input reader for decoding VT escape sequences.
 
+extern crate alloc;
+
+use alloc::sync::Arc;
 use std::fs::File;
-use std::io::{self, Read};
-use std::sync::Arc;
+use std::io::{self, Read as _};
 
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
@@ -23,7 +25,7 @@ pub fn spawn(file: Arc<File>) -> anyhow::Result<mpsc::UnboundedReceiver<InputEve
     let async_fd = AsyncFd::new(file)?;
 
     tokio::spawn(async move {
-        let _ = run(async_fd, tx).await;
+        let _run_result = run(async_fd, tx).await;
     });
 
     Ok(rx)
@@ -33,7 +35,7 @@ async fn run(
     async_fd: AsyncFd<Arc<File>>,
     tx: mpsc::UnboundedSender<InputEvent>,
 ) -> io::Result<()> {
-    let mut buf = [0u8; 16];
+    let mut buf = [0_u8; 16];
 
     loop {
         let mut guard = async_fd.readable().await?;
@@ -49,7 +51,7 @@ async fn run(
         };
 
         guard.clear_ready();
-        send_events(decode_events(&buf[..n]), &tx)?;
+        send_events(decode_events(buf.get(..n).unwrap_or_default()), &tx)?;
     }
 
     Ok(())
@@ -58,7 +60,7 @@ async fn run(
 fn send_events(events: Vec<InputEvent>, tx: &mpsc::UnboundedSender<InputEvent>) -> io::Result<()> {
     for event in events {
         tx.send(event)
-            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
+            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))?;
     }
     Ok(())
 }
@@ -69,25 +71,28 @@ fn decode_events(buf: &[u8]) -> Vec<InputEvent> {
     let mut i = 0;
 
     while i < buf.len() {
-        if buf[i] != b'\x1b' {
-            i += 1;
+        if buf.get(i).copied() != Some(b'\x1b') {
+            i = i.saturating_add(1);
             continue;
         }
 
-        if i + 1 >= buf.len() || buf[i + 1] != b'[' {
+        if buf.get(i.saturating_add(1)).copied() != Some(b'[') {
             events.push(InputEvent::Escape);
-            i += 1;
+            i = i.saturating_add(1);
             continue;
         }
 
-        let seq_start = i + 2;
-        let seq_end = buf[seq_start..]
+        let seq_start = i.saturating_add(2);
+        let seq_end = buf
+            .get(seq_start..)
+            .unwrap_or_default()
             .iter()
-            .position(|&b| b.is_ascii_alphabetic() || b == b'~')
-            .map(|p| seq_start + p + 1)
-            .unwrap_or(buf.len());
+            .position(|&byte| byte.is_ascii_alphabetic() || byte == b'~')
+            .map_or(buf.len(), |pos| {
+                seq_start.saturating_add(pos).saturating_add(1)
+            });
 
-        if let Some(event) = decode_csi(&buf[seq_start..seq_end]) {
+        if let Some(event) = decode_csi(buf.get(seq_start..seq_end).unwrap_or_default()) {
             events.push(event);
         }
 

@@ -1,10 +1,9 @@
 //! Async `/dev/kmsg` reader that replays the kernel ring buffer and streams new entries.
 
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
-use std::os::fd::FromRawFd;
+use std::io::{self, BufRead as _, BufReader, Seek as _, SeekFrom};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use rustix::fs::{Mode, OFlags, open};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
@@ -22,11 +21,10 @@ pub fn spawn() -> Result<mpsc::UnboundedReceiver<String>> {
     )
     .context("failed to open /dev/kmsg")?;
 
-    // SAFETY: `fd` is a valid, owned file descriptor just returned by `open`.
-    let file = unsafe { File::from_raw_fd(rustix::fd::IntoRawFd::into_raw_fd(fd)) };
+    let file = File::from(fd);
 
     tokio::spawn(async move {
-        let _ = run(file, tx).await;
+        let _run_result = run(file, tx).await;
     });
 
     Ok(rx)
@@ -70,7 +68,7 @@ fn send_entry(line: &str, tx: &mpsc::UnboundedSender<String>) -> io::Result<()> 
         return Ok(());
     };
     tx.send(text)
-        .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))
+        .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))
 }
 
 /// Formats a raw `/dev/kmsg` record as `[secs.frac] message`.
@@ -78,11 +76,14 @@ fn parse_entry(line: &str) -> Option<String> {
     let (prefix, text) = line.split_once(';')?;
     let text = text.trim_end_matches('\n');
 
-    let timestamp = prefix.split(',').nth(2).and_then(|t| t.parse::<u64>().ok());
+    let timestamp = prefix
+        .split(',')
+        .nth(2)
+        .and_then(|part| part.parse::<u64>().ok());
     Some(match timestamp {
         Some(usec) => {
-            let secs = usec / 1_000_000;
-            let frac = usec % 1_000_000;
+            let secs = usec.div_euclid(1_000_000);
+            let frac = usec.rem_euclid(1_000_000);
             format!("[{secs:5}.{frac:06}] {text}")
         }
         None => text.to_owned(),

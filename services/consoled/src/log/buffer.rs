@@ -1,17 +1,17 @@
 //! Fixed-capacity ring buffer with scroll offset for viewing kernel log entries.
 
-use std::collections::VecDeque;
+extern crate alloc;
 
-use tokio::sync::mpsc;
+use alloc::collections::VecDeque;
 
 const RING_CAP: usize = 10_000;
 
-pub struct LogBuffer {
+pub struct Buffer {
     ring: VecDeque<String>,
     scroll_offset: usize,
 }
 
-impl LogBuffer {
+impl Buffer {
     pub fn new() -> Self {
         Self {
             ring: VecDeque::with_capacity(RING_CAP),
@@ -26,20 +26,13 @@ impl LogBuffer {
         self.ring.push_back(line);
     }
 
-    /// Drains all immediately-available lines from the channel into the buffer.
-    pub fn drain_channel(&mut self, rx: &mut mpsc::UnboundedReceiver<String>) {
-        while let Ok(line) = rx.try_recv() {
-            self.push(line);
-        }
-    }
-
     pub fn is_live(&self) -> bool {
         self.scroll_offset == 0
     }
 
     pub fn scroll_up(&mut self, n: usize, log_rows: usize) {
         let max = self.ring.len().saturating_sub(log_rows);
-        self.scroll_offset = (self.scroll_offset + n).min(max);
+        self.scroll_offset = self.scroll_offset.saturating_add(n).min(max);
     }
 
     pub fn scroll_down(&mut self, n: usize) {
@@ -56,7 +49,7 @@ impl LogBuffer {
         let end = total.saturating_sub(self.scroll_offset);
         let start = end.saturating_sub(log_rows);
         let (front, _) = self.ring.make_contiguous().split_at(end);
-        &front[start..]
+        front.get(start..).unwrap_or_default()
     }
 }
 
@@ -67,7 +60,7 @@ mod tests {
     #[test]
     fn push_and_visible_window_shows_tail() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..5 {
             buf.push(format!("line {i}"));
         }
@@ -82,7 +75,7 @@ mod tests {
     #[test]
     fn scroll_up_shifts_window_back() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..10 {
             buf.push(format!("line {i}"));
         }
@@ -98,7 +91,7 @@ mod tests {
     #[test]
     fn scroll_down_moves_toward_live() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..10 {
             buf.push(format!("line {i}"));
         }
@@ -115,7 +108,7 @@ mod tests {
     #[test]
     fn snap_to_live_resets_offset() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..5 {
             buf.push(format!("line {i}"));
         }
@@ -132,7 +125,7 @@ mod tests {
     #[test]
     fn capacity_evicts_oldest() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..RING_CAP + 5 {
             buf.push(format!("line {i}"));
         }
@@ -153,7 +146,7 @@ mod tests {
     #[test]
     fn scroll_up_clamps_to_max() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..5 {
             buf.push(format!("line {i}"));
         }
@@ -169,7 +162,7 @@ mod tests {
     #[test]
     fn scroll_down_clamps_to_zero() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         buf.push("only".to_owned());
 
         // ACT
@@ -182,7 +175,7 @@ mod tests {
     #[test]
     fn empty_buffer_visible_window_is_empty() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
 
         // ACT
         let window = buf.visible_window(10);
@@ -194,7 +187,7 @@ mod tests {
     #[test]
     fn fewer_lines_than_window_shows_all() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         buf.push("a".to_owned());
         buf.push("b".to_owned());
 
@@ -206,29 +199,9 @@ mod tests {
     }
 
     #[test]
-    fn drain_channel_collects_all_pending() {
-        // ARRANGE
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut buf = LogBuffer::new();
-        for i in 0..5 {
-            tx.send(format!("msg {i}")).expect("send failed");
-        }
-        drop(tx);
-
-        // ACT
-        buf.drain_channel(&mut rx);
-
-        // ASSERT
-        assert_eq!(
-            buf.visible_window(5),
-            &["msg 0", "msg 1", "msg 2", "msg 3", "msg 4"]
-        );
-    }
-
-    #[test]
     fn is_live_reflects_scroll_state() {
         // ARRANGE
-        let mut buf = LogBuffer::new();
+        let mut buf = Buffer::new();
         for i in 0..5 {
             buf.push(format!("line {i}"));
         }

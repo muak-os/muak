@@ -107,27 +107,27 @@ fn write_span(w: &mut impl Write, span: &Span) -> io::Result<()> {
     Ok(())
 }
 
-/// Renders the final presentation of the interface
-pub fn draw(
-    w: &mut impl Write,
+/// Renders the final presentation of the interface.
+pub fn draw<W: Write>(
+    w: &mut W,
     state: &SystemState,
     scroll_mode: ScrollMode,
     cols: u16,
     rows: u16,
 ) -> io::Result<()> {
-    let scroll_top = PANEL_ROWS + 1;
-    let scroll_bot = rows - FOOTER_ROWS;
-    let cursor_park = rows - FOOTER_ROWS - 1;
+    let scroll_top = PANEL_ROWS.saturating_add(1);
+    let scroll_bot = rows.saturating_sub(FOOTER_ROWS);
+    let cursor_park = rows.saturating_sub(FOOTER_ROWS).saturating_sub(1);
 
     queue!(w, Print(format!("\x1b[{scroll_top};{scroll_bot}r")))?;
 
-    let mut row = 0u16;
+    let mut row = 0_u16;
     row = draw_header(w, state, cols, row)?;
     row = draw_separator(w, cols, row)?;
     draw_panel_body(w, state, cols, row)?;
-    draw_separator(w, cols, row + PANEL_BODY_ROWS)?;
+    draw_separator(w, cols, row.saturating_add(PANEL_BODY_ROWS))?;
     // kernel logs
-    draw_separator(w, cols, rows - FOOTER_ROWS)?;
+    draw_separator(w, cols, rows.saturating_sub(FOOTER_ROWS))?;
     draw_footer(w, state, scroll_mode, cols, rows)?;
 
     queue!(w, ResetColor, MoveTo(0, cursor_park))?;
@@ -142,14 +142,13 @@ fn clear_line(w: &mut impl Write, row: u16) -> io::Result<()> {
 
 fn draw_header(w: &mut impl Write, state: &SystemState, _cols: u16, row: u16) -> io::Result<u16> {
     let uptime = &state.uptime;
-    let total_gib = state.memory.total_kb as f64 / (1024.0 * 1024.0);
+    let total_gib = format_gib(state.memory.total_kb);
 
     let summary = format!(
-        "up {}d {}h {}m, {:.1} GiB RAM, CPU {:.1}%, RAM {:.1}%",
+        "up {}d {}h {}m, {total_gib} GiB RAM, CPU {:.1}%, RAM {:.1}%",
         uptime.days,
         uptime.hours,
         uptime.minutes,
-        total_gib,
         state.cpu.percent,
         state.memory.percent(),
     );
@@ -168,11 +167,11 @@ fn draw_header(w: &mut impl Write, state: &SystemState, _cols: u16, row: u16) ->
         Print(summary),
     )?;
 
-    Ok(row + 1)
+    Ok(row.saturating_add(1))
 }
 
 fn draw_separator(w: &mut impl Write, cols: u16, row: u16) -> io::Result<u16> {
-    let line: String = "─".repeat(cols as usize);
+    let line: String = "─".repeat(usize::from(cols));
     queue!(
         w,
         MoveTo(0, row),
@@ -180,7 +179,8 @@ fn draw_separator(w: &mut impl Write, cols: u16, row: u16) -> io::Result<u16> {
         ResetColor,
         Print(line),
     )?;
-    Ok(row + 1)
+
+    Ok(row.saturating_add(1))
 }
 
 fn draw_footer(
@@ -190,7 +190,7 @@ fn draw_footer(
     cols: u16,
     rows: u16,
 ) -> io::Result<()> {
-    let info_row = rows - 1;
+    let info_row = rows.saturating_sub(1);
 
     let hint = "  \u{2191}/\u{2193} scroll";
     let (mode_label, esc_hint) = match scroll_mode {
@@ -201,7 +201,7 @@ fn draw_footer(
     let right = format!("{esc_hint}  {mode_label}  ");
     let hint_len = hint.chars().count();
     let right_len = right.chars().count();
-    let padding = (cols as usize).saturating_sub(hint_len + right_len);
+    let padding = usize::from(cols).saturating_sub(hint_len.saturating_add(right_len));
 
     clear_line(w, info_row)?;
     queue!(
@@ -219,6 +219,24 @@ fn draw_footer(
     )?;
 
     Ok(())
+}
+
+/// Formats kilobytes as GiB with one decimal place.
+fn format_gib(total_kb: u64) -> String {
+    const GIB_IN_KB: u64 = 1024 * 1024;
+    let mut whole = total_kb.div_euclid(GIB_IN_KB);
+    let mut fraction = total_kb
+        .rem_euclid(GIB_IN_KB)
+        .wrapping_mul(10)
+        .wrapping_mul(2)
+        .wrapping_add(GIB_IN_KB)
+        .div_euclid(GIB_IN_KB.wrapping_mul(2));
+    if fraction >= 10 {
+        fraction = fraction.rem_euclid(10);
+        whole = whole.saturating_add(1);
+    }
+
+    format!("{whole}.{fraction}")
 }
 
 /// Builds the left column (Status) lines starting at `col`.
@@ -251,8 +269,8 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
 
 /// Builds the right column (Network) lines starting at `col`.
 fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
-    const KEY_WIDTH: usize = 3;
-    let val_col = col + KEY_WIDTH as u16 + 1;
+    const KEY_WIDTH: u16 = 3;
+    let val_col = col.saturating_add(KEY_WIDTH).saturating_add(1);
     let mut lines = Vec::new();
 
     let all_addrs: Vec<&str> = state
@@ -265,8 +283,13 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
         lines.push(net_kv_line(col, "IP", "none"));
     } else {
         let mut ip_line = Line::new(col);
-        ip_line.push(Span::new(Color::White, format!("{:<KEY_WIDTH$} ", "IP")));
-        ip_line.push(Span::reset(all_addrs[0].to_owned()));
+        ip_line.push(Span::new(
+            Color::White,
+            format!("{:<width$} ", "IP", width = usize::from(KEY_WIDTH)),
+        ));
+        ip_line.push(Span::reset(
+            all_addrs.first().copied().unwrap_or_default().to_owned(),
+        ));
         lines.push(ip_line);
 
         for addr in all_addrs.iter().skip(1).take(2) {
@@ -276,7 +299,7 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
         }
     }
 
-    if let Some(gw) = &state.gateway {
+    if let Some(gw) = state.gateway.as_deref() {
         lines.push(net_kv_line(col, "GW", gw));
     }
 
@@ -284,7 +307,7 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
         lines.push(net_kv_line(col, "DNS", &state.dns_servers.join(", ")));
     }
 
-    if let Some(ntp) = &state.ntp_server {
+    if let Some(ntp) = state.ntp_server.as_deref() {
         lines.push(net_kv_line(col, "NTP", ntp));
     }
 
@@ -297,15 +320,15 @@ fn draw_panel_body(
     cols: u16,
     start_row: u16,
 ) -> io::Result<()> {
-    let mid_col = cols / 2;
+    let mid_col = cols.div_euclid(2);
 
     let left_lines = build_left(state, 2);
     let right_lines = build_right(state, mid_col);
 
     let empty_line = Line::default();
 
-    for i in 0..PANEL_BODY_ROWS as usize {
-        let row = start_row + i as u16;
+    for i in 0..usize::from(PANEL_BODY_ROWS) {
+        let row = start_row.saturating_add(u16::try_from(i).unwrap_or(0));
         clear_line(w, row)?;
         left_lines.get(i).unwrap_or(&empty_line).write_to(w, row)?;
         right_lines.get(i).unwrap_or(&empty_line).write_to(w, row)?;
@@ -318,6 +341,7 @@ fn net_kv_line(col: u16, key: &str, val: &str) -> Line {
     let mut line = Line::new(col);
     line.push(Span::new(Color::White, format!("{key:<3} ")));
     line.push(Span::reset(val.to_owned()));
+
     line
 }
 
@@ -359,16 +383,16 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(
+        draw(
             &mut buf,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
             DEFAULT_ROWS,
-        );
+        )
+        .unwrap();
 
         // ASSERT
-        assert!(result.is_ok());
         assert!(!buf.is_empty());
     }
 
@@ -379,16 +403,16 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(
+        draw(
             &mut buf,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
             DEFAULT_ROWS,
-        );
+        )
+        .unwrap();
 
         // ASSERT
-        assert!(result.is_ok());
         assert!(!buf.is_empty());
     }
 
@@ -411,16 +435,14 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(
+        draw(
             &mut buf,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
             DEFAULT_ROWS,
-        );
-
-        // ASSERT
-        assert!(result.is_ok());
+        )
+        .unwrap();
     }
 
     #[test]
@@ -430,16 +452,16 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
 
         // ACT
-        let result = draw(
+        draw(
             &mut buf,
             &state,
             ScrollMode::Scrollback,
             DEFAULT_COLS,
             DEFAULT_ROWS,
-        );
+        )
+        .unwrap();
 
         // ASSERT
-        assert!(result.is_ok());
         let output = String::from_utf8_lossy(&buf);
         assert!(output.contains("[SCROLLBACK]"));
     }
@@ -475,8 +497,12 @@ mod tests {
         // ACT
         let lines = build_right(&state, 40);
 
-        // ASSERT - first IP line + 2 continuation lines = 3 IP rows, then gw/dns/ntp
-        let ip_rows = lines.iter().take(3).filter(|l| !l.spans.is_empty()).count();
+        // ASSERT
+        let ip_rows = lines
+            .iter()
+            .take(3)
+            .filter(|line| !line.spans.is_empty())
+            .count();
         assert_eq!(ip_rows, 3);
     }
 
@@ -491,6 +517,10 @@ mod tests {
 
         // ASSERT
         assert!(!lines.is_empty());
-        assert!(lines[0].spans.iter().any(|s| s.text.contains("none")));
+        assert!(
+            lines
+                .first()
+                .is_some_and(|line| line.spans.iter().any(|span| span.text.contains("none")))
+        );
     }
 }

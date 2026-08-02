@@ -1,14 +1,18 @@
 //! TTY device access for rendering to a virtual console.
 
+extern crate alloc;
+
+use alloc::sync::Arc;
 use std::fs::File;
 use std::io;
-use std::os::fd::AsFd;
-use std::sync::Arc;
+use std::os::fd::AsFd as _;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use rustix::fs::{Mode, OFlags, open};
+use rustix::io::Errno;
 use rustix::termios::{
     ControlModes, InputModes, LocalModes, OptionalActions, OutputModes, SpecialCodeIndex, Termios,
+    tcgetattr, tcgetwinsize, tcsetattr,
 };
 
 const TTY_PATH: &str = "/dev/tty0";
@@ -28,7 +32,7 @@ impl Tty {
             Mode::empty(),
         ) {
             Ok(fd) => fd,
-            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(Errno::NOENT) => return Ok(None),
             Err(e) => {
                 return Err(anyhow::Error::from(e))
                     .with_context(|| format!("failed to open {TTY_PATH}"));
@@ -37,13 +41,13 @@ impl Tty {
 
         let file: Arc<File> = Arc::new(fd.into());
 
-        let original_termios = rustix::termios::tcgetattr(file.as_fd())
+        let original_termios = tcgetattr(file.as_fd())
             .with_context(|| format!("failed to get terminal attributes for {TTY_PATH}"))?;
 
         let mut raw = original_termios.clone();
         make_raw(&mut raw);
 
-        rustix::termios::tcsetattr(file.as_fd(), OptionalActions::Flush, &raw)
+        tcsetattr(file.as_fd(), OptionalActions::Flush, &raw)
             .with_context(|| format!("failed to set terminal attributes for {TTY_PATH}"))?;
 
         Ok(Some(Self {
@@ -54,9 +58,7 @@ impl Tty {
 
     /// Returns `(cols, rows)` by querying `TIOCGWINSZ` on the TTY fd.
     pub fn size(&self) -> (u16, u16) {
-        rustix::termios::tcgetwinsize(self.file.as_fd())
-            .map(|ws| (ws.ws_col, ws.ws_row))
-            .unwrap_or((80, 25))
+        tcgetwinsize(self.file.as_fd()).map_or((80, 25), |ws| (ws.ws_col, ws.ws_row))
     }
 
     /// Returns a cloned reference to the underlying file for async I/O.
@@ -67,7 +69,7 @@ impl Tty {
 
 impl Drop for Tty {
     fn drop(&mut self) {
-        let _ = rustix::termios::tcsetattr(
+        let _restore_result = tcsetattr(
             self.file.as_fd(),
             OptionalActions::Flush,
             &self.original_termios,
@@ -85,9 +87,9 @@ impl io::Write for Tty {
     }
 }
 
-/// Equivalent of libc cfmakeraw() using rustix termios types.
-fn make_raw(t: &mut Termios) {
-    t.input_modes &= !(InputModes::IGNBRK
+/// Equivalent of `libc::cfmakeraw()` using `rustix` termios types.
+fn make_raw(termios: &mut Termios) {
+    termios.input_modes &= !(InputModes::IGNBRK
         | InputModes::BRKINT
         | InputModes::PARMRK
         | InputModes::ISTRIP
@@ -96,17 +98,17 @@ fn make_raw(t: &mut Termios) {
         | InputModes::ICRNL
         | InputModes::IXON);
 
-    t.output_modes &= !OutputModes::OPOST;
+    termios.output_modes &= !OutputModes::OPOST;
 
-    t.local_modes &= !(LocalModes::ECHO
+    termios.local_modes &= !(LocalModes::ECHO
         | LocalModes::ECHONL
         | LocalModes::ICANON
         | LocalModes::ISIG
         | LocalModes::IEXTEN);
 
-    t.control_modes &= !(ControlModes::CSIZE | ControlModes::PARENB);
-    t.control_modes |= ControlModes::CS8;
+    termios.control_modes &= !(ControlModes::CSIZE | ControlModes::PARENB);
+    termios.control_modes |= ControlModes::CS8;
 
-    t.special_codes[SpecialCodeIndex::VMIN] = 1;
-    t.special_codes[SpecialCodeIndex::VTIME] = 0;
+    termios.special_codes[SpecialCodeIndex::VMIN] = 1;
+    termios.special_codes[SpecialCodeIndex::VTIME] = 0;
 }

@@ -1,8 +1,8 @@
 //! Application state and event handlers for the console display daemon.
 
-use std::io::Write;
+use std::io::Write as _;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use crossterm::cursor;
 use crossterm::queue;
 use crossterm::style::Print;
@@ -11,7 +11,7 @@ use crossterm::terminal::ClearType;
 use tokio::sync::mpsc;
 
 use crate::input::InputEvent;
-use crate::log::buffer::LogBuffer;
+use crate::log::buffer::Buffer;
 use crate::log::{reader, view};
 use crate::render::{self, FOOTER_ROWS, PANEL_ROWS, ScrollMode};
 use crate::state::{self, PollState};
@@ -19,7 +19,7 @@ use crate::tty::Tty;
 
 pub struct App {
     tty: Tty,
-    logs: LogBuffer,
+    logs: Buffer,
     poll_state: PollState,
 }
 
@@ -40,7 +40,7 @@ impl App {
 
         Ok(Self {
             tty,
-            logs: LogBuffer::new(),
+            logs: Buffer::new(),
             poll_state,
         })
     }
@@ -59,9 +59,8 @@ impl App {
         self.redraw_logview();
     }
 
-    pub fn handle_kmsg(&mut self, first: String, rx: &mut mpsc::UnboundedReceiver<String>) {
-        self.logs.push(first);
-        self.logs.drain_channel(rx);
+    pub fn handle_kmsg(&mut self, line: String) {
+        self.logs.push(line);
         if self.logs.is_live() {
             self.redraw_logview();
         }
@@ -87,10 +86,6 @@ impl App {
         Ok(())
     }
 
-    pub fn spawn_kmsg_reader(&self) -> Result<mpsc::UnboundedReceiver<String>> {
-        reader::spawn().context("Failed to spawn kmsg reader")
-    }
-
     fn scroll_mode(&self) -> ScrollMode {
         if self.logs.is_live() {
             ScrollMode::Live
@@ -101,7 +96,7 @@ impl App {
 
     fn log_rows(&self) -> usize {
         let (_cols, rows) = self.tty.size();
-        rows.saturating_sub(PANEL_ROWS + FOOTER_ROWS) as usize
+        usize::from(rows.saturating_sub(PANEL_ROWS + FOOTER_ROWS))
     }
 
     fn redraw_logview(&mut self) {
@@ -112,4 +107,9 @@ impl App {
             kmsg::warn!("Logview render failed: {e}");
         }
     }
+}
+
+/// Spawns the kernel log reader and returns its event stream.
+pub fn spawn_kmsg_reader() -> Result<mpsc::UnboundedReceiver<String>> {
+    reader::spawn().context("Failed to spawn kmsg reader")
 }
