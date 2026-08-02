@@ -2,10 +2,11 @@
 
 use std::fs;
 use std::io;
-use std::io::{Read, Write};
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
+use esp::path::validate_relative;
 use rustix::fs::sync;
 
 use crate::disk;
@@ -16,7 +17,7 @@ pub const MOUNT_POINT: &str = "/run/mnt/efi";
 /// Mounts the EFI partition at [`MOUNT_POINT`].
 pub fn mount(efi_device: &str) -> Result<()> {
     if !Path::new(efi_device).exists() {
-        bail!("EFI device {} does not exist", efi_device);
+        bail!("EFI device {efi_device} does not exist");
     }
 
     disk::mount_efi_partition(efi_device, MOUNT_POINT)
@@ -32,7 +33,7 @@ pub fn unmount() {
 /// Parent directories are created as needed. The path is validated
 /// against directory traversal.
 pub fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
-    esp::path::validate_relative(relative_path)?;
+    validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
 
     fs::File::create(&dest).with_context(|| format!("Failed to create {}", dest.display()))
@@ -46,7 +47,7 @@ pub fn write_file(
     size: u64,
     reader: &mut dyn Read,
 ) -> Result<()> {
-    esp::path::validate_relative(relative_path)?;
+    validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
 
     copy_reader_to_file(reader, size, relative_path, &dest)
@@ -73,7 +74,7 @@ pub fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
 /// Writes `data` to a file at `relative_path` under `esp_root`.
 /// The path is validated against directory traversal.
 pub fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> Result<()> {
-    esp::path::validate_relative(relative_path)?;
+    validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
 
     fs::write(&dest, data).with_context(|| format!("Failed to write {}", dest.display()))
@@ -91,7 +92,7 @@ fn create_parents(dest: &Path) -> Result<()> {
 
 fn resolve(esp_root: &Path, relative_path: &str) -> PathBuf {
     let dest = esp_root.join(relative_path);
-    let _ = create_parents(&dest);
+    let _created = create_parents(&dest);
 
     dest
 }
@@ -107,10 +108,11 @@ fn copy_reader_to_file(
     let mut buf = [0_u8; 8192];
     let mut remaining = size;
     while remaining > 0 {
-        let n = remaining.min(buf.len() as u64);
-        let n = n as usize;
+        let chunk = usize::try_from(remaining)
+            .unwrap_or(usize::MAX)
+            .min(buf.len());
         let read = reader
-            .read(buf.get_mut(..n).unwrap_or(&mut []))
+            .read(buf.get_mut(..chunk).unwrap_or(&mut []))
             .context("Failed to read file data")?;
         if read == 0 {
             bail!("reader returned EOF before declared size: {file_path}");
@@ -118,7 +120,7 @@ fn copy_reader_to_file(
         writer
             .write_all(buf.get(..read).unwrap_or(&[]))
             .context("Failed to write file to EFI partition")?;
-        remaining = remaining.saturating_sub(read as u64);
+        remaining = remaining.saturating_sub(u64::try_from(read).unwrap_or(0));
     }
     writer.flush()?;
 
@@ -148,7 +150,12 @@ mod tests {
         let mut reader = Cursor::new(data.as_slice());
 
         // ACT
-        let result = write_file(dir.path(), "../escape", data.len() as u64, &mut reader);
+        let result = write_file(
+            dir.path(),
+            "../escape",
+            u64::try_from(data.len()).unwrap_or(0),
+            &mut reader,
+        );
 
         // ASSERT
         assert!(result.is_err());
@@ -162,8 +169,13 @@ mod tests {
         let mut reader = Cursor::new(data.as_slice());
 
         // ACT
-        write_file(dir.path(), "test.bin", data.len() as u64, &mut reader)
-            .expect("write_file must succeed");
+        write_file(
+            dir.path(),
+            "test.bin",
+            u64::try_from(data.len()).unwrap_or(0),
+            &mut reader,
+        )
+        .expect("write_file must succeed");
 
         // ASSERT
         assert_eq!(

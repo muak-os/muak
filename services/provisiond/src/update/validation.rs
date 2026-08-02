@@ -1,9 +1,9 @@
 //! Post-kexec validation: decide to commit or roll back the update.
 
+use core::time::Duration;
 use std::path::Path;
-use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
 use super::commit;
@@ -31,23 +31,32 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
             snapshot_path,
             "Kernel failed to boot (kexec failure)",
         )?;
-    } else if let Err(e) = wait_for_cli_contact().await {
+        return Ok(());
+    }
+
+    if let Err(e) = wait_for_cli_contact().await {
         kmsg::warn!("CLI contact check failed for {}: {}", update_id, e);
         rollback::apply(
             update_id,
             snapshot_path,
-            &format!("CLI contact check failed: {}", e),
+            &format!("CLI contact check failed: {e}"),
         )?;
-    } else if let Err(e) = health_checks() {
+        return Ok(());
+    }
+
+    if let Err(e) = health_checks() {
         kmsg::warn!("Health checks failed for {}: {}", update_id, e);
         rollback::apply(
             update_id,
             snapshot_path,
-            &format!("Health checks failed: {}", e),
+            &format!("Health checks failed: {e}"),
         )?;
-    } else if let Err(e) = commit::apply().await {
+        return Ok(());
+    }
+
+    if let Err(e) = commit::apply().await {
         kmsg::warn!("Commit failed for {}: {}", update_id, e);
-        rollback::apply(update_id, snapshot_path, &format!("Commit failed: {}", e))?;
+        rollback::apply(update_id, snapshot_path, &format!("Commit failed: {e}"))?;
     }
 
     Ok(())
@@ -78,7 +87,7 @@ pub fn signal_cli_contact() {
 /// Returns true if the current cmdline lacks the update marker (kexec did not boot).
 fn is_old_kernel(update_id: &str) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
-    !cmdline.contains(&format!("muak.update_id={}", update_id))
+    !cmdline.contains(&format!("muak.update_id={update_id}"))
 }
 
 /// Runs all health checks required to declare the update valid.
@@ -102,8 +111,8 @@ fn check_network_interfaces() -> Result<()> {
         std::fs::read_dir("/sys/class/net").context("Failed to read network interfaces")?;
 
     let non_loopback_count = net_dir
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name() != "lo")
+        .filter_map(core::result::Result::ok)
+        .filter(|entry| entry.file_name() != "lo")
         .count();
 
     if non_loopback_count == 0 {

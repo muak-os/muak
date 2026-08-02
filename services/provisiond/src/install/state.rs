@@ -1,16 +1,17 @@
 //! STATE partition initialization: writes config, auth, PKI, and Secure Boot keys to disk.
 
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use config::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sbolt::keys::hierarchy;
+use sbolt::keys::storage::save_hierarchy;
 
-use super::pki::ServerPki;
+use super::pki::Server;
 use crate::disk;
 use crate::history::{self, ChangeKind};
 
@@ -22,67 +23,59 @@ pub fn init(
     device: &str,
     config: &SystemConfig,
     auth_config: &AuthConfig,
-    server_pki: &ServerPki,
+    server_pki: &Server,
     sb_hierarchy: Option<&hierarchy::Bundle>,
 ) -> Result<()> {
     std::fs::create_dir_all(MOUNT_POINT)
-        .with_context(|| format!("Failed to create mount point {}", MOUNT_POINT))?;
+        .with_context(|| format!("Failed to create mount point {MOUNT_POINT}"))?;
 
     mount(device, MOUNT_POINT, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
     let config_bytes = config::serialize(config).context("Failed to serialize config")?;
     std::fs::write(
-        format!("{}/config.{}", MOUNT_POINT, CONFIG_EXTENSION),
+        format!("{MOUNT_POINT}/config.{CONFIG_EXTENSION}"),
         &config_bytes,
     )
     .context("Failed to write config")?;
 
     let auth_bytes =
         config::serialize_auth(auth_config).context("Failed to serialize auth config")?;
-    std::fs::write(
-        format!("{}/auth.{}", MOUNT_POINT, AUTH_EXTENSION),
-        auth_bytes,
-    )
-    .context("Failed to write auth config")?;
+    std::fs::write(format!("{MOUNT_POINT}/auth.{AUTH_EXTENSION}"), auth_bytes)
+        .context("Failed to write auth config")?;
 
-    let secrets_dir = format!("{}/secrets", MOUNT_POINT);
+    let secrets_dir = format!("{MOUNT_POINT}/secrets");
     std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
 
-    std::fs::write(format!("{}/ca.crt", secrets_dir), &server_pki.ca_pem)
+    std::fs::write(format!("{secrets_dir}/ca.crt"), &server_pki.ca)
         .context("Failed to write CA certificate")?;
 
     write_secret(
-        format!("{}/ca.key", secrets_dir),
-        server_pki.ca_key_pem.as_bytes(),
+        format!("{secrets_dir}/ca.key"),
+        server_pki.ca_key.as_bytes(),
     )
     .context("Failed to write CA key")?;
 
-    std::fs::write(
-        format!("{}/server.crt", secrets_dir),
-        &server_pki.server_cert_pem,
-    )
-    .context("Failed to write server certificate")?;
+    std::fs::write(format!("{secrets_dir}/server.crt"), &server_pki.cert)
+        .context("Failed to write server certificate")?;
 
     write_secret(
-        format!("{}/server.key", secrets_dir),
-        server_pki.server_key_pem.as_bytes(),
+        format!("{secrets_dir}/server.key"),
+        server_pki.key.as_bytes(),
     )
     .context("Failed to write server key")?;
 
     if let Some(hierarchy) = sb_hierarchy {
-        sbolt::keys::storage::save_hierarchy(
-            hierarchy,
-            &Path::new(&secrets_dir).join("secureboot"),
-        )
-        .context("Failed to save Secure Boot keys")?;
+        save_hierarchy(hierarchy, &Path::new(&secrets_dir).join("secureboot"))
+            .context("Failed to save Secure Boot keys")?;
     }
 
     if let Err(e) = history::record("install", "system", ChangeKind::Install, &config_bytes) {
-        eprintln!("Failed to record install history: {}", e);
+        eprintln!("Failed to record install history: {e}");
     }
 
     sync();
+
     disk::try_unmount(MOUNT_POINT);
 
     Ok(())

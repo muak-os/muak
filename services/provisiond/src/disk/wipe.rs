@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::{Seek, Write};
+use std::io::{Seek as _, Write as _};
 
 use anyhow::Result;
 
@@ -7,19 +7,19 @@ use super::constants::MB;
 
 /// Wipes the first and last portions of a disk to remove partition tables.
 pub fn wipe(disk: &str) -> Result<()> {
-    let mut f = OpenOptions::new().read(true).write(true).open(disk)?;
+    let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
 
-    let disk_size = f.seek(std::io::SeekFrom::End(0))?;
+    let disk_size = file.seek(std::io::SeekFrom::End(0))?;
 
-    f.seek(std::io::SeekFrom::Start(0))?;
-    f.write_all(&vec![0u8; (10 * MB) as usize])?;
+    file.seek(std::io::SeekFrom::Start(0))?;
+    file.write_all(&vec![0_u8; usize::try_from(10 * MB).unwrap_or(0)])?;
 
     if disk_size > MB {
-        f.seek(std::io::SeekFrom::Start(disk_size - MB))?;
-        f.write_all(&vec![0u8; MB as usize])?;
+        file.seek(std::io::SeekFrom::Start(disk_size.saturating_sub(MB)))?;
+        file.write_all(&vec![0_u8; usize::try_from(MB).unwrap_or(0)])?;
     }
 
-    f.sync_all()?;
+    file.sync_all()?;
 
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use config::{CONFIG_EXTENSION, CONFIG_PATH};
 
 use crate::constants::UPDATE_DIR;
@@ -16,10 +16,11 @@ pub fn create(staging_dir: &Path) -> Result<String> {
     let contents =
         fs::read_to_string(CONFIG_PATH).context("Failed to read current config for snapshot")?;
     fs::write(
-        staging_dir.join(format!("{}.{}", update_id, CONFIG_EXTENSION)),
+        staging_dir.join(format!("{update_id}.{CONFIG_EXTENSION}")),
         contents,
     )
     .context("Failed to write config snapshot")?;
+
     Ok(update_id)
 }
 
@@ -32,11 +33,11 @@ pub fn find_pending() -> Result<Option<(String, PathBuf)>> {
 
     let entry = fs::read_dir(dir)
         .context("Failed to read update dir")?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            let name = e.file_name();
-            let s = name.to_string_lossy();
-            s.starts_with("update-") && s.ends_with(&format!(".{}", CONFIG_EXTENSION))
+        .filter_map(core::result::Result::ok)
+        .find(|entry| {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            name_str.starts_with("update-") && name_str.ends_with(&format!(".{CONFIG_EXTENSION}"))
         });
 
     let Some(entry) = entry else {
@@ -46,7 +47,7 @@ pub fn find_pending() -> Result<Option<(String, PathBuf)>> {
     let path = entry.path();
     let stem = path
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
+        .map(|stem| stem.to_string_lossy().into_owned())
         .context("Snapshot path has no file stem")?;
 
     Ok(Some((stem, path)))
@@ -54,23 +55,23 @@ pub fn find_pending() -> Result<Option<(String, PathBuf)>> {
 
 /// Returns the path to the snapshot file for a given update ID.
 pub fn path(update_id: &str) -> PathBuf {
-    Path::new(UPDATE_DIR).join(format!("{}.{}", update_id, CONFIG_EXTENSION))
+    Path::new(UPDATE_DIR).join(format!("{update_id}.{CONFIG_EXTENSION}"))
 }
 
 pub fn find(dir: &Path, update_id: &str) -> Result<PathBuf> {
     let path = std::fs::read_dir(dir)
         .context("Failed to read dir")?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| {
-            p.extension().and_then(|s| s.to_str()) == Some(CONFIG_EXTENSION)
-                && p.file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(|s| s.ends_with(update_id))
-                    .unwrap_or(false)
+        .filter_map(core::result::Result::ok)
+        .map(|entry| entry.path())
+        .find(|entry_path| {
+            entry_path.extension().and_then(|ext| ext.to_str()) == Some(CONFIG_EXTENSION)
+                && entry_path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .is_some_and(|stem| stem.ends_with(update_id))
         });
 
-    path.with_context(|| format!("No snapshot found for update_id '{}'", update_id))
+    path.with_context(|| format!("No snapshot found for update_id '{update_id}'"))
 }
 
 /// Reads `host.image` from a snapshot file.
@@ -87,7 +88,7 @@ pub fn restore(update_id: &str, snapshot_path: &Path) -> Result<()> {
     fs::write(CONFIG_PATH, &contents).context("Failed to restore config from snapshot")?;
 
     if let Err(e) = history::record(update_id, "system", ChangeKind::Rollback, &contents) {
-        eprintln!("Failed to record rollback history: {}", e);
+        eprintln!("Failed to record rollback history: {e}");
     }
 
     Ok(())
@@ -98,7 +99,8 @@ fn generate_id() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("update-{}", timestamp)
+
+    format!("update-{timestamp}")
 }
 
 #[cfg(test)]
@@ -113,8 +115,7 @@ mod tests {
         // ASSERT
         assert!(
             id.starts_with("update-"),
-            "id '{}' must start with 'update-'",
-            id
+            "id '{id}' must start with 'update-'"
         );
     }
 
@@ -136,11 +137,11 @@ mod tests {
         let update_id = "update-1700000000";
 
         // ACT
-        let p = path(update_id);
+        let snapshot_path = path(update_id);
 
         // ASSERT
-        let expected = format!("{}/{}.{}", UPDATE_DIR, update_id, CONFIG_EXTENSION);
-        assert_eq!(p, std::path::Path::new(&expected));
+        let expected = format!("{UPDATE_DIR}/{update_id}.{CONFIG_EXTENSION}");
+        assert_eq!(snapshot_path, std::path::Path::new(&expected));
     }
 
     #[test]
@@ -148,7 +149,7 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
         let update_id = "update-9999";
-        let filename = format!("{}.{}", update_id, CONFIG_EXTENSION);
+        let filename = format!("{update_id}.{CONFIG_EXTENSION}");
         std::fs::write(dir.path().join(&filename), "content").unwrap();
 
         // ACT
@@ -167,7 +168,7 @@ mod tests {
         let result = find(dir.path(), "update-does-not-exist");
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -181,7 +182,7 @@ mod tests {
 
         // ASSERT
         if CONFIG_EXTENSION != "json" {
-            assert!(result.is_err());
+            result.unwrap_err();
         }
     }
 }

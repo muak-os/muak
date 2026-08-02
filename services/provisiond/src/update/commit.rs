@@ -3,9 +3,11 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
-use esp::arch::Arch;
+use anyhow::{Context as _, Result, bail};
+use sbolt::efi::{enroll, pk};
+use sbolt::keys::storage::load_hierarchy;
 use wizard::build::SectionInfo;
+use zeroize::Zeroizing;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::disk;
@@ -38,34 +40,19 @@ pub async fn apply() -> Result<()> {
         serde_json::from_str(&data).context("Failed to deserialize UKI sections")?
     };
 
-    let luks_key = if let Some(key) = secrets::resolve_luks_key(state_device.as_deref()) {
-        if tpm2::device::is_available(None) {
-            let token = match secrets::seal_luks_key(&key, &sections)? {
-                secrets::SealResult::Sealed(token) => token,
-                _ => unreachable!(),
-            };
-            let devices: Vec<&str> = [state_device.as_deref()].into_iter().flatten().collect();
-            secrets::write_token_to_devices(&token, &devices)?;
-            kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
-            None
-        } else {
-            Some(key.to_vec())
-        }
-    } else {
-        None
+    let luks_key = match secrets::resolve_luks_key(state_device.as_deref()) {
+        Some(key) => reseal_luks_key(&key, state_device.as_deref(), &sections)?,
+        None => None,
     };
 
     // Enroll PK if missing (signing keys are on STATE from prepare phase)
     if config::host().secureboot {
-        let pk_missing = sbolt::efi::pk()
-            .context("Failed to read PK from firmware")?
-            .is_none();
+        let pk_missing = pk().context("Failed to read PK from firmware")?.is_none();
         if pk_missing {
             let dir = Path::new(SECRETS_DIR).join("secureboot");
-            let hierarchy = sbolt::keys::storage::load_hierarchy(&dir)
-                .context("Failed to load Secure Boot keys for enrollment")?;
-            sbolt::efi::enroll(&hierarchy)
-                .context("Failed to enroll Secure Boot keys into firmware")?;
+            let hierarchy =
+                load_hierarchy(&dir).context("Failed to load Secure Boot keys for enrollment")?;
+            enroll(&hierarchy).context("Failed to enroll Secure Boot keys into firmware")?;
         }
     }
 
@@ -79,7 +66,7 @@ pub async fn apply() -> Result<()> {
     efi::mount(&efi_device)?;
     efi::write_file(
         Path::new(efi::MOUNT_POINT),
-        Arch::current().boot_path(),
+        esp::arch::Arch::current().boot_path(),
         uki_len,
         &mut uki_file,
     )?;
@@ -89,8 +76,27 @@ pub async fn apply() -> Result<()> {
     efi::unmount();
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
-        eprintln!("Failed to cleanup update work dir: {}", e);
+        eprintln!("Failed to cleanup update work dir: {e}");
     }
 
     Ok(())
+}
+
+fn reseal_luks_key(
+    key: &Zeroizing<Vec<u8>>,
+    state_device: Option<&str>,
+    sections: &[SectionInfo],
+) -> Result<Option<Vec<u8>>> {
+    if !tpm2::device::is_available(None) {
+        return Ok(Some(key.to_vec()));
+    }
+
+    let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(key, sections)? else {
+        bail!("TPM2 sealing unexpectedly returned an ESP key")
+    };
+    let devices: Vec<&str> = [state_device].into_iter().flatten().collect();
+    secrets::write_token_to_devices(&token, &devices)?;
+    kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
+
+    Ok(None)
 }

@@ -1,19 +1,20 @@
 //! Installation workflow orchestration.
 
-mod pki;
+pub mod pki;
 mod state;
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use config::SystemConfig;
-use esp::arch::Arch;
-pub use pki::InstallResult;
+use pki::InstallResult;
+use sbolt::efi::{enroll, setup_mode};
 use sbolt::keys::SigningPair;
+use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
-use wizard::config::{Config, Sources};
-use wizard::profile::Profile;
+use wizard::config::{Config, Sources, configure};
+use wizard::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
 use crate::constants::{DM_DATA, DM_STATE};
@@ -42,13 +43,13 @@ pub async fn run(
     let partitions = partition_disks(system_disk, data_disk, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
-    let signing = sb_hierarchy.as_ref().map(|h| SigningPair {
-        signer: &h.db.signer,
-        certificate: &h.db.certificate,
+    let signing = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
+        signer: &hierarchy.db.signer,
+        certificate: &hierarchy.db.certificate,
     });
 
     let sections = build_and_deploy_efi(
-        &partitions.efi_part,
+        &partitions.efi,
         &config.host.image,
         &config.host.extensions,
         &luks_key,
@@ -62,14 +63,11 @@ pub async fn run(
         let seal_result = secrets::seal_luks_key(&luks_key, &sections)?;
         match seal_result {
             secrets::SealResult::Sealed(token) => {
-                secrets::write_token_to_devices(
-                    &token,
-                    &[&partitions.state_part, &partitions.data_part],
-                )?;
+                secrets::write_token_to_devices(&token, &[&partitions.state, &partitions.data])?;
                 println!("LUKS key sealed to TPM2 with PCR#11 values");
             }
             secrets::SealResult::EspKey => {
-                unreachable!("TPM available but seal returned EspKey");
+                bail!("TPM available but seal returned EspKey");
             }
         }
     } else {
@@ -77,7 +75,7 @@ pub async fn run(
     }
 
     let (dm_state, dm_data) =
-        open_luks_volumes(&partitions.state_part, &partitions.data_part, &luks_key).await?;
+        open_luks_volumes(&partitions.state, &partitions.data, &luks_key).await?;
     format_btrfs_volumes(&dm_state, &dm_data, &progress).await?;
 
     initialize_state(
@@ -105,8 +103,8 @@ async fn validate_disks(
 ) -> Result<()> {
     send_progress(progress, "Validating disks").await;
     tokio::task::spawn_blocking({
-        let system_disk = system_disk.to_string();
-        let data_disk = data_disk.to_string();
+        let system_disk = system_disk.to_owned();
+        let data_disk = data_disk.to_owned();
         move || disk::install_target(&system_disk, &data_disk, force)
     })
     .await??;
@@ -114,12 +112,12 @@ async fn validate_disks(
     Ok(())
 }
 
-fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::hierarchy::Bundle>> {
+fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<Bundle>> {
     if !config.host.secureboot {
         return Ok(None);
     }
 
-    let setup_mode = sbolt::efi::setup_mode().unwrap_or(false);
+    let setup_mode = setup_mode().unwrap_or(false);
     if !setup_mode {
         bail!(
             "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
@@ -128,18 +126,18 @@ fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<sbolt::keys::hi
         );
     }
 
-    sbolt::keys::hierarchy::Bundle::generate("Muak")
+    Bundle::generate("Muak")
         .context("Failed to generate Secure Boot keys")
         .map(Some)
 }
 
 async fn enroll_secureboot_keys(
-    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
+    sb_hierarchy: Option<&Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     if let Some(hierarchy) = sb_hierarchy {
         send_progress(progress, "Enrolling secureboot keys").await;
-        sbolt::efi::enroll(hierarchy).context("Failed to enroll Secure Boot keys")?;
+        enroll(hierarchy).context("Failed to enroll Secure Boot keys")?;
     }
 
     Ok(())
@@ -148,7 +146,7 @@ async fn enroll_secureboot_keys(
 struct PkiResult {
     client_result: InstallResult,
     auth_config: config::AuthConfig,
-    server_pki: pki::ServerPki,
+    server_pki: pki::Server,
 }
 
 async fn generate_keys(
@@ -187,18 +185,21 @@ async fn build_and_deploy_efi(
     let install_profile = derive_install_profile(extensions)?;
 
     let (registry, installer, version) = image_parts(image)?;
-    wizard::config::configure(Config {
+    configure(Config {
         sources: Sources {
             registry,
             installer,
         },
         cache_dir: None,
     })
-    .context("configure wizard")?;
+    .context("Failed to configure wizard")?;
 
     efi::mount(efi_part)?;
 
-    let mut uki_file = efi::create(Path::new(efi::MOUNT_POINT), Arch::current().boot_path())?;
+    let mut uki_file = efi::create(
+        Path::new(efi::MOUNT_POINT),
+        esp::arch::Arch::current().boot_path(),
+    )?;
 
     let (mut overlay_r, mut overlay_w) = UnixStream::pair()?;
 
@@ -230,8 +231,8 @@ async fn build_and_deploy_efi(
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     let booted = profile::load().context("failed to load booted profile")?;
-    let customization = wizard::profile::CustomizationSpec::new(extensions.to_vec())
-        .context("invalid extensions")?;
+    let customization =
+        CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
 
     Ok(Profile::new(booted.overlay().cloned(), customization))
 }
@@ -240,13 +241,13 @@ fn image_parts(image: &str) -> Result<(String, String, String)> {
     let colon = image
         .rfind(':')
         .context("invalid installer image: missing tag")?;
-    let version = &image[colon + 1..];
-    let path = &image[..colon];
+    let version = image.get(colon.saturating_add(1)..).unwrap_or_default();
+    let path = image.get(..colon).unwrap_or_default();
     let slash = path
         .find('/')
         .context("invalid installer image: missing registry")?;
-    let registry = &path[..slash];
-    let installer = &path[slash + 1..];
+    let registry = path.get(..slash).unwrap_or_default();
+    let installer = path.get(slash.saturating_add(1)..).unwrap_or_default();
 
     Ok((
         registry.to_owned(),
@@ -256,9 +257,9 @@ fn image_parts(image: &str) -> Result<(String, String, String)> {
 }
 
 struct PartitionInfo {
-    efi_part: String,
-    state_part: String,
-    data_part: String,
+    efi: String,
+    state: String,
+    data: String,
 }
 
 /// Partitions both the system disk (EFI + STATE) and the data disk (DATA).
@@ -267,30 +268,30 @@ async fn partition_disks(
     data_disk: &str,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
-    send_progress(progress, &format!("Partitioning {}", system_disk)).await;
+    send_progress(progress, &format!("Partitioning {system_disk}")).await;
 
-    tokio::task::spawn_blocking({
-        let system_disk = system_disk.to_string();
-        let data_disk = data_disk.to_string();
-        move || {
-            disk::delete_all_partitions_blkpg(&system_disk)?;
-            disk::wipe(&system_disk)?;
-            let (efi_part, state_part) = disk::create_system_partitions(&system_disk)?;
+    let system_disk = system_disk.to_owned();
+    let data_disk = data_disk.to_owned();
 
-            if system_disk != data_disk {
-                disk::delete_all_partitions_blkpg(&data_disk)?;
-                disk::wipe(&data_disk)?;
-            }
-            let data_part = disk::create_data_partition(&data_disk)?;
+    tokio::task::spawn_blocking(move || partition_disks_blocking(&system_disk, &data_disk)).await?
+}
 
-            Ok(PartitionInfo {
-                efi_part,
-                state_part,
-                data_part,
-            })
-        }
+fn partition_disks_blocking(system_disk: &str, data_disk: &str) -> Result<PartitionInfo> {
+    disk::delete_all_partitions_blkpg(system_disk)?;
+    disk::wipe(system_disk)?;
+    let (efi_part, state_part) = disk::create_system_partitions(system_disk)?;
+
+    if system_disk != data_disk {
+        disk::delete_all_partitions_blkpg(data_disk)?;
+        disk::wipe(data_disk)?;
+    }
+    let data_part = disk::create_data_partition(data_disk)?;
+
+    Ok(PartitionInfo {
+        efi: efi_part,
+        state: state_part,
+        data: data_part,
     })
-    .await?
 }
 
 async fn format_partitions(
@@ -300,11 +301,11 @@ async fn format_partitions(
 ) -> Result<()> {
     send_progress(progress, "Formatting partitions...").await;
 
-    disk::format_efi_partition(&partitions.efi_part)?;
+    disk::format_efi_partition(&partitions.efi)?;
 
     let (state_result, data_result) = tokio::join!(
         flatten_join_result(tokio::task::spawn_blocking({
-            let state_part = partitions.state_part.clone();
+            let state_part = partitions.state.clone();
             let luks_key = luks_key.to_vec();
             move || {
                 luks2::format(&state_part, &luks_key, "STATE")
@@ -312,7 +313,7 @@ async fn format_partitions(
             }
         })),
         flatten_join_result(tokio::task::spawn_blocking({
-            let data_part = partitions.data_part.clone();
+            let data_part = partitions.data.clone();
             let luks_key = luks_key.to_vec();
             move || {
                 luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA")
@@ -333,14 +334,14 @@ async fn open_luks_volumes(
 ) -> Result<(String, String)> {
     let (state_result, data_result) = tokio::join!(
         flatten_join_result(tokio::task::spawn_blocking({
-            let state_part = state_part.to_string();
+            let state_part = state_part.to_owned();
             let luks_key = luks_key.to_vec();
             move || {
                 luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE")
             }
         })),
         flatten_join_result(tokio::task::spawn_blocking({
-            let data_part = data_part.to_string();
+            let data_part = data_part.to_owned();
             let luks_key = luks_key.to_vec();
             move || luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA")
         })),
@@ -350,8 +351,8 @@ async fn open_luks_volumes(
     data_result?;
 
     Ok((
-        format!("/dev/mapper/{}", DM_STATE),
-        format!("/dev/mapper/{}", DM_DATA),
+        format!("/dev/mapper/{DM_STATE}"),
+        format!("/dev/mapper/{DM_DATA}"),
     ))
 }
 
@@ -362,11 +363,11 @@ async fn format_btrfs_volumes(
 ) -> Result<()> {
     let (state_result, data_result) = tokio::join!(
         flatten_join_result(tokio::task::spawn_blocking({
-            let dm_state = dm_state.to_string();
+            let dm_state = dm_state.to_owned();
             move || disk::format_btrfs_partition(&dm_state, "STATE")
         })),
         flatten_join_result(tokio::task::spawn_blocking({
-            let dm_data = dm_data.to_string();
+            let dm_data = dm_data.to_owned();
             move || disk::format_btrfs_partition(&dm_data, "DATA")
         })),
     );
@@ -381,8 +382,8 @@ async fn initialize_state(
     dm_state: &str,
     config: &SystemConfig,
     auth_config: &config::AuthConfig,
-    server_pki: &pki::ServerPki,
-    sb_hierarchy: Option<&sbolt::keys::hierarchy::Bundle>,
+    server_pki: &pki::Server,
+    sb_hierarchy: Option<&Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Initializing STATE partition").await;
@@ -401,14 +402,14 @@ fn close_luks_volumes() -> Result<()> {
 async fn flatten_join_result<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
     handle
         .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Task panicked: {e}"))?
 }
 
 async fn send_progress(progress: &mpsc::Sender<InstallProgress>, message: &str) {
     streaming::send_progress(
         progress,
         InstallProgress {
-            message: message.to_string(),
+            message: message.to_owned(),
             ..Default::default()
         },
     )

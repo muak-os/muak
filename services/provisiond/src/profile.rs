@@ -23,9 +23,7 @@ pub(crate) fn load() -> Result<Profile> {
 
 #[cfg(test)]
 mod tests {
-    use wizard::profile::Profile;
-
-    use super::*;
+    use wizard::profile::{CustomizationSpec, Profile};
 
     #[test]
     fn load_parses_minimal_profile() {

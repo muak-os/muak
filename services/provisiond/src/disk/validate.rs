@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use rustix::fs::sync;
 
 /// Validates that the system and data disks are suitable install targets.
@@ -12,11 +12,11 @@ pub fn install_target(system_disk: &str, data_disk: &str, force: bool) -> Result
     }
 
     disk(system_disk, force)
-        .with_context(|| format!("System disk '{}' failed validation", system_disk))?;
+        .with_context(|| format!("System disk '{system_disk}' failed validation"))?;
 
     if data_disk != system_disk {
         disk(data_disk, force)
-            .with_context(|| format!("Data disk '{}' failed validation", data_disk))?;
+            .with_context(|| format!("Data disk '{data_disk}' failed validation"))?;
     }
 
     Ok(())
@@ -25,18 +25,21 @@ pub fn install_target(system_disk: &str, data_disk: &str, force: bool) -> Result
 /// Validates a disk as a suitable install target.
 fn disk(disk_path: &str, force: bool) -> Result<()> {
     if !Path::new(disk_path).exists() {
-        bail!("Disk '{}' does not exist", disk_path);
+        bail!("Disk '{disk_path}' does not exist");
     }
 
     super::validate_block_device(disk_path)?;
     super::validate_disk_size(disk_path)?;
 
     let mounted = super::mount::get_disk_mounts(disk_path);
-    if !mounted.is_empty() && !force {
+    if !mounted.is_empty()
+        && !force
+        && let Some(first) = mounted.first()
+    {
         bail!(
             "Cannot install: {} is mounted at {}. Use --force to unmount automatically.",
-            mounted[0].device,
-            mounted[0].mount_point
+            first.device,
+            first.mount_point
         );
     }
 
@@ -46,17 +49,13 @@ fn disk(disk_path: &str, force: bool) -> Result<()> {
     let has_state_partition = super::has_state_partition(disk_path)?;
     if has_state_partition && !force {
         bail!(
-            "Disk '{}' already has a Muak installation (STATE partition found). \
-             Use --force to overwrite.",
-            disk_path
+            "Disk '{disk_path}' already has a Muak installation (STATE partition found). \
+             Use --force to overwrite."
         );
     }
 
     if super::gpt::disk_is_non_empty(disk_path)? && !force {
-        bail!(
-            "Disk '{}' is not empty and will be overwritten. Use --force to continue.",
-            disk_path
-        );
+        bail!("Disk '{disk_path}' is not empty and will be overwritten. Use --force to continue.");
     }
 
     Ok(())

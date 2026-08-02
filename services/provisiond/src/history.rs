@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::update::snapshot;
@@ -22,9 +22,9 @@ pub enum ChangeKind {
     Rollback,
 }
 
-impl std::fmt::Display for ChangeKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+impl core::fmt::Display for ChangeKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
             ChangeKind::Install => write!(f, "install"),
             ChangeKind::Update => write!(f, "update"),
             ChangeKind::Rollback => write!(f, "rollback"),
@@ -46,22 +46,25 @@ pub fn record(update_id: &str, author: &str, kind: ChangeKind, new_config: &str)
     let dir = Path::new(HISTORY_DIR);
     std::fs::create_dir_all(dir).context("Failed to create history dir")?;
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let timestamp = i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    )
+    .unwrap_or(0);
 
     let entry = HistoryEntry {
         timestamp,
-        update_id: update_id.to_string(),
-        author: author.to_string(),
+        update_id: update_id.to_owned(),
+        author: author.to_owned(),
         change_kind: kind,
     };
 
     let stem = stem(timestamp, update_id);
     let json = serde_json::to_string_pretty(&entry)?;
 
-    std::fs::write(dir.join(format!("{}.json", stem)), json)
+    std::fs::write(dir.join(format!("{stem}.json")), json)
         .context("Failed to write history metadata")?;
     std::fs::write(
         dir.join(format!("{}.{}", stem, config::CONFIG_EXTENSION)),
@@ -82,7 +85,7 @@ pub fn list(limit: usize) -> Result<Vec<HistoryEntry>> {
     }
 
     let mut entries = read_all_entries(dir)?;
-    entries.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
+    entries.sort_by_key(|entry| core::cmp::Reverse(entry.timestamp));
     entries.truncate(limit);
     Ok(entries)
 }
@@ -97,10 +100,10 @@ pub fn config(update_id: &str) -> Result<String> {
     let dir = Path::new(HISTORY_DIR);
     let path = snapshot::find(dir, update_id)?;
     std::fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read history snapshot for {}", update_id))
+        .with_context(|| format!("Failed to read history snapshot for {update_id}"))
 }
 
-/// Removes the oldest entries beyond `max_entries`, deleting both
+/// Removes the oldest entries beyond `max_entries`, deleting both.
 fn prune(dir: &Path, max_entries: usize) -> Result<()> {
     let mut stems = read_all_stems(dir)?;
     if stems.len() <= max_entries {
@@ -108,30 +111,34 @@ fn prune(dir: &Path, max_entries: usize) -> Result<()> {
     }
 
     stems.sort_unstable();
-    let to_delete = stems.len() - max_entries;
+    let to_delete = stems.len().saturating_sub(max_entries);
 
     for stem in stems.iter().take(to_delete) {
         for ext in &["json", config::CONFIG_EXTENSION] {
-            let path = dir.join(format!("{}.{}", stem, ext));
-            if let Err(e) = std::fs::remove_file(&path) {
-                eprintln!("Failed to prune history file {:?}: {}", path, e);
-            }
+            prune_file(&dir.join(format!("{stem}.{ext}")));
         }
     }
 
     Ok(())
 }
 
+/// Removes a single history file, logging a warning when it cannot be removed.
+fn prune_file(path: &Path) {
+    if let Err(e) = std::fs::remove_file(path) {
+        eprintln!("Failed to prune history file {}: {e}", path.display());
+    }
+}
+
 fn read_all_entries(dir: &Path) -> Result<Vec<HistoryEntry>> {
     std::fs::read_dir(dir)
         .context("Failed to read history dir")?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
-        .map(|e| {
-            let contents = std::fs::read_to_string(e.path())
-                .with_context(|| format!("Failed to read {:?}", e.path()))?;
+        .filter_map(core::result::Result::ok)
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .map(|entry| {
+            let contents = std::fs::read_to_string(entry.path())
+                .with_context(|| format!("Failed to read {}", entry.path().display()))?;
             serde_json::from_str(&contents)
-                .with_context(|| format!("Failed to parse {:?}", e.path()))
+                .with_context(|| format!("Failed to parse {}", entry.path().display()))
         })
         .collect()
 }
@@ -139,12 +146,13 @@ fn read_all_entries(dir: &Path) -> Result<Vec<HistoryEntry>> {
 fn read_all_stems(dir: &Path) -> Result<Vec<String>> {
     let stems: Vec<String> = std::fs::read_dir(dir)
         .context("Failed to read history dir")?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
-        .filter_map(|e| {
-            e.path()
+        .filter_map(core::result::Result::ok)
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .filter_map(|entry| {
+            entry
+                .path()
                 .file_stem()
-                .and_then(|s| s.to_str())
+                .and_then(|stem| stem.to_str())
                 .map(str::to_owned)
         })
         .collect();
@@ -152,7 +160,7 @@ fn read_all_stems(dir: &Path) -> Result<Vec<String>> {
 }
 
 fn stem(timestamp: i64, update_id: &str) -> String {
-    format!("{:020}-{}", timestamp, update_id)
+    format!("{timestamp:020}-{update_id}")
 }
 
 #[cfg(test)]
@@ -162,11 +170,11 @@ mod tests {
     #[test]
     fn stem_is_sortable() {
         // ARRANGE
-        let a = stem(1000, "update-1000");
-        let b = stem(2000, "update-2000");
+        let first = stem(1000, "update-1000");
+        let second = stem(2000, "update-2000");
 
         // ACT & ASSERT
-        assert!(a < b);
+        assert!(first < second);
     }
 
     #[test]
@@ -180,15 +188,15 @@ mod tests {
     #[test]
     fn stem_zero_pads_timestamp_to_twenty_digits() {
         // ARRANGE
-        let ts = 1i64;
+        let ts = 1_i64;
         let id = "abc";
 
         // ACT
-        let s = stem(ts, id);
+        let name = stem(ts, id);
 
         // ASSERT
-        assert_eq!(&s[..20], "00000000000000000001");
-        assert!(s.ends_with("-abc"));
+        assert_eq!(name.get(..20).unwrap_or_default(), "00000000000000000001");
+        assert!(name.ends_with("-abc"));
     }
 
     #[test]
@@ -215,8 +223,8 @@ mod tests {
         // ARRANGE
         let entry = HistoryEntry {
             timestamp: 1_700_000_000,
-            update_id: "update-1700000000".to_string(),
-            author: "alice".to_string(),
+            update_id: "update-1700000000".to_owned(),
+            author: "alice".to_owned(),
             change_kind: ChangeKind::Update,
         };
 
@@ -253,8 +261,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let entry = HistoryEntry {
             timestamp: 42,
-            update_id: "update-42".to_string(),
-            author: "bob".to_string(),
+            update_id: "update-42".to_owned(),
+            author: "bob".to_owned(),
             change_kind: ChangeKind::Install,
         };
         let json = serde_json::to_string(&entry).expect("serialize");
@@ -265,19 +273,20 @@ mod tests {
 
         // ASSERT
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].update_id, "update-42");
-        assert_eq!(entries[0].author, "bob");
-        assert_eq!(entries[0].change_kind, ChangeKind::Install);
+        let entry = entries.first().unwrap();
+        assert_eq!(entry.update_id, "update-42");
+        assert_eq!(entry.author, "bob");
+        assert_eq!(entry.change_kind, ChangeKind::Install);
     }
 
     #[test]
     fn prune_removes_oldest_entries_beyond_max() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        for i in 0..5u64 {
-            let name = stem(i as i64, &format!("update-{}", i));
-            std::fs::write(dir.path().join(format!("{}.json", name)), "{}").unwrap();
-            std::fs::write(dir.path().join(format!("{}.toml", name)), "").unwrap();
+        for i in 0..5_u64 {
+            let name = stem(i64::try_from(i).unwrap_or(0), &format!("update-{i}"));
+            std::fs::write(dir.path().join(format!("{name}.json")), "{}").unwrap();
+            std::fs::write(dir.path().join(format!("{name}.toml")), "").unwrap();
         }
 
         // ACT
@@ -288,8 +297,13 @@ mod tests {
         remaining.sort();
         assert_eq!(remaining.len(), 3);
         for stem_str in &remaining {
-            let ts_part: u64 = stem_str[..20].trim_start_matches('0').parse().unwrap_or(0);
-            assert!(ts_part >= 2, "expected only ts>=2, got {}", ts_part);
+            let ts_part: u64 = stem_str
+                .get(..20)
+                .unwrap_or_default()
+                .trim_start_matches('0')
+                .parse()
+                .unwrap_or(0);
+            assert!(ts_part >= 2, "expected only ts>=2, got {ts_part}");
         }
     }
 
@@ -297,9 +311,9 @@ mod tests {
     fn prune_does_nothing_when_below_max() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        for i in 0..3u64 {
-            let name = stem(i as i64, &format!("update-{}", i));
-            std::fs::write(dir.path().join(format!("{}.json", name)), "{}").unwrap();
+        for i in 0..3_u64 {
+            let name = stem(i64::try_from(i).unwrap_or(0), &format!("update-{i}"));
+            std::fs::write(dir.path().join(format!("{name}.json")), "{}").unwrap();
         }
 
         // ACT

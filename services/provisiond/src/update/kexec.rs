@@ -1,10 +1,13 @@
 //! Kexec-based reboot into the staged update kernel.
 
+extern crate alloc;
+
+use alloc::ffi::CString;
 use std::fs::{self, File};
-use std::os::fd::AsRawFd;
+use std::os::fd::AsRawFd as _;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
@@ -24,9 +27,9 @@ pub fn run(update_id: &str) -> Result<()> {
 
     load(&kernel_path, &initrd_path, update_id).context("Failed to load new kernel with kexec")?;
     kmsg::info!("kexec booting into update {}", update_id);
-    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {}", e))?;
+    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {e}"))?;
 
-    unreachable!("If we reach here, something went really wrong")
+    Err(anyhow!("Kexec reboot returned unexpectedly"))
 }
 
 fn load(kernel_path: &Path, initrd_path: &Path, update_id: &str) -> Result<()> {
@@ -40,15 +43,15 @@ fn load(kernel_path: &Path, initrd_path: &Path, update_id: &str) -> Result<()> {
             SYS_KEXEC_FILE_LOAD,
             kernel.as_raw_fd(),
             initrd.as_raw_fd(),
-            cmdline.as_bytes_with_nul().len() as libc::size_t,
+            libc::size_t::try_from(cmdline.as_bytes_with_nul().len()).unwrap_or(0),
             cmdline.as_ptr(),
-            0 as libc::c_ulong,
+            0_u64,
         )
     };
 
     if res != 0 {
         let errno = std::io::Error::last_os_error();
-        return Err(anyhow!("Failed to load new kernel: {}", errno));
+        return Err(anyhow!("Failed to load new kernel: {errno}"));
     }
 
     sync();
@@ -56,11 +59,11 @@ fn load(kernel_path: &Path, initrd_path: &Path, update_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
+fn add_cmdline_update_marker(update_id: &str) -> Result<CString> {
     let cmdline = fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()
         .trim()
-        .to_string();
+        .to_owned();
 
     let filtered_cmdline = cmdline
         .split_whitespace()
@@ -68,6 +71,6 @@ fn add_cmdline_update_marker(update_id: &str) -> Result<std::ffi::CString> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    std::ffi::CString::new(format!("{} muak.update_id={}", filtered_cmdline, update_id))
-        .map_err(|_| anyhow!("Kernel cmdline contains interior NUL"))
+    CString::new(format!("{filtered_cmdline} muak.update_id={update_id}"))
+        .map_err(|err| anyhow!("Kernel cmdline contains interior NUL: {err}"))
 }

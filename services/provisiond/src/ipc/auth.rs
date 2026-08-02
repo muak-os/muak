@@ -1,15 +1,22 @@
-//! AuthService implementation for mTLS certificate enrollment and management.
+//! `AuthService` implementation for mTLS certificate enrollment and management.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use pki::csr;
+use tokio::fs;
 use tonic::{Request, Response, Status};
 use x509_cert::Certificate;
-use x509_cert::der::{DecodePem, EncodePem, pem::LineEnding};
+use x509_cert::der::{DecodePem as _, EncodePem as _, pem::LineEnding};
 
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::get_csr_status_response::Status as CsrStatus;
-use super::proto::auth::*;
+use super::proto::auth::{
+    AckEnrollmentRequest, AckEnrollmentResponse, ApproveCsrRequest, ApproveCsrResponse,
+    AuthorizedUser, GetCsrStatusRequest, GetCsrStatusResponse, ListPendingCsrsRequest,
+    ListPendingCsrsResponse, ListUsersRequest, ListUsersResponse, PendingCsr, RevokeCertRequest,
+    RevokeCertResponse, SubmitCsrRequest, SubmitCsrResponse,
+};
 use crate::constants::SECRETS_DIR;
 
 fn pending_dir() -> PathBuf {
@@ -24,26 +31,33 @@ fn ca_cert_path() -> PathBuf {
     Path::new(SECRETS_DIR).join("ca.crt")
 }
 
+fn epoch_seconds_string(timestamp: std::time::SystemTime) -> String {
+    timestamp
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_default()
+}
+
 fn ca_key_path() -> PathBuf {
     Path::new(SECRETS_DIR).join("ca.key")
 }
 
-pub fn service() -> AuthServiceServer<AuthServiceImpl> {
-    AuthServiceServer::new(AuthServiceImpl)
+pub fn service() -> AuthServiceServer<ServiceImpl> {
+    AuthServiceServer::new(ServiceImpl)
 }
 
-pub struct AuthServiceImpl;
+pub struct ServiceImpl;
 
 #[tonic::async_trait]
-impl AuthService for AuthServiceImpl {
+impl AuthService for ServiceImpl {
     async fn submit_csr(
         &self,
         request: Request<SubmitCsrRequest>,
     ) -> Result<Response<SubmitCsrResponse>, Status> {
         let req = request.into_inner();
 
-        let fingerprint = pki::csr::compute_fingerprint(&req.csr_pem)
-            .map_err(|e| Status::invalid_argument(format!("Invalid CSR: {}", e)))?;
+        let fingerprint = csr::compute_fingerprint(&req.csr_pem)
+            .map_err(|e| Status::invalid_argument(format!("Invalid CSR: {e}")))?;
 
         if is_user_authorized(&fingerprint) {
             return Err(Status::already_exists(
@@ -53,15 +67,21 @@ impl AuthService for AuthServiceImpl {
 
         let pending_path = pending_csr_path(&fingerprint);
         if pending_path.exists() {
-            println!("CSR already pending: {}", &fingerprint[..16]);
+            println!(
+                "CSR already pending: {}",
+                fingerprint.get(..16).unwrap_or_default()
+            );
             return Ok(Response::new(SubmitCsrResponse { fingerprint }));
         }
 
         store_pending_csr(&fingerprint, &req.csr_pem)
             .await
-            .map_err(|e| Status::internal(format!("Failed to store CSR: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to store CSR: {e}")))?;
 
-        println!("CSR submitted: {}", &fingerprint[..16]);
+        println!(
+            "CSR submitted: {}",
+            fingerprint.get(..16).unwrap_or_default()
+        );
 
         Ok(Response::new(SubmitCsrResponse { fingerprint }))
     }
@@ -85,7 +105,7 @@ impl AuthService for AuthServiceImpl {
 
         if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
             let server_name = config::try_config()
-                .map(|c| c.host.name.clone())
+                .map(|config| config.host.name.clone())
                 .unwrap_or_default();
 
             return Ok(Response::new(GetCsrStatusResponse {
@@ -120,7 +140,7 @@ impl AuthService for AuthServiceImpl {
     ) -> Result<Response<ListPendingCsrsResponse>, Status> {
         let csrs = list_pending_csrs()
             .await
-            .map_err(|e| Status::internal(format!("Failed to list pending CSRs: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to list pending CSRs: {e}")))?;
 
         Ok(Response::new(ListPendingCsrsResponse { csrs }))
     }
@@ -138,23 +158,23 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::not_found("CSR not found"));
         }
 
-        let csr_pem = tokio::fs::read_to_string(&pending_path)
+        let csr_pem = fs::read_to_string(&pending_path)
             .await
-            .map_err(|e| Status::internal(format!("Failed to read CSR: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to read CSR: {e}")))?;
 
         let (cert, cert_fingerprint) =
             tokio::task::spawn_blocking(move || sign_pending_csr(&csr_pem))
                 .await
-                .map_err(|e| Status::internal(format!("Task failed: {}", e)))?
-                .map_err(|e| Status::internal(format!("Failed to sign CSR: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Task failed: {e}")))?
+                .map_err(|e| Status::internal(format!("Failed to sign CSR: {e}")))?;
 
         let cert_pem = cert
             .to_pem(LineEnding::LF)
-            .map_err(|e| Status::internal(format!("Failed to encode certificate: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to encode certificate: {e}")))?;
 
         store_staging_cert(&fingerprint, &cert_pem)
             .await
-            .map_err(|e| Status::internal(format!("Failed to store certificate: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to store certificate: {e}")))?;
 
         let parsed_permissions: Vec<config::Permission> = {
             let mut perms = Vec::new();
@@ -169,14 +189,14 @@ impl AuthService for AuthServiceImpl {
 
         add_user_to_auth(&cert_fingerprint, parsed_permissions)
             .await
-            .map_err(|e| Status::internal(format!("Failed to update auth config: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to update auth config: {e}")))?;
 
-        let _ = tokio::fs::remove_file(&pending_path).await;
+        let _removed = fs::remove_file(&pending_path).await;
 
         println!(
             "CSR approved: {} -> {}",
-            &fingerprint[..16],
-            &cert_fingerprint[..16]
+            fingerprint.get(..16).unwrap_or_default(),
+            cert_fingerprint.get(..16).unwrap_or_default()
         );
 
         Ok(Response::new(ApproveCsrResponse { cert_pem }))
@@ -190,9 +210,12 @@ impl AuthService for AuthServiceImpl {
 
         revoke_user(&fingerprint)
             .await
-            .map_err(|e| Status::internal(format!("Failed to revoke certificate: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to revoke certificate: {e}")))?;
 
-        println!("Certificate revoked: {}", &fingerprint[..16]);
+        println!(
+            "Certificate revoked: {}",
+            fingerprint.get(..16).unwrap_or_default()
+        );
 
         Ok(Response::new(RevokeCertResponse {}))
     }
@@ -208,9 +231,9 @@ impl AuthService for AuthServiceImpl {
         let users: Vec<AuthorizedUser> = auth
             .users
             .iter()
-            .map(|u| AuthorizedUser {
-                fingerprint: u.fingerprint.clone(),
-                permissions: config::permission::collapse(&u.permissions),
+            .map(|user| AuthorizedUser {
+                fingerprint: user.fingerprint.clone(),
+                permissions: config::permission::collapse(&user.permissions),
             })
             .collect();
 
@@ -230,12 +253,15 @@ impl AuthService for AuthServiceImpl {
 
         let cert_path = staging_cert_path(&fingerprint);
         if cert_path.exists() {
-            tokio::fs::remove_file(&cert_path)
+            fs::remove_file(&cert_path)
                 .await
-                .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to cleanup staging cert: {e}")))?;
         }
 
-        println!("Enrollment acknowledged: {}", &fingerprint[..16]);
+        println!(
+            "Enrollment acknowledged: {}",
+            fingerprint.get(..16).unwrap_or_default()
+        );
 
         Ok(Response::new(AckEnrollmentResponse {}))
     }
@@ -243,46 +269,42 @@ impl AuthService for AuthServiceImpl {
 
 /// Returns the path for a pending CSR.
 fn pending_csr_path(fingerprint: &str) -> PathBuf {
-    pending_dir().join(format!("{}.pem", fingerprint))
+    pending_dir().join(format!("{fingerprint}.pem"))
 }
 
 /// Stores a pending CSR to disk.
 async fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
-    tokio::fs::create_dir_all(pending_dir()).await?;
+    fs::create_dir_all(pending_dir()).await?;
     let path = pending_csr_path(fingerprint);
-    tokio::fs::write(path, csr_pem).await?;
+    fs::write(path, csr_pem).await?;
     Ok(())
 }
 
 /// Lists all pending CSRs.
 async fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
     let dir = pending_dir();
-    if !tokio::fs::try_exists(&dir).await? {
+    if !fs::try_exists(&dir).await? {
         return Ok(Vec::new());
     }
 
     let mut csrs = Vec::new();
-    let mut entries = tokio::fs::read_dir(dir).await?;
+    let mut entries = fs::read_dir(dir).await?;
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
 
-        if path.extension().is_some_and(|e| e == "pem")
-            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        if path.extension().is_some_and(|ext| ext == "pem")
+            && let Some(stem) = path.file_stem().and_then(|stem| stem.to_str())
         {
-            let metadata = tokio::fs::metadata(&path).await?;
+            let metadata = fs::metadata(&path).await?;
             let submitted_at = metadata
                 .created()
                 .or_else(|_| metadata.modified())
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs().to_string())
-                        .unwrap_or_default()
-                })
+                .map(epoch_seconds_string)
                 .unwrap_or_default();
 
             csrs.push(PendingCsr {
-                fingerprint: stem.to_string(),
+                fingerprint: stem.to_owned(),
                 submitted_at,
             });
         }
@@ -294,32 +316,34 @@ async fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
 /// Signs pending CSR with the CA.
 fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
     let ca_key_pem = std::fs::read_to_string(ca_key_path())
-        .map_err(|e| anyhow::anyhow!("CA key not found: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("CA key not found: {e}"))?;
     let ca_cert_pem = std::fs::read_to_string(ca_cert_path())
-        .map_err(|e| anyhow::anyhow!("CA cert not found: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("CA cert not found: {e}"))?;
     let ca_cert = Certificate::from_pem(&ca_cert_pem)?;
 
-    let (cert, fingerprint) = pki::csr::sign(csr_pem, &ca_key_pem, &ca_cert)?;
+    let (cert, fingerprint) = csr::sign(csr_pem, &ca_key_pem, &ca_cert)?;
     Ok((cert, fingerprint))
 }
 
 /// Checks if a fingerprint is already authorized.
 fn is_user_authorized(fingerprint: &str) -> bool {
-    config::try_auth()
-        .map(|a| a.users.iter().any(|u| u.fingerprint == fingerprint))
-        .unwrap_or(false)
+    config::try_auth().is_some_and(|auth| {
+        auth.users
+            .iter()
+            .any(|user| user.fingerprint == fingerprint)
+    })
 }
 
 /// Returns the path for a staging certificate.
 fn staging_cert_path(fingerprint: &str) -> PathBuf {
-    staging_dir().join(format!("{}.crt", fingerprint))
+    staging_dir().join(format!("{fingerprint}.crt"))
 }
 
 /// Stores a certificate in staging for client pickup.
 async fn store_staging_cert(fingerprint: &str, cert_pem: &str) -> Result<()> {
-    tokio::fs::create_dir_all(staging_dir()).await?;
+    fs::create_dir_all(staging_dir()).await?;
     let path = staging_cert_path(fingerprint);
-    tokio::fs::write(path, cert_pem).await?;
+    fs::write(path, cert_pem).await?;
     Ok(())
 }
 
@@ -332,15 +356,17 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
 
 /// Adds a user to the auth config and writes it to disk.
 async fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
-    let mut auth = config::try_auth().map(|a| (*a).clone()).unwrap_or_default();
+    let mut auth = config::try_auth()
+        .map(|auth| (*auth).clone())
+        .unwrap_or_default();
 
     auth.users.push(config::AuthUser {
-        fingerprint: fingerprint.to_string(),
+        fingerprint: fingerprint.to_owned(),
         permissions,
     });
 
     let auth_str = config::serialize_auth(&auth)?;
-    tokio::fs::write(config::AUTH_PATH, auth_str).await?;
+    fs::write(config::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }
@@ -348,17 +374,17 @@ async fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission
 /// Revokes a user by adding their fingerprint to the revoked list.
 async fn revoke_user(fingerprint: &str) -> Result<()> {
     let mut auth = config::try_auth()
-        .map(|a| config::AuthConfig::clone(&a))
+        .map(|auth| config::AuthConfig::clone(&auth))
         .unwrap_or_default();
 
-    auth.users.retain(|u| u.fingerprint != fingerprint);
+    auth.users.retain(|user| user.fingerprint != fingerprint);
 
-    if !auth.revoked.contains(&fingerprint.to_string()) {
-        auth.revoked.push(fingerprint.to_string());
+    if !auth.revoked.contains(&fingerprint.to_owned()) {
+        auth.revoked.push(fingerprint.to_owned());
     }
 
     let auth_str = config::serialize_auth(&auth)?;
-    tokio::fs::write(config::AUTH_PATH, auth_str).await?;
+    fs::write(config::AUTH_PATH, auth_str).await?;
 
     Ok(())
 }

@@ -1,20 +1,20 @@
-//! VersionService gRPC implementation
+//! `VersionService` gRPC implementation.
 
 use tonic::{Request, Response, Status};
 
 use super::proto::version::version_service_server::{VersionService, VersionServiceServer};
 use super::proto::version::{GetVersionRequest, GetVersionResponse};
 
-/// Creates the VersionService gRPC server.
-pub fn service() -> VersionServiceServer<VersionServiceImpl> {
-    VersionServiceServer::new(VersionServiceImpl)
+/// Creates the `VersionService` gRPC server.
+pub fn service() -> VersionServiceServer<ServiceImpl> {
+    VersionServiceServer::new(ServiceImpl)
 }
 
-/// Implementation of the VersionService gRPC interface.
-pub struct VersionServiceImpl;
+/// Implementation of the `VersionService` gRPC interface.
+pub struct ServiceImpl;
 
 #[tonic::async_trait]
-impl VersionService for VersionServiceImpl {
+impl VersionService for ServiceImpl {
     async fn get_version(
         &self,
         _request: Request<GetVersionRequest>,

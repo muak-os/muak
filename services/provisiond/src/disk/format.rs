@@ -1,9 +1,12 @@
 //! Filesystem formatting utilities for EFI and Btrfs partitions.
 
+use core::time::Duration;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
+
+use crate::disk::constants::EFI_SIZE;
 
 // Wait for a device node to appear.
 pub fn wait_for_device(device: &str) -> Result<()> {
@@ -11,10 +14,10 @@ pub fn wait_for_device(device: &str) -> Result<()> {
         if Path::new(device).exists() {
             return Ok(());
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(100));
     }
 
-    bail!("Timeout waiting for device {} to appear", device)
+    bail!("Timeout waiting for device {device} to appear")
 }
 
 /// Formats a partition as FAT32 for EFI System Partition use.
@@ -25,7 +28,7 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 
     let mut file = OpenOptions::new().read(true).write(true).open(device)?;
 
-    fatfs::builder::format(&mut file, crate::disk::constants::EFI_SIZE)
+    fatfs::builder::format(&mut file, EFI_SIZE)
         .context("Failed to format partition as EFI FAT32")?;
 
     file.sync_all()?;

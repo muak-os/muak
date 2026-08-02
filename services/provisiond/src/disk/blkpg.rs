@@ -1,5 +1,7 @@
 //! BLKPG ioctl operations for kernel partition table manipulation.
 
+use core::mem;
+
 use anyhow::{Result, bail};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
@@ -23,13 +25,13 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
 
     let file = open(disk, OFlags::RDWR, Mode::empty())?;
 
-    let devname = [0u8; 64];
-    let volname = [0u8; 64];
+    let devname = [0_u8; 64];
+    let volname = [0_u8; 64];
 
     let mut blkpg_part = BlkpgPartition {
         start: 0,
         length: 0,
-        pno: partition_num as i32,
+        pno: i32::try_from(partition_num).unwrap_or(0),
         devname,
         volname,
     };
@@ -37,16 +39,18 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     let blkpg_arg = BlkpgIoctlArg {
         op: BLKPG_DEL_PARTITION,
         flags: 0,
-        datalen: std::mem::size_of::<BlkpgPartition>() as i32,
-        data: &mut blkpg_part as *mut BlkpgPartition,
+        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0),
+        data: &raw mut blkpg_part,
     };
 
     // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
-    match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
-        Ok(_) => {
+    let setter = unsafe { Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg) };
+    // SAFETY: ioctl is called with a Setter built from a fully-initialized argument
+    match unsafe { ioctl(&file, setter) } {
+        Ok(()) => {
             kmsg::info!("BLKPG: Successfully removed partition {}", partition_num);
         }
-        Err(Errno::NXIO) | Err(Errno::NOENT) => {
+        Err(Errno::NXIO | Errno::NOENT) => {
             // Partition doesn't exist in kernel, that's fine
             kmsg::info!(
                 "BLKPG: Partition {} not present in kernel (OK)",
@@ -55,11 +59,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
         }
         Err(e) => {
             kmsg::error!("BLKPG: Failed to remove partition {}: {}", partition_num, e);
-            bail!(
-                "BLKPG ioctl failed to remove partition {}: {}",
-                partition_num,
-                e
-            )
+            bail!("BLKPG ioctl failed to remove partition {partition_num}: {e}")
         }
     }
 
@@ -99,21 +99,30 @@ pub fn add_partition_blkpg(
 
     let file = open(disk, OFlags::RDWR, Mode::empty())?;
 
-    let start_bytes = start_lba * SECTOR_SIZE;
-    let length_bytes = (end_lba - start_lba + 1) * SECTOR_SIZE;
+    let start_bytes = start_lba.saturating_mul(SECTOR_SIZE);
+    let length_bytes = end_lba
+        .saturating_sub(start_lba)
+        .saturating_add(1)
+        .saturating_mul(SECTOR_SIZE);
 
-    let mut devname = [0u8; 64];
-    let volname = [0u8; 64];
+    let mut devname = [0_u8; 64];
+    let volname = [0_u8; 64];
 
     let partition_name = format_partition_name(disk.trim_start_matches("/dev/"), partition_num);
     let partition_name_bytes = partition_name.as_bytes();
     let copy_len = partition_name_bytes.len().min(63);
-    devname[..copy_len].copy_from_slice(&partition_name_bytes[..copy_len]);
+    let (Some(dest), Some(source)) = (
+        devname.get_mut(..copy_len),
+        partition_name_bytes.get(..copy_len),
+    ) else {
+        return Ok(());
+    };
+    dest.copy_from_slice(source);
 
     let mut blkpg_part = BlkpgPartition {
-        start: start_bytes as i64,
-        length: length_bytes as i64,
-        pno: partition_num as i32,
+        start: i64::try_from(start_bytes).unwrap_or(0),
+        length: i64::try_from(length_bytes).unwrap_or(0),
+        pno: i32::try_from(partition_num).unwrap_or(0),
         devname,
         volname,
     };
@@ -121,13 +130,15 @@ pub fn add_partition_blkpg(
     let blkpg_arg = BlkpgIoctlArg {
         op: BLKPG_ADD_PARTITION,
         flags: 0,
-        datalen: std::mem::size_of::<BlkpgPartition>() as i32,
-        data: &mut blkpg_part as *mut BlkpgPartition,
+        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0),
+        data: &raw mut blkpg_part,
     };
 
     // SAFETY: ioctl is inherently unsafe, but Setter ensures proper argument passing
-    match unsafe { ioctl(&file, Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg)) } {
-        Ok(_) => {
+    let setter = unsafe { Setter::<BLKPG, BlkpgIoctlArg>::new(blkpg_arg) };
+    // SAFETY: ioctl is called with a Setter built from a fully-initialized argument
+    match unsafe { ioctl(&file, setter) } {
+        Ok(()) => {
             kmsg::info!("BLKPG: Successfully added partition {}", partition_num);
             drop(file);
             Ok(())
@@ -135,7 +146,7 @@ pub fn add_partition_blkpg(
         Err(e) => {
             kmsg::error!("BLKPG: Failed to add partition {}: {}", partition_num, e);
             drop(file);
-            bail!("BLKPG ioctl failed for partition {}: {}", partition_num, e)
+            bail!("BLKPG ioctl failed for partition {partition_num}: {e}")
         }
     }
 }

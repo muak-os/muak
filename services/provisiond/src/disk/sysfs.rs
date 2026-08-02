@@ -1,29 +1,34 @@
 //! Sysfs-based disk and partition discovery utilities.
 
-use std::io::{Read, Seek};
-use std::os::unix::fs::FileTypeExt;
+use std::io::{Read as _, Seek as _};
+use std::os::unix::fs::FileTypeExt as _;
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use tokio::fs;
 
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
 use super::types::{DiskInfo, PartitionInfo};
 
 /// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {
-    let mut f = std::fs::File::open(disk)?;
-    let disk_size = f.seek(std::io::SeekFrom::End(0))?;
+    let mut file = std::fs::File::open(disk)?;
+    let disk_size = file.seek(std::io::SeekFrom::End(0))?;
 
     if disk_size < MIN_DISK_SIZE {
         bail!(
             "Disk '{}' is too small ({} MB). Minimum required: {} MB",
             disk,
-            disk_size / MB,
-            MIN_DISK_SIZE / MB
+            disk_size.checked_div(MB).unwrap_or(0),
+            MIN_DISK_SIZE.checked_div(MB).unwrap_or(0)
         );
     }
 
-    kmsg::info!("Disk size: {} GB ({} MB)", disk_size / GB, disk_size / MB);
+    kmsg::info!(
+        "Disk size: {} GB ({} MB)",
+        disk_size.checked_div(GB).unwrap_or(0),
+        disk_size.checked_div(MB).unwrap_or(0)
+    );
 
     Ok(())
 }
@@ -33,13 +38,10 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     let metadata = std::fs::metadata(disk)?;
 
     if !metadata.file_type().is_block_device() {
-        bail!(
-            "'{}' is not a block device. Please specify a disk (e.g., /dev/sda, /dev/vda)",
-            disk
-        );
+        bail!("'{disk}' is not a block device. Please specify a disk (e.g., /dev/sda, /dev/vda)");
     }
 
-    if disk.chars().last().is_some_and(|c| c.is_numeric())
+    if disk.chars().last().is_some_and(char::is_numeric)
         && (disk.contains("sd") || disk.contains("vd") || disk.contains("hd"))
     {
         kmsg::warn!(
@@ -53,8 +55,8 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
 
 /// Finds a partition device path by its GPT partition name.
 pub async fn find_partition_by_partname(partname: &str) -> Option<String> {
-    let mut entries = tokio::fs::read_dir("/sys/class/block").await.ok()?;
-    let target = format!("PARTNAME={}", partname);
+    let mut entries = fs::read_dir("/sys/class/block").await.ok()?;
+    let target = format!("PARTNAME={partname}");
 
     while let Some(entry) = entries.next_entry().await.ok()? {
         let name = entry.file_name();
@@ -65,13 +67,13 @@ pub async fn find_partition_by_partname(partname: &str) -> Option<String> {
         }
 
         let uevent = entry.path().join("uevent");
-        let content = tokio::fs::read_to_string(&uevent).await.ok()?;
+        let content = fs::read_to_string(&uevent).await.ok()?;
         let found = content.lines().any(|line| line.trim() == target);
         if !found {
             continue;
         }
 
-        let dev_path = format!("/dev/{}", name);
+        let dev_path = format!("/dev/{name}");
         if Path::new(&dev_path).exists() {
             return Some(dev_path);
         }
@@ -90,43 +92,42 @@ fn is_physical_disk(name: &str) -> bool {
 
 /// Reads a u64 value from a sysfs file.
 async fn read_sysfs_u64(path: &Path) -> Result<u64> {
-    let content = tokio::fs::read_to_string(path).await?;
+    let content = fs::read_to_string(path).await?;
     Ok(content.trim().parse()?)
 }
 
 /// Reads a string value from a sysfs file.
 async fn read_sysfs_string(path: &Path) -> Result<String> {
-    let content = tokio::fs::read_to_string(path).await?;
-    Ok(content.trim().to_string())
+    let content = fs::read_to_string(path).await?;
+    Ok(content.trim().to_owned())
 }
 
 /// Detects the filesystem type by reading magic bytes from the device.
 fn detect_filesystem(device_path: &str) -> String {
     use std::fs::File;
 
-    let mut file = match File::open(device_path) {
-        Ok(f) => f,
-        Err(_) => return String::new(),
+    let Ok(mut file) = File::open(device_path) else {
+        return String::new();
     };
 
-    let mut ext4_magic = [0u8; 2];
+    let mut ext4_magic = [0_u8; 2];
     if file.seek(std::io::SeekFrom::Start(0x438)).is_ok()
         && file.read_exact(&mut ext4_magic).is_ok()
         && ext4_magic == [0x53, 0xEF]
     {
-        return "ext4".to_string();
+        return "ext4".to_owned();
     }
 
     if let Some(fstype) = detect_fat_filesystem(&mut file) {
         return fstype;
     }
 
-    let mut btrfs_magic = [0u8; 8];
+    let mut btrfs_magic = [0_u8; 8];
     if file.seek(std::io::SeekFrom::Start(0x10040)).is_ok()
         && file.read_exact(&mut btrfs_magic).is_ok()
         && btrfs_magic == *b"_BHRfS_M"
     {
-        return "btrfs".to_string();
+        return "btrfs".to_owned();
     }
 
     String::new()
@@ -138,19 +139,19 @@ fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
         return None;
     }
 
-    let mut boot_sector = [0u8; 512];
+    let mut boot_sector = [0_u8; 512];
     if file.read_exact(&mut boot_sector).is_err() {
         return None;
     }
 
     let fat32_sig = &boot_sector[82..90];
     if fat32_sig.starts_with(b"FAT32   ") {
-        return Some("vfat".to_string());
+        return Some("vfat".to_owned());
     }
 
     let fat16_sig = &boot_sector[54..62];
     if fat16_sig.starts_with(b"FAT16   ") || fat16_sig.starts_with(b"FAT12   ") {
-        return Some("vfat".to_string());
+        return Some("vfat".to_owned());
     }
 
     None
@@ -160,12 +161,12 @@ fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
 async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
     let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
 
-    let number = read_sysfs_u64(&sysfs_path.join("partition")).await? as u32;
+    let number = u32::try_from(read_sysfs_u64(&sysfs_path.join("partition")).await?).unwrap_or(0);
     let start_sector = read_sysfs_u64(&sysfs_path.join("start")).await?;
     let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
-    let size_bytes = size_sectors * SECTOR_SIZE;
+    let size_bytes = size_sectors.saturating_mul(SECTOR_SIZE);
 
-    let path = format!("/dev/{}", part_name);
+    let path = format!("/dev/{part_name}");
 
     let fstype = detect_filesystem(&path);
 
@@ -173,7 +174,7 @@ async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<Partiti
         number,
         start_sector,
         size_bytes,
-        name: part_name.to_string(),
+        name: part_name.to_owned(),
         path,
         fstype,
     })
@@ -184,20 +185,20 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo> {
     let sysfs_path = Path::new("/sys/block").join(name);
 
     let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
-    let size_bytes = size_sectors * SECTOR_SIZE;
+    let size_bytes = size_sectors.saturating_mul(SECTOR_SIZE);
     let removable = read_sysfs_u64(&sysfs_path.join("removable")).await? != 0;
     let read_only = read_sysfs_u64(&sysfs_path.join("ro")).await? != 0;
 
     let model = read_sysfs_string(&sysfs_path.join("device/model"))
         .await
-        .unwrap_or_else(|_| name.to_string());
+        .unwrap_or_else(|_| name.to_owned());
 
-    let path = format!("/dev/{}", name);
+    let path = format!("/dev/{name}");
 
     let partitions = discover_partitions(&sysfs_path, name).await;
 
     Ok(DiskInfo {
-        name: name.to_string(),
+        name: name.to_owned(),
         path,
         size_bytes,
         model,
@@ -209,7 +210,7 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo> {
 
 /// Discovers all partitions belonging to a disk.
 async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
-    let Ok(mut entries) = tokio::fs::read_dir(sysfs_path).await else {
+    let Ok(mut entries) = fs::read_dir(sysfs_path).await else {
         return Vec::new();
     };
 
@@ -220,12 +221,13 @@ async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<Partitio
         }
     }
 
-    partitions.sort_by_key(|p| p.number);
+    partitions.sort_by_key(|part| part.number);
+
     partitions
 }
 
 /// Attempts to read partition information from a sysfs directory entry.
-async fn try_read_partition(entry: tokio::fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
+async fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
 
@@ -248,7 +250,7 @@ pub async fn list_disks() -> Result<Vec<DiskInfo>> {
     }
 
     let mut disks = Vec::new();
-    let mut entries = tokio::fs::read_dir(block_dir).await?;
+    let mut entries = fs::read_dir(block_dir).await?;
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         if let Some(disk) = try_read_disk(entry).await {
@@ -256,13 +258,13 @@ pub async fn list_disks() -> Result<Vec<DiskInfo>> {
         }
     }
 
-    disks.sort_by(|a, b| a.name.cmp(&b.name));
+    disks.sort_by(|left, right| left.name.cmp(&right.name));
 
     Ok(disks)
 }
 
 /// Attempts to read disk information from a sysfs directory entry.
-async fn try_read_disk(entry: tokio::fs::DirEntry) -> Option<DiskInfo> {
+async fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
     let name = entry.file_name();
     let name_str = name.to_string_lossy();
 
@@ -294,7 +296,7 @@ mod tests {
             let result = is_physical_disk(name);
 
             // ASSERT
-            assert!(!result, "{} should not be a physical disk", name);
+            assert!(!result, "{name} should not be a physical disk");
         }
     }
 
@@ -308,7 +310,7 @@ mod tests {
             let result = is_physical_disk(name);
 
             // ASSERT
-            assert!(!result, "{} should not be a physical disk", name);
+            assert!(!result, "{name} should not be a physical disk");
         }
     }
 
@@ -322,7 +324,7 @@ mod tests {
             let result = is_physical_disk(name);
 
             // ASSERT
-            assert!(!result, "{} should not be a physical disk", name);
+            assert!(!result, "{name} should not be a physical disk");
         }
     }
 
@@ -336,7 +338,7 @@ mod tests {
             let result = is_physical_disk(name);
 
             // ASSERT
-            assert!(!result, "{} should not be a physical disk", name);
+            assert!(!result, "{name} should not be a physical disk");
         }
     }
 
@@ -350,7 +352,7 @@ mod tests {
             let result = is_physical_disk(name);
 
             // ASSERT
-            assert!(result, "{} should be a physical disk", name);
+            assert!(result, "{name} should be a physical disk");
         }
     }
 }

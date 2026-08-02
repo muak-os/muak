@@ -15,8 +15,7 @@ mod update;
 
 use std::path::Path;
 
-use anyhow::Context;
-use tokio_stream::wrappers::UnixListenerStream;
+use anyhow::Context as _;
 use tonic::transport::Server;
 
 #[granola::service("provisiond")]
@@ -26,11 +25,11 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let is_installed = Path::new(config::CONFIG_PATH).exists();
     if is_installed {
-        let _ = update::check_and_handle_pending_validation()
+        let _result = update::check_and_handle_pending_validation()
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 
-    let stream = UnixListenerStream::new(granola::socket()?);
+    let stream = tokio_stream::wrappers::UnixListenerStream::new(granola::socket()?);
 
     notifier.ready()?;
 

@@ -7,14 +7,15 @@ use rustix::system::{RebootCommand, reboot};
 pub fn schedule(delay: u64) {
     tokio::spawn(async move {
         kmsg::info!("System will reboot in {} seconds...", delay);
-        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        tokio::time::sleep(core::time::Duration::from_secs(delay)).await;
 
         kmsg::info!("Rebooting now...");
-        tokio::task::spawn_blocking(|| {
-            sync();
-            let _ = reboot(RebootCommand::Restart);
-        })
-        .await
-        .ok();
+        drop(
+            tokio::task::spawn_blocking(|| {
+                sync();
+                let _result = reboot(RebootCommand::Restart);
+            })
+            .await,
+        );
     });
 }

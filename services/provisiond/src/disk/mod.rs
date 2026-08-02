@@ -10,13 +10,13 @@ mod types;
 mod validate;
 mod wipe;
 
-pub use blkpg::delete_all_partitions_blkpg;
-pub use format::{format_btrfs_partition, format_efi_partition};
-pub use gpt::{
+pub(crate) use blkpg::delete_all_partitions_blkpg;
+pub(crate) use format::{format_btrfs_partition, format_efi_partition};
+pub(crate) use gpt::{
     create_data_partition, create_system_partitions, delete_partitions, has_state_partition,
 };
-pub use mount::{mount_efi_partition, try_unmount, unmount_partition};
-pub use sysfs::find_partition_by_partname;
-pub use sysfs::{list_disks, validate_block_device, validate_disk_size};
-pub use validate::install_target;
-pub use wipe::wipe;
+pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
+pub(crate) use sysfs::find_partition_by_partname;
+pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
+pub(crate) use validate::install_target;
+pub(crate) use wipe::wipe;

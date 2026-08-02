@@ -1,6 +1,7 @@
 //! Partition mounting and unmounting utilities.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
+use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
 /// Represents a mounted partition with device path and mount point.
@@ -25,8 +26,8 @@ pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
             }
 
             Some(MountedPartition {
-                device: device.to_string(),
-                mount_point: mount_point.to_string(),
+                device: device.to_owned(),
+                mount_point: mount_point.to_owned(),
             })
         })
         .collect()
@@ -37,14 +38,10 @@ pub fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result<()> {
     kmsg::info!("Mounting EFI partition {} at {}", efi_device, mount_point);
 
     std::fs::create_dir_all(mount_point)
-        .with_context(|| format!("Failed to create mount point {}", mount_point))?;
+        .with_context(|| format!("Failed to create mount point {mount_point}"))?;
 
-    mount(efi_device, mount_point, "vfat", MountFlags::NOATIME, None).with_context(|| {
-        format!(
-            "Failed to mount EFI partition {} at {}",
-            efi_device, mount_point
-        )
-    })?;
+    mount(efi_device, mount_point, "vfat", MountFlags::NOATIME, None)
+        .with_context(|| format!("Failed to mount EFI partition {efi_device} at {mount_point}"))?;
 
     Ok(())
 }
@@ -52,11 +49,15 @@ pub fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result<()> {
 /// Unmounts all partitions in the provided list, deepest mount points first.
 pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
     let mut sorted: Vec<_> = partitions.iter().collect();
-    sorted.sort_by_key(|b| std::cmp::Reverse(b.mount_point.len()));
+    sorted.sort_by_key(|mount| core::cmp::Reverse(mount.mount_point.len()));
 
-    for p in sorted {
-        unmount(p.mount_point.as_str(), UnmountFlags::empty())
-            .with_context(|| format!("Failed to unmount {} from {}", p.device, p.mount_point))?;
+    for mount in sorted {
+        unmount(mount.mount_point.as_str(), UnmountFlags::empty()).with_context(|| {
+            format!(
+                "Failed to unmount {} from {}",
+                mount.device, mount.mount_point
+            )
+        })?;
     }
 
     Ok(())
@@ -78,12 +79,12 @@ pub fn unmount_partition(mount_point: &str) -> Result<()> {
             kmsg::info!("Unmounted {}", mount_point);
             Ok(())
         }
-        Err(rustix::io::Errno::NOENT | rustix::io::Errno::INVAL) => {
+        Err(Errno::NOENT | Errno::INVAL) => {
             kmsg::warn!("{} not mounted, skipping", mount_point);
             Ok(())
         }
         Err(e) => {
-            bail!("Failed to unmount {}: {}", mount_point, e);
+            bail!("Failed to unmount {mount_point}: {e}");
         }
     }
 }

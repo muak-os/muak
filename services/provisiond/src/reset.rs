@@ -26,7 +26,7 @@ pub fn factory_reset() -> Result<()> {
     }
 
     if disk_config.is_split() {
-        let data_disk = disk_config.data_disk().to_string();
+        let data_disk = disk_config.data_disk().to_owned();
         disk::delete_partitions(&system_disk, &[2])?;
         disk::delete_partitions(&data_disk, &[1])?;
     } else {
