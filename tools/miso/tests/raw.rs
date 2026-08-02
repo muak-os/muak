@@ -9,13 +9,10 @@ mod tests {
     use esp::layout::compute;
     use miso::error::MisoError;
     use miso::raw;
-    use parttable::{
-        gpt::{
-            table::Table,
-            types::{ALIGN_1_MIB_SECTORS, EFI_GUID},
-        },
-        mbr::types::MBR_PROTECTIVE_GPT_TYPE,
-    };
+    use parttable::gpt::io;
+    use parttable::gpt::layout::ALIGN_1_MIB_SECTORS;
+    use parttable::gpt::partition::EFI_GUID;
+    use parttable::mbr::MBR_PROTECTIVE_GPT_TYPE;
 
     fn fake_uki(size: usize) -> Vec<u8> {
         let mut uki = Vec::with_capacity(size);
@@ -50,7 +47,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(img);
-        let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
+        let gpt = io::read(&mut cursor).expect("image must contain a valid GPT");
         assert!(
             gpt.has_used_partitions(),
             "GPT must have at least one partition"
@@ -75,7 +72,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(img);
-        let gpt = Table::read(&mut cursor).expect("valid GPT");
+        let gpt = io::read(&mut cursor).expect("valid GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.type_guid, EFI_GUID);
     }
@@ -100,7 +97,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(img);
-        let gpt = Table::read(&mut cursor).expect("valid GPT");
+        let gpt = io::read(&mut cursor).expect("valid GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.name.as_str(), "EFI");
     }
@@ -112,7 +109,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(img);
-        let gpt = Table::read(&mut cursor).expect("valid GPT");
+        let gpt = io::read(&mut cursor).expect("valid GPT");
         assert!(gpt.has_used_partitions());
     }
 
@@ -136,7 +133,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(raw);
-        let gpt = Table::read(&mut cursor).expect("valid GPT");
+        let gpt = io::read(&mut cursor).expect("valid GPT");
         assert!(gpt.has_used_partitions());
     }
 
@@ -165,7 +162,7 @@ mod tests {
 
         // ASSERT
         let mut cursor = Cursor::new(&img);
-        let gpt = Table::read(&mut cursor).expect("image must contain a valid GPT");
+        let gpt = io::read(&mut cursor).expect("image must contain a valid GPT");
         let part = gpt.partition(1).expect("must have partition");
         let one_mib = usize::try_from(ALIGN_1_MIB_SECTORS * 512).expect("1 MiB must fit in usize");
 

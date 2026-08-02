@@ -6,7 +6,7 @@ mod tests {
     use std::fs;
     use std::process::Command;
 
-    use parttable::gpt::table::Table;
+    use parttable::gpt::io;
     use tempfile::TempDir;
 
     fn miso_bin() -> Command {
@@ -102,7 +102,7 @@ mod tests {
         let bytes = fs::read(&output).expect("read compressed raw output");
         let raw = zstd::decode_all(&*bytes).expect("decode zstd output");
         let mut cursor = std::io::Cursor::new(raw);
-        let gpt = Table::read(&mut cursor).expect("valid GPT");
+        let gpt = io::read(&mut cursor).expect("valid GPT");
         assert!(gpt.has_used_partitions());
     }
 

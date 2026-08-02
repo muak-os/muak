@@ -4,8 +4,7 @@ use std::io::{Read, Write};
 
 use ::esp::image;
 use ::esp::layout::Layout;
-use parttable::mbr::io::mbr_bytes;
-use parttable::mbr::types::{MBR_EFI_SYSTEM_TYPE, MbrPartitionEntry};
+use parttable::mbr::{MBR_EFI_SYSTEM_TYPE, PartitionEntry, bytes};
 
 use crate::error::{MisoError, Result};
 
@@ -96,14 +95,14 @@ fn write_system_area<W: Write>(
     let size_lba = u32::try_from(efi_size_bytes >> 9)
         .map_err(|_err| MisoError::Iso("EFI image size sectors must fit in u32".to_owned()))?;
 
-    let entry = MbrPartitionEntry {
+    let entry = PartitionEntry {
         bootable: false,
         partition_type: MBR_EFI_SYSTEM_TYPE,
         starting_lba: start_lba,
         size_lba,
     };
     let mut sector = ZERO_SECTOR;
-    let mbr = mbr_bytes(&entry);
+    let mbr = bytes(&entry);
     if let Some(dst) = sector.get_mut(..mbr.len()) {
         dst.copy_from_slice(&mbr);
     }

@@ -6,8 +6,10 @@ use ::esp::image;
 use ::esp::layout::Layout;
 use parttable::error::ParttableError;
 use parttable::error::Result as PlacementResult;
+use parttable::gpt;
+use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
+use parttable::gpt::partition::EFI_GUID;
 use parttable::gpt::table::Table;
-use parttable::gpt::types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start};
 
 use crate::error::{MisoError, Result};
 
@@ -62,7 +64,7 @@ fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
         attributes: 0,
         name: "EFI".to_owned(),
     };
-    let placement = table.place_partition(request, SECTOR_SIZE)?;
+    let placement = request.place(&mut table, SECTOR_SIZE)?;
 
     let partition_offset = placement
         .partition
@@ -70,7 +72,7 @@ fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
         .checked_mul(SECTOR_SIZE)
         .ok_or(MisoError::Gpt("raw image arithmetic overflowed".to_owned()))?;
 
-    table.write_primary_to(disk_sectors, out)?;
+    gpt::io::write_primary(&table, disk_sectors, out)?;
     write_zeros(
         out,
         partition_offset.saturating_sub(table.primary_gpt_size()),
@@ -82,7 +84,7 @@ fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
             .backup_data_offset(disk_sectors)
             .saturating_sub(partition_offset.saturating_add(esp_size)),
     )?;
-    table.write_backup_to(disk_sectors, out)?;
+    gpt::io::write_backup(&table, disk_sectors, out)?;
 
     Ok(())
 }
@@ -115,7 +117,7 @@ fn layout_disk(efi_image_bytes: u64) -> Result<u64> {
             attributes: 0,
             name: "EFI".to_owned(),
         };
-        let placement = gpt.place_partition(request, SECTOR_SIZE).map(|_| ());
+        let placement = request.place(&mut gpt, SECTOR_SIZE).map(|_| ());
 
         match try_layout(placement, disk_sectors)? {
             Some(disk_sectors) => return Ok(disk_sectors),
@@ -155,30 +157,27 @@ fn validate_compression_level(level: i32) -> Result<i32> {
 
 #[cfg(test)]
 mod tests {
-    use parttable::gpt::{
-        table::Table,
-        types::{ALIGN_1_MIB_SECTORS, EFI_GUID, PlacementRequest, Size, Slot, Start},
-    };
+    use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
+    use parttable::gpt::partition::EFI_GUID;
+    use parttable::gpt::table::Table;
 
     use super::*;
     use crate::error::MisoError;
 
     fn try_place_efi_partition(disk_sectors: u64, efi_image_bytes: u64) -> Result<()> {
         let mut gpt = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
+        let request = PlacementRequest {
+            slot: Slot::Exact(1),
+            start: Start::FirstUsable,
+            size: Size::Bytes(efi_image_bytes),
+            alignment_lba: ALIGN_1_MIB_SECTORS,
+            type_guid: EFI_GUID,
+            unique_guid: [0xAA; 16],
+            attributes: 0,
+            name: "EFI".to_owned(),
+        };
 
-        gpt.place_partition(
-            PlacementRequest {
-                slot: Slot::Exact(1),
-                start: Start::FirstUsable,
-                size: Size::Bytes(efi_image_bytes),
-                alignment_lba: ALIGN_1_MIB_SECTORS,
-                type_guid: EFI_GUID,
-                unique_guid: [0xAA; 16],
-                attributes: 0,
-                name: "EFI".to_owned(),
-            },
-            SECTOR_SIZE,
-        )?;
+        request.place(&mut gpt, SECTOR_SIZE)?;
 
         Ok(())
     }
