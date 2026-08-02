@@ -1,18 +1,27 @@
-//! TLS configuration for mTLS authentication
+//! TLS configuration for mTLS authentication.
 
-use std::sync::Arc;
+extern crate alloc;
 
-use anyhow::{Context, Result};
-use rustls::pki_types::pem::PemObject;
+use alloc::sync::Arc;
+
+use anyhow::{Context as _, Result};
+use pki::cert;
+use pki::hex;
+use ring::digest::{SHA256, digest};
+use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::TlsAcceptor;
-use x509_cert::der::Encode;
+use x509_cert::der::Encode as _;
 
 use crate::constants;
 
 /// Loads TLS config from default disk paths.
+///
+/// # Errors
+///
+/// Returns an error if the certificate, key, or CA files cannot be read.
 pub fn load_tls_config() -> Result<TlsAcceptor> {
     load_tls_config_with_paths(
         constants::CA_CERT_PATH,
@@ -22,6 +31,10 @@ pub fn load_tls_config() -> Result<TlsAcceptor> {
 }
 
 /// Loads TLS config from disk with custom paths (used for testing).
+///
+/// # Errors
+///
+/// Returns an error if the certificate, key, or CA files cannot be read.
 pub fn load_tls_config_with_paths(
     ca_cert_path: &str,
     server_cert_path: &str,
@@ -33,9 +46,9 @@ pub fn load_tls_config_with_paths(
         .context("Failed to parse CA certificate")?;
 
     let mut root_store = RootCertStore::empty();
-    for cert in ca_certs {
+    for cert_der in ca_certs {
         root_store
-            .add(cert)
+            .add(cert_der)
             .context("Failed to add CA cert to root store")?;
     }
 
@@ -63,13 +76,17 @@ pub fn load_tls_config_with_paths(
 }
 
 /// Generates ephemeral TLS config in memory (used in maintenance mode).
+///
+/// # Errors
+///
+/// Returns an error if the ephemeral CA or server certificate cannot be
+/// generated.
 pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
     let (ca_signer, ca_cert) =
-        pki::cert::generate_ca("Muak Ephemeral CA").context("Failed to generate CA")?;
+        cert::generate_ca("Muak Ephemeral CA").context("Failed to generate CA")?;
 
-    let (server_signer, server_cert) =
-        pki::cert::generate_server("muak-server", &ca_signer, &ca_cert)
-            .context("Failed to generate server certificate")?;
+    let (server_signer, server_cert) = cert::generate_server("muak-server", &ca_signer, &ca_cert)
+        .context("Failed to generate server certificate")?;
 
     let ca_cert_der = ca_cert
         .to_der()
@@ -91,7 +108,7 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 
     let server_certs = vec![CertificateDer::from(server_cert_der)];
     let server_key = PrivateKeyDer::try_from(server_key_der)
-        .map_err(|e| anyhow::anyhow!("Failed to parse server key: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse server key: {e}"))?;
 
     let mut server_config = ServerConfig::builder()
         .with_client_cert_verifier(client_verifier)
@@ -106,24 +123,28 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 }
 
 /// Extracts SHA256 fingerprint from a DER-encoded certificate.
+#[must_use]
 pub fn extract_fingerprint(cert_der: &[u8]) -> String {
-    let digest = ring::digest::digest(&ring::digest::SHA256, cert_der);
-    pki::hex::encode_lower(digest.as_ref())
+    let digest = digest(&SHA256, cert_der);
+    hex::encode_lower(digest.as_ref())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
+    use pki::key::Signer;
+    use pki::pem::encode_pkcs8;
     use x509_cert::Certificate;
+    use x509_cert::der::Document;
+    use x509_cert::der::pem::LineEnding;
 
     use super::*;
 
     /// Generates a test CA certificate and returns `(signer, cert, cert_der)`.
-    fn make_test_ca() -> (pki::key::Signer, Certificate, Vec<u8>) {
-        let (signer, cert) = pki::cert::generate_ca("Test CA").expect("Failed to generate test CA");
-        let cert_der =
-            x509_cert::der::Encode::to_der(&cert).expect("Failed to encode certificate to DER");
+    fn make_test_ca() -> (Signer, Certificate, Vec<u8>) {
+        let (signer, cert) = cert::generate_ca("Test CA").expect("Failed to generate test CA");
+        let cert_der = cert.to_der().expect("Failed to encode certificate to DER");
         (signer, cert, cert_der)
     }
 
@@ -155,9 +176,8 @@ mod tests {
         assert!(
             fingerprint
                 .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
-            "Fingerprint should be lowercase hex: {}",
-            fingerprint
+                .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+            "Fingerprint should be lowercase hex: {fingerprint}"
         );
     }
 
@@ -217,7 +237,7 @@ mod tests {
         assert!(
             fingerprint
                 .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
             "Fingerprint should be lowercase hex"
         );
     }
@@ -230,7 +250,7 @@ mod tests {
         // ACT
         let our_fingerprint = extract_fingerprint(&cert_der);
         let pki_fingerprint =
-            pki::cert::compute_fingerprint(&cert).expect("Failed to compute pki fingerprint");
+            cert::compute_fingerprint(&cert).expect("Failed to compute pki fingerprint");
 
         // ASSERT
         assert_eq!(
@@ -257,27 +277,25 @@ mod tests {
         // ARRANGE
         let (ca_signer, ca_cert, _) = make_test_ca();
         let (server_signer, server_cert) =
-            pki::cert::generate_server("test-server", &ca_signer, &ca_cert)
+            cert::generate_server("test-server", &ca_signer, &ca_cert)
                 .expect("Failed to generate server cert");
 
         let ca_cert_der = ca_cert.to_der().expect("Failed to encode CA cert");
         let server_cert_der = server_cert.to_der().expect("Failed to encode server cert");
         let server_key_der = server_signer.pkcs8_der();
 
-        let ca_doc =
-            x509_cert::der::Document::try_from(ca_cert_der).expect("Failed to create document");
+        let ca_doc = Document::try_from(ca_cert_der).expect("Failed to create document");
         let ca_cert_pem = ca_doc
-            .to_pem("CERTIFICATE", x509_cert::der::pem::LineEnding::LF)
+            .to_pem("CERTIFICATE", LineEnding::LF)
             .expect("Failed to convert CA to PEM");
 
-        let server_doc =
-            x509_cert::der::Document::try_from(server_cert_der).expect("Failed to create document");
+        let server_doc = Document::try_from(server_cert_der).expect("Failed to create document");
         let server_cert_pem = server_doc
-            .to_pem("CERTIFICATE", x509_cert::der::pem::LineEnding::LF)
+            .to_pem("CERTIFICATE", LineEnding::LF)
             .expect("Failed to convert server cert to PEM");
 
         let server_key_pem =
-            pki::pem::encode_pkcs8(server_key_der).expect("Failed to convert server key to PEM");
+            encode_pkcs8(server_key_der).expect("Failed to convert server key to PEM");
 
         let mut ca_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
         let mut server_cert_file =
@@ -326,8 +344,7 @@ mod tests {
             Err(e) => {
                 assert!(
                     e.to_string().contains("CA certificate"),
-                    "Error should mention CA certificate, got: {}",
-                    e
+                    "Error should mention CA certificate, got: {e}"
                 );
             }
             Ok(_) => panic!("Expected error but got Ok"),

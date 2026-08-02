@@ -1,15 +1,20 @@
 //! Role-Based Access Control (RBAC) for the API gateway.
 
-mod error;
+pub mod error;
 mod user;
 
 // Include the generated RBAC rules from build.rs
 include!(concat!(env!("OUT_DIR"), "/rbac_rules.rs"));
 
-pub use error::RbacError;
+use error::RbacError;
 use user::AuthenticatedUser;
 
 /// Checks if a request is authorized based on the path and client fingerprint.
+///
+/// # Errors
+///
+/// Returns an error if the method requires authentication and the client is
+/// missing, revoked, unknown, or lacks the required permission.
 pub fn check_access(path: &str, client_fingerprint: Option<&str>) -> Result<(), RbacError> {
     match method_permission(path) {
         MethodRequirement::Unauthenticated => Ok(()),
@@ -20,14 +25,14 @@ pub fn check_access(path: &str, client_fingerprint: Option<&str>) -> Result<(), 
 
             let auth = config::auth();
 
-            if auth.revoked.contains(&fingerprint.to_string()) {
+            if auth.revoked.contains(&fingerprint.to_owned()) {
                 return Err(RbacError::CertificateRevoked);
             }
 
             let auth_user = auth
                 .users
                 .iter()
-                .find(|u| u.fingerprint == fingerprint)
+                .find(|user| user.fingerprint == fingerprint)
                 .ok_or(RbacError::UnknownCertificate)?;
 
             let user = AuthenticatedUser::from(auth_user);
@@ -48,9 +53,9 @@ mod tests {
     #[test]
     fn unauthenticated_methods_allowed() {
         // ASSERT
-        assert!(check_access("/muak.auth.v1.AuthService/SubmitCsr", None).is_ok());
-        assert!(check_access("/muak.auth.v1.AuthService/GetCsrStatus", None).is_ok());
-        assert!(check_access("/muak.auth.v1.AuthService/AckEnrollment", None).is_ok());
+        check_access("/muak.auth.v1.AuthService/SubmitCsr", None).unwrap();
+        check_access("/muak.auth.v1.AuthService/GetCsrStatus", None).unwrap();
+        check_access("/muak.auth.v1.AuthService/AckEnrollment", None).unwrap();
     }
 
     #[test]
@@ -83,8 +88,7 @@ mod tests {
                     method_permission(path),
                     MethodRequirement::MaintenanceOrPermission(_)
                 ),
-                "Expected MaintenanceOrPermission for {}",
-                path
+                "Expected MaintenanceOrPermission for {path}",
             );
         }
     }
@@ -163,8 +167,7 @@ mod tests {
         for method in UNAUTHENTICATED_METHODS {
             assert!(
                 !MAINTENANCE_METHODS.contains(method),
-                "Method {} should not be in both unauthenticated and maintenance lists",
-                method
+                "Method {method} should not be in both unauthenticated and maintenance lists",
             );
         }
     }

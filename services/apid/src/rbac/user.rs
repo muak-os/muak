@@ -16,7 +16,10 @@ pub(super) struct AuthenticatedUser {
 impl AuthenticatedUser {
     /// Creates a new authenticated user from a permission list.
     #[cfg(test)]
-    pub fn new(permissions: impl IntoIterator<Item = Permission>) -> Self {
+    pub fn new<I>(permissions: I) -> Self
+    where
+        I: IntoIterator<Item = Permission>,
+    {
         Self {
             permissions: permissions.into_iter().collect(),
         }
@@ -45,7 +48,7 @@ impl AuthenticatedUser {
     }
 }
 
-/// Converts from config's AuthUser to our AuthenticatedUser.
+/// Converts from `config::AuthUser` to our `AuthenticatedUser`.
 impl From<&config::AuthUser> for AuthenticatedUser {
     fn from(user: &config::AuthUser) -> Self {
         Self {

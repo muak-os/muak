@@ -1,10 +1,12 @@
-//! HTTP/2 reverse proxy to backend UNIX sockets with connection pooling
+//! HTTP/2 reverse proxy to backend UNIX sockets with connection pooling.
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
-use http_body_util::BodyExt;
-use hyper::body::{Bytes, Incoming};
+use anyhow::{Context as _, Result};
+use http_body_util::BodyExt as _;
+use http_body_util::combinators::BoxBody;
+use hyper::body::{Body, Bytes, Incoming};
+use hyper::client::conn::http2;
 use hyper::client::conn::http2::SendRequest;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -14,11 +16,10 @@ use tokio::sync::Mutex;
 use crate::constants;
 
 /// Boxed body type used by pooled connections.
-type BoxBody =
-    http_body_util::combinators::BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+type BoxedBody = BoxBody<Bytes, Box<dyn core::error::Error + Send + Sync>>;
 
 /// Per-socket cached HTTP/2 connection handle.
-type CachedSender = Mutex<Option<SendRequest<BoxBody>>>;
+type CachedSender = Mutex<Option<SendRequest<BoxedBody>>>;
 
 /// Maintains persistent HTTP/2 connections to backend UNIX sockets.
 pub struct BackendPool {
@@ -33,6 +34,7 @@ impl Default for BackendPool {
 
 impl BackendPool {
     /// Creates a new pool with an entry for each known backend socket.
+    #[must_use]
     pub fn new() -> Self {
         let mut senders = HashMap::new();
         senders.insert(constants::VMD_SOCKET.to_owned(), Mutex::new(None));
@@ -42,6 +44,7 @@ impl BackendPool {
     }
 
     /// Creates a pool with a single entry for the given socket path.
+    #[must_use]
     pub fn from_socket(path: &str) -> Self {
         let mut senders = HashMap::new();
         senders.insert(path.to_owned(), Mutex::new(None));
@@ -50,7 +53,7 @@ impl BackendPool {
 
     /// Acquires a ready `SendRequest` handle, reusing a cached connection or
     /// establishing a new one.
-    async fn acquire(&self, socket_path: &str) -> Result<SendRequest<BoxBody>> {
+    async fn acquire(&self, socket_path: &str) -> Result<SendRequest<BoxedBody>> {
         let entry = self
             .senders
             .get(socket_path)
@@ -79,20 +82,19 @@ impl BackendPool {
 }
 
 /// Opens a UNIX stream and performs the HTTP/2 client handshake.
-async fn connect(socket_path: &str) -> Result<SendRequest<BoxBody>> {
+async fn connect(socket_path: &str) -> Result<SendRequest<BoxedBody>> {
     let stream = UnixStream::connect(socket_path).await.context(format!(
-        "Failed to connect to backend socket at {}",
-        socket_path
+        "Failed to connect to backend socket at {socket_path}"
     ))?;
     let io = TokioIo::new(stream);
 
-    let (sender, conn) = hyper::client::conn::http2::handshake(TokioExecutor::new(), io)
+    let (sender, conn) = http2::handshake(TokioExecutor::new(), io)
         .await
         .context("Failed to perform HTTP/2 handshake with backend service")?;
 
     tokio::spawn(async move {
         if let Err(e) = conn.await {
-            eprintln!("Backend connection error: {}", e);
+            eprintln!("Backend connection error: {e}");
         }
     });
 
@@ -100,19 +102,24 @@ async fn connect(socket_path: &str) -> Result<SendRequest<BoxBody>> {
 }
 
 /// Proxies a request to a backend service, reusing pooled connections.
-pub async fn proxy_to_backend<B>(
+///
+/// # Errors
+///
+/// Returns an error if no cached connection is available and a new one cannot
+/// be established, or if the request cannot be sent.
+pub async fn forward<B>(
     pool: &BackendPool,
     req: Request<B>,
     socket_path: &str,
 ) -> Result<Response<Incoming>>
 where
-    B: hyper::body::Body<Data = Bytes> + Send + Sync + 'static,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    B: Body<Data = Bytes> + Send + Sync + 'static,
+    B::Error: Into<Box<dyn core::error::Error + Send + Sync>>,
 {
     let mut sender = pool.acquire(socket_path).await?;
 
-    let req = req.map(|b| {
-        b.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
+    let req = req.map(|body| {
+        body.map_err(|e| -> Box<dyn core::error::Error + Send + Sync> { e.into() })
             .boxed()
     });
 
@@ -154,6 +161,6 @@ mod tests {
     async fn acquire_unknown_socket_errors() {
         let pool = BackendPool::new();
         let result = pool.acquire("/nonexistent.sock").await;
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

@@ -1,12 +1,15 @@
-//! HTTP/2 server connection handling
+//! HTTP/2 server connection handling.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+extern crate alloc;
+
+use alloc::sync::Arc;
+use core::net::SocketAddr;
 
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::CertificateDer;
+use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 
 use crate::handler;
@@ -16,7 +19,7 @@ use crate::tls;
 /// Serves a TLS-wrapped connection.
 pub async fn serve_tls_connection(
     pool: Arc<BackendPool>,
-    tls_stream: TlsStream<tokio::net::TcpStream>,
+    tls_stream: TlsStream<TcpStream>,
     peer_addr: SocketAddr,
     client_cert: Option<CertificateDer<'static>>,
     maintenance_mode: bool,
@@ -26,13 +29,13 @@ pub async fn serve_tls_connection(
 
     let service = service_fn(move |req| {
         let fingerprint = client_fingerprint.clone();
-        let pool = pool.clone();
+        let pool = Arc::clone(&pool);
         async move { handler::handle_request(&pool, req, fingerprint, maintenance_mode).await }
     });
 
     let conn = http2::Builder::new(TokioExecutor::new()).serve_connection(io, service);
 
     if let Err(e) = conn.await {
-        eprintln!("Connection error from {}: {}", peer_addr, e);
+        eprintln!("Connection error from {peer_addr}: {e}");
     }
 }

@@ -17,10 +17,15 @@
 //! - Any RPC method lacks an `@rbac:` annotation
 //! - A permission string is not recognized (e.g., `@rbac: invalid:perm`)
 
+extern crate alloc;
+
+use alloc::collections::BTreeMap;
+use core::error::Error;
+use core::fmt::Write as _;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::Write as _;
 use std::path::Path;
 
 /// Valid permission strings that map to Permission enum variants.
@@ -54,7 +59,7 @@ enum RbacRequirement {
     MaintenanceOrPermission(String),
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let out_dir = env::var("OUT_DIR")?;
 
@@ -79,9 +84,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={}", proto_path.display());
 
         let content = match fs::read_to_string(&proto_path) {
-            Ok(c) => c,
+            Ok(content) => content,
             Err(e) => {
-                errors.push(format!("Failed to read {}: {}", proto_file, e));
+                errors.push(format!("Failed to read {proto_file}: {e}"));
                 continue;
             }
         };
@@ -94,15 +99,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !errors.is_empty() {
         for err in &errors {
-            eprintln!("error: {}", err);
+            eprintln!("error: {err}");
         }
-        panic!(
-            "Proto RBAC annotation errors found. See above for details.\n\
+        return Err(
+            "Proto RBAC annotation errors found. See above for details. \
              All RPC methods must have an `// @rbac: permission` comment on the preceding line."
+                .into(),
         );
     }
 
-    let generated = generate_rust_code(&all_methods);
+    let generated = generate_rust_code(&all_methods)?;
     let out_path = Path::new(&out_dir).join("rbac_rules.rs");
     let mut file = fs::File::create(&out_path)?;
     file.write_all(generated.as_bytes())?;
@@ -115,13 +121,52 @@ fn parse_proto(
     filename: &str,
     perm_map: &HashMap<&str, &str>,
 ) -> Result<Vec<RpcMethod>, Vec<String>> {
-    let mut methods = Vec::new();
-    let mut errors = Vec::new();
+    let mut parser = ProtoParser {
+        lines: &content.lines().collect::<Vec<_>>(),
+        package: extract_package(content),
+        filename,
+        perm_map,
+        methods: Vec::new(),
+        errors: Vec::new(),
+    };
 
-    let lines: Vec<&str> = content.lines().collect();
+    let lines = parser.lines;
 
-    let package = lines
-        .iter()
+    let mut current_service: Option<&str> = None;
+    let mut brace_depth: usize = 0;
+
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        if let Some(rest) = trimmed.strip_prefix("service ")
+            && let Some(name_end) = rest.find(|ch: char| ch == '{' || ch.is_whitespace())
+        {
+            current_service = Some(rest.get(..name_end).unwrap_or_default());
+        }
+
+        brace_depth = brace_depth.saturating_add(trimmed.matches('{').count());
+        brace_depth = brace_depth.saturating_sub(trimmed.matches('}').count());
+
+        if brace_depth == 0 {
+            current_service = None;
+        }
+
+        if trimmed.starts_with("rpc ") {
+            parse_rpc_line(&mut parser, trimmed, idx, current_service);
+        }
+    }
+
+    if parser.errors.is_empty() {
+        Ok(parser.methods)
+    } else {
+        Err(parser.errors)
+    }
+}
+
+/// Extracts the proto package name, if any.
+fn extract_package(content: &str) -> &str {
+    content
+        .lines()
         .find_map(|line| {
             let trimmed = line.trim();
             if trimmed.starts_with("package ") {
@@ -135,120 +180,98 @@ fn parse_proto(
                 None
             }
         })
-        .unwrap_or("");
-
-    let mut current_service: Option<&str> = None;
-    let mut brace_depth = 0;
-
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-
-        if let Some(rest) = trimmed.strip_prefix("service ")
-            && let Some(name_end) = rest.find(|c: char| c == '{' || c.is_whitespace())
-        {
-            current_service = Some(&rest[..name_end]);
-        }
-
-        brace_depth += trimmed.matches('{').count() as i32;
-        brace_depth -= trimmed.matches('}').count() as i32;
-
-        if brace_depth == 0 {
-            current_service = None;
-        }
-
-        if trimmed.starts_with("rpc ") {
-            let service = match current_service {
-                Some(s) => s,
-                None => {
-                    errors.push(format!(
-                        "{}:{}: RPC found outside of service block",
-                        filename,
-                        i + 1
-                    ));
-                    continue;
-                }
-            };
-
-            let method_name = match extract_method_name(trimmed) {
-                Some(name) => name,
-                None => {
-                    errors.push(format!(
-                        "{}:{}: Could not parse RPC method name from: {}",
-                        filename,
-                        i + 1,
-                        trimmed
-                    ));
-                    continue;
-                }
-            };
-
-            let rbac_annotation = if i > 0 {
-                extract_rbac_annotation(lines[i - 1])
-            } else {
-                None
-            };
-
-            let requirement = match rbac_annotation {
-                Some(annotation) => match parse_rbac_annotation(&annotation, perm_map) {
-                    Ok(req) => req,
-                    Err(e) => {
-                        errors.push(format!(
-                            "{}:{}: Invalid @rbac annotation for {}: {}",
-                            filename,
-                            i + 1,
-                            method_name,
-                            e
-                        ));
-                        continue;
-                    }
-                },
-                None => {
-                    errors.push(format!(
-                        "{}:{}: RPC method '{}' is missing @rbac annotation. \
-                         Add `// @rbac: <permission>` on the line before the rpc declaration.",
-                        filename,
-                        i + 1,
-                        method_name
-                    ));
-                    continue;
-                }
-            };
-
-            let full_path = format!("/{}.{}/{}", package, service, method_name);
-            methods.push(RpcMethod {
-                full_path,
-                requirement,
-            });
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(methods)
-    } else {
-        Err(errors)
-    }
+        .unwrap_or("")
 }
 
-/// Extracts the method name from an RPC line like "rpc MethodName(...)"
+/// Shared state while parsing a proto file.
+struct ProtoParser<'a> {
+    lines: &'a [&'a str],
+    package: &'a str,
+    filename: &'a str,
+    perm_map: &'a HashMap<&'a str, &'a str>,
+    methods: Vec<RpcMethod>,
+    errors: Vec<String>,
+}
+
+/// Parses a single `rpc` line and appends the resulting method or error.
+fn parse_rpc_line(
+    parser: &mut ProtoParser<'_>,
+    trimmed: &str,
+    idx: usize,
+    current_service: Option<&str>,
+) {
+    let filename = parser.filename;
+    let package = parser.package;
+    let line_num = idx.saturating_add(1);
+
+    let Some(service) = current_service else {
+        parser.errors.push(format!(
+            "{filename}:{line_num}: RPC found outside of service block"
+        ));
+        return;
+    };
+
+    let Some(method_name) = extract_method_name(trimmed) else {
+        parser.errors.push(format!(
+            "{filename}:{line_num}: Could not parse RPC method name from: {trimmed}"
+        ));
+        return;
+    };
+
+    let rbac_annotation = if idx > 0 {
+        parser
+            .lines
+            .get(idx.saturating_sub(1))
+            .and_then(|&line| extract_rbac_annotation(line))
+    } else {
+        None
+    };
+
+    let Some(annotation) = rbac_annotation else {
+        parser.errors.push(format!(
+            "{filename}:{line_num}: RPC method '{method_name}' is missing @rbac annotation. \
+             Add `// @rbac: <permission>` on the line before the rpc declaration."
+        ));
+        return;
+    };
+
+    let requirement = match parse_rbac_annotation(&annotation, parser.perm_map) {
+        Ok(req) => req,
+        Err(e) => {
+            parser.errors.push(format!(
+                "{filename}:{line_num}: Invalid @rbac annotation for {method_name}: {e}"
+            ));
+            return;
+        }
+    };
+
+    let full_path = format!("/{package}.{service}/{method_name}");
+    parser.methods.push(RpcMethod {
+        full_path,
+        requirement,
+    });
+}
+
+/// Extracts the method name from an RPC line like `rpc MethodName(...)`.
 fn extract_method_name(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("rpc ")?.trim();
     let end = rest.find('(')?;
-    Some(rest[..end].trim())
+    Some(rest.get(..end).unwrap_or_default().trim())
 }
 
-/// Extracts the @rbac: annotation value from a comment line.
+/// Extracts the `@rbac:` annotation value from a comment line.
 fn extract_rbac_annotation(line: &str) -> Option<String> {
     let trimmed = line.trim();
     if let Some(rest) = trimmed.strip_prefix("//") {
         let rest = rest.trim();
         if let Some(annotation) = rest.strip_prefix("@rbac:") {
-            return Some(annotation.trim().to_string());
+            return Some(annotation.trim().to_owned());
         }
     }
     None
 }
 
-/// Parses an @rbac annotation value into an RbacRequirement.
+/// Parses an `@rbac` annotation value into an `RbacRequirement`.
 fn parse_rbac_annotation(
     annotation: &str,
     perm_map: &HashMap<&str, &str>,
@@ -263,23 +286,18 @@ fn parse_rbac_annotation(
         let perm_str = perm_str.trim();
         return perm_map
             .get(perm_str)
-            .map(|v| RbacRequirement::MaintenanceOrPermission((*v).to_string()))
-            .ok_or_else(|| {
-                format!(
-                    "Unknown permission in maintenance annotation: '{}'",
-                    perm_str
-                )
-            });
+            .map(|variant| RbacRequirement::MaintenanceOrPermission((*variant).to_owned()))
+            .ok_or_else(|| format!("Unknown permission in maintenance annotation: '{perm_str}'"));
     }
 
     perm_map
         .get(annotation)
-        .map(|v| RbacRequirement::RequiresPermission((*v).to_string()))
-        .ok_or_else(|| format!("Unknown permission: '{}'", annotation))
+        .map(|variant| RbacRequirement::RequiresPermission((*variant).to_owned()))
+        .ok_or_else(|| format!("Unknown permission: '{annotation}'"))
 }
 
 /// Generates the Rust code for RBAC rules.
-fn generate_rust_code(methods: &[RpcMethod]) -> String {
+fn generate_rust_code(methods: &[RpcMethod]) -> Result<String, core::fmt::Error> {
     let mut code = String::new();
 
     code.push_str(
@@ -306,26 +324,31 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
          \x20   match path {\n",
     );
 
+    // Group paths by their requirement so each match arm body is unique.
+    let mut requirement_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for method in methods {
-        let requirement_code = match &method.requirement {
-            RbacRequirement::Unauthenticated => "MethodRequirement::Unauthenticated".to_string(),
-            RbacRequirement::RequiresPermission(perm) => {
-                format!(
-                    "MethodRequirement::RequiresPermission(Permission::{})",
-                    perm
-                )
+        let requirement_code = match method.requirement {
+            RbacRequirement::Unauthenticated => "MethodRequirement::Unauthenticated".to_owned(),
+            RbacRequirement::RequiresPermission(ref perm) => {
+                format!("MethodRequirement::RequiresPermission(Permission::{perm})")
             }
-            RbacRequirement::MaintenanceOrPermission(perm) => {
-                format!(
-                    "MethodRequirement::MaintenanceOrPermission(Permission::{})",
-                    perm
-                )
+            RbacRequirement::MaintenanceOrPermission(ref perm) => {
+                format!("MethodRequirement::MaintenanceOrPermission(Permission::{perm})")
             }
         };
-        code.push_str(&format!(
-            "        \"{}\" => {},\n",
-            method.full_path, requirement_code
-        ));
+        requirement_groups
+            .entry(requirement_code)
+            .or_default()
+            .push(method.full_path.clone());
+    }
+
+    for (requirement_code, paths) in requirement_groups {
+        let patterns = paths
+            .iter()
+            .map(|path| format!("\"{path}\""))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        writeln!(code, "        {patterns} => {requirement_code},")?;
     }
 
     code.push_str(
@@ -338,7 +361,8 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
         "/// All known gRPC method paths.\n#[cfg(test)]\npub const KNOWN_METHODS: &[&str] = &[\n",
     );
     for method in methods {
-        code.push_str(&format!("    \"{}\",\n", method.full_path));
+        let method_full_path = &method.full_path;
+        writeln!(code, "    \"{method_full_path}\",")?;
     }
     code.push_str("];\n\n");
 
@@ -349,7 +373,8 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
     );
     for method in methods {
         if matches!(method.requirement, RbacRequirement::Unauthenticated) {
-            code.push_str(&format!("    \"{}\",\n", method.full_path));
+            let method_full_path = &method.full_path;
+            writeln!(code, "    \"{method_full_path}\",")?;
         }
     }
     code.push_str("];\n\n");
@@ -364,10 +389,11 @@ fn generate_rust_code(methods: &[RpcMethod]) -> String {
             method.requirement,
             RbacRequirement::MaintenanceOrPermission(_)
         ) {
-            code.push_str(&format!("    \"{}\",\n", method.full_path));
+            let method_full_path = &method.full_path;
+            writeln!(code, "    \"{method_full_path}\",")?;
         }
     }
     code.push_str("];\n");
 
-    code
+    Ok(code)
 }

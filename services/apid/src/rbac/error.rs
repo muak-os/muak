@@ -4,6 +4,10 @@ use config::Permission;
 use thiserror::Error;
 
 /// Errors that can occur during RBAC access checks.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "public error type name intentionally ends with Error"
+)]
 #[derive(Debug, Error)]
 pub enum RbacError {
     /// Client certificate is required but not provided.
@@ -38,7 +42,7 @@ impl RbacError {
     /// Returns the appropriate gRPC status code for this error.
     #[must_use]
     pub const fn grpc_status_code(&self) -> u8 {
-        match self {
+        match *self {
             Self::Unauthenticated => 16,
             Self::CertificateRevoked
             | Self::UnknownCertificate

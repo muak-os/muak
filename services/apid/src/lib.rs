@@ -1,4 +1,6 @@
-//! `apid` - API Gateway Daemon for Muak
+//! `apid` - API Gateway Daemon for Muak.
+
+extern crate alloc;
 
 pub mod constants;
 pub mod handler;
@@ -7,16 +9,23 @@ pub mod rbac;
 pub mod server;
 pub mod tls;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::future::Future;
+use core::net::SocketAddr;
+use core::time::Duration;
 
 use anyhow::Result;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
+use tokio::time::timeout;
 use tokio_rustls::TlsAcceptor;
 
 use crate::proxy::BackendPool;
 
-/// Arguments parsed from command line
+/// How often the accept loop re-checks for a shutdown request while idle.
+const ACCEPT_POLL: Duration = Duration::from_millis(100);
+
+/// Arguments parsed from command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
     pub listen_addr: String,
@@ -24,7 +33,8 @@ pub struct Args {
 }
 
 impl Args {
-    /// Creates new command line arguments struct
+    /// Creates new command line arguments struct.
+    #[must_use]
     pub fn new(listen_addr: String, maintenance_mode: bool) -> Self {
         Self {
             listen_addr,
@@ -34,22 +44,22 @@ impl Args {
 }
 
 /// Parses command line arguments into an Args struct.
+#[must_use]
 pub fn parse_args(args: &[String]) -> Args {
     let default_listen = format!("0.0.0.0:{}", config::host().port);
 
     let listen_addr = args
         .iter()
-        .position(|a| a == "--listen")
-        .and_then(|i| args.get(i + 1))
+        .position(|arg| arg == "--listen")
+        .and_then(|idx| args.get(idx.saturating_add(1)))
         .cloned()
         .unwrap_or(default_listen);
 
     let maintenance_mode = args
         .iter()
-        .position(|a| a == "--maintenance")
-        .and_then(|i| args.get(i + 1))
-        .map(|v| v == "true")
-        .unwrap_or(false);
+        .position(|arg| arg == "--maintenance")
+        .and_then(|idx| args.get(idx.saturating_add(1)))
+        .is_some_and(|value| value == "true");
 
     Args {
         listen_addr,
@@ -58,6 +68,10 @@ pub fn parse_args(args: &[String]) -> Args {
 }
 
 /// Sets up TLS configuration based on the mode.
+///
+/// # Errors
+///
+/// Returns an error if the TLS configuration cannot be loaded or generated.
 pub fn setup_tls(maintenance_mode: bool) -> Result<TlsAcceptor> {
     if maintenance_mode {
         tls::generate_ephemeral_tls_config()
@@ -67,30 +81,27 @@ pub fn setup_tls(maintenance_mode: bool) -> Result<TlsAcceptor> {
 }
 
 /// Runs the main loop for incoming connections.
-pub async fn run(
+pub async fn run<S>(
     listener: &TcpListener,
     tls_acceptor: &TlsAcceptor,
-    shutdown: impl std::future::Future<Output = ()>,
+    shutdown: S,
     maintenance_mode: bool,
-) {
+) where
+    S: Future<Output = ()> + Send + 'static,
+{
     let pool = Arc::new(BackendPool::new());
 
-    tokio::pin!(shutdown);
+    let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        shutdown.await;
+        let _send = shutdown_tx.send(());
+    });
 
     loop {
-        tokio::select! {
-            _ = &mut shutdown => break,
-            result = listener.accept() => {
-                let (stream, peer_addr) = match result {
-                    Ok(conn) => conn,
-                    Err(e) => {
-                        eprintln!("Accept error: {}", e);
-                        continue;
-                    }
-                };
-
+        match timeout(ACCEPT_POLL, listener.accept()).await {
+            Ok(Ok((stream, peer_addr))) => {
                 let acceptor = tls_acceptor.clone();
-                let pool = pool.clone();
+                let pool = Arc::clone(&pool);
                 tokio::spawn(handle_tls_connection(
                     pool,
                     acceptor,
@@ -99,6 +110,11 @@ pub async fn run(
                     maintenance_mode,
                 ));
             }
+            Ok(Err(e)) => {
+                eprintln!("Accept error: {e}");
+            }
+            Err(_elapsed) if shutdown_rx.try_recv().is_ok() => break,
+            Err(_elapsed) => {}
         }
     }
 }
@@ -107,7 +123,7 @@ pub async fn run(
 async fn handle_tls_connection(
     pool: Arc<BackendPool>,
     acceptor: TlsAcceptor,
-    stream: tokio::net::TcpStream,
+    stream: TcpStream,
     peer_addr: SocketAddr,
     maintenance_mode: bool,
 ) {
@@ -129,7 +145,7 @@ async fn handle_tls_connection(
             .await;
         }
         Err(e) => {
-            eprintln!("TLS handshake failed from {}: {:?}", peer_addr, e);
+            eprintln!("TLS handshake failed from {peer_addr}: {e:?}");
         }
     }
 }
@@ -139,13 +155,12 @@ mod tests {
     use super::*;
 
     fn parse_maintenance(args: &[&str]) -> bool {
-        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let owned: Vec<String> = args.iter().map(ToString::to_string).collect();
         owned
             .iter()
-            .position(|a| a == "--maintenance")
-            .and_then(|i| owned.get(i + 1))
-            .map(|v| v == "true")
-            .unwrap_or(false)
+            .position(|arg| arg == "--maintenance")
+            .and_then(|idx| owned.get(idx.saturating_add(1)))
+            .is_some_and(|value| value == "true")
     }
 
     #[test]
@@ -169,8 +184,8 @@ mod tests {
     #[test]
     fn args_struct() {
         // ARRANGE
-        let args = Args::new("127.0.0.1:8443".to_string(), true);
-        let args2 = Args::new("0.0.0.0:443".to_string(), false);
+        let args = Args::new("127.0.0.1:8443".to_owned(), true);
+        let args2 = Args::new("0.0.0.0:443".to_owned(), false);
 
         // ASSERT
         assert_eq!(args.listen_addr, "127.0.0.1:8443");
@@ -183,9 +198,9 @@ mod tests {
     #[test]
     fn args_equality() {
         // ARRANGE
-        let args1 = Args::new("127.0.0.1:8443".to_string(), true);
-        let args2 = Args::new("127.0.0.1:8443".to_string(), true);
-        let args3 = Args::new("127.0.0.1:8443".to_string(), false);
+        let args1 = Args::new("127.0.0.1:8443".to_owned(), true);
+        let args2 = Args::new("127.0.0.1:8443".to_owned(), true);
+        let args3 = Args::new("127.0.0.1:8443".to_owned(), false);
 
         // ACT & ASSERT
         assert_eq!(args1, args2);

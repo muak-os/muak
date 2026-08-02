@@ -1,20 +1,27 @@
-//! gRPC request handling and routing
+//! gRPC request handling and routing.
 
-use std::sync::Arc;
+extern crate alloc;
 
-use anyhow::{Context, Result};
+use alloc::sync::Arc;
+
+use anyhow::{Context as _, Result};
 use http_body_util::{Either, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
+use tokio::fs::try_exists;
 
 use crate::constants;
 use crate::proxy::{self, BackendPool};
 use crate::rbac;
 
-/// Body type for handler responses - either an error (Empty) or proxied stream (Incoming)
+/// Body type for handler responses - either an error (`Empty`) or proxied stream (`Incoming`).
 pub type Body = Either<Empty<Bytes>, Incoming>;
 
-/// Handles an incoming gRPC request
+/// Handles an incoming gRPC request.
+///
+/// # Errors
+///
+/// Returns an error if the request cannot be proxied to the backend.
 pub async fn handle_request(
     pool: &BackendPool,
     req: Request<Incoming>,
@@ -24,11 +31,12 @@ pub async fn handle_request(
     let path = req.uri().path();
     let requirement = rbac::method_permission(path);
 
-    let skip_rbac = match &requirement {
-        rbac::MethodRequirement::Unauthenticated => true,
-        rbac::MethodRequirement::MaintenanceOrPermission(_) if maintenance_mode => true,
-        _ => false,
-    };
+    let skip_rbac = matches!(requirement, rbac::MethodRequirement::Unauthenticated)
+        || (maintenance_mode
+            && matches!(
+                requirement,
+                rbac::MethodRequirement::MaintenanceOrPermission(_)
+            ));
 
     if !skip_rbac && let Err(e) = rbac::check_access(path, client_fingerprint.as_deref()) {
         kmsg::warn!("Access denied for {}: {}", path, e);
@@ -39,24 +47,21 @@ pub async fn handle_request(
         && client_fingerprint.is_none()
         && !matches!(requirement, rbac::MethodRequirement::Unauthenticated)
     {
-        let e = rbac::RbacError::InsecureNotAllowed;
+        let e = rbac::error::RbacError::InsecureNotAllowed;
         kmsg::warn!("Insecure access blocked for {}: {}", path, e);
         return grpc_error(e.grpc_status_code(), &e.grpc_message());
     }
 
-    let socket_path = match route_request(path).await {
-        Some(socket) => socket,
-        None => {
-            kmsg::warn!("Unknown service path: {}", path);
-            return grpc_error(12, "Unknown service");
-        }
+    let Some(socket_path) = route_request(path).await else {
+        kmsg::warn!("Unknown service path: {path}");
+        return grpc_error(12, "Unknown service");
     };
 
-    match proxy::proxy_to_backend(pool, req, socket_path).await {
+    match proxy::forward(pool, req, socket_path).await {
         Ok(response) => Ok(response.map(Either::Right)),
         Err(e) => {
             kmsg::error!("Proxy error to {}: {}", socket_path, e);
-            grpc_error(14, &format!("Backend unavailable: {}", e))
+            grpc_error(14, &format!("Backend unavailable: {e}"))
         }
     }
 }
@@ -64,9 +69,7 @@ pub async fn handle_request(
 /// Routes a request path to the appropriate backend socket.
 pub async fn route_request(path: &str) -> Option<&'static str> {
     if path.starts_with(constants::VM_SERVICE_PREFIX) {
-        let socket_exists = tokio::fs::try_exists(constants::VMD_SOCKET)
-            .await
-            .unwrap_or(false);
+        let socket_exists = try_exists(constants::VMD_SOCKET).await.unwrap_or(false);
         if !socket_exists {
             kmsg::warn!("VM service not available in maintenance mode");
             return None;
@@ -88,6 +91,10 @@ pub async fn route_request(path: &str) -> Option<&'static str> {
 }
 
 /// Creates a gRPC error response with the given status code and message.
+///
+/// # Errors
+///
+/// Returns an error if the HTTP response cannot be built.
 pub fn grpc_error(status: u8, message: &str) -> Result<Response<Body>> {
     Response::builder()
         .status(200)
@@ -256,116 +263,102 @@ mod tests {
     }
 
     #[test]
-    fn grpc_error_response_status_is_200() -> Result<()> {
+    fn grpc_error_response_status_is_200() {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
+        let response = grpc_error(status_code, message).unwrap();
 
         // ASSERT
         assert_eq!(response.status().as_u16(), 200);
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_content_type() -> Result<()> {
+    fn grpc_error_content_type() {
         // ARRANGE
         let status_code = 7;
         let message = "test message";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let content_type = header_value(&response, "content-type")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let content_type = header_value(&response, "content-type").unwrap();
 
         // ASSERT
         assert_eq!(content_type, "application/grpc");
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_status_header() -> Result<()> {
+    fn grpc_error_status_header() {
         // ARRANGE
         let status_code = 7;
         let message = "permission denied";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let grpc_status = header_value(&response, "grpc-status")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let grpc_status = header_value(&response, "grpc-status").unwrap();
 
         // ASSERT
         assert_eq!(grpc_status, "7");
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_message_header() -> Result<()> {
+    fn grpc_error_message_header() {
         // ARRANGE
         let status_code = 12;
         let message = "method not found";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let grpc_message = header_value(&response, "grpc-message")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let grpc_message = header_value(&response, "grpc-message").unwrap();
 
         // ASSERT
         assert_eq!(grpc_message, "method not found");
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_unauthenticated() -> Result<()> {
+    fn grpc_error_unauthenticated() {
         // ARRANGE
         let status_code = 16;
         let message = "client certificate required";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let grpc_status = header_value(&response, "grpc-status")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let grpc_status = header_value(&response, "grpc-status").unwrap();
 
         // ASSERT
         assert_eq!(grpc_status, "16");
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_unavailable() -> Result<()> {
+    fn grpc_error_unavailable() {
         // ARRANGE
         let status_code = 14;
         let message = "Backend unavailable: connection refused";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let grpc_status = header_value(&response, "grpc-status")?;
-        let grpc_message = header_value(&response, "grpc-message")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let grpc_status = header_value(&response, "grpc-status").unwrap();
+        let grpc_message = header_value(&response, "grpc-message").unwrap();
 
         // ASSERT
         assert_eq!(grpc_status, "14");
         assert!(grpc_message.contains("Backend unavailable"));
-
-        Ok(())
     }
 
     #[test]
-    fn grpc_error_empty_message() -> Result<()> {
+    fn grpc_error_empty_message() {
         // ARRANGE
         let status_code = 0;
         let message = "";
 
         // ACT
-        let response = grpc_error(status_code, message)?;
-        let grpc_message = header_value(&response, "grpc-message")?;
+        let response = grpc_error(status_code, message).unwrap();
+        let grpc_message = header_value(&response, "grpc-message").unwrap();
 
         // ASSERT
         assert_eq!(grpc_message, "");
-
-        Ok(())
     }
 
     #[test]

@@ -9,7 +9,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let args = apid::parse_args(&std::env::args().collect::<Vec<_>>());
 
-    let addr: std::net::SocketAddr = args.listen_addr.parse()?;
+    let addr: core::net::SocketAddr = args.listen_addr.parse()?;
     let listener = TcpListener::bind(addr).await?;
     let tls_acceptor = apid::setup_tls(args.maintenance_mode)?;
 
