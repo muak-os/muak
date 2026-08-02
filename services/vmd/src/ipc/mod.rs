@@ -1,4 +1,4 @@
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::actor::VmActorHandle;
@@ -37,7 +37,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(CreateVmResponse {
                 vm_id: String::new(),
-                error: format!("Failed to create VM: {}", e),
+                error: format!("Failed to create VM: {e}"),
             })),
         }
     }
@@ -55,7 +55,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(StartVmResponse {
                 success: false,
-                error: format!("Failed to start VM: {}", e),
+                error: format!("Failed to start VM: {e}"),
             })),
         }
     }
@@ -73,7 +73,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(StopVmResponse {
                 success: false,
-                error: format!("Failed to stop VM: {}", e),
+                error: format!("Failed to stop VM: {e}"),
             })),
         }
     }
@@ -91,7 +91,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(DeleteVmResponse {
                 success: false,
-                error: format!("Failed to delete VM: {}", e),
+                error: format!("Failed to delete VM: {e}"),
             })),
         }
     }
@@ -109,7 +109,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(GetVmResponse {
                 vm: None,
-                error: format!("VM not found: {}", e),
+                error: format!("VM not found: {e}"),
             })),
         }
     }
@@ -122,7 +122,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             .handle
             .list()
             .await
-            .map_err(|e| Status::internal(format!("Failed to list VMs: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to list VMs: {e}")))?;
 
         Ok(Response::new(ListVmsResponse { vms }))
     }
@@ -147,7 +147,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
                         vm_id = Some(meta.vm_id);
                     }
                     if meta.size > 0 {
-                        data.reserve(meta.size as usize);
+                        data.reserve(usize::try_from(meta.size).unwrap_or(0));
                     }
                 }
                 Some(upload_file_request::Request::Chunk(bytes)) => {
@@ -168,7 +168,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(UploadFileResponse {
                 path: String::new(),
-                error: format!("Failed to upload file: {}", e),
+                error: format!("Failed to upload file: {e}"),
             })),
         }
     }
@@ -186,7 +186,7 @@ impl vm::vm_service_server::VmService for VmServiceImpl {
             })),
             Err(e) => Ok(Response::new(GetVmSerialLogResponse {
                 output: String::new(),
-                error: format!("Failed to get serial log: {}", e),
+                error: format!("Failed to get serial log: {e}"),
             })),
         }
     }

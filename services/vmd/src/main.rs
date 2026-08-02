@@ -1,4 +1,6 @@
-//! VM daemon for Muak - Manages virtual machines and their life cycle
+//! VM daemon for Muak - Manages virtual machines and their life cycle.
+
+extern crate alloc;
 
 mod actor;
 mod disk;
@@ -6,17 +8,39 @@ mod hypervisor;
 mod ipc;
 mod persistence;
 
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use actor::start_vm_actor;
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use config::InterfaceKind;
 use granola::Health;
 use ipc::VmServiceImpl;
 use rustix::process::{WaitOptions, wait};
+use tokio::fs::create_dir_all;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-#[allow(clippy::excessive_nesting)]
+#[expect(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::as_conversions,
+    clippy::clone_on_ref_ptr,
+    clippy::default_trait_access,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::too_many_lines,
+    reason = "generated protobuf code"
+)]
 pub mod proto {
     pub mod vm {
         tonic::include_proto!("muak.vm.v1");
@@ -25,7 +49,7 @@ pub mod proto {
 
 const STATE_DIR: &str = "/run/state/vmd";
 
-/// Entry point for the VM daemon
+/// Entry point for the VM daemon.
 #[granola::service("vmd")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
@@ -44,7 +68,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         notifier.status("KVM not available", Health::Degraded)?;
     }
 
-    tokio::fs::create_dir_all(format!("{}/vms", STATE_DIR)).await?;
+    create_dir_all(format!("{STATE_DIR}/vms")).await?;
 
     let (connection, netlink_handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
@@ -71,23 +95,20 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .serve_with_incoming_shutdown(stream, granola::shutdown_signal());
 
     let sigchld_handle = tokio::spawn(async move {
-        loop {
-            sigchld.recv().await;
+        while sigchld.recv().await.is_some() {
             reap_children();
         }
     });
 
-    let scrub_handle = tokio::spawn(disk::scrub::timer());
+    let scrub_shutdown = Arc::new(AtomicBool::new(false));
+    let scrub_handle = tokio::spawn(disk::scrub::timer(Arc::clone(&scrub_shutdown)));
 
-    tokio::select! {
-        result = server => {
-            if let Err(e) = result {
-                kmsg::error!("Server error: {}", e);
-                return Err(e.into());
-            }
-        }
+    if let Err(e) = server.await {
+        kmsg::error!("Server error: {e}");
+        return Err(e.into());
     }
 
+    scrub_shutdown.store(true, Ordering::Relaxed);
     sigchld_handle.abort();
     scrub_handle.abort();
 
@@ -125,7 +146,7 @@ fn reap_children() {
                 println!("Child {} killed by signal {}", pid.as_raw_nonzero(), signal);
             }
             Ok(None) | Err(_) => break,
-            Ok(Some(_)) => continue,
+            Ok(Some(_)) => {}
         }
     }
 }

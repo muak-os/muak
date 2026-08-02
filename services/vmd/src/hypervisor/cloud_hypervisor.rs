@@ -8,18 +8,18 @@ fn readonly_flag(readonly: bool) -> &'static str {
     if readonly { ",readonly=on" } else { "" }
 }
 
-pub struct CloudHypervisorHypervisor {
+pub struct Driver {
     binary_path: String,
 }
 
-impl CloudHypervisorHypervisor {
+impl Driver {
     pub fn new() -> Self {
         Self {
-            binary_path: "/usr/bin/cloud-hypervisor".to_string(),
+            binary_path: "/usr/bin/cloud-hypervisor".to_owned(),
         }
     }
 
-    pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+    pub fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         // Check all required files exist before spawning
         if !std::path::Path::new(&self.binary_path).exists() {
             anyhow::bail!("cloud-hypervisor binary not found at {}", self.binary_path);
@@ -29,7 +29,7 @@ impl CloudHypervisorHypervisor {
             anyhow::bail!("Kernel not found at {}", config.kernel.display());
         }
 
-        if let Some(initrd) = &config.initrd
+        if let Some(initrd) = config.initrd.as_ref()
             && !initrd.exists()
         {
             anyhow::bail!("Initrd not found at {}", initrd.display());
@@ -41,11 +41,11 @@ impl CloudHypervisorHypervisor {
             anyhow::bail!("Serial log directory not found: {}", parent.display());
         }
 
-        if let Some(missing) = config.disks.iter().find(|d| !d.path.exists()) {
+        if let Some(missing) = config.disks.iter().find(|disk| !disk.path.exists()) {
             anyhow::bail!("Disk not found at {}", missing.path.display());
         }
 
-        if let Some(persistent_disk) = &config.persistent_disk
+        if let Some(persistent_disk) = config.persistent_disk.as_ref()
             && !persistent_disk.exists()
         {
             anyhow::bail!("Persistent disk not found at {}", persistent_disk.display());
@@ -62,7 +62,7 @@ impl CloudHypervisorHypervisor {
             .arg(format!("file={}", config.serial_log_path.display()));
         cmd.arg("--console").arg("off");
 
-        if let Some(initrd) = &config.initrd {
+        if let Some(initrd) = config.initrd.as_ref() {
             cmd.arg("--initramfs").arg(initrd);
         }
 
@@ -80,7 +80,7 @@ impl CloudHypervisorHypervisor {
             cmd.arg("--disk").arg(disk_arg);
         }
 
-        if let Some(persistent_disk) = &config.persistent_disk {
+        if let Some(persistent_disk) = config.persistent_disk.as_ref() {
             cmd.arg("--disk")
                 .arg(format!("path={}", persistent_disk.display()));
         }
@@ -100,10 +100,11 @@ impl CloudHypervisorHypervisor {
         Ok(VmProcess { pid })
     }
 
-    pub async fn stop(&self, pid: u32, force: bool) -> Result<()> {
+    pub fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
-            Pid::from_raw(pid as i32).ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
+            Pid::from_raw(i32::try_from(pid).unwrap_or(0))
+                .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;
         Ok(())

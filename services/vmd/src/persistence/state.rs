@@ -45,12 +45,12 @@ pub fn load_vms() -> Result<HashMap<String, VmPersisted>> {
         if path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        let Some(file_stem) = path.file_stem().and_then(|os_str| os_str.to_str()) else {
             continue;
         };
         match load_vm_from_path(&path) {
             Ok(vm) => {
-                vms.insert(stem.to_string(), vm);
+                vms.insert(file_stem.to_owned(), vm);
             }
             Err(e) => eprintln!("Failed to load VM state {}: {}", path.display(), e),
         }
@@ -65,14 +65,14 @@ fn load_vm_from_path(path: &Path) -> Result<VmPersisted> {
 }
 
 pub fn save_vm(vm_id: &str, vm: &VmPersisted) -> Result<()> {
-    let path = Path::new(VMS_DIR).join(format!("{}.json", vm_id));
+    let path = Path::new(VMS_DIR).join(format!("{vm_id}.json"));
     let json = serde_json::to_string_pretty(vm)?;
     fs::write(path, json)?;
     Ok(())
 }
 
 pub fn delete_vm(vm_id: &str) -> Result<()> {
-    let path = Path::new(VMS_DIR).join(format!("{}.json", vm_id));
+    let path = Path::new(VMS_DIR).join(format!("{vm_id}.json"));
     if path.exists() {
         fs::remove_file(path)?;
     }

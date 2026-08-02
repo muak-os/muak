@@ -2,7 +2,7 @@ mod commands;
 mod state;
 
 use anyhow::Result;
-pub use commands::VmCommand;
+use commands::VmCommand;
 use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 

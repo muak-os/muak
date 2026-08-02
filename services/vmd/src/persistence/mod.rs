@@ -1,5 +1,3 @@
-mod state;
-
-pub use state::{DiskConfigPersisted, VmPersisted, delete_vm, load_vms, save_vm};
+pub mod state;
 
 pub const VMS_DIR: &str = "/run/state/vmd/vms";

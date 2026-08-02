@@ -16,18 +16,18 @@ fn qemu_binary_path() -> &'static str {
     }
 }
 
-pub struct QemuHypervisor {
+pub struct Driver {
     binary_path: String,
 }
 
-impl QemuHypervisor {
+impl Driver {
     pub fn new() -> Self {
         Self {
-            binary_path: qemu_binary_path().to_string(),
+            binary_path: qemu_binary_path().to_owned(),
         }
     }
 
-    pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+    pub fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         let mut cmd = Command::new(&self.binary_path);
 
         cmd.arg("-enable-kvm");
@@ -46,7 +46,7 @@ impl QemuHypervisor {
             cmd.arg("-machine").arg("virt,gic-version=3");
         }
 
-        if let Some(initrd) = &config.initrd {
+        if let Some(initrd) = config.initrd.as_ref() {
             cmd.arg("-initrd").arg(initrd);
         }
 
@@ -67,18 +67,17 @@ impl QemuHypervisor {
                 readonly_flag(disk.readonly)
             ));
             cmd.arg("-device")
-                .arg(format!("virtio-blk-pci,drive=disk{}", i));
+                .arg(format!("virtio-blk-pci,drive=disk{i}"));
         }
 
-        if let Some(persistent_disk) = &config.persistent_disk {
+        if let Some(persistent_disk) = config.persistent_disk.as_ref() {
             let disk_idx = config.disks.len();
             cmd.arg("-drive").arg(format!(
-                "file={},format=raw,if=none,id=disk{}",
+                "file={},format=raw,if=none,id=disk{disk_idx}",
                 persistent_disk.display(),
-                disk_idx
             ));
             cmd.arg("-device")
-                .arg(format!("virtio-blk-pci,drive=disk{}", disk_idx));
+                .arg(format!("virtio-blk-pci,drive=disk{disk_idx}"));
         }
 
         cmd.arg("-no-reboot");
@@ -91,10 +90,11 @@ impl QemuHypervisor {
         Ok(VmProcess { pid })
     }
 
-    pub async fn stop(&self, pid: u32, force: bool) -> Result<()> {
+    pub fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
-            Pid::from_raw(pid as i32).ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
+            Pid::from_raw(i32::try_from(pid).unwrap_or(0))
+                .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;
         Ok(())
