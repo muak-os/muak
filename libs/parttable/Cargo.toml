@@ -1,6 +1,6 @@
 [package]
 name = "parttable"
-description = "Shared MBR and GPT partition table helpers"
+description = "Parsing and manipulating GPT & MBR partition tables"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
