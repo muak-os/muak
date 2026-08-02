@@ -27,14 +27,14 @@ pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
     path::validate_spec(files.iter().map(|file| file.path))?;
 
     let total_data: u64 = files.iter().map(|file| file.size).sum();
-    let total_size = image_size_for(total_data)?;
+    let total_size = image_size_for(total_data);
 
     let files = files.to_vec();
 
     Ok(Layout { files, total_size })
 }
 
-fn image_size_for(total_data: u64) -> Result<u64> {
+fn image_size_for(total_data: u64) -> u64 {
     let padded = total_data.saturating_add(DIRECTORY_OVERHEAD);
     let data_region = next_multiple_of(padded, CLUSTER_SIZE);
     let reserved = RESERVED_SECTORS.saturating_mul(SECTOR_SIZE);
@@ -44,7 +44,7 @@ fn image_size_for(total_data: u64) -> Result<u64> {
         .saturating_add(fats_total)
         .saturating_add(data_region);
 
-    Ok(next_multiple_of(total, SECTOR_SIZE))
+    next_multiple_of(total, SECTOR_SIZE)
 }
 
 fn fat_bytes_for(image_size: u64) -> u64 {
