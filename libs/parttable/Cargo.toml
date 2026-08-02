@@ -10,9 +10,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# Compression
-gptman = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
 

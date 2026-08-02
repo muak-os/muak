@@ -1,6 +1,7 @@
-//! GPT-specific constants and helpers.
+//! GPT partition table support.
 
-pub mod placement;
-pub mod serialize;
+mod header;
+pub mod io;
+pub mod layout;
+pub mod partition;
 pub mod table;
-pub mod types;

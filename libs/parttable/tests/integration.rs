@@ -2,16 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use parttable::{
-        error::ParttableError,
-        gpt::{
-            table::{Table, align_up_lba},
-            types::{
-                ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, Partition, PlacementRequest, Size,
-                Slot, Start,
-            },
-        },
-    };
+    use parttable::error::ParttableError;
+    use parttable::gpt::io;
+    use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
+    use parttable::gpt::partition::{EFI_GUID, LINUX_FS_GUID, Partition};
+    use parttable::gpt::table::Table;
 
     fn sector_count(bytes: usize, sector_size: u64) -> u64 {
         u64::try_from(bytes).unwrap_or(0).div_ceil(sector_size)
@@ -34,17 +29,13 @@ mod tests {
         };
 
         // ACT
-        let aligned = align_up_lba(ALIGN_1_MIB_SECTORS + 1, ALIGN_1_MIB_SECTORS);
-        let placement = table
-            .place_partition(request, 512)
+        let aligned = (ALIGN_1_MIB_SECTORS + 1).next_multiple_of(ALIGN_1_MIB_SECTORS);
+        let placement = request
+            .place(&mut table, 512)
             .expect("placement must succeed");
         let mut buf = Vec::new();
-        table
-            .write_primary_to(sc, &mut buf)
-            .expect("primary write must succeed");
-        table
-            .write_backup_to(sc, &mut buf)
-            .expect("backup write must succeed");
+        io::write_primary(&table, sc, &mut buf).expect("primary write must succeed");
+        io::write_backup(&table, sc, &mut buf).expect("backup write must succeed");
 
         // ASSERT
         assert_eq!(aligned, ALIGN_1_MIB_SECTORS * 2);
@@ -80,7 +71,7 @@ mod tests {
         };
 
         // ACT
-        let result = table.place_partition(request, 512);
+        let result = request.place(&mut table, 512);
 
         // ASSERT
         assert!(
@@ -116,7 +107,7 @@ mod tests {
         };
 
         // ACT
-        let result = table.place_partition(request, 512);
+        let result = request.place(&mut table, 512);
 
         // ASSERT
         assert!(
@@ -141,7 +132,7 @@ mod tests {
         };
 
         // ACT
-        let result = table.place_partition(request, 512);
+        let result = request.place(&mut table, 512);
 
         // ASSERT
         assert!(
