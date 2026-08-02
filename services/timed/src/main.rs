@@ -3,19 +3,24 @@
 //! A small SNTP client that periodically synchronizes the system clock
 //! against a configured NTP server. Uses simple direct clock setting (no PLL).
 
+extern crate alloc;
+
 mod ntp;
 
-use std::time::Duration;
+use alloc::sync::Arc;
+use core::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{Context as _, bail};
 use granola::Health;
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::Notify;
+use tokio::time::timeout;
 
 /// Retry interval before the first successful NTP synchronization.
 const INITIAL_RETRY_INTERVAL: Duration = Duration::from_secs(64);
 
 /// Poll interval after the first successful NTP synchronization.
-const STEADY_STATE_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const STEADY_STATE_INTERVAL: Duration = Duration::from_hours(1);
 
 #[granola::service("timed")]
 #[tokio::main]
@@ -45,8 +50,21 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.ready()?;
 
+    let notify = Arc::new(Notify::new());
+
     let mut sigterm = signal(SignalKind::terminate())?;
+    let signal_notify = Arc::clone(&notify);
+    tokio::spawn(async move {
+        sigterm.recv().await;
+        signal_notify.notify_waiters();
+    });
+
     let mut sigint = signal(SignalKind::interrupt())?;
+    let signal_notify = Arc::clone(&notify);
+    tokio::spawn(async move {
+        sigint.recv().await;
+        signal_notify.notify_waiters();
+    });
 
     loop {
         let delay = if synced_once {
@@ -54,24 +72,20 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         } else {
             INITIAL_RETRY_INTERVAL
         };
-        let sleep = tokio::time::sleep(delay);
-        tokio::pin!(sleep);
 
-        tokio::select! {
-            _ = sigterm.recv() => break,
-            _ = sigint.recv() => break,
-            _ = &mut sleep => {
-                match ntp::sync(server).await {
-                    Ok(offset) => {
-                        println!("Time sync succeeded (offset: {offset:?})");
-                        synced_once = true;
-                        notifier.status("Synchronized", Health::Healthy)?;
-                    }
-                    Err(e) => {
-                        eprintln!("Time sync failed: {e:#}");
-                        notifier.status("Sync failed", Health::Degraded)?;
-                    }
-                }
+        if timeout(delay, notify.notified()).await.is_ok() {
+            break;
+        }
+
+        match ntp::sync(server).await {
+            Ok(offset) => {
+                println!("Time sync succeeded (offset: {offset:?})");
+                synced_once = true;
+                notifier.status("Synchronized", Health::Healthy)?;
+            }
+            Err(e) => {
+                eprintln!("Time sync failed: {e:#}");
+                notifier.status("Sync failed", Health::Degraded)?;
             }
         }
     }

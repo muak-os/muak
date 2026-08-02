@@ -1,20 +1,20 @@
-//! SNTP client implementation (RFC 4330 / NTPv4 wire format).
+//! SNTP client implementation (RFC 4330 / `NTPv4` wire format).
 //!
-//! Sends a single NTPv4 client request and parses the server response to extract
+//! Sends a single `NTPv4` client request and parses the server response to extract
 //! the transmit timestamp. No clock discipline or PLL — just direct time setting.
 
-use std::net::ToSocketAddrs;
-use std::time::Duration;
+use core::time::Duration;
+use std::net::ToSocketAddrs as _;
 
 use anyhow::{Result, bail};
-use rustix::time::{ClockId, Timespec, clock_settime};
+use rustix::time::{ClockId, Timespec, clock_gettime, clock_settime};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
 /// NTP packet size in bytes (fixed 48-byte structure).
 const NTP_PACKET_SIZE: usize = 48;
 
-/// NTP port per RFC 4330
+/// NTP port per RFC 4330.
 const NTP_PORT: u16 = 123;
 
 /// Timeout for a single NTP request/response exchange.
@@ -26,7 +26,7 @@ const NTP_EPOCH_OFFSET: u64 = 2_208_988_800;
 /// NTP version 4.
 const NTP_VERSION: u8 = 4;
 
-/// NTPv4 header field offsets.
+/// `NTPv4` header field offsets.
 mod field {
     /// Leap Indicator (2 bits) | Version (3 bits) | Mode (3 bits).
     pub const LI_VN_MODE: usize = 0;
@@ -43,7 +43,7 @@ const MODE_CLIENT: u8 = 3;
 
 /// Build a 48-byte SNTP client request packet.
 fn build_request() -> [u8; NTP_PACKET_SIZE] {
-    let mut packet = [0u8; NTP_PACKET_SIZE];
+    let mut packet = [0_u8; NTP_PACKET_SIZE];
 
     // LI = 0 (no warning), VN = 4 (NTPv4), Mode = 3 (client)
     packet[field::LI_VN_MODE] = (NTP_VERSION << 3) | MODE_CLIENT;
@@ -78,8 +78,8 @@ fn parse_response(packet: &[u8; NTP_PACKET_SIZE]) -> Result<Timespec> {
     let nanos = ((u64::from(frac)) * 1_000_000_000) >> 32;
 
     Ok(Timespec {
-        tv_sec: unix_secs as i64,
-        tv_nsec: nanos as i64,
+        tv_sec: i64::try_from(unix_secs)?,
+        tv_nsec: i64::try_from(nanos)?,
     })
 }
 
@@ -102,7 +102,7 @@ pub async fn sync(server: &str) -> Result<Duration> {
     let request = build_request();
     socket.send(&request).await?;
 
-    let mut buf = [0u8; NTP_PACKET_SIZE];
+    let mut buf = [0_u8; NTP_PACKET_SIZE];
     let n = timeout(NTP_TIMEOUT, socket.recv(&mut buf)).await??;
 
     if n < NTP_PACKET_SIZE {
@@ -111,11 +111,11 @@ pub async fn sync(server: &str) -> Result<Duration> {
 
     let server_time = parse_response(&buf)?;
 
-    let before = rustix::time::clock_gettime(ClockId::Realtime);
+    let before = clock_gettime(ClockId::Realtime);
 
     clock_settime(ClockId::Realtime, server_time)?;
 
-    let offset_secs = (server_time.tv_sec - before.tv_sec).unsigned_abs();
+    let offset_secs = server_time.tv_sec.abs_diff(before.tv_sec);
     let offset = Duration::from_secs(offset_secs);
 
     Ok(offset)
@@ -129,7 +129,11 @@ mod tests {
     fn build_request_sets_correct_fields() {
         // ARRANGE
         let packet = build_request();
-        assert_eq!(packet.len(), NTP_PACKET_SIZE);
+        assert_eq!(
+            packet.len(),
+            NTP_PACKET_SIZE,
+            "packet should be {NTP_PACKET_SIZE} bytes"
+        );
 
         // ACT
         let li = (packet[0] >> 6) & 0x03;
@@ -140,13 +144,16 @@ mod tests {
         assert_eq!(li, 0, "Leap indicator should be 0");
         assert_eq!(vn, 4, "Version should be 4");
         assert_eq!(mode, 3, "Mode should be 3 (client)");
-        assert!(packet[1..].iter().all(|&b| b == 0));
+        assert!(
+            packet[1..].iter().all(|&byte| byte == 0),
+            "packet body should be zeroed"
+        );
     }
 
     #[test]
     fn parse_response_valid() {
         // ARRANGE
-        let mut packet = [0u8; NTP_PACKET_SIZE];
+        let mut packet = [0_u8; NTP_PACKET_SIZE];
 
         let ntp_secs: u32 = 3_913_056_000;
         packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
@@ -163,7 +170,7 @@ mod tests {
     #[test]
     fn parse_response_with_fraction() {
         // ARRANGE
-        let mut packet = [0u8; NTP_PACKET_SIZE];
+        let mut packet = [0_u8; NTP_PACKET_SIZE];
 
         let ntp_secs: u32 = 3_913_056_000;
         packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
@@ -184,7 +191,7 @@ mod tests {
     #[test]
     fn parse_response_zero_timestamp() {
         // ARRANGE
-        let packet = [0u8; NTP_PACKET_SIZE];
+        let packet = [0_u8; NTP_PACKET_SIZE];
 
         // ACT
         let result = parse_response(&packet);
