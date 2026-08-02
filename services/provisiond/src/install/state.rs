@@ -90,5 +90,6 @@ fn write_secret(path: impl AsRef<Path>, data: &[u8]) -> Result<()> {
         .mode(0o600)
         .open(path)?
         .write_all(data)?;
+
     Ok(())
 }
