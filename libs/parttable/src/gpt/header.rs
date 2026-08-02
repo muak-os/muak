@@ -73,9 +73,9 @@ impl GptHeader {
             return Err(ParttableError::Gpt("GPT header CRC mismatch".to_owned()));
         }
 
-        let disk_guid: [u8; 16] = field(sector, HDR_DISK_GUID)?
-            .try_into()
-            .map_err(|_err| ParttableError::Gpt("GPT header disk GUID truncated".to_owned()))?;
+        let disk_guid_bytes = field(sector, HDR_DISK_GUID)?;
+        let mut disk_guid = [0_u8; 16];
+        disk_guid.copy_from_slice(disk_guid_bytes);
 
         Ok(Self {
             entries_lba: le_u64(sector, HDR_ENTRIES_LBA)?,
@@ -257,6 +257,54 @@ mod tests {
     }
 
     #[test]
+    fn parse_rejects_low_revision() {
+        // ARRANGE
+        let header = sample_header();
+        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+
+        // ACT
+        if let Some(revision) = sector.get_mut(8..12) {
+            revision.copy_from_slice(&0x0000_0001_u32.to_le_bytes());
+        }
+        let result = GptHeader::parse(&sector);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "unsupported GPT revision")
+        );
+    }
+
+    #[test]
+    fn parse_rejects_small_header_size() {
+        // ARRANGE
+        let header = sample_header();
+        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+
+        // ACT
+        if let Some(size) = sector.get_mut(12..16) {
+            size.copy_from_slice(&64_u32.to_le_bytes());
+        }
+        let result = GptHeader::parse(&sector);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "GPT header too small")
+        );
+    }
+
+    #[test]
+    fn header_debug_output_is_readable() {
+        // ARRANGE
+        let header = sample_header();
+
+        // ACT
+        let debug = format!("{header:?}");
+
+        // ASSERT
+        assert!(debug.contains("GptHeader"));
+    }
+
+    #[test]
     fn backup_encode_places_header_at_end_of_disk() {
         // ARRANGE
         let header = sample_header();
@@ -270,5 +318,77 @@ mod tests {
         let backup = u64::from_le_bytes(sector[32..40].try_into().expect("slice"));
         assert_eq!(current, sector_count.saturating_sub(1));
         assert_eq!(backup, 1);
+    }
+
+    #[test]
+    fn field_rejects_out_of_range() {
+        // ARRANGE
+        let sector = [0_u8; 512];
+
+        // ACT
+        let result = field(&sector, 500..600);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "GPT header truncated")
+        );
+    }
+
+    #[test]
+    fn le_u32_rejects_truncated_field() {
+        // ARRANGE
+        let sector = [0_u8; 512];
+
+        // ACT
+        let result = le_u32(&sector, 8..10);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "GPT header field truncated")
+        );
+    }
+
+    #[test]
+    fn le_u64_rejects_truncated_field() {
+        // ARRANGE
+        let sector = [0_u8; 512];
+
+        // ACT
+        let result = le_u64(&sector, 8..10);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "GPT header field truncated")
+        );
+    }
+
+    #[test]
+    fn le_u32_rejects_out_of_range() {
+        // ARRANGE
+        let sector = [0_u8; 512];
+
+        // ACT
+        let result = le_u32(&sector, 500..600);
+
+        // ASSERT
+        assert!(matches!(
+            result.unwrap_err(),
+            ParttableError::Gpt(message) if message == "GPT header truncated"
+        ));
+    }
+
+    #[test]
+    fn le_u64_rejects_out_of_range() {
+        // ARRANGE
+        let sector = [0_u8; 512];
+
+        // ACT
+        let result = le_u64(&sector, 500..600);
+
+        // ASSERT
+        assert!(matches!(
+            result.unwrap_err(),
+            ParttableError::Gpt(message) if message == "GPT header truncated"
+        ));
     }
 }

@@ -359,4 +359,106 @@ mod tests {
         assert!(!table.is_partition_used(1));
         assert!(!table.has_used_partitions());
     }
+
+    #[test]
+    fn table_debug_output_is_non_empty() {
+        // ARRANGE
+        let table = Table::create(8 * 2048, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let debug = format!("{table:?}");
+
+        // ASSERT
+        assert!(debug.contains("Table"));
+    }
+
+    #[test]
+    fn create_rejects_disk_too_small() {
+        // ARRANGE / ACT
+        let result = Table::create(10, 512, [0xCD; 16]);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "disk too small for GPT"
+        ));
+    }
+
+    #[test]
+    fn from_parts_rejects_wrong_entries_length() {
+        // ARRANGE
+        let entries = vec![None; ENTRIES_COUNT - 1];
+
+        // ACT
+        let result = Table::from_parts(34, 16_318, [0xCD; 16], 512, entries);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(ParttableError::Gpt(message)) if message == "invalid partition entries length")
+        );
+    }
+
+    #[test]
+    fn primary_gpt_size_matches_header_geometry() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let table = Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let size = table.primary_gpt_size();
+
+        // ASSERT
+        assert_eq!(size, 17_408);
+    }
+
+    #[test]
+    fn remove_partition_rejects_unused_slot() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let result = table.remove_partition(1);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "partition 1 is already not set"
+        ));
+    }
+
+    #[test]
+    fn remove_partition_rejects_invalid_number() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let result = table.remove_partition(0);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "invalid partition number"
+        ));
+    }
+
+    #[test]
+    fn remove_partition_rejects_out_of_range_number() {
+        // ARRANGE
+        let sector_count = 8 * 2048;
+        let mut table =
+            Table::create(sector_count, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let result = table.remove_partition(129);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "partition number out of range"
+        ));
+    }
 }

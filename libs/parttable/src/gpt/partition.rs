@@ -66,11 +66,13 @@ impl Partition {
 
     /// Parses a 128-byte entry, returning `None` for unused (zeroed) slots.
     pub(crate) fn decode(bytes: &[u8; 128]) -> Option<Self> {
-        let type_guid: [u8; 16] = slice(bytes, ENT_TYPE_GUID)?.try_into().ok()?;
+        let mut type_guid = [0_u8; 16];
+        type_guid.copy_from_slice(slice(bytes, ENT_TYPE_GUID)?);
         if type_guid == [0; 16] {
             return None;
         }
-        let unique_guid: [u8; 16] = slice(bytes, ENT_UNIQUE_GUID)?.try_into().ok()?;
+        let mut unique_guid = [0_u8; 16];
+        unique_guid.copy_from_slice(slice(bytes, ENT_UNIQUE_GUID)?);
         let name = decode_name(bytes)?;
 
         Some(Self {
@@ -203,5 +205,41 @@ mod tests {
         // ASSERT
         assert_eq!(decoded.name, "DATA");
         assert_eq!(decoded.type_guid, LINUX_FS_GUID);
+    }
+
+    #[test]
+    fn le_u64_rejects_truncated_field() {
+        // ARRANGE
+        let bytes = [0_u8; 128];
+
+        // ACT
+        let result = le_u64(&bytes, 0..4);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn le_u64_rejects_out_of_range() {
+        // ARRANGE
+        let bytes = [0_u8; 128];
+
+        // ACT
+        let result = le_u64(&bytes, 128..136);
+
+        // ASSERT
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn slice_rejects_out_of_range() {
+        // ARRANGE
+        let bytes = [0_u8; 128];
+
+        // ACT
+        let result = slice(&bytes, 128..136);
+
+        // ASSERT
+        assert!(result.is_none());
     }
 }

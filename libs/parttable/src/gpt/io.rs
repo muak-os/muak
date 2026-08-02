@@ -127,9 +127,8 @@ fn decode_table(
 ) -> Result<Table> {
     let mut parsed = Vec::with_capacity(ENTRIES_COUNT);
     for chunk in entries.chunks_exact(usize::try_from(ENTRY_SIZE).unwrap_or(0)) {
-        let entry: [u8; 128] = chunk
-            .try_into()
-            .map_err(|_err| ParttableError::Gpt("partition entry truncated".to_owned()))?;
+        let mut entry = [0_u8; 128];
+        entry.copy_from_slice(chunk);
         parsed.push(Partition::decode(&entry));
     }
 
@@ -157,20 +156,12 @@ fn validate_geometry(header: &GptHeader) -> Result<()> {
     Ok(())
 }
 
-fn skip<R: Read>(reader: &mut R, mut remaining: u64) -> Result<()> {
-    let mut buffer = [0_u8; 4096];
-    while remaining > 0 {
-        let chunk = usize::try_from(remaining.min(4096)).unwrap_or(4096);
-        let Some(buf) = buffer.get_mut(..chunk) else {
-            return Err(ParttableError::Gpt("invalid skip chunk".to_owned()));
-        };
-        let read = reader.read(buf)?;
-        if read == 0 {
-            return Err(ParttableError::Gpt(
-                "stream ended before GPT entries".to_owned(),
-            ));
-        }
-        remaining = remaining.saturating_sub(u64::try_from(read).unwrap_or(0));
+fn skip<R: Read>(reader: &mut R, remaining: u64) -> Result<()> {
+    let copied = std::io::copy(&mut reader.take(remaining), &mut std::io::sink())?;
+    if copied < remaining {
+        return Err(ParttableError::Gpt(
+            "stream ended before GPT entries".to_owned(),
+        ));
     }
 
     Ok(())
@@ -307,6 +298,55 @@ mod tests {
     }
 
     #[test]
+    fn read_rejects_entries_lba_overflow() {
+        // ARRANGE
+        let sector_count = 16 * 2048;
+        let mut header = Table::create(sector_count, 512, [0xCD; 16])
+            .expect("table must be created")
+            .to_header();
+        header.entries_lba = u64::MAX;
+        let header_sector = header.encode(false, sector_count, 512, 0);
+        assert_eq!(
+            header_sector.get(72..80),
+            Some(&u64::MAX.to_le_bytes()[..]),
+            "entries_lba must be encoded"
+        );
+
+        let mut disk = Vec::new();
+        disk.extend_from_slice(&[0_u8; 512]);
+        disk.extend_from_slice(&header_sector);
+
+        // ACT
+        let mut reader: &[u8] = disk.as_slice();
+        let result = read(&mut reader);
+
+        // ASSERT
+        let message = match result {
+            Err(ParttableError::Gpt(message)) if message == "partition entries LBA overflowed" => {
+                message
+            }
+            other => panic!("unexpected result: {other:?}"),
+        };
+        assert_eq!(message, "partition entries LBA overflowed");
+    }
+
+    #[test]
+    fn write_primary_rejects_disk_size_overflow() {
+        // ARRANGE
+        let table = sample_table();
+        let mut buf = Vec::new();
+
+        // ACT
+        let result = write_primary(&table, u64::MAX, &mut buf);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "disk size overflowed"
+        ));
+    }
+
+    #[test]
     fn read_uses_last_usable_lba_from_header() {
         // ARRANGE
         let sector_count = 8 * 2048;
@@ -348,6 +388,32 @@ mod tests {
         // ASSERT
         assert_eq!(table.sector_size(), 4096);
         assert!(!table.has_used_partitions());
+    }
+
+    #[test]
+    fn read_rejects_truncated_stream_while_skipping() {
+        // ARRANGE
+        let sector_count = 16 * 2048;
+        let entries = [0_u8; ENTRIES_BYTES];
+        let entries_crc = crc32fast::hash(&entries);
+        let header = Table::create(sector_count, 4096, [0xCD; 16])
+            .expect("table must be created")
+            .to_header()
+            .encode(false, sector_count, 4096, entries_crc);
+
+        let mut disk = Vec::new();
+        disk.extend_from_slice(&[0_u8; 4096]);
+        disk.extend_from_slice(&header);
+
+        // ACT
+        let mut reader: &[u8] = disk.as_slice();
+        let result = read(&mut reader);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "stream ended before GPT entries"
+        ));
     }
 
     #[test]

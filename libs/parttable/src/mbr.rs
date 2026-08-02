@@ -155,16 +155,18 @@ pub fn read<R: Read>(reader: &mut R) -> Result<[Option<PartitionEntry>; MBR_ENTR
         return Err(ParttableError::Gpt("invalid MBR boot signature".to_owned()));
     }
 
+    let (_boot, tail) = sector.split_at(MBR_PARTITION_ENTRY_OFFSET);
+    let (entries_region, _signature_region) =
+        tail.split_at(MBR_ENTRIES.saturating_mul(MBR_ENTRY_SIZE));
+
     let mut entries = [None; MBR_ENTRIES];
-    for (index, slot) in entries.iter_mut().enumerate() {
-        let offset =
-            MBR_PARTITION_ENTRY_OFFSET.saturating_add(index.saturating_mul(MBR_ENTRY_SIZE));
-        let entry_bytes: [u8; MBR_ENTRY_SIZE] = sector
-            .get(offset..offset.saturating_add(MBR_ENTRY_SIZE))
-            .ok_or_else(|| ParttableError::Gpt("MBR entry out of range".to_owned()))?
-            .try_into()
-            .map_err(|_err| ParttableError::Gpt("MBR entry truncated".to_owned()))?;
-        *slot = PartitionEntry::decode(&entry_bytes);
+    for (slot, chunk) in entries
+        .iter_mut()
+        .zip(entries_region.chunks_exact(MBR_ENTRY_SIZE))
+    {
+        let mut bytes = [0_u8; MBR_ENTRY_SIZE];
+        bytes.copy_from_slice(chunk);
+        *slot = PartitionEntry::decode(&bytes);
     }
 
     Ok(entries)
@@ -245,6 +247,18 @@ mod tests {
     }
 
     #[test]
+    fn entry_debug_output_is_readable() {
+        // ARRANGE
+        let entry = linux_entry();
+
+        // ACT
+        let debug = format!("{entry:?}");
+
+        // ASSERT
+        assert!(debug.contains("PartitionEntry"));
+    }
+
+    #[test]
     fn protective_size_lba_uses_all_remaining_sectors() {
         // ARRANGE
         let disk_size = 4096;
@@ -275,6 +289,18 @@ mod tests {
 
         // ACT
         let size = protective_size_lba(disk_size, 512);
+
+        // ASSERT
+        assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn protective_size_lba_handles_zero_sector_size() {
+        // ARRANGE
+        let disk_size = 4096;
+
+        // ACT
+        let size = protective_size_lba(disk_size, 0);
 
         // ASSERT
         assert_eq!(size, 0);
