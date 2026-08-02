@@ -1,6 +1,6 @@
 use std::os::fd::OwnedFd;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use rustix::net::netlink::KOBJECT_UEVENT;
 use rustix::net::netlink::SocketAddrNetlink;
 use rustix::net::{AddressFamily, RecvFlags, SocketFlags, SocketType, bind, recv, socket_with};
@@ -41,64 +41,63 @@ impl UeventListener {
         Ok(Self { socket })
     }
 
+    /// Reads the next uevent from the netlink socket.
     pub fn recv(&self) -> Result<Uevent> {
-        let mut buf = [0u8; 8192];
+        let mut buf = [0_u8; 8192];
 
         let (bytes_initialized, _total_bytes) =
             recv(&self.socket, &mut buf[..], RecvFlags::empty())
                 .context("Failed to receive uevent")?;
 
-        Ok(parse_uevent(&buf[..bytes_initialized]))
+        Ok(parse_uevent(
+            buf.get(..bytes_initialized).unwrap_or_default(),
+        ))
     }
 }
 
 fn parse_uevent(data: &[u8]) -> Uevent {
-    let mut action = UeventAction::Other(String::new());
-    let mut modalias = None;
-    let mut subsystem = None;
+    let mut event = Uevent {
+        action: UeventAction::Other(String::new()),
+        modalias: None,
+        subsystem: None,
+    };
 
-    for part in data.split(|&b| b == 0) {
-        if part.is_empty() {
-            continue;
-        }
-
-        let Ok(s) = std::str::from_utf8(part) else {
+    for part in data.split(|&byte| byte == 0) {
+        let Ok(text) = core::str::from_utf8(part) else {
             continue;
         };
-
-        if let Some((act, _rest)) = s.split_once('@') {
-            action = match act {
-                "add" => UeventAction::Add,
-                "remove" => UeventAction::Remove,
-                other => UeventAction::Other(other.to_string()),
-            };
+        if text.is_empty() {
             continue;
         }
-
-        if let Some((key, value)) = s.split_once('=') {
-            match key {
-                "ACTION" => {
-                    action = match value {
-                        "add" => UeventAction::Add,
-                        "remove" => UeventAction::Remove,
-                        other => UeventAction::Other(other.to_string()),
-                    };
-                }
-                "MODALIAS" => {
-                    modalias = Some(value.to_string());
-                }
-                "SUBSYSTEM" => {
-                    subsystem = Some(value.to_string());
-                }
-                _ => {}
-            }
-        }
+        apply_part(text, &mut event);
     }
 
-    Uevent {
-        action,
-        modalias,
-        subsystem,
+    event
+}
+
+fn apply_part(part: &str, event: &mut Uevent) {
+    if let Some((act, _rest)) = part.split_once('@') {
+        event.action = parse_action(act);
+        return;
+    }
+
+    let Some((key, value)) = part.split_once('=') else {
+        return;
+    };
+
+    match key {
+        "ACTION" => event.action = parse_action(value),
+        "MODALIAS" => event.modalias = Some(value.to_owned()),
+        "SUBSYSTEM" => event.subsystem = Some(value.to_owned()),
+        _ => {}
+    }
+}
+
+fn parse_action(act: &str) -> UeventAction {
+    match act {
+        "add" => UeventAction::Add,
+        "remove" => UeventAction::Remove,
+        other => UeventAction::Other(other.to_owned()),
     }
 }
 
@@ -116,8 +115,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(event.action, UeventAction::Add);
-        assert_eq!(event.modalias, Some("pci:v00008086d00001234".to_string()));
-        assert_eq!(event.subsystem, Some("pci".to_string()));
+        assert_eq!(event.modalias, Some("pci:v00008086d00001234".to_owned()));
+        assert_eq!(event.subsystem, Some("pci".to_owned()));
     }
 
     #[test]

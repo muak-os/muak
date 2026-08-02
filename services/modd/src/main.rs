@@ -7,18 +7,19 @@ mod uevent;
 
 use std::path::Path;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use granola::Health;
 use kmod::aliases::AliasDb;
 use kmod::deps::DepDb;
 use kmod::kernel::{ModuleLoader, load_module};
+use rustix::system::uname;
 use uevent::{UeventAction, UeventListener};
 
 #[granola::service("modd")]
 fn main(notifier: NotifyClient) -> Result<()> {
     notifier.status("Initializing", Health::Healthy)?;
 
-    let uname = rustix::system::uname();
+    let uname = uname();
     let krel = uname.release().to_string_lossy();
     let mod_dir = Path::new("/lib/modules").join(krel.as_ref());
 
@@ -46,10 +47,10 @@ fn main(notifier: NotifyClient) -> Result<()> {
 
     loop {
         let event = match listener.recv() {
-            Ok(e) => e,
+            Ok(event) => event,
             Err(e) => {
-                eprintln!("Failed to receive uevent: {}", e);
-                continue;
+                eprintln!("Failed to receive uevent: {e}");
+                break;
             }
         };
 
@@ -65,25 +66,19 @@ fn main(notifier: NotifyClient) -> Result<()> {
             continue;
         };
 
+        let subsystem = event.subsystem.as_deref().unwrap_or("unknown");
         match load_module(module_name, &dep_db, &mut loader) {
             Ok(count) if count > 0 => {
-                println!(
-                    "Loaded {} modules for {} ({})",
-                    count,
-                    module_name,
-                    event.subsystem.as_deref().unwrap_or("unknown")
-                );
+                println!("Loaded {count} modules for {module_name} ({subsystem})");
             }
             Ok(_) => {
-                println!(
-                    "Loaded module for {} ({})",
-                    module_name,
-                    event.subsystem.as_deref().unwrap_or("unknown")
-                );
+                println!("Loaded module for {module_name} ({subsystem})");
             }
             Err(e) => {
-                eprintln!("Failed to load module {}: {}", module_name, e);
+                eprintln!("Failed to load module {module_name}: {e}");
             }
         }
     }
+
+    Ok(())
 }
