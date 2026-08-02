@@ -1,8 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use config::ClientConfig;
 use tonic::transport::Channel;
 
-use crate::client::{FactoryResetRequest, ProvisionServiceClient};
+use crate::client::provision_service::{
+    FactoryResetRequest, provision_service_client::ProvisionServiceClient,
+};
 use crate::ui;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
@@ -31,14 +33,14 @@ pub async fn handle(
         return Ok(());
     }
 
-    let steps = ui::Steps::new();
+    let steps = ui::steps::Steps::new();
 
     steps.start("Initiating factory reset...");
 
     let request = tonic::Request::new(FactoryResetRequest {});
 
     let response = match client.factory_reset(request).await {
-        Ok(r) => r,
+        Ok(resp) => resp,
         Err(e) => {
             steps.fail("Factory reset failed");
             steps.finish().await;

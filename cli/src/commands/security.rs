@@ -2,21 +2,20 @@ use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
 
-use crate::client::{GetSecurityStateRequest, SecureBootState, SecurityServiceClient};
+use crate::client::security_service::{
+    GetSecurityStateRequest, SecureBootState, security_service_client::SecurityServiceClient,
+};
 use crate::ui;
 
-#[derive(Subcommand)]
-pub enum SecurityAction {
+#[derive(Subcommand, Clone)]
+pub enum Action {
     State,
 }
 
-/// Handles security subcommands
-pub async fn handle(
-    client: &mut SecurityServiceClient<Channel>,
-    action: SecurityAction,
-) -> Result<()> {
+/// Handles security subcommands.
+pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action) -> Result<()> {
     match action {
-        SecurityAction::State => {
+        Action::State => {
             let response = client
                 .get_security_state(tonic::Request::new(GetSecurityStateRequest {}))
                 .await?;

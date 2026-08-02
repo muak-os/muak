@@ -1,8 +1,10 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 
-use crate::client::{ListDisksRequest, ProvisionServiceClient};
-use crate::format::format_size;
+use crate::client::provision_service::{
+    DiskInfo, ListDisksRequest, provision_service_client::ProvisionServiceClient,
+};
+use crate::format::bytes::format_size;
 use crate::ui;
 
 /// Lists available disks on the system.
@@ -13,11 +15,7 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
     let resp = response.into_inner();
 
     if !resp.error.is_empty() {
-        eprintln!(
-            "{}",
-            ui::style::error_text(&format!("Error listing disks: {}", resp.error))
-        );
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("Error listing disks: {}", resp.error));
     }
 
     if resp.disks.is_empty() {
@@ -25,7 +23,7 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
         return Ok(());
     }
 
-    let mut table = ui::Table::new().header(&[
+    let mut table = ui::table::Table::new().header(&[
         "DISK",
         "SIZE",
         "FS",
@@ -53,29 +51,35 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
             &part_count,
         ]);
 
-        for (idx, part) in disk.partitions.iter().enumerate() {
-            let is_last = idx == disk.partitions.len() - 1;
-            let prefix = if is_last {
-                "\u{2514}\u{2500}"
-            } else {
-                "\u{251C}\u{2500}"
-            };
-            let part_size_str = format_size(part.size_bytes);
-            let fstype_display = if part.fstype.is_empty() {
-                "unknown".to_string()
-            } else {
-                part.fstype.clone()
-            };
-            let start = part.start_sector.to_string();
-
-            table = table.sub_row(
-                prefix,
-                &[&part.path, &part_size_str, &fstype_display, &start],
-            );
-        }
+        table = partition_rows(table, &disk);
     }
 
     table.print();
 
     Ok(())
+}
+
+/// Appends rows for each partition of a disk to the table.
+fn partition_rows(mut table: ui::table::Table, disk: &DiskInfo) -> ui::table::Table {
+    for (idx, part) in disk.partitions.iter().enumerate() {
+        let is_last = idx == disk.partitions.len().saturating_sub(1);
+        let prefix = if is_last {
+            "\u{2514}\u{2500}"
+        } else {
+            "\u{251C}\u{2500}"
+        };
+        let part_size_str = format_size(part.size_bytes);
+        let fstype_display = if part.fstype.is_empty() {
+            "unknown".to_owned()
+        } else {
+            part.fstype.clone()
+        };
+        let start = part.start_sector.to_string();
+
+        table = table.sub_row(
+            prefix,
+            &[&part.path, &part_size_str, &fstype_display, &start],
+        );
+    }
+    table
 }

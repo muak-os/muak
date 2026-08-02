@@ -1,15 +1,16 @@
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::Subcommand;
 use tonic::transport::Channel;
 
-use crate::client::{
-    GetConfigHistoryRequest, GetConfigRequest, GetConfigSnapshotRequest, ProvisionServiceClient,
+use crate::client::provision_service::{
+    ConfigHistoryEntry, GetConfigHistoryRequest, GetConfigRequest, GetConfigSnapshotRequest,
+    provision_service_client::ProvisionServiceClient,
 };
-use crate::format::{format_timestamp, time::TimeSeparator};
+use crate::format::time::{Separator, format_timestamp};
 use crate::ui;
 
-#[derive(Subcommand)]
-pub enum ConfigAction {
+#[derive(Subcommand, Clone)]
+pub enum Action {
     Generate,
     Get,
     Export {
@@ -29,15 +30,15 @@ pub enum ConfigAction {
 }
 
 /// Handles config subcommands.
-pub async fn handle(channel: Channel, action: ConfigAction) -> Result<()> {
+pub async fn handle(channel: Channel, action: Action) -> Result<()> {
     match action {
-        ConfigAction::Generate => {
-            unreachable!("Generate is handled in main before connecting")
+        Action::Generate => {
+            bail!("Generate is handled in main before connecting")
         }
-        ConfigAction::Get => get(channel).await,
-        ConfigAction::Export { from } => export(channel, from).await,
-        ConfigAction::History { limit } => history(channel, limit).await,
-        ConfigAction::Diff { from, to } => diff(channel, from, to).await,
+        Action::Get => get(channel).await,
+        Action::Export { from } => export(channel, from).await,
+        Action::History { limit } => history(channel, limit).await,
+        Action::Diff { from, to } => diff(channel, from, to).await,
     }
 }
 
@@ -49,12 +50,7 @@ async fn get(channel: Channel) -> Result<()> {
         .into_inner();
 
     if !resp.error.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&resp.error)
-        );
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("{}", resp.error));
     }
 
     let config = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
@@ -79,7 +75,7 @@ async fn export(channel: Channel, from: Option<String>) -> Result<()> {
                 ui::style::error("Error:"),
                 ui::style::error_text(&resp.error)
             );
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("{}", resp.error));
         }
 
         String::from_utf8(resp.config).context("Invalid UTF-8 in config")?
@@ -88,7 +84,10 @@ async fn export(channel: Channel, from: Option<String>) -> Result<()> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let timestamp = format_timestamp(now.as_secs() as i64, TimeSeparator::Filename);
+    let timestamp = format_timestamp(
+        i64::try_from(now.as_secs()).unwrap_or(i64::MAX),
+        Separator::Filename,
+    );
     let filename = format!("config-{}.{}", timestamp, config::CONFIG_EXTENSION);
 
     std::fs::write(&filename, &config)?;
@@ -108,12 +107,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
     let resp = response.into_inner();
 
     if !resp.error.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&resp.error)
-        );
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("{}", resp.error));
     }
 
     if resp.entries.is_empty() {
@@ -122,13 +116,13 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
     }
 
     let table = resp.entries.iter().fold(
-        ui::Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
-        |t, e| {
-            t.row(&[
-                &format_timestamp(e.timestamp, TimeSeparator::Display),
-                &e.update_id,
-                &e.change_kind,
-                &e.author,
+        ui::table::Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
+        |table, entry| {
+            table.row(&[
+                &format_timestamp(entry.timestamp, Separator::Display),
+                &entry.update_id,
+                &entry.change_kind,
+                &entry.author,
             ])
         },
     );
@@ -141,42 +135,34 @@ async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Res
     let mut client = ProvisionServiceClient::new(channel);
 
     let (from, to) = match (from, to) {
-        (Some(f), Some(t)) => {
-            let a = fetch_snapshot(&mut client, &f).await?;
-            let b = fetch_snapshot(&mut client, &t).await?;
-            (a, b)
+        (Some(from_id), Some(to_id)) => {
+            let before = fetch_snapshot(&mut client, &from_id).await?;
+            let after = fetch_snapshot(&mut client, &to_id).await?;
+            (before, after)
         }
-        (None, Some(t)) => {
+        (None, Some(to_id)) => {
             let entries = fetch_history(&mut client).await?;
             let predecessor = entries
                 .iter()
-                .skip_while(|e| e.update_id != t)
+                .skip_while(|entry| entry.update_id != to_id)
                 .nth(1)
-                .map(|e| e.update_id.as_str());
-            match predecessor {
-                Some(prev) => {
-                    let a = fetch_snapshot(&mut client, prev).await?;
-                    let b = fetch_snapshot(&mut client, &t).await?;
-                    (a, b)
-                }
-                None => {
-                    println!(
-                        "{}",
-                        ui::style::muted("No previous entry to compare against.")
-                    );
-                    return Ok(());
-                }
+                .map(|entry| entry.update_id.as_str());
+            if let Some(prev) = predecessor {
+                let before = fetch_snapshot(&mut client, prev).await?;
+                let after = fetch_snapshot(&mut client, &to_id).await?;
+                (before, after)
+            } else {
+                println!(
+                    "{}",
+                    ui::style::muted("No previous entry to compare against.")
+                );
+                return Ok(());
             }
         }
         _ => {
-            eprintln!(
-                "{} {}",
-                ui::style::error("Error:"),
-                ui::style::error_text(
-                    "Specify --to <update-id>, or both --from <update-id> --to <update-id>."
-                )
-            );
-            std::process::exit(1);
+            return Err(anyhow::anyhow!(
+                "Specify --to <update-id>, or both --from <update-id> --to <update-id>."
+            ));
         }
     };
 
@@ -187,16 +173,14 @@ async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Res
         return Ok(());
     }
 
-    let table = changes.iter().fold(
-        ui::Table::new().header(&["FIELD", "BEFORE", "AFTER"]),
-        |t, (field, before, after)| {
-            t.row(&[
-                field.as_str(),
-                &ui::style::negative(before).to_string(),
-                &ui::style::positive(after).to_string(),
-            ])
-        },
-    );
+    let mut table = ui::table::Table::new().header(&["FIELD", "BEFORE", "AFTER"]);
+    for (field, before, after) in changes {
+        table = table.row(&[
+            field.as_str(),
+            &ui::style::negative(&before).to_string(),
+            &ui::style::positive(&after).to_string(),
+        ]);
+    }
 
     table.print();
     Ok(())
@@ -204,18 +188,13 @@ async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Res
 
 async fn fetch_history(
     client: &mut ProvisionServiceClient<Channel>,
-) -> Result<Vec<crate::client::ConfigHistoryEntry>> {
+) -> Result<Vec<ConfigHistoryEntry>> {
     let resp = client
         .get_config_history(tonic::Request::new(GetConfigHistoryRequest { limit: 0 }))
         .await?
         .into_inner();
     if !resp.error.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&resp.error)
-        );
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("{}", resp.error));
     }
     Ok(resp.entries)
 }
@@ -226,17 +205,12 @@ async fn fetch_snapshot(
 ) -> Result<String> {
     let resp = client
         .get_config_snapshot(tonic::Request::new(GetConfigSnapshotRequest {
-            update_id: update_id.to_string(),
+            update_id: update_id.to_owned(),
         }))
         .await?
         .into_inner();
     if !resp.error.is_empty() {
-        eprintln!(
-            "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&resp.error)
-        );
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("{}", resp.error));
     }
     String::from_utf8(resp.config).context("Invalid UTF-8 in config snapshot")
 }

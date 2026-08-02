@@ -6,16 +6,30 @@ const TB: u64 = 1024 * GB;
 /// Formats bytes into a human-readable size string.
 pub fn format_size(bytes: u64) -> String {
     if bytes >= TB {
-        format!("{:.2}TB", bytes as f64 / TB as f64)
+        format_with_unit(bytes, TB, 2, "TB")
     } else if bytes >= GB {
-        format!("{:.2}GB", bytes as f64 / GB as f64)
+        format_with_unit(bytes, GB, 2, "GB")
     } else if bytes >= MB {
-        format!("{:.0}MB", bytes as f64 / MB as f64)
+        format_with_unit(bytes, MB, 0, "MB")
     } else if bytes >= KB {
-        format!("{:.0}KB", bytes as f64 / KB as f64)
+        format_with_unit(bytes, KB, 0, "KB")
     } else {
         format!("{bytes}B")
     }
+}
+
+/// Formats `bytes` as a value in `unit`, keeping `decimals` fraction digits.
+fn format_with_unit(bytes: u64, unit: u64, decimals: u32, suffix: &str) -> String {
+    let whole = bytes.div_euclid(unit);
+    if decimals == 0 {
+        return format!("{whole}{suffix}");
+    }
+    let factor = 10_u64.pow(decimals);
+    let fraction = bytes.rem_euclid(unit).wrapping_mul(factor).div_euclid(unit);
+    format!(
+        "{whole}.{fraction:0width$}{suffix}",
+        width = usize::try_from(decimals).unwrap_or(0)
+    )
 }
 
 #[cfg(test)]
@@ -50,7 +64,7 @@ mod tests {
 
     #[test]
     fn terabytes() {
-        let tb = 1024u64 * 1024 * 1024 * 1024;
+        let tb = 1024_u64 * 1024 * 1024 * 1024;
         assert_eq!(format_size(tb), "1.00TB");
         assert_eq!(format_size(2 * tb), "2.00TB");
     }

@@ -2,40 +2,51 @@ use anyhow::Result;
 use tonic::transport::Channel;
 
 use crate::client::{
-    CreateVmRequest, DeleteVmRequest, DiskConfig, Hypervisor, StartVmRequest, VmConfig,
-    VmServiceClient, upload_file,
+    upload::upload,
+    vm_service::{
+        CreateVmRequest, DeleteVmRequest, DiskConfig, Hypervisor, StartVmRequest, VmConfig,
+        vm_service_client::VmServiceClient,
+    },
 };
 use crate::ui;
 
+/// Parameters for creating a new VM.
+pub struct VmSpec {
+    pub name: String,
+    pub cmdline: Option<String>,
+    pub kernel: Option<String>,
+    pub initrd: Option<String>,
+    pub vmm: String,
+    pub cpus: u32,
+    pub memory: u64,
+    pub disk: Vec<String>,
+    pub disk_size: u64,
+}
+
 /// Creates a new VM with the specified configuration.
-#[allow(clippy::too_many_arguments)]
-pub async fn handle(
-    client: &mut VmServiceClient<Channel>,
-    name: String,
-    cmdline: Option<String>,
-    kernel: Option<String>,
-    initrd: Option<String>,
-    vmm: String,
-    cpus: u32,
-    memory: u64,
-    disk: Vec<String>,
-    disk_size: u64,
-) -> Result<()> {
-    let kernel = validate_kernel(kernel)?;
-    validate_initrd(&initrd)?;
-    validate_disks(&disk)?;
+pub async fn handle(client: &mut VmServiceClient<Channel>, args: VmSpec) -> Result<()> {
+    let kernel = validate_kernel(args.kernel.as_deref())?;
+    validate_initrd(args.initrd.as_deref())?;
+    validate_disks(&args.disk)?;
 
-    let hypervisor = parse_hypervisor(&vmm);
-    let disks = build_disk_configs(&disk);
-    let config = build_vm_config(
-        &name, cpus, memory, &cmdline, &initrd, disks, hypervisor, disk_size,
-    );
+    let hypervisor = parse_hypervisor(&args.vmm);
+    let disks = build_disk_configs(&args.disk);
+    let config = build_vm_config(&args, disks, hypervisor);
 
-    let steps = ui::Steps::new();
+    let steps = ui::steps::Steps::new();
 
-    let vm_id = create_vm(client, config, &name, &steps).await?;
+    let vm_id = create_vm(client, config, &args.name, &steps).await?;
 
-    if let Err(e) = upload_vm_files(client, &vm_id, &kernel, &initrd, &disk, &steps).await {
+    if let Err(e) = upload_vm_files(
+        client,
+        &vm_id,
+        &kernel,
+        args.initrd.as_deref(),
+        &args.disk,
+        &steps,
+    )
+    .await
+    {
         steps.fail(format!("Upload failed: {e}"));
         steps.finish().await;
         cleanup_vm(client, &vm_id).await;
@@ -54,29 +65,22 @@ pub async fn handle(
 }
 
 /// Validates kernel file exists.
-fn validate_kernel(kernel: Option<String>) -> Result<String> {
-    let kernel = kernel.ok_or_else(|| {
-        eprintln!("{}", ui::style::error_text("Error: --kernel is required"));
-        std::process::exit(1);
-    })?;
+fn validate_kernel(kernel: Option<&str>) -> Result<String> {
+    let kernel = kernel.ok_or_else(|| anyhow::anyhow!("--kernel is required"))?;
 
-    if !std::path::Path::new(&kernel).exists() {
-        let msg = format!("Error: kernel file not found: {kernel}");
-        eprintln!("{}", ui::style::error_text(&msg));
-        std::process::exit(1);
+    if !std::path::Path::new(kernel).exists() {
+        return Err(anyhow::anyhow!("kernel file not found: {kernel}"));
     }
 
-    Ok(kernel)
+    Ok(kernel.to_owned())
 }
 
 /// Validates initrd file exists if specified.
-fn validate_initrd(initrd: &Option<String>) -> Result<()> {
+fn validate_initrd(initrd: Option<&str>) -> Result<()> {
     if let Some(path) = initrd
         && !std::path::Path::new(path).exists()
     {
-        let msg = format!("Error: initrd file not found: {path}");
-        eprintln!("{}", ui::style::error_text(&msg));
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("initrd file not found: {path}"));
     }
     Ok(())
 }
@@ -85,9 +89,7 @@ fn validate_initrd(initrd: &Option<String>) -> Result<()> {
 fn validate_disks(disks: &[String]) -> Result<()> {
     for disk_path in disks {
         if !std::path::Path::new(disk_path).exists() {
-            let msg = format!("Error: disk file not found: {disk_path}");
-            eprintln!("{}", ui::style::error_text(&msg));
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("disk file not found: {disk_path}"));
         }
     }
     Ok(())
@@ -123,31 +125,21 @@ fn build_disk_configs(disks: &[String]) -> Vec<DiskConfig> {
 }
 
 /// Builds VM configuration from parameters.
-#[allow(clippy::too_many_arguments)]
-fn build_vm_config(
-    name: &str,
-    cpus: u32,
-    memory: u64,
-    cmdline: &Option<String>,
-    initrd: &Option<String>,
-    disks: Vec<DiskConfig>,
-    hypervisor: Hypervisor,
-    disk_size: u64,
-) -> VmConfig {
+fn build_vm_config(args: &VmSpec, disks: Vec<DiskConfig>, hypervisor: Hypervisor) -> VmConfig {
     VmConfig {
-        name: name.to_string(),
-        cpus,
-        memory_mb: memory,
-        kernel: "kernel".to_string(),
-        initrd: if initrd.is_some() {
-            "initrd".to_string()
+        name: args.name.clone(),
+        cpus: args.cpus,
+        memory_mb: args.memory,
+        kernel: "kernel".to_owned(),
+        initrd: if args.initrd.is_some() {
+            "initrd".to_owned()
         } else {
             String::new()
         },
-        cmdline: cmdline.clone().unwrap_or_default(),
+        cmdline: args.cmdline.clone().unwrap_or_default(),
         disks,
         hypervisor: hypervisor.into(),
-        root_disk_size_mb: disk_size,
+        root_disk_size_mb: args.disk_size,
     }
 }
 
@@ -156,7 +148,7 @@ async fn create_vm(
     client: &mut VmServiceClient<Channel>,
     config: VmConfig,
     name: &str,
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<String> {
     steps.start(format!("Creating VM '{name}'..."));
 
@@ -185,9 +177,9 @@ async fn upload_vm_files(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     kernel: &str,
-    initrd: &Option<String>,
+    initrd: Option<&str>,
     disks: &[String],
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<()> {
     upload_kernel(client, vm_id, kernel, steps).await?;
 
@@ -205,10 +197,10 @@ async fn upload_kernel(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     kernel: &str,
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<()> {
     steps.start(format!("Uploading kernel: {kernel}"));
-    match upload_file(client, kernel, Some(vm_id), Some("kernel")).await {
+    match upload(client, kernel, Some(vm_id), Some("kernel")).await {
         Ok(remote_path) => {
             steps.complete(format!("Uploaded kernel to: {remote_path}"));
             Ok(())
@@ -225,10 +217,10 @@ async fn upload_initrd(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     initrd_path: &str,
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<()> {
     steps.start(format!("Uploading initrd: {initrd_path}"));
-    match upload_file(client, initrd_path, Some(vm_id), Some("initrd")).await {
+    match upload(client, initrd_path, Some(vm_id), Some("initrd")).await {
         Ok(remote_path) => {
             steps.complete(format!("Uploaded initrd to: {remote_path}"));
             Ok(())
@@ -245,12 +237,12 @@ async fn upload_disks(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     disks: &[String],
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<()> {
     for (i, disk_path) in disks.iter().enumerate() {
         let target_name = format!("disk{i}");
         steps.start(format!("Uploading disk: {disk_path}"));
-        match upload_file(client, disk_path, Some(vm_id), Some(&target_name)).await {
+        match upload(client, disk_path, Some(vm_id), Some(&target_name)).await {
             Ok(remote_path) => {
                 steps.complete(format!("Uploaded disk to: {remote_path}"));
             }
@@ -267,12 +259,12 @@ async fn upload_disks(
 async fn start_vm(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
-    steps: &ui::Steps,
+    steps: &ui::steps::Steps,
 ) -> Result<()> {
     steps.start(format!("Starting VM {vm_id}..."));
 
     let start_request = tonic::Request::new(StartVmRequest {
-        vm_id: vm_id.to_string(),
+        vm_id: vm_id.to_owned(),
     });
     let start_response = client.start_vm(start_request).await?;
     let start_resp = start_response.into_inner();
@@ -290,7 +282,7 @@ async fn start_vm(
 /// Cleans up VM on failure.
 async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) {
     let delete_request = tonic::Request::new(DeleteVmRequest {
-        vm_id: vm_id.to_string(),
+        vm_id: vm_id.to_owned(),
     });
     if let Err(e) = client.delete_vm(delete_request).await {
         let msg = format!("Warning: Failed to clean up VM: {e}");

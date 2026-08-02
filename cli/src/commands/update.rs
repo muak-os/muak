@@ -1,12 +1,19 @@
+use core::time::Duration;
 use std::path::PathBuf;
+use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use config::ServerContext;
-use tokio_stream::StreamExt;
+use tokio::time::sleep;
+use tokio_stream::StreamExt as _;
+use tonic::transport::Channel;
 
 use crate::client::{
-    GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, ProvisionServiceClient,
-    UpdateRequest, UpdateStatus, connect,
+    connect,
+    provision_service::{
+        GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, UpdateRequest,
+        UpdateStatus, provision_service_client::ProvisionServiceClient,
+    },
 };
 use crate::ui;
 
@@ -41,14 +48,14 @@ pub async fn handle(
         (String::new(), raw.into_bytes())
     } else if let Some(ref img) = image {
         config::check_no_downgrade(img, &installed.host.image)
-            .with_context(|| format!("version check failed for image '{}'", img))?;
+            .with_context(|| format!("version check failed for image '{img}'"))?;
 
         (img.clone(), Vec::new())
     } else {
         bail!("Either --image or --config must be provided for update!");
     };
 
-    let steps = ui::Steps::new();
+    let steps = ui::steps::Steps::new();
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
@@ -68,20 +75,22 @@ pub async fn handle(
             let msg = format!("Update preparation failed: {}", progress.error);
             steps.fail(&msg);
             steps.finish().await;
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("{msg}"));
         }
 
-        if !progress.update_id.is_empty() {
-            update_id = progress.update_id;
-        } else {
+        if progress.update_id.is_empty() {
             steps.start(&progress.message);
+        } else {
+            update_id = progress.update_id;
         }
     }
 
     if update_id.is_empty() {
         steps.fail("Prepare update stream ended without completion");
         steps.finish().await;
-        std::process::exit(1);
+        return Err(anyhow::anyhow!(
+            "Prepare update stream ended without completion"
+        ));
     }
 
     let prepared_msg = format!("Update prepared. ID: {update_id}");
@@ -102,67 +111,94 @@ pub async fn handle(
             let msg = format!("Update failed: {}", resp.error);
             steps.fail(&msg);
             steps.finish().await;
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("{msg}"));
         }
     }
 
     steps.start("Waiting for system to come back online...");
 
-    let timeout = std::time::Duration::from_secs(60 * 5);
-    let poll_interval = std::time::Duration::from_secs(2);
-    let start = std::time::Instant::now();
+    wait_for_update_completion(ctx, &update_id, steps).await
+}
+
+/// Outcome of a single update-status poll.
+enum PollOutcome {
+    Done,
+    Failed(String),
+    Retry,
+}
+
+/// Polls the server until the update reaches a terminal state.
+async fn wait_for_update_completion(
+    ctx: &ServerContext,
+    update_id: &str,
+    steps: ui::steps::Steps,
+) -> Result<()> {
+    let timeout = Duration::from_mins(5);
+    let poll_interval = Duration::from_secs(2);
+    let start = Instant::now();
 
     loop {
         if start.elapsed() > timeout {
             steps.fail("Timeout waiting for system to come back online after update");
             steps.finish().await;
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("Timed out waiting for update to complete"));
         }
 
-        let channel = match connect(ctx, 10).await {
-            Ok(c) => c,
-            Err(_) => {
-                tokio::time::sleep(poll_interval).await;
-                continue;
+        match poll_update_status(ctx, update_id, &steps).await {
+            PollOutcome::Done => {
+                steps.finish().await;
+                return Ok(());
             }
-        };
-
-        let mut client = ProvisionServiceClient::new(channel);
-        let request = tonic::Request::new(GetUpdateStatusRequest {
-            update_id: update_id.clone(),
-        });
-
-        match client.get_update_status(request).await {
-            Ok(response) => {
-                let resp = response.into_inner();
-                match UpdateStatus::try_from(resp.status).unwrap_or(UpdateStatus::Unknown) {
-                    UpdateStatus::Committed => {
-                        let msg = format!("Update {update_id} committed successfully!");
-                        steps.complete(&msg);
-                        steps.finish().await;
-                        return Ok(());
-                    }
-                    UpdateStatus::RolledBack => {
-                        let msg = format!("Update {update_id} rolled back: {}", resp.error);
-                        steps.fail(&msg);
-                        steps.finish().await;
-                        std::process::exit(1);
-                    }
-                    UpdateStatus::Pending | UpdateStatus::Unknown => {
-                        tokio::time::sleep(poll_interval).await;
-                    }
-                }
+            PollOutcome::Failed(msg) => {
+                steps.fail(&msg);
+                steps.finish().await;
+                return Err(anyhow::anyhow!("{msg}"));
             }
-            Err(_) => {
-                tokio::time::sleep(poll_interval).await;
+            PollOutcome::Retry => {
+                sleep(poll_interval).await;
             }
         }
     }
 }
 
+/// Polls the update status once and decides whether to keep waiting.
+async fn poll_update_status(
+    ctx: &ServerContext,
+    update_id: &str,
+    steps: &ui::steps::Steps,
+) -> PollOutcome {
+    let Ok(channel) = connect(ctx, 10).await else {
+        return PollOutcome::Retry;
+    };
+
+    let mut client = ProvisionServiceClient::new(channel);
+    let request = tonic::Request::new(GetUpdateStatusRequest {
+        update_id: update_id.to_owned(),
+    });
+
+    let resp = match client.get_update_status(request).await {
+        Ok(response) => response.into_inner(),
+        Err(_) => return PollOutcome::Retry,
+    };
+
+    match UpdateStatus::try_from(resp.status).unwrap_or(UpdateStatus::Unknown) {
+        UpdateStatus::Committed => {
+            let msg = format!("Update {update_id} committed successfully!");
+            steps.complete(&msg);
+            PollOutcome::Done
+        }
+        UpdateStatus::RolledBack => {
+            let msg = format!("Update {update_id} rolled back: {}", resp.error);
+            steps.fail(&msg);
+            PollOutcome::Failed(msg)
+        }
+        UpdateStatus::Pending | UpdateStatus::Unknown => PollOutcome::Retry,
+    }
+}
+
 /// Fetches and parses the installed config from the server.
 async fn fetch_installed_config(
-    client: &mut ProvisionServiceClient<tonic::transport::Channel>,
+    client: &mut ProvisionServiceClient<Channel>,
 ) -> Result<config::SystemConfig> {
     let resp = client
         .get_config(tonic::Request::new(GetConfigRequest {}))

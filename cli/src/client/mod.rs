@@ -1,66 +1,157 @@
 mod connector;
-mod upload;
+pub mod upload;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use config::ServerContext;
 use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-pub use upload::upload_file;
 
-#[allow(clippy::excessive_nesting)]
+// The modules below contain machine-generated protobuf/tonic code, so the
+// strict workspace lints are allowed here rather than in the generated output.
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod process_service {
     tonic::include_proto!("muak.process.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod vm_service {
     tonic::include_proto!("muak.vm.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod provision_service {
     tonic::include_proto!("muak.provision.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod auth_service {
     tonic::include_proto!("muak.auth.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod security_service {
     tonic::include_proto!("muak.security.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod log_service {
     tonic::include_proto!("muak.log.v1");
 }
 
-#[allow(clippy::excessive_nesting)]
+#[allow(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_variant_names,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::module_name_repetitions,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "generated protobuf code"
+)]
 pub mod version_service {
     tonic::include_proto!("muak.version.v1");
 }
 
-pub use auth_service::auth_service_client::AuthServiceClient;
-pub use auth_service::get_csr_status_response::Status as CsrStatus;
-pub use auth_service::*;
-pub use log_service::log_service_client::LogServiceClient;
-pub use process_service::ListProcessesRequest;
-pub use process_service::process_service_client::ProcessServiceClient;
-pub use provision_service::provision_service_client::ProvisionServiceClient;
-pub use provision_service::*;
-pub use security_service::security_service_client::SecurityServiceClient;
-pub use security_service::*;
-pub use version_service::version_service_client::VersionServiceClient;
-pub use version_service::*;
-pub use vm_service::vm_service_client::VmServiceClient;
-pub use vm_service::*;
-
 /// Connects using a server context with mTLS.
 pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {
-    let connect_timeout = std::time::Duration::from_secs(5);
-    let request_timeout = std::time::Duration::from_secs(timeout_secs);
+    let connect_timeout = core::time::Duration::from_secs(5);
+    let request_timeout = core::time::Duration::from_secs(timeout_secs);
 
     let Some((ca, crt, key)) = ctx.credentials().context("Missing client credentials")? else {
         bail!("Client credentials are required for this operation");
@@ -96,8 +187,8 @@ pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> 
 
 /// Connects via TLS without verifying the server certificate (TOFU model).
 pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Channel, String)> {
-    let connect_timeout = std::time::Duration::from_secs(5);
-    let request_timeout = std::time::Duration::from_secs(timeout_secs);
+    let connect_timeout = core::time::Duration::from_secs(5);
+    let request_timeout = core::time::Duration::from_secs(timeout_secs);
 
     let state = TofuState::default();
     let connector = TofuTlsConnector::new(server, state.clone())?;
@@ -111,7 +202,7 @@ pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Ch
     let channel = endpoint
         .connect_with_connector(connector)
         .await
-        .with_context(|| format!("Failed to connect to {} (TLS)", server))?;
+        .with_context(|| format!("Failed to connect to {server} (TLS)"))?;
 
     let fingerprint = state
         .fingerprint()?
@@ -127,8 +218,8 @@ pub async fn connect_tls_pinned(
     timeout_secs: u64,
     expected_fingerprint: &str,
 ) -> Result<Channel> {
-    let connect_timeout = std::time::Duration::from_secs(5);
-    let request_timeout = std::time::Duration::from_secs(timeout_secs);
+    let connect_timeout = core::time::Duration::from_secs(5);
+    let request_timeout = core::time::Duration::from_secs(timeout_secs);
 
     let connector = PinnedTlsConnector::new(server, expected_fingerprint)?;
 
@@ -140,13 +231,13 @@ pub async fn connect_tls_pinned(
     endpoint
         .connect_with_connector(connector)
         .await
-        .with_context(|| format!("Failed to connect to {} (TLS pinned)", server))
+        .with_context(|| format!("Failed to connect to {server} (TLS pinned)"))
 }
 
 /// Checks if an error (or any of its causes) indicates a TLS handshake failure
 /// rather than a network-level issue (connection refused, timeout, etc.).
-fn is_tls_error(err: &(dyn std::error::Error + 'static)) -> bool {
-    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+fn is_tls_error(err: &(dyn core::error::Error + 'static)) -> bool {
+    let mut current: Option<&(dyn core::error::Error + 'static)> = Some(err);
     while let Some(e) = current {
         let msg = e.to_string().to_lowercase();
         if msg.contains("certificate")

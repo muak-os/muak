@@ -1,8 +1,7 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 
-use crate::client::{GetVmSerialLogRequest, VmServiceClient};
-use crate::ui;
+use crate::client::vm_service::{GetVmSerialLogRequest, vm_service_client::VmServiceClient};
 
 /// Gets VM serial logs.
 pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: i64) -> Result<()> {
@@ -16,13 +15,11 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: 
 
     if resp.error.is_empty() {
         print!("{}", resp.output);
+        Ok(())
     } else {
-        eprintln!(
-            "{}",
-            ui::style::error_text(&format!("Error getting VM serial log: {}", resp.error))
-        );
-        std::process::exit(1);
+        Err(anyhow::anyhow!(
+            "Failed to get VM serial log: {}",
+            resp.error
+        ))
     }
-
-    Ok(())
 }

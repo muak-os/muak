@@ -18,8 +18,13 @@ use anyhow::{Result, bail};
 use tonic::transport::Channel;
 
 use crate::client::{
-    LogServiceClient, ProcessServiceClient, ProvisionServiceClient, SecurityServiceClient,
-    VersionServiceClient, VmServiceClient, connect, connect_tls_insecure,
+    connect, connect_tls_insecure,
+    log_service::log_service_client::LogServiceClient,
+    process_service::process_service_client::ProcessServiceClient,
+    provision_service::provision_service_client::ProvisionServiceClient,
+    security_service::security_service_client::SecurityServiceClient,
+    version_service::{GetVersionRequest, version_service_client::VersionServiceClient},
+    vm_service::vm_service_client::VmServiceClient,
 };
 use crate::ui;
 use crate::{Cli, Commands};
@@ -31,10 +36,10 @@ use crate::{Cli, Commands};
 ///    Requires `--endpoint` to specify the server address.
 /// 2. `--endpoint` flag (without `--insecure`): use context credentials with
 ///    the provided endpoint address override.
-/// 3. `--context` flag or MUAK_CONTEXT env: use specified context.
+/// 3. `--context` flag or `MUAK_CONTEXT` env: use specified context.
 /// 4. Config default context: use current context from config.
 ///
-/// Returns (Channel, endpoint_address, context).
+/// Returns (`Channel`, `endpoint_address`, `context`).
 async fn resolve_connection(
     cli: &Cli,
     timeout_secs: u64,
@@ -66,8 +71,7 @@ async fn resolve_connection(
 
     let ctx = config.get_context(&context).ok_or_else(|| {
         anyhow::anyhow!(
-            "Context '{}' not found. Run 'muakctl context list' to see available contexts.",
-            context
+            "Context '{context}' not found. Run 'muakctl context list' to see available contexts."
         )
     })?;
 
@@ -91,7 +95,7 @@ async fn resolve_connection(
 async fn run_version_preflight(channel: Channel) {
     let client_ver = env!("CARGO_PKG_VERSION");
     let mut vc = VersionServiceClient::new(channel);
-    if let Ok(resp) = vc.get_version(crate::client::GetVersionRequest {}).await {
+    if let Ok(resp) = vc.get_version(GetVersionRequest {}).await {
         let server_ver = resp.into_inner().version;
         version::print_compat_warning(client_ver, &server_ver);
     }
@@ -103,10 +107,18 @@ pub async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    let timeout_secs = match &cli.command {
-        Commands::Install { .. } | Commands::Update { .. } | Commands::Reset { .. } => 600,
-        Commands::Logs { follow: true, .. } | Commands::Dmesg { follow: true } => 86400,
-        _ => 30,
+    let timeout_secs = if matches!(
+        &cli.command,
+        Commands::Install { .. } | Commands::Update { .. } | Commands::Reset { .. }
+    ) {
+        600
+    } else if matches!(
+        &cli.command,
+        Commands::Logs { follow: true, .. } | Commands::Dmesg { follow: true }
+    ) {
+        86400
+    } else {
+        30
     };
     let skip_preflight = cli.skip_version_check || matches!(cli.command, Commands::Version);
     let (channel, endpoint, context_name) =
@@ -117,16 +129,16 @@ pub async fn run(cli: Cli) -> Result<()> {
 
 /// Handles commands that don't require a server connection.
 async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
-    match &cli.command {
-        Commands::Config { action } => {
-            if matches!(action, config::ConfigAction::Generate) {
-                print!("{}", ::config::serialize_default());
-                return Ok(true);
-            }
+    match cli.command.clone() {
+        Commands::Config {
+            action: config::Action::Generate,
+        } => {
+            print!("{}", ::config::serialize_default());
+            Ok(true)
         }
         Commands::Context { action } => {
-            context::handle(action.clone())?;
-            return Ok(true);
+            context::handle(action)?;
+            Ok(true)
         }
         Commands::Auth { action: None } => {
             let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
@@ -140,7 +152,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
                 );
             }
             auth::enroll(endpoint).await?;
-            return Ok(true);
+            Ok(true)
         }
         Commands::Update { image, config } => {
             if image.is_some() && config.is_some() {
@@ -149,27 +161,43 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
             if image.is_none() && config.is_none() {
                 bail!("Either --image or --config must be provided for update!");
             }
+            Ok(false)
         }
-        Commands::Install { force: false, .. } => {
-            if cli.insecure
-                && let Some(endpoint) = &cli.endpoint
-            {
-                let config = ClientConfig::load()?;
-                if config.has_credentials_for_endpoint(endpoint) {
-                    println!(
-                        "{}",
-                        ui::style::warn(
-                            "Existing credentials found for this server. Remove the context to reinstall."
-                        )
-                    );
-                    return Ok(true);
-                }
-            }
+        Commands::Install { force: false, .. } if has_existing_credentials(cli)? => {
+            println!(
+                "{}",
+                ui::style::warn(
+                    "Existing credentials found for this server. Remove the context to reinstall."
+                )
+            );
+            Ok(true)
         }
-        _ => {}
+        Commands::Config { .. }
+        | Commands::Auth { action: Some(_) }
+        | Commands::Install { .. }
+        | Commands::Process { .. }
+        | Commands::Security { .. }
+        | Commands::Vm { .. }
+        | Commands::Rollback { .. }
+        | Commands::Disks
+        | Commands::Dmesg { .. }
+        | Commands::Logs { .. }
+        | Commands::Reset { .. }
+        | Commands::Version => Ok(false),
     }
+}
 
-    Ok(false)
+/// Returns true when the user already has credentials for the target endpoint.
+fn has_existing_credentials(cli: &Cli) -> Result<bool> {
+    if !cli.insecure {
+        return Ok(false);
+    }
+    let Some(endpoint) = cli.endpoint.as_ref() else {
+        return Ok(false);
+    };
+    let config = ClientConfig::load()?;
+
+    Ok(config.has_credentials_for_endpoint(endpoint))
 }
 
 /// Handles commands that require a server connection.
@@ -215,7 +243,7 @@ async fn handle_cmd(
             let config = ClientConfig::load()?;
             let ctx = config
                 .get_context(ctx_name)
-                .ok_or_else(|| anyhow::anyhow!("Context '{}' not found.", ctx_name))?;
+                .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?;
             update::handle(ctx, image, config_path).await
         }
         Commands::Disks => {
@@ -240,6 +268,6 @@ async fn handle_cmd(
             reset::handle(&mut client, force, context).await
         }
         Commands::Version => version::handle(channel).await,
-        _ => unreachable!("Command not handled"),
+        Commands::Context { .. } => bail!("Command not handled"),
     }
 }

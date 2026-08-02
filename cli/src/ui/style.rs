@@ -1,8 +1,8 @@
 //! Semantic color theme for consistent CLI output.
 
-use std::fmt;
+use core::fmt;
 
-use crossterm::style::{StyledContent, Stylize};
+use crossterm::style::{StyledContent, Stylize as _};
 
 /// Whether color output is enabled for this session.
 fn color_enabled() -> bool {
@@ -10,6 +10,7 @@ fn color_enabled() -> bool {
 }
 
 /// A wrapper that can hold either styled or plain text.
+#[derive(Copy, Clone)]
 pub enum Styled<'a> {
     Colored(StyledContent<&'a str>),
     Plain(&'a str),
@@ -17,167 +18,179 @@ pub enum Styled<'a> {
 
 impl fmt::Display for Styled<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Styled::Colored(s) => s.fmt(f),
-            Styled::Plain(s) => s.fmt(f),
+        match *self {
+            Styled::Colored(text) => text.fmt(f),
+            Styled::Plain(text) => text.fmt(f),
         }
     }
 }
 
-fn make_success(s: &str, color: bool) -> Styled<'_> {
+fn make_success(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.green().bold())
+        Styled::Colored(text.green().bold())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_error(s: &str, color: bool) -> Styled<'_> {
+fn make_error(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.red().bold())
+        Styled::Colored(text.red().bold())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_error_text(s: &str, color: bool) -> Styled<'_> {
+fn make_error_text(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.red())
+        Styled::Colored(text.red())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_warn(s: &str, color: bool) -> Styled<'_> {
+fn make_warn(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.yellow())
+        Styled::Colored(text.yellow())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_info(s: &str, color: bool) -> Styled<'_> {
+fn make_info(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.blue())
+        Styled::Colored(text.blue())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_muted(s: &str, color: bool) -> Styled<'_> {
+fn make_muted(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.dim())
+        Styled::Colored(text.dim())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_accent(s: &str, color: bool) -> Styled<'_> {
+fn make_accent(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.cyan())
+        Styled::Colored(text.cyan())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_header(s: &str, color: bool) -> Styled<'_> {
+fn make_header(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.green().bold())
+        Styled::Colored(text.green().bold())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_label(s: &str, color: bool) -> Styled<'_> {
+fn make_label(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.bold())
+        Styled::Colored(text.bold())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_highlight(s: &str, color: bool) -> Styled<'_> {
+fn make_highlight(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.yellow())
+        Styled::Colored(text.yellow())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_positive(s: &str, color: bool) -> Styled<'_> {
+fn make_positive(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.green())
+        Styled::Colored(text.green())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
-fn make_negative(s: &str, color: bool) -> Styled<'_> {
+fn make_negative(text: &str, color: bool) -> Styled<'_> {
     if color {
-        Styled::Colored(s.red())
+        Styled::Colored(text.red())
     } else {
-        Styled::Plain(s)
+        Styled::Plain(text)
     }
 }
 
 /// Success messages (green bold). Use for completed operations.
-pub fn success(s: &str) -> Styled<'_> {
-    make_success(s, color_enabled())
+#[must_use]
+pub fn success(text: &str) -> Styled<'_> {
+    make_success(text, color_enabled())
 }
 
 /// Error messages (red bold). Use for failures and error labels.
-pub fn error(s: &str) -> Styled<'_> {
-    make_error(s, color_enabled())
+#[must_use]
+pub fn error(text: &str) -> Styled<'_> {
+    make_error(text, color_enabled())
 }
 
 /// Error body text (red, not bold). Use for error descriptions.
-pub fn error_text(s: &str) -> Styled<'_> {
-    make_error_text(s, color_enabled())
+#[must_use]
+pub fn error_text(text: &str) -> Styled<'_> {
+    make_error_text(text, color_enabled())
 }
 
 /// Warning / caution messages (yellow).
-pub fn warn(s: &str) -> Styled<'_> {
-    make_warn(s, color_enabled())
+#[must_use]
+pub fn warn(text: &str) -> Styled<'_> {
+    make_warn(text, color_enabled())
 }
 
 /// In-progress / informational messages (blue).
-pub fn info(s: &str) -> Styled<'_> {
-    make_info(s, color_enabled())
+#[must_use]
+pub fn info(text: &str) -> Styled<'_> {
+    make_info(text, color_enabled())
 }
 
 /// De-emphasized / secondary text (dim).
-pub fn muted(s: &str) -> Styled<'_> {
-    make_muted(s, color_enabled())
+#[must_use]
+pub fn muted(text: &str) -> Styled<'_> {
+    make_muted(text, color_enabled())
 }
 
 /// Accent color for counts, identifiers, endpoints (cyan).
-pub fn accent(s: &str) -> Styled<'_> {
-    make_accent(s, color_enabled())
+#[must_use]
+pub fn accent(text: &str) -> Styled<'_> {
+    make_accent(text, color_enabled())
 }
 
 /// Table / section headers (green bold).
-pub fn header(s: &str) -> Styled<'_> {
-    make_header(s, color_enabled())
+#[must_use]
+pub fn header(text: &str) -> Styled<'_> {
+    make_header(text, color_enabled())
 }
 
 /// Key labels like "Context:", "Endpoint:" (bold).
-pub fn label(s: &str) -> Styled<'_> {
-    make_label(s, color_enabled())
+#[must_use]
+pub fn label(text: &str) -> Styled<'_> {
+    make_label(text, color_enabled())
 }
 
 /// Highlighted data values -- fingerprints, pending items (yellow).
-pub fn highlight(s: &str) -> Styled<'_> {
-    make_highlight(s, color_enabled())
+#[must_use]
+pub fn highlight(text: &str) -> Styled<'_> {
+    make_highlight(text, color_enabled())
 }
 
 /// Active / positive data values (green, not bold).
-pub fn positive(s: &str) -> Styled<'_> {
-    make_positive(s, color_enabled())
+#[must_use]
+pub fn positive(text: &str) -> Styled<'_> {
+    make_positive(text, color_enabled())
 }
 
 /// Negative / danger data values (red, not bold).
-pub fn negative(s: &str) -> Styled<'_> {
-    make_negative(s, color_enabled())
+#[must_use]
+pub fn negative(text: &str) -> Styled<'_> {
+    make_negative(text, color_enabled())
 }
 
 #[cfg(test)]
@@ -186,7 +199,7 @@ mod tests {
 
     fn plain_str(styled: Styled<'_>) -> String {
         match styled {
-            Styled::Plain(s) => s.to_string(),
+            Styled::Plain(text) => text.to_owned(),
             Styled::Colored(_) => panic!("expected Plain variant"),
         }
     }

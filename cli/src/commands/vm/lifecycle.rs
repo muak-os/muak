@@ -1,7 +1,9 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 
-use crate::client::{DeleteVmRequest, StartVmRequest, StopVmRequest, VmServiceClient};
+use crate::client::vm_service::{
+    DeleteVmRequest, StartVmRequest, StopVmRequest, vm_service_client::VmServiceClient,
+};
 use crate::ui;
 
 /// Starts a VM.
@@ -15,15 +17,10 @@ pub async fn handle_start(client: &mut VmServiceClient<Channel>, vm_id: String) 
 
     if resp.success {
         println!("{}", ui::style::success(&format!("Started VM: {vm_id}")));
+        Ok(())
     } else {
-        eprintln!(
-            "{}",
-            ui::style::error_text(&format!("Error starting VM: {}", resp.error))
-        );
-        std::process::exit(1);
+        Err(anyhow::anyhow!("Failed to start VM: {}", resp.error))
     }
-
-    Ok(())
 }
 
 /// Stops a VM.
@@ -42,15 +39,10 @@ pub async fn handle_stop(
 
     if resp.success {
         println!("{}", ui::style::success(&format!("Stopped VM: {vm_id}")));
+        Ok(())
     } else {
-        eprintln!(
-            "{}",
-            ui::style::error_text(&format!("Error stopping VM: {}", resp.error))
-        );
-        std::process::exit(1);
+        Err(anyhow::anyhow!("Failed to stop VM: {}", resp.error))
     }
-
-    Ok(())
 }
 
 /// Deletes a VM.
@@ -64,13 +56,8 @@ pub async fn handle_delete(client: &mut VmServiceClient<Channel>, vm_id: String)
 
     if resp.success {
         println!("{}", ui::style::success(&format!("Deleted VM: {vm_id}")));
+        Ok(())
     } else {
-        eprintln!(
-            "{}",
-            ui::style::error_text(&format!("Error deleting VM: {}", resp.error))
-        );
-        std::process::exit(1);
+        Err(anyhow::anyhow!("Failed to delete VM: {}", resp.error))
     }
-
-    Ok(())
 }

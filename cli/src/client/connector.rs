@@ -1,12 +1,25 @@
 //! TLS connectors for TOFU (Trust On First Use) enrollment model.
 
-use std::sync::{Arc, Mutex};
+extern crate alloc;
 
-use anyhow::{Context, Result};
+use alloc::sync::Arc;
+use core::net::SocketAddr;
+use core::pin::Pin;
+use core::task::{Context as TaskContext, Poll};
+use std::io::Error as IoError;
+use std::sync::Mutex;
+
+use anyhow::{Context as _, Result};
 use hyper::Uri;
+use hyper_util::rt::TokioIo;
+use pki::hex::encode_lower;
+use ring::digest::{SHA256, digest};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, IpAddr, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
+use tonic::codegen::Service;
 
 /// Shared state for capturing the server certificate fingerprint during TOFU.
 #[derive(Clone, Debug, Default)]
@@ -20,7 +33,7 @@ impl TofuState {
         Ok(self
             .inner
             .lock()
-            .map_err(|e| anyhow::anyhow!("TofuState mutex poisoned: {}", e))?
+            .map_err(|e| anyhow::anyhow!("TofuState mutex poisoned: {e}"))?
             .clone())
     }
 }
@@ -29,15 +42,15 @@ impl TofuState {
 #[derive(Clone)]
 pub struct TofuTlsConnector {
     tls_connector: tokio_rustls::TlsConnector,
-    server_name: rustls::pki_types::ServerName<'static>,
-    server_addr: std::net::SocketAddr,
+    server_name: ServerName<'static>,
+    server_addr: SocketAddr,
 }
 
 impl TofuTlsConnector {
     pub fn new(server: &str, state: TofuState) -> Result<Self> {
-        let server_addr: std::net::SocketAddr = server
+        let server_addr: SocketAddr = server
             .parse()
-            .with_context(|| format!("Invalid server address: {}", server))?;
+            .with_context(|| format!("Invalid server address: {server}"))?;
 
         let verifier = TofuServerCertVerifier {
             state,
@@ -53,9 +66,7 @@ impl TofuTlsConnector {
 
         let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
 
-        let server_name = rustls::pki_types::ServerName::IpAddress(
-            rustls::pki_types::IpAddr::from(server_addr.ip()),
-        );
+        let server_name = ServerName::IpAddress(IpAddr::from(server_addr.ip()));
 
         Ok(Self {
             tls_connector,
@@ -65,18 +76,14 @@ impl TofuTlsConnector {
     }
 }
 
-impl tonic::codegen::Service<Uri> for TofuTlsConnector {
-    type Response = hyper_util::rt::TokioIo<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>;
-    type Error = std::io::Error;
-    type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
-    >;
+impl Service<Uri> for TofuTlsConnector {
+    type Response = TokioIo<TlsStream<TcpStream>>;
+    type Error = IoError;
+    type Future =
+        Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut TaskContext<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, _uri: Uri) -> Self::Future {
@@ -85,14 +92,14 @@ impl tonic::codegen::Service<Uri> for TofuTlsConnector {
         let server_addr = self.server_addr;
 
         Box::pin(async move {
-            let tcp_stream = tokio::net::TcpStream::connect(server_addr).await?;
+            let tcp_stream = TcpStream::connect(server_addr).await?;
 
             let tls_stream = tls_connector
                 .connect(server_name, tcp_stream)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(IoError::other)?;
 
-            Ok(hyper_util::rt::TokioIo::new(tls_stream))
+            Ok(TokioIo::new(tls_stream))
         })
     }
 }
@@ -101,19 +108,19 @@ impl tonic::codegen::Service<Uri> for TofuTlsConnector {
 #[derive(Clone)]
 pub struct PinnedTlsConnector {
     tls_connector: tokio_rustls::TlsConnector,
-    server_name: rustls::pki_types::ServerName<'static>,
-    server_addr: std::net::SocketAddr,
+    server_name: ServerName<'static>,
+    server_addr: SocketAddr,
 }
 
 impl PinnedTlsConnector {
     pub fn new(server: &str, fingerprint: &str) -> Result<Self> {
-        let server_addr: std::net::SocketAddr = server
+        let server_addr: SocketAddr = server
             .parse()
-            .with_context(|| format!("Invalid server address: {}", server))?;
+            .with_context(|| format!("Invalid server address: {server}"))?;
 
         let verifier = TofuServerCertVerifier {
             state: TofuState::default(),
-            pinned_fingerprint: Some(fingerprint.to_string()),
+            pinned_fingerprint: Some(fingerprint.to_owned()),
         };
 
         let mut tls_config = rustls::ClientConfig::builder()
@@ -125,9 +132,7 @@ impl PinnedTlsConnector {
 
         let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
 
-        let server_name = rustls::pki_types::ServerName::IpAddress(
-            rustls::pki_types::IpAddr::from(server_addr.ip()),
-        );
+        let server_name = ServerName::IpAddress(IpAddr::from(server_addr.ip()));
 
         Ok(Self {
             tls_connector,
@@ -137,18 +142,14 @@ impl PinnedTlsConnector {
     }
 }
 
-impl tonic::codegen::Service<Uri> for PinnedTlsConnector {
-    type Response = hyper_util::rt::TokioIo<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>;
-    type Error = std::io::Error;
-    type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
-    >;
+impl Service<Uri> for PinnedTlsConnector {
+    type Response = TokioIo<TlsStream<TcpStream>>;
+    type Error = IoError;
+    type Future =
+        Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut TaskContext<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, _uri: Uri) -> Self::Future {
@@ -157,14 +158,14 @@ impl tonic::codegen::Service<Uri> for PinnedTlsConnector {
         let server_addr = self.server_addr;
 
         Box::pin(async move {
-            let tcp_stream = tokio::net::TcpStream::connect(server_addr).await?;
+            let tcp_stream = TcpStream::connect(server_addr).await?;
 
             let tls_stream = tls_connector
                 .connect(server_name, tcp_stream)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(IoError::other)?;
 
-            Ok(hyper_util::rt::TokioIo::new(tls_stream))
+            Ok(TokioIo::new(tls_stream))
         })
     }
 }
@@ -185,17 +186,15 @@ impl ServerCertVerifier for TofuServerCertVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let fingerprint = pki::hex::encode_lower(
-            ring::digest::digest(&ring::digest::SHA256, end_entity.as_ref()).as_ref(),
-        );
+        let fingerprint = encode_lower(digest(&SHA256, end_entity.as_ref()).as_ref());
 
-        if let Some(pinned) = &self.pinned_fingerprint
+        if let Some(pinned) = self.pinned_fingerprint.as_deref()
             && fingerprint != *pinned
         {
             return Err(rustls::Error::General(format!(
                 "Server certificate fingerprint mismatch: expected {}, got {}",
-                &pinned[..16],
-                &fingerprint[..16],
+                pinned.get(..16).unwrap_or_default(),
+                fingerprint.get(..16).unwrap_or_default(),
             )));
         }
 
@@ -203,8 +202,9 @@ impl ServerCertVerifier for TofuServerCertVerifier {
             .state
             .inner
             .lock()
-            .map_err(|e| rustls::Error::General(format!("TofuState mutex poisoned: {}", e)))? =
+            .map_err(|e| rustls::Error::General(format!("TofuState mutex poisoned: {e}")))? =
             Some(fingerprint);
+
         Ok(ServerCertVerified::assertion())
     }
 

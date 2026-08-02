@@ -8,13 +8,13 @@ pub mod ui;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use commands::auth::AuthAction;
-use commands::config::ConfigAction;
-use commands::context::ContextAction;
-use commands::process::ProcessAction;
-use commands::rollback::RollbackAction;
-use commands::security::SecurityAction;
-use commands::vm::VmAction;
+use commands::auth::Action as AuthAction;
+use commands::config::Action as ConfigAction;
+use commands::context::Action as ContextAction;
+use commands::process::Action as ProcessAction;
+use commands::rollback::Action as RollbackAction;
+use commands::security::Action as SecurityAction;
+use commands::vm::Action as VmAction;
 
 #[derive(Parser)]
 #[command(name = "muak")]
@@ -36,7 +36,7 @@ pub struct Cli {
     pub command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum Commands {
     Auth {
         #[command(subcommand)]
@@ -124,9 +124,19 @@ fn handle_error(err: &anyhow::Error) {
             }
             tonic::Code::Unavailable => "Server unavailable. Check if the server is running.",
             tonic::Code::DeadlineExceeded => "Request timed out.",
-            tonic::Code::NotFound => status.message(),
-            tonic::Code::InvalidArgument => status.message(),
-            _ => status.message(),
+            tonic::Code::Ok
+            | tonic::Code::Cancelled
+            | tonic::Code::Unknown
+            | tonic::Code::InvalidArgument
+            | tonic::Code::NotFound
+            | tonic::Code::AlreadyExists
+            | tonic::Code::ResourceExhausted
+            | tonic::Code::FailedPrecondition
+            | tonic::Code::Aborted
+            | tonic::Code::OutOfRange
+            | tonic::Code::Unimplemented
+            | tonic::Code::Internal
+            | tonic::Code::DataLoss => status.message(),
         };
         eprintln!(
             "{} {}",
@@ -137,7 +147,7 @@ fn handle_error(err: &anyhow::Error) {
         eprintln!(
             "{} {}",
             ui::style::error("Error:"),
-            ui::style::error_text(&format!("{:#}", err))
+            ui::style::error_text(&format!("{err:#}"))
         );
     }
 }

@@ -1,4 +1,4 @@
-use crate::client::{Hypervisor, VmState};
+use crate::client::vm_service::{Hypervisor, VmState};
 
 /// Converts a VM state integer to a display string.
 pub fn vm_state_to_string(state: i32) -> &'static str {

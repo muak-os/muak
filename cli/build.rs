@@ -1,34 +1,39 @@
+use core::error::Error;
 use std::path::PathBuf;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_dir = if PathBuf::from("../../api").exists() {
-        "../../api"
+fn api_dir() -> Result<&'static str, Box<dyn Error>> {
+    if PathBuf::from("../../api").exists() {
+        Ok("../../api")
     } else if PathBuf::from("../api").exists() {
-        "../api"
+        Ok("../api")
     } else {
-        panic!("Could not find api directory. Expected at ../../api or ../api");
-    };
+        Err("Could not find api directory. Expected at ../../api or ../api".into())
+    }
+}
 
-    println!("cargo:rerun-if-changed={}/process.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/vm.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/provision.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/auth.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/security.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/log.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/version.proto", api_dir);
+fn main() -> Result<(), Box<dyn Error>> {
+    let api_dir = api_dir()?;
+
+    println!("cargo:rerun-if-changed={api_dir}/process.proto");
+    println!("cargo:rerun-if-changed={api_dir}/vm.proto");
+    println!("cargo:rerun-if-changed={api_dir}/provision.proto");
+    println!("cargo:rerun-if-changed={api_dir}/auth.proto");
+    println!("cargo:rerun-if-changed={api_dir}/security.proto");
+    println!("cargo:rerun-if-changed={api_dir}/log.proto");
+    println!("cargo:rerun-if-changed={api_dir}/version.proto");
 
     tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
         .compile_fds(protox::compile(
             [
-                format!("{}/process.proto", api_dir),
-                format!("{}/vm.proto", api_dir),
-                format!("{}/provision.proto", api_dir),
-                format!("{}/auth.proto", api_dir),
-                format!("{}/security.proto", api_dir),
-                format!("{}/log.proto", api_dir),
-                format!("{}/version.proto", api_dir),
+                format!("{api_dir}/process.proto"),
+                format!("{api_dir}/vm.proto"),
+                format!("{api_dir}/provision.proto"),
+                format!("{api_dir}/auth.proto"),
+                format!("{api_dir}/security.proto"),
+                format!("{api_dir}/log.proto"),
+                format!("{api_dir}/version.proto"),
             ],
             [api_dir],
         )?)?;

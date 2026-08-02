@@ -1,23 +1,34 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 
-use crate::client::LogServiceClient;
 use crate::client::log_service::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry,
+    log_service_client::LogServiceClient,
 };
 use crate::ui;
 
 /// Parses a log level name into its proto integer value.
-pub fn parse_level(s: &str) -> Result<i32, String> {
-    match s.to_lowercase().as_str() {
-        "error" => Ok(Level::Error as i32),
-        "warn" => Ok(Level::Warn as i32),
-        "info" => Ok(Level::Info as i32),
-        "debug" => Ok(Level::Debug as i32),
+pub fn parse_level(level: &str) -> Result<i32, String> {
+    match level.to_lowercase().as_str() {
+        "error" => Ok(level_value(Level::Error)),
+        "warn" => Ok(level_value(Level::Warn)),
+        "info" => Ok(level_value(Level::Info)),
+        "debug" => Ok(level_value(Level::Debug)),
         _ => Err(format!(
-            "invalid level '{}' (expected: error, warn, info, debug)",
-            s
+            "invalid level '{level}' (expected: error, warn, info, debug)"
         )),
+    }
+}
+
+/// Converts a proto log level enum to its integer value.
+///
+/// The discriminants mirror the values defined in the `log.proto` enum.
+fn level_value(level: Level) -> i32 {
+    match level {
+        Level::Error => 0,
+        Level::Warn => 1,
+        Level::Info => 2,
+        Level::Debug => 3,
     }
 }
 
@@ -84,7 +95,7 @@ async fn handle_follow(
 fn should_display(entry: &LogEntry, max_level: Option<i32>) -> bool {
     match max_level {
         Some(threshold) => entry.level <= threshold,
-        None => entry.level <= Level::Info as i32,
+        None => entry.level <= level_value(Level::Info),
     }
 }
 
@@ -107,17 +118,17 @@ mod tests {
     #[test]
     fn parse_level_accepts_all_valid_names() {
         // ARRANGE & ACT & ASSERT
-        assert_eq!(parse_level("error").unwrap(), Level::Error as i32);
-        assert_eq!(parse_level("warn").unwrap(), Level::Warn as i32);
-        assert_eq!(parse_level("info").unwrap(), Level::Info as i32);
-        assert_eq!(parse_level("debug").unwrap(), Level::Debug as i32);
+        assert_eq!(parse_level("error").unwrap(), level_value(Level::Error));
+        assert_eq!(parse_level("warn").unwrap(), level_value(Level::Warn));
+        assert_eq!(parse_level("info").unwrap(), level_value(Level::Info));
+        assert_eq!(parse_level("debug").unwrap(), level_value(Level::Debug));
     }
 
     #[test]
     fn parse_level_is_case_insensitive() {
         // ARRANGE & ACT & ASSERT
-        assert_eq!(parse_level("DEBUG").unwrap(), Level::Debug as i32);
-        assert_eq!(parse_level("Error").unwrap(), Level::Error as i32);
+        assert_eq!(parse_level("DEBUG").unwrap(), level_value(Level::Debug));
+        assert_eq!(parse_level("Error").unwrap(), level_value(Level::Error));
     }
 
     #[test]
@@ -126,16 +137,16 @@ mod tests {
         let result = parse_level("trace");
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     fn make_entry(level: Level) -> LogEntry {
         LogEntry {
             timestamp: 0,
-            service: "svc".to_string(),
+            service: "svc".to_owned(),
             stream: 0,
-            level: level as i32,
-            message: "msg".to_string(),
+            level: level_value(level),
+            message: "msg".to_owned(),
         }
     }
 
@@ -157,7 +168,7 @@ mod tests {
     #[test]
     fn should_display_with_debug_threshold_shows_all() {
         // ARRANGE
-        let threshold = Some(Level::Debug as i32);
+        let threshold = Some(level_value(Level::Debug));
 
         // ACT & ASSERT
         assert!(should_display(&make_entry(Level::Error), threshold));
@@ -169,7 +180,7 @@ mod tests {
     #[test]
     fn should_display_with_error_threshold_shows_only_errors() {
         // ARRANGE
-        let threshold = Some(Level::Error as i32);
+        let threshold = Some(level_value(Level::Error));
 
         // ACT & ASSERT
         assert!(should_display(&make_entry(Level::Error), threshold));
@@ -181,7 +192,7 @@ mod tests {
     #[test]
     fn should_display_with_warn_threshold_shows_error_and_warn() {
         // ARRANGE
-        let threshold = Some(Level::Warn as i32);
+        let threshold = Some(level_value(Level::Warn));
 
         // ACT & ASSERT
         assert!(should_display(&make_entry(Level::Error), threshold));

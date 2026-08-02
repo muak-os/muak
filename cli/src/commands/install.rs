@@ -1,11 +1,20 @@
+use core::time::Duration;
 use std::path::PathBuf;
+use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use config::{ClientConfig, ServerContext};
-use tokio_stream::StreamExt;
+use pki::csr;
+use tokio::time::sleep;
+use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 
-use crate::client::{GetConfigRequest, InstallRequest, ProvisionServiceClient, connect};
+use crate::client::{
+    connect,
+    provision_service::{
+        GetConfigRequest, InstallRequest, provision_service_client::ProvisionServiceClient,
+    },
+};
 use crate::ui;
 
 /// Data received upon successful completion of the install process.
@@ -24,7 +33,7 @@ pub async fn handle(
 ) -> Result<()> {
     let mut client_config = ClientConfig::load()?;
 
-    let (key_pem, csr_pem) = pki::csr::generate("muak-admin")?;
+    let (key_pem, csr_pem) = csr::generate("muak-admin")?;
 
     let config_raw = std::fs::read_to_string(&config_path).context(format!(
         "Failed to read config file '{}'",
@@ -58,7 +67,7 @@ pub async fn handle(
     let mut stream = response.into_inner();
     let mut result_data: Option<CompletedInstall> = None;
 
-    let steps = ui::Steps::new();
+    let steps = ui::steps::Steps::new();
 
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving install progress")?;
@@ -67,17 +76,17 @@ pub async fn handle(
             let msg = format!("Installation failed: {}", progress.error);
             steps.fail(&msg);
             steps.finish().await;
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("{msg}"));
         }
 
-        if !progress.ca_pem.is_empty() {
+        if progress.ca_pem.is_empty() {
+            steps.start(&progress.message);
+        } else {
             result_data = Some(CompletedInstall {
                 ca_pem: progress.ca_pem,
                 client_cert_pem: progress.client_cert_pem,
                 server_name: progress.server_name,
             });
-        } else {
-            steps.start(&progress.message);
         }
     }
 
@@ -109,20 +118,20 @@ pub async fn handle(
     steps.finish().await;
     reboot_result?;
 
-    let msg = format!("Context '{}' added and set as current.", actual_name);
+    let msg = format!("Context '{actual_name}' added and set as current.");
     println!("{}", ui::style::success(&msg));
 
     Ok(())
 }
 
 /// Polls the server after reboot to verify the install succeeded.
-async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::Steps) -> Result<()> {
+async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::steps::Steps) -> Result<()> {
     steps.start("Rebooting system...");
     steps.start("Waiting for system to come back online...");
 
-    let timeout = std::time::Duration::from_secs(60 * 5);
-    let poll_interval = std::time::Duration::from_secs(2);
-    let start = std::time::Instant::now();
+    let timeout = Duration::from_mins(5);
+    let poll_interval = Duration::from_secs(2);
+    let start = Instant::now();
 
     loop {
         if start.elapsed() > timeout {
@@ -133,12 +142,9 @@ async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::Steps) -> Result<()> {
             ));
         }
 
-        let channel = match connect(ctx, 10).await {
-            Ok(c) => c,
-            Err(_) => {
-                tokio::time::sleep(poll_interval).await;
-                continue;
-            }
+        let Ok(channel) = connect(ctx, 10).await else {
+            sleep(poll_interval).await;
+            continue;
         };
 
         let mut client = ProvisionServiceClient::new(channel);
@@ -151,7 +157,7 @@ async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::Steps) -> Result<()> {
                 return Ok(());
             }
             Err(_) => {
-                tokio::time::sleep(poll_interval).await;
+                sleep(poll_interval).await;
             }
         }
     }

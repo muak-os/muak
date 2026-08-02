@@ -1,22 +1,27 @@
 //! Authentication commands for certificate management (admin only).
 
-use std::time::Duration;
+use core::time::Duration;
 
-use anyhow::{Context, Result};
-use base64ct::{Base64, Encoding};
+use anyhow::{Context as _, Result};
+use base64ct::{Base64, Encoding as _};
 use clap::Subcommand;
 use config::ClientConfig;
+use pki::csr;
+use tokio::time::sleep;
 use tonic::transport::Channel;
 
 use crate::client::{
-    AckEnrollmentRequest, ApproveCsrRequest, AuthServiceClient, CsrStatus, GetCsrStatusRequest,
-    ListPendingCsrsRequest, ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
+    auth_service::{
+        AckEnrollmentRequest, ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest,
+        ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
+        auth_service_client::AuthServiceClient, get_csr_status_response::Status as CsrStatus,
+    },
     connect_tls_insecure, connect_tls_pinned,
 };
 use crate::ui;
 
-#[derive(Subcommand)]
-pub enum AuthAction {
+#[derive(Subcommand, Clone)]
+pub enum Action {
     Requests,
     Approve {
         fingerprint: String,
@@ -30,15 +35,15 @@ pub enum AuthAction {
 }
 
 /// Handles authentication commands.
-pub async fn handle(channel: Channel, action: AuthAction) -> Result<()> {
+pub async fn handle(channel: Channel, action: Action) -> Result<()> {
     match action {
-        AuthAction::Requests => requests(channel).await,
-        AuthAction::Approve {
+        Action::Requests => requests(channel).await,
+        Action::Approve {
             fingerprint,
             permissions,
         } => approve(channel, &fingerprint, &permissions).await,
-        AuthAction::Revoke { fingerprint } => revoke(channel, &fingerprint).await,
-        AuthAction::List => list(channel).await,
+        Action::Revoke { fingerprint } => revoke(channel, &fingerprint).await,
+        Action::List => list(channel).await,
     }
 }
 
@@ -65,11 +70,7 @@ async fn requests(channel: Channel) -> Result<()> {
     );
 
     for csr in csrs {
-        let display_fp = if csr.fingerprint.len() >= 16 {
-            &csr.fingerprint[..16]
-        } else {
-            &csr.fingerprint
-        };
+        let display_fp = short_fingerprint(&csr.fingerprint);
         println!(
             "  {} (submitted: {})",
             ui::style::highlight(display_fp),
@@ -91,7 +92,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
 
     let perms: Vec<String> = permissions
         .split(',')
-        .map(|s| s.trim().to_string())
+        .map(|perm| perm.trim().to_owned())
         .collect();
 
     let pending_response = auth_client
@@ -102,24 +103,26 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
     let csrs = pending_response.into_inner().csrs;
     let matching: Vec<_> = csrs
         .iter()
-        .filter(|c| c.fingerprint.starts_with(fingerprint))
+        .filter(|csr| csr.fingerprint.starts_with(fingerprint))
         .collect();
 
     let full_fingerprint = match matching.len() {
         0 => {
             println!(
-                "{}: No pending CSR matches '{}'",
-                ui::style::error("Error"),
-                fingerprint
+                "{}: No pending CSR matches '{fingerprint}'",
+                ui::style::error("Error")
             );
             return Ok(());
         }
-        1 => matching[0].fingerprint.clone(),
+        1 => matching
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no matching CSR"))?
+            .fingerprint
+            .clone(),
         _ => {
             println!(
-                "{}: Multiple CSRs match '{}'. Please be more specific:",
-                ui::style::error("Error"),
-                fingerprint
+                "{}: Multiple CSRs match '{fingerprint}'. Please be more specific:",
+                ui::style::error("Error")
             );
             for csr in matching {
                 println!("  {}", csr.fingerprint);
@@ -128,11 +131,11 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
         }
     };
 
-    let short_fp = full_fingerprint[..16].to_string();
+    let short_fp = short_fingerprint(&full_fingerprint).to_owned();
     println!("Approving CSR: {}", ui::style::highlight(&short_fp));
-    println!("Permissions: {:?}", perms);
+    println!("Permissions: {perms:?}");
 
-    let _ = auth_client
+    auth_client
         .approve_csr(ApproveCsrRequest {
             fingerprint: full_fingerprint.clone(),
             permissions: perms,
@@ -157,24 +160,26 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
     let users = users_response.into_inner().users;
     let matching: Vec<_> = users
         .iter()
-        .filter(|u| u.fingerprint.starts_with(fingerprint))
+        .filter(|user| user.fingerprint.starts_with(fingerprint))
         .collect();
 
     let full_fingerprint = match matching.len() {
         0 => {
             println!(
-                "{}: No user matches fingerprint '{}'",
-                ui::style::error("Error"),
-                fingerprint
+                "{}: No user matches fingerprint '{fingerprint}'",
+                ui::style::error("Error")
             );
             return Ok(());
         }
-        1 => matching[0].fingerprint.clone(),
+        1 => matching
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no matching user"))?
+            .fingerprint
+            .clone(),
         _ => {
             println!(
-                "{}: Multiple users match '{}'. Please be more specific:",
-                ui::style::error("Error"),
-                fingerprint
+                "{}: Multiple users match '{fingerprint}'. Please be more specific:",
+                ui::style::error("Error")
             );
             for user in matching {
                 println!("  {}", user.fingerprint);
@@ -183,7 +188,7 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
         }
     };
 
-    let short_fp = full_fingerprint[..16].to_string();
+    let short_fp = short_fingerprint(&full_fingerprint).to_owned();
     println!("Revoking certificate: {}", ui::style::highlight(&short_fp));
 
     auth_client
@@ -216,11 +221,7 @@ async fn list(channel: Channel) -> Result<()> {
         println!("{} authorized user(s):\n", ui::style::accent(&count));
 
         for user in &inner.users {
-            let display_fp = if user.fingerprint.len() >= 16 {
-                &user.fingerprint[..16]
-            } else {
-                &user.fingerprint
-            };
+            let display_fp = short_fingerprint(&user.fingerprint);
             let perms = user.permissions.join(", ");
             println!(
                 "  {} [{}]",
@@ -234,7 +235,7 @@ async fn list(channel: Channel) -> Result<()> {
         let count = inner.revoked_fingerprints.len().to_string();
         println!("\n{} revoked certificate(s):", ui::style::negative(&count));
         for fp in &inner.revoked_fingerprints {
-            let display_fp = if fp.len() >= 16 { &fp[..16] } else { fp };
+            let display_fp = short_fingerprint(fp);
             println!("  {}", ui::style::muted(display_fp));
         }
     }
@@ -247,7 +248,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
     let mut config = ClientConfig::load()?;
 
     if config.has_credentials_for_endpoint(endpoint) {
-        println!("Already authenticated to {}.", endpoint);
+        println!("Already authenticated to {endpoint}.");
         println!(
             "Use '{}' to re-enroll.",
             ui::style::accent("muakctl context remove <name>")
@@ -270,8 +271,8 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
             )
         } else {
             println!("Generating key pair...");
-            let (key_pem, csr_pem) = pki::csr::generate("muak-client")?;
-            let fingerprint = pki::csr::compute_fingerprint(&csr_pem)?;
+            let (key_pem, csr_pem) = csr::generate("muak-client")?;
+            let fingerprint = csr::compute_fingerprint(&csr_pem)?;
 
             println!("Submitting certificate request...");
             let (channel, server_fp) = connect_tls_insecure(endpoint, 30).await?;
@@ -288,11 +289,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
             (fingerprint, key_pem, server_fp)
         };
 
-    let display_fp = if fingerprint.len() >= 16 {
-        &fingerprint[..16]
-    } else {
-        &fingerprint
-    };
+    let display_fp = short_fingerprint(&fingerprint);
     println!("\nFingerprint: {}", ui::style::highlight(display_fp));
     println!(
         "Ask an admin to run: {} {}...",
@@ -300,15 +297,26 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         display_fp
     );
 
-    let spinner = ui::Spinner::start("Waiting for admin approval... (Ctrl+C to resume later)");
+    wait_for_approval(endpoint, &fingerprint, &key_pem, &server_fingerprint).await
+}
 
-    let channel = connect_tls_pinned(endpoint, 30, &server_fingerprint).await?;
+/// Polls the server until the CSR is approved, rejected, or no longer found.
+async fn wait_for_approval(
+    endpoint: &str,
+    fingerprint: &str,
+    key_pem: &str,
+    server_fingerprint: &str,
+) -> Result<()> {
+    let spinner =
+        ui::spinner::Spinner::start("Waiting for admin approval... (Ctrl+C to resume later)");
+
+    let channel = connect_tls_pinned(endpoint, 30, server_fingerprint).await?;
     let mut client = AuthServiceClient::new(channel);
 
     loop {
         let response = client
             .get_csr_status(GetCsrStatusRequest {
-                fingerprint: fingerprint.clone(),
+                fingerprint: fingerprint.to_owned(),
             })
             .await
             .context("Failed to check CSR status")?;
@@ -329,9 +337,9 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
                 );
                 config.save()?;
 
-                let _ = client
+                let _ack_result = client
                     .ack_enrollment(AckEnrollmentRequest {
-                        fingerprint: fingerprint.clone(),
+                        fingerprint: fingerprint.to_owned(),
                     })
                     .await;
 
@@ -360,6 +368,10 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        sleep(Duration::from_secs(3)).await;
     }
+}
+
+fn short_fingerprint(fp: &str) -> &str {
+    fp.get(..16).unwrap_or(fp)
 }

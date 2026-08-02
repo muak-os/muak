@@ -2,14 +2,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use config::{ClientConfig, ServerContext};
 
 use crate::ui;
 
 /// Context subcommands.
 #[derive(Clone, clap::Subcommand)]
-pub enum ContextAction {
+pub enum Action {
     List,
     Use {
         name: String,
@@ -32,19 +32,19 @@ pub enum ContextAction {
 }
 
 /// Handle context commands.
-pub fn handle(action: ContextAction) -> Result<()> {
+pub fn handle(action: Action) -> Result<()> {
     match action {
-        ContextAction::List => list(),
-        ContextAction::Use { name } => use_context(&name),
-        ContextAction::Info => info(),
-        ContextAction::Add {
+        Action::List => list(),
+        Action::Use { name } => use_context(&name),
+        Action::Info => info(),
+        Action::Add {
             name,
             endpoint,
             ca,
             crt,
             key,
         } => add(&name, &endpoint, ca, crt, key),
-        ContextAction::Remove { name } => remove(&name),
+        Action::Remove { name } => remove(&name),
     }
 }
 
@@ -69,7 +69,7 @@ fn list() -> Result<()> {
         let marker = if current == Some(name) {
             ui::style::positive("*").to_string()
         } else {
-            " ".to_string()
+            " ".to_owned()
         };
         let creds = if ctx.has_credentials() {
             ui::style::positive("mTLS").to_string()
@@ -129,16 +129,17 @@ fn add(
     let ctx = match (ca, crt, key) {
         (Some(ca_path), Some(crt_path), Some(key_path)) => {
             let ca_pem = std::fs::read_to_string(&ca_path)
-                .with_context(|| format!("Failed to read CA file: {:?}", ca_path))?;
-            let crt_pem = std::fs::read_to_string(&crt_path)
-                .with_context(|| format!("Failed to read certificate file: {:?}", crt_path))?;
+                .with_context(|| format!("Failed to read CA file: {}", ca_path.display()))?;
+            let crt_pem = std::fs::read_to_string(&crt_path).with_context(|| {
+                format!("Failed to read certificate file: {}", crt_path.display())
+            })?;
             let key_pem = std::fs::read(&key_path)
-                .with_context(|| format!("Failed to read key file: {:?}", key_path))?;
+                .with_context(|| format!("Failed to read key file: {}", key_path.display()))?;
 
             ServerContext::from_pem(endpoint, &ca_pem, &crt_pem, &key_pem)
         }
         (None, None, None) => ServerContext {
-            endpoint: endpoint.to_string(),
+            endpoint: endpoint.to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -154,14 +155,14 @@ fn add(
 
     config.save()?;
 
-    if actual_name != name {
+    if actual_name == name {
+        println!("Added context '{}'", ui::style::positive(&actual_name));
+    } else {
         println!(
             "Added context '{}' (renamed from '{}' to avoid collision)",
             ui::style::positive(&actual_name),
             name
         );
-    } else {
-        println!("Added context '{}'", ui::style::positive(&actual_name));
     }
 
     Ok(())
