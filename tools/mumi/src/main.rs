@@ -45,7 +45,20 @@ fn run(args: &cli::Args) -> Result<()> {
 
     erofs::mkfs(&mut output, &mut files, &config).context("Failed to create EROFS image")?;
 
-    eprintln!("Created rootfs image at {}", args.output.display());
+    let size = std::fs::metadata(&args.output)
+        .with_context(|| {
+            format!(
+                "Failed to read rootfs image metadata: {}",
+                args.output.display()
+            )
+        })?
+        .len();
+
+    println!(
+        "Created rootfs image at {} ({} bytes)",
+        args.output.display(),
+        size
+    );
 
     Ok(())
 }
