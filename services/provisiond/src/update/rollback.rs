@@ -193,7 +193,7 @@ mod tests {
         // ACT
         let mut result: Vec<RollbackInfo> = std::fs::read_dir(dir.path())
             .unwrap()
-            .filter_map(CoreResult::ok)
+            .filter_map(std::io::Result::ok)
             .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
             .filter_map(|entry| {
                 let data = std::fs::read_to_string(entry.path()).ok()?;

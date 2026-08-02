@@ -1,24 +1,19 @@
 //! GPT partition table management and manipulation.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read as _, Seek as _, SeekFrom};
+use std::io::Seek as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use parttable::gpt;
+use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
+use parttable::gpt::partition::{EFI_GUID, LINUX_FS_GUID};
 use parttable::gpt::table::Table;
-use parttable::gpt::types::{
-    ALIGN_1_MIB_SECTORS, EFI_GUID, LINUX_FS_GUID, PlacementRequest, Size, Slot, Start,
-};
-use parttable::mbr::types::{
-    MBR_BOOT_SIGNATURE, MBR_BYTES, MBR_ENTRY_SIZE, MBR_PARTITION_ENTRY_OFFSET,
-};
+use parttable::mbr::read;
 
 use super::blkpg::{add_partition_blkpg, delete_partition_blkpg};
 use super::constants::{EFI_SIZE, SECTOR_SIZE, STATE_SIZE};
 use super::format::wait_for_device;
-
-const MBR_MAX_SLOTS: usize = 4;
-const MBR_PARTITION_TYPE_OFFSET: usize = 4;
 
 /// Formats a partition device path based on disk naming convention.
 pub fn format_partition_name(disk: &str, partition: u32) -> String {
@@ -31,37 +26,20 @@ pub fn format_partition_name(disk: &str, partition: u32) -> String {
 
 /// Returns `true` when `disk` contains GPT or MBR partition state.
 pub fn disk_is_non_empty(disk: &str) -> Result<bool> {
-    let mut file = OpenOptions::new().read(true).open(disk)?;
-
-    if Table::read(&mut file).is_ok() {
+    if gpt::io::read(&mut OpenOptions::new().read(true).open(disk)?).is_ok() {
         return Ok(true);
     }
 
-    file.seek(SeekFrom::Start(0))?;
-
-    let mut sector = [0_u8; MBR_BYTES];
-    if file.read_exact(&mut sector).is_err() {
-        return Ok(false);
+    match read(&mut OpenOptions::new().read(true).open(disk)?) {
+        Ok(entries) => Ok(entries.iter().any(Option::is_some)),
+        Err(_) => Ok(false),
     }
-
-    let boot_sig = [sector[510], sector[511]];
-    if boot_sig != MBR_BOOT_SIGNATURE {
-        return Ok(false);
-    }
-
-    Ok((0..MBR_MAX_SLOTS).any(|slot| {
-        let entry_offset = usize::try_from(MBR_PARTITION_ENTRY_OFFSET).unwrap_or(0);
-        let type_offset = entry_offset
-            .saturating_add(slot.saturating_mul(MBR_ENTRY_SIZE))
-            .saturating_add(MBR_PARTITION_TYPE_OFFSET);
-        sector.get(type_offset).is_some_and(|&byte| byte != 0x00)
-    }))
 }
 
 /// Returns `true` when `disk` already has a Muak STATE partition installed.
 pub fn has_state_partition(disk: &str) -> Result<bool> {
     let mut file = File::open(disk)?;
-    match Table::read(&mut file) {
+    match gpt::io::read(&mut file) {
         Ok(gpt) => Ok(gpt
             .used_partitions()
             .into_iter()
@@ -71,15 +49,15 @@ pub fn has_state_partition(disk: &str) -> Result<bool> {
 }
 
 fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
-    let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let size = file.seek(std::io::SeekFrom::End(0))?;
+    let file = OpenOptions::new().read(true).write(true).open(disk)?;
+    let size = file.metadata()?.len();
 
     Ok((file, size))
 }
 
 fn verify_gpt(disk: &str) {
     match OpenOptions::new().read(true).open(disk) {
-        Ok(mut file) => match Table::read(&mut file) {
+        Ok(mut file) => match gpt::io::read(&mut file) {
             Ok(gpt) => {
                 let count = gpt.used_partitions().len();
                 kmsg::info!("Verified: GPT on {} has {} used partitions", disk, count);
@@ -103,40 +81,36 @@ pub fn create_system_partitions(disk: &str) -> Result<(String, String)> {
     let sector_count = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
     let mut gpt = Table::create(sector_count, SECTOR_SIZE, [0xff; 16])?;
 
-    let efi = gpt.place_partition(
-        PlacementRequest {
-            slot: Slot::Exact(1),
-            start: Start::FirstUsable,
-            size: Size::Bytes(EFI_SIZE),
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: EFI_GUID,
-            unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            attributes: 0,
-            name: "EFI".to_owned(),
-        },
-        SECTOR_SIZE,
-    )?;
+    let efi = PlacementRequest {
+        slot: Slot::Exact(1),
+        start: Start::FirstUsable,
+        size: Size::Bytes(EFI_SIZE),
+        alignment_lba: ALIGN_1_MIB_SECTORS,
+        type_guid: EFI_GUID,
+        unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
+        attributes: 0,
+        name: "EFI".to_owned(),
+    }
+    .place(&mut gpt, SECTOR_SIZE)?;
 
-    let state = gpt.place_partition(
-        PlacementRequest {
-            slot: Slot::Exact(2),
-            start: Start::AfterPartition(efi.number),
-            size: Size::Bytes(STATE_SIZE),
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: LINUX_FS_GUID,
-            unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            attributes: 0,
-            name: "STATE".to_owned(),
-        },
-        SECTOR_SIZE,
-    )?;
+    let state = PlacementRequest {
+        slot: Slot::Exact(2),
+        start: Start::AfterPartition(efi.number),
+        size: Size::Bytes(STATE_SIZE),
+        alignment_lba: ALIGN_1_MIB_SECTORS,
+        type_guid: LINUX_FS_GUID,
+        unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
+        attributes: 0,
+        name: "STATE".to_owned(),
+    }
+    .place(&mut gpt, SECTOR_SIZE)?;
 
     file.seek(std::io::SeekFrom::Start(0))?;
-    gpt.write_primary_to(sector_count, &mut file)?;
+    gpt::io::write_primary(&gpt, sector_count, &mut file)?;
     file.seek(std::io::SeekFrom::Start(
         gpt.backup_data_offset(sector_count),
     ))?;
-    gpt.write_backup_to(sector_count, &mut file)?;
+    gpt::io::write_backup(&gpt, sector_count, &mut file)?;
     file.sync_all()?;
     drop(file);
 
@@ -174,7 +148,7 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
     );
 
     file.seek(std::io::SeekFrom::Start(0))?;
-    let (mut gpt, sector_count, start) = if let Ok(existing) = Table::read(&mut file) {
+    let (mut gpt, sector_count, start) = if let Ok(existing) = gpt::io::read(&mut file) {
         let sc = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
         kmsg::info!("Appending DATA on existing GPT on {}", disk);
         (existing, sc, Start::AfterLastUsed)
@@ -186,26 +160,24 @@ pub fn create_data_partition(disk: &str) -> Result<String> {
         (gpt, sc, Start::FirstUsable)
     };
 
-    let data = gpt.place_partition(
-        PlacementRequest {
-            slot: Slot::Auto,
-            start,
-            size: Size::FillToLastUsable,
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: LINUX_FS_GUID,
-            unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
-            attributes: 0,
-            name: "DATA".to_owned(),
-        },
-        SECTOR_SIZE,
-    )?;
+    let data = PlacementRequest {
+        slot: Slot::Auto,
+        start,
+        size: Size::FillToLastUsable,
+        alignment_lba: ALIGN_1_MIB_SECTORS,
+        type_guid: LINUX_FS_GUID,
+        unique_guid: *uuid::Uuid::new_v7(uuid_now()).as_bytes(),
+        attributes: 0,
+        name: "DATA".to_owned(),
+    }
+    .place(&mut gpt, SECTOR_SIZE)?;
 
     file.seek(std::io::SeekFrom::Start(0))?;
-    gpt.write_primary_to(sector_count, &mut file)?;
+    gpt::io::write_primary(&gpt, sector_count, &mut file)?;
     file.seek(std::io::SeekFrom::Start(
         gpt.backup_data_offset(sector_count),
     ))?;
-    gpt.write_backup_to(sector_count, &mut file)?;
+    gpt::io::write_backup(&gpt, sector_count, &mut file)?;
     file.sync_all()?;
     drop(file);
 
@@ -239,7 +211,7 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
     kmsg::info!("Deleting partitions {:?} from GPT on {}", partitions, disk);
 
     let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let mut gpt = Table::read(&mut file)?;
+    let mut gpt = gpt::io::read(&mut file)?;
 
     for &partition_num in partitions {
         if !gpt.is_partition_used(partition_num) {
@@ -257,9 +229,9 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
         .checked_div(SECTOR_SIZE)
         .unwrap_or(0);
     file.seek(std::io::SeekFrom::Start(0))?;
-    gpt.write_primary_to(sc, &mut file)?;
+    gpt::io::write_primary(&gpt, sc, &mut file)?;
     file.seek(std::io::SeekFrom::Start(gpt.backup_data_offset(sc)))?;
-    gpt.write_backup_to(sc, &mut file)?;
+    gpt::io::write_backup(&gpt, sc, &mut file)?;
     file.sync_all()?;
     drop(file);
 
@@ -276,10 +248,10 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
 mod tests {
     use std::io::Write as _;
 
+    use parttable::gpt;
+    use parttable::gpt::partition::{LINUX_FS_GUID, Partition};
     use parttable::gpt::table::Table;
-    use parttable::gpt::types::{LINUX_FS_GUID, Partition};
-    use parttable::mbr;
-    use parttable::mbr::types::MbrPartitionEntry;
+    use parttable::mbr::{PartitionEntry, protective_size_lba, write};
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -332,8 +304,9 @@ mod tests {
             .len()
             .checked_div(512)
             .unwrap_or(0);
-        gpt.write_primary_to(sc, &mut file).expect("write primary");
-        gpt.write_backup_to(sc, &mut file).expect("write backup");
+        gpt::io::write_primary(&gpt, sc, &mut file).expect("write primary");
+        gpt::io::write_backup(&gpt, sc, &mut file).expect("write backup");
+
         disk
     }
 
@@ -417,7 +390,7 @@ mod tests {
         let disk_size = (u64::from(u32::MAX) + 100) * SECTOR_SIZE;
 
         // ACT
-        let result = mbr::io::protective_size_lba(disk_size, SECTOR_SIZE);
+        let result = protective_size_lba(disk_size, SECTOR_SIZE);
 
         // ASSERT
         assert_eq!(result, u32::MAX);
@@ -501,10 +474,8 @@ mod tests {
             .checked_div(512)
             .unwrap_or(0);
         let gpt = Table::create(sector_count, 512, [0xff; 16]).expect("new gpt");
-        gpt.write_primary_to(sector_count, &mut file)
-            .expect("write primary gpt");
-        gpt.write_backup_to(sector_count, &mut file)
-            .expect("write backup gpt");
+        gpt::io::write_primary(&gpt, sector_count, &mut file).expect("write primary gpt");
+        gpt::io::write_backup(&gpt, sector_count, &mut file).expect("write backup gpt");
 
         // ACT
         let result = disk_is_non_empty(disk.path().to_str().expect("path"))
@@ -524,18 +495,21 @@ mod tests {
             .open(disk.path())
             .expect("open");
         file.set_len(4096).expect("resize");
-        mbr::io::write_entry(
+        write(
             &mut file,
-            0,
-            &MbrPartitionEntry {
-                bootable: false,
-                partition_type: 0x83,
-                starting_lba: 1,
-                size_lba: 1,
-            },
+            &[
+                Some(PartitionEntry {
+                    bootable: false,
+                    partition_type: 0x83,
+                    starting_lba: 1,
+                    size_lba: 1,
+                }),
+                None,
+                None,
+                None,
+            ],
         )
-        .expect("write mbr entry");
-        mbr::io::write_signature(&mut file).expect("write mbr signature");
+        .expect("write mbr");
 
         // ACT
         let result = disk_is_non_empty(disk.path().to_str().expect("path"))
