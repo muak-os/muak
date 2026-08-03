@@ -1,10 +1,15 @@
-use std::io::Read;
+//! Rootfs-specific directory injection and positional file readers.
+
+use std::io::{self, Read as _};
 use std::path::Path;
 
-use anyhow::{Context as _, Result};
 use erofs::dir::EROFS_FT_REG_FILE;
 use erofs::tree::TreeEntry;
 
+use crate::error::{MumiError, Result};
+use crate::image::Reader;
+
+/// Required Linux boot directories.
 pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "etc/selinux"];
 
 /// Creates required Linux boot directories under `root` if they don't exist.
@@ -14,8 +19,12 @@ pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services"
 /// Returns an error if a directory cannot be created.
 pub fn inject_required_dirs(root: &Path) -> Result<()> {
     for dir in REQUIRED_DIRS {
-        std::fs::create_dir_all(root.join(dir))
-            .with_context(|| format!("Failed to create required directory: {dir}"))?;
+        std::fs::create_dir_all(root.join(dir)).map_err(|source| {
+            MumiError::Io(io::Error::new(
+                source.kind(),
+                format!("Failed to create required directory: {dir}: {source}"),
+            ))
+        })?;
     }
 
     Ok(())
@@ -31,26 +40,35 @@ pub fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create parent for {}", path.display()))?;
+        std::fs::create_dir_all(parent).map_err(|source| {
+            MumiError::Io(io::Error::new(
+                source.kind(),
+                format!("Failed to create parent for {}: {source}", path.display()),
+            ))
+        })?;
     }
-    std::os::unix::fs::symlink("/run/resolv.conf", path)
-        .with_context(|| format!("Failed to create symlink at {}", path.display()))?;
+    std::os::unix::fs::symlink("/run/resolv.conf", path).map_err(|source| {
+        MumiError::Io(io::Error::new(
+            source.kind(),
+            format!("Failed to create symlink at {}: {source}", path.display()),
+        ))
+    })?;
 
     Ok(())
 }
 
+/// Positional file data source over open `File`s, with empty sources for
+/// directories, symlinks, and empty files.
 #[derive(Debug)]
-pub enum EntryReader {
-    File(std::fs::File),
-    Empty(std::io::Empty),
+pub struct FileReader {
+    files: Vec<Option<std::fs::File>>,
 }
 
-impl Read for EntryReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match *self {
-            Self::File(ref mut file) => file.read(buf),
-            Self::Empty(ref mut empty) => empty.read(buf),
+impl Reader for FileReader {
+    fn read(&mut self, index: usize, buf: &mut [u8]) -> io::Result<usize> {
+        match self.files.get_mut(index).and_then(|slot| slot.as_mut()) {
+            Some(file) => file.read(buf),
+            None => Ok(0),
         }
     }
 }
@@ -60,30 +78,29 @@ impl Read for EntryReader {
 /// # Errors
 ///
 /// Returns an error if a regular file with non-zero size cannot be opened.
-pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<Vec<EntryReader>> {
-    entries
-        .iter()
-        .map(|ent| {
-            if ent.file_type == EROFS_FT_REG_FILE && ent.size > 0 {
-                let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
-                match std::fs::File::open(&path) {
-                    Ok(file) => Ok(EntryReader::File(file)),
-                    Err(source) => Err(anyhow::anyhow!(
-                        "Failed to open {}: {source}",
-                        path.display()
-                    )),
-                }
-            } else {
-                Ok(EntryReader::Empty(std::io::empty()))
-            }
-        })
-        .collect()
+pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReader> {
+    let mut files = Vec::with_capacity(entries.len());
+    for ent in entries {
+        let should_open = ent.file_type == EROFS_FT_REG_FILE && ent.size > 0;
+        if !should_open {
+            files.push(None);
+            continue;
+        }
+        let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+        let file = std::fs::File::open(&path).map_err(|source| {
+            MumiError::Io(io::Error::new(
+                source.kind(),
+                format!("Failed to open {}: {source}", path.display()),
+            ))
+        })?;
+        files.push(Some(file));
+    }
+
+    Ok(FileReader { files })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read as _;
-
     use super::*;
 
     fn tree_entry(rel_path: &str, file_type: u8, size: u64) -> TreeEntry {
@@ -99,6 +116,18 @@ mod tests {
             symlink_target: vec![],
             rdev: 0,
         }
+    }
+
+    fn read_all(reader: &mut FileReader, index: usize) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let mut chunk = [0_u8; 64];
+        while let Ok(n) = reader.read(index, &mut chunk)
+            && n > 0
+        {
+            buf.extend_from_slice(chunk.get(..n).unwrap_or_default());
+        }
+
+        buf
     }
 
     #[test]
@@ -171,10 +200,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        let reader = readers.first_mut().unwrap();
-        let mut buf = String::new();
-        reader.read_to_string(&mut buf).unwrap();
-        assert_eq!(buf, "hello");
+        assert_eq!(read_all(&mut readers, 0), b"hello");
     }
 
     #[test]
@@ -188,10 +214,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        let reader = readers.first_mut().unwrap();
-        let mut buf = Vec::new();
-        let n = reader.read_to_end(&mut buf).unwrap();
-        assert_eq!(n, 0);
+        assert!(read_all(&mut readers, 0).is_empty());
     }
 
     #[test]
@@ -204,10 +227,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        let reader = readers.first_mut().unwrap();
-        let mut buf = Vec::new();
-        let n = reader.read_to_end(&mut buf).unwrap();
-        assert_eq!(n, 0);
+        assert!(read_all(&mut readers, 0).is_empty());
     }
 
     #[test]
@@ -217,36 +237,6 @@ mod tests {
 
         // ACT / ASSERT
         build_readers(Path::new("/tmp"), &entries).unwrap_err();
-    }
-
-    #[test]
-    fn entry_reader_file_read() {
-        // ARRANGE
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("f"), b"data").unwrap();
-        let file = std::fs::File::open(dir.path().join("f")).unwrap();
-        let mut reader = EntryReader::File(file);
-
-        // ACT
-        let mut buf = [0_u8; 4];
-        let n = reader.read(&mut buf).unwrap();
-
-        // ASSERT
-        assert_eq!(n, 4);
-        assert_eq!(&buf, b"data");
-    }
-
-    #[test]
-    fn entry_reader_empty_read() {
-        // ARRANGE
-        let mut reader = EntryReader::Empty(std::io::empty());
-
-        // ACT
-        let mut buf = [0_u8; 4];
-        let n = reader.read(&mut buf).unwrap();
-
-        // ASSERT
-        assert_eq!(n, 0);
     }
 
     #[test]
@@ -264,15 +254,8 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        assert_eq!(readers.len(), 2);
-        let dir_reader = readers.first_mut().unwrap();
-        let mut buf = Vec::new();
-        dir_reader.read_to_end(&mut buf).unwrap();
-        assert_eq!(buf.len(), 0); // dir = empty
-        let file_reader = readers.get_mut(1).unwrap();
-        let mut buf = Vec::new();
-        file_reader.read_to_end(&mut buf).unwrap();
-        assert_eq!(buf, b"x");
+        assert!(read_all(&mut readers, 0).is_empty());
+        assert_eq!(read_all(&mut readers, 1), b"x");
     }
 
     #[test]

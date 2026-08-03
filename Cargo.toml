@@ -55,7 +55,7 @@ categories = ["os"]
 wizard = { path = "tools/wizard", default-features = false }
 koci = { path = "tools/koci", default-features = false }
 miso = { path = "tools/miso", default-features = false }
-mumi = { path = "tools/mumi" }
+mumi = { path = "tools/mumi", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 

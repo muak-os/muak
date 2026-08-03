@@ -1,6 +1,6 @@
 [package]
 name = "mumi"
-description = "Seals a rootfs directory into a compressed immutable image"
+description = "Seals a directory into a compressed immutable image"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
@@ -11,19 +11,25 @@ categories.workspace = true
 
 [[bin]]
 name = "mumi"
+required-features = ["cli"]
 
 [dependencies]
 # CLI
-clap = { workspace = true }
+clap = { workspace = true, optional = true }
 
 # Error handling
-anyhow = { workspace = true }
+anyhow = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 # Internal
 erofs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "anyhow"]
 
 [lints]
 workspace = true

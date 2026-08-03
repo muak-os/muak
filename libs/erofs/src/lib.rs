@@ -30,6 +30,16 @@ pub type SizedFile<'a> = source::SizedFile<'a>;
 
 /// Default zstd compression level for EROFS images.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+
+/// Validate a zstd compression level for EROFS images.
+///
+/// # Errors
+///
+/// Returns an [`error::ErofsError::InvalidCompressionLevel`] error when `level`
+/// is neither `0` nor within the zstd-supported compression level range.
+pub fn validate_compression_level(level: i32) -> error::Result<i32> {
+    compress::validate_compression_level(level)
+}
 /// Block size used throughout EROFS images (4 KiB).
 pub const BLOCK_SIZE: u32 = 4096;
 /// Slot size: every inode occupies an integer number of 32-byte slots.

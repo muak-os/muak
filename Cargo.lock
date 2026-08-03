@@ -1257,6 +1257,7 @@ dependencies = [
  "clap",
  "erofs",
  "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2707,10 +2708,10 @@ version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
- "erofs",
  "esp",
  "koci",
  "miso",
+ "mumi",
  "ramune",
  "ring",
  "sbolt",

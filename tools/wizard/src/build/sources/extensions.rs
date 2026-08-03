@@ -5,6 +5,6 @@ use crate::source::extension;
 /// Pulls all requested extension images and buffers their data.
 pub(crate) async fn fetch(
     plan: &BuildPlan,
-) -> Result<Vec<(String, extension::Metadata, Vec<Vec<u8>>)>> {
+) -> Result<Vec<(String, extension::Metadata, extension::BufferedReader)>> {
     extension::pull(plan.extensions(), &plan.arch()).await
 }

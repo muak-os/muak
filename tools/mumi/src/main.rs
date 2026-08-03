@@ -1,10 +1,9 @@
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 use erofs::source;
-use erofs::{Compression, MkfsConfig, SizedFile};
+use mumi::rootfs;
 
 pub mod cli;
-pub mod rootfs;
 
 fn main() -> Result<()> {
     run(&cli::Args::parse())
@@ -21,43 +20,33 @@ fn run(args: &cli::Args) -> Result<()> {
     rootfs::ensure_default_resolv_conf(&args.dir.join("etc/resolv.conf"))?;
 
     let entries = source::collect_entries(&args.dir).context("Failed to collect rootfs entries")?;
-
-    let mut readers = rootfs::build_readers(&args.dir, &entries)?;
-    let mut files: Vec<SizedFile<'_>> = entries
-        .into_iter()
-        .zip(readers.iter_mut())
-        .map(|(entry, reader)| SizedFile { entry, reader })
+    let mumi_entries: Vec<mumi::image::Entry> = entries
+        .iter()
+        .map(|entry| mumi::image::Entry {
+            path: entry.rel_path.clone(),
+            size: entry.size,
+            mode: entry.mode,
+            symlink_target: entry.symlink_target.clone(),
+        })
         .collect();
+    let mut readers = rootfs::build_readers(&args.dir, &entries)?;
 
-    let config = MkfsConfig {
-        source_date_epoch: 0,
-        file_contexts: file_contexts.as_ref(),
-        uuid: [0; 16],
-        force_uid: Some(0),
-        force_gid: Some(0),
-        compression: Compression::Zstd {
-            level: args.compression_level,
-        },
+    let config = mumi::image::BuildConfig {
+        compression_level: args.compression_level,
+        file_contexts,
     };
+    let image = mumi::image::build("rootfs", &mumi_entries, &mut readers, &config)?;
 
     let mut output = std::fs::File::create(&args.output)
         .with_context(|| format!("Failed to create output file: {}", args.output.display()))?;
-
-    erofs::mkfs(&mut output, &mut files, &config).context("Failed to create EROFS image")?;
-
-    let size = std::fs::metadata(&args.output)
-        .with_context(|| {
-            format!(
-                "Failed to read rootfs image metadata: {}",
-                args.output.display()
-            )
-        })?
-        .len();
+    image
+        .write(&mut output)
+        .context("Failed to create EROFS image")?;
 
     println!(
         "Created rootfs image at {} ({} bytes)",
         args.output.display(),
-        size
+        image.len()
     );
 
     Ok(())
@@ -69,7 +58,6 @@ mod tests {
     use std::path::Path;
 
     use erofs::source;
-    use erofs::{Compression, FileContexts, MkfsConfig, SizedFile};
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -79,29 +67,29 @@ mod tests {
         rootfs::ensure_default_resolv_conf(&dir.join("etc/resolv.conf")).unwrap();
 
         let entries = source::collect_entries(dir).unwrap();
-        let mut readers = rootfs::build_readers(dir, &entries).unwrap();
-        let mut files: Vec<SizedFile<'_>> = entries
-            .into_iter()
-            .zip(readers.iter_mut())
-            .map(|(entry, reader)| SizedFile { entry, reader })
+        let mumi_entries: Vec<mumi::image::Entry> = entries
+            .iter()
+            .map(|entry| mumi::image::Entry {
+                path: entry.rel_path.clone(),
+                size: entry.size,
+                mode: entry.mode,
+                symlink_target: entry.symlink_target.clone(),
+            })
             .collect();
+        let mut readers = rootfs::build_readers(dir, &entries).unwrap();
 
         let fc_parsed = fc.and_then(|fc_path| {
             let fc_file = std::fs::File::open(fc_path).ok()?;
-            FileContexts::from_reader(fc_file).ok()
+            erofs::FileContexts::from_reader(fc_file).ok()
         });
-
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: fc_parsed.as_ref(),
-            uuid: [0; 16],
-            force_uid: Some(0),
-            force_gid: Some(0),
-            compression: Compression::Zstd { level: clevel },
+        let config = mumi::image::BuildConfig {
+            compression_level: clevel,
+            file_contexts: fc_parsed,
         };
+        let image = mumi::image::build("rootfs", &mumi_entries, &mut readers, &config).unwrap();
 
         let mut buf = Vec::new();
-        erofs::mkfs(&mut buf, &mut files, &config).unwrap();
+        image.write(&mut buf).unwrap();
         buf
     }
 

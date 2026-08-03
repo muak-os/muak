@@ -342,7 +342,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());
-        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let size = fs::metadata(&path).map_or(0, |meta| meta.len());
         println!("Successfully built {} ({} B)", path.display(), size);
     }
 

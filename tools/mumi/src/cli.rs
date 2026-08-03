@@ -1,9 +1,12 @@
+//! Command-line arguments for the mumi rootfs builder.
+
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use erofs::FileContexts;
 
+/// Rootfs image build arguments.
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
