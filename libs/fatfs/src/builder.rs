@@ -7,8 +7,8 @@ use crate::dir;
 use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
-    ClusterMap, FAT_COUNT, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, Precomputed, ROOT_CLUSTER,
-    SECTOR_SIZE, fat32_cluster,
+    ClusterMap, FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, Precomputed,
+    RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE, fat32_cluster,
 };
 
 /// Precomputes all FAT metadata from file paths and sizes.
@@ -170,7 +170,7 @@ fn compute_layout(image_size: u64) -> Result<FatLayout> {
     if total_sectors < 2 {
         return Err(FatError::Fat("image too small for reserved area".into()));
     }
-    let rsvd = 8_u64;
+    let rsvd = RESERVED_SECTORS;
     let spc_values: &[u64] = &[64, 32, 16, 8, 4, 2, 1];
     for &spc in spc_values {
         let result = test_spc(spc, total_sectors, rsvd, 0);
@@ -199,7 +199,7 @@ fn test_spc(spc: u64, total_sectors: u64, rsvd: u64, root_secs: u64) -> Option<(
         return None;
     }
     let fat_entries = total_clusters.saturating_add(2);
-    let fat_bytes = fat_entries.checked_mul(4)?;
+    let fat_bytes = fat_entries.checked_mul(FAT_ENTRY_SIZE)?;
     let fat_sectors = fat_bytes
         .next_multiple_of(SECTOR_SIZE)
         .div_euclid(SECTOR_SIZE);
@@ -301,7 +301,7 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::types::SECTOR_SIZE;
+    use crate::types::{MIN_IMAGE_SIZE, SECTOR_SIZE};
 
     fn read_u16_le(buf: &[u8], off: usize) -> u16 {
         let bytes = buf.get(off..off.wrapping_add(2)).unwrap_or(&[0, 0]);
@@ -700,5 +700,19 @@ mod tests {
 
         // ASSERT
         assert!(err.is_err(), "too-small image must be rejected");
+    }
+
+    #[test]
+    fn min_image_size_is_the_smallest_acceptable_size() {
+        // ARRANGE
+        let files: &[FileMeta<'_>] = &[];
+
+        // ACT
+        let accepted = precompute(files, MIN_IMAGE_SIZE).is_ok();
+        let rejected = precompute(files, MIN_IMAGE_SIZE.saturating_sub(1)).is_ok();
+
+        // ASSERT
+        assert!(accepted, "minimum image size must be accepted");
+        assert!(!rejected, "one byte below minimum must be rejected");
     }
 }

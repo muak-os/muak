@@ -22,6 +22,25 @@ pub(crate) const VOLUME_ID: u32 = 0x1234_5678;
 
 /// Minimum cluster count for FAT32.
 pub(crate) const FAT32_MIN_CLUSTERS: u64 = 65525;
+/// Sectors reserved before the first FAT copy.
+pub(crate) const RESERVED_SECTORS: u64 = 8;
+/// Bytes per FAT32 table entry.
+pub(crate) const FAT_ENTRY_SIZE: u64 = 4;
+
+/// Smallest total image size in bytes that the builder can format as FAT32.
+pub const MIN_IMAGE_SIZE: u64 = min_image_size();
+
+const fn min_image_size() -> u64 {
+    let entries_per_sector = SECTOR_SIZE.div_euclid(FAT_ENTRY_SIZE);
+    let fat_sectors = FAT32_MIN_CLUSTERS
+        .saturating_add(2)
+        .div_ceil(entries_per_sector.saturating_sub(FAT_COUNT));
+    let total_sectors = FAT32_MIN_CLUSTERS
+        .saturating_add(RESERVED_SECTORS)
+        .saturating_add(FAT_COUNT.saturating_mul(fat_sectors));
+
+    total_sectors.saturating_mul(SECTOR_SIZE)
+}
 
 /// Metadata for a file in a FAT filesystem.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

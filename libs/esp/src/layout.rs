@@ -1,5 +1,7 @@
 //! Layout computation for ESP partitions.
 
+use fatfs::types::MIN_IMAGE_SIZE;
+
 use crate::FileMeta;
 use crate::error::Result;
 use crate::path;
@@ -44,7 +46,7 @@ fn image_size_for(total_data: u64) -> u64 {
         .saturating_add(fats_total)
         .saturating_add(data_region);
 
-    next_multiple_of(total, SECTOR_SIZE)
+    next_multiple_of(total.max(MIN_IMAGE_SIZE), SECTOR_SIZE)
 }
 
 fn fat_bytes_for(image_size: u64) -> u64 {
@@ -84,6 +86,35 @@ mod tests {
 
         // ASSERT
         assert_eq!(layout.total_size.rem_euclid(SECTOR_SIZE), 0);
+        assert!(
+            layout.total_size >= fatfs::types::MIN_IMAGE_SIZE,
+            "ESP must be at least the smallest FAT32 image"
+        );
+    }
+
+    #[test]
+    fn small_payload_builds_bootable_image() {
+        // ARRANGE
+        let data = vec![0xAB_u8; 4096];
+        let layout = compute(&[FileMeta::new(
+            "EFI/BOOT/BOOTX64.EFI",
+            u64::try_from(data.len()).unwrap_or(0),
+        )])
+        .expect("layout must compute");
+        let mut output = Vec::new();
+        let mut uki_reader = Cursor::new(data.as_slice());
+        let mut readers: Vec<&mut dyn Read> = vec![&mut uki_reader];
+
+        // ACT
+        image::build(&layout, &mut readers, &mut output).expect("build must succeed");
+
+        // ASSERT
+        assert!(!output.is_empty());
+        assert_eq!(
+            output.get(510..512),
+            Some(&[0x55, 0xAA][..]),
+            "boot signature must be valid"
+        );
     }
 
     #[test]
