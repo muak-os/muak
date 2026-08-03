@@ -1,9 +1,10 @@
 //! Integration tests for static IP configuration edge cases on interface actor.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::time::Duration;
+use core::net::{Ipv4Addr, Ipv6Addr};
+use core::time::Duration;
 
-use networkd::interface::ApplyMode;
+use networkd::interface::commands::ApplyMode;
+use tokio::time::sleep;
 
 use super::*;
 
@@ -12,8 +13,8 @@ async fn static_ipv4_multiple_addresses() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0x01; 6], true);
-    let snapshot = make_snapshot("eth0", idx, [0x01; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth0").expect("valid name"), idx, [0x01; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addrs = vec![
         config::Cidr4 {
@@ -29,7 +30,7 @@ async fn static_ipv4_multiple_addresses() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: addrs,
@@ -37,7 +38,7 @@ async fn static_ipv4_multiple_addresses() {
         })
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ASSERT
     let ip_addrs = mock.ipv4_addrs(idx);
@@ -62,8 +63,8 @@ async fn static_ipv6_without_gateway_skips_route() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth1", [0x02; 6], true);
-    let snapshot = make_snapshot("eth1", idx, [0x02; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth1").expect("valid name"), idx, [0x02; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr6 {
         address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
@@ -73,7 +74,7 @@ async fn static_ipv6_without_gateway_skips_route() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv6 {
+        .send(Command::ConfigureStaticIpv6 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -100,8 +101,8 @@ async fn static_ipv6_multiple_addresses() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth2", [0x03; 6], true);
-    let snapshot = make_snapshot("eth2", idx, [0x03; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth2").expect("valid name"), idx, [0x03; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addrs = vec![
         config::Cidr6 {
@@ -118,7 +119,7 @@ async fn static_ipv6_multiple_addresses() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv6 {
+        .send(Command::ConfigureStaticIpv6 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: addrs,
@@ -151,8 +152,8 @@ async fn static_ipv4_then_shutdown_cleans_up() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth3", [0x04; 6], true);
-    let snapshot = make_snapshot("eth3", idx, [0x04; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth3").expect("valid name"), idx, [0x04; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr4 {
         address: Ipv4Addr::new(172, 16, 0, 10),
@@ -160,7 +161,7 @@ async fn static_ipv4_then_shutdown_cleans_up() {
     };
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -168,18 +169,18 @@ async fn static_ipv4_then_shutdown_cleans_up() {
         })
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::Shutdown)
+        .send(Command::Shutdown)
         .await
         .expect("send failed");
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(50)).await;
 
     // ASSERT
-    let result = handle.cmd_tx.send(InterfaceCommand::LinkUp).await;
+    let result = handle.cmd_tx.send(Command::LinkUp).await;
     assert!(result.is_err(), "channel should be closed after shutdown");
 }
 
@@ -188,8 +189,8 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth4", [0x05; 6], true);
-    let snapshot = make_snapshot("eth4", idx, [0x05; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth4").expect("valid name"), idx, [0x05; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let v4_addr = config::Cidr4 {
         address: Ipv4Addr::new(10, 10, 0, 2),
@@ -203,7 +204,7 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![v4_addr],
@@ -211,11 +212,11 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
         })
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv6 {
+        .send(Command::ConfigureStaticIpv6 {
             mode: ApplyMode::Reconcile,
             index: idx,
             addresses: vec![v6_addr],
@@ -244,8 +245,8 @@ async fn static_ipv4_reaches_configured_from_discovered() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth5", [0x06; 6], true);
-    let snapshot = make_snapshot("eth5", idx, [0x06; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth5").expect("valid name"), idx, [0x06; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 99),
@@ -253,12 +254,12 @@ async fn static_ipv4_reaches_configured_from_discovered() {
     };
 
     let initial_state = handle.state_rx.borrow().state.clone();
-    assert_eq!(initial_state, InterfaceState::Discovered);
+    assert_eq!(initial_state, Lifecycle::Discovered);
 
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -267,11 +268,11 @@ async fn static_ipv4_reaches_configured_from_discovered() {
         .await
         .expect("send failed");
 
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
-    assert_eq!(snap.state, InterfaceState::Configured);
+    assert_eq!(snap.state, Lifecycle::Configured);
     assert_eq!(
         snap.ip.as_ref().expect("ip").address,
         Ipv4Addr::new(10, 0, 0, 99)
@@ -283,8 +284,8 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth6", [0x07; 6], true);
-    let snapshot = make_snapshot("eth6", idx, [0x07; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth6").expect("valid name"), idx, [0x07; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr4 {
         address: Ipv4Addr::new(10, 0, 3, 2),
@@ -292,7 +293,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     };
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -300,14 +301,14 @@ async fn link_down_then_static_reconfigure_from_degraded() {
         })
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     handle
         .cmd_tx
-        .send(InterfaceCommand::LinkDown)
+        .send(Command::LinkDown)
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Degraded).await;
+    wait_for_state(&handle, Lifecycle::Degraded).await;
 
     // ACT
     let new_addr = config::Cidr4 {
@@ -316,7 +317,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     };
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![new_addr],
@@ -324,11 +325,11 @@ async fn link_down_then_static_reconfigure_from_degraded() {
         })
         .await
         .expect("send failed");
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
-    assert_eq!(snap.state, InterfaceState::Configured);
+    assert_eq!(snap.state, Lifecycle::Configured);
     assert_eq!(
         snap.ip.as_ref().expect("ip").address,
         Ipv4Addr::new(10, 0, 3, 5)
@@ -341,13 +342,13 @@ async fn static_ipv4_empty_addresses_stays_configuring() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth7", [0x08; 6], true);
-    let snapshot = make_snapshot("eth7", idx, [0x08; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth7").expect("valid name"), idx, [0x08; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![],
@@ -356,13 +357,13 @@ async fn static_ipv4_empty_addresses_stays_configuring() {
         .await
         .expect("send failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
     assert_eq!(
         snap.state,
-        InterfaceState::Configuring,
+        Lifecycle::Configuring,
         "empty addresses should leave actor in Configuring (error logged)"
     );
     assert!(snap.ip.is_none(), "no IP should be set");
@@ -373,13 +374,13 @@ async fn static_ipv6_empty_addresses_does_not_configure() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth8", [0x09; 6], true);
-    let snapshot = make_snapshot("eth8", idx, [0x09; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(Name::new("eth8").expect("valid name"), idx, [0x09; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv6 {
+        .send(Command::ConfigureStaticIpv6 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![],
@@ -388,7 +389,7 @@ async fn static_ipv6_empty_addresses_does_not_configure() {
         .await
         .expect("send failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     let snap = handle.state_rx.borrow().clone();

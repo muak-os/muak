@@ -1,6 +1,6 @@
 //! Ethernet interface discovery and carrier-aware selection at startup.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use anyhow::{Result, bail};
 use netlib::interface::{Ethernet, Selector};
@@ -8,8 +8,8 @@ use netlib::link::State;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
-use crate::interface::snapshot::InterfaceSnapshot;
-use crate::interface::state::InterfaceState;
+use crate::interface::snapshot::Snapshot;
+use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.
@@ -36,8 +36,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             self.state.transition(NetworkState::Degraded)?;
             self.publish_state();
             bail!(
-                "no carrier detected on any interface after {}s - check cable connections",
-                CARRIER_TIMEOUT_SECS
+                "no carrier detected on any interface after {CARRIER_TIMEOUT_SECS}s - check cable connections"
             );
         }
 
@@ -74,9 +73,9 @@ impl<N: Ops> NetworkSupervisor<N> {
 
     fn spawn_interface_actors(&mut self, discovered: &[Ethernet]) {
         for iface in discovered {
-            let snapshot = InterfaceSnapshot {
+            let snapshot = Snapshot {
                 name: iface.name.clone(),
-                state: InterfaceState::Discovered,
+                state: Lifecycle::Discovered,
                 index: iface.index,
                 mac: iface.mac_address,
                 link: iface.link_state.clone(),

@@ -4,7 +4,7 @@ use netlib::interface::Name;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
-use crate::interface::state::InterfaceState;
+use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 impl<N: Ops> NetworkSupervisor<N> {
@@ -15,7 +15,7 @@ impl<N: Ops> NetworkSupervisor<N> {
     pub(super) fn is_interface_configured(&self, name: &Name) -> bool {
         self.interfaces
             .get(name)
-            .is_some_and(|h| h.state_rx.borrow().state == InterfaceState::Configured)
+            .is_some_and(|handle| handle.state_rx.borrow().state == Lifecycle::Configured)
     }
 
     pub(super) fn handle_primary_recovery(&mut self, name: &Name) {
@@ -61,13 +61,25 @@ impl<N: Ops> NetworkSupervisor<N> {
         self.try_failover_to_backup(name);
     }
 
+    pub(super) fn handle_primary_removed(&mut self, name: &Name) {
+        kmsg::info!("Primary interface {} removed", name);
+
+        if let Some(new_primary) = self.state.backups.first().cloned() {
+            kmsg::info!("Promoting {} to primary", new_primary);
+            self.state.primary = Some(new_primary.clone());
+            self.state.backups.retain(|n| n != &new_primary);
+        } else {
+            self.clear_primary_and_degrade();
+        }
+    }
+
     /// Promotes the first backup that is in `Configured` state to primary.
     fn try_failover_to_backup(&mut self, failed: &Name) {
         let Some(new_primary) = self
             .state
             .backups
             .iter()
-            .find(|b| self.is_interface_configured(b))
+            .find(|backup| self.is_interface_configured(backup))
             .cloned()
         else {
             kmsg::info!("No configured backup available for failover");
@@ -82,18 +94,6 @@ impl<N: Ops> NetworkSupervisor<N> {
             kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
         } else {
             self.publish_state();
-        }
-    }
-
-    pub(super) fn handle_primary_removed(&mut self, name: &Name) {
-        kmsg::info!("Primary interface {} removed", name);
-
-        if let Some(new_primary) = self.state.backups.first().cloned() {
-            kmsg::info!("Promoting {} to primary", new_primary);
-            self.state.primary = Some(new_primary.clone());
-            self.state.backups.retain(|n| n != &new_primary);
-        } else {
-            self.clear_primary_and_degrade();
         }
     }
 

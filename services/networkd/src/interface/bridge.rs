@@ -1,22 +1,22 @@
 //! Bridge provisioning logic for a per-interface actor.
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use netlib::interface::Name;
 use netlib::link::State;
 use netlib::netlink::Ops;
 
-use super::InterfaceActor;
-use crate::dhcp::DhcpState;
-use crate::interface::snapshot::InterfaceSnapshot;
-use crate::interface::state::InterfaceState;
+use super::Actor;
+use crate::dhcp::State as DhcpState;
+use crate::interface::snapshot::Snapshot;
+use crate::interface::state::Lifecycle;
 
-impl<N: Ops> InterfaceActor<N> {
+impl<N: Ops> Actor<N> {
     /// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.
     pub(super) async fn configure_bridge(
         &mut self,
         bridge_name: &str,
         stp: bool,
-    ) -> Result<InterfaceSnapshot> {
+    ) -> Result<Snapshot> {
         let lease = self
             .snapshot
             .lease
@@ -46,9 +46,9 @@ impl<N: Ops> InterfaceActor<N> {
         let br_iface_name = Name::new(bridge_name)
             .with_context(|| format!("invalid bridge name: {bridge_name}"))?;
 
-        let bridge_snapshot = InterfaceSnapshot {
+        let bridge_snapshot = Snapshot {
             name: br_iface_name,
-            state: InterfaceState::Configured,
+            state: Lifecycle::Configured,
             index,
             mac,
             link: State::Up,
@@ -73,7 +73,7 @@ impl<N: Ops> InterfaceActor<N> {
 
     /// Walks this interface through `Configured -> Deconfiguring -> Discovered`.
     fn deconfigure(&mut self) {
-        self.set_state(InterfaceState::Deconfiguring);
-        self.set_state(InterfaceState::Discovered);
+        self.set_state(Lifecycle::Deconfiguring);
+        self.set_state(Lifecycle::Discovered);
     }
 }

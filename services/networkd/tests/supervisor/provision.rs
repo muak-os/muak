@@ -1,9 +1,12 @@
 //! Integration tests for `NetworkSupervisor` interface provisioning.
 
-use std::sync::Arc;
-use std::time::Duration;
+use alloc::sync::Arc;
+use core::time::Duration;
 
+use networkd::dns::Resolver;
 use networkd::supervisor;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use super::MockNetlinkOps;
 
@@ -12,15 +15,15 @@ fn config_static_ipv4() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
@@ -33,7 +36,7 @@ fn config_dhcp() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: true,
@@ -51,7 +54,7 @@ fn config_ipv6() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: Some(config::Ipv6InterfaceConfig {
@@ -73,7 +76,7 @@ fn config_slaac() -> Arc<config::NetworkConfig> {
     cfg.ipv6 = true;
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: Some(config::Ipv6InterfaceConfig {
@@ -91,15 +94,15 @@ fn config_named() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "eth0".to_string(),
+        name: "eth0".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(192, 168, 1, 10),
+                address: core::net::Ipv4Addr::new(192, 168, 1, 10),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(192, 168, 1, 1)),
         }),
         ipv6: None,
         bridge: None,
@@ -112,7 +115,7 @@ fn config_none() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: None,
@@ -126,26 +129,26 @@ fn config_bridge() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
     });
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_string(),
+        name: "br0".to_owned(),
         kind: config::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
         bridge: Some(config::BridgeConfig {
-            port: vec!["auto".to_string()],
+            port: vec!["auto".to_owned()],
             stp: true,
         }),
     });
@@ -157,26 +160,26 @@ fn config_bridge_multiport() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
     });
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_string(),
+        name: "br0".to_owned(),
         kind: config::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
         bridge: Some(config::BridgeConfig {
-            port: vec!["auto".to_string(), "eth1".to_string()],
+            port: vec!["auto".to_owned(), "eth1".to_owned()],
             stp: false,
         }),
     });
@@ -188,26 +191,26 @@ fn config_bridge_named_port() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "eth0".to_string(),
+        name: "eth0".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
     });
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_string(),
+        name: "br0".to_owned(),
         kind: config::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
         bridge: Some(config::BridgeConfig {
-            port: vec!["eth0".to_string()],
+            port: vec!["eth0".to_owned()],
             stp: false,
         }),
     });
@@ -219,21 +222,21 @@ fn config_bridge_empty_port() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
     });
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_string(),
+        name: "br0".to_owned(),
         kind: config::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
@@ -251,17 +254,17 @@ async fn provision_static_ipv4_initializes() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_static_ipv4(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -275,17 +278,17 @@ async fn provision_static_ipv4_named_interface_not_found_still_initializes() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth1", [0xBB; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_static_ipv4(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -301,17 +304,12 @@ async fn provision_dhcp_sends_configure_dhcp_command() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_dhcp(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_dhcp(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT — init completes (DHCP config command is sent to actor)
     assert!(result.is_ok(), "should not time out");
@@ -327,17 +325,12 @@ async fn provision_static_ipv6_sends_configure_command() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_ipv6(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_ipv6(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -353,17 +346,12 @@ async fn provision_slaac_autoconf_sends_configure_slaac() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_slaac(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_slaac(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -379,17 +367,12 @@ async fn provision_named_interface_resolves_by_name() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_named(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_named(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -406,17 +389,12 @@ async fn provision_named_interface_not_found_still_initializes() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth1", [0xBB; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_named(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_named(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT — init succeeds even though the named interface wasn't found
     assert!(result.is_ok(), "should not time out");
@@ -432,17 +410,12 @@ async fn provision_no_ip_config_still_initializes() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_none(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_none(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -458,17 +431,12 @@ async fn provision_bridge_with_auto_port() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_bridge(),
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config_bridge(), Resolver::default())
+        .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -484,17 +452,17 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_bridge_multiport(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT — init succeeds; the multi-port warn branch (provision.rs:187-192) was exercised
     assert!(result.is_ok(), "should not time out");
@@ -510,17 +478,17 @@ async fn provision_bridge_named_port_resolves_by_name() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_bridge_named_port(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT — init succeeds; the named-port branch (provision.rs:196) was exercised
     assert!(result.is_ok(), "should not time out");
@@ -536,17 +504,17 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_bridge_empty_port(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT — init succeeds; the empty-ports None branch (provision.rs:197) was exercised
     assert!(result.is_ok(), "should not time out");

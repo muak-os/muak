@@ -1,8 +1,8 @@
 //! DNS resolver configuration via atomic writes to resolv.conf.
 
-use std::fmt::Write;
+use core::fmt::Write as _;
+use core::net::{Ipv4Addr, Ipv6Addr};
 use std::fs;
-use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -11,21 +11,22 @@ pub const RESOLV_CONF_PATH: &str = "/run/resolv.conf";
 
 /// Tracks the current nameserver lists and the path to resolv.conf.
 #[derive(Debug, Clone)]
-pub struct DnsState {
+pub struct Resolver {
     pub v4: Vec<Ipv4Addr>,
     pub v6: Vec<Ipv6Addr>,
     pub resolv_conf: PathBuf,
-    tmp_path: PathBuf,
+    pub tmp_path: PathBuf,
 }
 
-impl Default for DnsState {
+impl Default for Resolver {
     fn default() -> Self {
         Self::with_path(PathBuf::from(RESOLV_CONF_PATH))
     }
 }
 
-impl DnsState {
-    /// Creates a `DnsState` that writes to `path` instead of the default.
+impl Resolver {
+    /// Creates a `Resolver` that writes to `path` instead of the default.
+    #[must_use]
     pub fn with_path(path: PathBuf) -> Self {
         let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         Self {
@@ -36,20 +37,29 @@ impl DnsState {
         }
     }
 
-    /// Returns `true` if `v4` and `v6` are identical to the cached lists.
-    pub fn is_unchanged(&self, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> bool {
-        self.v4 == v4 && self.v6 == v6
-    }
-
     /// Replaces the cached lists and atomically flushes resolv.conf.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `resolv.conf` cannot be written.
     pub fn update(&mut self, v4: Vec<Ipv4Addr>, v6: Vec<Ipv6Addr>) -> Result<()> {
         self.v4 = v4;
         self.v6 = v6;
         write_resolv_conf(&self.resolv_conf, &self.tmp_path, &self.v4, &self.v6)
     }
+
+    /// Returns `true` if `v4` and `v6` are identical to the cached lists.
+    #[must_use]
+    pub fn is_unchanged(&self, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> bool {
+        self.v4 == v4 && self.v6 == v6
+    }
 }
 
 /// Atomically writes all known nameservers (V4 and V6).
+///
+/// # Errors
+///
+/// Returns an error if the temporary or target file cannot be written.
 pub fn write_resolv_conf(
     path: &Path,
     tmp_path: &Path,
@@ -63,12 +73,12 @@ pub fn write_resolv_conf(
 
     let mut content = String::new();
     for ns in v4 {
-        let _ = writeln!(content, "nameserver {}", ns);
-        println!("DNS: nameserver {}", ns);
+        let _result = writeln!(content, "nameserver {ns}");
+        println!("DNS: nameserver {ns}");
     }
     for ns in v6 {
-        let _ = writeln!(content, "nameserver {}", ns);
-        println!("DNS: nameserver {}", ns);
+        let _result = writeln!(content, "nameserver {ns}");
+        println!("DNS: nameserver {ns}");
     }
 
     fs::write(tmp_path, &content)?;
@@ -86,7 +96,7 @@ pub fn write_resolv_conf(
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use core::net::{Ipv4Addr, Ipv6Addr};
     use std::path::Path;
 
     use super::*;
@@ -94,7 +104,7 @@ mod tests {
     #[test]
     fn dns_state_default_is_empty() {
         // ACT
-        let dns = DnsState::default();
+        let dns = Resolver::default();
 
         // ASSERT
         assert!(dns.v4.is_empty());
@@ -105,8 +115,10 @@ mod tests {
     #[test]
     fn dns_state_is_unchanged_detects_no_diff() {
         // ARRANGE
-        let mut dns = DnsState::default();
-        dns.v4 = vec![Ipv4Addr::new(8, 8, 8, 8)];
+        let dns = Resolver {
+            v4: vec![Ipv4Addr::new(8, 8, 8, 8)],
+            ..Resolver::default()
+        };
 
         // ACT / ASSERT
         assert!(dns.is_unchanged(&[Ipv4Addr::new(8, 8, 8, 8)], &[]));
@@ -118,7 +130,7 @@ mod tests {
         // ARRANGE
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("resolv.conf");
-        let mut dns = DnsState::with_path(path.clone());
+        let mut dns = Resolver::with_path(path.clone());
 
         // ACT
         dns.update(vec![Ipv4Addr::new(8, 8, 8, 8)], vec![])
@@ -138,7 +150,7 @@ mod tests {
         let result = write_resolv_conf(path, &tmp_path, &[], &[]);
 
         // ASSERT
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

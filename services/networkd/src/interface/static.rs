@@ -1,14 +1,14 @@
 //! Static IP configuration for a per-interface actor.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::netlink::Ops;
 
-use super::InterfaceActor;
+use super::Actor;
 use crate::interface::commands::ApplyMode;
-use crate::interface::state::InterfaceState;
+use crate::interface::state::Lifecycle;
 
 #[derive(Clone, Copy)]
 enum StaticRequest<'a> {
@@ -32,7 +32,7 @@ impl StaticRequest<'_> {
     }
 }
 
-impl<N: Ops> InterfaceActor<N> {
+impl<N: Ops> Actor<N> {
     /// Applies static IPv4 configuration in the selected mode.
     pub(super) async fn apply_static_ipv4(
         &mut self,
@@ -77,12 +77,12 @@ impl<N: Ops> InterfaceActor<N> {
         mode: ApplyMode,
     ) -> Result<()> {
         if mode == ApplyMode::Provision {
-            self.set_state(InterfaceState::Configuring);
+            self.set_state(Lifecycle::Configuring);
         }
         self.ensure_static(index, request).await?;
         self.store_static(request)?;
         if mode == ApplyMode::Provision {
-            self.set_state(InterfaceState::Configured);
+            self.set_state(Lifecycle::Configured);
             return Ok(());
         }
 

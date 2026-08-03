@@ -1,6 +1,11 @@
 //! Integration tests for the supervisor's life cycle.
 
-use std::time::Duration;
+use core::time::Duration;
+
+use networkd::dns::Resolver;
+use tokio::sync::mpsc;
+use tokio::time::sleep;
+use tokio::time::timeout;
 
 use super::*;
 
@@ -11,21 +16,15 @@ async fn supervisor_initializes_with_one_interface() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let result2 =
-        tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result2 = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
     // ASSERT
     assert!(result2.is_ok(), "re-initialization should not time out");
@@ -42,16 +41,11 @@ async fn supervisor_shuts_down_when_all_channels_dropped() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -59,5 +53,5 @@ async fn supervisor_shuts_down_when_all_channels_dropped() {
     drop(event_tx);
 
     // ASSERT
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(200)).await;
 }

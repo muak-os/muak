@@ -1,12 +1,12 @@
 //! Aggregate snapshot of the network subsystem and all known interfaces.
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use anyhow::Result;
 use netlib::interface::Name;
 
-use crate::interface::snapshot::InterfaceSnapshot;
-use crate::statemachine::StateMachine;
+use crate::interface::snapshot::Snapshot;
+use crate::statemachine::StateMachine as _;
 use crate::supervisor::state::NetworkState;
 
 /// Point-in-time view of the entire network subsystem.
@@ -15,7 +15,7 @@ pub struct NetworkSnapshot {
     pub state: NetworkState,
     pub primary: Option<Name>,
     pub backups: Vec<Name>,
-    pub interfaces: Vec<Arc<InterfaceSnapshot>>,
+    pub interfaces: Vec<Arc<Snapshot>>,
 }
 
 impl NetworkSnapshot {

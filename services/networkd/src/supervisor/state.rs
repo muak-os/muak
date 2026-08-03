@@ -1,5 +1,7 @@
 //! Global network readiness state machine for the supervisor.
 
+use core::fmt;
+
 use crate::statemachine::StateMachine;
 
 /// Status of the entire network subsystem.
@@ -14,7 +16,7 @@ pub enum NetworkState {
 
 impl StateMachine for NetworkState {
     fn valid_next_states(&self) -> &'static [Self] {
-        match self {
+        match *self {
             Self::Uninitialized => &[Self::Initializing],
             Self::Initializing => &[Self::Operational, Self::Degraded],
             Self::Operational => &[Self::Ready, Self::Degraded],
@@ -24,9 +26,9 @@ impl StateMachine for NetworkState {
     }
 }
 
-impl std::fmt::Display for NetworkState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+impl fmt::Display for NetworkState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
             Self::Uninitialized => "Uninitialized",
             Self::Initializing => "Initializing",
             Self::Operational => "Operational",
@@ -39,9 +41,10 @@ impl std::fmt::Display for NetworkState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::supervisor::snapshot::NetworkSnapshot;
 
-    fn empty_snap() -> crate::supervisor::snapshot::NetworkSnapshot {
-        crate::supervisor::snapshot::NetworkSnapshot::empty()
+    fn empty_snap() -> NetworkSnapshot {
+        NetworkSnapshot::empty()
     }
 
     #[test]
@@ -122,7 +125,7 @@ mod tests {
         snap.state = NetworkState::Ready;
 
         // ACT
-        let _ = snap.transition(NetworkState::Initializing);
+        let _result = snap.transition(NetworkState::Initializing);
 
         // ASSERT
         assert_eq!(snap.state, NetworkState::Ready);

@@ -1,5 +1,8 @@
 //! Integration tests for the network supervisor.
 
+extern crate alloc;
+
+#[cfg(test)]
 mod supervisor {
     pub(super) use networkd::supervisor;
 
@@ -16,9 +19,9 @@ mod supervisor {
 
 mod fixtures;
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
-use netlib::address::Ops;
+use netlib::address::Ops as _;
 
 use self::fixtures::netlink::MockNetlinkOps;
 
@@ -27,15 +30,15 @@ fn make_config() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_string(),
+        name: "auto".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
         }),
         ipv6: None,
         bridge: None,
@@ -46,10 +49,10 @@ fn make_config() -> Arc<config::NetworkConfig> {
 fn ipv4_addrs(
     mock: &MockNetlinkOps,
     index: u32,
-) -> std::collections::HashSet<(std::net::Ipv4Addr, u8)> {
+) -> std::collections::HashSet<(core::net::Ipv4Addr, u8)> {
     mock.state
         .lock()
-        .expect("lock")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .ipv4_addrs
         .get(&index)
         .cloned()
@@ -59,10 +62,10 @@ fn ipv4_addrs(
 fn ipv6_addrs(
     mock: &MockNetlinkOps,
     index: u32,
-) -> std::collections::HashSet<(std::net::Ipv6Addr, u8)> {
+) -> std::collections::HashSet<(core::net::Ipv6Addr, u8)> {
     mock.state
         .lock()
-        .expect("lock")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .ipv6_addrs
         .get(&index)
         .cloned()
@@ -70,13 +73,17 @@ fn ipv6_addrs(
 }
 
 fn has_link(mock: &MockNetlinkOps, name: &str) -> bool {
-    mock.state.lock().expect("lock").links.contains_key(name)
-}
-
-fn has_default_route_v6(mock: &MockNetlinkOps, gateway: std::net::Ipv6Addr) -> bool {
     mock.state
         .lock()
-        .expect("lock")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .links
+        .contains_key(name)
+}
+
+fn has_default_route_v6(mock: &MockNetlinkOps, gateway: core::net::Ipv6Addr) -> bool {
+    mock.state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .default_routes_v6
         .contains(&gateway)
 }

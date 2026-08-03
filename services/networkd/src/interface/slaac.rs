@@ -1,16 +1,16 @@
 //! SLAAC event handling for a per-interface actor.
 
-use std::net::Ipv6Addr;
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::net::Ipv6Addr;
 
 use netlib::address::Ipv6Config;
 use netlib::netlink::Ops;
 
-use super::InterfaceActor;
-use crate::interface::ApplyMode;
-use crate::slaac::{SlaacEvent, SlaacManager};
+use super::Actor;
+use crate::interface::commands::ApplyMode;
+use crate::slaac::manager::{Manager as SlaacManager, SlaacEvent};
 
-impl<N: Ops> InterfaceActor<N> {
+impl<N: Ops> Actor<N> {
     /// Applies SLAAC configuration in the selected mode.
     pub(super) async fn apply_slaac(&mut self, mode: ApplyMode) {
         match mode {
@@ -49,19 +49,6 @@ impl<N: Ops> InterfaceActor<N> {
         }
     }
 
-    /// Re-applies a cached SLAAC configuration to restore IPv6 kernel state.
-    async fn reconcile_cached_ipv6(&mut self, ipv6: Ipv6Config) {
-        let index = self.snapshot.index;
-        if let Err(e) = self.apply_ipv6_configuration(index, &ipv6).await {
-            kmsg::warn!("SLAAC reconcile failed on {}: {}", self.snapshot.name, e);
-            return;
-        }
-
-        if !self.ensure_configured_state() {
-            self.publish_snapshot();
-        }
-    }
-
     pub(super) async fn handle_slaac_event(&mut self, event: SlaacEvent) {
         match event {
             SlaacEvent::Configured {
@@ -90,6 +77,23 @@ impl<N: Ops> InterfaceActor<N> {
                 self.slaac = None;
             }
         }
+    }
+
+    pub(super) async fn apply_ipv6_configuration(
+        &mut self,
+        index: u32,
+        ipv6: &Ipv6Config,
+    ) -> anyhow::Result<()> {
+        self.ops
+            .ensure_ipv6(index, ipv6.address, ipv6.prefix_len)
+            .await?;
+
+        if let Some(gateway) = ipv6.gateway {
+            kmsg::info!("Setting IPv6 default route via {}", gateway);
+            self.ops.ensure_default_route_v6(gateway).await?;
+        }
+
+        Ok(())
     }
 
     async fn on_slaac_configured(
@@ -131,6 +135,13 @@ impl<N: Ops> InterfaceActor<N> {
         self.publish_snapshot();
     }
 
+    async fn on_slaac_router_expired(&mut self, router: Ipv6Addr) {
+        kmsg::info!("IPv6 router expired: {}", router);
+        if let Err(e) = self.ops.remove_default_route_v6(router).await {
+            kmsg::warn!("Failed to remove IPv6 default route: {}", e);
+        }
+    }
+
     fn on_slaac_dns_updated(&mut self, servers: Vec<Ipv6Addr>) {
         kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
 
@@ -140,27 +151,16 @@ impl<N: Ops> InterfaceActor<N> {
         }
     }
 
-    pub(super) async fn apply_ipv6_configuration(
-        &mut self,
-        index: u32,
-        ipv6: &Ipv6Config,
-    ) -> anyhow::Result<()> {
-        self.ops
-            .ensure_ipv6(index, ipv6.address, ipv6.prefix_len)
-            .await?;
-
-        if let Some(gateway) = ipv6.gateway {
-            kmsg::info!("Setting IPv6 default route via {}", gateway);
-            self.ops.ensure_default_route_v6(gateway).await?;
+    /// Re-applies a cached SLAAC configuration to restore IPv6 kernel state.
+    async fn reconcile_cached_ipv6(&mut self, ipv6: Ipv6Config) {
+        let index = self.snapshot.index;
+        if let Err(e) = self.apply_ipv6_configuration(index, &ipv6).await {
+            kmsg::warn!("SLAAC reconcile failed on {}: {}", self.snapshot.name, e);
+            return;
         }
 
-        Ok(())
-    }
-
-    async fn on_slaac_router_expired(&mut self, router: Ipv6Addr) {
-        kmsg::info!("IPv6 router expired: {}", router);
-        if let Err(e) = self.ops.remove_default_route_v6(router).await {
-            kmsg::warn!("Failed to remove IPv6 default route: {}", e);
+        if !self.ensure_configured_state() {
+            self.publish_snapshot();
         }
     }
 }

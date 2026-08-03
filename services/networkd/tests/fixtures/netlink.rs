@@ -1,11 +1,20 @@
 /// Shared netlink test fixtures for supervisor-oriented networkd tests.
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+extern crate alloc;
 
+use alloc::sync::Arc;
+use core::net::{Ipv4Addr, Ipv6Addr};
+use core::time::Duration;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+
+use netlib::address;
+use netlib::bridge;
+use netlib::interface;
 use netlib::interface::{Ethernet, Name};
+use netlib::link;
 use netlib::link::{Failure, State};
+use netlib::netlink;
+use netlib::route;
 
 /// Holds in-memory link and route state for deterministic tests.
 #[derive(Debug, Default)]
@@ -46,11 +55,14 @@ impl MockNetlinkOps {
 
     /// Adds a link with a deterministic index.
     pub fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
-        let mut state = self.state.lock().expect("mock lock poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let index = state.next_index;
-        state.next_index += 1;
+        state.next_index = state.next_index.saturating_add(1);
         state.links.insert(
-            name.to_string(),
+            name.to_owned(),
             MockLink {
                 index,
                 mac,
@@ -60,46 +72,46 @@ impl MockNetlinkOps {
         );
         index
     }
-
-    /// Sets the master bridge index for a named link.
-    pub fn set_master(&self, name: &str, master_index: u32) {
-        let mut state = self.state.lock().expect("mock lock poisoned");
-        if let Some(link) = state.links.get_mut(name) {
-            link.master_index = Some(master_index);
-        }
-    }
 }
 
-impl netlib::link::Ops for MockNetlinkOps {
-    async fn exists(&self, name: &str) -> netlib::link::Result<bool> {
-        Ok(self.state.lock().expect("lock").links.contains_key(name))
+impl link::Ops for MockNetlinkOps {
+    async fn exists(&self, name: &str) -> link::Result<bool> {
+        Ok(self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .links
+            .contains_key(name))
     }
 
-    async fn index(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn index(&self, name: &str) -> link::Result<u32> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .get(name)
             .map(|link| link.index)
-            .ok_or_else(|| Failure::NotFound(name.to_string()))
+            .ok_or_else(|| Failure::NotFound(name.to_owned()))
     }
 
-    async fn ensure_up(&self, name: &str) -> netlib::link::Result<u32> {
-        let mut state = self.state.lock().expect("lock");
+    async fn ensure_up(&self, name: &str) -> link::Result<u32> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let link = state
             .links
             .get_mut(name)
-            .ok_or_else(|| Failure::NotFound(name.to_string()))?;
+            .ok_or_else(|| Failure::NotFound(name.to_owned()))?;
         link.up = true;
         Ok(link.index)
     }
 
-    async fn bring_up(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_up(&self, index: u32) -> link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
             .find(|link| link.index == index)
@@ -109,11 +121,11 @@ impl netlib::link::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn bring_down(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_down(&self, index: u32) -> link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
             .find(|link| link.index == index)
@@ -123,22 +135,25 @@ impl netlib::link::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn set_master(&self, slave: u32, master: u32) -> netlib::link::Result<()> {
+    async fn set_master(&self, slave_index: u32, master_index: u32) -> link::Result<()> {
         if let Some(link) = self
             .state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
-            .find(|link| link.index == slave)
+            .find(|link| link.index == slave_index)
         {
-            link.master_index = Some(master);
+            link.master_index = Some(master_index);
         }
         Ok(())
     }
 
-    async fn delete(&self, index: u32) -> netlib::link::Result<()> {
-        let mut state = self.state.lock().expect("lock");
+    async fn delete(&self, index: u32) -> link::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.links.retain(|_, link| link.index != index);
         state.ipv4_addrs.remove(&index);
         state.ipv6_addrs.remove(&index);
@@ -150,24 +165,22 @@ impl netlib::link::Ops for MockNetlinkOps {
         interfaces: &[(u32, &str)],
         _timeout: Duration,
     ) -> HashMap<u32, bool> {
-        let state = self.state.lock().expect("lock");
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         interfaces
             .iter()
-            .map(|(index, name)| (*index, state.links.get(*name).is_some_and(|link| link.up)))
+            .map(|&(index, name)| (index, state.links.get(name).is_some_and(|link| link.up)))
             .collect()
     }
 }
 
-impl netlib::address::Ops for MockNetlinkOps {
-    async fn ensure_ipv4(
-        &self,
-        index: u32,
-        ip: Ipv4Addr,
-        prefix: u8,
-    ) -> netlib::address::Result<()> {
+impl address::Ops for MockNetlinkOps {
+    async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv4_addrs
             .entry(index)
             .or_default()
@@ -175,46 +188,47 @@ impl netlib::address::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn find_ipv4(&self, index: u32) -> netlib::address::Result<Option<(Ipv4Addr, u8)>> {
+    async fn find_ipv4(&self, index: u32) -> address::Result<Option<(Ipv4Addr, u8)>> {
         Ok(self
             .state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv4_addrs
             .get(&index)
             .and_then(|addrs| addrs.iter().next().copied()))
     }
 
-    async fn has_ipv4(&self, index: u32) -> netlib::address::Result<bool> {
+    async fn has_ipv4(&self, index: u32) -> address::Result<bool> {
         Ok(self
             .state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv4_addrs
             .get(&index)
             .is_some_and(|addrs| !addrs.is_empty()))
     }
 
-    async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> netlib::address::Result<()> {
+    async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.ensure_ipv4(index, ip, prefix).await
     }
 
-    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> netlib::address::Result<()> {
-        if let Some(addrs) = self.state.lock().expect("lock").ipv4_addrs.get_mut(&index) {
-            addrs.retain(|(addr, _)| *addr != ip);
+    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> address::Result<()> {
+        if let Some(addrs) = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .ipv4_addrs
+            .get_mut(&index)
+        {
+            addrs.retain(|&(addr, _)| addr != ip);
         }
         Ok(())
     }
 
-    async fn ensure_ipv6(
-        &self,
-        index: u32,
-        ip: Ipv6Addr,
-        prefix: u8,
-    ) -> netlib::address::Result<()> {
+    async fn ensure_ipv6(&self, index: u32, ip: Ipv6Addr, prefix: u8) -> address::Result<()> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv6_addrs
             .entry(index)
             .or_default()
@@ -222,59 +236,68 @@ impl netlib::address::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> netlib::address::Result<()> {
-        if let Some(addrs) = self.state.lock().expect("lock").ipv6_addrs.get_mut(&index) {
-            addrs.retain(|(addr, _)| *addr != ip);
+    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> address::Result<()> {
+        if let Some(addrs) = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .ipv6_addrs
+            .get_mut(&index)
+        {
+            addrs.retain(|&(addr, _)| addr != ip);
         }
         Ok(())
     }
 }
 
-impl netlib::route::Ops for MockNetlinkOps {
-    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> netlib::route::Result<()> {
+impl route::Ops for MockNetlinkOps {
+    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> route::Result<()> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .default_routes_v4
             .insert(gateway);
         Ok(())
     }
 
-    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> netlib::route::Result<()> {
+    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .default_routes_v6
             .insert(gateway);
         Ok(())
     }
 
-    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> netlib::route::Result<()> {
+    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
         self.state
             .lock()
-            .expect("lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .default_routes_v6
             .remove(&gateway);
         Ok(())
     }
 }
 
-impl netlib::bridge::Ops for MockNetlinkOps {
+impl bridge::Ops for MockNetlinkOps {
     async fn ensure_bridge(
         &self,
         bridge_name: &str,
         physical_iface: &str,
         _gateway: Option<Ipv4Addr>,
         _stp: bool,
-    ) -> netlib::bridge::Result<()> {
-        let mut state = self.state.lock().expect("lock");
+    ) -> bridge::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let bridge_index = if let Some(link) = state.links.get(bridge_name) {
             link.index
         } else {
             let index = state.next_index;
-            state.next_index += 1;
+            state.next_index = state.next_index.saturating_add(1);
             state.links.insert(
-                bridge_name.to_string(),
+                bridge_name.to_owned(),
                 MockLink {
                     index,
                     mac: [0; 6],
@@ -291,15 +314,11 @@ impl netlib::bridge::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn attach_to_bridge(
-        &self,
-        iface_name: &str,
-        bridge_name: &str,
-    ) -> netlib::bridge::Result<()> {
-        let bridge_index = netlib::link::Ops::index(self, bridge_name).await?;
-        netlib::link::Ops::set_master(
+    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> bridge::Result<()> {
+        let bridge_index = link::Ops::index(self, bridge_name).await?;
+        link::Ops::set_master(
             self,
-            netlib::link::Ops::index(self, iface_name).await?,
+            link::Ops::index(self, iface_name).await?,
             bridge_index,
         )
         .await?;
@@ -307,11 +326,16 @@ impl netlib::bridge::Ops for MockNetlinkOps {
     }
 }
 
-impl netlib::interface::Ops for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Ethernet>> {
-        let state = self.state.lock().expect("lock");
-        let mut interfaces = Vec::with_capacity(state.links.len());
-        for (name, link) in &state.links {
+impl interface::Ops for MockNetlinkOps {
+    async fn discover_ethernet(&self) -> interface::Result<Vec<Ethernet>> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut links: Vec<_> = state.links.iter().collect();
+        links.sort_by(|left, right| left.0.cmp(right.0));
+        let mut interfaces = Vec::with_capacity(links.len());
+        for (name, link) in links {
             interfaces.push(Ethernet::new(
                 Name::new(name.clone())?,
                 link.index,
@@ -323,7 +347,7 @@ impl netlib::interface::Ops for MockNetlinkOps {
     }
 }
 
-impl netlib::netlink::Ops for MockNetlinkOps {}
+impl netlink::Ops for MockNetlinkOps {}
 
 /// Returns the link state for the requested carrier flag.
 fn link_state_kind(up: bool) -> State {

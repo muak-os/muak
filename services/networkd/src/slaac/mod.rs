@@ -1,27 +1,31 @@
 //! IPv6 stateless address autoconfiguration for networkd.
 
-mod manager;
+pub mod manager;
 mod state;
 
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd as _};
 
 use anyhow::{Result, bail};
-pub use manager::{SlaacEvent, SlaacManager};
 pub(crate) use netlib::slaac::icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
-pub(crate) const ICMP6_FILTER: libc::c_int = 1;
-
+/// `ICMPv6` router-advertisement type for the raw socket filter.
 #[repr(C)]
 pub(crate) struct Icmp6Filter {
     pub data: [u32; 8],
 }
 
+pub(crate) const ICMP6_FILTER: libc::c_int = 1;
+
 pub(crate) fn create_icmpv6_filter() -> Icmp6Filter {
     let mut filter = Icmp6Filter {
-        data: [0xFFFFFFFF; 8],
+        data: [0xFFFF_FFFF; 8],
     };
-    let ra_type = ICMPV6_ROUTER_ADVERTISEMENT as usize;
-    filter.data[ra_type / 32] &= !(1 << (ra_type % 32));
+    let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
+    let word = ra_type >> 5;
+    let bit = ra_type & 31;
+    if let Some(word_ref) = filter.data.get_mut(word) {
+        *word_ref &= !(1 << bit);
+    }
     filter
 }
 
@@ -32,8 +36,8 @@ pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Resul
             fd.as_fd().as_raw_fd(),
             libc::IPPROTO_ICMPV6,
             ICMP6_FILTER,
-            filter as *const _ as *const libc::c_void,
-            std::mem::size_of::<Icmp6Filter>() as libc::socklen_t,
+            core::ptr::addr_of!(*filter).cast::<libc::c_void>(),
+            libc::socklen_t::try_from(core::mem::size_of::<Icmp6Filter>()).unwrap_or(0),
         )
     };
     if ret < 0 {
@@ -52,8 +56,9 @@ mod tests {
     fn create_icmpv6_filter_passes_ra() {
         // ARRANGE / ACT
         let filter = create_icmpv6_filter();
-        let ra_type = ICMPV6_ROUTER_ADVERTISEMENT as usize;
-        let bit = filter.data[ra_type / 32] & (1 << (ra_type % 32));
+        let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
+        let word = filter.data.get(ra_type >> 5).copied().unwrap_or(0);
+        let bit = word & (1 << (ra_type & 31));
 
         // ASSERT
         assert_eq!(bit, 0, "RA type bit should be cleared (pass)");
@@ -65,13 +70,14 @@ mod tests {
         let filter = create_icmpv6_filter();
 
         // ASSERT
-        for icmp_type in [0u8, 1, 128, 129, 133, 135, 136] {
+        for icmp_type in [0_u8, 1, 128, 129, 133, 135, 136] {
             if icmp_type == ICMPV6_ROUTER_ADVERTISEMENT {
                 continue;
             }
-            let idx = icmp_type as usize;
-            let bit = filter.data[idx / 32] & (1 << (idx % 32));
-            assert_ne!(bit, 0, "type {} should be blocked", icmp_type);
+            let idx = usize::from(icmp_type);
+            let word = filter.data.get(idx >> 5).copied().unwrap_or(0);
+            let bit = word & (1 << (idx & 31));
+            assert_ne!(bit, 0, "type {icmp_type} should be blocked");
         }
     }
 
@@ -82,7 +88,8 @@ mod tests {
         let mut pass_count = 0;
         for word_idx in 0..8 {
             for bit_idx in 0..32 {
-                if filter.data[word_idx] & (1 << bit_idx) == 0 {
+                let word = filter.data.get(word_idx).copied().unwrap_or(0);
+                if word & (1 << bit_idx) == 0 {
                     pass_count += 1;
                 }
             }
@@ -105,6 +112,6 @@ mod tests {
         };
 
         // ASSERT
-        assert!(result.is_err(), "should fail with invalid fd");
+        result.unwrap_err();
     }
 }

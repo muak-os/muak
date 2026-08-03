@@ -1,5 +1,8 @@
 //! Integration tests for the per-interface actor.
 
+extern crate alloc;
+
+#[cfg(test)]
 mod interface {
     pub(super) use super::*;
 
@@ -12,27 +15,38 @@ mod interface {
     mod r#static;
 }
 
+use alloc::sync::Arc;
+use core::net::{Ipv4Addr, Ipv6Addr};
+use core::time::Duration;
 use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::os::fd::{FromRawFd as _, IntoRawFd as _, OwnedFd};
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::Result;
+use netlib::address;
+use netlib::bridge;
+use netlib::interface as net_iface;
 use netlib::interface::{Ethernet, Name};
+use netlib::link;
 use netlib::link::{Failure, State};
+use netlib::netlink;
 use netlib::packet::Socket;
-use networkd::dhcp::DhcpConnector;
-use networkd::interface::snapshot::InterfaceSnapshot;
-use networkd::interface::state::InterfaceState;
-use networkd::interface::{InterfaceActor, InterfaceCommand};
+use netlib::route;
+use networkd::dhcp::client::DhcpConnector;
+use networkd::interface::Actor;
+use networkd::interface::ActorHandle;
+use networkd::interface::commands::Command;
+use networkd::interface::snapshot::Snapshot;
+use networkd::interface::state::Lifecycle;
+use tokio::net::UdpSocket;
+use tokio::time::timeout;
 
 #[derive(Clone, Default)]
 struct MockDhcpConnector;
 
 impl DhcpConnector for MockDhcpConnector {
     async fn create_raw(&self, _interface: &str) -> Result<Socket> {
-        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let udp = UdpSocket::bind("127.0.0.1:0").await?;
         let std_udp = udp.into_std()?;
         std_udp.set_nonblocking(true)?;
         let raw = std_udp.into_raw_fd();
@@ -44,9 +58,9 @@ impl DhcpConnector for MockDhcpConnector {
     async fn create_unicast(
         &self,
         _interface: &str,
-        _src_ip: std::net::Ipv4Addr,
-    ) -> Result<tokio::net::UdpSocket> {
-        Ok(tokio::net::UdpSocket::bind("127.0.0.1:0").await?)
+        _src_ip: core::net::Ipv4Addr,
+    ) -> Result<UdpSocket> {
+        Ok(UdpSocket::bind("127.0.0.1:0").await?)
     }
 }
 
@@ -62,7 +76,7 @@ struct MockInner {
 
 impl MockInner {
     fn link_by_index_mut(&mut self, index: u32) -> Option<&mut MockLink> {
-        self.links.values_mut().find(|l| l.index == index)
+        self.links.values_mut().find(|link| link.index == index)
     }
 }
 
@@ -80,8 +94,15 @@ pub struct MockNetlinkOps {
     state: Arc<Mutex<MockInner>>,
 }
 
+impl Default for MockNetlinkOps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockNetlinkOps {
     /// Creates an empty mock with no links.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(MockInner {
@@ -92,16 +113,19 @@ impl MockNetlinkOps {
     }
 
     fn lock(&self) -> MutexGuard<'_, MockInner> {
-        self.state.lock().expect("mock lock poisoned")
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Adds a pre-existing link so `discover_ethernet` will return it.
+    #[must_use]
     pub fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
-        let mut s = self.lock();
-        let index = s.next_index;
-        s.next_index += 1;
-        s.links.insert(
-            name.to_string(),
+        let mut state = self.lock();
+        let index = state.next_index;
+        state.next_index = state.next_index.saturating_add(1);
+        state.links.insert(
+            name.to_owned(),
             MockLink {
                 index,
                 mac,
@@ -113,6 +137,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns a snapshot of IPv4 addresses for an index.
+    #[must_use]
     pub fn ipv4_addrs(&self, index: u32) -> HashSet<(Ipv4Addr, u8)> {
         self.lock()
             .ipv4_addrs
@@ -122,6 +147,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns a snapshot of IPv6 addresses for an index.
+    #[must_use]
     pub fn ipv6_addrs(&self, index: u32) -> HashSet<(Ipv6Addr, u8)> {
         self.lock()
             .ipv6_addrs
@@ -131,11 +157,13 @@ impl MockNetlinkOps {
     }
 
     /// Returns true if the given IPv4 gateway is in the default route table.
+    #[must_use]
     pub fn has_default_route_v4(&self, gw: Ipv4Addr) -> bool {
         self.lock().default_routes_v4.contains(&gw)
     }
 
     /// Returns true if the given IPv6 gateway is in the default route table.
+    #[must_use]
     pub fn has_default_route_v6(&self, gw: Ipv6Addr) -> bool {
         self.lock().default_routes_v6.contains(&gw)
     }
@@ -145,55 +173,55 @@ fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
 }
 
-impl netlib::link::Ops for MockNetlinkOps {
-    async fn exists(&self, name: &str) -> netlib::link::Result<bool> {
+impl link::Ops for MockNetlinkOps {
+    async fn exists(&self, name: &str) -> link::Result<bool> {
         Ok(self.lock().links.contains_key(name))
     }
 
-    async fn index(&self, name: &str) -> netlib::link::Result<u32> {
+    async fn index(&self, name: &str) -> link::Result<u32> {
         self.lock()
             .links
             .get(name)
-            .map(|l| l.index)
-            .ok_or_else(|| Failure::NotFound(name.to_string()))
+            .map(|link| link.index)
+            .ok_or_else(|| Failure::NotFound(name.to_owned()))
     }
 
-    async fn ensure_up(&self, name: &str) -> netlib::link::Result<u32> {
-        let mut s = self.lock();
-        let link = s
+    async fn ensure_up(&self, name: &str) -> link::Result<u32> {
+        let mut state = self.lock();
+        let link = state
             .links
             .get_mut(name)
-            .ok_or_else(|| Failure::NotFound(name.to_string()))?;
+            .ok_or_else(|| Failure::NotFound(name.to_owned()))?;
         link.up = true;
         Ok(link.index)
     }
 
-    async fn bring_up(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_up(&self, index: u32) -> link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = true;
         }
         Ok(())
     }
 
-    async fn bring_down(&self, index: u32) -> netlib::link::Result<()> {
+    async fn bring_down(&self, index: u32) -> link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = false;
         }
         Ok(())
     }
 
-    async fn set_master(&self, slave_index: u32, master_index: u32) -> netlib::link::Result<()> {
+    async fn set_master(&self, slave_index: u32, master_index: u32) -> link::Result<()> {
         if let Some(link) = self.lock().link_by_index_mut(slave_index) {
             link.master_index = Some(master_index);
         }
         Ok(())
     }
 
-    async fn delete(&self, index: u32) -> netlib::link::Result<()> {
-        let mut s = self.lock();
-        s.links.retain(|_, l| l.index != index);
-        s.ipv4_addrs.remove(&index);
-        s.ipv6_addrs.remove(&index);
+    async fn delete(&self, index: u32) -> link::Result<()> {
+        let mut state = self.lock();
+        state.links.retain(|_, link| link.index != index);
+        state.ipv4_addrs.remove(&index);
+        state.ipv6_addrs.remove(&index);
         Ok(())
     }
 
@@ -202,21 +230,16 @@ impl netlib::link::Ops for MockNetlinkOps {
         interfaces: &[(u32, &str)],
         _timeout: Duration,
     ) -> HashMap<u32, bool> {
-        let s = self.lock();
+        let state = self.lock();
         interfaces
             .iter()
-            .map(|(idx, name)| (*idx, s.links.get(*name).is_some_and(|l| l.up)))
+            .map(|&(idx, name)| (idx, state.links.get(name).is_some_and(|link| link.up)))
             .collect()
     }
 }
 
-impl netlib::address::Ops for MockNetlinkOps {
-    async fn ensure_ipv4(
-        &self,
-        index: u32,
-        ip: Ipv4Addr,
-        prefix: u8,
-    ) -> netlib::address::Result<()> {
+impl address::Ops for MockNetlinkOps {
+    async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.lock()
             .ipv4_addrs
             .entry(index)
@@ -225,39 +248,34 @@ impl netlib::address::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn find_ipv4(&self, index: u32) -> netlib::address::Result<Option<(Ipv4Addr, u8)>> {
+    async fn find_ipv4(&self, index: u32) -> address::Result<Option<(Ipv4Addr, u8)>> {
         Ok(self
             .lock()
             .ipv4_addrs
             .get(&index)
-            .and_then(|s| s.iter().next().copied()))
+            .and_then(|addrs| addrs.iter().next().copied()))
     }
 
-    async fn has_ipv4(&self, index: u32) -> netlib::address::Result<bool> {
+    async fn has_ipv4(&self, index: u32) -> address::Result<bool> {
         Ok(self
             .lock()
             .ipv4_addrs
             .get(&index)
-            .is_some_and(|s| !s.is_empty()))
+            .is_some_and(|addrs| !addrs.is_empty()))
     }
 
-    async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> netlib::address::Result<()> {
+    async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.ensure_ipv4(index, ip, prefix).await
     }
 
-    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> netlib::address::Result<()> {
+    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> address::Result<()> {
         if let Some(set) = self.lock().ipv4_addrs.get_mut(&index) {
-            set.retain(|(addr, _)| *addr != ip);
+            set.retain(|&(addr, _)| addr != ip);
         }
         Ok(())
     }
 
-    async fn ensure_ipv6(
-        &self,
-        index: u32,
-        ip: Ipv6Addr,
-        prefix: u8,
-    ) -> netlib::address::Result<()> {
+    async fn ensure_ipv6(&self, index: u32, ip: Ipv6Addr, prefix: u8) -> address::Result<()> {
         self.lock()
             .ipv6_addrs
             .entry(index)
@@ -266,44 +284,44 @@ impl netlib::address::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> netlib::address::Result<()> {
+    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> address::Result<()> {
         if let Some(set) = self.lock().ipv6_addrs.get_mut(&index) {
-            set.retain(|(addr, _)| *addr != ip);
+            set.retain(|&(addr, _)| addr != ip);
         }
         Ok(())
     }
 }
 
-impl netlib::route::Ops for MockNetlinkOps {
-    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> netlib::route::Result<()> {
+impl route::Ops for MockNetlinkOps {
+    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> route::Result<()> {
         self.lock().default_routes_v4.insert(gateway);
         Ok(())
     }
 
-    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> netlib::route::Result<()> {
+    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
         self.lock().default_routes_v6.insert(gateway);
         Ok(())
     }
 
-    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> netlib::route::Result<()> {
+    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
         self.lock().default_routes_v6.remove(&gateway);
         Ok(())
     }
 }
 
-impl netlib::bridge::Ops for MockNetlinkOps {
+impl bridge::Ops for MockNetlinkOps {
     async fn ensure_bridge(
         &self,
         bridge_name: &str,
         _physical_iface: &str,
         _gateway: Option<Ipv4Addr>,
         _stp: bool,
-    ) -> netlib::bridge::Result<()> {
-        let mut s = self.lock();
-        let index = s.next_index;
-        s.next_index += 1;
-        s.links.insert(
-            bridge_name.to_string(),
+    ) -> bridge::Result<()> {
+        let mut state = self.lock();
+        let index = state.next_index;
+        state.next_index = state.next_index.saturating_add(1);
+        state.links.insert(
+            bridge_name.to_owned(),
             MockLink {
                 index,
                 mac: [0xBE, 0xEF, 0x00, 0x00, 0x00, 0x01],
@@ -314,17 +332,12 @@ impl netlib::bridge::Ops for MockNetlinkOps {
         Ok(())
     }
 
-    async fn attach_to_bridge(
-        &self,
-        iface_name: &str,
-        bridge_name: &str,
-    ) -> netlib::bridge::Result<()> {
+    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> bridge::Result<()> {
         let bridge_index = self
             .lock()
             .links
             .get(bridge_name)
-            .map(|l| l.index)
-            .unwrap_or(0);
+            .map_or(0, |link| link.index);
         if let Some(link) = self.lock().links.get_mut(iface_name) {
             link.master_index = Some(bridge_index);
         }
@@ -332,11 +345,13 @@ impl netlib::bridge::Ops for MockNetlinkOps {
     }
 }
 
-impl netlib::interface::Ops for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> netlib::interface::Result<Vec<Ethernet>> {
-        let s = self.lock();
-        let mut out = Vec::with_capacity(s.links.len());
-        for (name, link) in &s.links {
+impl net_iface::Ops for MockNetlinkOps {
+    async fn discover_ethernet(&self) -> net_iface::Result<Vec<Ethernet>> {
+        let state = self.lock();
+        let mut links: Vec<_> = state.links.iter().collect();
+        links.sort_by(|left, right| left.0.cmp(right.0));
+        let mut out = Vec::with_capacity(links.len());
+        for (name, link) in links {
             out.push(Ethernet::new(
                 Name::new(name.clone())?,
                 link.index,
@@ -348,16 +363,16 @@ impl netlib::interface::Ops for MockNetlinkOps {
     }
 }
 
-impl netlib::netlink::Ops for MockNetlinkOps {}
+impl netlink::Ops for MockNetlinkOps {}
 
 fn make_config() -> Arc<config::NetworkConfig> {
     Arc::new(config::NetworkConfig::default())
 }
 
-fn make_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSnapshot {
-    InterfaceSnapshot {
-        name: Name::new(name).expect("valid name"),
-        state: InterfaceState::Discovered,
+fn make_snapshot(name: Name, index: u32, mac: [u8; 6]) -> Snapshot {
+    Snapshot {
+        name: name.clone(),
+        state: Lifecycle::Discovered,
         index,
         mac,
         link: State::Up,
@@ -365,37 +380,42 @@ fn make_snapshot(name: &str, index: u32, mac: [u8; 6]) -> InterfaceSnapshot {
         lease: None,
         dhcp_state: None,
         ipv6: None,
-        l3_owner: Name::new(name).expect("valid name"),
+        l3_owner: name,
     }
 }
 
-async fn wait_for_state(
-    handle: &networkd::interface::InterfaceActorHandle,
-    expected: InterfaceState,
-) {
+async fn wait_for_state(handle: &ActorHandle, expected: Lifecycle) {
     let mut rx = handle.state_rx.clone();
-    let timeout = Duration::from_secs(5);
-    let result = tokio::time::timeout(timeout, async {
+    let timeout_duration = Duration::from_secs(5);
+    let reached = timeout(timeout_duration, async {
         while rx.borrow().state != expected {
-            rx.changed().await.expect("actor dropped unexpectedly");
+            if rx.changed().await.is_err() {
+                return false;
+            }
         }
+        true
     })
-    .await;
+    .await
+    .unwrap_or(false);
     assert!(
-        result.is_ok(),
+        reached,
         "timed out waiting for state {expected:?}, current: {:?}",
         handle.state_rx.borrow().state
     );
 }
 
-async fn wait_for_ipv6(handle: &networkd::interface::InterfaceActorHandle) {
+async fn wait_for_ipv6(handle: &ActorHandle) {
     let mut rx = handle.state_rx.clone();
-    let timeout = Duration::from_secs(5);
-    let result = tokio::time::timeout(timeout, async {
+    let timeout_duration = Duration::from_secs(5);
+    let reached = timeout(timeout_duration, async {
         while rx.borrow().ipv6.is_none() {
-            rx.changed().await.expect("actor dropped unexpectedly");
+            if rx.changed().await.is_err() {
+                return false;
+            }
         }
+        true
     })
-    .await;
-    assert!(result.is_ok(), "timed out waiting for ipv6 config");
+    .await
+    .unwrap_or(false);
+    assert!(reached, "timed out waiting for ipv6 config");
 }

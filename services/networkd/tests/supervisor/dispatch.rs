@@ -1,9 +1,13 @@
 //! Integration tests for network event dispatch through the supervisor.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use netlib::interface::Name;
 use netlib::monitor::Event;
+use networkd::dns::Resolver;
+use tokio::sync::mpsc;
+use tokio::time::sleep;
+use tokio::time::timeout;
 
 use super::*;
 
@@ -14,16 +18,11 @@ async fn link_down_event_dispatched_to_interface() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -33,7 +32,7 @@ async fn link_down_event_dispatched_to_interface() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -46,16 +45,11 @@ async fn link_up_event_dispatched_to_interface() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -65,7 +59,7 @@ async fn link_up_event_dispatched_to_interface() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -78,16 +72,11 @@ async fn link_added_event_spawns_new_actor() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock.clone(),
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -102,7 +91,7 @@ async fn link_added_event_spawns_new_actor() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -116,16 +105,11 @@ async fn link_deleted_event_removes_actor() {
     mock.add_link("eth0", [0xAA; 6], true);
     mock.add_link("eth1", [0xBB; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -135,7 +119,7 @@ async fn link_deleted_event_removes_actor() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -148,16 +132,11 @@ async fn duplicate_link_added_event_is_ignored() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -171,7 +150,7 @@ async fn duplicate_link_added_event_is_ignored() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -184,16 +163,11 @@ async fn link_deleted_for_unknown_interface_is_safe() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
@@ -203,7 +177,7 @@ async fn link_deleted_for_unknown_interface_is_safe() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);
@@ -216,37 +190,36 @@ async fn rapid_link_events_do_not_crash_supervisor() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(64);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     let name = Name::new("eth0").expect("valid name");
 
     // ACT
     for _ in 0..10 {
-        let _ = event_tx
-            .send(Event::Down {
-                name: name.clone(),
-                index: idx,
-            })
-            .await;
-        let _ = event_tx
-            .send(Event::Up {
-                name: name.clone(),
-                index: idx,
-            })
-            .await;
+        drop(
+            event_tx
+                .send(Event::Down {
+                    name: name.clone(),
+                    index: idx,
+                })
+                .await,
+        );
+        drop(
+            event_tx
+                .send(Event::Up {
+                    name: name.clone(),
+                    index: idx,
+                })
+                .await,
+        );
     }
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(200)).await;
 
     // ASSERT
     drop(event_tx);
@@ -259,16 +232,11 @@ async fn link_added_when_no_primary_assigns_as_primary() {
     let mock = MockNetlinkOps::new();
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock.clone(),
-        Some(event_rx),
-        config,
-        networkd::dns::DnsState::default(),
-    )
-    .expect("start failed");
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), Some(event_rx), config, Resolver::default())
+        .expect("start failed");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     let name0 = Name::new("eth0").expect("valid name");
@@ -280,7 +248,7 @@ async fn link_added_when_no_primary_assigns_as_primary() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ACT
     mock.add_link("eth2", [0xCC; 6], true);
@@ -294,7 +262,7 @@ async fn link_added_when_no_primary_assigns_as_primary() {
         .await
         .expect("send event failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     drop(event_tx);

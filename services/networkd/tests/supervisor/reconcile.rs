@@ -1,7 +1,11 @@
 //! Integration tests for supervisor reconciliation.
 
-use std::sync::Arc;
-use std::time::Duration;
+use alloc::sync::Arc;
+use core::time::Duration;
+
+use networkd::dns::Resolver;
+use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 use super::*;
 
@@ -11,15 +15,15 @@ fn config_static_named() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "eth0".to_string(),
+        name: "eth0".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: false,
             addresses: vec![config::Cidr4 {
-                address: std::net::Ipv4Addr::new(192, 168, 10, 2),
+                address: core::net::Ipv4Addr::new(192, 168, 10, 2),
                 prefix: 24,
             }],
-            gateway: Some(std::net::Ipv4Addr::new(192, 168, 10, 1)),
+            gateway: Some(core::net::Ipv4Addr::new(192, 168, 10, 1)),
         }),
         ipv6: None,
         bridge: None,
@@ -33,7 +37,7 @@ fn config_static_ipv6_named() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "eth0".to_string(),
+        name: "eth0".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: Some(config::Ipv6InterfaceConfig {
@@ -55,7 +59,7 @@ fn config_dhcp_named() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "eth0".to_string(),
+        name: "eth0".to_owned(),
         kind: config::InterfaceKind::Ethernet,
         ipv4: Some(config::Ipv4InterfaceConfig {
             dhcp: true,
@@ -74,12 +78,12 @@ fn config_bridge_missing_port() -> Arc<config::NetworkConfig> {
     cfg.dns.clear();
     cfg.interfaces.clear();
     cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_string(),
+        name: "br0".to_owned(),
         kind: config::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
         bridge: Some(config::BridgeConfig {
-            port: vec!["eth9".to_string()],
+            port: vec!["eth9".to_owned()],
             stp: false,
         }),
     });
@@ -93,30 +97,30 @@ async fn reconcile_reapplies_static_ipv4_after_drift() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock.clone(),
         Some(event_rx),
         config_static_named(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     handle.initialize_with_retry().await.expect("init failed");
 
-    mock.remove_ipv4(idx, std::net::Ipv4Addr::new(192, 168, 10, 2))
+    mock.remove_ipv4(idx, core::net::Ipv4Addr::new(192, 168, 10, 2))
         .await
         .expect("remove failed");
 
     // ACT
     handle.reconcile().await.expect("reconcile failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     let addrs = ipv4_addrs(&mock, idx);
     assert!(
-        addrs.contains(&(std::net::Ipv4Addr::new(192, 168, 10, 2), 24)),
+        addrs.contains(&(core::net::Ipv4Addr::new(192, 168, 10, 2), 24)),
         "expected 192.168.10.2/24 in {addrs:?}"
     );
 }
@@ -128,19 +132,19 @@ async fn reconcile_before_initialization_is_a_noop() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock.clone(),
         Some(event_rx),
         config_static_named(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
     // ACT
     handle.reconcile().await.expect("reconcile failed");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(
@@ -156,12 +160,12 @@ async fn reconcile_reapplies_static_ipv6_after_drift() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock.clone(),
         Some(event_rx),
         config_static_ipv6_named(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
@@ -173,7 +177,7 @@ async fn reconcile_reapplies_static_ipv6_after_drift() {
 
     // ACT
     handle.reconcile().await.expect("reconcile failed");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     let addrs = ipv6_addrs(&mock, idx);
@@ -194,12 +198,12 @@ async fn reconcile_with_dhcp_config_completes() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_dhcp_named(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
@@ -219,12 +223,12 @@ async fn reconcile_skips_bridge_when_port_is_missing() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock.clone(),
         Some(event_rx),
         config_bridge_missing_port(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 
@@ -232,7 +236,7 @@ async fn reconcile_skips_bridge_when_port_is_missing() {
 
     // ACT
     handle.reconcile().await.expect("reconcile failed");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(!has_link(&mock, "br0"), "bridge should not be created");
@@ -245,12 +249,12 @@ async fn reconcile_named_missing_interface_is_non_fatal() {
     let mock = MockNetlinkOps::new();
     mock.add_link("eth1", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
         Some(event_rx),
         config_static_named(),
-        networkd::dns::DnsState::default(),
+        Resolver::default(),
     )
     .expect("start failed");
 

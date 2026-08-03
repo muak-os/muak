@@ -7,10 +7,11 @@ use netlib::link::State;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
-use crate::interface::ApplyMode;
-use crate::interface::InterfaceCommand;
-use crate::interface::snapshot::InterfaceSnapshot;
-use crate::interface::state::InterfaceState;
+use crate::interface::ActorHandle;
+use crate::interface::commands::ApplyMode;
+use crate::interface::commands::Command;
+use crate::interface::snapshot::Snapshot;
+use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 /// Describes whether reconcile applied intent or skipped it deliberately.
@@ -74,20 +75,18 @@ impl<N: Ops> NetworkSupervisor<N> {
         let iface_name = self.resolve_interface_name(&iface_cfg.name)?;
         let Some(actor_handle) = self.interfaces.get(&iface_name) else {
             return Ok(ReconcileDisposition::Skipped(format!(
-                "interface '{}' is not known at runtime",
-                iface_name
+                "interface '{iface_name}' is not known at runtime"
             )));
         };
 
-        if self.is_bridge_owned(actor_handle) {
+        if Self::is_bridge_owned(actor_handle) {
             return Ok(ReconcileDisposition::Skipped(format!(
-                "interface '{}' is bridge-owned by {}",
-                iface_name,
+                "interface '{iface_name}' is bridge-owned by {}",
                 actor_handle.state_rx.borrow().l3_owner
             )));
         }
 
-        println!("Reconciling ethernet interface: {}", iface_name);
+        println!("Reconciling ethernet interface: {iface_name}");
         let index = self.ops.ensure_up(iface_name.as_str()).await?;
 
         if let Some(ipv4) = iface_cfg.ipv4.as_ref() {
@@ -107,16 +106,16 @@ impl<N: Ops> NetworkSupervisor<N> {
         iface_cfg: &InterfaceConfig,
     ) -> Result<ReconcileDisposition> {
         let bridge_name = Name::new(iface_cfg.name.as_str())?;
-        let bridge_cfg = iface_cfg.bridge.as_ref().cloned().unwrap_or_default();
+        let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
 
         let is_configured = self
             .interfaces
             .get(&bridge_name)
-            .is_some_and(|h| h.state_rx.borrow().state == InterfaceState::Configured);
+            .is_some_and(|handle| handle.state_rx.borrow().state == Lifecycle::Configured);
 
         if is_configured {
             return Ok(ReconcileDisposition::Skipped(
-                "bridge is already configured".to_string(),
+                "bridge is already configured".to_owned(),
             ));
         }
 
@@ -130,16 +129,13 @@ impl<N: Ops> NetworkSupervisor<N> {
             return Ok(ReconcileDisposition::Applied);
         }
 
-        let Some(port_iface_name) = self.ready_bridge_port(&bridge_cfg)? else {
+        let Some(port_iface_name) = self.ready_bridge_port(&bridge_cfg) else {
             return Ok(ReconcileDisposition::Skipped(
-                "bridge port is not configured with a lease".to_string(),
+                "bridge port is not configured with a lease".to_owned(),
             ));
         };
 
-        println!(
-            "Reconciling bridge interface: {} via port {}",
-            bridge_name, port_iface_name
-        );
+        println!("Reconciling bridge interface: {bridge_name} via port {port_iface_name}");
         self.provision_bridge(bridge_name.as_str(), &bridge_cfg)
             .await?;
 
@@ -151,11 +147,11 @@ impl<N: Ops> NetworkSupervisor<N> {
         &mut self,
         bridge_name: &Name,
         bridge_cfg: &BridgeConfig,
-    ) -> Result<InterfaceSnapshot> {
+    ) -> Result<Snapshot> {
         let bridge_handle = self
             .interfaces
             .get(bridge_name)
-            .ok_or_else(|| anyhow::anyhow!("bridge interface '{}' not found", bridge_name))?;
+            .ok_or_else(|| anyhow::anyhow!("bridge interface '{bridge_name}' not found"))?;
         let bridge_snapshot = bridge_handle.state_rx.borrow().clone();
         let (port_iface_name, _) = self.bridge_port_handle(bridge_cfg)?;
         let gateway = bridge_snapshot.ip.as_ref().and_then(|ip| ip.gateway);
@@ -169,9 +165,9 @@ impl<N: Ops> NetworkSupervisor<N> {
             .await?;
 
         let index = self.ops.index(bridge_name.as_str()).await?;
-        Ok(InterfaceSnapshot {
+        Ok(Snapshot {
             name: bridge_name.clone(),
-            state: InterfaceState::Configured,
+            state: Lifecycle::Configured,
             index,
             mac: bridge_snapshot.mac,
             link: State::Up,
@@ -190,36 +186,35 @@ impl<N: Ops> NetworkSupervisor<N> {
         index: u32,
         ipv4: &config::Ipv4InterfaceConfig,
     ) -> Result<()> {
-        if ipv4.dhcp {
-            println!("Reconciling DHCP on {}", iface_name);
-        } else if !ipv4.addresses.is_empty() {
-            println!("Reconciling static IPv4 on {}", iface_name);
-        }
-
         let actor_handle = self
             .interfaces
             .get(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface actor not found: {}", iface_name))?;
+            .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
 
         if ipv4.dhcp {
+            println!("Reconciling DHCP on {iface_name}");
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::ConfigureDhcp {
+                .send(Command::ConfigureDhcp {
                     mode: ApplyMode::Reconcile,
                 })
                 .await
-                .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
-        } else if !ipv4.addresses.is_empty() {
+                .map_err(|error| anyhow::anyhow!("interface actor gone: {iface_name}: {error}"))?;
+            return Ok(());
+        }
+
+        if !ipv4.addresses.is_empty() {
+            println!("Reconciling static IPv4 on {iface_name}");
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::ConfigureStaticIpv4 {
+                .send(Command::ConfigureStaticIpv4 {
                     mode: ApplyMode::Reconcile,
                     index,
                     addresses: ipv4.addresses.clone(),
                     gateway: ipv4.gateway,
                 })
                 .await
-                .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
+                .map_err(|error| anyhow::anyhow!("interface actor gone: {iface_name}: {error}"))?;
         }
 
         Ok(())
@@ -232,77 +227,77 @@ impl<N: Ops> NetworkSupervisor<N> {
         index: u32,
         ipv6: &config::Ipv6InterfaceConfig,
     ) -> Result<()> {
-        if !ipv6.addresses.is_empty() {
-            println!("Reconciling static IPv6 on {}", iface_name);
-        } else if ipv6.autoconf && self.config.ipv6 {
-            println!("Reconciling SLAAC on {}", iface_name);
-        }
-
         let actor_handle = self
             .interfaces
             .get(iface_name)
-            .ok_or_else(|| anyhow::anyhow!("interface actor not found: {}", iface_name))?;
+            .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
 
         if !ipv6.addresses.is_empty() {
+            println!("Reconciling static IPv6 on {iface_name}");
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::ConfigureStaticIpv6 {
+                .send(Command::ConfigureStaticIpv6 {
                     mode: ApplyMode::Reconcile,
                     index,
                     addresses: ipv6.addresses.clone(),
                     gateway: ipv6.gateway,
                 })
                 .await
-                .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
-        } else if ipv6.autoconf && self.config.ipv6 {
+                .map_err(|error| anyhow::anyhow!("interface actor gone: {iface_name}: {error}"))?;
+            return Ok(());
+        }
+
+        if ipv6.autoconf && self.config.ipv6 {
+            println!("Reconciling SLAAC on {iface_name}");
             actor_handle
                 .cmd_tx
-                .send(InterfaceCommand::ConfigureSlaac {
+                .send(Command::ConfigureSlaac {
                     mode: ApplyMode::Reconcile,
                 })
                 .await
-                .map_err(|_| anyhow::anyhow!("interface actor gone: {}", iface_name))?;
+                .map_err(|error| anyhow::anyhow!("interface actor gone: {iface_name}: {error}"))?;
         }
 
         Ok(())
     }
 
-    /// Returns true when a bridge actor already owns the port actor's lease and address state.
-    fn is_bridge_owned(&self, handle: &crate::interface::InterfaceActorHandle) -> bool {
-        let snap = handle.state_rx.borrow();
-        snap.l3_owner != snap.name
-    }
-
     /// Returns the bridge port name when the port is configured enough to reconcile the bridge.
-    fn ready_bridge_port(&self, bridge_cfg: &BridgeConfig) -> Result<Option<Name>> {
-        let (port_iface_name, state_rx) = match self.bridge_port_handle(bridge_cfg) {
-            Ok(port) => port,
-            Err(_) => return Ok(None),
+    fn ready_bridge_port(&self, bridge_cfg: &BridgeConfig) -> Option<Name> {
+        let Ok((port_iface_name, state_rx)) = self.bridge_port_handle(bridge_cfg) else {
+            return None;
         };
         let snap = state_rx.borrow();
-        if snap.state == InterfaceState::Configured && snap.lease.is_some() {
-            return Ok(Some(port_iface_name));
+        if snap.state == Lifecycle::Configured && snap.lease.is_some() {
+            return Some(port_iface_name);
         }
 
-        Ok(None)
+        None
+    }
+
+    /// Returns true when a bridge actor already owns the port actor's lease and address state.
+    fn is_bridge_owned(handle: &ActorHandle) -> bool {
+        let snap = handle.state_rx.borrow();
+
+        snap.l3_owner != snap.name
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use alloc::sync::Arc;
+    use core::net::Ipv4Addr;
+    use core::time::Duration;
 
     use netlib::address::IpConfig;
     use netlib::interface::Name;
-    use netlib::link::{Ops, State};
+    use netlib::link::{self, Ops as _, State};
     use tokio::sync::watch;
 
     use super::*;
-    use crate::dhcp::{DhcpLease, DhcpState};
-    use crate::dns::DnsState;
-    use crate::interface::snapshot::InterfaceSnapshot;
+    use crate::dhcp::{Lease, State as DhcpState};
+    use crate::dns::Resolver;
+    use crate::interface::snapshot::Snapshot;
+    use crate::supervisor::snapshot::NetworkSnapshot;
     mod fixtures_netlink {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -323,23 +318,25 @@ mod tests {
 
     /// Returns a config with a single managed bridge.
     fn bridge_config() -> Arc<config::NetworkConfig> {
-        let mut cfg = config::NetworkConfig::default();
-        cfg.interfaces = vec![config::InterfaceConfig {
-            name: "br0".to_string(),
-            kind: InterfaceKind::Bridge,
-            ipv4: None,
-            ipv6: None,
-            bridge: Some(BridgeConfig {
-                port: vec!["eth0".to_string()],
-                stp: false,
-            }),
-        }];
+        let cfg = config::NetworkConfig {
+            interfaces: vec![config::InterfaceConfig {
+                name: "br0".to_owned(),
+                kind: InterfaceKind::Bridge,
+                ipv4: None,
+                ipv6: None,
+                bridge: Some(BridgeConfig {
+                    port: vec!["eth0".to_owned()],
+                    stp: false,
+                }),
+            }],
+            ..Default::default()
+        };
         Arc::new(cfg)
     }
 
     /// Returns a bridge-owned snapshot with cached lease state and the given interface state.
-    fn bridge_snapshot(index: u32, state: InterfaceState) -> InterfaceSnapshot {
-        InterfaceSnapshot {
+    fn bridge_snapshot(index: u32, state: Lifecycle) -> Snapshot {
+        Snapshot {
             name: Name::new("br0").expect("valid bridge name"),
             state,
             index,
@@ -351,10 +348,10 @@ mod tests {
                 gateway: Some(Ipv4Addr::new(192, 168, 10, 1)),
                 dns: vec![],
             }),
-            lease: Some(DhcpLease {
+            lease: Some(Lease {
                 obtained_at: std::time::SystemTime::now(),
-                lease_time: Duration::from_secs(3600),
-                renewal_time: Duration::from_secs(1800),
+                lease_time: Duration::from_hours(1),
+                renewal_time: Duration::from_mins(30),
                 rebind_time: Duration::from_secs(3150),
                 server_ip: Ipv4Addr::new(192, 168, 10, 1),
                 assigned_ip: Ipv4Addr::new(192, 168, 10, 2),
@@ -369,10 +366,10 @@ mod tests {
     }
 
     /// Returns a port snapshot already owned by the bridge.
-    fn port_snapshot(index: u32) -> InterfaceSnapshot {
-        InterfaceSnapshot {
+    fn port_snapshot(index: u32) -> Snapshot {
+        Snapshot {
             name: Name::new("eth0").expect("valid port name"),
-            state: InterfaceState::Discovered,
+            state: Lifecycle::Discovered,
             index,
             mac: [0xAA; 6],
             link: State::Up,
@@ -390,20 +387,27 @@ mod tests {
         let ops = MockNetlinkOps::new();
         let port_index = ops.add_link("eth0", [0xAA; 6], true);
         let bridge_index = ops.add_link("br0", [0xBB; 6], true);
-        let (watch_tx, _) = watch::channel(crate::supervisor::snapshot::NetworkSnapshot::empty());
+        let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
         let mut supervisor =
-            NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, DnsState::default());
+            NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, Resolver::default());
         supervisor.state.state = NetworkState::Ready;
         supervisor.state.primary = Some(Name::new("eth0").expect("valid primary"));
         supervisor.spawn_interface_actor(port_snapshot(port_index));
-        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, InterfaceState::Configured));
+        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, Lifecycle::Configured));
 
         let original_bridge_index = ops.index("br0").await.expect("bridge should exist");
-        ops.set_master("eth0", original_bridge_index);
+        link::Ops::set_master(&ops, port_index, original_bridge_index)
+            .await
+            .expect("set master");
 
         // ACT
         let disposition = supervisor
-            .reconcile_interface(&bridge_config().interfaces[0])
+            .reconcile_interface(
+                bridge_config()
+                    .interfaces
+                    .first()
+                    .expect("config has interface"),
+            )
             .await
             .expect("bridge reconcile should succeed");
 
@@ -430,18 +434,25 @@ mod tests {
         let ops = MockNetlinkOps::new();
         let port_index = ops.add_link("eth0", [0xAA; 6], true);
         let bridge_index = ops.add_link("br0", [0xBB; 6], true);
-        let (watch_tx, _) = watch::channel(crate::supervisor::snapshot::NetworkSnapshot::empty());
+        let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
         let mut supervisor =
-            NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, DnsState::default());
+            NetworkSupervisor::new(ops.clone(), bridge_config(), watch_tx, Resolver::default());
         supervisor.state.state = NetworkState::Ready;
         supervisor.state.primary = Some(Name::new("eth0").expect("valid primary"));
         supervisor.spawn_interface_actor(port_snapshot(port_index));
-        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, InterfaceState::Degraded));
-        ops.set_master("eth0", bridge_index);
+        supervisor.spawn_interface_actor(bridge_snapshot(bridge_index, Lifecycle::Degraded));
+        link::Ops::set_master(&ops, port_index, bridge_index)
+            .await
+            .expect("set master");
 
         // ACT
         let disposition = supervisor
-            .reconcile_interface(&bridge_config().interfaces[0])
+            .reconcile_interface(
+                bridge_config()
+                    .interfaces
+                    .first()
+                    .expect("config has interface"),
+            )
             .await
             .expect("bridge reconcile should succeed");
 

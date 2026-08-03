@@ -1,8 +1,9 @@
 //! Integration tests for interface actor behavior.
 
-use std::net::Ipv4Addr;
+use core::net::Ipv4Addr;
 
-use networkd::interface::ApplyMode;
+use networkd::interface::commands::ApplyMode;
+use tokio::time::sleep;
 
 use super::*;
 
@@ -11,8 +12,12 @@ async fn static_ipv4_configures_address_and_gateway() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth0", [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01], true);
-    let snapshot = make_snapshot("eth0", idx, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(
+        Name::new("eth0").expect("valid name"),
+        idx,
+        [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01],
+    );
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
@@ -23,7 +28,7 @@ async fn static_ipv4_configures_address_and_gateway() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -32,7 +37,7 @@ async fn static_ipv4_configures_address_and_gateway() {
         .await
         .expect("send failed");
 
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ASSERT
     let addrs = mock.ipv4_addrs(idx);
@@ -51,8 +56,12 @@ async fn static_ipv4_without_gateway_skips_route() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth1", [0x00, 0x11, 0x22, 0x33, 0x44, 0x55], true);
-    let snapshot = make_snapshot("eth1", idx, [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(
+        Name::new("eth1").expect("valid name"),
+        idx,
+        [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
+    );
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr4 {
         address: Ipv4Addr::new(192, 168, 1, 10),
@@ -62,7 +71,7 @@ async fn static_ipv4_without_gateway_skips_route() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv4 {
+        .send(Command::ConfigureStaticIpv4 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -71,7 +80,7 @@ async fn static_ipv4_without_gateway_skips_route() {
         .await
         .expect("send failed");
 
-    wait_for_state(&handle, InterfaceState::Configured).await;
+    wait_for_state(&handle, Lifecycle::Configured).await;
 
     // ASSERT
     let addrs = mock.ipv4_addrs(idx);
@@ -87,13 +96,17 @@ async fn static_ipv4_without_gateway_skips_route() {
 
 #[tokio::test]
 async fn static_ipv6_configures_address_and_gateway() {
-    use std::net::Ipv6Addr;
+    use core::net::Ipv6Addr;
 
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth2", [0xDE, 0xAD, 0x00, 0x00, 0x00, 0x01], true);
-    let snapshot = make_snapshot("eth2", idx, [0xDE, 0xAD, 0x00, 0x00, 0x00, 0x01]);
-    let handle = InterfaceActor::spawn(snapshot, mock.clone(), make_config());
+    let snapshot = make_snapshot(
+        Name::new("eth2").expect("valid name"),
+        idx,
+        [0xDE, 0xAD, 0x00, 0x00, 0x00, 0x01],
+    );
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addr = config::Cidr6 {
         address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
@@ -104,7 +117,7 @@ async fn static_ipv6_configures_address_and_gateway() {
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::ConfigureStaticIpv6 {
+        .send(Command::ConfigureStaticIpv6 {
             mode: ApplyMode::Provision,
             index: idx,
             addresses: vec![addr],
@@ -132,19 +145,19 @@ async fn shutdown_command_stops_actor() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth3", [0x00; 6], true);
-    let snapshot = make_snapshot("eth3", idx, [0x00; 6]);
-    let handle = InterfaceActor::spawn(snapshot, mock, make_config());
+    let snapshot = make_snapshot(Name::new("eth3").expect("valid name"), idx, [0x00; 6]);
+    let handle = Actor::spawn(snapshot, mock, make_config());
 
     // ACT
     handle
         .cmd_tx
-        .send(InterfaceCommand::Shutdown)
+        .send(Command::Shutdown)
         .await
         .expect("send failed");
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    sleep(core::time::Duration::from_millis(50)).await;
 
     // ASSERT
-    let result = handle.cmd_tx.send(InterfaceCommand::LinkUp).await;
+    let result = handle.cmd_tx.send(Command::LinkUp).await;
     assert!(result.is_err(), "channel should be closed after shutdown");
 }

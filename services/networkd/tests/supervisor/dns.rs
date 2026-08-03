@@ -1,10 +1,12 @@
 //! Integration tests verifying the supervisor writes DNS on behalf of the primary interface.
 
-use std::sync::Arc;
-use std::time::Duration;
+use alloc::sync::Arc;
+use core::time::Duration;
 
-use networkd::dns::DnsState;
+use networkd::dns::Resolver;
 use networkd::supervisor;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use super::MockNetlinkOps;
 
@@ -60,17 +62,17 @@ async fn static_ipv4_supervisor_writes_nameservers_to_resolv_conf() {
     // ARRANGE
     let tmp = tempfile::tempdir().expect("tempdir");
     let resolv_conf = tmp.path().join("resolv.conf");
-    let dns = DnsState::with_path(resolv_conf.clone());
+    let dns = Resolver::with_path(resolv_conf.clone());
 
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, Some(event_rx), config_with_ipv4_dns(), dns)
         .expect("start failed");
 
     // ACT
-    tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry())
+    timeout(Duration::from_secs(5), handle.initialize_with_retry())
         .await
         .expect("timed out")
         .expect("init failed");
@@ -88,17 +90,17 @@ async fn static_ipv6_supervisor_writes_nameservers_to_resolv_conf() {
     // ARRANGE
     let tmp = tempfile::tempdir().expect("tempdir");
     let resolv_conf = tmp.path().join("resolv.conf");
-    let dns = DnsState::with_path(resolv_conf.clone());
+    let dns = Resolver::with_path(resolv_conf.clone());
 
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
-    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, Some(event_rx), config_with_ipv6_dns(), dns)
         .expect("start failed");
 
     // ACT
-    tokio::time::timeout(Duration::from_secs(5), handle.initialize_with_retry())
+    timeout(Duration::from_secs(5), handle.initialize_with_retry())
         .await
         .expect("timed out")
         .expect("init failed");

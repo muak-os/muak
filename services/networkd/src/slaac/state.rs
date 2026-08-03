@@ -1,6 +1,7 @@
 //! Lifetime-tracked state types for SLAAC-acquired addresses, routers, and DNS servers.
 
-use std::net::Ipv6Addr;
+use core::net::Ipv6Addr;
+use core::time::Duration;
 
 use tokio::time::Instant;
 
@@ -18,27 +19,6 @@ pub struct Expiring<T> {
     pub expires_at: Instant,
 }
 
-impl<T> Expiring<T> {
-    /// Creates a new `Expiring<T>` that expires `lifetime_secs` seconds from now.
-    pub fn new(value: T, lifetime_secs: u64) -> Self {
-        Self {
-            value,
-            expires_at: Instant::now() + std::time::Duration::from_secs(lifetime_secs),
-        }
-    }
-
-    /// Resets the expiry to `lifetime_secs` seconds from now.
-    pub fn refresh_lifetime(&mut self, lifetime_secs: u64) {
-        self.expires_at = Instant::now() + std::time::Duration::from_secs(lifetime_secs);
-    }
-
-    /// Returns `true` if the deadline has not yet passed.
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        Instant::now() < self.expires_at
-    }
-}
-
 /// A router learned via Router Advertisement, tracked until its lifetime expires.
 pub type ManagedRouter = Expiring<Ipv6Addr>;
 
@@ -49,7 +29,6 @@ pub type ManagedDns = Expiring<Ipv6Addr>;
 #[derive(Debug, Clone)]
 pub struct ManagedAddress {
     pub address: Ipv6Addr,
-    #[allow(dead_code)]
     pub prefix_len: u8,
     pub state: AddressState,
     pub valid_until: Instant,
@@ -57,6 +36,29 @@ pub struct ManagedAddress {
     pub router: Ipv6Addr,
 }
 
+impl<T> Expiring<T> {
+    /// Creates a new `Expiring<T>` that expires `lifetime_secs` seconds from now.
+    pub fn new(value: T, lifetime_secs: u64) -> Self {
+        Self {
+            value,
+            expires_at: Instant::now()
+                .checked_add(Duration::from_secs(lifetime_secs))
+                .unwrap_or_else(Instant::now),
+        }
+    }
+
+    /// Resets the expiry to `lifetime_secs` seconds from now.
+    pub fn refresh_lifetime(&mut self, lifetime_secs: u64) {
+        self.expires_at = Instant::now()
+            .checked_add(Duration::from_secs(lifetime_secs))
+            .unwrap_or_else(Instant::now);
+    }
+
+    /// Returns `true` if the deadline has not yet passed.
+    pub fn is_valid(&self) -> bool {
+        Instant::now() < self.expires_at
+    }
+}
 impl ManagedAddress {
     /// Creates a new `ManagedAddress` with RFC 4861 preferred and valid lifetime deadlines.
     pub fn new(
@@ -71,8 +73,12 @@ impl ManagedAddress {
             address,
             prefix_len,
             state: AddressState::Preferred,
-            valid_until: now + std::time::Duration::from_secs(valid_lifetime_secs as u64),
-            preferred_until: now + std::time::Duration::from_secs(preferred_lifetime_secs as u64),
+            valid_until: now
+                .checked_add(Duration::from_secs(u64::from(valid_lifetime_secs)))
+                .unwrap_or(now),
+            preferred_until: now
+                .checked_add(Duration::from_secs(u64::from(preferred_lifetime_secs)))
+                .unwrap_or(now),
             router,
         }
     }
@@ -80,14 +86,19 @@ impl ManagedAddress {
     /// Updates lifetimes per RFC 8981: extends only when new value exceeds two-hour clamp.
     pub fn refresh_lifetimes(&mut self, valid_lifetime_secs: u32, preferred_lifetime_secs: u32) {
         let now = Instant::now();
-        let new_valid = now + std::time::Duration::from_secs(valid_lifetime_secs as u64);
-        let new_preferred = now + std::time::Duration::from_secs(preferred_lifetime_secs as u64);
+        let new_valid = now
+            .checked_add(Duration::from_secs(u64::from(valid_lifetime_secs)))
+            .unwrap_or(now);
+        let new_preferred = now
+            .checked_add(Duration::from_secs(u64::from(preferred_lifetime_secs)))
+            .unwrap_or(now);
 
-        let two_hours = std::time::Duration::from_secs(2 * 60 * 60);
-        if valid_lifetime_secs as u64 > 2 * 60 * 60 || new_valid > self.valid_until {
+        let two_hours = Duration::from_hours(2);
+        let clamped = now.checked_add(two_hours).unwrap_or(now);
+        if u64::from(valid_lifetime_secs) > 7_200 || new_valid > self.valid_until {
             self.valid_until = new_valid;
-        } else if self.valid_until > now + two_hours {
-            self.valid_until = now + two_hours;
+        } else {
+            self.valid_until = self.valid_until.min(clamped);
         }
 
         self.preferred_until = new_preferred;
@@ -97,13 +108,11 @@ impl ManagedAddress {
         }
     }
 
-    #[allow(dead_code)]
     /// Returns `true` if the valid lifetime has not expired.
     pub fn is_valid(&self) -> bool {
         Instant::now() < self.valid_until
     }
 
-    #[allow(dead_code)]
     /// Returns `true` if the address is still in the preferred state.
     pub fn is_preferred(&self) -> bool {
         self.state == AddressState::Preferred && Instant::now() < self.preferred_until
@@ -148,7 +157,7 @@ mod tests {
         // ARRANGE
         let mut e: Expiring<u32> = Expiring::new(1, 10);
         let before = e.expires_at;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         e.refresh_lifetime(3600);
@@ -184,7 +193,7 @@ mod tests {
         // ARRANGE
         let mut addr = make_address(3600, 1800);
         let before_valid = addr.valid_until;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         addr.refresh_lifetimes(86400, 43200);
@@ -198,7 +207,7 @@ mod tests {
         // ARRANGE
         let mut addr = make_address(100, 50);
         let before_valid = addr.valid_until;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         addr.refresh_lifetimes(200, 100);
@@ -212,7 +221,7 @@ mod tests {
         // ARRANGE
         let mut addr = make_address(3600, 100);
         let before_preferred = addr.preferred_until;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         addr.refresh_lifetimes(3600, 7200);
@@ -226,7 +235,9 @@ mod tests {
         // ARRANGE
         let mut addr = make_address(3600, 1800);
         addr.state = AddressState::Deprecated;
-        addr.preferred_until = Instant::now() - std::time::Duration::from_secs(1);
+        addr.preferred_until = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
 
         // ACT
         addr.refresh_lifetimes(7200, 3600);
@@ -250,7 +261,7 @@ mod tests {
         // ARRANGE
         let mut router = ManagedRouter::new("fe80::1".parse().unwrap(), 10);
         let before = router.expires_at;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         router.refresh_lifetime(3600);
@@ -274,7 +285,7 @@ mod tests {
         // ARRANGE
         let mut dns = ManagedDns::new("2620:fe::fe".parse().unwrap(), 10);
         let before = dns.expires_at;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
 
         // ACT
         dns.refresh_lifetime(3600);
@@ -302,11 +313,19 @@ mod tests {
 
         // ASSERT
         assert!(addr.valid_until < before_valid);
-        let two_hours = std::time::Duration::from_secs(2 * 60 * 60);
-        let margin = std::time::Duration::from_secs(5);
+        let two_hours = Duration::from_hours(2);
+        let margin = Duration::from_secs(5);
         let now = Instant::now();
-        assert!(addr.valid_until <= now + two_hours + margin);
-        assert!(addr.valid_until >= now + two_hours - margin);
+        let upper = now
+            .checked_add(two_hours)
+            .and_then(|deadline| deadline.checked_add(margin))
+            .unwrap_or(now);
+        let lower = now
+            .checked_add(two_hours)
+            .and_then(|deadline| deadline.checked_sub(margin))
+            .unwrap_or(now);
+        assert!(addr.valid_until <= upper);
+        assert!(addr.valid_until >= lower);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Generic state machine trait for validated state transitions.
 
-use std::fmt;
+use core::fmt;
 
 #[derive(Debug, Clone)]
 pub struct InvalidTransition<S: fmt::Display> {
@@ -8,20 +8,16 @@ pub struct InvalidTransition<S: fmt::Display> {
     pub to: S,
 }
 
-impl<S: fmt::Display> fmt::Display for InvalidTransition<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid state transition: {} -> {}", self.from, self.to)
-    }
-}
-
-impl<S: fmt::Debug + fmt::Display> std::error::Error for InvalidTransition<S> {}
-
 /// Enforces a finite set of valid transitions between states.
 pub trait StateMachine: Sized + Clone + PartialEq + fmt::Display + 'static {
     /// Returns the set of states reachable from the current state.
     fn valid_next_states(&self) -> &'static [Self];
 
     /// Advances to `to` if the transition is valid, otherwise returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidTransition` when moving from the current state to `to` is not allowed.
     fn transition(&mut self, to: Self) -> Result<(), InvalidTransition<Self>> {
         if self.valid_next_states().contains(&to) {
             *self = to;
@@ -35,33 +31,41 @@ pub trait StateMachine: Sized + Clone + PartialEq + fmt::Display + 'static {
     }
 }
 
+impl<S: fmt::Display> fmt::Display for InvalidTransition<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid state transition: {} -> {}", self.from, self.to)
+    }
+}
+
+impl<S: fmt::Debug + fmt::Display> core::error::Error for InvalidTransition<S> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[derive(Debug, Clone, PartialEq)]
     enum TestState {
-        A,
-        B,
-        C,
+        Alpha,
+        Beta,
+        Gamma,
     }
 
     impl fmt::Display for TestState {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::A => write!(f, "A"),
-                Self::B => write!(f, "B"),
-                Self::C => write!(f, "C"),
+            match *self {
+                Self::Alpha => write!(f, "Alpha"),
+                Self::Beta => write!(f, "Beta"),
+                Self::Gamma => write!(f, "Gamma"),
             }
         }
     }
 
     impl StateMachine for TestState {
         fn valid_next_states(&self) -> &'static [Self] {
-            match self {
-                Self::A => &[Self::B],
-                Self::B => &[Self::A, Self::C],
-                Self::C => &[],
+            match *self {
+                Self::Alpha => &[Self::Beta],
+                Self::Beta => &[Self::Alpha, Self::Gamma],
+                Self::Gamma => &[],
             }
         }
     }
@@ -69,76 +73,79 @@ mod tests {
     #[test]
     fn valid_transition_advances_state() {
         // ARRANGE
-        let mut state = TestState::A;
+        let mut state = TestState::Alpha;
 
         // ACT
-        let result = state.transition(TestState::B);
+        let result = state.transition(TestState::Beta);
 
         // ASSERT
-        assert!(result.is_ok());
-        assert_eq!(state, TestState::B);
+        result.unwrap();
+        assert_eq!(state, TestState::Beta);
     }
 
     #[test]
     fn invalid_transition_returns_error() {
         // ARRANGE
-        let mut state = TestState::A;
+        let mut state = TestState::Alpha;
 
         // ACT
-        let result = state.transition(TestState::C);
+        let result = state.transition(TestState::Gamma);
 
         // ASSERT
         assert!(result.is_err());
-        assert_eq!(state, TestState::A);
+        assert_eq!(state, TestState::Alpha);
     }
 
     #[test]
     fn terminal_state_rejects_all_transitions() {
         // ARRANGE
-        let mut state = TestState::C;
+        let mut state = TestState::Gamma;
 
         // ACT / ASSERT
-        assert!(state.transition(TestState::A).is_err());
-        assert!(state.transition(TestState::B).is_err());
-        assert_eq!(state, TestState::C);
+        assert!(state.transition(TestState::Alpha).is_err());
+        assert!(state.transition(TestState::Beta).is_err());
+        assert_eq!(state, TestState::Gamma);
     }
 
     #[test]
     fn error_message_includes_states() {
         // ARRANGE
-        let mut state = TestState::A;
+        let mut state = TestState::Alpha;
 
         // ACT
-        let err = state.transition(TestState::C).unwrap_err();
+        let err = state.transition(TestState::Gamma).unwrap_err();
 
         // ASSERT
-        assert_eq!(err.to_string(), "invalid state transition: A -> C");
+        assert_eq!(err.to_string(), "invalid state transition: Alpha -> Gamma");
     }
 
     #[test]
     fn bidirectional_transition_works() {
         // ARRANGE
-        let mut state = TestState::A;
+        let mut state = TestState::Alpha;
 
         // ACT
-        state.transition(TestState::B).unwrap();
-        state.transition(TestState::A).unwrap();
+        state.transition(TestState::Beta).unwrap();
+        state.transition(TestState::Alpha).unwrap();
 
         // ASSERT
-        assert_eq!(state, TestState::A);
+        assert_eq!(state, TestState::Alpha);
     }
 
     #[test]
     fn invalid_transition_implements_std_error() {
         // ARRANGE
-        let mut state = TestState::A;
-        let err = state.transition(TestState::C).unwrap_err();
+        let mut state = TestState::Alpha;
+        let err = state.transition(TestState::Gamma).unwrap_err();
 
         // ACT
-        let dyn_err: &dyn std::error::Error = &err;
+        let dyn_err: &dyn core::error::Error = &err;
 
         // ASSERT
         assert!(dyn_err.source().is_none());
-        assert_eq!(dyn_err.to_string(), "invalid state transition: A -> C");
+        assert_eq!(
+            dyn_err.to_string(),
+            "invalid state transition: Alpha -> Gamma"
+        );
     }
 }

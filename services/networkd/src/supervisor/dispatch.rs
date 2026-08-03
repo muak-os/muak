@@ -2,13 +2,14 @@
 
 use netlib::interface::Name;
 use netlib::link::State;
+use netlib::mac::format as format_mac;
 use netlib::monitor::Event;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
-use crate::interface::InterfaceCommand;
-use crate::interface::snapshot::InterfaceSnapshot;
-use crate::interface::state::InterfaceState;
+use crate::interface::commands::Command;
+use crate::interface::snapshot::Snapshot;
+use crate::interface::state::Lifecycle;
 
 impl<N: Ops> NetworkSupervisor<N> {
     /// Dispatches a netlink event to the appropriate handler.
@@ -17,47 +18,65 @@ impl<N: Ops> NetworkSupervisor<N> {
             Event::Up { name, index } => self.on_link_up(name, index).await,
             Event::Down { name, index } => self.on_link_down(name, index).await,
             Event::Added { name, index, mac } => {
-                self.on_link_added(name, index, mac).await;
+                self.on_link_added(name, index, mac);
             }
             Event::Deleted { name, index } => self.on_link_deleted(name, index).await,
         }
     }
 
+    pub(super) fn assign_as_primary(&mut self, name: Name) {
+        kmsg::info!("Assigning {} as primary interface", name);
+        self.state.primary = Some(name);
+    }
+
+    pub(super) fn add_to_backups(&mut self, name: Name) {
+        kmsg::info!("Adding {} to backup interfaces", name);
+        let pos = self
+            .state
+            .backups
+            .partition_point(|existing| existing < &name);
+        self.state.backups.insert(pos, name);
+    }
+
+    pub(super) fn remove_from_backups(&mut self, name: &str) {
+        self.state.backups.retain(|n| n != name);
+    }
+
     async fn on_link_up(&mut self, name: Name, index: u32) {
         kmsg::info!("Event: Link up {} (index {})", name, index);
-        self.send_to_interface(&name, InterfaceCommand::LinkUp)
-            .await;
+        self.send_to_interface(&name, Command::LinkUp).await;
         if self.is_primary_interface(&name) {
             self.handle_primary_recovery(&name);
-        } else if self.state.backups.contains(&name) {
+            return;
+        }
+        if self.state.backups.contains(&name) {
             self.handle_backup_recovery(&name);
         }
     }
 
     async fn on_link_down(&mut self, name: Name, index: u32) {
         kmsg::info!("Event: Link down {} (index {})", name, index);
-        self.send_to_interface(&name, InterfaceCommand::LinkDown)
-            .await;
+        self.send_to_interface(&name, Command::LinkDown).await;
         if self.is_primary_interface(&name) {
             self.handle_primary_failure(&name);
         }
     }
 
-    async fn on_link_added(&mut self, name: Name, index: u32, mac: [u8; 6]) {
+    fn on_link_added(&mut self, name: Name, index: u32, mac: [u8; 6]) {
         kmsg::info!(
             "Event: Link added {} (index {}, MAC {})",
             name,
             index,
-            netlib::mac::format(&mac)
+            format_mac(&mac)
         );
 
         if self.interfaces.contains_key(&name) {
             return;
         }
 
-        let snapshot = InterfaceSnapshot {
+        let snapshot = Snapshot {
             name: name.clone(),
-            state: InterfaceState::Discovered,
+            state: Lifecycle::Discovered,
             index,
             mac,
             link: State::Up,
@@ -84,7 +103,7 @@ impl<N: Ops> NetworkSupervisor<N> {
         let Some(actor_handle) = self.interfaces.remove(&name) else {
             return;
         };
-        let _ = actor_handle.cmd_tx.send(InterfaceCommand::Shutdown).await;
+        drop(actor_handle.cmd_tx.send(Command::Shutdown).await);
 
         if self.is_primary_interface(&name) {
             self.handle_primary_removed(&name);
@@ -93,23 +112,5 @@ impl<N: Ops> NetworkSupervisor<N> {
         }
 
         self.sync_and_publish();
-    }
-
-    pub(super) fn assign_as_primary(&mut self, name: Name) {
-        kmsg::info!("Assigning {} as primary interface", name);
-        self.state.primary = Some(name);
-    }
-
-    pub(super) fn add_to_backups(&mut self, name: Name) {
-        kmsg::info!("Adding {} to backup interfaces", name);
-        let pos = self
-            .state
-            .backups
-            .partition_point(|existing| existing < &name);
-        self.state.backups.insert(pos, name);
-    }
-
-    pub(super) fn remove_from_backups(&mut self, name: &str) {
-        self.state.backups.retain(|n| n != name);
     }
 }

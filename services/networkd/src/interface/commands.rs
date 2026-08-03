@@ -1,11 +1,11 @@
 //! Commands accepted by a per-interface actor.
 
-use std::net::Ipv4Addr;
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use tokio::sync::oneshot;
 
-use crate::interface::snapshot::InterfaceSnapshot;
+use crate::interface::snapshot::Snapshot;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ApplyMode {
@@ -14,7 +14,7 @@ pub enum ApplyMode {
 }
 
 #[derive(Debug)]
-pub enum InterfaceCommand {
+pub enum Command {
     ConfigureDhcp {
         mode: ApplyMode,
     },
@@ -28,12 +28,12 @@ pub enum InterfaceCommand {
         mode: ApplyMode,
         index: u32,
         addresses: Vec<config::Cidr6>,
-        gateway: Option<std::net::Ipv6Addr>,
+        gateway: Option<Ipv6Addr>,
     },
     ConfigureBridge {
         bridge_name: String,
         stp: bool,
-        reply: oneshot::Sender<Result<InterfaceSnapshot>>,
+        reply: oneshot::Sender<Result<Snapshot>>,
     },
     ConfigureSlaac {
         mode: ApplyMode,

@@ -1,13 +1,16 @@
-//! DHCPv4 option encoding/decoding, XID generation, and lease construction.
+//! `DHCPv4` option encoding/decoding, XID generation, and lease construction.
 
-use std::net::Ipv4Addr;
+use core::error::Error;
+use core::fmt;
+use core::net::Ipv4Addr;
+use core::time::Duration;
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Result;
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::rand::{SecureRandom as _, SystemRandom};
 
-use super::DhcpLease;
+use super::Lease;
 use super::packet::{
     DEFAULT_LEASE_SECS, DEFAULT_PREFIX_LEN, MAGIC_COOKIE, field, message_type, option,
 };
@@ -18,13 +21,13 @@ static RNG: LazyLock<SystemRandom> = LazyLock::new(SystemRandom::new);
 #[derive(Debug)]
 pub struct DhcpNak;
 
-impl std::fmt::Display for DhcpNak {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for DhcpNak {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("DHCP server sent NAK")
     }
 }
 
-impl std::error::Error for DhcpNak {}
+impl Error for DhcpNak {}
 
 /// Parsed DHCP options extracted from a response.
 #[derive(Debug)]
@@ -37,12 +40,41 @@ pub(crate) struct ParsedOptions {
     pub(crate) lease_time: Option<u32>,
 }
 
-/// Generates a cryptographically random 32-bit DHCP transaction ID.
-pub(crate) fn generate_xid() -> Result<u32> {
-    let mut buf = [0u8; 4];
-    RNG.fill(&mut buf)
-        .map_err(|_| anyhow::anyhow!("failed to generate random DHCP xid"))?;
-    Ok(u32::from_be_bytes(buf))
+/// Validates a received DHCP packet, detecting NAK responses.
+///
+/// # Errors
+///
+/// Returns an error if the packet is too short, the xid does not match, or the
+/// message type is unexpected.
+pub(crate) fn validate_response(
+    buf: &[u8],
+    len: usize,
+    expected_xid: u32,
+    expected_type: u8,
+) -> Result<ParsedOptions> {
+    let min_len = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
+    if len < min_len {
+        anyhow::bail!("DHCP response too short ({len} bytes)");
+    }
+
+    if super::packet::xid(buf) != expected_xid {
+        anyhow::bail!("DHCP xid mismatch");
+    }
+
+    let options_start = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
+    let opts_bytes = buf
+        .get(options_start..len)
+        .ok_or_else(|| anyhow::anyhow!("DHCP response truncated"))?;
+    let opts = parse_options(opts_bytes);
+
+    match opts.message_type {
+        Some(msg_type) if msg_type == message_type::NAK => Err(DhcpNak.into()),
+        Some(msg_type) if msg_type == expected_type => Ok(opts),
+        Some(msg_type) => {
+            anyhow::bail!("expected DHCP message type {expected_type}, got {msg_type}")
+        }
+        None => anyhow::bail!("DHCP response missing message type option"),
+    }
 }
 
 /// Parses the options section of a DHCP response (after the magic cookie).
@@ -56,111 +88,107 @@ pub(crate) fn parse_options(options_bytes: &[u8]) -> ParsedOptions {
         lease_time: None,
     };
 
-    let mut i = 0;
-    while i < options_bytes.len() {
-        let code = options_bytes[i];
+    let mut cursor = 0;
+    while cursor < options_bytes.len() {
+        let Some(&code) = options_bytes.get(cursor) else {
+            break;
+        };
         if code == option::END {
             break;
         }
         if code == 0 {
-            i += 1;
+            cursor = cursor.saturating_add(1);
             continue;
         }
-        if i + 1 >= options_bytes.len() {
+        let Some(&length) = options_bytes.get(cursor.saturating_add(1)) else {
             break;
-        }
-        let len = options_bytes[i + 1] as usize;
-        let data_start = i + 2;
-        let data_end = data_start + len;
-        if data_end > options_bytes.len() {
+        };
+        let data_start = cursor.saturating_add(2);
+        let data_end = data_start.saturating_add(usize::from(length));
+        let Some(data) = options_bytes.get(data_start..data_end) else {
             break;
-        }
-        let data = &options_bytes[data_start..data_end];
+        };
 
         match code {
-            option::MESSAGE_TYPE if len == 1 => {
-                parsed.message_type = Some(data[0]);
+            option::MESSAGE_TYPE if length == 1 => {
+                parsed.message_type = data.first().copied();
             }
-            option::SUBNET_MASK if len == 4 => {
-                parsed.subnet_mask = Some(Ipv4Addr::new(data[0], data[1], data[2], data[3]));
+            option::SUBNET_MASK if length == 4 => {
+                parsed.subnet_mask = data
+                    .first_chunk::<4>()
+                    .map(|octets| Ipv4Addr::from(*octets));
             }
-            option::ROUTER if len >= 4 => {
-                parsed.router = Some(Ipv4Addr::new(data[0], data[1], data[2], data[3]));
+            option::ROUTER if length >= 4 => {
+                parsed.router = data
+                    .first_chunk::<4>()
+                    .map(|octets| Ipv4Addr::from(*octets));
             }
-            option::DNS_SERVER if len >= 4 && len.is_multiple_of(4) => {
-                parsed.dns_servers.extend(
-                    data.chunks_exact(4)
-                        .map(|c| Ipv4Addr::new(c[0], c[1], c[2], c[3])),
-                );
+            option::DNS_SERVER if length >= 4 && length.is_multiple_of(4) => {
+                parsed
+                    .dns_servers
+                    .extend(data.chunks_exact(4).filter_map(ipv4_from_chunk));
             }
-            option::LEASE_TIME if len == 4 => {
-                parsed.lease_time = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            option::LEASE_TIME if length == 4 => {
+                parsed.lease_time = data
+                    .first_chunk::<4>()
+                    .map(|octets| u32::from_be_bytes(*octets));
             }
-            option::SERVER_ID if len == 4 => {
-                parsed.server_id = Some(Ipv4Addr::new(data[0], data[1], data[2], data[3]));
+            option::SERVER_ID if length == 4 => {
+                parsed.server_id = data
+                    .first_chunk::<4>()
+                    .map(|octets| Ipv4Addr::from(*octets));
             }
             _ => {}
         }
 
-        i = data_end;
+        cursor = data_end;
     }
 
     parsed
 }
 
-/// Validates a received DHCP packet, detecting NAK responses.
-pub(crate) fn validate_response(
-    buf: &[u8],
-    len: usize,
-    expected_xid: u32,
-    expected_type: u8,
-) -> Result<ParsedOptions> {
-    let min_len = field::HEADER_LEN + MAGIC_COOKIE.len();
-    if len < min_len {
-        anyhow::bail!("DHCP response too short ({len} bytes)");
-    }
-
-    if super::packet::xid(buf) != expected_xid {
-        anyhow::bail!("DHCP xid mismatch");
-    }
-
-    let options_start = field::HEADER_LEN + MAGIC_COOKIE.len();
-    let opts = parse_options(&buf[options_start..len]);
-
-    match opts.message_type {
-        Some(t) if t == message_type::NAK => Err(DhcpNak.into()),
-        Some(t) if t == expected_type => Ok(opts),
-        Some(t) => anyhow::bail!("expected DHCP message type {expected_type}, got {t}"),
-        None => anyhow::bail!("DHCP response missing message type option"),
-    }
-}
-
-/// Constructs a `DhcpLease` from a validated ACK response.
+/// Constructs a `Lease` from a validated ACK response.
 pub(crate) fn build_lease_from_ack(
     ip: Ipv4Addr,
     server_ip: Ipv4Addr,
     opts: &ParsedOptions,
-) -> Result<DhcpLease> {
+) -> Lease {
     let lease_seconds = opts.lease_time.unwrap_or(DEFAULT_LEASE_SECS);
-    let prefix_len = opts
-        .subnet_mask
-        .map(|m| m.octets().iter().map(|b| b.count_ones()).sum::<u32>() as u8)
-        .unwrap_or(DEFAULT_PREFIX_LEN);
+    let prefix_len = opts.subnet_mask.map_or(DEFAULT_PREFIX_LEN, |mask| {
+        let ones = mask.octets().into_iter().map(u8::count_ones).sum::<u32>();
+        u8::try_from(ones).unwrap_or(DEFAULT_PREFIX_LEN)
+    });
 
-    let renewal = lease_seconds / 2;
-    let rebind = (lease_seconds * 7) / 8;
+    let renewal = lease_seconds.saturating_div(2);
+    let rebind = lease_seconds.saturating_mul(7).saturating_div(8);
 
-    Ok(DhcpLease {
+    Lease {
         obtained_at: SystemTime::now(),
-        lease_time: Duration::from_secs(lease_seconds as u64),
-        renewal_time: Duration::from_secs(renewal as u64),
-        rebind_time: Duration::from_secs(rebind as u64),
+        lease_time: Duration::from_secs(u64::from(lease_seconds)),
+        renewal_time: Duration::from_secs(u64::from(renewal)),
+        rebind_time: Duration::from_secs(u64::from(rebind)),
         server_ip,
         assigned_ip: ip,
         prefix_len,
         gateway: opts.router,
         dns_servers: opts.dns_servers.clone(),
-    })
+    }
+}
+
+/// Generates a cryptographically random 32-bit DHCP transaction ID.
+pub(crate) fn generate_xid() -> Result<u32> {
+    let mut buf = [0_u8; 4];
+    RNG.fill(&mut buf)
+        .map_err(|error| anyhow::anyhow!("failed to generate random DHCP xid: {error}"))?;
+
+    Ok(u32::from_be_bytes(buf))
+}
+
+/// Converts a 4-byte chunk into an IPv4 address, if it is exactly 4 bytes long.
+fn ipv4_from_chunk(chunk: &[u8]) -> Option<Ipv4Addr> {
+    chunk
+        .first_chunk::<4>()
+        .map(|octets| Ipv4Addr::from(*octets))
 }
 
 #[cfg(test)]
@@ -170,8 +198,10 @@ mod tests {
 
     fn make_minimal_packet(xid_val: u32, yiaddr_val: Ipv4Addr) -> Vec<u8> {
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
-        let mut pkt = build_header(xid_val, &mac);
-        pkt[field::YIADDR..field::YIADDR + 4].copy_from_slice(&yiaddr_val.octets());
+        let mut pkt = build_header(xid_val, mac);
+        if let Some(slot) = pkt.get_mut(field::YIADDR..field::YIADDR + 4) {
+            slot.copy_from_slice(&yiaddr_val.octets());
+        }
         pkt
     }
 
@@ -247,8 +277,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(opts.dns_servers.len(), 2);
-        assert_eq!(opts.dns_servers[0], Ipv4Addr::new(8, 8, 8, 8));
-        assert_eq!(opts.dns_servers[1], Ipv4Addr::new(8, 8, 4, 4));
+        assert_eq!(opts.dns_servers.first(), Some(&Ipv4Addr::new(8, 8, 8, 8)));
+        assert_eq!(opts.dns_servers.get(1), Some(&Ipv4Addr::new(8, 8, 4, 4)));
     }
 
     #[test]
@@ -377,13 +407,13 @@ mod tests {
     #[test]
     fn validate_response_too_short() {
         // ARRANGE
-        let buf = [0u8; 100];
+        let buf = [0_u8; 100];
 
         // ACT
         let result = validate_response(&buf, 100, 0, message_type::OFFER);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -397,7 +427,7 @@ mod tests {
         let result = validate_response(&pkt, len, 0x2222, message_type::OFFER);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -411,7 +441,7 @@ mod tests {
         let result = validate_response(&pkt, len, 0x1111, message_type::OFFER);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -425,7 +455,7 @@ mod tests {
         let result = validate_response(&pkt, len, 0x1111, message_type::OFFER);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -464,20 +494,17 @@ mod tests {
     #[test]
     fn generate_xid_produces_value() {
         // ACT
-        let xid = generate_xid().expect("should generate xid");
-
-        // ASSERT
-        let _ = xid;
+        let _xid = generate_xid().expect("should generate xid");
     }
 
     #[test]
     fn generate_xid_produces_different_values() {
         // ACT
-        let a = generate_xid().expect("xid a");
-        let b = generate_xid().expect("xid b");
+        let first_xid = generate_xid().expect("xid a");
+        let second_xid = generate_xid().expect("xid b");
 
         // ASSERT
-        assert_ne!(a, b);
+        assert_ne!(first_xid, second_xid);
     }
 
     #[test]
@@ -497,8 +524,7 @@ mod tests {
             Ipv4Addr::new(10, 0, 0, 1),
             Ipv4Addr::new(192, 168, 1, 1),
             &opts,
-        )
-        .expect("should build lease");
+        );
 
         // ASSERT
         assert_eq!(lease.assigned_ip, Ipv4Addr::new(10, 0, 0, 1));
@@ -506,7 +532,7 @@ mod tests {
         assert_eq!(lease.prefix_len, DEFAULT_PREFIX_LEN);
         assert_eq!(
             lease.lease_time,
-            Duration::from_secs(DEFAULT_LEASE_SECS as u64)
+            Duration::from_secs(u64::from(DEFAULT_LEASE_SECS))
         );
         assert!(lease.gateway.is_none());
         assert!(lease.dns_servers.is_empty());
@@ -529,15 +555,14 @@ mod tests {
             Ipv4Addr::new(10, 0, 0, 1),
             Ipv4Addr::new(192, 168, 1, 1),
             &opts,
-        )
-        .expect("should build lease");
+        );
 
         // ASSERT
         assert_eq!(lease.prefix_len, 24);
         assert_eq!(lease.gateway, Some(Ipv4Addr::new(192, 168, 1, 1)));
         assert_eq!(lease.dns_servers, vec![Ipv4Addr::new(8, 8, 8, 8)]);
-        assert_eq!(lease.lease_time, Duration::from_secs(7200));
-        assert_eq!(lease.renewal_time, Duration::from_secs(3600));
-        assert_eq!(lease.rebind_time, Duration::from_secs(6300));
+        assert_eq!(lease.lease_time, Duration::from_hours(2));
+        assert_eq!(lease.renewal_time, Duration::from_hours(1));
+        assert_eq!(lease.rebind_time, Duration::from_mins(105));
     }
 }

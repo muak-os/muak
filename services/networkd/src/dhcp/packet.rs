@@ -1,8 +1,8 @@
-//! Raw DHCPv4 packet construction and field extraction (RFC 2131).
+//! Raw `DHCPv4` packet construction and field extraction (RFC 2131).
 
-use std::net::Ipv4Addr;
+use core::net::Ipv4Addr;
 
-/// DHCPv4 option codes.
+/// `DHCPv4` option codes.
 pub(crate) mod option {
     pub const SUBNET_MASK: u8 = 1;
     pub const ROUTER: u8 = 3;
@@ -15,7 +15,7 @@ pub(crate) mod option {
     pub const END: u8 = 255;
 }
 
-/// DHCPv4 message type values.
+/// `DHCPv4` message type values.
 pub(crate) mod message_type {
     pub const DISCOVER: u8 = 1;
     pub const OFFER: u8 = 2;
@@ -50,49 +50,46 @@ pub(crate) const DHCP_TIMEOUT_SECS: u64 = 10;
 pub(crate) const DEFAULT_LEASE_SECS: u32 = 3600;
 pub(crate) const DEFAULT_PREFIX_LEN: u8 = 24;
 
+/// Total size of the fixed header plus the magic cookie.
+const DHCP_HEADER_LEN: usize = field::HEADER_LEN + MAGIC_COOKIE.len();
+
 /// Builds the fixed 236-byte DHCP header + magic cookie with broadcast flag set.
-pub(crate) fn build_header(xid: u32, mac: &[u8; 6]) -> Vec<u8> {
-    let mut buf = vec![0u8; field::HEADER_LEN + MAGIC_COOKIE.len()];
+pub(crate) fn build_header(xid: u32, mac: [u8; 6]) -> Vec<u8> {
+    let mut buf = vec![0_u8; DHCP_HEADER_LEN];
 
-    buf[field::OP] = BOOTREQUEST;
-    buf[field::HTYPE] = HTYPE_ETHERNET;
-    buf[field::HLEN] = HLEN_ETHERNET;
-    buf[field::HOPS] = 0;
+    if let Some(byte) = buf.get_mut(field::OP) {
+        *byte = BOOTREQUEST;
+    }
+    if let Some(byte) = buf.get_mut(field::HTYPE) {
+        *byte = HTYPE_ETHERNET;
+    }
+    if let Some(byte) = buf.get_mut(field::HLEN) {
+        *byte = HLEN_ETHERNET;
+    }
+    if let Some(byte) = buf.get_mut(field::HOPS) {
+        *byte = 0;
+    }
 
-    buf[field::XID..field::XID + 4].copy_from_slice(&xid.to_be_bytes());
-    buf[field::FLAGS..field::FLAGS + 2].copy_from_slice(&FLAG_BROADCAST.to_be_bytes());
-
-    buf[field::CHADDR..field::CHADDR + 6].copy_from_slice(mac);
-
-    buf[field::HEADER_LEN..field::HEADER_LEN + 4].copy_from_slice(&MAGIC_COOKIE);
+    if let Some(slot) = buf.get_mut(field::XID..field::XID + 4) {
+        slot.copy_from_slice(&xid.to_be_bytes());
+    }
+    if let Some(slot) = buf.get_mut(field::FLAGS..field::FLAGS + 2) {
+        slot.copy_from_slice(&FLAG_BROADCAST.to_be_bytes());
+    }
+    if let Some(slot) = buf.get_mut(field::CHADDR..field::CHADDR + 6) {
+        slot.copy_from_slice(&mac);
+    }
+    if let Some(slot) = buf.get_mut(field::HEADER_LEN..field::HEADER_LEN + 4) {
+        slot.copy_from_slice(&MAGIC_COOKIE);
+    }
 
     buf
-}
-
-/// Builds a header without the broadcast flag set (for unicast renewals).
-pub(crate) fn build_unicast_header(xid: u32, mac: &[u8; 6]) -> Vec<u8> {
-    let mut buf = build_header(xid, mac);
-    buf[field::FLAGS..field::FLAGS + 2].copy_from_slice(&0u16.to_be_bytes());
-    buf
-}
-
-/// Appends the parameter request list option to a DHCP message.
-pub(crate) fn append_param_request_list(msg: &mut Vec<u8>) {
-    const REQUESTED_PARAMS: &[u8] = &[
-        option::SUBNET_MASK,
-        option::ROUTER,
-        option::DNS_SERVER,
-        option::LEASE_TIME,
-    ];
-    msg.push(option::PARAM_REQUEST_LIST);
-    msg.push(REQUESTED_PARAMS.len() as u8);
-    msg.extend_from_slice(REQUESTED_PARAMS);
 }
 
 /// Builds a DHCP REQUEST message for renewal or rebinding.
 pub(crate) fn build_request_message(
     xid: u32,
-    mac: &[u8; 6],
+    mac: [u8; 6],
     assigned_ip: Ipv4Addr,
     unicast: bool,
 ) -> Vec<u8> {
@@ -110,24 +107,51 @@ pub(crate) fn build_request_message(
     msg
 }
 
+/// Builds a header without the broadcast flag set (for unicast renewals).
+pub(crate) fn build_unicast_header(xid: u32, mac: [u8; 6]) -> Vec<u8> {
+    let mut buf = build_header(xid, mac);
+    if let Some(slot) = buf.get_mut(field::FLAGS..field::FLAGS + 2) {
+        slot.copy_from_slice(&0_u16.to_be_bytes());
+    }
+    buf
+}
+
 /// Extracts `yiaddr` from a raw DHCP packet.
 pub(crate) fn yiaddr(buf: &[u8]) -> Ipv4Addr {
-    Ipv4Addr::new(
-        buf[field::YIADDR],
-        buf[field::YIADDR + 1],
-        buf[field::YIADDR + 2],
-        buf[field::YIADDR + 3],
-    )
+    Ipv4Addr::from([
+        byte_at(buf, field::YIADDR),
+        byte_at(buf, field::YIADDR + 1),
+        byte_at(buf, field::YIADDR + 2),
+        byte_at(buf, field::YIADDR + 3),
+    ])
 }
 
 /// Extracts `xid` from a raw DHCP packet.
 pub(crate) fn xid(buf: &[u8]) -> u32 {
     u32::from_be_bytes([
-        buf[field::XID],
-        buf[field::XID + 1],
-        buf[field::XID + 2],
-        buf[field::XID + 3],
+        byte_at(buf, field::XID),
+        byte_at(buf, field::XID + 1),
+        byte_at(buf, field::XID + 2),
+        byte_at(buf, field::XID + 3),
     ])
+}
+
+/// Appends the parameter request list option to a DHCP message.
+pub(crate) fn append_param_request_list(msg: &mut Vec<u8>) {
+    const REQUESTED_PARAMS: &[u8] = &[
+        option::SUBNET_MASK,
+        option::ROUTER,
+        option::DNS_SERVER,
+        option::LEASE_TIME,
+    ];
+    msg.push(option::PARAM_REQUEST_LIST);
+    msg.push(u8::try_from(REQUESTED_PARAMS.len()).unwrap_or(0));
+    msg.extend_from_slice(REQUESTED_PARAMS);
+}
+
+/// Reads a byte at `index`, returning `0` when out of bounds.
+fn byte_at(data: &[u8], index: usize) -> u8 {
+    data.get(index).copied().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -136,8 +160,10 @@ mod tests {
 
     fn make_minimal_packet(xid_val: u32, yiaddr_val: Ipv4Addr) -> Vec<u8> {
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
-        let mut pkt = build_header(xid_val, &mac);
-        pkt[field::YIADDR..field::YIADDR + 4].copy_from_slice(&yiaddr_val.octets());
+        let mut pkt = build_header(xid_val, mac);
+        if let Some(slot) = pkt.get_mut(field::YIADDR..field::YIADDR + 4) {
+            slot.copy_from_slice(&yiaddr_val.octets());
+        }
         pkt
     }
 
@@ -147,7 +173,7 @@ mod tests {
         let mac = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
         // ACT
-        let hdr = build_header(0x12345678, &mac);
+        let hdr = build_header(0x1234_5678, mac);
 
         // ASSERT
         assert_eq!(hdr.len(), field::HEADER_LEN + MAGIC_COOKIE.len());
@@ -159,17 +185,23 @@ mod tests {
         let mac = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
         // ACT
-        let hdr = build_header(0xDEADBEEF, &mac);
+        let hdr = build_header(0xDEAD_BEEF, mac);
 
         // ASSERT
-        assert_eq!(hdr[field::OP], BOOTREQUEST);
-        assert_eq!(hdr[field::HTYPE], HTYPE_ETHERNET);
-        assert_eq!(hdr[field::HLEN], HLEN_ETHERNET);
-        assert_eq!(hdr[field::HOPS], 0);
-        let xid_bytes = &hdr[field::XID..field::XID + 4];
-        assert_eq!(xid_bytes, &0xDEADBEEFu32.to_be_bytes());
-        assert_eq!(&hdr[field::CHADDR..field::CHADDR + 6], &mac);
-        let cookie = &hdr[field::HEADER_LEN..field::HEADER_LEN + 4];
+        assert_eq!(byte_at(&hdr, field::OP), BOOTREQUEST);
+        assert_eq!(byte_at(&hdr, field::HTYPE), HTYPE_ETHERNET);
+        assert_eq!(byte_at(&hdr, field::HLEN), HLEN_ETHERNET);
+        assert_eq!(byte_at(&hdr, field::HOPS), 0);
+        let xid_bytes = hdr.get(field::XID..field::XID + 4).unwrap_or_default();
+        assert_eq!(xid_bytes, &0xDEAD_BEEF_u32.to_be_bytes());
+        assert_eq!(
+            hdr.get(field::CHADDR..field::CHADDR + 6)
+                .unwrap_or_default(),
+            &mac
+        );
+        let cookie = hdr
+            .get(field::HEADER_LEN..field::HEADER_LEN + 4)
+            .unwrap_or_default();
         assert_eq!(cookie, &MAGIC_COOKIE);
     }
 
@@ -179,10 +211,11 @@ mod tests {
         let mac = [0; 6];
 
         // ACT
-        let hdr = build_header(1, &mac);
+        let hdr = build_header(1, mac);
 
         // ASSERT
-        let flags = u16::from_be_bytes([hdr[field::FLAGS], hdr[field::FLAGS + 1]]);
+        let flags =
+            u16::from_be_bytes([byte_at(&hdr, field::FLAGS), byte_at(&hdr, field::FLAGS + 1)]);
         assert_eq!(flags, FLAG_BROADCAST);
     }
 
@@ -192,10 +225,11 @@ mod tests {
         let mac = [0; 6];
 
         // ACT
-        let hdr = build_unicast_header(1, &mac);
+        let hdr = build_unicast_header(1, mac);
 
         // ASSERT
-        let flags = u16::from_be_bytes([hdr[field::FLAGS], hdr[field::FLAGS + 1]]);
+        let flags =
+            u16::from_be_bytes([byte_at(&hdr, field::FLAGS), byte_at(&hdr, field::FLAGS + 1)]);
         assert_eq!(flags, 0);
     }
 
@@ -208,12 +242,12 @@ mod tests {
         append_param_request_list(&mut msg);
 
         // ASSERT
-        assert_eq!(msg[0], option::PARAM_REQUEST_LIST);
-        assert_eq!(msg[1], 4);
-        assert_eq!(msg[2], option::SUBNET_MASK);
-        assert_eq!(msg[3], option::ROUTER);
-        assert_eq!(msg[4], option::DNS_SERVER);
-        assert_eq!(msg[5], option::LEASE_TIME);
+        assert_eq!(msg.first(), Some(&option::PARAM_REQUEST_LIST));
+        assert_eq!(msg.get(1), Some(&4));
+        assert_eq!(msg.get(2), Some(&option::SUBNET_MASK));
+        assert_eq!(msg.get(3), Some(&option::ROUTER));
+        assert_eq!(msg.get(4), Some(&option::DNS_SERVER));
+        assert_eq!(msg.get(5), Some(&option::LEASE_TIME));
     }
 
     #[test]
@@ -223,10 +257,11 @@ mod tests {
         let ip = Ipv4Addr::new(10, 0, 0, 50);
 
         // ACT
-        let msg = build_request_message(0x1234, &mac, ip, true);
+        let msg = build_request_message(0x1234, mac, ip, true);
 
         // ASSERT
-        let flags = u16::from_be_bytes([msg[field::FLAGS], msg[field::FLAGS + 1]]);
+        let flags =
+            u16::from_be_bytes([byte_at(&msg, field::FLAGS), byte_at(&msg, field::FLAGS + 1)]);
         assert_eq!(flags, 0);
     }
 
@@ -237,10 +272,11 @@ mod tests {
         let ip = Ipv4Addr::new(10, 0, 0, 50);
 
         // ACT
-        let msg = build_request_message(0x1234, &mac, ip, false);
+        let msg = build_request_message(0x1234, mac, ip, false);
 
         // ASSERT
-        let flags = u16::from_be_bytes([msg[field::FLAGS], msg[field::FLAGS + 1]]);
+        let flags =
+            u16::from_be_bytes([byte_at(&msg, field::FLAGS), byte_at(&msg, field::FLAGS + 1)]);
         assert_eq!(flags, FLAG_BROADCAST);
     }
 
@@ -256,9 +292,9 @@ mod tests {
     #[test]
     fn xid_extraction() {
         // ARRANGE
-        let pkt = make_minimal_packet(0xCAFEBABE, Ipv4Addr::UNSPECIFIED);
+        let pkt = make_minimal_packet(0xCAFE_BABE, Ipv4Addr::UNSPECIFIED);
 
         // ACT / ASSERT
-        assert_eq!(xid(&pkt), 0xCAFEBABE);
+        assert_eq!(xid(&pkt), 0xCAFE_BABE);
     }
 }

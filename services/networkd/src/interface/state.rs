@@ -1,10 +1,12 @@
 //! Life cycle state machine for a single network interface.
 
+use core::fmt;
+
 use crate::statemachine::StateMachine;
 
 /// Tracks the provisioning stage of one network interface.
 #[derive(Debug, Clone, PartialEq)]
-pub enum InterfaceState {
+pub enum Lifecycle {
     Discovered,
     Configuring,
     Configured,
@@ -13,9 +15,9 @@ pub enum InterfaceState {
     Deconfiguring,
 }
 
-impl StateMachine for InterfaceState {
+impl StateMachine for Lifecycle {
     fn valid_next_states(&self) -> &'static [Self] {
-        match self {
+        match *self {
             Self::Discovered => &[Self::Configuring],
             Self::Configuring => &[Self::Configured, Self::Failed],
             Self::Configured => &[Self::Degraded, Self::Deconfiguring],
@@ -26,9 +28,9 @@ impl StateMachine for InterfaceState {
     }
 }
 
-impl std::fmt::Display for InterfaceState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+impl fmt::Display for Lifecycle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
             Self::Discovered => "Discovered",
             Self::Configuring => "Configuring",
             Self::Configured => "Configured",
@@ -42,17 +44,18 @@ impl std::fmt::Display for InterfaceState {
 #[cfg(test)]
 mod tests {
     use netlib::interface::Name;
+    use netlib::link::State;
 
     use super::*;
-    use crate::interface::snapshot::InterfaceSnapshot;
+    use crate::interface::snapshot::Snapshot;
 
-    fn make_snapshot(state: InterfaceState) -> InterfaceSnapshot {
-        InterfaceSnapshot {
+    fn make_snapshot(state: Lifecycle) -> Snapshot {
+        Snapshot {
             name: Name::new("eth0").expect("valid name"),
             state,
             index: 2,
             mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
-            link: netlib::link::State::Up,
+            link: State::Up,
             ip: None,
             lease: None,
             dhcp_state: None,
@@ -64,28 +67,28 @@ mod tests {
     #[test]
     fn interface_state_display() {
         // ACT / ASSERT
-        assert_eq!(InterfaceState::Discovered.to_string(), "Discovered");
-        assert_eq!(InterfaceState::Configuring.to_string(), "Configuring");
-        assert_eq!(InterfaceState::Configured.to_string(), "Configured");
-        assert_eq!(InterfaceState::Degraded.to_string(), "Degraded");
-        assert_eq!(InterfaceState::Failed.to_string(), "Failed");
-        assert_eq!(InterfaceState::Deconfiguring.to_string(), "Deconfiguring");
+        assert_eq!(Lifecycle::Discovered.to_string(), "Discovered");
+        assert_eq!(Lifecycle::Configuring.to_string(), "Configuring");
+        assert_eq!(Lifecycle::Configured.to_string(), "Configured");
+        assert_eq!(Lifecycle::Degraded.to_string(), "Degraded");
+        assert_eq!(Lifecycle::Failed.to_string(), "Failed");
+        assert_eq!(Lifecycle::Deconfiguring.to_string(), "Deconfiguring");
     }
 
     #[test]
     fn valid_interface_transitions_succeed() {
         let pairs = [
-            (InterfaceState::Discovered, InterfaceState::Configuring),
-            (InterfaceState::Configuring, InterfaceState::Configured),
-            (InterfaceState::Configuring, InterfaceState::Failed),
-            (InterfaceState::Configured, InterfaceState::Degraded),
-            (InterfaceState::Configured, InterfaceState::Deconfiguring),
-            (InterfaceState::Degraded, InterfaceState::Configuring),
-            (InterfaceState::Degraded, InterfaceState::Configured),
-            (InterfaceState::Degraded, InterfaceState::Deconfiguring),
-            (InterfaceState::Failed, InterfaceState::Configuring),
-            (InterfaceState::Failed, InterfaceState::Deconfiguring),
-            (InterfaceState::Deconfiguring, InterfaceState::Discovered),
+            (Lifecycle::Discovered, Lifecycle::Configuring),
+            (Lifecycle::Configuring, Lifecycle::Configured),
+            (Lifecycle::Configuring, Lifecycle::Failed),
+            (Lifecycle::Configured, Lifecycle::Degraded),
+            (Lifecycle::Configured, Lifecycle::Deconfiguring),
+            (Lifecycle::Degraded, Lifecycle::Configuring),
+            (Lifecycle::Degraded, Lifecycle::Configured),
+            (Lifecycle::Degraded, Lifecycle::Deconfiguring),
+            (Lifecycle::Failed, Lifecycle::Configuring),
+            (Lifecycle::Failed, Lifecycle::Deconfiguring),
+            (Lifecycle::Deconfiguring, Lifecycle::Discovered),
         ];
 
         for (from, to) in pairs {
@@ -104,25 +107,25 @@ mod tests {
     #[test]
     fn invalid_interface_transitions_return_error() {
         let pairs = [
-            (InterfaceState::Discovered, InterfaceState::Configured),
-            (InterfaceState::Discovered, InterfaceState::Degraded),
-            (InterfaceState::Discovered, InterfaceState::Failed),
-            (InterfaceState::Discovered, InterfaceState::Deconfiguring),
-            (InterfaceState::Configuring, InterfaceState::Discovered),
-            (InterfaceState::Configuring, InterfaceState::Degraded),
-            (InterfaceState::Configuring, InterfaceState::Deconfiguring),
-            (InterfaceState::Configured, InterfaceState::Discovered),
-            (InterfaceState::Configured, InterfaceState::Configuring),
-            (InterfaceState::Configured, InterfaceState::Failed),
-            (InterfaceState::Degraded, InterfaceState::Discovered),
-            (InterfaceState::Degraded, InterfaceState::Failed),
-            (InterfaceState::Failed, InterfaceState::Discovered),
-            (InterfaceState::Failed, InterfaceState::Configured),
-            (InterfaceState::Failed, InterfaceState::Degraded),
-            (InterfaceState::Deconfiguring, InterfaceState::Configured),
-            (InterfaceState::Deconfiguring, InterfaceState::Configuring),
-            (InterfaceState::Deconfiguring, InterfaceState::Degraded),
-            (InterfaceState::Deconfiguring, InterfaceState::Failed),
+            (Lifecycle::Discovered, Lifecycle::Configured),
+            (Lifecycle::Discovered, Lifecycle::Degraded),
+            (Lifecycle::Discovered, Lifecycle::Failed),
+            (Lifecycle::Discovered, Lifecycle::Deconfiguring),
+            (Lifecycle::Configuring, Lifecycle::Discovered),
+            (Lifecycle::Configuring, Lifecycle::Degraded),
+            (Lifecycle::Configuring, Lifecycle::Deconfiguring),
+            (Lifecycle::Configured, Lifecycle::Discovered),
+            (Lifecycle::Configured, Lifecycle::Configuring),
+            (Lifecycle::Configured, Lifecycle::Failed),
+            (Lifecycle::Degraded, Lifecycle::Discovered),
+            (Lifecycle::Degraded, Lifecycle::Failed),
+            (Lifecycle::Failed, Lifecycle::Discovered),
+            (Lifecycle::Failed, Lifecycle::Configured),
+            (Lifecycle::Failed, Lifecycle::Degraded),
+            (Lifecycle::Deconfiguring, Lifecycle::Configured),
+            (Lifecycle::Deconfiguring, Lifecycle::Configuring),
+            (Lifecycle::Deconfiguring, Lifecycle::Degraded),
+            (Lifecycle::Deconfiguring, Lifecycle::Failed),
         ];
 
         for (from, to) in pairs {
@@ -144,21 +147,21 @@ mod tests {
     #[test]
     fn transition_does_not_mutate_state_on_error() {
         // ARRANGE
-        let mut snap = make_snapshot(InterfaceState::Configured);
+        let mut snap = make_snapshot(Lifecycle::Configured);
 
         // ACT
-        let _ = snap.transition(InterfaceState::Discovered);
+        let _result = snap.transition(Lifecycle::Discovered);
 
         // ASSERT
-        assert_eq!(snap.state, InterfaceState::Configured);
+        assert_eq!(snap.state, Lifecycle::Configured);
     }
 
     #[test]
     fn interface_snapshot_starts_discovered_after_construction() {
         // ACT
-        let snap = make_snapshot(InterfaceState::Discovered);
+        let snap = make_snapshot(Lifecycle::Discovered);
 
         // ASSERT
-        assert_eq!(snap.state, InterfaceState::Discovered);
+        assert_eq!(snap.state, Lifecycle::Discovered);
     }
 }
