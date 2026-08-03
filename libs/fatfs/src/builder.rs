@@ -7,8 +7,8 @@ use crate::dir;
 use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
-    ClusterMap, FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, Precomputed,
-    RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE, fat32_cluster,
+    ClusterMap, FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, MAX_IMAGE_SIZE,
+    Precomputed, RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE, fat32_cluster,
 };
 
 /// Precomputes all FAT metadata from file paths and sizes.
@@ -166,6 +166,11 @@ fn stream_reader<W: Write>(writer: &mut W, reader: &mut impl Read, size: u64) ->
 }
 
 fn compute_layout(image_size: u64) -> Result<FatLayout> {
+    if image_size > MAX_IMAGE_SIZE {
+        return Err(FatError::Fat(format!(
+            "image too large for FAT32: {image_size} bytes > {MAX_IMAGE_SIZE}"
+        )));
+    }
     let total_sectors = image_size.div_euclid(SECTOR_SIZE);
     if total_sectors < 2 {
         return Err(FatError::Fat("image too small for reserved area".into()));
@@ -252,8 +257,17 @@ fn assign_clusters(
     let mut file_sizes = Vec::with_capacity(files.len());
     let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
     for file in files {
+        if file.size > u64::from(u32::MAX) {
+            return Err(FatError::Fat(format!(
+                "file too large for FAT32 directory entry: {} bytes > {}",
+                file.size,
+                u32::MAX
+            )));
+        }
         let count = file.size.div_ceil(cluster_bytes);
-        file_starts.push(u32::try_from(next_cluster).unwrap_or(u32::MAX));
+        let start = u32::try_from(next_cluster)
+            .map_err(|_conv| FatError::Fat("cluster index exceeds FAT32 range".into()))?;
+        file_starts.push(start);
         file_counts.push(count);
         file_sizes.push(file.size);
         next_cluster = next_cluster
@@ -714,5 +728,47 @@ mod tests {
         // ASSERT
         assert!(accepted, "minimum image size must be accepted");
         assert!(!rejected, "one byte below minimum must be rejected");
+    }
+
+    #[test]
+    fn compute_layout_accepts_the_largest_fat32_volume() {
+        // ARRANGE / ACT
+        let result = compute_layout(MAX_IMAGE_SIZE);
+
+        // ASSERT
+        assert!(result.is_ok(), "the largest FAT32 volume must be accepted");
+    }
+
+    #[test]
+    fn compute_layout_rejects_volumes_above_fat32_ceiling() {
+        // ARRANGE
+        let oversized = MAX_IMAGE_SIZE.saturating_add(SECTOR_SIZE);
+
+        // ACT
+        let result = compute_layout(oversized);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "volumes above the FAT32 ceiling must be rejected"
+        );
+    }
+
+    #[test]
+    fn precompute_rejects_files_larger_than_fat32_dir_entry() {
+        // ARRANGE
+        let files = &[FileMeta::new(
+            "big.bin",
+            u64::from(u32::MAX).saturating_add(1),
+        )];
+
+        // ACT
+        let result = precompute(files, 5_u64 * 1024 * 1024 * 1024);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "files over 4 GiB must not fit in a FAT32 directory entry"
+        );
     }
 }

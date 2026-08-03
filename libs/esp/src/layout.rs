@@ -1,9 +1,9 @@
 //! Layout computation for ESP partitions.
 
-use fatfs::types::MIN_IMAGE_SIZE;
+use fatfs::types::{MAX_IMAGE_SIZE, MIN_IMAGE_SIZE};
 
 use crate::FileMeta;
-use crate::error::Result;
+use crate::error::{EspError, Result};
 use crate::path;
 
 const CLUSTER_SIZE: u64 = 4096;
@@ -30,6 +30,12 @@ pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
 
     let total_data: u64 = files.iter().map(|file| file.size).sum();
     let total_size = image_size_for(total_data);
+    if total_size > MAX_IMAGE_SIZE {
+        return Err(EspError::ImageTooLarge {
+            size: total_size,
+            max: MAX_IMAGE_SIZE,
+        });
+    }
 
     let files = files.to_vec();
 
@@ -114,6 +120,24 @@ mod tests {
             output.get(510..512),
             Some(&[0x55, 0xAA][..]),
             "boot signature must be valid"
+        );
+    }
+
+    #[test]
+    fn compute_rejects_payloads_larger_than_fat32() {
+        // ARRANGE
+        let files = &[FileMeta::new(
+            "EFI/BOOT/BOOTX64.EFI",
+            fatfs::types::MAX_IMAGE_SIZE,
+        )];
+
+        // ACT
+        let result = compute(files);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "payloads pushing the ESP past the FAT32 ceiling must be rejected"
         );
     }
 

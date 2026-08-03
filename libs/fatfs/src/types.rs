@@ -42,6 +42,9 @@ const fn min_image_size() -> u64 {
     total_sectors.saturating_mul(SECTOR_SIZE)
 }
 
+/// Largest total image size in bytes the builder can format as FAT32.
+pub const MAX_IMAGE_SIZE: u64 = 0xFFFF_FFFF_u64.saturating_mul(SECTOR_SIZE);
+
 /// Metadata for a file in a FAT filesystem.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileMeta<'a> {

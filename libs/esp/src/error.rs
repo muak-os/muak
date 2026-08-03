@@ -34,6 +34,15 @@ pub enum EspError {
         /// The actual number of readers provided.
         actual: usize,
     },
+
+    /// The ESP image exceeds the largest volume FAT32 can describe.
+    #[error("ESP image too large: {size} bytes exceeds FAT32 maximum of {max} bytes")]
+    ImageTooLarge {
+        /// The requested image size in bytes.
+        size: u64,
+        /// The largest formatable FAT32 size in bytes.
+        max: u64,
+    },
 }
 
 /// Result type alias for ESP operations.
