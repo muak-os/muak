@@ -86,12 +86,18 @@ pub fn extract(reader: &mut dyn Read) -> Result<(Vec<u8>, Metadata)> {
         buf.truncate(size_of_headers);
     }
 
-    let info = from_bytes(&buf)?;
+    let info = parse(&buf)?;
 
     Ok((buf, info))
 }
 
-fn from_bytes(data: &[u8]) -> Result<Metadata> {
+/// Parses PE metadata from a complete header buffer.
+///
+/// # Errors
+///
+/// Returns `Err` if the buffer is not a valid PE64 file, uses invalid
+/// alignments, or declares a zero `size_of_headers`.
+pub fn parse(data: &[u8]) -> Result<Metadata> {
     if data.len() < 0x40 {
         return Err(UkiError::InvalidPe("file too small"));
     }
@@ -276,36 +282,36 @@ mod tests {
     }
 
     #[test]
-    fn from_bytes_rejects_too_small_buffer() {
+    fn parse_rejects_too_small_buffer() {
         // ARRANGE
         let data = [0_u8; 63];
 
         // ACT
-        let result = from_bytes(&data);
+        let result = parse(&data);
 
         // ASSERT
         assert!(matches!(result, Err(UkiError::InvalidPe(_))));
     }
 
     #[test]
-    fn from_bytes_rejects_invalid_pe() {
+    fn parse_rejects_invalid_pe() {
         // ARRANGE
         let data = [0_u8; 256];
 
         // ACT
-        let result = from_bytes(&data);
+        let result = parse(&data);
 
         // ASSERT
         assert!(matches!(result, Err(UkiError::InvalidPe(_))));
     }
 
     #[test]
-    fn from_bytes_parses_valid_pe64() {
+    fn parse_parses_valid_pe64() {
         // ARRANGE
         let buf = build_minimal_pe64();
 
         // ACT
-        let meta = from_bytes(&buf).expect("valid PE should parse");
+        let meta = parse(&buf).expect("valid PE should parse");
 
         // ASSERT
         assert_eq!(meta.file_header_offset, 0x44);
@@ -319,12 +325,12 @@ mod tests {
     }
 
     #[test]
-    fn from_bytes_section_extents() {
+    fn parse_section_extents() {
         // ARRANGE
         let buf = build_minimal_pe64();
 
         // ACT
-        let meta = from_bytes(&buf).expect("valid PE should parse");
+        let meta = parse(&buf).expect("valid PE should parse");
 
         // ASSERT
         assert_eq!(meta.existing_section_count, 1);
@@ -338,7 +344,7 @@ mod tests {
         let buf = build_minimal_pe64();
 
         // ACT
-        let meta = from_bytes(&buf).expect("valid PE should parse");
+        let meta = parse(&buf).expect("valid PE should parse");
 
         // ASSERT
         assert_eq!(meta.num_data_directories, 16);

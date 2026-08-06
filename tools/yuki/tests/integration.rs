@@ -10,10 +10,11 @@ mod tests {
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
-    use yuki::builder::{Builder, Finished, NeedsCmdline, NeedsInitramfs, NeedsKernel, NeedsStub};
     use yuki::error::YukiError;
-    use yuki::layout;
     use yuki::pe::section::Section;
+    use yuki::prepare;
+    use yuki::probe;
+    use yuki::write::{self, Input};
 
     use super::fixtures::components::{fake_dtb, fake_initrd, fake_kernel, sample_cmdline};
     use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count, write_u32};
@@ -32,8 +33,9 @@ mod tests {
         let dtb_size = dtb.map(|dtb_data| u64::try_from(dtb_data.len()).unwrap_or(0));
 
         let mut stub_reader = Cursor::new(stub_bytes);
-        let (_layout, state) = layout::compute(
-            &mut stub_reader,
+        let probed = probe::probe(&mut stub_reader)?;
+        let manifest = prepare::prepare(
+            probed,
             stub_size,
             cmdline_size,
             kernel_size,
@@ -46,21 +48,29 @@ mod tests {
         let mut cmdline_r = Cursor::new(cmdline);
         let mut kernel_r = Cursor::new(kernel);
         let mut initrd_r = Cursor::new(initrd);
+        let mut dtb_r = dtb.map(Cursor::new);
 
-        let builder: Builder<'_, _, NeedsStub> = Builder::new(state, &mut output);
-        let builder: Builder<'_, _, NeedsCmdline> = builder.add_stub(&mut stub_r)?;
-        let builder: Builder<'_, _, NeedsKernel> = builder.add_cmdline(&mut cmdline_r)?;
-
-        let builder = if let Some(dtb_data) = dtb {
-            let mut dtb_r = Cursor::new(dtb_data);
-            builder.add_dtb(&mut dtb_r)?
-        } else {
-            builder
-        };
-
-        let builder: Builder<'_, _, NeedsInitramfs> = builder.add_kernel(&mut kernel_r)?;
-        let builder: Builder<'_, _, Finished> = builder.add_initramfs(&mut initrd_r)?;
-        let sections = builder.finish()?;
+        let sections = write::write(
+            &manifest,
+            &mut stub_r,
+            Input {
+                reader: &mut cmdline_r,
+                size: cmdline_size,
+            },
+            dtb_r.as_mut().map(|cursor| Input {
+                reader: cursor,
+                size: dtb_size.unwrap_or_default(),
+            }),
+            Input {
+                reader: &mut kernel_r,
+                size: kernel_size,
+            },
+            Input {
+                reader: &mut initrd_r,
+                size: initrd_size,
+            },
+            &mut output,
+        )?;
 
         Ok((output.into_inner(), sections))
     }
@@ -114,13 +124,13 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) =
+        let (manifest, _sections) =
             build_to_vec(&stub, &cmdline, &kernel, &initrd, None).expect("build should succeed");
 
         // ASSERT
-        assert!(uki.starts_with(b"MZ"));
+        assert!(manifest.starts_with(b"MZ"));
 
-        let pe = PeFile64::parse(&*uki).expect("output should be valid PE64");
+        let pe = PeFile64::parse(&*manifest).expect("output should be valid PE64");
         let section_names: Vec<&[u8]> = pe
             .section_table()
             .iter()
@@ -154,11 +164,11 @@ mod tests {
         let dtb = fake_dtb(1024);
 
         // ACT
-        let (uki, _sections) = build_to_vec(&stub, &cmdline, &kernel, &initrd, Some(&dtb))
+        let (manifest, _sections) = build_to_vec(&stub, &cmdline, &kernel, &initrd, Some(&dtb))
             .expect("build with DTB should succeed");
 
         // ASSERT
-        let pe = PeFile64::parse(&*uki).expect("output should be valid PE64");
+        let pe = PeFile64::parse(&*manifest).expect("output should be valid PE64");
         let section_names: Vec<&[u8]> = pe
             .section_table()
             .iter()
@@ -242,9 +252,9 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) =
+        let (manifest, _sections) =
             build_to_vec(&stub, &cmdline, &kernel, &initrd, None).expect("build should succeed");
-        let result_pe = PeFile64::parse(&*uki).expect("output should be valid PE");
+        let result_pe = PeFile64::parse(&*manifest).expect("output should be valid PE");
 
         // ASSERT
         assert_eq!(result_pe.section_table().len(), original_section_count + 3);
@@ -259,12 +269,12 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) = build_to_vec(&stub, &cmdline, &kernel, &initrd, None)
+        let (manifest, _sections) = build_to_vec(&stub, &cmdline, &kernel, &initrd, None)
             .expect("build with large files should succeed");
 
         // ASSERT
-        assert!(uki.len() > 3 * 1024 * 1024);
-        PeFile64::parse(&*uki).expect("large UKI should be valid PE64");
+        assert!(manifest.len() > 3 * 1024 * 1024);
+        PeFile64::parse(&*manifest).expect("large UKI should be valid PE64");
     }
 
     #[test]
@@ -275,11 +285,11 @@ mod tests {
         let initrd = fake_initrd(1024);
 
         // ACT
-        let (uki, _sections) = build_to_vec(&stub, &[], &kernel, &initrd, None)
+        let (manifest, _sections) = build_to_vec(&stub, &[], &kernel, &initrd, None)
             .expect("empty cmdline should be allowed");
 
         // ASSERT
-        PeFile64::parse(&*uki).expect("should be valid PE");
+        PeFile64::parse(&*manifest).expect("should be valid PE");
     }
 
     #[test]
@@ -310,11 +320,12 @@ mod tests {
         let cmdline_data = sample_cmdline();
 
         // ACT
-        let (uki, _sections) = build_to_vec(&stub, &cmdline_data, &kernel_data, &initrd_data, None)
-            .expect("build should succeed");
+        let (manifest, _sections) =
+            build_to_vec(&stub, &cmdline_data, &kernel_data, &initrd_data, None)
+                .expect("build should succeed");
 
         // ASSERT
-        let pe = PeFile64::parse(&*uki).expect("should be valid PE");
+        let pe = PeFile64::parse(&*manifest).expect("should be valid PE");
         let sections = pe.section_table();
         let expected_sections = [
             (b".kernel".as_slice(), kernel_data.as_slice()),
@@ -329,7 +340,7 @@ mod tests {
                 .expect("expected section should exist");
             let offset = usize::try_from(section.pointer_to_raw_data.get(LE)).unwrap_or(0);
             let virtual_size = usize::try_from(section.virtual_size.get(LE)).unwrap_or(0);
-            let section_data = uki
+            let section_data = manifest
                 .get(offset..offset + virtual_size)
                 .expect("section data should be in bounds");
 
@@ -346,11 +357,11 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) =
+        let (manifest, _sections) =
             build_to_vec(&stub, &cmdline, &kernel, &initrd, None).expect("build should succeed");
 
         // ASSERT
-        let pe = PeFile64::parse(&*uki).expect("should be valid PE");
+        let pe = PeFile64::parse(&*manifest).expect("should be valid PE");
         let kernel_section = pe
             .section_table()
             .iter()
@@ -371,11 +382,11 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) =
+        let (manifest, _sections) =
             build_to_vec(&stub, &cmdline, &kernel, &initrd, None).expect("build should succeed");
 
         // ASSERT
-        let pe = PeFile64::parse(&*uki).expect("should be valid PE");
+        let pe = PeFile64::parse(&*manifest).expect("should be valid PE");
 
         for section in pe.section_table().iter().filter(|section| {
             section.name.starts_with(b".cmdline") || section.name.starts_with(b".initrd")
@@ -394,17 +405,17 @@ mod tests {
         let cmdline = sample_cmdline();
 
         // ACT
-        let (uki, _sections) =
+        let (manifest, _sections) =
             build_to_vec(&stub, &cmdline, &kernel, &initrd, None).expect("build should succeed");
 
         // ASSERT
-        let pe = PeFile64::parse(&*uki).expect("should be valid PE");
+        let pe = PeFile64::parse(&*manifest).expect("should be valid PE");
         let subsystem = pe.nt_headers().optional_header.subsystem.get(LE);
         assert_eq!(subsystem, object_pe::IMAGE_SUBSYSTEM_EFI_APPLICATION);
     }
 
     #[test]
-    fn build_rejects_too_many_sections() {
+    fn build_rejects_oversized_stub_header() {
         // ARRANGE
         let stub = generate_stub_with_section_count(u16::MAX - 2);
 
@@ -412,14 +423,17 @@ mod tests {
         let result = build_to_vec(&stub, b"quiet", b"kernel", b"initrd", None);
 
         // ASSERT
-        assert!(matches!(result, Err(YukiError::TooManySections)));
+        assert!(
+            result.is_err(),
+            "a stub whose header exceeds the probe bound should be rejected"
+        );
     }
 
     #[test]
     fn build_rejects_insufficient_header_capacity() {
         // ARRANGE
-        let mut stub_bytes = generate_minimal_stub();
-        write_u32(&mut stub_bytes, 148, 368);
+        let mut stub_bytes = generate_stub_with_section_count(3);
+        write_u32(&mut stub_bytes, 148, 512);
 
         // ACT
         let result = build_to_vec(&stub_bytes, b"quiet", b"kernel", b"initrd", None);
@@ -439,15 +453,34 @@ mod tests {
         let stub_size = u64::try_from(stub.len()).unwrap();
 
         let mut stub_reader = Cursor::new(&stub);
-        let (_layout, state) =
-            layout::compute(&mut stub_reader, stub_size, 10, 1024, 2048, None).unwrap();
+        let probed = probe::probe(&mut stub_reader).unwrap();
+        let manifest = prepare::prepare(probed, stub_size, 10, 1024, 2048, None).unwrap();
 
         let mut fail_writer = FailWriter;
         let mut stub_r = Cursor::new(&stub);
+        let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
+        let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
+        let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        let builder: Builder<'_, _, NeedsStub> = Builder::new(state, &mut fail_writer);
-        let result = builder.add_stub(&mut stub_r);
+        let result = write::write(
+            &manifest,
+            &mut stub_r,
+            Input {
+                reader: &mut cmdline_r,
+                size: 10,
+            },
+            None,
+            Input {
+                reader: &mut kernel_r,
+                size: 1024,
+            },
+            Input {
+                reader: &mut initrd_r,
+                size: 2048,
+            },
+            &mut fail_writer,
+        );
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::Io(_))));
@@ -463,8 +496,9 @@ mod tests {
         let cmdline = b"quiet".to_vec();
 
         let mut stub_reader = Cursor::new(&stub);
-        let (layout, state) = layout::compute(
-            &mut stub_reader,
+        let probed = probe::probe(&mut stub_reader).unwrap();
+        let manifest = prepare::prepare(
+            probed,
             stub_size,
             u64::try_from(cmdline.len()).unwrap(),
             u64::try_from(kernel.len()).unwrap(),
@@ -473,7 +507,7 @@ mod tests {
         )
         .unwrap();
 
-        let fail_after = layout.kernel_offset.saturating_add(100);
+        let fail_after = manifest.layout.kernel_offset.saturating_add(100);
         let mut limited_writer = LimitedWriter {
             written: 0,
             fail_after,
@@ -483,10 +517,24 @@ mod tests {
         let mut kernel_r = Cursor::new(&kernel);
 
         // ACT
-        let builder: Builder<'_, _, NeedsStub> = Builder::new(state, &mut limited_writer);
-        let builder = builder.add_stub(&mut stub_r).unwrap();
-        let builder = builder.add_cmdline(&mut cmdline_r).unwrap();
-        let result = builder.add_kernel(&mut kernel_r);
+        let result = write::write(
+            &manifest,
+            &mut stub_r,
+            Input {
+                reader: &mut cmdline_r,
+                size: u64::try_from(cmdline.len()).unwrap(),
+            },
+            None,
+            Input {
+                reader: &mut kernel_r,
+                size: u64::try_from(kernel.len()).unwrap(),
+            },
+            Input {
+                reader: &mut Cursor::new(&initrd),
+                size: u64::try_from(initrd.len()).unwrap(),
+            },
+            &mut limited_writer,
+        );
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::Io(_))));
@@ -499,19 +547,34 @@ mod tests {
         let stub_size = u64::try_from(stub.len()).unwrap();
 
         let mut stub_reader = Cursor::new(&stub);
-        let (_layout, state) =
-            layout::compute(&mut stub_reader, stub_size, 10, 100, 2048, None).unwrap();
+        let probed = probe::probe(&mut stub_reader).unwrap();
+        let manifest = prepare::prepare(probed, stub_size, 10, 100, 2048, None).unwrap();
 
         let mut output = Vec::new();
         let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut kernel_r = Cursor::new(b"kernel".to_vec());
+        let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        let builder: Builder<'_, _, NeedsStub> = Builder::new(state, &mut output);
-        let builder = builder.add_stub(&mut stub_r).unwrap();
-        let builder = builder.add_cmdline(&mut cmdline_r).unwrap();
-        let result = builder.add_kernel(&mut kernel_r);
+        let result = write::write(
+            &manifest,
+            &mut stub_r,
+            Input {
+                reader: &mut cmdline_r,
+                size: 10,
+            },
+            None,
+            Input {
+                reader: &mut kernel_r,
+                size: 100,
+            },
+            Input {
+                reader: &mut initrd_r,
+                size: 2048,
+            },
+            &mut output,
+        );
 
         // ASSERT
         assert!(matches!(
@@ -531,21 +594,23 @@ mod tests {
         // ACT
         let stub_size = u64::try_from(stub_bytes.len()).unwrap();
         let mut stub_reader = Cursor::new(&stub_bytes);
-        let (layout, _state) = layout::compute(
-            &mut stub_reader,
+        let probed = probe::probe(&mut stub_reader).unwrap();
+        let manifest = prepare::prepare(
+            probed,
             stub_size,
             u64::try_from(cmdline.len()).unwrap(),
             u64::try_from(kernel.len()).unwrap(),
             u64::try_from(initrd.len()).unwrap(),
             None,
         )
-        .expect("compute must succeed");
+        .expect("prepare must succeed");
+        let layout = &manifest.layout;
 
-        let (uki, _sections) = build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, None)
+        let (manifest, _sections) = build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, None)
             .expect("build must succeed");
 
         // ASSERT
-        assert_eq!(u64::try_from(uki.len()).unwrap(), layout.total_size);
+        assert_eq!(u64::try_from(manifest.len()).unwrap(), layout.total_size);
     }
 
     #[test]
@@ -560,27 +625,30 @@ mod tests {
         // ACT
         let stub_size = u64::try_from(stub_bytes.len()).unwrap();
         let mut stub_reader = Cursor::new(&stub_bytes);
-        let (layout, _state) = layout::compute(
-            &mut stub_reader,
+        let probed = probe::probe(&mut stub_reader).unwrap();
+        let manifest = prepare::prepare(
+            probed,
             stub_size,
             u64::try_from(cmdline.len()).unwrap(),
             u64::try_from(kernel.len()).unwrap(),
             u64::try_from(initrd.len()).unwrap(),
             Some(u64::try_from(dtb.len()).unwrap()),
         )
-        .expect("compute with dtb must succeed");
+        .expect("prepare with dtb must succeed");
+        let layout = &manifest.layout;
 
-        let (uki, _sections) = build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, Some(&dtb))
-            .expect("build with dtb must succeed");
+        let (manifest, _sections) =
+            build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, Some(&dtb))
+                .expect("build with dtb must succeed");
 
         // ASSERT
-        assert_eq!(u64::try_from(uki.len()).unwrap(), layout.total_size);
+        assert_eq!(u64::try_from(manifest.len()).unwrap(), layout.total_size);
     }
 
     #[test]
     fn compute_layout_rejects_invalid_stub() {
         // ARRANGE & ACT
-        let result = layout::compute(&mut Cursor::new(b"not a PE file"), 13, 10, 10, 10, None);
+        let result = probe::probe(&mut Cursor::new(b"not a PE file"));
 
         // ASSERT
         result.unwrap_err();

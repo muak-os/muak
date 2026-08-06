@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::Parser;
 
-use crate::builder::Builder;
-use crate::layout;
+use crate::prepare;
+use crate::probe;
+use crate::write::{self, Input};
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -95,8 +96,8 @@ fn run(args: &Cli) -> Result<String> {
         })
         .transpose()?;
 
-    let (_layout, state) = layout::compute(
-        &mut stub_file,
+    let manifest = prepare::prepare(
+        probe::probe(&mut stub_file).context("Failed to compute UKI layout")?,
         stub_size,
         cmdline_size,
         kernel_size,
@@ -108,27 +109,29 @@ fn run(args: &Cli) -> Result<String> {
     let mut output = File::create(&args.output)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
 
-    let builder = Builder::new(state, &mut output);
-    let builder = builder
-        .add_stub(&mut stub_file)
-        .context("Failed to add stub")?;
-    let builder = builder
-        .add_cmdline(&mut cmdline)
-        .context("Failed to add cmdline")?;
-
-    let builder = if let Some(dtb_file) = dtb.as_mut() {
-        builder.add_dtb(dtb_file).context("Failed to add DTB")?
-    } else {
-        builder
-    };
-
-    let builder = builder
-        .add_kernel(&mut kernel)
-        .context("Failed to add kernel")?;
-    let builder = builder
-        .add_initramfs(&mut initrd)
-        .context("Failed to add initramfs")?;
-    builder.finish().context("Failed to finalize UKI")?;
+    let dtb_input = dtb.as_mut().map(|file| Input {
+        reader: file,
+        size: dtb_size.unwrap_or_default(),
+    });
+    write::write(
+        &manifest,
+        &mut stub_file,
+        Input {
+            reader: &mut cmdline,
+            size: cmdline_size,
+        },
+        dtb_input,
+        Input {
+            reader: &mut kernel,
+            size: kernel_size,
+        },
+        Input {
+            reader: &mut initrd,
+            size: initrd_size,
+        },
+        &mut output,
+    )
+    .context("Failed to write UKI")?;
 
     Ok(format!(
         "Successfully created UKI at {} ({} bytes)",

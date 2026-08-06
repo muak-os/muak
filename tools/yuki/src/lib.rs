@@ -2,9 +2,12 @@
 
 #![warn(missing_docs)]
 
-pub mod builder;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod error;
+mod io;
 pub mod layout;
 pub mod pe;
+pub mod prepare;
+pub mod probe;
+pub mod write;

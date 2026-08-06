@@ -190,7 +190,7 @@ pub(crate) fn build_table(
     stub_len: u64,
     has_dtb: bool,
     sizes: &[(&'static str, Option<u64>)],
-) -> Result<(Table, u64)> {
+) -> Result<Table> {
     let count = new_section_count(has_dtb);
     if usize::from(metadata.existing_section_count).saturating_add(usize::from(count))
         > usize::from(u16::MAX)
@@ -214,18 +214,13 @@ pub(crate) fn build_table(
         table.finalize_section(name, validate_size(len, name)?)?;
     }
 
-    let Some(first) = table.sections.first() else {
+    if table.sections.is_empty() {
         return Err(YukiError::InvalidPeStructure(
             "missing generated sections".to_owned(),
         ));
-    };
-    let Ok(gap_start) = u64::try_from(first.file_offset) else {
-        return Err(YukiError::InvalidPeStructure(
-            "first section offset overflow".to_owned(),
-        ));
-    };
+    }
 
-    Ok((table, gap_start))
+    Ok(table)
 }
 
 pub(crate) fn count(has_dtb: bool) -> u16 {
