@@ -39,24 +39,21 @@ pub fn write<W: Write>(
 ) -> Result<Vec<Section>> {
     validate_inputs(manifest, &cmdline, dtb.as_ref(), &kernel, &initramfs)?;
 
-    output.write_all(&manifest.assembly.patched_prefix)?;
-    io::copy_exact(
-        stub,
-        output,
-        manifest.assembly.stub_remainder,
-        "stub",
-        &mut |_| {},
-    )?;
+    let layout = manifest.layout();
+    let assembly = manifest.assembly();
+
+    output.write_all(&assembly.patched_prefix)?;
+    io::copy_exact(stub, output, assembly.stub_remainder, "stub", &mut |_| {})?;
 
     let cmdline_reader = cmdline.reader;
     let kernel_reader = kernel.reader;
     let initramfs_reader = initramfs.reader;
     let mut dtb_reader = dtb.map(|input| input.reader);
 
-    let mut pos = manifest.layout.stub_size;
-    let mut sections = Vec::with_capacity(manifest.assembly.sections.len());
+    let mut pos = layout.stub_size;
+    let mut sections = Vec::with_capacity(assembly.sections.len());
 
-    for planned in &manifest.assembly.sections {
+    for planned in &assembly.sections {
         let file_offset = u64::try_from(planned.file_offset).map_err(|_source| {
             YukiError::InvalidPeStructure(format!("section '{}' offset overflow", planned.name))
         })?;
@@ -94,13 +91,20 @@ pub fn write<W: Write>(
         let size_u32 = u32::try_from(size).map_err(|_source| {
             YukiError::InvalidPeStructure(format!("section '{}' size exceeds u32", planned.name))
         })?;
-        let aligned = align::to(size_u32, manifest.assembly.file_alignment);
+        let aligned = align::to(size_u32, assembly.file_alignment);
         io::write_gap(output, u64::from(aligned.saturating_sub(size_u32)))?;
         pos = file_offset.saturating_add(u64::from(aligned));
 
         let mut section = planned.clone();
         section.checksum.copy_from_slice(ctx.finish().as_ref());
         sections.push(section);
+    }
+
+    if pos != layout.total_size {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "output length mismatch: wrote {pos} bytes, expected {}",
+            layout.total_size
+        )));
     }
 
     Ok(sections)
@@ -113,14 +117,15 @@ fn validate_inputs(
     kernel: &Input<'_>,
     initramfs: &Input<'_>,
 ) -> Result<()> {
-    let planned_has_dtb = manifest.layout.dtb_offset.is_some();
+    let layout = manifest.layout();
+    let planned_has_dtb = layout.dtb_offset.is_some();
     if planned_has_dtb != dtb.is_some() {
         return Err(YukiError::InvalidPeStructure(
             "dtb presence does not match the UKI plan".to_owned(),
         ));
     }
 
-    for planned in &manifest.assembly.sections {
+    for planned in &manifest.assembly().sections {
         let input_size = match planned.name {
             CMDLINE => cmdline.size,
             DTB => dtb.map(|input| input.size).unwrap_or_default(),
@@ -280,11 +285,12 @@ mod tests {
         cmdline: u64,
         kernel: u64,
         initrd: u64,
-    ) -> crate::prepare::Manifest {
+    ) -> (crate::prepare::Manifest, Cursor<&[u8]>) {
         let stub_size = u64::try_from(stub.len()).unwrap();
         let mut stub_reader = Cursor::new(stub);
         let probe = probe::probe(&mut stub_reader).unwrap();
-        prepare::prepare(probe, stub_size, cmdline, kernel, initrd, None).unwrap()
+        let manifest = prepare::prepare(probe, stub_size, cmdline, kernel, initrd, None).unwrap();
+        (manifest, stub_reader)
     }
 
     #[test]
@@ -325,11 +331,10 @@ mod tests {
         let cmdline = b"quiet".to_vec();
         let kernel = vec![0xBB_u8; 100];
         let initrd = vec![0xCC_u8; 300];
-        let manifest = prepare_uki(&stub, 5, 100, 300);
+        let (manifest, mut stub_r) = prepare_uki(&stub, 5, 100, 300);
 
         // ACT
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(&cmdline);
         let mut kernel_r = Cursor::new(&kernel);
         let mut initrd_r = Cursor::new(&initrd);
@@ -371,7 +376,7 @@ mod tests {
     fn write_output_length_matches_total_size() {
         // ARRANGE
         let stub = minimal_stub();
-        let manifest = prepare_uki(&stub, 10, 1024, 2048);
+        let (manifest, _stub_r) = prepare_uki(&stub, 10, 1024, 2048);
 
         // ACT
         let (uki_out, _sections) =
@@ -380,7 +385,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             u64::try_from(uki_out.len()).unwrap(),
-            manifest.layout.total_size,
+            manifest.layout().total_size,
             "output length should equal the planned total size"
         );
     }
@@ -410,10 +415,9 @@ mod tests {
     fn write_rejects_short_stream() {
         // ARRANGE
         let stub = minimal_stub();
-        let manifest = prepare_uki(&stub, 10, 1024, 2048);
+        let (manifest, mut stub_r) = prepare_uki(&stub, 10, 1024, 2048);
 
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(b"short");
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
@@ -450,10 +454,9 @@ mod tests {
     fn write_propagates_writer_error() {
         // ARRANGE
         let stub = minimal_stub();
-        let manifest = prepare_uki(&stub, 10, 1024, 2048);
+        let (manifest, mut stub_r) = prepare_uki(&stub, 10, 1024, 2048);
 
         let mut error_writer = ErrorWriter;
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
@@ -486,10 +489,9 @@ mod tests {
     fn write_rejects_unexpected_dtb() {
         // ARRANGE
         let stub = minimal_stub();
-        let manifest = prepare_uki(&stub, 10, 1024, 2048);
+        let (manifest, mut stub_r) = prepare_uki(&stub, 10, 1024, 2048);
 
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut dtb_r = Cursor::new(vec![0xDD; 512]);
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
@@ -536,7 +538,6 @@ mod tests {
         let manifest = prepare::prepare(probe, stub_size, 10, 1024, 2048, Some(512)).unwrap();
 
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
@@ -544,7 +545,7 @@ mod tests {
         // ACT
         let result = crate::write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: 10,
@@ -579,7 +580,6 @@ mod tests {
         let manifest = prepare::prepare(probe, stub_size, 10, 1024, 2048, Some(512)).unwrap();
 
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut dtb_r = Cursor::new(vec![0xDD; 512]);
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
@@ -588,7 +588,7 @@ mod tests {
         // ACT
         let result = crate::write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: 10,
@@ -652,6 +652,56 @@ mod tests {
         assert_eq!(
             out_bytes, stub_bytes,
             "original stub section bytes should be preserved"
+        );
+    }
+
+    #[test]
+    fn write_preserves_stub_remainder_bytes() {
+        // ARRANGE
+        let stub = minimal_stub();
+        let stub_size = u64::try_from(stub.len()).unwrap();
+        let mut stub_reader = Cursor::new(&stub);
+        let probe = probe::probe(&mut stub_reader).unwrap();
+        let consumed = probe.consumed();
+        let manifest = prepare::prepare(probe, stub_size, 10, 1024, 2048, None).unwrap();
+
+        let mut output = Vec::new();
+        let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
+        let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
+        let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
+
+        // ACT
+        crate::write::write(
+            &manifest,
+            &mut stub_reader,
+            Input {
+                reader: &mut cmdline_r,
+                size: 10,
+            },
+            None,
+            Input {
+                reader: &mut kernel_r,
+                size: 1024,
+            },
+            Input {
+                reader: &mut initrd_r,
+                size: 2048,
+            },
+            &mut output,
+        )
+        .unwrap();
+
+        // ASSERT
+        let consumed_usize = usize::try_from(consumed).unwrap();
+        let remainder = output.get(consumed_usize..stub.len()).unwrap();
+        let expected = stub.get(consumed_usize..).unwrap();
+        assert_eq!(
+            remainder, expected,
+            "stub bytes after the probed header must be preserved verbatim"
+        );
+        assert_eq!(
+            u64::try_from(output.len()).unwrap(),
+            manifest.layout().total_size
         );
     }
 

@@ -14,10 +14,6 @@ pub enum YukiError {
     #[error("Failed to write output image: {0}")]
     Io(#[from] std::io::Error),
 
-    /// PE parsing failed with a system-level error.
-    #[error("Failed to parse PE file: {0}")]
-    PeParseError(String),
-
     /// PE structure is malformed or violates invariants.
     #[error("Invalid PE structure: {0}")]
     InvalidPeStructure(String),
@@ -25,10 +21,6 @@ pub enum YukiError {
     /// Too many sections to fit in the PE header.
     #[error("Too many sections: cannot add more sections to PE file")]
     TooManySections,
-
-    /// Numeric conversion failed (overflow or impossible cast).
-    #[error("Conversion error: {0}")]
-    ConversionError(String),
 
     /// Error from the underlying UKI library.
     #[error("UKI error: {0}")]

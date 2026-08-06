@@ -1,4 +1,4 @@
-//! UKI preparation: turning a probe into a write-ready plan.
+//! Prepares a UKI manifest from a probed stub and component sizes.
 
 use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
 
@@ -9,14 +9,25 @@ use crate::probe::Probe;
 
 /// A prepared UKI containing everything needed to emit the image.
 pub struct Manifest {
+    layout: Layout,
+    assembly: Assembly,
+}
+
+impl Manifest {
     /// Layout of the output UKI.
-    pub layout: Layout,
+    #[must_use]
+    pub fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
     /// Byte-assembly instructions for the write pass.
-    pub assembly: Assembly,
+    pub(crate) fn assembly(&self) -> &Assembly {
+        &self.assembly
+    }
 }
 
 /// Byte-assembly instructions for the write pass.
-pub struct Assembly {
+pub(crate) struct Assembly {
     /// Patched header, written first by `write`.
     pub(crate) patched_prefix: Vec<u8>,
     /// Stub bytes after the probed header: `stub_size - probe.consumed`.
@@ -31,8 +42,9 @@ pub struct Assembly {
 ///
 /// # Errors
 ///
-/// Returns an error when the stub size is smaller than the probed header,
-/// component lengths overflow PE limits, or the section table lacks capacity.
+/// Returns an error when the stub is truncated (its last section ends past
+/// `stub_size`), the stub size is smaller than the probed header, component
+/// lengths overflow PE limits, or the section table lacks capacity.
 pub fn prepare(
     probe: Probe,
     stub_size: u64,
@@ -41,10 +53,17 @@ pub fn prepare(
     initramfs_size: u64,
     dtb_size: Option<u64>,
 ) -> Result<Manifest> {
-    if probe.consumed() > stub_size {
+    let consumed = probe.consumed();
+    let stub_remainder = stub_size.checked_sub(consumed).ok_or_else(|| {
+        YukiError::InvalidPeStructure(format!(
+            "stub size {stub_size} smaller than probed header {consumed}"
+        ))
+    })?;
+
+    if u64::from(probe.metadata.last_section_file_end) > stub_size {
         return Err(YukiError::InvalidPeStructure(format!(
-            "stub size {stub_size} smaller than probed header {}",
-            probe.consumed()
+            "stub truncated: last section ends at {}, stub size {stub_size}",
+            probe.metadata.last_section_file_end
         )));
     }
 
@@ -58,7 +77,6 @@ pub fn prepare(
 
     let table = section::build_table(&probe.metadata, stub_size, has_dtb, &sizes)?;
 
-    let consumed = probe.consumed();
     let mut patched_prefix = probe.prefix;
     header::patch(
         &mut patched_prefix,
@@ -70,7 +88,7 @@ pub fn prepare(
     let layout = layout::from_table(stub_size, &table)?;
     let assembly = Assembly {
         patched_prefix,
-        stub_remainder: stub_size.saturating_sub(consumed),
+        stub_remainder,
         file_alignment: table.file_alignment,
         sections: table.sections,
     };
@@ -135,7 +153,7 @@ mod tests {
         let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
 
         // ASSERT
-        let layout = &manifest.layout;
+        let layout = manifest.layout();
         assert!(layout.stub_size <= layout.cmdline_offset);
         let dtb_offset = layout.dtb_offset.expect("dtb offset present");
         assert!(layout.cmdline_offset < dtb_offset);
@@ -153,7 +171,7 @@ mod tests {
         let manifest = prepare(probe, 1024, 10, 2048, 4096, None).unwrap();
 
         // ASSERT
-        let layout = &manifest.layout;
+        let layout = manifest.layout();
         assert_eq!(layout.dtb_offset, None);
         assert!(layout.cmdline_offset < layout.kernel_offset);
         assert!(layout.kernel_offset < layout.initramfs_offset);
@@ -169,12 +187,12 @@ mod tests {
         let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
 
         // ASSERT
-        for planned in &manifest.assembly.sections {
+        for planned in &manifest.assembly().sections {
             let expected = match planned.name {
-                CMDLINE => manifest.layout.cmdline_offset,
-                DTB => manifest.layout.dtb_offset.expect("dtb offset present"),
-                KERNEL => manifest.layout.kernel_offset,
-                INITRD => manifest.layout.initramfs_offset,
+                CMDLINE => manifest.layout().cmdline_offset,
+                DTB => manifest.layout().dtb_offset.expect("dtb offset present"),
+                KERNEL => manifest.layout().kernel_offset,
+                INITRD => manifest.layout().initramfs_offset,
                 _ => panic!("unexpected section '{}'", planned.name),
             };
             assert_eq!(
@@ -195,16 +213,16 @@ mod tests {
         let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
 
         // ASSERT
-        let last = manifest.assembly.sections.last().unwrap();
+        let last = manifest.assembly().sections.last().unwrap();
         let aligned = align::to(
             u32::try_from(last.size).unwrap(),
-            manifest.assembly.file_alignment,
+            manifest.assembly().file_alignment,
         );
         let last_end = last
             .file_offset
             .saturating_add(usize::try_from(aligned).unwrap());
         assert_eq!(
-            manifest.layout.total_size,
+            manifest.layout().total_size,
             u64::try_from(last_end).unwrap(),
             "total size should match the last aligned section end"
         );
@@ -243,6 +261,27 @@ mod tests {
             result,
             Err(YukiError::InvalidPeStructure(msg))
                 if msg.contains("section table exceeds size of headers")
+        ));
+    }
+
+    #[test]
+    fn prepare_rejects_truncated_stub() {
+        // ARRANGE
+        let metadata = Metadata {
+            size_of_headers: 512,
+            last_section_file_end: 4096,
+            ..test_metadata()
+        };
+        let probe = probe_with(metadata);
+
+        // ACT
+        let result = prepare(probe, 2048, 10, 100, 100, None);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("stub truncated")
         ));
     }
 }

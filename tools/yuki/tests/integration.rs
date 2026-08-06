@@ -44,7 +44,6 @@ mod tests {
         )?;
 
         let mut output = Cursor::new(Vec::new());
-        let mut stub_r = Cursor::new(stub_bytes);
         let mut cmdline_r = Cursor::new(cmdline);
         let mut kernel_r = Cursor::new(kernel);
         let mut initrd_r = Cursor::new(initrd);
@@ -52,7 +51,7 @@ mod tests {
 
         let sections = write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: cmdline_size,
@@ -457,7 +456,6 @@ mod tests {
         let manifest = prepare::prepare(probed, stub_size, 10, 1024, 2048, None).unwrap();
 
         let mut fail_writer = FailWriter;
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
@@ -465,7 +463,7 @@ mod tests {
         // ACT
         let result = write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: 10,
@@ -507,19 +505,18 @@ mod tests {
         )
         .unwrap();
 
-        let fail_after = manifest.layout.kernel_offset.saturating_add(100);
+        let fail_after = manifest.layout().kernel_offset.saturating_add(100);
         let mut limited_writer = LimitedWriter {
             written: 0,
             fail_after,
         };
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(&cmdline);
         let mut kernel_r = Cursor::new(&kernel);
 
         // ACT
         let result = write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: u64::try_from(cmdline.len()).unwrap(),
@@ -551,7 +548,6 @@ mod tests {
         let manifest = prepare::prepare(probed, stub_size, 10, 100, 2048, None).unwrap();
 
         let mut output = Vec::new();
-        let mut stub_r = Cursor::new(&stub);
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
         let mut kernel_r = Cursor::new(b"kernel".to_vec());
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
@@ -559,7 +555,7 @@ mod tests {
         // ACT
         let result = write::write(
             &manifest,
-            &mut stub_r,
+            &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
                 size: 10,
@@ -604,7 +600,7 @@ mod tests {
             None,
         )
         .expect("prepare must succeed");
-        let layout = &manifest.layout;
+        let layout = manifest.layout();
 
         let (manifest, _sections) = build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, None)
             .expect("build must succeed");
@@ -635,7 +631,7 @@ mod tests {
             Some(u64::try_from(dtb.len()).unwrap()),
         )
         .expect("prepare with dtb must succeed");
-        let layout = &manifest.layout;
+        let layout = manifest.layout();
 
         let (manifest, _sections) =
             build_to_vec(&stub_bytes, &cmdline, &kernel, &initrd, Some(&dtb))
@@ -652,6 +648,25 @@ mod tests {
 
         // ASSERT
         result.unwrap_err();
+    }
+
+    #[test]
+    fn build_rejects_truncated_stub() {
+        // ARRANGE
+        let mut stub = generate_minimal_stub();
+        write_u32(&mut stub, 344, 4096);
+        let mut stub_reader = Cursor::new(&stub);
+        let probed = probe::probe(&mut stub_reader).unwrap();
+
+        // ACT
+        let result = prepare::prepare(probed, 2048, 10, 1024, 2048, None);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg))
+                if msg.contains("stub truncated")
+        ));
     }
 
     #[test]
