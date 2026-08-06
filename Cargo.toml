@@ -152,6 +152,17 @@ syn = { version = "3.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = false
+lto = false
+frame-pointers = true
+
 [workspace.lints.clippy]
 cargo = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
@@ -257,13 +268,3 @@ multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencie
 
 [workspace.lints.rust]
 non_ascii_idents = "deny"
-
-[profile.release]
-lto = "thin"
-strip = "symbols"
-
-[profile.profiling]
-inherits = "release"
-debug = 1
-strip = false
-lto = false
