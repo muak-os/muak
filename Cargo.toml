@@ -161,7 +161,6 @@ inherits = "release"
 debug = 1
 strip = false
 lto = false
-frame-pointers = true
 
 [workspace.lints.clippy]
 cargo = { level = "warn", priority = -1 }
