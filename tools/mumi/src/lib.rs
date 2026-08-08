@@ -6,6 +6,7 @@
 pub mod cli;
 pub mod error;
 pub mod image;
+pub mod payload;
 pub mod rootfs;
 
 /// Default zstd compression level for EROFS images.

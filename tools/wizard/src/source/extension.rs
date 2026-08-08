@@ -1,12 +1,9 @@
-//! Extension OCI image metadata extraction and file pulling.
-
-use std::io::Read;
+//! Extension OCI source references and file pulling.
 
 use koci::arch::Arch;
-use koci::pull::{
-    self,
-    entries::{FileEntry, MetadataEntry},
-};
+use koci::error::KociError;
+use koci::pull;
+use koci::pull::entries::FileEntry;
 
 use crate::error::{Result, WizardError};
 
@@ -36,86 +33,47 @@ impl Extension {
     }
 }
 
-/// Extension metadata extracted from an OCI image.
-pub struct Metadata {
-    /// Extension name.
-    pub name: String,
-    /// Files in the extension: (path, size, mode).
-    pub files: Vec<(String, u64, u32)>,
-}
-
-/// Extracts metadata from each resolved extension OCI image.
+/// Pulls extension files and assembles one opaque image payload per extension.
 ///
 /// # Errors
 ///
-/// Returns an error when any extension OCI metadata extraction fails.
-pub async fn metadata(
-    extensions: &[Extension],
-    arch: &Arch,
-    signature_public_key: Option<&str>,
-) -> Result<Vec<Metadata>> {
-    let mut result = Vec::with_capacity(extensions.len());
-    for ext in extensions {
-        let mut files = Vec::new();
-        pull::metadata(
-            ext.source(),
-            arch,
-            signature_public_key,
-            |entry: MetadataEntry| {
-                files.push((entry.path, entry.size, entry.mode));
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| {
-            WizardError::BuildError(format!("extract extension {} metadata: {e}", ext.source()))
-        })?;
-        result.push(Metadata {
-            name: ext.name().to_owned(),
-            files,
-        });
-    }
-
-    Ok(result)
-}
-
-/// Pulls extension metadata and buffers file data.
-///
-/// # Errors
-///
-/// Returns an error when any extension OCI metadata extraction or file pull fails.
+/// Returns an error when any extension OCI file pull or payload assembly fails.
 pub(crate) async fn pull(
     extensions: &[Extension],
     arch: &Arch,
-) -> Result<Vec<(String, Metadata, Vec<Vec<u8>>)>> {
-    if extensions.is_empty() {
-        return Ok(vec![]);
-    }
+) -> Result<Vec<mumi::payload::Payload>> {
+    let mut payloads = Vec::with_capacity(extensions.len());
 
-    let metadata_list = metadata(extensions, arch, None).await?;
-
-    let mut result = Vec::with_capacity(metadata_list.len());
-    for (ext_ref, meta) in extensions.iter().zip(metadata_list) {
-        let mut buffered_data = Vec::with_capacity(meta.files.len());
-
-        pull::files(ext_ref.source(), arch, None, |entry: FileEntry| {
-            let capacity = usize::try_from(entry.size).unwrap_or(usize::MAX);
-            let mut data = Vec::with_capacity(capacity);
-            Read::read_to_end(entry.reader, &mut data)?;
-            buffered_data.push(data);
-
-            Ok(())
+    for ext in extensions {
+        let mut payload = mumi::payload::Payload::new(ext.name());
+        pull::files(ext.source(), arch, None, |entry| {
+            add_entry(&mut payload, entry)
         })
         .await
-        .map_err(|e| {
-            WizardError::BuildError(format!("pull extension {}: {e}", ext_ref.source()))
-        })?;
-
-        let name = meta.name.clone();
-        result.push((name, meta, buffered_data));
+        .map_err(|e| WizardError::BuildError(format!("pull extension {}: {e}", ext.source())))?;
+        payloads.push(payload);
     }
 
-    Ok(result)
+    Ok(payloads)
+}
+
+/// Streams one OCI entry into the payload, mapping it to an image file.
+fn add_entry(
+    payload: &mut mumi::payload::Payload,
+    entry: FileEntry<'_>,
+) -> koci::error::Result<()> {
+    let path = entry.path.clone();
+    let reader = entry.reader;
+    let file = mumi::payload::FileEntry {
+        path: format!("/{path}"),
+        size: entry.size,
+        mode: 0o100_000 | entry.mode,
+    };
+    payload.add_file(file, reader).map_err(|e| {
+        KociError::IoError(std::io::Error::other(format!(
+            "add extension file {path}: {e}"
+        )))
+    })
 }
 
 #[cfg(test)]
