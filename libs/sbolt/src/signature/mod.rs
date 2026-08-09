@@ -22,6 +22,19 @@ use crate::pkcs7;
 pub(super) const SPC_INDIRECT_DATA_OBJID: const_oid::ObjectIdentifier =
     const_oid::ObjectIdentifier::new_unwrap("1.3.6.1.4.1.311.2.1.4");
 pub(super) const PE_ALIGNMENT: usize = 8;
+
+/// Exact size of the `WIN_CERTIFICATE` table appended by [`sign`], aligned to
+/// 8 bytes.
+///
+/// # Errors
+///
+/// Returns an error when the certificate table size cannot be computed.
+pub fn cert_table_size(certificate: &Certificate) -> Result<usize> {
+    let dummy_spc = build_spc_indirect_data(&[0_u8; 32])?;
+
+    pkcs7::compute_authenticode_size(SPC_INDIRECT_DATA_OBJID, &dummy_spc, certificate)
+}
+
 /// Sign a PE file with an Authenticode signature.
 ///
 /// # Errors
@@ -72,9 +85,7 @@ pub fn sign<R: Read, W: Write>(
     let pe_size = usize::try_from(meta.last_section_file_end)
         .map_err(|e| SboltError::PeOperation(format!("PE size exceeds usize: {e}")))?;
 
-    let dummy_spc = build_spc_indirect_data(&[0_u8; 32])?;
-    let cert_size =
-        pkcs7::compute_authenticode_size(SPC_INDIRECT_DATA_OBJID, &dummy_spc, certificate)?;
+    let cert_size = cert_table_size(certificate)?;
 
     let cert_table_va = align::up(pe_size, PE_ALIGNMENT)
         .map_err(|_source| SboltError::PeOperation("cert table VA overflow".into()))?;
@@ -524,6 +535,26 @@ mod tests {
         assert!(
             cert_addr.checked_add(cert_size).expect("cert table end") <= signed_pe.len(),
             "cert table must be within file bounds"
+        );
+    }
+
+    #[test]
+    fn cert_table_size_matches_signed_output_growth() {
+        // ARRANGE
+        let pe = build_signable_pe();
+        let (signer, cert) = signer_and_cert();
+        let table_size = cert_table_size(&cert).expect("cert table size");
+
+        // ACT
+        let mut signed_pe = Vec::new();
+        sign(&mut pe.as_slice(), &signer, &cert, &mut signed_pe).expect("sign should succeed");
+
+        // ASSERT
+        let aligned_unsigned = pe.len().checked_add(7).expect("align bound") & !7;
+        assert_eq!(
+            signed_pe.len().saturating_sub(aligned_unsigned),
+            table_size,
+            "signed size must be align8(unsigned) + cert_table_size"
         );
     }
 
