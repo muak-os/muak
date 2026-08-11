@@ -6,7 +6,6 @@ mod tests {
     use std::io::Read;
 
     use ramune::archive;
-    use ramune::error::RamuneError;
 
     use super::fixtures::{TestEnv, parse_newc_archive};
 
@@ -14,7 +13,7 @@ mod tests {
     fn archive_empty_entries() {
         // ARRANGE / ACT
         let mut buf = Vec::new();
-        archive::cpio(&mut [], &mut buf, |_, _| Ok(())).unwrap();
+        archive::cpio(&mut [], &mut buf).unwrap();
 
         // ASSERT
         assert!(buf.is_empty());
@@ -32,36 +31,28 @@ mod tests {
         let mut extension_file = std::fs::File::open(&extension_path).expect("open extension");
         let profile_len = profile_file.metadata().expect("profile metadata").len();
         let extension_len = extension_file.metadata().expect("extension metadata").len();
-
-        let mut entries = [
-            ramune::Entry {
-                path: "profile.toml".into(),
-                mode: 0o100_644,
-                len: profile_len,
-            },
-            ramune::Entry {
-                path: "extensions/test-ext.erofs".into(),
-                mode: 0o100_644,
-                len: extension_len,
-            },
+        let mut pairs: [(ramune::Entry, &mut dyn Read); 2] = [
+            (
+                ramune::Entry {
+                    path: "profile.toml".into(),
+                    mode: 0o100_644,
+                    len: profile_len,
+                },
+                &mut profile_file,
+            ),
+            (
+                ramune::Entry {
+                    path: "extensions/test-ext.erofs".into(),
+                    mode: 0o100_644,
+                    len: extension_len,
+                },
+                &mut extension_file,
+            ),
         ];
 
         // ACT
         let mut buf = Vec::new();
-        archive::cpio(&mut entries, &mut buf, |entry, w| {
-            let reader: &mut dyn Read = match entry.path.as_str() {
-                "profile.toml" => &mut profile_file,
-                "extensions/test-ext.erofs" => &mut extension_file,
-                other => panic!("unexpected entry: {other}"),
-            };
-            let mut limited = reader.take(entry.len);
-            std::io::copy(&mut limited, w).map_err(|e| RamuneError::WriteError {
-                file: String::new(),
-                source: e,
-            })?;
-            Ok(())
-        })
-        .expect("write_cpio should succeed");
+        archive::cpio(&mut pairs, &mut buf).expect("write_cpio should succeed");
 
         // ASSERT
         let parsed = parse_newc_archive(&buf);

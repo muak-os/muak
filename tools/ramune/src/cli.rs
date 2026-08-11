@@ -1,17 +1,15 @@
 //! Command-line interface for ramune.
 
 use core::str::FromStr;
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::Read as _;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser;
 
 use crate::archive;
-use crate::error::RamuneError;
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -127,7 +125,7 @@ fn run_create(files: &[FileEntry], output: &Path, compression_level: i32) -> Res
         bail!("At least one --file is required");
     }
 
-    let mut readers: HashMap<String, File> = HashMap::new();
+    let mut open_files: Vec<File> = Vec::with_capacity(entries.len());
     let mut archive_entries = Vec::with_capacity(entries.len());
 
     for entry in entries {
@@ -143,7 +141,7 @@ fn run_create(files: &[FileEntry], output: &Path, compression_level: i32) -> Res
             .with_context(|| format!("Failed to get metadata for '{}'", entry.name))?
             .len();
 
-        readers.insert(entry.name.clone(), file);
+        open_files.push(file);
         archive_entries.push(crate::Entry {
             path: entry.name.clone(),
             mode: entry.mode,
@@ -151,28 +149,20 @@ fn run_create(files: &[FileEntry], output: &Path, compression_level: i32) -> Res
         });
     }
 
+    let mut pairs: Vec<(crate::Entry, &mut dyn Read)> = archive_entries
+        .into_iter()
+        .zip(open_files.iter_mut())
+        .map(|(entry, file)| {
+            let reader: &mut dyn Read = file;
+            (entry, reader)
+        })
+        .collect();
+
     let mut output_file = File::create(output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
 
-    archive::compressed(
-        &mut archive_entries,
-        &mut output_file,
-        compression_level,
-        |entry, w| {
-            let reader = readers.get_mut(&entry.path).ok_or_else(|| {
-                RamuneError::CpioError(format!("missing reader for '{}'", entry.path))
-            })?;
-
-            let mut limited = reader.take(entry.len);
-            std::io::copy(&mut limited, w).map_err(|source| RamuneError::WriteError {
-                file: entry.path.clone(),
-                source,
-            })?;
-
-            Ok(())
-        },
-    )
-    .context("Failed to create initramfs")?;
+    archive::compressed(&mut pairs, &mut output_file, compression_level)
+        .context("Failed to create initramfs")?;
 
     let size = std::fs::metadata(output)
         .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
@@ -205,31 +195,31 @@ mod tests {
     #[test]
     fn from_str_missing_equals() {
         // ACT / ASSERT
-        assert!("foo".parse::<FileEntry>().is_err());
+        "foo".parse::<FileEntry>().unwrap_err();
     }
 
     #[test]
     fn from_str_empty_name() {
         // ACT / ASSERT
-        assert!("=/path:644".parse::<FileEntry>().is_err());
+        "=/path:644".parse::<FileEntry>().unwrap_err();
     }
 
     #[test]
     fn from_str_empty_path() {
         // ACT / ASSERT
-        assert!("name=:644".parse::<FileEntry>().is_err());
+        "name=:644".parse::<FileEntry>().unwrap_err();
     }
 
     #[test]
     fn from_str_missing_mode() {
         // ACT / ASSERT
-        assert!("name=/path".parse::<FileEntry>().is_err());
+        "name=/path".parse::<FileEntry>().unwrap_err();
     }
 
     #[test]
     fn from_str_invalid_mode() {
         // ACT / ASSERT
-        assert!("name=/path:abc".parse::<FileEntry>().is_err());
+        "name=/path:abc".parse::<FileEntry>().unwrap_err();
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! CPIO archive writing with optional zstd compression.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::compress;
@@ -17,38 +17,37 @@ pub struct Entry {
     pub len: u64,
 }
 
-/// Writes a raw CPIO archive. Entries are sorted by path.
+/// Writes a raw CPIO archive from `(Entry, reader)` pairs. Pairs are sorted
+/// by path and each entry's bytes are streamed from its paired reader.
 ///
 /// # Errors
 ///
 /// Returns an error when validation fails, an entry exceeds CPIO limits,
-/// or the data callback fails.
-pub fn cpio<W: Write, F: FnMut(&Entry, &mut W) -> Result<()>>(
-    entries: &mut [Entry],
-    writer: &mut W,
-    mut data: F,
-) -> Result<u64> {
-    entries.sort_unstable_by(|left, right| left.path.cmp(&right.path));
-    validate_entries(entries)?;
+/// or a paired reader ends before `entry.len` bytes.
+pub fn cpio<W: Write>(pairs: &mut [(Entry, &mut dyn Read)], writer: &mut W) -> Result<u64> {
+    pairs.sort_unstable_by(|left, right| left.0.path.cmp(&right.0.path));
+    validate_entries(pairs.iter().map(|pair| &pair.0))?;
 
-    if entries.is_empty() {
+    if pairs.is_empty() {
         return Ok(0);
     }
 
-    let total = entries
+    let total = pairs
         .iter()
-        .map(|e| cpio::entry_size(&e.path, e.len))
+        .map(|pair| cpio::entry_size(&pair.0.path, pair.0.len))
         .sum::<u64>()
         .saturating_add(cpio::trailer_size());
 
     let mut ino = 1_u32;
 
-    for entry in entries.iter() {
+    for pair in pairs.iter_mut() {
+        let entry = &pair.0;
+        let reader = &mut pair.1;
         let size = u32::try_from(entry.len)
             .map_err(|_err| RamuneError::CpioError("file exceeds CPIO limits".to_owned()))?;
 
-        cpio::write_entry(writer, ino, &entry.path, entry.mode, size, |w| {
-            data(entry, w)
+        cpio::write_entry(writer, ino, &entry.path, entry.mode, size, |out| {
+            copy_entry(&entry.path, reader, entry.len, out)
         })?;
 
         ino = ino
@@ -61,21 +60,20 @@ pub fn cpio<W: Write, F: FnMut(&Entry, &mut W) -> Result<()>>(
     Ok(total)
 }
 
-/// Writes a zstd-compressed CPIO archive. Wraps `writer` in a zstd
-/// encoder, calls [`cpio`], then finishes the encoder.
+/// Writes a zstd-compressed CPIO archive from `(Entry, reader)` pairs. Wraps
+/// `writer` in a zstd encoder, calls [`cpio`], then finishes the encoder.
 ///
 /// # Errors
 ///
 /// Returns an error when validation fails, an entry exceeds CPIO limits,
-/// the data callback fails or zstd compression fails.
-pub fn compressed<W: Write, F: FnMut(&Entry, &mut zstd::Encoder<'static, &mut W>) -> Result<()>>(
-    entries: &mut [Entry],
+/// a paired reader ends early, or zstd compression fails.
+pub fn compressed<W: Write>(
+    pairs: &mut [(Entry, &mut dyn Read)],
     writer: &mut W,
     compression_level: i32,
-    mut data: F,
 ) -> Result<()> {
     let mut encoder = compress::encoder(writer, compression_level)?;
-    cpio(entries, &mut encoder, &mut data)?;
+    cpio(pairs, &mut encoder)?;
     encoder.finish().map_err(RamuneError::CompressionError)?;
 
     Ok(())
@@ -105,7 +103,22 @@ pub fn size(entries: &[Entry]) -> u64 {
         .saturating_add(cpio::trailer_size())
 }
 
-fn validate_entries(entries: &[Entry]) -> Result<()> {
+fn copy_entry(path: &str, reader: &mut dyn Read, len: u64, out: &mut dyn Write) -> Result<()> {
+    let copied =
+        std::io::copy(&mut reader.take(len), out).map_err(|source| RamuneError::WriteError {
+            file: path.to_owned(),
+            source,
+        })?;
+    if copied != len {
+        return Err(RamuneError::CpioError(format!(
+            "entry stream ended early: copied {copied} of {len} bytes"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_entries<'a>(entries: impl Iterator<Item = &'a Entry>) -> Result<()> {
     let mut prev: Option<&str> = None;
 
     for entry in entries {
@@ -169,8 +182,6 @@ fn validate_no_duplicate(entry: &Entry, prev: Option<&str>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read as _;
-
     use super::*;
 
     fn parse_newc_archive(bytes: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
@@ -224,12 +235,9 @@ mod tests {
 
     #[test]
     fn empty_entries_returns_zero() {
-        // ARRANGE
-        let mut entries: [Entry; 0] = [];
+        // ARRANGE / ACT
         let mut buf = Vec::new();
-
-        // ACT
-        let written = cpio(&mut entries, &mut buf, |_, _| Ok(())).expect("write");
+        let written = cpio(&mut [], &mut buf).expect("write");
 
         // ASSERT
         assert_eq!(written, 0);
@@ -239,35 +247,30 @@ mod tests {
     #[test]
     fn writes_entries_in_sorted_order() {
         // ARRANGE
-        let mut entries = [
-            Entry {
-                path: "profile.toml".into(),
-                mode: 0o100_644,
-                len: 7,
-            },
-            Entry {
-                path: "extensions/test.erofs".into(),
-                mode: 0o100_644,
-                len: 9,
-            },
+        let mut profile: &[u8] = b"profile";
+        let mut extension: &[u8] = b"extension";
+        let mut pairs: [(Entry, &mut dyn Read); 2] = [
+            (
+                Entry {
+                    path: "profile.toml".into(),
+                    mode: 0o100_644,
+                    len: 7,
+                },
+                &mut profile,
+            ),
+            (
+                Entry {
+                    path: "extensions/test.erofs".into(),
+                    mode: 0o100_644,
+                    len: 9,
+                },
+                &mut extension,
+            ),
         ];
 
         // ACT
         let mut buf = Vec::new();
-        cpio(&mut entries, &mut buf, |entry, w| {
-            let data: &[u8] = match entry.path.as_str() {
-                "profile.toml" => b"profile",
-                "extensions/test.erofs" => b"extension",
-                other => panic!("unknown entry: {other}"),
-            };
-            let mut limited = std::io::Cursor::new(data).take(entry.len);
-            std::io::copy(&mut limited, w).map_err(|e| RamuneError::WriteError {
-                file: String::new(),
-                source: e,
-            })?;
-            Ok(())
-        })
-        .expect("write_cpio");
+        cpio(&mut pairs, &mut buf).expect("write_cpio");
 
         // ASSERT
         let parsed = parse_newc_archive(&buf);
@@ -282,15 +285,19 @@ mod tests {
     #[test]
     fn rejects_empty_archive_path() {
         // ARRANGE
-        let mut entries = [Entry {
-            path: String::new(),
-            mode: 0o100_644,
-            len: 4,
-        }];
+        let mut data: &[u8] = &[];
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(
+            Entry {
+                path: String::new(),
+                mode: 0o100_644,
+                len: 4,
+            },
+            &mut data,
+        )];
         let mut buf = Vec::new();
 
         // ACT
-        let result = cpio(&mut entries, &mut buf, |_, _| Ok(()));
+        let result = cpio(&mut pairs, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not be empty")));
@@ -299,15 +306,19 @@ mod tests {
     #[test]
     fn rejects_absolute_archive_path() {
         // ARRANGE
-        let mut entries = [Entry {
-            path: "/absolute".into(),
-            mode: 0o100_644,
-            len: 4,
-        }];
+        let mut data: &[u8] = &[];
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(
+            Entry {
+                path: "/absolute".into(),
+                mode: 0o100_644,
+                len: 4,
+            },
+            &mut data,
+        )];
         let mut buf = Vec::new();
 
         // ACT
-        let result = cpio(&mut entries, &mut buf, |_, _| Ok(()));
+        let result = cpio(&mut pairs, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not be absolute")));
@@ -316,15 +327,19 @@ mod tests {
     #[test]
     fn rejects_parent_segments() {
         // ARRANGE
-        let mut entries = [Entry {
-            path: "foo/../bar".into(),
-            mode: 0o100_644,
-            len: 4,
-        }];
+        let mut data: &[u8] = &[];
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(
+            Entry {
+                path: "foo/../bar".into(),
+                mode: 0o100_644,
+                len: 4,
+            },
+            &mut data,
+        )];
         let mut buf = Vec::new();
 
         // ACT
-        let result = cpio(&mut entries, &mut buf, |_, _| Ok(()));
+        let result = cpio(&mut pairs, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("must not contain ..")));
@@ -333,22 +348,30 @@ mod tests {
     #[test]
     fn rejects_duplicate_paths() {
         // ARRANGE
-        let mut entries = [
-            Entry {
-                path: "dup".into(),
-                mode: 0o100_644,
-                len: 5,
-            },
-            Entry {
-                path: "dup".into(),
-                mode: 0o100_644,
-                len: 6,
-            },
+        let mut first: &[u8] = &[];
+        let mut second: &[u8] = &[];
+        let mut pairs: [(Entry, &mut dyn Read); 2] = [
+            (
+                Entry {
+                    path: "dup".into(),
+                    mode: 0o100_644,
+                    len: 5,
+                },
+                &mut first,
+            ),
+            (
+                Entry {
+                    path: "dup".into(),
+                    mode: 0o100_644,
+                    len: 6,
+                },
+                &mut second,
+            ),
         ];
         let mut buf = Vec::new();
 
         // ACT
-        let result = cpio(&mut entries, &mut buf, |_, _| Ok(()));
+        let result = cpio(&mut pairs, &mut buf);
 
         // ASSERT
         assert!(result.is_err_and(|e| e.to_string().contains("duplicate")));
@@ -357,25 +380,42 @@ mod tests {
     #[test]
     fn write_cpio_returns_correct_size() {
         // ARRANGE
-        let mut entries = [Entry {
+        let entry = Entry {
             path: "a".into(),
             mode: 0o100_644,
             len: 5,
-        }];
-        let mut buf = Vec::new();
+        };
+        let expected = size(core::slice::from_ref(&entry));
+        let mut data: &[u8] = b"hello";
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(entry, &mut data)];
 
         // ACT
-        let written = cpio(&mut entries, &mut buf, |_, w| {
-            w.write_all(b"hello").map_err(|e| RamuneError::WriteError {
-                file: String::new(),
-                source: e,
-            })
-        })
-        .expect("write_cpio");
+        let mut buf = Vec::new();
+        let written = cpio(&mut pairs, &mut buf).expect("write_cpio");
 
         // ASSERT
         assert_eq!(u64::try_from(buf.len()).unwrap_or(0), written);
-        assert_eq!(written, size(&entries));
+        assert_eq!(written, expected);
+    }
+
+    #[test]
+    fn rejects_short_entry_stream() {
+        // ARRANGE
+        let mut data: &[u8] = b"hi";
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(
+            Entry {
+                path: "a".into(),
+                mode: 0o100_644,
+                len: 5,
+            },
+            &mut data,
+        )];
+
+        // ACT
+        let result = cpio(&mut pairs, &mut Vec::new());
+
+        // ASSERT
+        assert!(result.is_err_and(|e| e.to_string().contains("ended early")));
     }
 
     #[test]
@@ -390,21 +430,19 @@ mod tests {
     #[test]
     fn compressed_produces_valid_archive() {
         // ARRANGE
-        let mut entries = [Entry {
-            path: "a".into(),
-            mode: 0o100_644,
-            len: 5,
-        }];
-        let mut buf = Vec::new();
+        let mut data: &[u8] = b"hello";
+        let mut pairs: [(Entry, &mut dyn Read); 1] = [(
+            Entry {
+                path: "a".into(),
+                mode: 0o100_644,
+                len: 5,
+            },
+            &mut data,
+        )];
 
         // ACT
-        compressed(&mut entries, &mut buf, 3, |_, w| {
-            w.write_all(b"hello").map_err(|e| RamuneError::WriteError {
-                file: String::new(),
-                source: e,
-            })
-        })
-        .expect("compressed");
+        let mut buf = Vec::new();
+        compressed(&mut pairs, &mut buf, 3).expect("compressed");
 
         // ASSERT
         let decoded = zstd::decode_all(buf.as_slice()).expect("decode");
