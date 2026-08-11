@@ -1,5 +1,5 @@
 //! Generic image payload packaging.
-//! TODO: Remove buffering
+//! TODO: Remove buffering.
 
 use std::io::{self, Read, Write};
 
