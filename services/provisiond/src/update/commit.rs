@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use sbolt::efi::{enroll, pk};
 use sbolt::keys::storage::load_hierarchy;
-use wizard::build::SectionInfo;
+use wizard::SectionInfo;
 use zeroize::Zeroizing;
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};

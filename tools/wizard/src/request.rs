@@ -8,8 +8,11 @@ use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
-use crate::build;
 use crate::error::{Result, WizardError};
+use crate::pipeline::context::BuildContext;
+use crate::pipeline::execute::execute;
+use crate::pipeline::plan::plan;
+use crate::pipeline::prepare::TargetWriters;
 use crate::profile::Profile;
 use crate::resolve;
 
@@ -173,10 +176,25 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when resolution, pulling, building, or signing fails.
-    pub async fn build(self, profile: &Profile) -> Result<build::Metadata> {
-        let plan = resolve::plan(&self, profile)?;
+    pub async fn build(self, profile: &Profile) -> Result<crate::Metadata> {
+        if self.targets.is_empty() {
+            return Err(WizardError::BuildError(
+                "at least one artifact must be requested".to_owned(),
+            ));
+        }
 
-        build::execute(&plan, profile, self.signing, self.targets).await
+        let resolved = resolve::plan(&self, profile)?;
+        let profile_bytes = profile.canonical_bytes()?;
+        let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
+        let graph = plan(&resolved, &artifacts).await?;
+        let context = BuildContext {
+            plan: &resolved,
+            profile: &profile_bytes,
+            signing: self.signing,
+        };
+        let mut targets = TargetWriters::new(self.targets);
+
+        execute(graph, &context, &mut targets).await
     }
 }
 

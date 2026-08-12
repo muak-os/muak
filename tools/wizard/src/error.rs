@@ -17,9 +17,9 @@ pub enum WizardError {
     #[error("source resolution: {0}")]
     SourceResolution(String),
 
-    /// Installer image is missing a required file.
-    #[error("installer is missing required file: {0}")]
-    MissingInstallerFile(String),
+    /// I/O error during build.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 
     /// Build process failed.
     #[error("build failure: {0}")]

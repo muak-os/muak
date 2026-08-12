@@ -15,6 +15,41 @@ use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
 use crate::request::{Platform, Request};
 use crate::resolve;
 
+/// Runs the CLI with the given arguments.
+///
+/// # Errors
+///
+/// Returns an error when argument parsing or command execution fails.
+pub async fn run_from<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let args = Cli::parse_from(args);
+    run_command(args.command).await
+}
+
+/// Runs the CLI with the given arguments and returns an exit code.
+pub async fn run_with<I, T>(args: I) -> i32
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    match run_from(args).await {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            1
+        }
+    }
+}
+
+/// Runs the CLI with `std::env::args_os()` and returns an exit code.
+#[must_use]
+pub async fn run() -> i32 {
+    run_with(std::env::args_os()).await
+}
+
 struct BuildArgs {
     profile: Option<PathBuf>,
     artifacts: Vec<String>,
@@ -135,41 +170,6 @@ fn parse_artifact(input: &str) -> Result<Artifact> {
         "overlays" => Ok(Artifact::Overlays),
         _ => Err(anyhow::anyhow!("unknown artifact: {input}")),
     }
-}
-
-/// Runs the CLI with the given arguments.
-///
-/// # Errors
-///
-/// Returns an error when argument parsing or command execution fails.
-pub async fn run_from<I, T>(args: I) -> Result<()>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    let args = Cli::parse_from(args);
-    run_command(args.command).await
-}
-
-/// Runs the CLI with the given arguments and returns an exit code.
-pub async fn run_with<I, T>(args: I) -> i32
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    match run_from(args).await {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("Error: {error:?}");
-            1
-        }
-    }
-}
-
-/// Runs the CLI with `std::env::args_os()` and returns an exit code.
-#[must_use]
-pub async fn run() -> i32 {
-    run_with(std::env::args_os()).await
 }
 
 async fn run_command(command: Command) -> Result<()> {

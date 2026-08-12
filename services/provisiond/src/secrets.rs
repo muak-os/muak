@@ -2,7 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use luks2::Tpm2Token;
-use wizard::build::SectionInfo;
+use wizard::SectionInfo;
 use zeroize::Zeroizing;
 
 /// Result of sealing a LUKS key against a UKI.

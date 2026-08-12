@@ -31,23 +31,6 @@ impl fmt::Display for Artifact {
 }
 
 impl Artifact {
-    /// Number of artifact variants. Update when variants are added.
-    pub(crate) const COUNT: usize = 7;
-
-    /// Returns a zero-based index for use as an array index.
-    #[must_use]
-    pub(crate) fn to_index(self) -> usize {
-        match self {
-            Self::Kernel => 0,
-            Self::Initramfs => 1,
-            Self::Cmdline => 2,
-            Self::Uki => 3,
-            Self::Iso => 4,
-            Self::Raw => 5,
-            Self::Overlays => 6,
-        }
-    }
-
     /// Returns the canonical on-disk filename or directory for this artifact.
     #[must_use]
     pub fn filename(self) -> &'static str {
@@ -70,6 +53,23 @@ impl Artifact {
             Self::Iso => "application/x-iso9660-image",
             Self::Kernel | Self::Initramfs | Self::Uki | Self::Raw => "application/octet-stream",
             Self::Overlays => "application/x-tar",
+        }
+    }
+
+    /// Number of artifact variants. Update when variants are added.
+    pub(crate) const COUNT: usize = 7;
+
+    /// Returns a zero-based index for use as an array index.
+    #[must_use]
+    pub(crate) fn to_index(self) -> usize {
+        match self {
+            Self::Kernel => 0,
+            Self::Initramfs => 1,
+            Self::Cmdline => 2,
+            Self::Uki => 3,
+            Self::Iso => 4,
+            Self::Raw => 5,
+            Self::Overlays => 6,
         }
     }
 }

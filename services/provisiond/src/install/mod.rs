@@ -179,7 +179,7 @@ async fn build_and_deploy_efi(
     tpm_available: bool,
     signing: Option<&SigningPair<'_>>,
     progress: &mpsc::Sender<InstallProgress>,
-) -> Result<Vec<wizard::build::SectionInfo>> {
+) -> Result<Vec<wizard::SectionInfo>> {
     send_progress(progress, "Building and deploying EFI").await;
 
     let install_profile = derive_install_profile(extensions)?;
