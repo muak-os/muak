@@ -9,6 +9,7 @@ use koci::pull::entries::MetadataEntry;
 
 use crate::error::{Result, WizardError};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{NodePorts, OutputSink};
@@ -17,6 +18,11 @@ pub(crate) const STUB: PortId = PortId(0);
 pub(crate) const CMDLINE: PortId = PortId(1);
 pub(crate) const KERNEL: PortId = PortId(2);
 pub(crate) const INITRAMFS: PortId = PortId(3);
+
+/// Source node meaning no dependencies.
+pub(crate) fn dependencies() -> Vec<Dependency> {
+    Vec::new()
+}
 
 /// Exact tar-entry sizes via the existing koci metadata callback.
 pub(crate) async fn preflight(

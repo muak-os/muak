@@ -4,7 +4,7 @@ use std::io::Write;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::pipeline::graph::{Graph, NodeKind, PortBinding, Stream, StreamId};
+use crate::pipeline::graph::{Graph, NodeKind, PortBinding, StreamId};
 use crate::pipeline::preflight::PreflightedGraph;
 use crate::pipeline::runtime::{
     Endpoint, InputStream, NodePorts, OutputSink, OutputStream, PreparedNode,
@@ -36,11 +36,6 @@ impl<'a> TargetWriters<'a> {
 }
 
 /// Binds every logical node generically into a `PreparedNode` value.
-///
-/// `ArtifactSink` nodes are fused into their producing node and never bound.
-/// The preflight data lists are returned alongside so the executor can keep
-/// them alive for the scoped threads.
-/// The bound nodes plus the preflight data lists the executor keeps alive.
 type BoundGraph<'a> = (
     Vec<PreparedNode<'a>>,
     Vec<mumi::payload::Planned>,
@@ -56,7 +51,7 @@ pub(crate) fn bind_nodes<'a>(
         planned_payloads,
         overlay_files,
     } = preflighted;
-    let mut ports = PortTable::allocate(&graph)?;
+    let mut ports = allocate(&graph)?;
     let mut nodes = Vec::with_capacity(graph.nodes().len());
 
     for node in graph.nodes() {
@@ -76,10 +71,10 @@ pub(crate) fn bind_nodes<'a>(
             let sink = fuse_or_pipe(&graph, binding, &mut ports, targets)?;
             endpoints.push((binding.port, Endpoint::Output(sink)));
         }
-        let target = media_target(&node.kind, targets)?;
+        let target = media_target(node.kind, targets)?;
 
         nodes.push(PreparedNode {
-            kind: node.kind.clone(),
+            kind: node.kind,
             ports: NodePorts { endpoints },
             target,
         });
@@ -101,55 +96,44 @@ fn fill_slots<'a>(
     }
 }
 
-fn allocate_endpoint(
-    inputs: &mut Vec<Option<InputStream>>,
-    outputs: &mut Vec<Option<OutputStream>>,
-    graph: &Graph,
-    stream: &Stream,
-) -> Result<()> {
-    if is_fused(graph, stream.id) {
-        inputs.push(None);
-        outputs.push(None);
-    } else {
-        let (reader, writer) = Pipe::new("stream pipe")?.split();
-        inputs.push(Some(InputStream {
-            size: stream.size,
-            reader,
-        }));
-        outputs.push(Some(OutputStream {
-            size: stream.size,
-            writer,
-        }));
-    }
-
-    Ok(())
-}
-
 /// Construction-time ownership ledger for pipe endpoints.
 struct PortTable {
     inputs: Vec<Option<InputStream>>,
     outputs: Vec<Option<OutputStream>>,
 }
 
-impl PortTable {
-    /// Creates one pipe per non-fused stream.
-    fn allocate(graph: &Graph) -> Result<Self> {
-        let mut inputs = Vec::with_capacity(graph.streams().len());
-        let mut outputs = Vec::with_capacity(graph.streams().len());
-        for stream in graph.streams() {
-            allocate_endpoint(&mut inputs, &mut outputs, graph, stream)?;
+/// Creates one pipe per non-fused stream.
+fn allocate(graph: &Graph) -> Result<PortTable> {
+    let mut inputs = Vec::with_capacity(graph.streams().len());
+    let mut outputs = Vec::with_capacity(graph.streams().len());
+    for stream in graph.streams() {
+        if is_fused(graph, stream.id) {
+            inputs.push(None);
+            outputs.push(None);
+        } else {
+            let (reader, writer) = Pipe::new("stream pipe")?.split();
+            inputs.push(Some(InputStream {
+                size: stream.size,
+                reader,
+            }));
+            outputs.push(Some(OutputStream {
+                size: stream.size,
+                writer,
+            }));
         }
-
-        Ok(Self { inputs, outputs })
     }
 
+    Ok(PortTable { inputs, outputs })
+}
+
+impl PortTable {
     /// Consumes the input endpoint of a stream, once.
     fn take_input(&mut self, stream: StreamId) -> Result<InputStream> {
         self.inputs
             .get_mut(stream.0)
             .and_then(Option::take)
             .ok_or_else(|| {
-                WizardError::BuildError(format!("input endpoint for stream {stream:?} unavailable"))
+                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
             })
     }
 
@@ -159,9 +143,7 @@ impl PortTable {
             .get_mut(stream.0)
             .and_then(Option::take)
             .ok_or_else(|| {
-                WizardError::BuildError(format!(
-                    "output endpoint for stream {stream:?} unavailable"
-                ))
+                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
             })
     }
 
@@ -169,12 +151,12 @@ impl PortTable {
     fn assert_empty(self) -> Result<()> {
         if let Some(index) = self.inputs.iter().position(Option::is_some) {
             return Err(WizardError::BuildError(format!(
-                "unconsumed input endpoint for stream {index}"
+                "unconsumed endpoint for stream {index}"
             )));
         }
         if let Some(index) = self.outputs.iter().position(Option::is_some) {
             return Err(WizardError::BuildError(format!(
-                "unconsumed output endpoint for stream {index}"
+                "unconsumed endpoint for stream {index}"
             )));
         }
 
@@ -184,28 +166,26 @@ impl PortTable {
 
 /// True when every consumer of the stream is an `ArtifactSink` node.
 fn is_fused(graph: &Graph, stream: StreamId) -> bool {
-    let Ok(stream) = graph.stream(stream) else {
-        return false;
-    };
-
-    stream.consumers.iter().all(|consumer| {
-        graph
-            .node(*consumer)
-            .is_ok_and(|node| matches!(&node.kind, NodeKind::ArtifactSink { .. }))
+    graph.stream(stream).is_ok_and(|stream| {
+        stream.consumers.iter().all(|consumer| {
+            graph
+                .node(*consumer)
+                .is_ok_and(|node| matches!(&node.kind, NodeKind::ArtifactSink { .. }))
+        })
     })
 }
 
 /// The user writer for a media node, if it is an Iso/Raw node.
 fn media_target<'a>(
-    kind: &NodeKind,
+    kind: NodeKind,
     targets: &mut TargetWriters<'a>,
 ) -> Result<Option<&'a mut (dyn Write + Send)>> {
-    if *kind == NodeKind::Iso {
+    if kind == NodeKind::Iso {
         targets
             .take(Artifact::Iso)
             .map(Some)
             .ok_or_else(|| WizardError::BuildError("missing target writer for iso".to_owned()))
-    } else if *kind == NodeKind::Raw {
+    } else if kind == NodeKind::Raw {
         targets
             .take(Artifact::Raw)
             .map(Some)
@@ -232,7 +212,7 @@ fn fuse_or_pipe<'a>(
         .consumers
         .first()
         .ok_or_else(|| WizardError::BuildError("fused stream has no consumer".to_owned()))?;
-    let NodeKind::ArtifactSink { artifact } = graph.node(consumer)?.kind.clone() else {
+    let NodeKind::ArtifactSink { artifact } = graph.node(consumer)?.kind else {
         return Err(WizardError::BuildError(
             "fused stream sink mismatch".to_owned(),
         ));
@@ -271,7 +251,7 @@ mod tests {
         let graph = fused_graph();
 
         // ACT
-        let table = PortTable::allocate(&graph).expect("allocate");
+        let table = allocate(&graph).expect("allocate");
 
         // ASSERT
         let stream = graph.streams().iter().next().expect("stream");

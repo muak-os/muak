@@ -2,6 +2,7 @@
 //! preparation, and execution of the logical build graph.
 
 pub(crate) mod context;
+pub(crate) mod dependency;
 pub(crate) mod execute;
 pub(crate) mod graph;
 pub(crate) mod normalize;

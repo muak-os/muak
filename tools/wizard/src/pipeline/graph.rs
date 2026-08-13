@@ -14,7 +14,7 @@ pub(crate) struct StreamId(pub(crate) usize);
 pub(crate) struct PortId(pub(crate) usize);
 
 /// What a node does. Concrete enum dispatch; no trait objects.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum NodeKind {
     InstallerPull,
     ExtensionPayloads,

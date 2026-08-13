@@ -5,9 +5,11 @@ use std::io::Read;
 use ramune::Entry;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::{extensions, installer};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
 use crate::pipeline::runtime::{DynWriter, Endpoint, NodePorts};
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
@@ -15,6 +17,23 @@ pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
 pub(crate) const CONCAT_BASE: PortId = PortId(0);
 pub(crate) const CONCAT_TAIL: PortId = PortId(1);
 pub(crate) const CONCAT_OUTPUT: PortId = PortId(2);
+
+/// One extension payload stream per extension, in canonical source order.
+pub(crate) fn tail_dependencies() -> Vec<Dependency> {
+    vec![Dependency::many(
+        NodeKind::ExtensionPayloads,
+        extensions::FIRST_OUTPUT,
+        TAIL_INPUTS_FIRST,
+    )]
+}
+
+/// The base installer initramfs plus the CPIO tail.
+pub(crate) fn concat_dependencies() -> Vec<Dependency> {
+    vec![
+        Dependency::fixed(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_BASE),
+        Dependency::fixed(NodeKind::InitramfsTail, TAIL_OUTPUT, CONCAT_TAIL),
+    ]
+}
 
 /// Exact CPIO tail size.
 pub(crate) fn preflight_tail(

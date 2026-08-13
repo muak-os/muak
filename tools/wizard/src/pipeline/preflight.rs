@@ -27,7 +27,7 @@ pub(crate) async fn preflight(
     let mut overlay_files: Vec<(String, u64)> = Vec::new();
 
     for id in graph.topological_order() {
-        match graph.node(id)?.kind.clone() {
+        match graph.node(id)?.kind {
             NodeKind::InstallerPull => nodes::installer::preflight(&mut graph, id, context).await?,
             NodeKind::ExtensionPayloads => {
                 planned_payloads = nodes::extensions::preflight(&mut graph, id, context).await?;

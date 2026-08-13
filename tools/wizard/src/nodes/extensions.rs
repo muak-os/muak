@@ -2,12 +2,19 @@
 
 use crate::error::{Result, WizardError};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{DynWriter, Endpoint, NodePorts};
+use crate::resolve::BuildPlan;
 use crate::source::extension::pull;
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
+
+/// Source node meaning no dependencies.
+pub(crate) fn dependencies() -> Vec<Dependency> {
+    Vec::new()
+}
 
 /// Pulls and plans the extension payloads exactly once, returning the
 /// `Planned` list in canonical source order for the other nodes.
@@ -60,6 +67,11 @@ pub(crate) fn run(
     }
 
     Ok(NodeReport::Empty)
+}
+
+/// One payload stream per extension, in canonical source order.
+pub(crate) fn output_count(build: &BuildPlan) -> usize {
+    build.extensions().len()
 }
 
 fn config() -> mumi::image::BuildConfig {

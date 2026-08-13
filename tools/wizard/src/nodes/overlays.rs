@@ -8,14 +8,30 @@ use tar::{Builder, Header};
 
 use crate::error::{Result, WizardError};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts, OutputSink};
+use crate::resolve::BuildPlan;
 use crate::source::overlay::Overlay;
 
 pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 pub(crate) const TAR_OUTPUT: PortId = PortId(0);
 pub(crate) const TAR_INPUTS_FIRST: PortId = PortId(1);
+
+/// Source node meaning no dependencies.
+pub(crate) fn pull_dependencies() -> Vec<Dependency> {
+    Vec::new()
+}
+
+/// One stream per overlay file, in canonical (path-sorted) order.
+pub(crate) fn tar_dependencies() -> Vec<Dependency> {
+    vec![Dependency::many(
+        NodeKind::OverlayPull,
+        PULL_OUTPUTS_FIRST,
+        TAR_INPUTS_FIRST,
+    )]
+}
 
 /// Stripped overlay file paths plus sizes, path-sorted, with the same
 /// `{name}/` prefix stripping the runtime pull applies.
@@ -148,6 +164,19 @@ pub(crate) fn run_tar(
         .map_err(|e| WizardError::BuildError(format!("finish overlay tar: {e}")))?;
 
     Ok(NodeReport::Empty)
+}
+
+/// Number of overlay files under the `{name}/` prefix.
+///
+/// # Errors
+///
+/// Returns an error when the overlay file listing cannot be fetched.
+pub(crate) async fn output_count(build: &BuildPlan) -> Result<usize> {
+    let overlay = build
+        .overlay()
+        .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
+
+    Ok(listing(overlay).await?.len())
 }
 
 fn route_entry(

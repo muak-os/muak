@@ -1,8 +1,12 @@
 //! Builds the initial logical graph for a request.
 
+use std::collections::HashMap;
+
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, initramfs, installer, media, overlays, uki};
+use crate::pipeline::dependency::{
+    Dependency, DependencyKind, node_dependencies, output_count, validate,
+};
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
 use crate::resolve::BuildPlan;
@@ -11,186 +15,189 @@ use crate::resolve::BuildPlan;
 ///
 /// # Errors
 ///
-/// Returns an error when the overlay file listing cannot be fetched.
+/// Returns an error when a dependency is cyclic, a dynamic count cannot be
+/// fetched, or the built graph fails validation.
 pub(crate) async fn plan(build: &BuildPlan, artifacts: &[Artifact]) -> Result<Graph> {
-    let wants: Vec<Artifact> = artifacts.to_vec();
-    let is_wanted = |artifact: Artifact| wants.contains(&artifact);
-
-    let needs_initramfs = is_wanted(Artifact::Initramfs)
-        || is_wanted(Artifact::Uki)
-        || is_wanted(Artifact::Iso)
-        || is_wanted(Artifact::Raw);
-    let needs_uki =
-        is_wanted(Artifact::Uki) || is_wanted(Artifact::Iso) || is_wanted(Artifact::Raw);
-    let needs_media = is_wanted(Artifact::Iso) || is_wanted(Artifact::Raw);
-    let needs_overlays = build.overlay().is_some() && is_wanted(Artifact::Overlays);
-
-    let mut graph = Graph::new();
-    let installer_node = graph.add_node(NodeKind::InstallerPull);
-
-    let mut stub = None;
-    let mut cmdline = None;
-    let mut kernel = None;
-
-    if needs_uki {
-        stub = Some(graph.add_output(installer_node, installer::STUB)?);
+    let mut planner = Planner::new(build);
+    for kind in seeds(build, artifacts) {
+        planner.ensure(kind)?;
     }
-    if is_wanted(Artifact::Cmdline) || needs_uki {
-        let stream = graph.add_output(installer_node, installer::CMDLINE)?;
-        if is_wanted(Artifact::Cmdline) {
-            let cmdline_sink = sink(&mut graph, Artifact::Cmdline);
-            graph.bind_input(cmdline_sink, PortId(0), stream)?;
-        }
-        cmdline = Some(stream);
-    }
-    if is_wanted(Artifact::Kernel) || needs_uki {
-        let stream = graph.add_output(installer_node, installer::KERNEL)?;
-        if is_wanted(Artifact::Kernel) {
-            let kernel_sink = sink(&mut graph, Artifact::Kernel);
-            graph.bind_input(kernel_sink, PortId(0), stream)?;
-        }
-        kernel = Some(stream);
-    }
+    planner.bind_all().await?;
+    validate(&planner.graph, build)?;
+    normalize(&mut planner.graph)?;
 
-    let complete = if needs_initramfs {
-        add_initramfs_chain(build, &mut graph, installer_node, is_wanted)?
-    } else {
-        None
-    };
-
-    let uki_output = if needs_uki {
-        add_uki(
-            &mut graph,
-            required(stub, "stub stream")?,
-            required(cmdline, "cmdline stream")?,
-            required(kernel, "kernel stream")?,
-            required(complete, "initramfs stream")?,
-            is_wanted,
-        )?
-    } else {
-        None
-    };
-
-    let iso = is_wanted(Artifact::Iso).then(|| graph.add_node(NodeKind::Iso));
-    let raw = is_wanted(Artifact::Raw).then(|| graph.add_node(NodeKind::Raw));
-    for media_node in [iso, raw].into_iter().flatten() {
-        graph.bind_input(
-            media_node,
-            media::MEDIA_UKI,
-            required(uki_output, "uki stream")?,
-        )?;
-    }
-
-    if let Some(overlay) = build.overlay()
-        && (needs_media || needs_overlays)
-    {
-        let files = overlays::listing(overlay).await?;
-        add_overlay_nodes(&mut graph, &files, iso, raw, needs_overlays)?;
-    }
-
-    normalize(&mut graph)?;
-
-    Ok(graph)
+    Ok(planner.graph)
 }
 
-/// Wires overlay file streams to media and tar consumers.
-fn add_overlay_nodes(
-    graph: &mut Graph,
-    files: &[(String, u64)],
-    iso: Option<NodeId>,
-    raw: Option<NodeId>,
-    wants_tar: bool,
-) -> Result<()> {
-    let pull_node = graph.add_node(NodeKind::OverlayPull);
-    let tar = wants_tar.then(|| graph.add_node(NodeKind::OverlayTar));
-    for (index, _) in files.iter().enumerate() {
-        let stream = graph.add_output(pull_node, dyn_port(overlays::PULL_OUTPUTS_FIRST, index))?;
-        if let Some(tar_node) = tar {
-            graph.bind_input(
-                tar_node,
-                dyn_port(overlays::TAR_INPUTS_FIRST, index),
-                stream,
-            )?;
-        }
-        for media_node in [iso, raw].into_iter().flatten() {
-            graph.bind_input(
-                media_node,
-                dyn_port(media::MEDIA_OVERLAYS_FIRST, index),
-                stream,
-            )?;
+/// The requested artifact kinds that seed the dependency walk.
+fn seeds(build: &BuildPlan, artifacts: &[Artifact]) -> Vec<NodeKind> {
+    let mut kinds = Vec::new();
+    for artifact in artifacts {
+        match *artifact {
+            Artifact::Iso => kinds.push(NodeKind::Iso),
+            Artifact::Raw => kinds.push(NodeKind::Raw),
+            Artifact::Overlays if build.overlay().is_none() => {}
+            artifact @ (Artifact::Kernel
+            | Artifact::Initramfs
+            | Artifact::Cmdline
+            | Artifact::Uki
+            | Artifact::Overlays) => kinds.push(NodeKind::ArtifactSink { artifact }),
         }
     }
-    if let Some(tar_node) = tar {
-        let output = graph.add_output(tar_node, overlays::TAR_OUTPUT)?;
-        let overlays_sink = sink(graph, Artifact::Overlays);
-        graph.bind_input(overlays_sink, PortId(0), output)?;
+
+    kinds
+}
+
+/// Depth-first instantiation of the dependency graph, with memoization.
+struct Planner<'a> {
+    build: &'a BuildPlan,
+    graph: Graph,
+    instances: HashMap<NodeKind, NodeId>,
+    outputs: HashMap<(NodeKind, PortId), StreamId>,
+    counts: HashMap<NodeKind, usize>,
+    states: HashMap<NodeKind, VisitState>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VisitState {
+    InProgress,
+    Done,
+}
+
+impl<'a> Planner<'a> {
+    fn new(build: &'a BuildPlan) -> Self {
+        Self {
+            build,
+            graph: Graph::new(),
+            instances: HashMap::new(),
+            outputs: HashMap::new(),
+            counts: HashMap::new(),
+            states: HashMap::new(),
+        }
     }
 
-    Ok(())
-}
+    /// Instantiates a node after its producers, so creation is producer-first.
+    fn ensure(&mut self, kind: NodeKind) -> Result<NodeId> {
+        match self.states.get(&kind).copied() {
+            Some(VisitState::Done) => {
+                return self.instance(kind);
+            }
+            Some(VisitState::InProgress) => {
+                return Err(WizardError::BuildError(format!(
+                    "dependency cycle through {kind:?}"
+                )));
+            }
+            None => {}
+        }
+        self.states.insert(kind, VisitState::InProgress);
 
-/// Wires the installer base initramfs, the extension payloads, the tail,
-/// and the Concat node into the complete initramfs stream.
-fn add_initramfs_chain(
-    build: &BuildPlan,
-    graph: &mut Graph,
-    installer_node: NodeId,
-    is_wanted: impl Fn(Artifact) -> bool,
-) -> Result<Option<StreamId>> {
-    let base = graph.add_output(installer_node, installer::INITRAMFS)?;
-    let extensions_node = graph.add_node(NodeKind::ExtensionPayloads);
-    let tail = graph.add_node(NodeKind::InitramfsTail);
-    for (index, _) in build.extensions().iter().enumerate() {
-        let payload =
-            graph.add_output(extensions_node, dyn_port(extensions::FIRST_OUTPUT, index))?;
-        graph.bind_input(tail, dyn_port(initramfs::TAIL_INPUTS_FIRST, index), payload)?;
-    }
-    let concat = graph.add_node(NodeKind::Concat);
-    graph.bind_input(concat, initramfs::CONCAT_BASE, base)?;
-    let tail_stream = graph.add_output(tail, initramfs::TAIL_OUTPUT)?;
-    graph.bind_input(concat, initramfs::CONCAT_TAIL, tail_stream)?;
-    let complete = graph.add_output(concat, initramfs::CONCAT_OUTPUT)?;
-    if is_wanted(Artifact::Initramfs) {
-        let initramfs_sink = sink(graph, Artifact::Initramfs);
-        graph.bind_input(initramfs_sink, PortId(0), complete)?;
+        for dependency in node_dependencies(kind, self.build)? {
+            self.ensure(dependency.producer)?;
+        }
+
+        let id = self.graph.add_node(kind);
+        self.instances.insert(kind, id);
+        self.states.insert(kind, VisitState::Done);
+
+        Ok(id)
     }
 
-    Ok(Some(complete))
-}
+    /// Binds every node's declared dependencies, in node creation order.
+    async fn bind_all(&mut self) -> Result<()> {
+        for (consumer, dependency) in self.pending_bindings()? {
+            let producer = self.instance(dependency.producer)?;
+            self.bind(producer, consumer, &dependency).await?;
+        }
 
-/// Wires the UKI node and returns its output stream.
-fn add_uki(
-    graph: &mut Graph,
-    stub: StreamId,
-    cmdline: StreamId,
-    kernel: StreamId,
-    complete: StreamId,
-    is_wanted: impl Fn(Artifact) -> bool,
-) -> Result<Option<StreamId>> {
-    let uki_node = graph.add_node(NodeKind::Uki);
-    graph.bind_input(uki_node, uki::UKI_STUB, stub)?;
-    graph.bind_input(uki_node, uki::UKI_CMDLINE, cmdline)?;
-    graph.bind_input(uki_node, uki::UKI_KERNEL, kernel)?;
-    graph.bind_input(uki_node, uki::UKI_INITRAMFS, complete)?;
-    let output = graph.add_output(uki_node, uki::UKI_OUTPUT)?;
-    if is_wanted(Artifact::Uki) {
-        let uki_sink = sink(graph, Artifact::Uki);
-        graph.bind_input(uki_sink, PortId(0), output)?;
+        Ok(())
     }
 
-    Ok(Some(output))
-}
+    /// Every `(node, declared dependency)` pair in node creation order.
+    fn pending_bindings(&self) -> Result<Vec<(NodeId, Dependency)>> {
+        let mut bindings = Vec::new();
+        for node in self.graph.nodes() {
+            bindings.extend(
+                node_dependencies(node.kind, self.build)?
+                    .into_iter()
+                    .map(|dependency| (node.id, dependency)),
+            );
+        }
 
-fn dyn_port(first: PortId, index: usize) -> PortId {
-    PortId(first.0.saturating_add(index))
-}
+        Ok(bindings)
+    }
 
-fn required(stream: Option<StreamId>, what: &str) -> Result<StreamId> {
-    stream.ok_or_else(|| WizardError::BuildError(format!("planner: missing {what}")))
-}
+    fn instance(&self, kind: NodeKind) -> Result<NodeId> {
+        self.instances
+            .get(&kind)
+            .copied()
+            .ok_or_else(|| WizardError::BuildError(format!("missing instance for {kind:?}")))
+    }
 
-fn sink(graph: &mut Graph, artifact: Artifact) -> NodeId {
-    graph.add_node(NodeKind::ArtifactSink { artifact })
+    /// Binds one declared dependency: the producer's output stream (created
+    /// on demand, shared with every consumer) to the consumer's input port.
+    async fn bind(
+        &mut self,
+        producer: NodeId,
+        consumer: NodeId,
+        dependency: &Dependency,
+    ) -> Result<()> {
+        match dependency.kind {
+            DependencyKind::Fixed => {
+                let stream =
+                    self.output_stream(dependency.producer, dependency.producer_port, producer)?;
+                self.graph
+                    .bind_input(consumer, dependency.consumer_port, stream)?;
+            }
+            DependencyKind::Many => self.bind_many(producer, consumer, dependency).await?,
+        }
+
+        Ok(())
+    }
+
+    /// Binds one stream per dynamic element, in canonical order.
+    async fn bind_many(
+        &mut self,
+        producer: NodeId,
+        consumer: NodeId,
+        dependency: &Dependency,
+    ) -> Result<()> {
+        let count = self.dynamic_count(dependency.producer).await?;
+        for index in 0..count {
+            let producer_port = PortId(dependency.producer_port.0.saturating_add(index));
+            let consumer_port = PortId(dependency.consumer_port.0.saturating_add(index));
+            let stream = self.output_stream(dependency.producer, producer_port, producer)?;
+            self.graph.bind_input(consumer, consumer_port, stream)?;
+        }
+
+        Ok(())
+    }
+
+    /// The shared stream for a producer output port, created once.
+    fn output_stream(
+        &mut self,
+        kind: NodeKind,
+        port: PortId,
+        producer: NodeId,
+    ) -> Result<StreamId> {
+        if let Some(stream) = self.outputs.get(&(kind, port)) {
+            return Ok(*stream);
+        }
+        let stream = self.graph.add_output(producer, port)?;
+        self.outputs.insert((kind, port), stream);
+
+        Ok(stream)
+    }
+
+    /// The dynamic output count of a `Many` producer, fetched once.
+    async fn dynamic_count(&mut self, kind: NodeKind) -> Result<usize> {
+        if let Some(count) = self.counts.get(&kind) {
+            return Ok(*count);
+        }
+        let count = output_count(kind, self.build).await?;
+        self.counts.insert(kind, count);
+
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
@@ -198,6 +205,7 @@ mod tests {
     use koci::arch::Arch;
 
     use super::*;
+    use crate::nodes::uki;
     use crate::request::Platform;
     use crate::source::extension::Extension;
 
@@ -217,14 +225,14 @@ mod tests {
     }
 
     fn kinds(graph: &Graph) -> Vec<NodeKind> {
-        graph.nodes().iter().map(|node| node.kind.clone()).collect()
+        graph.nodes().iter().map(|node| node.kind).collect()
     }
 
-    fn count(graph: &Graph, kind: &NodeKind) -> usize {
+    fn count(graph: &Graph, kind: NodeKind) -> usize {
         graph
             .nodes()
             .iter()
-            .filter(|node| &node.kind == kind)
+            .filter(|node| node.kind == kind)
             .count()
     }
 
@@ -240,11 +248,11 @@ mod tests {
 
         // ASSERT
         assert_eq!(kinds(&graph).len(), 3);
-        assert_eq!(count(&graph, &NodeKind::InstallerPull), 1);
+        assert_eq!(count(&graph, NodeKind::InstallerPull), 1);
         assert_eq!(
             count(
                 &graph,
-                &NodeKind::ArtifactSink {
+                NodeKind::ArtifactSink {
                     artifact: Artifact::Kernel
                 }
             ),
@@ -253,13 +261,13 @@ mod tests {
         assert_eq!(
             count(
                 &graph,
-                &NodeKind::ArtifactSink {
+                NodeKind::ArtifactSink {
                     artifact: Artifact::Cmdline
                 }
             ),
             1
         );
-        assert_eq!(count(&graph, &NodeKind::Fanout), 0);
+        assert_eq!(count(&graph, NodeKind::Fanout), 0);
     }
 
     #[tokio::test]
@@ -273,15 +281,15 @@ mod tests {
             .expect("plan");
 
         // ASSERT
-        assert_eq!(count(&graph, &NodeKind::Uki), 1);
-        assert_eq!(count(&graph, &NodeKind::Concat), 1);
-        assert_eq!(count(&graph, &NodeKind::InitramfsTail), 1);
-        assert_eq!(count(&graph, &NodeKind::ExtensionPayloads), 1);
-        assert_eq!(count(&graph, &NodeKind::Fanout), 1);
+        assert_eq!(count(&graph, NodeKind::Uki), 1);
+        assert_eq!(count(&graph, NodeKind::Concat), 1);
+        assert_eq!(count(&graph, NodeKind::InitramfsTail), 1);
+        assert_eq!(count(&graph, NodeKind::ExtensionPayloads), 1);
+        assert_eq!(count(&graph, NodeKind::Fanout), 1);
         assert_eq!(
             count(
                 &graph,
-                &NodeKind::ArtifactSink {
+                NodeKind::ArtifactSink {
                     artifact: Artifact::Initramfs
                 }
             ),
@@ -290,7 +298,7 @@ mod tests {
         assert_eq!(
             count(
                 &graph,
-                &NodeKind::ArtifactSink {
+                NodeKind::ArtifactSink {
                     artifact: Artifact::Uki
                 }
             ),
@@ -309,40 +317,33 @@ mod tests {
             .expect("plan");
 
         // ASSERT
-        assert_eq!(count(&graph, &NodeKind::Uki), 1);
-        assert_eq!(count(&graph, &NodeKind::Iso), 1);
-        assert_eq!(count(&graph, &NodeKind::Raw), 1);
-        assert_eq!(count(&graph, &NodeKind::Fanout), 1);
-        assert_eq!(count(&graph, &NodeKind::OverlayPull), 0);
+        assert_eq!(count(&graph, NodeKind::Uki), 1);
+        assert_eq!(count(&graph, NodeKind::Iso), 1);
+        assert_eq!(count(&graph, NodeKind::Raw), 1);
+        assert_eq!(count(&graph, NodeKind::Fanout), 1);
+        assert_eq!(count(&graph, NodeKind::OverlayPull), 0);
     }
 
-    #[test]
-    fn iso_and_overlays_wire_overlay_once_through_fanout() {
+    #[tokio::test]
+    async fn overlays_without_overlay_profile_produce_no_nodes() {
         // ARRANGE
-        let mut graph = Graph::new();
-        let installer_node = graph.add_node(NodeKind::InstallerPull);
-        graph
-            .add_output(installer_node, installer::STUB)
-            .expect("add output");
-        let iso = graph.add_node(NodeKind::Iso);
-        let raw = graph.add_node(NodeKind::Raw);
-        let files = vec![("a.txt".to_owned(), 3), ("b.bin".to_owned(), 5)];
+        let build = build_plan();
 
         // ACT
-        add_overlay_nodes(&mut graph, &files, Some(iso), Some(raw), true).expect("add overlay");
-        normalize(&mut graph).expect("normalize");
+        let graph = plan(&build, &[Artifact::Overlays]).await.expect("plan");
 
         // ASSERT
-        assert_eq!(count(&graph, &NodeKind::OverlayPull), 1);
-        assert_eq!(count(&graph, &NodeKind::OverlayTar), 1);
-        assert_eq!(count(&graph, &NodeKind::Fanout), 2);
-        for node in graph
-            .nodes()
-            .iter()
-            .filter(|node| matches!(&node.kind, NodeKind::Fanout))
-        {
-            assert_eq!(node.outputs.len(), 3);
-        }
+        assert_eq!(count(&graph, NodeKind::OverlayPull), 0);
+        assert_eq!(count(&graph, NodeKind::OverlayTar), 0);
+        assert_eq!(
+            count(
+                &graph,
+                NodeKind::ArtifactSink {
+                    artifact: Artifact::Overlays
+                }
+            ),
+            0
+        );
     }
 
     #[tokio::test]
@@ -375,5 +376,27 @@ mod tests {
             "missing initramfs input"
         );
         uki_node.output(uki::UKI_OUTPUT).unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_artifact_combo_plans_and_validates() {
+        // ARRANGE
+        let build = build_plan();
+
+        // ACT
+        plan(&build, &[Artifact::Kernel, Artifact::Cmdline])
+            .await
+            .expect("plan");
+        plan(&build, &[Artifact::Initramfs, Artifact::Uki])
+            .await
+            .expect("plan");
+        plan(&build, &[Artifact::Uki, Artifact::Iso])
+            .await
+            .expect("plan");
+        plan(&build, &[Artifact::Uki, Artifact::Raw])
+            .await
+            .expect("plan");
+
+        // ASSERT
     }
 }

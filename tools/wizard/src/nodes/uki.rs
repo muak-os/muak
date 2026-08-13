@@ -12,9 +12,11 @@ use yuki::write::{self, Input};
 
 use crate::SectionInfo;
 use crate::error::{Result, WizardError};
+use crate::nodes::{initramfs, installer};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
 use crate::pipeline::runtime::{DynWriter, InputStream, NodePorts, OutputSink};
 use crate::stream::pipe::Pipe;
 
@@ -23,6 +25,16 @@ pub(crate) const UKI_CMDLINE: PortId = PortId(1);
 pub(crate) const UKI_KERNEL: PortId = PortId(2);
 pub(crate) const UKI_INITRAMFS: PortId = PortId(3);
 pub(crate) const UKI_OUTPUT: PortId = PortId(4);
+
+/// Stub, cmdline, and kernel from the installer and complete initramfs.
+pub(crate) fn dependencies() -> Vec<Dependency> {
+    vec![
+        Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
+        Dependency::fixed(NodeKind::InstallerPull, installer::CMDLINE, UKI_CMDLINE),
+        Dependency::fixed(NodeKind::InstallerPull, installer::KERNEL, UKI_KERNEL),
+        Dependency::fixed(NodeKind::Concat, initramfs::CONCAT_OUTPUT, UKI_INITRAMFS),
+    ]
+}
 
 /// Lower bound on the UKI size in bytes; below this the ESP image cannot be formatted as FAT32.
 const MIN_UKI_BYTES: u64 = 32 << 20;
@@ -121,19 +133,10 @@ pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts<'_>) -> Resu
         None => write::write(
             &manifest,
             &mut stub.reader,
-            Input {
-                reader: &mut cmdline.reader,
-                size: cmdline.size,
-            },
+            input(&mut cmdline),
             None,
-            Input {
-                reader: &mut kernel.reader,
-                size: kernel.size,
-            },
-            Input {
-                reader: &mut initramfs.reader,
-                size: initramfs.size,
-            },
+            input(&mut kernel),
+            input(&mut initramfs),
             &mut DynWriter::new(output.writer()),
         )
         .map(|sections| NodeReport::Uki(to_section_infos(sections)))
@@ -192,19 +195,10 @@ fn write_signed(
         let sections = write::write(
             manifest,
             stub,
-            Input {
-                reader: &mut cmdline.reader,
-                size: cmdline.size,
-            },
+            input(cmdline),
             None,
-            Input {
-                reader: &mut kernel.reader,
-                size: kernel.size,
-            },
-            Input {
-                reader: &mut initramfs.reader,
-                size: initramfs.size,
-            },
+            input(kernel),
+            input(initramfs),
             &mut DynWriter::new(&mut unsigned_w),
         )
         .map_err(|e| WizardError::BuildError(format!("uki stream: {e}")))?;
@@ -217,6 +211,13 @@ fn write_signed(
 
         Ok(NodeReport::Uki(to_section_infos(sections)))
     })
+}
+
+fn input(stream: &mut InputStream) -> Input<'_> {
+    Input {
+        reader: &mut stream.reader,
+        size: stream.size,
+    }
 }
 
 fn to_section_infos(sections: Vec<Section>) -> Vec<SectionInfo> {
