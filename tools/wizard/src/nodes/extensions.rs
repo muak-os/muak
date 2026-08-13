@@ -21,7 +21,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 pub(crate) async fn preflight(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
 ) -> Result<Vec<mumi::payload::Planned>> {
     let plan = context.plan;
 

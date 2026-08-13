@@ -21,7 +21,7 @@ pub(crate) struct PreflightedGraph {
 /// Returns an error when a source metadata query or size computation fails.
 pub(crate) async fn preflight(
     mut graph: Graph,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
 ) -> Result<PreflightedGraph> {
     let mut planned_payloads: Vec<mumi::payload::Planned> = Vec::new();
     let mut overlay_files: Vec<(String, u64)> = Vec::new();

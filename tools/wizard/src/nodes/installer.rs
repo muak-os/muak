@@ -28,7 +28,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 pub(crate) async fn preflight(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
 ) -> Result<()> {
     let plan = context.plan;
 
@@ -66,7 +66,7 @@ pub(crate) async fn preflight(
 
 /// Pulls the installer once and routes known files to their output streams.
 pub(crate) fn run(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     ports: &mut NodePorts,
     tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {

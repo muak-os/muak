@@ -2,6 +2,7 @@
 
 use core::fmt;
 use std::io::Write;
+use std::sync::Mutex;
 
 use koci::arch::Arch;
 use sbolt::keys::SigningPair;
@@ -9,10 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::pipeline::context::BuildContext;
+use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
-use crate::pipeline::prepare::TargetWriters;
 use crate::profile::Profile;
 use crate::resolve;
 
@@ -191,10 +191,10 @@ impl<'a> Request<'a> {
             plan: &resolved,
             profile: &profile_bytes,
             signing: self.signing,
+            writers: Mutex::new(TargetWriters::new(self.targets)),
         };
-        let mut targets = TargetWriters::new(self.targets);
 
-        execute(graph, &context, &mut targets).await
+        execute(graph, &context).await
     }
 }
 

@@ -44,7 +44,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
 
 /// Builds the ISO from the UKI stream and overlay file streams.
 pub(crate) fn run_iso(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     overlay_files: &[(String, u64)],
     ports: &mut NodePorts,
 ) -> Result<NodeReport> {
@@ -69,7 +69,7 @@ pub(crate) fn run_iso(
 
 /// Builds the zstd-compressed raw disk image from the UKI stream and overlay file streams.
 pub(crate) fn run_raw(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     overlay_files: &[(String, u64)],
     ports: &mut NodePorts,
 ) -> Result<NodeReport> {
@@ -95,7 +95,7 @@ pub(crate) fn run_raw(
 
 /// Takes the UKI and overlay inputs and computes the ESP layout.
 fn media_inputs<'f>(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     overlay_files: &'f [(String, u64)],
     ports: &mut NodePorts,
 ) -> Result<(esp::layout::Layout<'f>, InputStream, Vec<InputStream>)> {

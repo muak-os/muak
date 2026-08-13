@@ -57,7 +57,7 @@ pub(crate) async fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
 pub(crate) async fn preflight_pull(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
 ) -> Result<Vec<(String, u64)>> {
     let overlay = context
         .plan
@@ -99,7 +99,7 @@ pub(crate) fn preflight_tar(graph: &mut Graph, id: NodeId) -> Result<()> {
 
 /// Pulls the overlay source once and streams each matching entry to the output stream.
 pub(crate) fn run_pull(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     overlay_files: &[(String, u64)],
     ports: &mut NodePorts,
     tokio: &tokio::runtime::Handle,

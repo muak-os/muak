@@ -125,18 +125,6 @@ pub(crate) struct PreparedNode {
     pub(crate) ports: NodePorts,
 }
 
-/// A bound `ArtifactSink` terminal node that holds a user writer.
-pub(crate) struct PreparedSink<'a> {
-    pub(crate) input: InputStream,
-    pub(crate) writer: &'a mut (dyn Write + Send),
-}
-
-/// One unit of work for the executor.
-pub(crate) enum PreparedTask<'a> {
-    Node(PreparedNode),
-    Sink(PreparedSink<'a>),
-}
-
 /// Node-local port endpoints in planner order.
 type BoundEndpoints = Vec<(PortId, Endpoint)>;
 

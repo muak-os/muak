@@ -39,7 +39,7 @@ pub(crate) fn concat_dependencies() -> Vec<Dependency> {
 pub(crate) fn preflight_tail(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
     planned: &[mumi::payload::Planned],
 ) -> Result<()> {
     let mut entries = Vec::with_capacity(planned.len().saturating_add(1));
@@ -86,7 +86,7 @@ pub(crate) fn preflight_concat(graph: &mut Graph, id: NodeId) -> Result<()> {
 
 /// Streams one CPIO entry per extension payload stream plus the profile entry in canonical order.
 pub(crate) fn run_tail(
-    ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
     planned: &[mumi::payload::Planned],
     ports: &mut NodePorts,
 ) -> Result<NodeReport> {

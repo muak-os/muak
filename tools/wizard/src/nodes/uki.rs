@@ -47,7 +47,7 @@ const MAX_UKI_BYTES: u64 = 512 << 20;
 pub(crate) async fn preflight(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_>,
+    context: &BuildContext<'_, '_, '_>,
 ) -> Result<()> {
     let plan = context.plan;
 
@@ -98,7 +98,7 @@ pub(crate) async fn preflight(
 }
 
 /// Builds the UKI from the live input streams and optionally sign it.
-pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts) -> Result<NodeReport> {
+pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
     let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;
