@@ -19,33 +19,21 @@ use crate::resolve::BuildPlan;
 /// fetched, or the built graph fails validation.
 pub(crate) async fn plan(build: &BuildPlan, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(build);
-    for kind in seeds(build, artifacts) {
-        planner.ensure(kind)?;
+    for artifact in artifacts {
+        if *artifact == Artifact::Overlays && build.overlay().is_none() {
+            return Err(WizardError::BuildError(
+                "overlays requested but the profile has no overlay".to_owned(),
+            ));
+        }
+        planner.ensure(NodeKind::ArtifactSink {
+            artifact: *artifact,
+        })?;
     }
     planner.bind_all().await?;
     validate(&planner.graph, build)?;
     normalize(&mut planner.graph)?;
 
     Ok(planner.graph)
-}
-
-/// The requested artifact kinds that seed the dependency walk.
-fn seeds(build: &BuildPlan, artifacts: &[Artifact]) -> Vec<NodeKind> {
-    let mut kinds = Vec::new();
-    for artifact in artifacts {
-        match *artifact {
-            Artifact::Iso => kinds.push(NodeKind::Iso),
-            Artifact::Raw => kinds.push(NodeKind::Raw),
-            Artifact::Overlays if build.overlay().is_none() => {}
-            artifact @ (Artifact::Kernel
-            | Artifact::Initramfs
-            | Artifact::Cmdline
-            | Artifact::Uki
-            | Artifact::Overlays) => kinds.push(NodeKind::ArtifactSink { artifact }),
-        }
-    }
-
-    kinds
 }
 
 /// Depth-first instantiation of the dependency graph, with memoization.
@@ -325,24 +313,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn overlays_without_overlay_profile_produce_no_nodes() {
+    async fn overlays_without_overlay_profile_rejected() {
         // ARRANGE
         let build = build_plan();
 
         // ACT
-        let graph = plan(&build, &[Artifact::Overlays]).await.expect("plan");
+        let error = plan(&build, &[Artifact::Overlays])
+            .await
+            .expect_err("overlays without overlay must fail");
 
         // ASSERT
-        assert_eq!(count(&graph, NodeKind::OverlayPull), 0);
-        assert_eq!(count(&graph, NodeKind::OverlayTar), 0);
-        assert_eq!(
-            count(
-                &graph,
-                NodeKind::ArtifactSink {
-                    artifact: Artifact::Overlays
-                }
-            ),
-            0
+        let message = error.to_string();
+        assert!(
+            message.contains("overlays requested but the profile has no overlay"),
+            "unexpected error: {message}"
         );
     }
 

@@ -11,7 +11,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts, OutputSink};
+use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
 use crate::resolve::BuildPlan;
 use crate::source::overlay::Overlay;
 
@@ -101,7 +101,7 @@ pub(crate) fn preflight_tar(graph: &mut Graph, id: NodeId) -> Result<()> {
 pub(crate) fn run_pull(
     ctx: &BuildContext<'_, '_>,
     overlay_files: &[(String, u64)],
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
     tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {
     let overlay = ctx
@@ -114,7 +114,7 @@ pub(crate) fn run_pull(
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
-    let mut files: Vec<(&str, OutputSink<'_>)> = overlay_files
+    let mut files: Vec<(&str, OutputStream)> = overlay_files
         .iter()
         .map(|file| file.0.as_str())
         .zip(outputs)
@@ -136,7 +136,7 @@ pub(crate) fn run_pull(
 /// Emits one tar entry per overlay input with the stripped path and preflight size.
 pub(crate) fn run_tar(
     overlay_files: &[(String, u64)],
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
 ) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
@@ -146,7 +146,7 @@ pub(crate) fn run_tar(
     )?;
     let mut output = ports.take(TAR_OUTPUT)?.into_output()?;
 
-    let mut builder = Builder::new(output.writer());
+    let mut builder = Builder::new(&mut output.writer);
     for (input, file) in inputs.iter_mut().zip(overlay_files) {
         let mut header = Header::new_gnu();
         header
@@ -183,7 +183,7 @@ fn route_entry(
     path: &str,
     reader: &mut dyn Read,
     prefix: &str,
-    files: &mut [(&str, OutputSink<'_>)],
+    files: &mut [(&str, OutputStream)],
 ) -> koci::error::Result<()> {
     if let Some(rel) = path.strip_prefix(prefix)
         && !rel.is_empty()
@@ -197,13 +197,13 @@ fn route_entry(
 fn write_to_matching(
     rel: &str,
     reader: &mut dyn Read,
-    files: &mut [(&str, OutputSink<'_>)],
+    files: &mut [(&str, OutputStream)],
 ) -> std::io::Result<()> {
     let Some(index) = files.iter().position(|file| file.0 == rel) else {
         return Ok(());
     };
     if let Some(output) = files.get_mut(index).map(|item| &mut item.1) {
-        std::io::copy(reader, output.writer())?;
+        std::io::copy(reader, &mut output.writer)?;
     }
 
     Ok(())

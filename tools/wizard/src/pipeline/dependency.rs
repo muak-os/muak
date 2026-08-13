@@ -2,7 +2,7 @@
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, initramfs, installer, media, overlays, uki};
+use crate::nodes::{extensions, initramfs, installer, media, overlays, sink, uki};
 use crate::pipeline::graph::{Graph, Node, NodeKind, PortBinding, PortId};
 use crate::resolve::BuildPlan;
 
@@ -77,24 +77,37 @@ fn sink_dependencies(artifact: Artifact) -> Vec<Dependency> {
         Artifact::Kernel => vec![Dependency::fixed(
             NodeKind::InstallerPull,
             installer::KERNEL,
-            PortId(0),
+            sink::SINK_INPUT,
         )],
         Artifact::Cmdline => vec![Dependency::fixed(
             NodeKind::InstallerPull,
             installer::CMDLINE,
-            PortId(0),
+            sink::SINK_INPUT,
         )],
         Artifact::Initramfs => vec![Dependency::fixed(
             NodeKind::Concat,
             initramfs::CONCAT_OUTPUT,
-            PortId(0),
+            sink::SINK_INPUT,
         )],
-        Artifact::Uki => vec![Dependency::fixed(NodeKind::Uki, uki::UKI_OUTPUT, PortId(0))],
-        Artifact::Iso | Artifact::Raw => vec![],
+        Artifact::Uki => vec![Dependency::fixed(
+            NodeKind::Uki,
+            uki::UKI_OUTPUT,
+            sink::SINK_INPUT,
+        )],
+        Artifact::Iso => vec![Dependency::fixed(
+            NodeKind::Iso,
+            media::MEDIA_OUTPUT,
+            sink::SINK_INPUT,
+        )],
+        Artifact::Raw => vec![Dependency::fixed(
+            NodeKind::Raw,
+            media::MEDIA_OUTPUT,
+            sink::SINK_INPUT,
+        )],
         Artifact::Overlays => vec![Dependency::fixed(
             NodeKind::OverlayTar,
             overlays::TAR_OUTPUT,
-            PortId(0),
+            sink::SINK_INPUT,
         )],
     }
 }

@@ -4,10 +4,10 @@ use std::io::Write;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::pipeline::graph::{Graph, NodeKind, PortBinding, StreamId};
+use crate::pipeline::graph::{Graph, Node, NodeKind, StreamId};
 use crate::pipeline::preflight::PreflightedGraph;
 use crate::pipeline::runtime::{
-    Endpoint, InputStream, NodePorts, OutputSink, OutputStream, PreparedNode,
+    Endpoint, InputStream, NodePorts, OutputStream, PreparedNode, PreparedSink, PreparedTask,
 };
 use crate::stream::pipe::Pipe;
 
@@ -33,11 +33,21 @@ impl<'a> TargetWriters<'a> {
             .get_mut(artifact.to_index())
             .and_then(Option::take)
     }
+
+    fn assert_empty(&self) -> Result<()> {
+        if let Some(index) = self.slots.iter().position(Option::is_some) {
+            return Err(WizardError::BuildError(format!(
+                "unconsumed target writer for artifact {index}"
+            )));
+        }
+
+        Ok(())
+    }
 }
 
-/// Binds every logical node generically into a `PreparedNode` value.
+/// The bound tasks plus the preflight data lists the executor keeps alive.
 type BoundGraph<'a> = (
-    Vec<PreparedNode<'a>>,
+    Vec<PreparedTask<'a>>,
     Vec<mumi::payload::Planned>,
     Vec<(String, u64)>,
 );
@@ -52,37 +62,21 @@ pub(crate) fn bind_nodes<'a>(
         overlay_files,
     } = preflighted;
     let mut ports = allocate(&graph)?;
-    let mut nodes = Vec::with_capacity(graph.nodes().len());
+    let mut tasks = Vec::with_capacity(graph.nodes().len());
 
     for node in graph.nodes() {
-        if matches!(&node.kind, NodeKind::ArtifactSink { .. }) {
-            continue;
-        }
-
-        let mut endpoints =
-            Vec::with_capacity(node.inputs.len().saturating_add(node.outputs.len()));
-        for binding in &node.inputs {
-            endpoints.push((
-                binding.port,
-                Endpoint::Input(ports.take_input(binding.stream)?),
-            ));
-        }
-        for binding in &node.outputs {
-            let sink = fuse_or_pipe(&graph, binding, &mut ports, targets)?;
-            endpoints.push((binding.port, Endpoint::Output(sink)));
-        }
-        let target = media_target(node.kind, targets)?;
-
-        nodes.push(PreparedNode {
-            kind: node.kind,
-            ports: NodePorts { endpoints },
-            target,
-        });
+        let task = if let NodeKind::ArtifactSink { .. } = node.kind {
+            PreparedTask::Sink(bind_sink(node, &mut ports, targets)?)
+        } else {
+            PreparedTask::Node(bind_node(node, &mut ports)?)
+        };
+        tasks.push(task);
     }
 
     ports.assert_empty()?;
+    targets.assert_empty()?;
 
-    Ok((nodes, planned_payloads, overlay_files))
+    Ok((tasks, planned_payloads, overlay_files))
 }
 
 fn fill_slots<'a>(
@@ -96,31 +90,71 @@ fn fill_slots<'a>(
     }
 }
 
+/// Binds a non-sink node's endpoints from the pipe table.
+fn bind_node(node: &Node, ports: &mut PortTable) -> Result<PreparedNode> {
+    let mut endpoints = Vec::with_capacity(node.inputs.len().saturating_add(node.outputs.len()));
+    for binding in &node.inputs {
+        endpoints.push((
+            binding.port,
+            Endpoint::Input(ports.take_input(binding.stream)?),
+        ));
+    }
+    for binding in &node.outputs {
+        endpoints.push((
+            binding.port,
+            Endpoint::Output(ports.take_output(binding.stream)?),
+        ));
+    }
+
+    Ok(PreparedNode {
+        kind: node.kind,
+        ports: NodePorts { endpoints },
+    })
+}
+
+/// Binds an `ArtifactSink` node to its input pipe and its user writer.
+fn bind_sink<'a>(
+    node: &Node,
+    ports: &mut PortTable,
+    targets: &mut TargetWriters<'a>,
+) -> Result<PreparedSink<'a>> {
+    let NodeKind::ArtifactSink { artifact } = node.kind else {
+        return Err(WizardError::BuildError(
+            "sink node has no artifact".to_owned(),
+        ));
+    };
+    let binding = node
+        .input_bindings()
+        .next()
+        .ok_or_else(|| WizardError::BuildError("sink node has no input".to_owned()))?;
+    let input = ports.take_input(binding.stream)?;
+    let writer = targets
+        .take(artifact)
+        .ok_or_else(|| WizardError::BuildError(format!("missing target writer for {artifact}")))?;
+
+    Ok(PreparedSink { input, writer })
+}
+
 /// Construction-time ownership ledger for pipe endpoints.
 struct PortTable {
     inputs: Vec<Option<InputStream>>,
     outputs: Vec<Option<OutputStream>>,
 }
 
-/// Creates one pipe per non-fused stream.
+/// Creates one pipe per stream.
 fn allocate(graph: &Graph) -> Result<PortTable> {
     let mut inputs = Vec::with_capacity(graph.streams().len());
     let mut outputs = Vec::with_capacity(graph.streams().len());
     for stream in graph.streams() {
-        if is_fused(graph, stream.id) {
-            inputs.push(None);
-            outputs.push(None);
-        } else {
-            let (reader, writer) = Pipe::new("stream pipe")?.split();
-            inputs.push(Some(InputStream {
-                size: stream.size,
-                reader,
-            }));
-            outputs.push(Some(OutputStream {
-                size: stream.size,
-                writer,
-            }));
-        }
+        let (reader, writer) = Pipe::new("stream pipe")?.split();
+        inputs.push(Some(InputStream {
+            size: stream.size,
+            reader,
+        }));
+        outputs.push(Some(OutputStream {
+            size: stream.size,
+            writer,
+        }));
     }
 
     Ok(PortTable { inputs, outputs })
@@ -164,69 +198,6 @@ impl PortTable {
     }
 }
 
-/// True when every consumer of the stream is an `ArtifactSink` node.
-fn is_fused(graph: &Graph, stream: StreamId) -> bool {
-    graph.stream(stream).is_ok_and(|stream| {
-        stream.consumers.iter().all(|consumer| {
-            graph
-                .node(*consumer)
-                .is_ok_and(|node| matches!(&node.kind, NodeKind::ArtifactSink { .. }))
-        })
-    })
-}
-
-/// The user writer for a media node, if it is an Iso/Raw node.
-fn media_target<'a>(
-    kind: NodeKind,
-    targets: &mut TargetWriters<'a>,
-) -> Result<Option<&'a mut (dyn Write + Send)>> {
-    if kind == NodeKind::Iso {
-        targets
-            .take(Artifact::Iso)
-            .map(Some)
-            .ok_or_else(|| WizardError::BuildError("missing target writer for iso".to_owned()))
-    } else if kind == NodeKind::Raw {
-        targets
-            .take(Artifact::Raw)
-            .map(Some)
-            .ok_or_else(|| WizardError::BuildError("missing target writer for raw".to_owned()))
-    } else {
-        Ok(None)
-    }
-}
-
-/// A stream whose consumers are all sinks is fused: no pipe is allocated and
-/// the user writer is bound directly on the producer.
-fn fuse_or_pipe<'a>(
-    graph: &Graph,
-    binding: &PortBinding,
-    ports: &mut PortTable,
-    targets: &mut TargetWriters<'a>,
-) -> Result<OutputSink<'a>> {
-    let stream = graph.stream(binding.stream)?;
-    if !is_fused(graph, stream.id) {
-        return Ok(OutputSink::Pipe(ports.take_output(binding.stream)?));
-    }
-
-    let consumer = *stream
-        .consumers
-        .first()
-        .ok_or_else(|| WizardError::BuildError("fused stream has no consumer".to_owned()))?;
-    let NodeKind::ArtifactSink { artifact } = graph.node(consumer)?.kind else {
-        return Err(WizardError::BuildError(
-            "fused stream sink mismatch".to_owned(),
-        ));
-    };
-    let writer = targets
-        .take(artifact)
-        .ok_or_else(|| WizardError::BuildError(format!("missing target writer for {artifact}")))?;
-
-    Ok(OutputSink::Writer {
-        size: stream.size,
-        writer,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn fused_stream_allocates_no_pipe() {
+    fn every_stream_allocates_a_pipe() {
         // ARRANGE
         let graph = fused_graph();
 
@@ -255,7 +226,7 @@ mod tests {
 
         // ASSERT
         let stream = graph.streams().iter().next().expect("stream");
-        assert!(table.inputs.get(stream.id.0).expect("slot").is_none());
-        assert!(table.outputs.get(stream.id.0).expect("slot").is_none());
+        assert!(table.inputs.get(stream.id.0).expect("slot").is_some());
+        assert!(table.outputs.get(stream.id.0).expect("slot").is_some());
     }
 }

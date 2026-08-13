@@ -38,41 +38,13 @@ pub(crate) struct OutputStream {
     pub(crate) writer: UnixStream,
 }
 
-/// One output port at runtime: a live pipe, or a fused user writer.
-pub(crate) enum OutputSink<'a> {
-    Pipe(OutputStream),
-    Writer {
-        size: u64,
-        writer: &'a mut (dyn Write + Send),
-    },
-}
-
-impl OutputSink<'_> {
-    /// The stream's fixed size.
-    #[must_use]
-    pub(crate) fn size(&self) -> u64 {
-        match *self {
-            OutputSink::Pipe(ref pipe) => pipe.size,
-            OutputSink::Writer { size, .. } => size,
-        }
-    }
-
-    /// The underlying writer, identical for piped and fused outputs.
-    pub(crate) fn writer(&mut self) -> &mut (dyn Write + Send) {
-        match *self {
-            OutputSink::Pipe(ref mut pipe) => &mut pipe.writer,
-            OutputSink::Writer { ref mut writer, .. } => writer,
-        }
-    }
-}
-
-/// A bound port endpoint: an input handle or an output sink.
-pub(crate) enum Endpoint<'a> {
+/// A bound port endpoint: an input or output pipe end.
+pub(crate) enum Endpoint {
     Input(InputStream),
-    Output(OutputSink<'a>),
+    Output(OutputStream),
 }
 
-impl<'a> Endpoint<'a> {
+impl Endpoint {
     /// Single typed endpoint: the length-1 case of the vec conversions.
     pub(crate) fn into_input(self) -> Result<InputStream> {
         match self {
@@ -84,7 +56,7 @@ impl<'a> Endpoint<'a> {
     }
 
     /// Single typed endpoint: the length-1 case of the vec conversions.
-    pub(crate) fn into_output(self) -> Result<OutputSink<'a>> {
+    pub(crate) fn into_output(self) -> Result<OutputStream> {
         match self {
             Endpoint::Output(output) => Ok(output),
             Endpoint::Input(_) => Err(WizardError::BuildError(
@@ -98,21 +70,20 @@ impl<'a> Endpoint<'a> {
         eps.into_iter().map(Self::into_input).collect()
     }
 
-    /// Converts every endpoint into an output sink.
-    pub(crate) fn into_outputs(eps: impl IntoIterator<Item = Self>) -> Result<Vec<OutputSink<'a>>> {
+    /// Converts every endpoint into an output handle.
+    pub(crate) fn into_outputs(eps: impl IntoIterator<Item = Self>) -> Result<Vec<OutputStream>> {
         eps.into_iter().map(Self::into_output).collect()
     }
 }
 
-/// The owned endpoints of one prepared node, addressed by the node module's
-/// port constants.
-pub(crate) struct NodePorts<'a> {
-    pub(crate) endpoints: Vec<(PortId, Endpoint<'a>)>,
+/// The owned endpoints of one prepared node, addressed by the node module's port constants.
+pub(crate) struct NodePorts {
+    pub(crate) endpoints: Vec<(PortId, Endpoint)>,
 }
 
-impl<'a> NodePorts<'a> {
+impl NodePorts {
     /// Fixed port, always bound.
-    pub(crate) fn take(&mut self, port: PortId) -> Result<Endpoint<'a>> {
+    pub(crate) fn take(&mut self, port: PortId) -> Result<Endpoint> {
         let index = self
             .endpoints
             .iter()
@@ -131,7 +102,7 @@ impl<'a> NodePorts<'a> {
         &mut self,
         first: PortId,
         expected: Option<usize>,
-    ) -> Result<Vec<(PortId, Endpoint<'a>)>> {
+    ) -> Result<Vec<(PortId, Endpoint)>> {
         let (taken, remaining) = split_endpoints(core::mem::take(&mut self.endpoints), first);
         if let Some(expected) = expected
             && taken.len() != expected
@@ -149,21 +120,28 @@ impl<'a> NodePorts<'a> {
 }
 
 /// A bound, owned node ready to run on its own scoped thread.
-pub(crate) struct PreparedNode<'a> {
+pub(crate) struct PreparedNode {
     pub(crate) kind: NodeKind,
-    pub(crate) ports: NodePorts<'a>,
-    /// Requested artifact writer; `Some` only for the Iso/Raw media nodes.
-    pub(crate) target: Option<&'a mut (dyn Write + Send)>,
+    pub(crate) ports: NodePorts,
+}
+
+/// A bound `ArtifactSink` terminal node that holds a user writer.
+pub(crate) struct PreparedSink<'a> {
+    pub(crate) input: InputStream,
+    pub(crate) writer: &'a mut (dyn Write + Send),
+}
+
+/// One unit of work for the executor.
+pub(crate) enum PreparedTask<'a> {
+    Node(PreparedNode),
+    Sink(PreparedSink<'a>),
 }
 
 /// Node-local port endpoints in planner order.
-type BoundEndpoints<'a> = Vec<(PortId, Endpoint<'a>)>;
+type BoundEndpoints = Vec<(PortId, Endpoint)>;
 
 /// Splits endpoints into those at or after `first` and the rest.
-fn split_endpoints(
-    endpoints: BoundEndpoints<'_>,
-    first: PortId,
-) -> (BoundEndpoints<'_>, BoundEndpoints<'_>) {
+fn split_endpoints(endpoints: BoundEndpoints, first: PortId) -> (BoundEndpoints, BoundEndpoints) {
     endpoints
         .into_iter()
         .partition(|endpoint| endpoint.0 >= first)

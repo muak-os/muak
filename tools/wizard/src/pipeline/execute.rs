@@ -10,7 +10,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::{Graph, NodeKind};
 use crate::pipeline::preflight::{self, PreflightedGraph};
 use crate::pipeline::prepare::{TargetWriters, bind_nodes};
-use crate::pipeline::runtime::PreparedNode;
+use crate::pipeline::runtime::{PreparedNode, PreparedTask};
 use crate::pipeline::validate;
 use crate::{Metadata, SectionInfo};
 
@@ -41,21 +41,37 @@ fn execute_blocking(
     targets: &mut TargetWriters<'_>,
 ) -> Result<Metadata> {
     let tokio = tokio::runtime::Handle::current();
-    let (nodes, planned_payloads, overlay_files) = bind_nodes(preflighted, targets)?;
+    let (tasks, planned_payloads, overlay_files) = bind_nodes(preflighted, targets)?;
 
     thread::scope(|scope| {
         let planned = &planned_payloads;
         let overlays = &overlay_files;
-        let mut joins = Vec::with_capacity(nodes.len());
-        for node in nodes {
+        let mut joins = Vec::with_capacity(tasks.len());
+        for task in tasks {
             let tokio = tokio.clone();
-            joins.push(scope.spawn(move || node.run(context, planned, overlays, &tokio)));
+            joins.push(scope.spawn(move || task.run(context, planned, overlays, &tokio)));
         }
         join_all(joins)
     })
 }
 
-impl PreparedNode<'_> {
+impl PreparedTask<'_> {
+    /// Dispatches the task and runs it on its own thread.
+    fn run(
+        self,
+        ctx: &BuildContext<'_, '_>,
+        planned: &[mumi::payload::Planned],
+        overlay_files: &[(String, u64)],
+        tokio: &tokio::runtime::Handle,
+    ) -> Result<NodeReport> {
+        match self {
+            PreparedTask::Node(node) => node.run(ctx, planned, overlay_files, tokio),
+            PreparedTask::Sink(sink) => nodes::sink::run(sink),
+        }
+    }
+}
+
+impl PreparedNode {
     /// Dispatches the node logic by kind and runs it on its own thread.
     fn run(
         self,
@@ -64,26 +80,22 @@ impl PreparedNode<'_> {
         overlay_files: &[(String, u64)],
         tokio: &tokio::runtime::Handle,
     ) -> Result<NodeReport> {
-        let PreparedNode {
-            kind,
-            mut ports,
-            target,
-        } = self;
+        let PreparedNode { kind, mut ports } = self;
         match kind {
             NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports, tokio),
             NodeKind::ExtensionPayloads => nodes::extensions::run(planned, &mut ports),
             NodeKind::InitramfsTail => nodes::initramfs::run_tail(ctx, planned, &mut ports),
             NodeKind::Concat => nodes::initramfs::run_concat(&mut ports),
             NodeKind::Uki => nodes::uki::run(ctx, &mut ports),
-            NodeKind::Iso => nodes::media::run_iso(ctx, overlay_files, &mut ports, target),
-            NodeKind::Raw => nodes::media::run_raw(ctx, overlay_files, &mut ports, target),
+            NodeKind::Iso => nodes::media::run_iso(ctx, overlay_files, &mut ports),
+            NodeKind::Raw => nodes::media::run_raw(ctx, overlay_files, &mut ports),
             NodeKind::OverlayPull => {
                 nodes::overlays::run_pull(ctx, overlay_files, &mut ports, tokio)
             }
             NodeKind::OverlayTar => nodes::overlays::run_tar(overlay_files, &mut ports),
-            NodeKind::ArtifactSink { .. } => {
-                Err(WizardError::BuildError("sink node was bound".to_owned()))
-            }
+            NodeKind::ArtifactSink { .. } => Err(WizardError::BuildError(
+                "sink nodes are PreparedTask::Sink".to_owned(),
+            )),
             NodeKind::Fanout => nodes::fanout::run(&mut ports),
         }
     }

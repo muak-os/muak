@@ -52,7 +52,7 @@ pub(crate) async fn preflight(
 /// or re-planning. The payload format is opaque to wizard.
 pub(crate) fn run(
     payloads: &[mumi::payload::Planned],
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
 ) -> Result<NodeReport> {
     let mut outputs = Endpoint::into_outputs(
         ports
@@ -62,7 +62,7 @@ pub(crate) fn run(
     )?;
     for (payload, output) in payloads.iter().zip(outputs.iter_mut()) {
         payload
-            .write(&mut DynWriter::new(output.writer()))
+            .write(&mut DynWriter::new(&mut output.writer))
             .map_err(|e| WizardError::BuildError(format!("stream extension payload: {e}")))?;
     }
 

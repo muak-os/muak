@@ -88,7 +88,7 @@ pub(crate) fn preflight_concat(graph: &mut Graph, id: NodeId) -> Result<()> {
 pub(crate) fn run_tail(
     ctx: &BuildContext<'_, '_>,
     planned: &[mumi::payload::Planned],
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
 ) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
@@ -119,21 +119,21 @@ pub(crate) fn run_tail(
     }
 
     let mut output = ports.take(TAIL_OUTPUT)?.into_output()?;
-    ramune::archive::cpio(&mut pairs, &mut DynWriter::new(output.writer()))
+    ramune::archive::cpio(&mut pairs, &mut DynWriter::new(&mut output.writer))
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
 
 /// Emits the first input stream followed by the second into one output.
-pub(crate) fn run_concat(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+pub(crate) fn run_concat(ports: &mut NodePorts) -> Result<NodeReport> {
     let mut first = ports.take(CONCAT_BASE)?.into_input()?;
     let mut second = ports.take(CONCAT_TAIL)?.into_input()?;
     let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;
 
-    std::io::copy(&mut first.reader, output.writer())
+    std::io::copy(&mut first.reader, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;
-    std::io::copy(&mut second.reader, output.writer())
+    std::io::copy(&mut second.reader, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;
 
     Ok(NodeReport::Empty)

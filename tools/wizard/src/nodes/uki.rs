@@ -17,7 +17,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
-use crate::pipeline::runtime::{DynWriter, InputStream, NodePorts, OutputSink};
+use crate::pipeline::runtime::{DynWriter, InputStream, NodePorts, OutputStream};
 use crate::stream::pipe::Pipe;
 
 pub(crate) const UKI_STUB: PortId = PortId(0);
@@ -98,7 +98,7 @@ pub(crate) async fn preflight(
 }
 
 /// Builds the UKI from the live input streams and optionally sign it.
-pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
     let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;
@@ -122,10 +122,10 @@ pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts<'_>) -> Resu
         Some(signing) => signed_size(unsigned_size, signing)?,
         None => unsigned_size,
     };
-    if final_size != output.size() {
+    if final_size != output.size {
         return Err(WizardError::BuildError(format!(
             "uki size mismatch: runtime {final_size} != preflight {}",
-            output.size(),
+            output.size,
         )));
     }
 
@@ -137,7 +137,7 @@ pub(crate) fn run(ctx: &BuildContext<'_, '_>, ports: &mut NodePorts<'_>) -> Resu
             None,
             input(&mut kernel),
             input(&mut initramfs),
-            &mut DynWriter::new(output.writer()),
+            &mut DynWriter::new(&mut output.writer),
         )
         .map(|sections| NodeReport::Uki(to_section_infos(sections)))
         .map_err(|e| WizardError::BuildError(format!("uki stream: {e}"))),
@@ -177,10 +177,10 @@ fn write_signed(
     kernel: &mut InputStream,
     initramfs: &mut InputStream,
     signing: &SigningPair<'_>,
-    output: &mut OutputSink<'_>,
+    output: &mut OutputStream,
 ) -> Result<NodeReport> {
     let (mut unsigned_w, mut unsigned_r) = Pipe::new("uki signing pipe")?.split();
-    let signed = output.writer();
+    let signed = &mut output.writer;
     std::thread::scope(|scope| {
         let sign = scope.spawn(move || {
             signature::sign(

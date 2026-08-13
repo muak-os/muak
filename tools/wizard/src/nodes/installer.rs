@@ -12,7 +12,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
-use crate::pipeline::runtime::{NodePorts, OutputSink};
+use crate::pipeline::runtime::{NodePorts, OutputStream};
 
 pub(crate) const STUB: PortId = PortId(0);
 pub(crate) const CMDLINE: PortId = PortId(1);
@@ -67,11 +67,11 @@ pub(crate) async fn preflight(
 /// Pulls the installer once and routes known files to their output streams.
 pub(crate) fn run(
     ctx: &BuildContext<'_, '_>,
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
     tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {
     let plan = ctx.plan;
-    let mut outputs: Vec<(PortId, OutputSink<'_>)> = ports
+    let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(STUB, None)?
         .into_iter()
         .map(|(port, endpoint)| Ok((port, endpoint.into_output()?)))
@@ -101,7 +101,7 @@ pub(crate) fn run(
 fn route_entry(
     path: &str,
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputSink<'_>)],
+    outputs: &mut [(PortId, OutputStream)],
     seen_stub: &mut bool,
     seen_cmdline: &mut bool,
 ) -> koci::error::Result<()> {
@@ -137,14 +137,14 @@ fn file_path(port: PortId) -> Option<&'static str> {
 
 fn copy_optional(
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputSink<'_>)],
+    outputs: &mut [(PortId, OutputStream)],
     port: PortId,
 ) -> std::io::Result<()> {
     let Some(index) = outputs.iter().position(|output| output.0 == port) else {
         return Ok(());
     };
     if let Some(output) = outputs.get_mut(index).map(|item| &mut item.1) {
-        std::io::copy(reader, output.writer())?;
+        std::io::copy(reader, &mut output.writer)?;
     }
 
     Ok(())

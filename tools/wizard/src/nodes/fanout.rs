@@ -5,7 +5,7 @@ use std::io::Write;
 use crate::error::{Result, WizardError};
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts, OutputSink};
+use crate::pipeline::runtime::{Endpoint, NodePorts};
 use crate::stream;
 
 pub(crate) const FANOUT_INPUT: PortId = PortId(0);
@@ -27,7 +27,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+pub(crate) fn run(ports: &mut NodePorts) -> Result<NodeReport> {
     let mut input = ports.take(FANOUT_INPUT)?.into_input()?;
     let mut outputs = Endpoint::into_outputs(
         ports
@@ -35,8 +35,10 @@ pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
-    let mut sinks: Vec<&mut (dyn Write + Send)> =
-        outputs.iter_mut().map(OutputSink::writer).collect();
+    let mut sinks: Vec<&mut (dyn Write + Send)> = outputs
+        .iter_mut()
+        .map(|output| -> &mut (dyn Write + Send) { &mut output.writer })
+        .collect();
 
     stream::fanout::copy_to_all(&mut input.reader, &mut sinks)
         .map_err(|e| WizardError::BuildError(format!("fanout stream: {e}")))?;
@@ -51,7 +53,7 @@ mod tests {
 
     use super::*;
     use crate::pipeline::graph::PortId;
-    use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputSink, OutputStream};
+    use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
 
     #[test]
     fn run_fans_out_bytes_to_all_outputs() {
@@ -73,17 +75,17 @@ mod tests {
                 ),
                 (
                     PortId(1),
-                    Endpoint::Output(OutputSink::Pipe(OutputStream {
+                    Endpoint::Output(OutputStream {
                         size: 6,
                         writer: left_writer,
-                    })),
+                    }),
                 ),
                 (
                     PortId(2),
-                    Endpoint::Output(OutputSink::Pipe(OutputStream {
+                    Endpoint::Output(OutputStream {
                         size: 6,
                         writer: right_writer,
-                    })),
+                    }),
                 ),
             ],
         };

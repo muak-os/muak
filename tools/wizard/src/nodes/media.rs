@@ -1,6 +1,6 @@
 //! ISO and raw disk media image builders.
 
-use std::io::{Read, Write};
+use std::io::Read;
 
 use esp::FileMeta;
 use esp::layout::compute;
@@ -11,12 +11,13 @@ use crate::nodes::{overlays, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
 use crate::pipeline::runtime::{DynWriter, Endpoint, InputStream, NodePorts};
 use crate::resolve::BuildPlan;
 
 pub(crate) const MEDIA_UKI: PortId = PortId(0);
-pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(1);
+pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
+pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(2);
 
 /// The UKI stream, plus overlay file streams when the profile has an overlay.
 pub(crate) fn dependencies(build: &BuildPlan) -> Vec<Dependency> {
@@ -32,16 +33,23 @@ pub(crate) fn dependencies(build: &BuildPlan) -> Vec<Dependency> {
     dependencies
 }
 
+/// The media output stream size is not needed so we set it to zero.
+pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
+    graph
+        .stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?
+        .size = 0;
+
+    Ok(())
+}
+
 /// Builds the ISO from the UKI stream and overlay file streams.
 pub(crate) fn run_iso(
     ctx: &BuildContext<'_, '_>,
     overlay_files: &[(String, u64)],
-    ports: &mut NodePorts<'_>,
-    target: Option<&mut (dyn Write + Send)>,
+    ports: &mut NodePorts,
 ) -> Result<NodeReport> {
-    let target =
-        target.ok_or_else(|| WizardError::BuildError("iso target writer missing".to_owned()))?;
     let (layout, mut uki, mut overlays) = media_inputs(ctx, overlay_files, ports)?;
+    let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
     readers.push(&mut uki.reader);
@@ -49,8 +57,12 @@ pub(crate) fn run_iso(
         readers.push(&mut overlay.reader);
     }
 
-    iso::build(&layout, &mut readers, &mut DynWriter::new(target))
-        .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
+    iso::build(
+        &layout,
+        &mut readers,
+        &mut DynWriter::new(&mut output.writer),
+    )
+    .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
@@ -59,12 +71,10 @@ pub(crate) fn run_iso(
 pub(crate) fn run_raw(
     ctx: &BuildContext<'_, '_>,
     overlay_files: &[(String, u64)],
-    ports: &mut NodePorts<'_>,
-    target: Option<&mut (dyn Write + Send)>,
+    ports: &mut NodePorts,
 ) -> Result<NodeReport> {
-    let target =
-        target.ok_or_else(|| WizardError::BuildError("raw target writer missing".to_owned()))?;
     let (layout, mut uki, mut overlays) = media_inputs(ctx, overlay_files, ports)?;
+    let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
     readers.push(&mut uki.reader);
@@ -72,8 +82,13 @@ pub(crate) fn run_raw(
         readers.push(&mut overlay.reader);
     }
 
-    raw::build(&layout, &mut readers, &mut DynWriter::new(target), Some(6))
-        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
+    raw::build(
+        &layout,
+        &mut readers,
+        &mut DynWriter::new(&mut output.writer),
+        Some(6),
+    )
+    .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
@@ -82,7 +97,7 @@ pub(crate) fn run_raw(
 fn media_inputs<'f>(
     ctx: &BuildContext<'_, '_>,
     overlay_files: &'f [(String, u64)],
-    ports: &mut NodePorts<'_>,
+    ports: &mut NodePorts,
 ) -> Result<(esp::layout::Layout<'f>, InputStream, Vec<InputStream>)> {
     let uki = ports.take(MEDIA_UKI)?.into_input()?;
     let overlays = Endpoint::into_inputs(
