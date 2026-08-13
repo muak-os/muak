@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::nodes::fanout::{FANOUT_INPUT, FANOUT_OUTPUTS_FIRST};
-use crate::pipeline::graph::{Graph, NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
 
 /// Ensures every stream has exactly one consumer.
 ///
@@ -10,23 +10,41 @@ use crate::pipeline::graph::{Graph, NodeKind, PortId};
 ///
 /// Returns an error when a consumer binding is missing.
 pub(crate) fn normalize(graph: &mut Graph) -> Result<()> {
-    let stream_ids = graph
-        .streams()
-        .iter()
-        .map(|stream| stream.id)
-        .collect::<Vec<_>>();
-    for stream_id in stream_ids {
+    let stream_count = graph.streams().len();
+    for stream_index in 0..stream_count {
+        let stream_id = StreamId(stream_index);
         if graph.stream(stream_id)?.consumers.len() <= 1 {
             continue;
         }
-        let consumers = graph.stream(stream_id)?.consumers.clone();
         let fanout = graph.add_node(NodeKind::Fanout);
         graph.bind_input(fanout, FANOUT_INPUT, stream_id)?;
-        for (index, consumer) in consumers.iter().enumerate() {
-            let output =
-                graph.add_output(fanout, PortId(FANOUT_OUTPUTS_FIRST.0.saturating_add(index)))?;
-            graph.rebind_input(*consumer, stream_id, output)?;
+        let node_count = graph.nodes().len();
+        let mut output_index = 0;
+        for index in (0..node_count).filter(|index| *index != fanout.0) {
+            rebind_consumers(graph, NodeId(index), stream_id, fanout, &mut output_index)?;
         }
+    }
+
+    Ok(())
+}
+
+fn rebind_consumers(
+    graph: &mut Graph,
+    consumer: NodeId,
+    stream_id: StreamId,
+    fanout: NodeId,
+    output_index: &mut usize,
+) -> Result<()> {
+    while graph
+        .node(consumer)?
+        .inputs
+        .iter()
+        .any(|binding| binding.stream == stream_id)
+    {
+        let port = PortId(FANOUT_OUTPUTS_FIRST.0.saturating_add(*output_index));
+        *output_index = output_index.saturating_add(1);
+        let output = graph.add_output(fanout, port)?;
+        graph.rebind_input(consumer, stream_id, output)?;
     }
 
     Ok(())
