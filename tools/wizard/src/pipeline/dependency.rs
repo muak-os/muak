@@ -1,6 +1,5 @@
 //! Node dependency declarations, their interpretation, and validation.
 
-use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::{extensions, initramfs, installer, media, overlays, sign, sink, uki};
 use crate::pipeline::context::BuildContext;
@@ -68,61 +67,10 @@ pub(crate) fn node_dependencies(
         NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
         NodeKind::OverlayPull => Ok(overlays::pull_dependencies()),
         NodeKind::OverlayTar => Ok(overlays::tar_dependencies()),
-        NodeKind::ArtifactSink { artifact } => {
-            Ok(sink_dependencies(artifact, context.signing.is_some()))
-        }
+        NodeKind::ArtifactSink { artifact } => Ok(sink::dependencies(artifact, context)),
         NodeKind::Fanout => Err(WizardError::BuildError(
             "fanout nodes are never planned".to_owned(),
         )),
-    }
-}
-
-/// The declared producer dependency of a requested artifact's sink node.
-fn sink_dependencies(artifact: Artifact, signed: bool) -> Vec<Dependency> {
-    match artifact {
-        Artifact::Kernel => vec![Dependency::fixed(
-            NodeKind::InstallerPull,
-            installer::KERNEL,
-            sink::SINK_INPUT,
-        )],
-        Artifact::Cmdline => vec![Dependency::fixed(
-            NodeKind::InstallerPull,
-            installer::CMDLINE,
-            sink::SINK_INPUT,
-        )],
-        Artifact::Initramfs => vec![Dependency::fixed(
-            NodeKind::Concat,
-            initramfs::CONCAT_OUTPUT,
-            sink::SINK_INPUT,
-        )],
-        Artifact::Uki => vec![Dependency::fixed(
-            if signed {
-                NodeKind::Sign
-            } else {
-                NodeKind::Uki
-            },
-            if signed {
-                sign::SIGN_OUTPUT
-            } else {
-                uki::UKI_OUTPUT
-            },
-            sink::SINK_INPUT,
-        )],
-        Artifact::Iso => vec![Dependency::fixed(
-            NodeKind::Iso,
-            media::MEDIA_OUTPUT,
-            sink::SINK_INPUT,
-        )],
-        Artifact::Raw => vec![Dependency::fixed(
-            NodeKind::Raw,
-            media::MEDIA_OUTPUT,
-            sink::SINK_INPUT,
-        )],
-        Artifact::Overlays => vec![Dependency::fixed(
-            NodeKind::OverlayTar,
-            overlays::TAR_OUTPUT,
-            sink::SINK_INPUT,
-        )],
     }
 }
 

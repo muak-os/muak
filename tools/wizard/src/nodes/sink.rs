@@ -4,12 +4,23 @@ use std::io;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
+use crate::nodes::{initramfs, installer, media, overlays, sign, uki};
 use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::PortId;
+use crate::pipeline::graph::{NodeKind, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const SINK_INPUT: PortId = PortId(0);
+
+/// The requested artifact's stream.
+pub(crate) fn dependencies(
+    artifact: Artifact,
+    context: &BuildContext<'_, '_, '_>,
+) -> Vec<Dependency> {
+    let (producer, producer_port) = artifact_source(artifact, context.signing.is_some());
+    vec![Dependency::fixed(producer, producer_port, SINK_INPUT)]
+}
 
 /// Streams the artifact pipe into the user writer.
 pub(crate) fn run(
@@ -32,6 +43,20 @@ pub(crate) fn run(
         .map_err(|e| WizardError::BuildError(format!("sink stream: {e}")))?;
 
     Ok(NodeReport::Empty)
+}
+
+/// The producer of each requested artifact's stream.
+fn artifact_source(artifact: Artifact, signed: bool) -> (NodeKind, PortId) {
+    match artifact {
+        Artifact::Kernel => (NodeKind::InstallerPull, installer::KERNEL),
+        Artifact::Cmdline => (NodeKind::InstallerPull, installer::CMDLINE),
+        Artifact::Initramfs => (NodeKind::Concat, initramfs::CONCAT_OUTPUT),
+        Artifact::Uki if signed => (NodeKind::Sign, sign::SIGN_OUTPUT),
+        Artifact::Uki => (NodeKind::Uki, uki::UKI_OUTPUT),
+        Artifact::Iso => (NodeKind::Iso, media::MEDIA_OUTPUT),
+        Artifact::Raw => (NodeKind::Raw, media::MEDIA_OUTPUT),
+        Artifact::Overlays => (NodeKind::OverlayTar, overlays::TAR_OUTPUT),
+    }
 }
 
 #[cfg(test)]
