@@ -2,9 +2,9 @@
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, initramfs, installer, media, overlays, sink, uki};
+use crate::nodes::{extensions, initramfs, installer, media, overlays, sign, sink, uki};
+use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::{Graph, Node, NodeKind, PortBinding, PortId};
-use crate::resolve::BuildPlan;
 
 /// One declared input of a node: a stream produced by `producer` on
 /// `producer_port`, bound to the consumer's `consumer_port`.
@@ -54,17 +54,23 @@ impl Dependency {
 /// # Errors
 ///
 /// Returns an error when the kind is not a planned node (e.g. `Fanout`).
-pub(crate) fn node_dependencies(kind: NodeKind, build: &BuildPlan) -> Result<Vec<Dependency>> {
+pub(crate) fn node_dependencies(
+    kind: NodeKind,
+    context: &BuildContext<'_, '_, '_>,
+) -> Result<Vec<Dependency>> {
     match kind {
         NodeKind::InstallerPull => Ok(installer::dependencies()),
         NodeKind::ExtensionPayloads => Ok(extensions::dependencies()),
         NodeKind::InitramfsTail => Ok(initramfs::tail_dependencies()),
         NodeKind::Concat => Ok(initramfs::concat_dependencies()),
         NodeKind::Uki => Ok(uki::dependencies()),
-        NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(build)),
+        NodeKind::Sign => Ok(sign::dependencies()),
+        NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
         NodeKind::OverlayPull => Ok(overlays::pull_dependencies()),
         NodeKind::OverlayTar => Ok(overlays::tar_dependencies()),
-        NodeKind::ArtifactSink { artifact } => Ok(sink_dependencies(artifact)),
+        NodeKind::ArtifactSink { artifact } => {
+            Ok(sink_dependencies(artifact, context.signing.is_some()))
+        }
         NodeKind::Fanout => Err(WizardError::BuildError(
             "fanout nodes are never planned".to_owned(),
         )),
@@ -72,7 +78,7 @@ pub(crate) fn node_dependencies(kind: NodeKind, build: &BuildPlan) -> Result<Vec
 }
 
 /// The declared producer dependency of a requested artifact's sink node.
-fn sink_dependencies(artifact: Artifact) -> Vec<Dependency> {
+fn sink_dependencies(artifact: Artifact, signed: bool) -> Vec<Dependency> {
     match artifact {
         Artifact::Kernel => vec![Dependency::fixed(
             NodeKind::InstallerPull,
@@ -90,8 +96,16 @@ fn sink_dependencies(artifact: Artifact) -> Vec<Dependency> {
             sink::SINK_INPUT,
         )],
         Artifact::Uki => vec![Dependency::fixed(
-            NodeKind::Uki,
-            uki::UKI_OUTPUT,
+            if signed {
+                NodeKind::Sign
+            } else {
+                NodeKind::Uki
+            },
+            if signed {
+                sign::SIGN_OUTPUT
+            } else {
+                uki::UKI_OUTPUT
+            },
             sink::SINK_INPUT,
         )],
         Artifact::Iso => vec![Dependency::fixed(
@@ -118,11 +132,14 @@ fn sink_dependencies(artifact: Artifact) -> Vec<Dependency> {
 ///
 /// Returns an error when a metadata query fails or the kind has no dynamic
 /// output range.
-pub(crate) async fn output_count(kind: NodeKind, build: &BuildPlan) -> Result<usize> {
+pub(crate) async fn output_count(
+    kind: NodeKind,
+    context: &BuildContext<'_, '_, '_>,
+) -> Result<usize> {
     if kind == NodeKind::ExtensionPayloads {
-        Ok(extensions::output_count(build))
+        Ok(extensions::output_count(context.plan))
     } else if kind == NodeKind::OverlayPull {
-        overlays::output_count(build).await
+        overlays::output_count(context.plan).await
     } else {
         Err(WizardError::BuildError(format!(
             "{kind:?} has no dynamic output count"
@@ -135,9 +152,9 @@ pub(crate) async fn output_count(kind: NodeKind, build: &BuildPlan) -> Result<us
 /// # Errors
 ///
 /// Returns an error on the first violation.
-pub(crate) fn validate(graph: &Graph, build: &BuildPlan) -> Result<()> {
+pub(crate) fn validate(graph: &Graph, context: &BuildContext<'_, '_, '_>) -> Result<()> {
     for node in graph.nodes() {
-        check_node_dependencies(graph, node, build)?;
+        check_node_dependencies(graph, node, context)?;
     }
     for node in graph.nodes() {
         let instances = graph
@@ -156,8 +173,12 @@ pub(crate) fn validate(graph: &Graph, build: &BuildPlan) -> Result<()> {
     Ok(())
 }
 
-fn check_node_dependencies(graph: &Graph, node: &Node, build: &BuildPlan) -> Result<()> {
-    for dependency in node_dependencies(node.kind, build)? {
+fn check_node_dependencies(
+    graph: &Graph,
+    node: &Node,
+    context: &BuildContext<'_, '_, '_>,
+) -> Result<()> {
+    for dependency in node_dependencies(node.kind, context)? {
         let producer = find_node(graph, dependency.producer)?;
         match dependency.kind {
             DependencyKind::Fixed => check_fixed(producer, node, &dependency)?,
@@ -230,13 +251,13 @@ mod tests {
 
     use crate::artifact::Artifact;
     use crate::nodes::installer;
+    use crate::pipeline::context::BuildContext;
     use crate::pipeline::dependency::validate;
     use crate::pipeline::graph::{Graph, NodeKind, PortId};
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
 
     fn build_plan() -> BuildPlan {
-        // ARRANGE
         BuildPlan::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
@@ -245,6 +266,17 @@ mod tests {
             None,
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         )
+    }
+
+    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+        BuildContext {
+            plan,
+            profile: b"",
+            signing: None,
+            writers: std::sync::Mutex::new(
+                crate::pipeline::context::TargetWriters::new(Vec::new()),
+            ),
+        }
     }
 
     fn kernel_sink_graph() -> Graph {
@@ -266,10 +298,11 @@ mod tests {
     fn accepts_satisfied_dependencies() {
         // ARRANGE
         let graph = kernel_sink_graph();
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap();
@@ -282,10 +315,11 @@ mod tests {
         graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,
         });
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap_err();
@@ -307,10 +341,11 @@ mod tests {
         graph
             .bind_input(consumer, PortId(0), other_stream)
             .expect("bind");
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap_err();
@@ -325,10 +360,11 @@ mod tests {
         let stream = graph.add_output(pull, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), stream).expect("bind");
         graph.bind_input(tar, PortId(2), stream).expect("bind");
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap_err();
@@ -346,10 +382,11 @@ mod tests {
         let wrong = graph.add_output(other, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), first).expect("bind");
         graph.bind_input(tar, PortId(2), wrong).expect("bind");
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap_err();
@@ -360,10 +397,11 @@ mod tests {
         // ARRANGE
         let mut graph = kernel_sink_graph();
         graph.add_node(NodeKind::InstallerPull);
-        let build = build_plan();
+        let plan = build_plan();
+        let context = context(&plan);
 
         // ACT
-        let result = validate(&graph, &build);
+        let result = validate(&graph, &context);
 
         // ASSERT
         result.unwrap_err();

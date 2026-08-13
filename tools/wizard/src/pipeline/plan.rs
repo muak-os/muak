@@ -4,12 +4,12 @@ use std::collections::HashMap;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
+use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::{
     Dependency, DependencyKind, node_dependencies, output_count, validate,
 };
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
-use crate::resolve::BuildPlan;
 
 /// Builds the logical DAG for the requested artifacts and normalizes it.
 ///
@@ -17,10 +17,13 @@ use crate::resolve::BuildPlan;
 ///
 /// Returns an error when a dependency is cyclic, a dynamic count cannot be
 /// fetched, or the built graph fails validation.
-pub(crate) async fn plan(build: &BuildPlan, artifacts: &[Artifact]) -> Result<Graph> {
-    let mut planner = Planner::new(build);
+pub(crate) async fn plan(
+    context: &BuildContext<'_, '_, '_>,
+    artifacts: &[Artifact],
+) -> Result<Graph> {
+    let mut planner = Planner::new(context);
     for artifact in artifacts {
-        if *artifact == Artifact::Overlays && build.overlay().is_none() {
+        if *artifact == Artifact::Overlays && context.plan.overlay().is_none() {
             return Err(WizardError::BuildError(
                 "overlays requested but the profile has no overlay".to_owned(),
             ));
@@ -30,15 +33,15 @@ pub(crate) async fn plan(build: &BuildPlan, artifacts: &[Artifact]) -> Result<Gr
         })?;
     }
     planner.bind_all().await?;
-    validate(&planner.graph, build)?;
+    validate(&planner.graph, context)?;
     normalize(&mut planner.graph)?;
 
     Ok(planner.graph)
 }
 
 /// Depth-first instantiation of the dependency graph, with memoization.
-struct Planner<'a> {
-    build: &'a BuildPlan,
+struct Planner<'a, 'data, 'sign, 'write> {
+    context: &'a BuildContext<'data, 'sign, 'write>,
     graph: Graph,
     instances: HashMap<NodeKind, NodeId>,
     outputs: HashMap<(NodeKind, PortId), StreamId>,
@@ -52,10 +55,10 @@ enum VisitState {
     Done,
 }
 
-impl<'a> Planner<'a> {
-    fn new(build: &'a BuildPlan) -> Self {
+impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
+    fn new(context: &'a BuildContext<'data, 'sign, 'write>) -> Self {
         Self {
-            build,
+            context,
             graph: Graph::new(),
             instances: HashMap::new(),
             outputs: HashMap::new(),
@@ -79,7 +82,7 @@ impl<'a> Planner<'a> {
         }
         self.states.insert(kind, VisitState::InProgress);
 
-        for dependency in node_dependencies(kind, self.build)? {
+        for dependency in node_dependencies(kind, self.context)? {
             self.ensure(dependency.producer)?;
         }
 
@@ -105,7 +108,7 @@ impl<'a> Planner<'a> {
         let mut bindings = Vec::new();
         for node in self.graph.nodes() {
             bindings.extend(
-                node_dependencies(node.kind, self.build)?
+                node_dependencies(node.kind, self.context)?
                     .into_iter()
                     .map(|dependency| (node.id, dependency)),
             );
@@ -181,7 +184,7 @@ impl<'a> Planner<'a> {
         if let Some(count) = self.counts.get(&kind) {
             return Ok(*count);
         }
-        let count = output_count(kind, self.build).await?;
+        let count = output_count(kind, self.context).await?;
         self.counts.insert(kind, count);
 
         Ok(count)
@@ -191,10 +194,14 @@ impl<'a> Planner<'a> {
 #[cfg(test)]
 mod tests {
     use koci::arch::Arch;
+    use sbolt::keys::SigningPair;
+    use sbolt::keys::cert::generate_pk;
 
     use super::*;
     use crate::nodes::uki;
+    use crate::pipeline::context::{BuildContext, TargetWriters};
     use crate::request::Platform;
+    use crate::resolve::BuildPlan;
     use crate::source::extension::Extension;
 
     fn build_plan() -> BuildPlan {
@@ -212,8 +219,31 @@ mod tests {
         )
     }
 
+    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+        BuildContext {
+            plan,
+            profile: b"",
+            signing: None,
+            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
+        }
+    }
+
     fn kinds(graph: &Graph) -> Vec<NodeKind> {
         graph.nodes().iter().map(|node| node.kind).collect()
+    }
+
+    fn uki_sink(graph: &Graph) -> NodeId {
+        graph
+            .nodes()
+            .iter()
+            .find(|node| {
+                node.kind
+                    == NodeKind::ArtifactSink {
+                        artifact: Artifact::Uki,
+                    }
+            })
+            .expect("uki sink")
+            .id
     }
 
     fn count(graph: &Graph, kind: NodeKind) -> usize {
@@ -228,9 +258,10 @@ mod tests {
     async fn kernel_and_cmdline_need_only_installer() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        let graph = plan(&build, &[Artifact::Kernel, Artifact::Cmdline])
+        let graph = plan(&context, &[Artifact::Kernel, Artifact::Cmdline])
             .await
             .expect("plan");
 
@@ -262,9 +293,10 @@ mod tests {
     async fn initramfs_and_uki_fanout_the_complete_initramfs() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        let graph = plan(&build, &[Artifact::Initramfs, Artifact::Uki])
+        let graph = plan(&context, &[Artifact::Initramfs, Artifact::Uki])
             .await
             .expect("plan");
 
@@ -298,9 +330,10 @@ mod tests {
     async fn uki_iso_and_raw_fanout_the_uki_stream() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        let graph = plan(&build, &[Artifact::Uki, Artifact::Iso, Artifact::Raw])
+        let graph = plan(&context, &[Artifact::Uki, Artifact::Iso, Artifact::Raw])
             .await
             .expect("plan");
 
@@ -316,9 +349,10 @@ mod tests {
     async fn overlays_without_overlay_profile_rejected() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        let error = plan(&build, &[Artifact::Overlays])
+        let error = plan(&context, &[Artifact::Overlays])
             .await
             .expect_err("overlays without overlay must fail");
 
@@ -331,12 +365,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn signed_request_routes_the_uki_through_sign() {
+        // ARRANGE
+        let build = build_plan();
+        let (signer, certificate) = generate_pk("muak-test").expect("generate signing pair");
+        let signing = SigningPair {
+            signer: &signer,
+            certificate: &certificate,
+        };
+        let context = BuildContext {
+            plan: &build,
+            profile: b"",
+            signing: Some(&signing),
+            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
+        };
+
+        // ACT
+        let graph = plan(&context, &[Artifact::Uki]).await.expect("plan");
+
+        // ASSERT
+        assert_eq!(count(&graph, NodeKind::Sign), 1);
+        assert_eq!(count(&graph, NodeKind::Uki), 1);
+        let sink = uki_sink(&graph);
+        let input = graph
+            .node(sink)
+            .expect("sink")
+            .input(PortId(0))
+            .expect("sink input");
+        let producer = graph.stream(input).expect("stream").producer;
+        assert_eq!(graph.node(producer).expect("producer").kind, NodeKind::Sign);
+    }
+
+    #[tokio::test]
     async fn binds_stable_uki_ports() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        let graph = plan(&build, &[Artifact::Uki]).await.expect("plan");
+        let graph = plan(&context, &[Artifact::Uki]).await.expect("plan");
+
+        // ASSERT
+        assert_eq!(count(&graph, NodeKind::Sign), 0);
 
         // ACT
         let uki_node = graph
@@ -366,18 +436,19 @@ mod tests {
     async fn every_artifact_combo_plans_and_validates() {
         // ARRANGE
         let build = build_plan();
+        let context = context(&build);
 
         // ACT
-        plan(&build, &[Artifact::Kernel, Artifact::Cmdline])
+        plan(&context, &[Artifact::Kernel, Artifact::Cmdline])
             .await
             .expect("plan");
-        plan(&build, &[Artifact::Initramfs, Artifact::Uki])
+        plan(&context, &[Artifact::Initramfs, Artifact::Uki])
             .await
             .expect("plan");
-        plan(&build, &[Artifact::Uki, Artifact::Iso])
+        plan(&context, &[Artifact::Uki, Artifact::Iso])
             .await
             .expect("plan");
-        plan(&build, &[Artifact::Uki, Artifact::Raw])
+        plan(&context, &[Artifact::Uki, Artifact::Raw])
             .await
             .expect("plan");
 

@@ -7,22 +7,26 @@ use esp::layout::compute;
 use miso::{iso, raw};
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{overlays, uki};
+use crate::nodes::{overlays, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
 use crate::pipeline::runtime::{DynWriter, Endpoint, InputStream, NodePorts};
-use crate::resolve::BuildPlan;
 
 pub(crate) const MEDIA_UKI: PortId = PortId(0);
 pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
 pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(2);
 
 /// The UKI stream, plus overlay file streams when the profile has an overlay.
-pub(crate) fn dependencies(build: &BuildPlan) -> Vec<Dependency> {
-    let mut dependencies = vec![Dependency::fixed(NodeKind::Uki, uki::UKI_OUTPUT, MEDIA_UKI)];
-    if build.overlay().is_some() {
+pub(crate) fn dependencies(context: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    let uki = if context.signing.is_some() {
+        Dependency::fixed(NodeKind::Sign, sign::SIGN_OUTPUT, MEDIA_UKI)
+    } else {
+        Dependency::fixed(NodeKind::Uki, uki::UKI_OUTPUT, MEDIA_UKI)
+    };
+    let mut dependencies = vec![uki];
+    if context.plan.overlay().is_some() {
         dependencies.push(Dependency::many(
             NodeKind::OverlayPull,
             overlays::PULL_OUTPUTS_FIRST,

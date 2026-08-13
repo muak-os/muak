@@ -37,6 +37,7 @@ pub(crate) async fn preflight(
             }
             NodeKind::Concat => nodes::initramfs::preflight_concat(&mut graph, id)?,
             NodeKind::Uki => nodes::uki::preflight(&mut graph, id, context).await?,
+            NodeKind::Sign => nodes::sign::preflight(&mut graph, id, context)?,
             NodeKind::OverlayPull => {
                 overlay_files = nodes::overlays::preflight_pull(&mut graph, id, context).await?;
             }

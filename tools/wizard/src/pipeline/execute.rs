@@ -66,6 +66,7 @@ impl PreparedNode {
             NodeKind::InitramfsTail => nodes::initramfs::run_tail(ctx, planned, &mut ports),
             NodeKind::Concat => nodes::initramfs::run_concat(&mut ports),
             NodeKind::Uki => nodes::uki::run(ctx, &mut ports),
+            NodeKind::Sign => nodes::sign::run(ctx, &mut ports),
             NodeKind::Iso => nodes::media::run_iso(ctx, overlay_files, &mut ports),
             NodeKind::Raw => nodes::media::run_raw(ctx, overlay_files, &mut ports),
             NodeKind::OverlayPull => {

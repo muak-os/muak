@@ -186,13 +186,13 @@ impl<'a> Request<'a> {
         let resolved = resolve::plan(&self, profile)?;
         let profile_bytes = profile.canonical_bytes()?;
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
-        let graph = plan(&resolved, &artifacts).await?;
         let context = BuildContext {
             plan: &resolved,
             profile: &profile_bytes,
             signing: self.signing,
             writers: Mutex::new(TargetWriters::new(self.targets)),
         };
+        let graph = plan(&context, &artifacts).await?;
 
         execute(graph, &context).await
     }

@@ -21,6 +21,7 @@ pub(crate) enum NodeKind {
     InitramfsTail,
     Concat,
     Uki,
+    Sign,
     Iso,
     Raw,
     OverlayPull,
