@@ -5,9 +5,7 @@ use std::collections::HashMap;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::dependency::{
-    Dependency, DependencyKind, node_dependencies, output_count, validate,
-};
+use crate::pipeline::dependency::{Dependency, DependencyKind, validate};
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
 
@@ -82,7 +80,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         }
         self.states.insert(kind, VisitState::InProgress);
 
-        for dependency in node_dependencies(kind, self.context)? {
+        for dependency in kind.dependencies(self.context)? {
             self.ensure(dependency.producer)?;
         }
 
@@ -108,7 +106,8 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         let mut bindings = Vec::new();
         for node in self.graph.nodes() {
             bindings.extend(
-                node_dependencies(node.kind, self.context)?
+                node.kind
+                    .dependencies(self.context)?
                     .into_iter()
                     .map(|dependency| (node.id, dependency)),
             );
@@ -184,7 +183,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         if let Some(count) = self.counts.get(&kind) {
             return Ok(*count);
         }
-        let count = output_count(kind, self.context).await?;
+        let count = kind.output_count(self.context).await?;
         self.counts.insert(kind, count);
 
         Ok(count)

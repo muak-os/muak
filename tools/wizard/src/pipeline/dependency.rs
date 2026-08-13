@@ -1,7 +1,6 @@
 //! Node dependency declarations, their interpretation, and validation.
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, initramfs, installer, media, overlays, sign, sink, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::{Graph, Node, NodeKind, PortBinding, PortId};
 
@@ -48,53 +47,6 @@ impl Dependency {
     }
 }
 
-/// Declared inputs of a node kind, dispatched to the node's own module.
-///
-/// # Errors
-///
-/// Returns an error when the kind is not a planned node (e.g. `Fanout`).
-pub(crate) fn node_dependencies(
-    kind: NodeKind,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<Vec<Dependency>> {
-    match kind {
-        NodeKind::InstallerPull => Ok(installer::dependencies()),
-        NodeKind::ExtensionPayloads => Ok(extensions::dependencies()),
-        NodeKind::InitramfsTail => Ok(initramfs::tail_dependencies()),
-        NodeKind::Concat => Ok(initramfs::concat_dependencies()),
-        NodeKind::Uki => Ok(uki::dependencies()),
-        NodeKind::Sign => Ok(sign::dependencies()),
-        NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
-        NodeKind::OverlayPull => Ok(overlays::pull_dependencies()),
-        NodeKind::OverlayTar => Ok(overlays::tar_dependencies()),
-        NodeKind::ArtifactSink { artifact } => Ok(sink::dependencies(artifact, context)),
-        NodeKind::Fanout => Err(WizardError::BuildError(
-            "fanout nodes are never planned".to_owned(),
-        )),
-    }
-}
-
-/// Dynamic output count of a `Many` producer kind, fetched once per plan.
-///
-/// # Errors
-///
-/// Returns an error when a metadata query fails or the kind has no dynamic
-/// output range.
-pub(crate) async fn output_count(
-    kind: NodeKind,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<usize> {
-    if kind == NodeKind::ExtensionPayloads {
-        Ok(extensions::output_count(context.plan))
-    } else if kind == NodeKind::OverlayPull {
-        overlays::output_count(context.plan).await
-    } else {
-        Err(WizardError::BuildError(format!(
-            "{kind:?} has no dynamic output count"
-        )))
-    }
-}
-
 /// Checks every instantiated node's declared dependencies are bound.
 ///
 /// # Errors
@@ -126,7 +78,7 @@ fn check_node_dependencies(
     node: &Node,
     context: &BuildContext<'_, '_, '_>,
 ) -> Result<()> {
-    for dependency in node_dependencies(node.kind, context)? {
+    for dependency in node.kind.dependencies(context)? {
         let producer = find_node(graph, dependency.producer)?;
         match dependency.kind {
             DependencyKind::Fixed => check_fixed(producer, node, &dependency)?,

@@ -2,6 +2,9 @@
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
+use crate::nodes::{extensions, initramfs, installer, media, overlays, sign, sink, uki};
+use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::order;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -28,6 +31,52 @@ pub(crate) enum NodeKind {
     OverlayTar,
     ArtifactSink { artifact: Artifact },
     Fanout,
+}
+
+impl NodeKind {
+    /// Declared inputs of this node kind, dispatched to the node's module.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the kind is not a planned node (e.g. `Fanout`).
+    pub(crate) fn dependencies(
+        self,
+        context: &BuildContext<'_, '_, '_>,
+    ) -> Result<Vec<Dependency>> {
+        match self {
+            NodeKind::InstallerPull => Ok(installer::dependencies()),
+            NodeKind::ExtensionPayloads => Ok(extensions::dependencies()),
+            NodeKind::InitramfsTail => Ok(initramfs::tail_dependencies()),
+            NodeKind::Concat => Ok(initramfs::concat_dependencies()),
+            NodeKind::Uki => Ok(uki::dependencies()),
+            NodeKind::Sign => Ok(sign::dependencies()),
+            NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
+            NodeKind::OverlayPull => Ok(overlays::pull_dependencies()),
+            NodeKind::OverlayTar => Ok(overlays::tar_dependencies()),
+            NodeKind::ArtifactSink { artifact } => Ok(sink::dependencies(artifact, context)),
+            NodeKind::Fanout => Err(WizardError::BuildError(
+                "fanout nodes are never planned".to_owned(),
+            )),
+        }
+    }
+
+    /// Dynamic output count of a `Many` producer kind, fetched once per plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a metadata query fails or the kind has no dynamic
+    /// output range.
+    pub(crate) async fn output_count(self, context: &BuildContext<'_, '_, '_>) -> Result<usize> {
+        if self == NodeKind::ExtensionPayloads {
+            Ok(extensions::output_count(context.plan))
+        } else if self == NodeKind::OverlayPull {
+            overlays::output_count(context.plan).await
+        } else {
+            Err(WizardError::BuildError(format!(
+                "{self:?} has no dynamic output count"
+            )))
+        }
+    }
 }
 
 /// Node-local port identity paired with the logical stream it carries.
@@ -125,7 +174,13 @@ impl Graph {
             producer: node,
             consumers: Vec::new(),
         });
-        self.bind_output(node, port, id)?;
+        let node_ref = self.node_mut(node)?;
+        if node_ref.outputs.iter().any(|binding| binding.port == port) {
+            return Err(WizardError::BuildError(format!(
+                "duplicate output port {port:?} on node {node:?}"
+            )));
+        }
+        node_ref.outputs.push(PortBinding { port, stream: id });
 
         Ok(id)
     }
@@ -175,30 +230,22 @@ impl Graph {
 
     /// Returns the node with the given id.
     pub(crate) fn node(&self, id: NodeId) -> Result<&Node> {
-        self.nodes
-            .get(id.0)
-            .ok_or_else(|| WizardError::BuildError(format!("missing node {id:?}")))
+        Self::get(&self.nodes, "node", id.0)
     }
 
     /// Returns the node with the given id, mutably.
     pub(crate) fn node_mut(&mut self, id: NodeId) -> Result<&mut Node> {
-        self.nodes
-            .get_mut(id.0)
-            .ok_or_else(|| WizardError::BuildError(format!("missing node {id:?}")))
+        Self::get_mut(&mut self.nodes, "node", id.0)
     }
 
     /// Returns the stream with the given id.
     pub(crate) fn stream(&self, id: StreamId) -> Result<&Stream> {
-        self.streams
-            .get(id.0)
-            .ok_or_else(|| WizardError::BuildError(format!("missing stream {id:?}")))
+        Self::get(&self.streams, "stream", id.0)
     }
 
     /// Returns the stream with the given id, mutably.
     pub(crate) fn stream_mut(&mut self, id: StreamId) -> Result<&mut Stream> {
-        self.streams
-            .get_mut(id.0)
-            .ok_or_else(|| WizardError::BuildError(format!("missing stream {id:?}")))
+        Self::get_mut(&mut self.streams, "stream", id.0)
     }
 
     /// Returns every node, in id order.
@@ -217,16 +264,16 @@ impl Graph {
         order::topological(&self.nodes, &self.streams)
     }
 
-    fn bind_output(&mut self, node: NodeId, port: PortId, stream: StreamId) -> Result<()> {
-        let node_ref = self.node_mut(node)?;
-        if node_ref.outputs.iter().any(|binding| binding.port == port) {
-            return Err(WizardError::BuildError(format!(
-                "duplicate output port {port:?} on node {node:?}"
-            )));
-        }
-        node_ref.outputs.push(PortBinding { port, stream });
+    fn get<'a, T>(items: &'a [T], what: &str, id: usize) -> Result<&'a T> {
+        items
+            .get(id)
+            .ok_or_else(|| WizardError::BuildError(format!("missing {what} {id:?}")))
+    }
 
-        Ok(())
+    fn get_mut<'a, T>(items: &'a mut [T], what: &str, id: usize) -> Result<&'a mut T> {
+        items
+            .get_mut(id)
+            .ok_or_else(|| WizardError::BuildError(format!("missing {what} {id:?}")))
     }
 }
 
