@@ -54,7 +54,7 @@ struct BuildArgs {
     profile: Option<PathBuf>,
     artifacts: Vec<String>,
     version: String,
-    arch: String,
+    arch: Arch,
     platform: String,
     extension: Vec<String>,
     overlay_image: Option<String>,
@@ -88,8 +88,8 @@ enum Command {
         #[arg(long)]
         version: String,
 
-        #[arg(long)]
-        arch: String,
+        #[arg(long, value_parser = crate::arch::parse)]
+        arch: Arch,
 
         #[arg(long)]
         platform: String,
@@ -110,8 +110,8 @@ enum Command {
         #[arg(long)]
         version: String,
 
-        #[arg(long)]
-        arch: String,
+        #[arg(long, value_parser = crate::arch::parse)]
+        arch: Arch,
 
         #[arg(long)]
         platform: String,
@@ -140,14 +140,6 @@ enum Command {
         #[arg(long)]
         signing_cert: Option<PathBuf>,
     },
-}
-
-fn parse_arch(input: &str) -> Result<Arch> {
-    match input {
-        "amd64" => Ok(Arch::Amd64),
-        "arm64" => Ok(Arch::Arm64),
-        _ => Err(anyhow::anyhow!("unknown arch: {input}")),
-    }
 }
 
 fn parse_platform(input: &str) -> Result<Platform> {
@@ -182,7 +174,7 @@ async fn run_command(command: Command) -> Result<()> {
             platform,
             registry,
             installer,
-        } => run_resolve(&profile, &version, &arch, &platform, registry, installer),
+        } => run_resolve(&profile, &version, arch, &platform, registry, installer),
         Command::Build {
             profile,
             artifacts,
@@ -230,7 +222,7 @@ fn run_profile_id(profile_path: &Path) -> Result<()> {
 fn run_resolve(
     profile_path: &Path,
     version: &str,
-    arch: &str,
+    arch: Arch,
     platform: &str,
     registry: String,
     installer: String,
@@ -245,7 +237,7 @@ fn run_resolve(
         },
         cache_dir: None,
     })?;
-    let request = Request::new(version, parse_platform(platform)?).arch(parse_arch(arch)?);
+    let request = Request::new(version, parse_platform(platform)?).arch(arch);
     let resolved = resolve::plan(&request, &profile)?;
 
     println!("resolved installer: {}", resolved.installer());
@@ -265,7 +257,6 @@ fn run_resolve(
 }
 
 async fn run_build(args: BuildArgs) -> Result<()> {
-    let arch = parse_arch(&args.arch)?;
     let platform = parse_platform(&args.platform)?;
 
     let artifacts: Vec<Artifact> = args
@@ -324,7 +315,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         files.push((artifact, file));
     }
 
-    let mut request = Request::new(&args.version, platform).arch(arch);
+    let mut request = Request::new(&args.version, platform).arch(args.arch);
     let mut remaining: &mut [(Artifact, File)] = &mut files;
     while let Some((first, rest)) = remaining.split_first_mut() {
         let artifact = first.0;
