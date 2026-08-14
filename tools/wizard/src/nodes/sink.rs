@@ -28,7 +28,7 @@ pub(crate) fn dependencies(
 pub(crate) fn run(
     ctx: &BuildContext<'_, '_, '_>,
     artifact: Artifact,
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'_>,
 ) -> Result<NodeReport> {
     let input = ports.take(SINK_INPUT)?.into_input()?;
     let mut writers = ctx
@@ -107,6 +107,7 @@ mod tests {
                 SINK_INPUT,
                 Endpoint::Input(InputStream {
                     size: 14,
+                    name: "kernel",
                     reader: pipe_reader,
                 }),
             )],
@@ -136,6 +137,7 @@ mod tests {
                 SINK_INPUT,
                 Endpoint::Input(InputStream {
                     size: 0,
+                    name: "kernel",
                     reader: pipe_reader,
                 }),
             )],

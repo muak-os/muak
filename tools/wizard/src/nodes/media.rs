@@ -40,9 +40,15 @@ pub(crate) fn dependencies(context: &BuildContext<'_, '_, '_>) -> Vec<Dependency
 
 /// The media output stream size is not needed so we set it to zero.
 pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
-    graph
-        .stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?
-        .size = 0;
+    let kind = graph.node(id)?.kind;
+    let name = if kind == NodeKind::Iso {
+        "boot.iso"
+    } else {
+        "disk.raw"
+    };
+    let output = graph.stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?;
+    output.size = 0;
+    name.clone_into(&mut output.name);
 
     Ok(())
 }
@@ -50,10 +56,10 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
 /// Builds the ISO from the UKI stream and overlay file streams.
 pub(crate) fn run_iso(
     ctx: &BuildContext<'_, '_, '_>,
-    overlay_files: &[(String, u64)],
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'_>,
 ) -> Result<NodeReport> {
-    let (layout, mut uki, mut overlays) = media_inputs(ctx, overlay_files, ports)?;
+    let (mut uki, mut overlays) = media_inputs(ports)?;
+    let layout = media_layout(ctx, &uki, &overlays)?;
     let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
@@ -75,10 +81,10 @@ pub(crate) fn run_iso(
 /// Builds the zstd-compressed raw disk image from the UKI stream and overlay file streams.
 pub(crate) fn run_raw(
     ctx: &BuildContext<'_, '_, '_>,
-    overlay_files: &[(String, u64)],
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'_>,
 ) -> Result<NodeReport> {
-    let (layout, mut uki, mut overlays) = media_inputs(ctx, overlay_files, ports)?;
+    let (mut uki, mut overlays) = media_inputs(ports)?;
+    let layout = media_layout(ctx, &uki, &overlays)?;
     let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
@@ -98,20 +104,23 @@ pub(crate) fn run_raw(
     Ok(NodeReport::Empty)
 }
 
-/// Takes the UKI and overlay inputs and computes the ESP layout.
-fn media_inputs<'f>(
-    ctx: &BuildContext<'_, '_, '_>,
-    overlay_files: &'f [(String, u64)],
-    ports: &mut NodePorts,
-) -> Result<(esp::layout::Layout<'f>, InputStream, Vec<InputStream>)> {
+fn media_inputs<'a>(ports: &mut NodePorts<'a>) -> Result<(InputStream<'a>, Vec<InputStream<'a>>)> {
     let uki = ports.take(MEDIA_UKI)?.into_input()?;
     let overlays = Endpoint::into_inputs(
         ports
-            .take_from(MEDIA_OVERLAYS_FIRST, Some(overlay_files.len()))?
+            .take_from(MEDIA_OVERLAYS_FIRST, None)?
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
 
+    Ok((uki, overlays))
+}
+
+fn media_layout<'a>(
+    ctx: &BuildContext<'_, '_, '_>,
+    uki: &InputStream<'a>,
+    overlays: &[InputStream<'a>],
+) -> Result<esp::layout::Layout<'a>> {
     let mut file_metas = Vec::with_capacity(overlays.len().saturating_add(1));
     file_metas.push(FileMeta::new(
         crate::arch::esp(ctx.plan.arch()).boot_path(),
@@ -120,12 +129,8 @@ fn media_inputs<'f>(
     file_metas.extend(
         overlays
             .iter()
-            .zip(overlay_files)
-            .map(|(input, file)| FileMeta::new(file.0.as_str(), input.size)),
+            .map(|input| FileMeta::new(input.name, input.size)),
     );
 
-    let layout = compute(&file_metas)
-        .map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))?;
-
-    Ok((layout, uki, overlays))
+    compute(&file_metas).map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))
 }

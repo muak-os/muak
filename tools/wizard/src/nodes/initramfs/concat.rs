@@ -27,14 +27,15 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
     };
     let base = input_size(CONCAT_BASE)?;
     let tail = input_size(CONCAT_TAIL)?;
-    let output = graph.node(id)?.output(CONCAT_OUTPUT)?;
-    graph.stream_mut(output)?.size = base.saturating_add(tail);
+    let output = graph.stream_mut(graph.node(id)?.output(CONCAT_OUTPUT)?)?;
+    output.size = base.saturating_add(tail);
+    "initramfs.img".clone_into(&mut output.name);
 
     Ok(())
 }
 
 /// Emits the first input stream followed by the second into one output.
-pub(crate) fn run(ports: &mut NodePorts) -> Result<NodeReport> {
+pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
     let mut first = ports.take(CONCAT_BASE)?.into_input()?;
     let mut second = ports.take(CONCAT_TAIL)?.into_input()?;
     let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;

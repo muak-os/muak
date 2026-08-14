@@ -37,13 +37,15 @@ pub(crate) fn preflight(
         .signing
         .ok_or_else(|| WizardError::BuildError("sign node requires a signing pair".to_owned()))?;
     let total = signed_size(unsigned, signing)?;
-    graph.stream_mut(graph.node(id)?.output(SIGN_OUTPUT)?)?.size = total;
+    let output = graph.stream_mut(graph.node(id)?.output(SIGN_OUTPUT)?)?;
+    output.size = total;
+    "uki.efi".clone_into(&mut output.name);
 
     Ok(())
 }
 
 /// Streams the unsigned UKI through sbolt into the final output.
-pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts) -> Result<NodeReport> {
+pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
     let mut input = ports.take(SIGN_INPUT)?.into_input()?;
     let mut output = ports.take(SIGN_OUTPUT)?.into_output()?;
     let signing = ctx

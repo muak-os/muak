@@ -42,7 +42,10 @@ pub(crate) async fn preflight(
         )));
     }
     for (binding, payload) in bindings.iter().zip(&planned) {
-        graph.stream_mut(binding.stream)?.size = payload.meta().size;
+        let meta = payload.meta();
+        let stream = graph.stream_mut(binding.stream)?;
+        stream.size = meta.size;
+        stream.name = format!("extensions/{}{}", meta.name.replace('/', "-"), meta.format);
     }
 
     Ok(planned)
@@ -52,7 +55,7 @@ pub(crate) async fn preflight(
 /// or re-planning. The payload format is opaque to wizard.
 pub(crate) fn run(
     payloads: &[mumi::payload::Planned],
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'_>,
 ) -> Result<NodeReport> {
     let mut outputs = Endpoint::into_outputs(
         ports

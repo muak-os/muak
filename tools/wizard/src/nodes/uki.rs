@@ -90,13 +90,18 @@ pub(crate) async fn preflight(
         )));
     }
 
-    graph.stream_mut(graph.node(id)?.output(UKI_OUTPUT)?)?.size = total_size;
+    let output = graph.stream_mut(graph.node(id)?.output(UKI_OUTPUT)?)?;
+    output.size = total_size;
+    "uki.efi".clone_into(&mut output.name);
 
     Ok(())
 }
 
 /// Builds the unsigned UKI from the live input streams.
-pub(crate) fn run(_ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts) -> Result<NodeReport> {
+pub(crate) fn run(
+    _ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_>,
+) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
     let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;
@@ -136,7 +141,7 @@ pub(crate) fn run(_ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts) -> Res
     .map_err(|e| WizardError::BuildError(format!("uki stream: {e}")))
 }
 
-fn input(stream: &mut InputStream) -> Input<'_> {
+fn input<'b>(stream: &'b mut InputStream<'_>) -> Input<'b> {
     Input {
         reader: &mut stream.reader,
         size: stream.size,

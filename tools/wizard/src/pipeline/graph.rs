@@ -135,6 +135,7 @@ impl Node {
 #[derive(Clone, Debug)]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
+    pub(crate) name: String,
     pub(crate) size: u64,
     pub(crate) producer: NodeId,
     pub(crate) consumers: Vec<NodeId>,
@@ -172,6 +173,7 @@ impl Graph {
         let id = StreamId(self.streams.len());
         self.streams.push(Stream {
             id,
+            name: String::new(),
             size: 0,
             producer: node,
             consumers: Vec::new(),
@@ -264,6 +266,18 @@ impl Graph {
     #[must_use]
     pub(crate) fn topological_order(&self) -> Vec<NodeId> {
         order::topological(&self.nodes, &self.streams)
+    }
+
+    /// Rejects any stream whose producer did not name it during preflight.
+    pub(crate) fn assert_named(&self) -> Result<()> {
+        if let Some(stream) = self.streams.iter().find(|stream| stream.name.is_empty()) {
+            return Err(WizardError::BuildError(format!(
+                "stream {:?} is unnamed",
+                stream.id
+            )));
+        }
+
+        Ok(())
     }
 
     fn get<'a, T>(items: &'a [T], what: &str, id: usize) -> Result<&'a T> {
@@ -418,5 +432,31 @@ mod tests {
         assert!(index(installer_node) < index(concat));
         assert!(index(tail) < index(concat));
         assert_eq!(order.len(), 3);
+    }
+
+    #[test]
+    fn rejects_unnamed_streams() {
+        // ARRANGE
+        let graph = simple_graph();
+
+        // ACT
+        let error = graph.assert_named();
+
+        // ASSERT
+        assert!(error.is_err(), "unnamed stream must fail assertion");
+    }
+
+    #[test]
+    fn accepts_named_streams() {
+        // ARRANGE
+        let mut graph = simple_graph();
+        let stream = graph.streams().iter().next().expect("stream").id;
+        graph.stream_mut(stream).expect("stream").name = "kernel".to_owned();
+
+        // ACT
+        let result = graph.assert_named();
+
+        // ASSERT
+        assert!(result.is_ok(), "named stream must pass assertion");
     }
 }

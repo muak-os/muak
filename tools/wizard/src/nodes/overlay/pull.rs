@@ -41,12 +41,12 @@ pub(crate) async fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
     Ok(files)
 }
 
-/// Sizes the overlay output streams from the listing and returns it for the media and tar runners.
+/// Sizes and names the overlay output streams from the listing.
 pub(crate) async fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
-) -> Result<Vec<(String, u64)>> {
+) -> Result<()> {
     let overlay = context
         .plan
         .overlay()
@@ -66,33 +66,33 @@ pub(crate) async fn preflight(
         )));
     }
     for (binding, file) in bindings.iter().zip(&files) {
-        graph.stream_mut(binding.stream)?.size = file.1;
+        let stream = graph.stream_mut(binding.stream)?;
+        stream.size = file.1;
+        stream.name.clone_from(&file.0);
     }
 
-    Ok(files)
+    Ok(())
 }
 
-/// Pulls the overlay source once and streams each matching entry to the output stream.
-pub(crate) fn run(
+/// Pulls the overlay source once and routes each matching entry to its named output stream.
+pub(crate) fn run<'a>(
     ctx: &BuildContext<'_, '_, '_>,
-    overlay_files: &[(String, u64)],
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'a>,
     tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {
     let overlay = ctx
         .plan
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-    let outputs = Endpoint::into_outputs(
+    let mut outputs = Endpoint::into_outputs(
         ports
-            .take_from(PULL_OUTPUTS_FIRST, Some(overlay_files.len()))?
+            .take_from(PULL_OUTPUTS_FIRST, None)?
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
-    let mut files: Vec<(&str, OutputStream)> = overlay_files
-        .iter()
-        .map(|file| file.0.as_str())
-        .zip(outputs)
+    let mut files: Vec<(&'a str, &mut OutputStream<'a>)> = outputs
+        .iter_mut()
+        .map(|output| (output.name, output))
         .collect();
     let prefix = format!("{}/", overlay.name);
 
@@ -121,11 +121,11 @@ pub(crate) async fn output_count(build: &BuildPlan) -> Result<usize> {
     Ok(listing(overlay).await?.len())
 }
 
-fn route_entry(
+fn route_entry<'a>(
     path: &str,
     reader: &mut dyn Read,
     prefix: &str,
-    files: &mut [(&str, OutputStream)],
+    files: &mut [(&'a str, &mut OutputStream<'a>)],
 ) -> koci::error::Result<()> {
     if let Some(rel) = path.strip_prefix(prefix)
         && !rel.is_empty()
@@ -136,17 +136,18 @@ fn route_entry(
     Ok(())
 }
 
-fn write_to_matching(
+fn write_to_matching<'a>(
     rel: &str,
     reader: &mut dyn Read,
-    files: &mut [(&str, OutputStream)],
+    files: &mut [(&'a str, &mut OutputStream<'a>)],
 ) -> std::io::Result<()> {
     let Some(index) = files.iter().position(|file| file.0 == rel) else {
         return Ok(());
     };
-    if let Some(output) = files.get_mut(index).map(|item| &mut item.1) {
-        std::io::copy(reader, &mut output.writer)?;
-    }
+    let Some(output) = files.get_mut(index).map(|file| &mut *file.1) else {
+        return Ok(());
+    };
+    std::io::copy(reader, &mut output.writer)?;
 
     Ok(())
 }

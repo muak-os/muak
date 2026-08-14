@@ -24,20 +24,20 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
     )]
 }
 
-/// Exact CPIO tail size.
+/// Exact CPIO tail size from the named extension input streams plus the profile entry.
 pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
-    planned: &[mumi::payload::Planned],
 ) -> Result<()> {
-    let mut entries = Vec::with_capacity(planned.len().saturating_add(1));
-    for payload in planned {
-        let meta = payload.meta();
+    let mut entries =
+        Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
+    for binding in graph.node(id)?.input_bindings() {
+        let stream = graph.stream(binding.stream)?;
         entries.push(Entry {
-            path: format!("extensions/{}{}", meta.name.replace('/', "-"), meta.format),
+            path: stream.name.clone(),
             mode: 0o100_644,
-            len: meta.size,
+            len: stream.size,
         });
     }
     let profile_len = u64::try_from(context.profile.len())
@@ -53,32 +53,29 @@ pub(crate) fn preflight(
         .copied()
         .collect::<Vec<_>>();
     for binding in bindings {
-        graph.stream_mut(binding.stream)?.size = tail;
+        let stream = graph.stream_mut(binding.stream)?;
+        stream.size = tail;
+        "tail.cpio".clone_into(&mut stream.name);
     }
 
     Ok(())
 }
 
-/// Streams one CPIO entry per extension payload stream plus the profile entry in canonical order.
-pub(crate) fn run(
-    ctx: &BuildContext<'_, '_, '_>,
-    planned: &[mumi::payload::Planned],
-    ports: &mut NodePorts,
-) -> Result<NodeReport> {
+/// Streams one CPIO entry per extension input stream plus the profile entry in canonical order.
+pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
-            .take_from(TAIL_INPUTS_FIRST, Some(planned.len()))?
+            .take_from(TAIL_INPUTS_FIRST, None)?
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
 
     let mut pairs: Vec<(Entry, &mut dyn Read)> = Vec::with_capacity(inputs.len().saturating_add(1));
-    for (input, payload) in inputs.iter_mut().zip(planned) {
-        let meta = payload.meta();
+    for input in &mut inputs {
         let reader: &mut dyn Read = &mut input.reader;
         pairs.push((
             Entry {
-                path: format!("extensions/{}{}", meta.name.replace('/', "-"), meta.format),
+                path: input.name.to_owned(),
                 mode: 0o100_644,
                 len: input.size,
             },

@@ -8,9 +8,8 @@ use crate::error::Result;
 use crate::nodes;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::{Graph, NodeKind};
-use crate::pipeline::preflight::{self, PreflightedGraph};
-use crate::pipeline::prepare::bind_nodes;
-use crate::pipeline::runtime::PreparedNode;
+use crate::pipeline::preflight;
+use crate::pipeline::prepare::{PreparedNode, bind_nodes};
 use crate::pipeline::validate;
 use crate::{Metadata, SectionInfo};
 
@@ -27,52 +26,49 @@ pub(crate) enum NodeReport {
 /// Returns the first meaningful node error after joining every thread.
 pub(crate) async fn execute(graph: Graph, context: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     validate::normalized(&graph)?;
-    let preflighted = preflight::preflight(graph, context).await?;
-    block_in_place(|| execute_blocking(preflighted, context))
+    let (graph, planned_payloads) = preflight::preflight(graph, context).await?;
+    block_in_place(|| execute_blocking(&graph, &planned_payloads, context))
 }
 
 fn execute_blocking(
-    preflighted: PreflightedGraph,
+    graph: &Graph,
+    planned_payloads: &[mumi::payload::Planned],
     context: &BuildContext<'_, '_, '_>,
 ) -> Result<Metadata> {
     let tokio = tokio::runtime::Handle::current();
-    let (nodes, planned_payloads, overlay_files) = bind_nodes(preflighted)?;
+    let nodes = bind_nodes(graph)?;
 
     thread::scope(|scope| {
         let planned = &planned_payloads;
-        let overlays = &overlay_files;
         let mut joins = Vec::with_capacity(nodes.len());
         for node in nodes {
             let tokio = tokio.clone();
-            joins.push(scope.spawn(move || node.run(context, planned, overlays, &tokio)));
+            joins.push(scope.spawn(move || node.run(context, planned, &tokio)));
         }
         join_all(joins)
     })
 }
 
-impl PreparedNode {
+impl PreparedNode<'_> {
     /// Dispatches the node logic by kind and runs it on its own thread.
     fn run(
         self,
         ctx: &BuildContext<'_, '_, '_>,
         planned: &[mumi::payload::Planned],
-        overlay_files: &[(String, u64)],
         tokio: &tokio::runtime::Handle,
     ) -> Result<NodeReport> {
         let PreparedNode { kind, mut ports } = self;
         match kind {
             NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports, tokio),
             NodeKind::ExtensionPayloads => nodes::extensions::run(planned, &mut ports),
-            NodeKind::InitramfsTail => nodes::initramfs::tail::run(ctx, planned, &mut ports),
+            NodeKind::InitramfsTail => nodes::initramfs::tail::run(ctx, &mut ports),
             NodeKind::Concat => nodes::initramfs::concat::run(&mut ports),
             NodeKind::Uki => nodes::uki::run(ctx, &mut ports),
             NodeKind::Sign => nodes::sign::run(ctx, &mut ports),
-            NodeKind::Iso => nodes::media::run_iso(ctx, overlay_files, &mut ports),
-            NodeKind::Raw => nodes::media::run_raw(ctx, overlay_files, &mut ports),
-            NodeKind::OverlayPull => {
-                nodes::overlay::pull::run(ctx, overlay_files, &mut ports, tokio)
-            }
-            NodeKind::OverlayTar => nodes::overlay::tar::run(overlay_files, &mut ports),
+            NodeKind::Iso => nodes::media::run_iso(ctx, &mut ports),
+            NodeKind::Raw => nodes::media::run_raw(ctx, &mut ports),
+            NodeKind::OverlayPull => nodes::overlay::pull::run(ctx, &mut ports, tokio),
+            NodeKind::OverlayTar => nodes::overlay::tar::run(&mut ports),
             NodeKind::ArtifactSink { artifact } => nodes::sink::run(ctx, artifact, &mut ports),
             NodeKind::Fanout => nodes::fanout::run(&mut ports),
         }

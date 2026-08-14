@@ -29,26 +29,28 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
         .map(|binding| Ok(graph.stream(binding.stream)?.size))
         .collect::<Result<Vec<_>>>()?;
     let tar = tar_total_size(&files);
-    graph.stream_mut(graph.node(id)?.output(TAR_OUTPUT)?)?.size = tar;
+    let output = graph.stream_mut(graph.node(id)?.output(TAR_OUTPUT)?)?;
+    output.size = tar;
+    "overlays.tar".clone_into(&mut output.name);
 
     Ok(())
 }
 
-/// Emits one tar entry per overlay input with the stripped path and preflight size.
-pub(crate) fn run(overlay_files: &[(String, u64)], ports: &mut NodePorts) -> Result<NodeReport> {
+/// Emits one tar entry per overlay input with the stream's path and preflight size.
+pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
-            .take_from(TAR_INPUTS_FIRST, Some(overlay_files.len()))?
+            .take_from(TAR_INPUTS_FIRST, None)?
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
     let mut output = ports.take(TAR_OUTPUT)?.into_output()?;
 
     let mut builder = Builder::new(&mut output.writer);
-    for (input, file) in inputs.iter_mut().zip(overlay_files) {
+    for input in &mut inputs {
         let mut header = Header::new_gnu();
         header
-            .set_path(&file.0)
+            .set_path(input.name)
             .map_err(|e| WizardError::BuildError(format!("set tar header path: {e}")))?;
         header.set_size(input.size);
         header.set_mode(0o644);

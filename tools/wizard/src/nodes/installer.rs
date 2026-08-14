@@ -58,7 +58,9 @@ pub(crate) async fn preflight(
             .get(path)
             .copied()
             .ok_or_else(|| WizardError::BuildError(format!("missing installer size for {path}")))?;
-        graph.stream_mut(binding.stream)?.size = size;
+        let stream = graph.stream_mut(binding.stream)?;
+        stream.size = size;
+        path.clone_into(&mut stream.name);
     }
 
     Ok(())
@@ -67,7 +69,7 @@ pub(crate) async fn preflight(
 /// Pulls the installer once and routes known files to their output streams.
 pub(crate) fn run(
     ctx: &BuildContext<'_, '_, '_>,
-    ports: &mut NodePorts,
+    ports: &mut NodePorts<'_>,
     tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {
     let plan = ctx.plan;
