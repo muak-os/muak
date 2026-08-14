@@ -13,7 +13,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
-use crate::pipeline::runtime::{DynWriter, Endpoint, InputStream, NodePorts};
+use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts};
 
 pub(crate) const MEDIA_UKI: PortId = PortId(0);
 pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
@@ -68,12 +68,8 @@ pub(crate) fn run_iso(
         readers.push(&mut overlay.reader);
     }
 
-    iso::build(
-        &layout,
-        &mut readers,
-        &mut DynWriter::new(&mut output.writer),
-    )
-    .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
+    iso::build(&layout, &mut readers, &mut output.writer)
+        .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
@@ -93,13 +89,8 @@ pub(crate) fn run_raw(
         readers.push(&mut overlay.reader);
     }
 
-    raw::build(
-        &layout,
-        &mut readers,
-        &mut DynWriter::new(&mut output.writer),
-        Some(6),
-    )
-    .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
+    raw::build(&layout, &mut readers, &mut output.writer, Some(6))
+        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(NodeReport::Empty)
 }

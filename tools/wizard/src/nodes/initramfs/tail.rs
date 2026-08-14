@@ -10,7 +10,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
-use crate::pipeline::runtime::{DynWriter, Endpoint, NodePorts};
+use crate::pipeline::runtime::{Endpoint, NodePorts};
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
 pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
@@ -91,7 +91,7 @@ pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> 
     }
 
     let mut output = ports.take(TAIL_OUTPUT)?.into_output()?;
-    ramune::archive::cpio(&mut pairs, &mut DynWriter::new(&mut output.writer))
+    ramune::archive::cpio(&mut pairs, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
     Ok(NodeReport::Empty)

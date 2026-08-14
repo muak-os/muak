@@ -16,7 +16,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
-use crate::pipeline::runtime::{DynWriter, InputStream, NodePorts};
+use crate::pipeline::runtime::{InputStream, NodePorts};
 
 pub(crate) const UKI_STUB: PortId = PortId(0);
 pub(crate) const UKI_CMDLINE: PortId = PortId(1);
@@ -135,7 +135,7 @@ pub(crate) fn run(
         None,
         input(&mut kernel),
         input(&mut initramfs),
-        &mut DynWriter::new(&mut output.writer),
+        &mut output.writer,
     )
     .map(|sections| NodeReport::Uki(to_section_infos(sections)))
     .map_err(|e| WizardError::BuildError(format!("uki stream: {e}")))

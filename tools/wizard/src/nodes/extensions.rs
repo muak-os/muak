@@ -5,7 +5,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
-use crate::pipeline::runtime::{DynWriter, Endpoint, NodePorts};
+use crate::pipeline::runtime::{Endpoint, NodePorts};
 use crate::resolve::BuildPlan;
 use crate::source::extension::pull;
 
@@ -65,7 +65,7 @@ pub(crate) fn run(
     )?;
     for (payload, output) in payloads.iter().zip(outputs.iter_mut()) {
         payload
-            .write(&mut DynWriter::new(&mut output.writer))
+            .write(&mut output.writer)
             .map_err(|e| WizardError::BuildError(format!("stream extension payload: {e}")))?;
     }
 

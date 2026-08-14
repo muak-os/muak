@@ -1,6 +1,5 @@
 //! Runtime stream handles and prepared node values.
 
-use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
 
 use crate::error::{Result, WizardError};
@@ -98,25 +97,6 @@ impl<'a> NodePorts<'a> {
         self.endpoints = remaining;
 
         Ok(taken)
-    }
-}
-
-/// Write adapter over a `&mut (dyn Write + Send)` for generic `W: Write` tool APIs.
-pub(crate) struct DynWriter<'a>(&'a mut (dyn Write + Send));
-
-impl<'a> DynWriter<'a> {
-    pub(crate) fn new(writer: &'a mut (dyn Write + Send)) -> Self {
-        Self(writer)
-    }
-}
-
-impl Write for DynWriter<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
     }
 }
 
