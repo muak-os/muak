@@ -32,7 +32,8 @@ pub(crate) async fn preflight(
             }
             NodeKind::OverlayTar => nodes::overlay::tar::preflight(&mut graph, id)?,
             NodeKind::Fanout => nodes::fanout::preflight(&mut graph, id)?,
-            NodeKind::Iso | NodeKind::Raw => nodes::media::preflight(&mut graph, id)?,
+            NodeKind::Iso => nodes::media::iso::preflight(&mut graph, id)?,
+            NodeKind::Raw => nodes::media::raw::preflight(&mut graph, id)?,
             NodeKind::ArtifactSink { .. } => {}
         }
     }
