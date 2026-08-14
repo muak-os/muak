@@ -4,7 +4,9 @@ use std::io;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{initramfs, installer, media, overlays, sign, uki};
+use crate::nodes::initramfs;
+use crate::nodes::overlay;
+use crate::nodes::{installer, media, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -50,12 +52,12 @@ fn artifact_source(artifact: Artifact, signed: bool) -> (NodeKind, PortId) {
     match artifact {
         Artifact::Kernel => (NodeKind::InstallerPull, installer::KERNEL),
         Artifact::Cmdline => (NodeKind::InstallerPull, installer::CMDLINE),
-        Artifact::Initramfs => (NodeKind::Concat, initramfs::CONCAT_OUTPUT),
+        Artifact::Initramfs => (NodeKind::Concat, initramfs::concat::CONCAT_OUTPUT),
         Artifact::Uki if signed => (NodeKind::Sign, sign::SIGN_OUTPUT),
         Artifact::Uki => (NodeKind::Uki, uki::UKI_OUTPUT),
         Artifact::Iso => (NodeKind::Iso, media::MEDIA_OUTPUT),
         Artifact::Raw => (NodeKind::Raw, media::MEDIA_OUTPUT),
-        Artifact::Overlays => (NodeKind::OverlayTar, overlays::TAR_OUTPUT),
+        Artifact::Overlays => (NodeKind::OverlayTar, overlay::tar::TAR_OUTPUT),
     }
 }
 

@@ -7,7 +7,8 @@ use esp::layout::compute;
 use miso::{iso, raw};
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{overlays, sign, uki};
+use crate::nodes::overlay;
+use crate::nodes::{sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -29,7 +30,7 @@ pub(crate) fn dependencies(context: &BuildContext<'_, '_, '_>) -> Vec<Dependency
     if context.plan.overlay().is_some() {
         dependencies.push(Dependency::many(
             NodeKind::OverlayPull,
-            overlays::PULL_OUTPUTS_FIRST,
+            overlay::pull::PULL_OUTPUTS_FIRST,
             MEDIA_OVERLAYS_FIRST,
         ));
     }

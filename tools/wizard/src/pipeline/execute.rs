@@ -63,16 +63,16 @@ impl PreparedNode {
         match kind {
             NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports, tokio),
             NodeKind::ExtensionPayloads => nodes::extensions::run(planned, &mut ports),
-            NodeKind::InitramfsTail => nodes::initramfs::run_tail(ctx, planned, &mut ports),
-            NodeKind::Concat => nodes::initramfs::run_concat(&mut ports),
+            NodeKind::InitramfsTail => nodes::initramfs::tail::run(ctx, planned, &mut ports),
+            NodeKind::Concat => nodes::initramfs::concat::run(&mut ports),
             NodeKind::Uki => nodes::uki::run(ctx, &mut ports),
             NodeKind::Sign => nodes::sign::run(ctx, &mut ports),
             NodeKind::Iso => nodes::media::run_iso(ctx, overlay_files, &mut ports),
             NodeKind::Raw => nodes::media::run_raw(ctx, overlay_files, &mut ports),
             NodeKind::OverlayPull => {
-                nodes::overlays::run_pull(ctx, overlay_files, &mut ports, tokio)
+                nodes::overlay::pull::run(ctx, overlay_files, &mut ports, tokio)
             }
-            NodeKind::OverlayTar => nodes::overlays::run_tar(overlay_files, &mut ports),
+            NodeKind::OverlayTar => nodes::overlay::tar::run(overlay_files, &mut ports),
             NodeKind::ArtifactSink { artifact } => nodes::sink::run(ctx, artifact, &mut ports),
             NodeKind::Fanout => nodes::fanout::run(&mut ports),
         }

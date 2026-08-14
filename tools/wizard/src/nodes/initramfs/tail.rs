@@ -1,11 +1,11 @@
-//! The initramfs CPIO tail builder and the Concat composition node.
+//! The initramfs CPIO tail builder.
 
 use std::io::Read;
 
 use ramune::Entry;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, installer};
+use crate::nodes::extensions;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -14,12 +14,9 @@ use crate::pipeline::runtime::{DynWriter, Endpoint, NodePorts};
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
 pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
-pub(crate) const CONCAT_BASE: PortId = PortId(0);
-pub(crate) const CONCAT_TAIL: PortId = PortId(1);
-pub(crate) const CONCAT_OUTPUT: PortId = PortId(2);
 
 /// One extension payload stream per extension, in canonical source order.
-pub(crate) fn tail_dependencies() -> Vec<Dependency> {
+pub(crate) fn dependencies() -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::ExtensionPayloads,
         extensions::FIRST_OUTPUT,
@@ -27,16 +24,8 @@ pub(crate) fn tail_dependencies() -> Vec<Dependency> {
     )]
 }
 
-/// The base installer initramfs plus the CPIO tail.
-pub(crate) fn concat_dependencies() -> Vec<Dependency> {
-    vec![
-        Dependency::fixed(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_BASE),
-        Dependency::fixed(NodeKind::InitramfsTail, TAIL_OUTPUT, CONCAT_TAIL),
-    ]
-}
-
 /// Exact CPIO tail size.
-pub(crate) fn preflight_tail(
+pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
@@ -70,22 +59,8 @@ pub(crate) fn preflight_tail(
     Ok(())
 }
 
-/// Concat size = base input + tail input, found by the node-local port constants shared with the Concat runner.
-pub(crate) fn preflight_concat(graph: &mut Graph, id: NodeId) -> Result<()> {
-    let input_size = |port: PortId| -> Result<u64> {
-        let sid = graph.node(id)?.input(port)?;
-        Ok(graph.stream(sid)?.size)
-    };
-    let base = input_size(CONCAT_BASE)?;
-    let tail = input_size(CONCAT_TAIL)?;
-    let output = graph.node(id)?.output(CONCAT_OUTPUT)?;
-    graph.stream_mut(output)?.size = base.saturating_add(tail);
-
-    Ok(())
-}
-
 /// Streams one CPIO entry per extension payload stream plus the profile entry in canonical order.
-pub(crate) fn run_tail(
+pub(crate) fn run(
     ctx: &BuildContext<'_, '_, '_>,
     planned: &[mumi::payload::Planned],
     ports: &mut NodePorts,
@@ -121,20 +96,6 @@ pub(crate) fn run_tail(
     let mut output = ports.take(TAIL_OUTPUT)?.into_output()?;
     ramune::archive::cpio(&mut pairs, &mut DynWriter::new(&mut output.writer))
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
-
-    Ok(NodeReport::Empty)
-}
-
-/// Emits the first input stream followed by the second into one output.
-pub(crate) fn run_concat(ports: &mut NodePorts) -> Result<NodeReport> {
-    let mut first = ports.take(CONCAT_BASE)?.into_input()?;
-    let mut second = ports.take(CONCAT_TAIL)?.into_input()?;
-    let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;
-
-    std::io::copy(&mut first.reader, &mut output.writer)
-        .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;
-    std::io::copy(&mut second.reader, &mut output.writer)
-        .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;
 
     Ok(NodeReport::Empty)
 }

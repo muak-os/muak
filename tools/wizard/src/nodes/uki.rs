@@ -10,7 +10,8 @@ use yuki::write::{self, Input};
 
 use crate::SectionInfo;
 use crate::error::{Result, WizardError};
-use crate::nodes::{initramfs, installer};
+use crate::nodes::initramfs;
+use crate::nodes::installer;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -29,7 +30,11 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
         Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
         Dependency::fixed(NodeKind::InstallerPull, installer::CMDLINE, UKI_CMDLINE),
         Dependency::fixed(NodeKind::InstallerPull, installer::KERNEL, UKI_KERNEL),
-        Dependency::fixed(NodeKind::Concat, initramfs::CONCAT_OUTPUT, UKI_INITRAMFS),
+        Dependency::fixed(
+            NodeKind::Concat,
+            initramfs::concat::CONCAT_OUTPUT,
+            UKI_INITRAMFS,
+        ),
     ]
 }
 
@@ -39,8 +44,7 @@ const MIN_UKI_BYTES: u64 = 32 << 20;
 /// Upper bound on the UKI size in bytes; above this the payload exceeds the FAT32 ceiling.
 const MAX_UKI_BYTES: u64 = 512 << 20;
 
-/// Probes the bounded stub header prefix through the koci file callback and
-/// plans the UKI layout, so the output size is known before any pipe exists.
+/// Probes the bounded stub header prefix and plans the UKI layout to get the size.
 pub(crate) async fn preflight(
     graph: &mut Graph,
     id: NodeId,

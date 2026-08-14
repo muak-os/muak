@@ -2,7 +2,9 @@
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{extensions, initramfs, installer, media, overlays, sign, sink, uki};
+use crate::nodes::initramfs;
+use crate::nodes::overlay;
+use crate::nodes::{extensions, installer, media, sign, sink, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::order;
@@ -46,13 +48,13 @@ impl NodeKind {
         match self {
             NodeKind::InstallerPull => Ok(installer::dependencies()),
             NodeKind::ExtensionPayloads => Ok(extensions::dependencies()),
-            NodeKind::InitramfsTail => Ok(initramfs::tail_dependencies()),
-            NodeKind::Concat => Ok(initramfs::concat_dependencies()),
+            NodeKind::InitramfsTail => Ok(initramfs::tail::dependencies()),
+            NodeKind::Concat => Ok(initramfs::concat::dependencies()),
             NodeKind::Uki => Ok(uki::dependencies()),
             NodeKind::Sign => Ok(sign::dependencies()),
             NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
-            NodeKind::OverlayPull => Ok(overlays::pull_dependencies()),
-            NodeKind::OverlayTar => Ok(overlays::tar_dependencies()),
+            NodeKind::OverlayPull => Ok(overlay::pull::dependencies()),
+            NodeKind::OverlayTar => Ok(overlay::tar::dependencies()),
             NodeKind::ArtifactSink { artifact } => Ok(sink::dependencies(artifact, context)),
             NodeKind::Fanout => Err(WizardError::BuildError(
                 "fanout nodes are never planned".to_owned(),
@@ -70,7 +72,7 @@ impl NodeKind {
         if self == NodeKind::ExtensionPayloads {
             Ok(extensions::output_count(context.plan))
         } else if self == NodeKind::OverlayPull {
-            overlays::output_count(context.plan).await
+            overlay::pull::output_count(context.plan).await
         } else {
             Err(WizardError::BuildError(format!(
                 "{self:?} has no dynamic output count"

@@ -13,6 +13,7 @@ type BoundGraph = (
     Vec<(String, u64)>,
 );
 
+/// Binds the preflighted graph into a `BoundGraph` with owned pipe endpoints.
 pub(crate) fn bind_nodes(preflighted: PreflightedGraph) -> Result<BoundGraph> {
     let PreflightedGraph {
         graph,
@@ -31,7 +32,6 @@ pub(crate) fn bind_nodes(preflighted: PreflightedGraph) -> Result<BoundGraph> {
     Ok((nodes, planned_payloads, overlay_files))
 }
 
-/// Binds a non-sink node's endpoints from the pipe table.
 fn bind_node(node: &Node, ports: &mut PortTable) -> Result<PreparedNode> {
     let mut endpoints = Vec::with_capacity(node.inputs.len().saturating_add(node.outputs.len()));
     for binding in &node.inputs {

@@ -33,15 +33,15 @@ pub(crate) async fn preflight(
                 planned_payloads = nodes::extensions::preflight(&mut graph, id, context).await?;
             }
             NodeKind::InitramfsTail => {
-                nodes::initramfs::preflight_tail(&mut graph, id, context, &planned_payloads)?;
+                nodes::initramfs::tail::preflight(&mut graph, id, context, &planned_payloads)?;
             }
-            NodeKind::Concat => nodes::initramfs::preflight_concat(&mut graph, id)?,
+            NodeKind::Concat => nodes::initramfs::concat::preflight(&mut graph, id)?,
             NodeKind::Uki => nodes::uki::preflight(&mut graph, id, context).await?,
             NodeKind::Sign => nodes::sign::preflight(&mut graph, id, context)?,
             NodeKind::OverlayPull => {
-                overlay_files = nodes::overlays::preflight_pull(&mut graph, id, context).await?;
+                overlay_files = nodes::overlay::pull::preflight(&mut graph, id, context).await?;
             }
-            NodeKind::OverlayTar => nodes::overlays::preflight_tar(&mut graph, id)?,
+            NodeKind::OverlayTar => nodes::overlay::tar::preflight(&mut graph, id)?,
             NodeKind::Fanout => nodes::fanout::preflight(&mut graph, id)?,
             NodeKind::Iso | NodeKind::Raw => nodes::media::preflight(&mut graph, id)?,
             NodeKind::ArtifactSink { .. } => {}
