@@ -1,4 +1,4 @@
-//! Runtime stream handles and prepared node values.
+//! Runtime stream handles.
 
 use std::os::unix::net::UnixStream;
 
@@ -59,6 +59,9 @@ impl<'a> Endpoint<'a> {
     }
 }
 
+/// Node-local port endpoints in planner order.
+type BoundEndpoints<'a> = Vec<(PortId, Endpoint<'a>)>;
+
 /// The owned endpoints of one prepared node, addressed by the node module's port constants.
 pub(crate) struct NodePorts<'a> {
     pub(crate) endpoints: Vec<(PortId, Endpoint<'a>)>,
@@ -84,7 +87,10 @@ impl<'a> NodePorts<'a> {
         first: PortId,
         expected: Option<usize>,
     ) -> Result<Vec<(PortId, Endpoint<'a>)>> {
-        let (taken, remaining) = split_endpoints(core::mem::take(&mut self.endpoints), first);
+        let (taken, remaining): (BoundEndpoints, BoundEndpoints) =
+            core::mem::take(&mut self.endpoints)
+                .into_iter()
+                .partition(|endpoint| endpoint.0 >= first);
         if let Some(expected) = expected
             && taken.len() != expected
         {
@@ -98,16 +104,4 @@ impl<'a> NodePorts<'a> {
 
         Ok(taken)
     }
-}
-
-/// Node-local port endpoints in planner order.
-type BoundEndpoints<'a> = Vec<(PortId, Endpoint<'a>)>;
-
-fn split_endpoints(
-    endpoints: BoundEndpoints<'_>,
-    first: PortId,
-) -> (BoundEndpoints<'_>, BoundEndpoints<'_>) {
-    endpoints
-        .into_iter()
-        .partition(|endpoint| endpoint.0 >= first)
 }
