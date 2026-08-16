@@ -99,13 +99,6 @@ pub async fn prepare(
         None
     };
 
-    let signing = sb_hierarchy
-        .as_ref()
-        .map(|hierarchy| sbolt::keys::SigningPair {
-            signer: &hierarchy.db.signer,
-            certificate: &hierarchy.db.certificate,
-        });
-
     let (registry, installer, version) = image_parts(image)?;
     configure(Config {
         sources: Sources {
@@ -131,7 +124,14 @@ pub async fn prepare(
     let mut initramfs_file = File::create(&initramfs_path)
         .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
 
-    let sections = {
+    let sections = tokio::task::spawn_blocking(move || {
+        let pair = sb_hierarchy
+            .as_ref()
+            .map(|hierarchy| sbolt::keys::SigningPair {
+                signer: &hierarchy.db.signer,
+                certificate: &hierarchy.db.certificate,
+            });
+
         let request = Request::new(version, Platform::Metal)
             .uki(&mut uki_file)
             .context("set UKI target")?
@@ -140,18 +140,18 @@ pub async fn prepare(
             .initramfs(&mut initramfs_file)
             .context("set initramfs target")?;
 
-        let request = match signing {
-            Some(ref pair) => request.sign(pair),
+        let request = match pair.as_ref() {
+            Some(pair) => request.sign(pair),
             None => request,
         };
 
-        let metadata = request
+        request
             .build(&install_profile)
-            .await
-            .context("wizard update prepare")?;
-
-        metadata.sections
-    };
+            .context("wizard update prepare")
+            .map(|metadata| metadata.sections)
+    })
+    .await
+    .context("wizard update task")??;
 
     let sections_path = assets_dir.join("sections.json");
     std::fs::write(

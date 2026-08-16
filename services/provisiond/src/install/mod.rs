@@ -43,18 +43,13 @@ pub async fn run(
     let partitions = partition_disks(system_disk, data_disk, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
-    let signing = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
-        signer: &hierarchy.db.signer,
-        certificate: &hierarchy.db.certificate,
-    });
-
-    let sections = build_and_deploy_efi(
+    let (sections, sb_hierarchy) = build_and_deploy_efi(
         &partitions.efi,
         &config.host.image,
         &config.host.extensions,
         &luks_key,
         tpm_available,
-        signing.as_ref(),
+        sb_hierarchy,
         &progress,
     )
     .await?;
@@ -177,9 +172,9 @@ async fn build_and_deploy_efi(
     extensions: &[String],
     luks_key: &[u8],
     tpm_available: bool,
-    signing: Option<&SigningPair<'_>>,
+    sb_hierarchy: Option<Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
-) -> Result<Vec<wizard::SectionInfo>> {
+) -> Result<(Vec<wizard::SectionInfo>, Option<Bundle>)> {
     send_progress(progress, "Building and deploying EFI").await;
 
     let install_profile = derive_install_profile(extensions)?;
@@ -206,17 +201,29 @@ async fn build_and_deploy_efi(
     let esp_root = PathBuf::from(efi::MOUNT_POINT);
     let demux = tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut overlay_r));
 
-    let request = Request::new(version, Platform::Metal)
-        .uki(&mut uki_file)?
-        .overlays(&mut overlay_w)?;
+    let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
+        let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
+            signer: &hierarchy.db.signer,
+            certificate: &hierarchy.db.certificate,
+        });
 
-    let request = match signing {
-        Some(pair) => request.sign(pair),
-        None => request,
-    };
+        let request = Request::new(version, Platform::Metal)
+            .uki(&mut uki_file)?
+            .overlays(&mut overlay_w)?;
 
-    let metadata = request.build(&install_profile).await?;
-    drop(overlay_w);
+        let request = match pair.as_ref() {
+            Some(pair) => request.sign(pair),
+            None => request,
+        };
+
+        let metadata = request
+            .build(&install_profile)
+            .context("wizard install build")?;
+
+        Ok::<_, anyhow::Error>((metadata, sb_hierarchy))
+    })
+    .await
+    .context("wizard install task")??;
 
     if !tpm_available {
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", luks_key)?;
@@ -226,7 +233,7 @@ async fn build_and_deploy_efi(
 
     efi::unmount();
 
-    Ok(metadata.sections)
+    Ok((metadata.sections, sb_hierarchy))
 }
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
