@@ -89,7 +89,8 @@ fn duplicate_port(bindings: &[PortBinding]) -> Option<PortId> {
 #[cfg(test)]
 mod tests {
     use crate::artifact::Artifact;
-    use crate::pipeline::graph::{Graph, NodeKind, PortBinding, PortId, StreamId};
+    use crate::nodes::NodeKind;
+    use crate::pipeline::graph::{Graph, PortBinding, PortId, StreamId};
     use crate::pipeline::validate::normalized;
 
     fn valid_graph() -> Graph {

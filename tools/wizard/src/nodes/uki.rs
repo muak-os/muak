@@ -12,10 +12,11 @@ use crate::SectionInfo;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
 use crate::nodes::installer;
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{InputStream, NodePorts};
 
 pub(crate) const UKI_STUB: PortId = PortId(0);
@@ -24,8 +25,15 @@ pub(crate) const UKI_KERNEL: PortId = PortId(2);
 pub(crate) const UKI_INITRAMFS: PortId = PortId(3);
 pub(crate) const UKI_OUTPUT: PortId = PortId(4);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// Stub, cmdline, and kernel from the installer and complete initramfs.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
         Dependency::fixed(NodeKind::InstallerPull, installer::CMDLINE, UKI_CMDLINE),
@@ -45,12 +53,8 @@ const MIN_UKI_BYTES: u64 = 32 << 20;
 const MAX_UKI_BYTES: u64 = 512 << 20;
 
 /// Probes the bounded stub header prefix and plans the UKI layout to get the size.
-pub(crate) fn preflight(
-    graph: &mut Graph,
-    id: NodeId,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
-    let plan = context.plan;
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    let plan = ctx.plan;
 
     let mut prefix = Vec::new();
     pull::files(plan.installer(), &plan.arch(), None, |entry| {
@@ -97,10 +101,7 @@ pub(crate) fn preflight(
 }
 
 /// Builds the unsigned UKI from the live input streams.
-pub(crate) fn run(
-    _ctx: &BuildContext<'_, '_, '_>,
-    ports: &mut NodePorts<'_>,
-) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
     let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;

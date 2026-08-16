@@ -6,17 +6,25 @@ use ramune::Entry;
 
 use crate::error::{Result, WizardError};
 use crate::nodes::extensions;
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
 pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// One extension payload stream per extension, in canonical source order.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::ExtensionPayloads,
         extensions::FIRST_OUTPUT,
@@ -25,11 +33,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 }
 
 /// Exact CPIO tail size from the named extension input streams plus the profile entry.
-pub(crate) fn preflight(
-    graph: &mut Graph,
-    id: NodeId,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
     for binding in graph.node(id)?.input_bindings() {
@@ -40,9 +44,9 @@ pub(crate) fn preflight(
             len: stream.size,
         });
     }
-    let profile_len = u64::try_from(context.profile.len())
+    let profile_len = u64::try_from(ctx.profile.len())
         .map_err(|e| WizardError::BuildError(format!("profile size overflow: {e}")))?;
-    if !context.profile.is_empty() {
+    if !ctx.profile.is_empty() {
         entries.push(profile_entry(profile_len));
     }
     let tail = ramune::archive::size(&entries);
@@ -62,7 +66,7 @@ pub(crate) fn preflight(
 }
 
 /// Streams one CPIO entry per extension input stream plus the profile entry in canonical order.
-pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
             .take_from(TAIL_INPUTS_FIRST, None)?

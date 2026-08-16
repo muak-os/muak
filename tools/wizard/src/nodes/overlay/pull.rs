@@ -6,24 +6,31 @@ use koci::error::KociError;
 use koci::pull;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::NodeDescriptor;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
-use crate::resolve::BuildPlan;
 use crate::source::overlay::Overlay;
 
 pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count,
+    preflight,
+    run,
+};
+
 /// Source node meaning no dependencies.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
 /// Stripped overlay file paths plus sizes, path-sorted, with the same
 /// `{name}/` prefix stripping the runtime pull applies.
-pub(crate) fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
+fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
     let prefix = format!("{}/", overlay.name);
     let mut files: Vec<(String, u64)> = Vec::new();
     pull::metadata(&overlay.source, &overlay.arch, None, |entry| {
@@ -41,12 +48,8 @@ pub(crate) fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
 }
 
 /// Sizes and names the overlay output streams from the listing.
-pub(crate) fn preflight(
-    graph: &mut Graph,
-    id: NodeId,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
-    let overlay = context
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    let overlay = ctx
         .plan
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
@@ -74,10 +77,7 @@ pub(crate) fn preflight(
 }
 
 /// Pulls the overlay source once and routes each matching entry to its named output stream.
-pub(crate) fn run<'a>(
-    ctx: &BuildContext<'_, '_, '_>,
-    ports: &mut NodePorts<'a>,
-) -> Result<NodeReport> {
+fn run<'a>(ports: &mut NodePorts<'a>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let overlay = ctx
         .plan
         .overlay()
@@ -107,8 +107,9 @@ pub(crate) fn run<'a>(
 /// # Errors
 ///
 /// Returns an error when the overlay file listing cannot be fetched.
-pub(crate) fn output_count(build: &BuildPlan) -> Result<usize> {
-    let overlay = build
+fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
+    let overlay = ctx
+        .plan
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
 

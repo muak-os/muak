@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
+use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::{Dependency, DependencyKind, validate};
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
+use crate::pipeline::graph::{Graph, NodeId, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
 
 /// Builds the logical DAG for the requested artifacts and normalizes it.
@@ -15,10 +16,10 @@ use crate::pipeline::normalize::normalize;
 ///
 /// Returns an error when a dependency is cyclic, a dynamic count cannot be
 /// fetched, or the built graph fails validation.
-pub(crate) fn plan(context: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
-    let mut planner = Planner::new(context);
+pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
+    let mut planner = Planner::new(ctx);
     for artifact in artifacts {
-        if *artifact == Artifact::Overlays && context.plan.overlay().is_none() {
+        if *artifact == Artifact::Overlays && ctx.plan.overlay().is_none() {
             return Err(WizardError::BuildError(
                 "overlays requested but the profile has no overlay".to_owned(),
             ));
@@ -28,7 +29,7 @@ pub(crate) fn plan(context: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -
         })?;
     }
     planner.bind_all()?;
-    validate(&planner.graph, context)?;
+    validate(&planner.graph, ctx)?;
     normalize(&mut planner.graph)?;
 
     Ok(planner.graph)
@@ -36,7 +37,7 @@ pub(crate) fn plan(context: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -
 
 /// Depth-first instantiation of the dependency graph, with memoization.
 struct Planner<'a, 'data, 'sign, 'write> {
-    context: &'a BuildContext<'data, 'sign, 'write>,
+    ctx: &'a BuildContext<'data, 'sign, 'write>,
     graph: Graph,
     instances: HashMap<NodeKind, NodeId>,
     outputs: HashMap<(NodeKind, PortId), StreamId>,
@@ -51,9 +52,9 @@ enum VisitState {
 }
 
 impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
-    fn new(context: &'a BuildContext<'data, 'sign, 'write>) -> Self {
+    fn new(ctx: &'a BuildContext<'data, 'sign, 'write>) -> Self {
         Self {
-            context,
+            ctx,
             graph: Graph::new(),
             instances: HashMap::new(),
             outputs: HashMap::new(),
@@ -77,7 +78,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         }
         self.states.insert(kind, VisitState::InProgress);
 
-        for dependency in kind.dependencies(self.context)? {
+        for dependency in nodes::dependencies(kind, self.ctx)? {
             self.ensure(dependency.producer)?;
         }
 
@@ -103,8 +104,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         let mut bindings = Vec::new();
         for node in self.graph.nodes() {
             bindings.extend(
-                node.kind
-                    .dependencies(self.context)?
+                nodes::dependencies(node.kind, self.ctx)?
                     .into_iter()
                     .map(|dependency| (node.id, dependency)),
             );
@@ -175,7 +175,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         if let Some(count) = self.counts.get(&kind) {
             return Ok(*count);
         }
-        let count = kind.output_count(self.context)?;
+        let count = nodes::output_count(kind, self.ctx)?;
         self.counts.insert(kind, count);
 
         Ok(count)
@@ -249,10 +249,10 @@ mod tests {
     fn kernel_and_cmdline_need_only_installer() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
+        let graph = plan(&ctx, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
 
         // ASSERT
         assert_eq!(kinds(&graph).len(), 3);
@@ -282,10 +282,10 @@ mod tests {
     fn initramfs_and_uki_fanout_the_complete_initramfs() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
+        let graph = plan(&ctx, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Uki), 1);
@@ -317,10 +317,10 @@ mod tests {
     fn uki_iso_and_raw_fanout_the_uki_stream() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki, Artifact::Iso, Artifact::Raw]).expect("plan");
+        let graph = plan(&ctx, &[Artifact::Uki, Artifact::Iso, Artifact::Raw]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Uki), 1);
@@ -334,11 +334,11 @@ mod tests {
     fn overlays_without_overlay_profile_rejected() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
         let error =
-            plan(&context, &[Artifact::Overlays]).expect_err("overlays without overlay must fail");
+            plan(&ctx, &[Artifact::Overlays]).expect_err("overlays without overlay must fail");
 
         // ASSERT
         let message = error.to_string();
@@ -357,7 +357,7 @@ mod tests {
             signer: &signer,
             certificate: &certificate,
         };
-        let context = BuildContext {
+        let ctx = BuildContext {
             plan: &build,
             profile: b"",
             signing: Some(&signing),
@@ -365,7 +365,7 @@ mod tests {
         };
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki]).expect("plan");
+        let graph = plan(&ctx, &[Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Sign), 1);
@@ -384,10 +384,10 @@ mod tests {
     fn binds_stable_uki_ports() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki]).expect("plan");
+        let graph = plan(&ctx, &[Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Sign), 0);
@@ -420,13 +420,13 @@ mod tests {
     fn every_artifact_combo_plans_and_validates() {
         // ARRANGE
         let build = build_plan();
-        let context = context(&build);
+        let ctx = context(&build);
 
         // ACT
-        plan(&context, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
-        plan(&context, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
-        plan(&context, &[Artifact::Uki, Artifact::Iso]).expect("plan");
-        plan(&context, &[Artifact::Uki, Artifact::Raw]).expect("plan");
+        plan(&ctx, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
+        plan(&ctx, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
+        plan(&ctx, &[Artifact::Uki, Artifact::Iso]).expect("plan");
+        plan(&ctx, &[Artifact::Uki, Artifact::Raw]).expect("plan");
 
         // ASSERT
     }

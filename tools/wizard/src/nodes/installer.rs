@@ -8,6 +8,7 @@ use koci::pull;
 use koci::pull::entries::MetadataEntry;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -19,18 +20,21 @@ pub(crate) const CMDLINE: PortId = PortId(1);
 pub(crate) const KERNEL: PortId = PortId(2);
 pub(crate) const INITRAMFS: PortId = PortId(3);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// Source node meaning no dependencies.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
 /// Exact tar-entry sizes via the existing koci metadata callback.
-pub(crate) fn preflight(
-    graph: &mut Graph,
-    id: NodeId,
-    context: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
-    let plan = context.plan;
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    let plan = ctx.plan;
 
     let mut sizes = HashMap::new();
     pull::metadata(
@@ -66,7 +70,7 @@ pub(crate) fn preflight(
 }
 
 /// Pulls the installer once and routes known files to their output streams.
-pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let plan = ctx.plan;
     let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(STUB, None)?

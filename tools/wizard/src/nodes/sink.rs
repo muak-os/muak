@@ -4,23 +4,19 @@ use std::io;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::initramfs;
-use crate::nodes::overlay;
-use crate::nodes::{installer, media, sign, uki};
+use crate::nodes::NodeKind;
+use crate::nodes::{initramfs, installer, media, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{NodeKind, PortId};
+use crate::pipeline::graph::PortId;
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const SINK_INPUT: PortId = PortId(0);
 
 /// The requested artifact's stream.
-pub(crate) fn dependencies(
-    artifact: Artifact,
-    context: &BuildContext<'_, '_, '_>,
-) -> Vec<Dependency> {
-    let (producer, producer_port) = artifact_source(artifact, context.signing.is_some());
+pub(crate) fn dependencies(artifact: Artifact, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    let (producer, producer_port) = artifact_source(artifact, ctx.signing.is_some());
     vec![Dependency::fixed(producer, producer_port, SINK_INPUT)]
 }
 
@@ -96,7 +92,7 @@ mod tests {
         drop(pipe_writer);
         let plan = build_plan();
         let mut writer = Vec::new();
-        let context = BuildContext {
+        let ctx = BuildContext {
             plan: &plan,
             profile: b"",
             signing: None,
@@ -114,7 +110,7 @@ mod tests {
         };
 
         // ACT
-        run(&context, Artifact::Kernel, &mut ports).expect("sink run");
+        run(&ctx, Artifact::Kernel, &mut ports).expect("sink run");
 
         // ASSERT
         assert_eq!(writer, b"artifact bytes");
@@ -126,7 +122,7 @@ mod tests {
         let (pipe_writer, pipe_reader) = UnixStream::pair().expect("pipe");
         drop(pipe_writer);
         let plan = build_plan();
-        let context = BuildContext {
+        let ctx = BuildContext {
             plan: &plan,
             profile: b"",
             signing: None,
@@ -144,7 +140,7 @@ mod tests {
         };
 
         // ACT
-        let error = run(&context, Artifact::Kernel, &mut ports)
+        let error = run(&ctx, Artifact::Kernel, &mut ports)
             .err()
             .expect("missing writer");
 

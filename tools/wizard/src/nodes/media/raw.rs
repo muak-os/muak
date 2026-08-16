@@ -5,14 +5,22 @@ use std::io::Read;
 use miso::raw;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::media::{MEDIA_OUTPUT, media_inputs, media_layout};
+use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
+use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId};
 use crate::pipeline::runtime::NodePorts;
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies: media::dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// The media output stream size is not needed so we set it to zero.
-pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let output = graph.stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?;
     output.size = 0;
     "disk.raw".clone_into(&mut output.name);
@@ -21,7 +29,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
 }
 
 /// Builds the zstd-compressed raw disk image from the UKI stream and overlay file streams.
-pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let (mut uki, mut overlays) = media_inputs(ports)?;
     let layout = media_layout(ctx, &uki, &overlays)?;
     let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;

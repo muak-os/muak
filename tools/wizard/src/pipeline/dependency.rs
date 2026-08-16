@@ -1,8 +1,9 @@
 //! Node dependency declarations, their interpretation, and validation.
 
 use crate::error::{Result, WizardError};
+use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::graph::{Graph, Node, NodeKind, PortBinding, PortId};
+use crate::pipeline::graph::{Graph, Node, PortBinding, PortId};
 
 /// One declared input of a node: a stream produced by `producer` on
 /// `producer_port`, bound to the consumer's `consumer_port`.
@@ -52,9 +53,9 @@ impl Dependency {
 /// # Errors
 ///
 /// Returns an error on the first violation.
-pub(crate) fn validate(graph: &Graph, context: &BuildContext<'_, '_, '_>) -> Result<()> {
+pub(crate) fn validate(graph: &Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     for node in graph.nodes() {
-        check_node_dependencies(graph, node, context)?;
+        check_node_dependencies(graph, node, ctx)?;
     }
     for node in graph.nodes() {
         let instances = graph
@@ -76,9 +77,9 @@ pub(crate) fn validate(graph: &Graph, context: &BuildContext<'_, '_, '_>) -> Res
 fn check_node_dependencies(
     graph: &Graph,
     node: &Node,
-    context: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<()> {
-    for dependency in node.kind.dependencies(context)? {
+    for dependency in nodes::dependencies(node.kind, ctx)? {
         let producer = find_node(graph, dependency.producer)?;
         match dependency.kind {
             DependencyKind::Fixed => check_fixed(producer, node, &dependency)?,
@@ -150,10 +151,11 @@ mod tests {
     use koci::arch::Arch;
 
     use crate::artifact::Artifact;
+    use crate::nodes::NodeKind;
     use crate::nodes::installer;
     use crate::pipeline::context::BuildContext;
     use crate::pipeline::dependency::validate;
-    use crate::pipeline::graph::{Graph, NodeKind, PortId};
+    use crate::pipeline::graph::{Graph, PortId};
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
 
@@ -199,10 +201,10 @@ mod tests {
         // ARRANGE
         let graph = kernel_sink_graph();
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap();
@@ -216,10 +218,10 @@ mod tests {
             artifact: Artifact::Kernel,
         });
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap_err();
@@ -242,10 +244,10 @@ mod tests {
             .bind_input(consumer, PortId(0), other_stream)
             .expect("bind");
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap_err();
@@ -261,10 +263,10 @@ mod tests {
         graph.bind_input(tar, PortId(1), stream).expect("bind");
         graph.bind_input(tar, PortId(2), stream).expect("bind");
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap_err();
@@ -283,10 +285,10 @@ mod tests {
         graph.bind_input(tar, PortId(1), first).expect("bind");
         graph.bind_input(tar, PortId(2), wrong).expect("bind");
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap_err();
@@ -298,10 +300,10 @@ mod tests {
         let mut graph = kernel_sink_graph();
         graph.add_node(NodeKind::InstallerPull);
         let plan = build_plan();
-        let context = context(&plan);
+        let ctx = context(&plan);
 
         // ACT
-        let result = validate(&graph, &context);
+        let result = validate(&graph, &ctx);
 
         // ASSERT
         result.unwrap_err();

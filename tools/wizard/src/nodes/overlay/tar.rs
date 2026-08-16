@@ -4,16 +4,25 @@ use tar::{Builder, Header};
 
 use crate::error::{Result, WizardError};
 use crate::nodes::overlay::pull;
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
 
 pub(crate) const TAR_OUTPUT: PortId = PortId(0);
 pub(crate) const TAR_INPUTS_FIRST: PortId = PortId(1);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// One stream per overlay file, in canonical (path-sorted) order.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::OverlayPull,
         pull::PULL_OUTPUTS_FIRST,
@@ -22,7 +31,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 }
 
 /// tar size = headers + file data + padding per entry, plus the two zero trailer blocks.
-pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let files = graph
         .node(id)?
         .input_bindings()
@@ -37,7 +46,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
 }
 
 /// Emits one tar entry per overlay input with the stream's path and preflight size.
-pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
             .take_from(TAR_INPUTS_FIRST, None)?

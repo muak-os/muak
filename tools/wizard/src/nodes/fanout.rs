@@ -3,6 +3,9 @@
 use std::io::Write;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
+use crate::pipeline::context::BuildContext;
+use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
@@ -11,8 +14,20 @@ use crate::stream;
 pub(crate) const FANOUT_INPUT: PortId = PortId(0);
 pub(crate) const FANOUT_OUTPUTS_FIRST: PortId = PortId(1);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
+/// Fanout has no dependencies because they're created at normalization.
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    Vec::new()
+}
+
 /// Every fanout output copies the input stream's size and name.
-pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let input = graph.node(id)?.input(FANOUT_INPUT)?;
     let source = graph.stream(input)?;
     let size = source.size;
@@ -31,7 +46,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let mut input = ports.take(FANOUT_INPUT)?.into_input()?;
     let mut outputs = Endpoint::into_outputs(
         ports
@@ -54,10 +69,16 @@ pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
 mod tests {
     use std::io::Read as _;
     use std::os::unix::net::UnixStream;
+    use std::sync::Mutex;
+
+    use koci::arch::Arch;
 
     use super::*;
+    use crate::pipeline::context::TargetWriters;
     use crate::pipeline::graph::PortId;
     use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
+    use crate::request::Platform;
+    use crate::resolve::BuildPlan;
 
     #[test]
     fn run_fans_out_bytes_to_all_outputs() {
@@ -98,7 +119,21 @@ mod tests {
         };
 
         // ACT
-        run(&mut ports).expect("fanout run");
+        let plan = BuildPlan::new(
+            Platform::Metal,
+            "v1.0.0".to_owned(),
+            Arch::Amd64,
+            Vec::new(),
+            None,
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+        );
+        let ctx = BuildContext {
+            plan: &plan,
+            profile: b"",
+            signing: None,
+            writers: Mutex::new(TargetWriters::new(Vec::new())),
+        };
+        run(&mut ports, &ctx).expect("fanout run");
 
         // ASSERT
         let mut first = Vec::new();

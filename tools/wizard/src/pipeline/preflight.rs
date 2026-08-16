@@ -1,9 +1,9 @@
 //! Attaches the final size and name to every stream before any pipe exists.
 
 use crate::error::Result;
-use crate::nodes;
+use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::graph::{Graph, NodeKind};
+use crate::pipeline::graph::Graph;
 
 /// Attaches the final size and name to every stream in the normalized graph.
 ///
@@ -13,28 +13,18 @@ use crate::pipeline::graph::{Graph, NodeKind};
 /// or when any stream ended up unnamed.
 pub(crate) fn preflight(
     mut graph: Graph,
-    context: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<(Graph, Vec<mumi::payload::Planned>)> {
     let mut planned_payloads: Vec<mumi::payload::Planned> = Vec::new();
 
     for id in graph.topological_order() {
-        match graph.node(id)?.kind {
-            NodeKind::InstallerPull => nodes::installer::preflight(&mut graph, id, context)?,
-            NodeKind::ExtensionPayloads => {
-                planned_payloads = nodes::extensions::preflight(&mut graph, id, context)?;
-            }
-            NodeKind::InitramfsTail => nodes::initramfs::tail::preflight(&mut graph, id, context)?,
-            NodeKind::Concat => nodes::initramfs::concat::preflight(&mut graph, id)?,
-            NodeKind::Uki => nodes::uki::preflight(&mut graph, id, context)?,
-            NodeKind::Sign => nodes::sign::preflight(&mut graph, id, context)?,
-            NodeKind::OverlayPull => {
-                nodes::overlay::pull::preflight(&mut graph, id, context)?;
-            }
-            NodeKind::OverlayTar => nodes::overlay::tar::preflight(&mut graph, id)?,
-            NodeKind::Fanout => nodes::fanout::preflight(&mut graph, id)?,
-            NodeKind::Iso => nodes::media::iso::preflight(&mut graph, id)?,
-            NodeKind::Raw => nodes::media::raw::preflight(&mut graph, id)?,
-            NodeKind::ArtifactSink { .. } => {}
+        let kind = graph.node(id)?.kind;
+        if let NodeKind::ExtensionPayloads = kind {
+            planned_payloads = nodes::extensions::preflight(&mut graph, id, ctx)?;
+        } else if let NodeKind::ArtifactSink { .. } = kind {
+        } else {
+            let node = nodes::descriptor(kind)?;
+            (node.preflight)(&mut graph, id, ctx)?;
         }
     }
 

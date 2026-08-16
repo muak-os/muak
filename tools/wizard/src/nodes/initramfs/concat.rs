@@ -1,18 +1,28 @@
 //! Concatenates the base installer initramfs with the CPIO tail to produce a complete initramfs image.
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{initramfs::tail, installer};
+use crate::nodes::initramfs::tail;
+use crate::nodes::installer;
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId};
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const CONCAT_BASE: PortId = PortId(0);
 pub(crate) const CONCAT_TAIL: PortId = PortId(1);
 pub(crate) const CONCAT_OUTPUT: PortId = PortId(2);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// The base installer initramfs plus the CPIO tail.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::fixed(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_BASE),
         Dependency::fixed(NodeKind::InitramfsTail, tail::TAIL_OUTPUT, CONCAT_TAIL),
@@ -20,7 +30,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 }
 
 /// Concat size = base input + tail input.
-pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let input_size = |port: PortId| -> Result<u64> {
         let sid = graph.node(id)?.input(port)?;
         Ok(graph.stream(sid)?.size)
@@ -35,7 +45,7 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId) -> Result<()> {
 }
 
 /// Emits the first input stream followed by the second into one output.
-pub(crate) fn run(ports: &mut NodePorts<'_>) -> Result<NodeReport> {
+fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
     let mut first = ports.take(CONCAT_BASE)?.into_input()?;
     let mut second = ports.take(CONCAT_TAIL)?.into_input()?;
     let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;

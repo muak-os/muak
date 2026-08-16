@@ -1,12 +1,7 @@
 //! Logical build graph types.
 
-use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::initramfs;
-use crate::nodes::overlay;
-use crate::nodes::{extensions, installer, media, sign, sink, uki};
-use crate::pipeline::context::BuildContext;
-use crate::pipeline::dependency::Dependency;
+use crate::nodes::NodeKind;
 use crate::pipeline::order;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -17,69 +12,6 @@ pub(crate) struct StreamId(pub(crate) usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct PortId(pub(crate) usize);
-
-/// What a node does. Concrete enum dispatch; no trait objects.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum NodeKind {
-    InstallerPull,
-    ExtensionPayloads,
-    InitramfsTail,
-    Concat,
-    Uki,
-    Sign,
-    Iso,
-    Raw,
-    OverlayPull,
-    OverlayTar,
-    ArtifactSink { artifact: Artifact },
-    Fanout,
-}
-
-impl NodeKind {
-    /// Declared inputs of this node kind, dispatched to the node's module.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the kind is not a planned node (e.g. `Fanout`).
-    pub(crate) fn dependencies(
-        self,
-        context: &BuildContext<'_, '_, '_>,
-    ) -> Result<Vec<Dependency>> {
-        match self {
-            NodeKind::InstallerPull => Ok(installer::dependencies()),
-            NodeKind::ExtensionPayloads => Ok(extensions::dependencies()),
-            NodeKind::InitramfsTail => Ok(initramfs::tail::dependencies()),
-            NodeKind::Concat => Ok(initramfs::concat::dependencies()),
-            NodeKind::Uki => Ok(uki::dependencies()),
-            NodeKind::Sign => Ok(sign::dependencies()),
-            NodeKind::Iso | NodeKind::Raw => Ok(media::dependencies(context)),
-            NodeKind::OverlayPull => Ok(overlay::pull::dependencies()),
-            NodeKind::OverlayTar => Ok(overlay::tar::dependencies()),
-            NodeKind::ArtifactSink { artifact } => Ok(sink::dependencies(artifact, context)),
-            NodeKind::Fanout => Err(WizardError::BuildError(
-                "fanout nodes are never planned".to_owned(),
-            )),
-        }
-    }
-
-    /// Dynamic output count of a `Many` producer kind, fetched once per plan.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a metadata query fails or the kind has no dynamic
-    /// output range.
-    pub(crate) fn output_count(self, context: &BuildContext<'_, '_, '_>) -> Result<usize> {
-        if self == NodeKind::ExtensionPayloads {
-            Ok(extensions::output_count(context.plan))
-        } else if self == NodeKind::OverlayPull {
-            overlay::pull::output_count(context.plan)
-        } else {
-            Err(WizardError::BuildError(format!(
-                "{self:?} has no dynamic output count"
-            )))
-        }
-    }
-}
 
 /// Node-local port identity paired with the logical stream it carries.
 #[derive(Clone, Copy, Debug)]
@@ -296,6 +228,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact::Artifact;
 
     fn simple_graph() -> Graph {
         // ARRANGE

@@ -1,18 +1,25 @@
 //! Streams pre-planned opaque extension payloads.
 
 use crate::error::{Result, WizardError};
+use crate::nodes::NodeDescriptor;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
-use crate::resolve::BuildPlan;
 use crate::source::extension::pull;
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count,
+    preflight: preflight_stub,
+    run: run_stub,
+};
+
 /// Source node meaning no dependencies.
-pub(crate) fn dependencies() -> Vec<Dependency> {
+fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -21,9 +28,9 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
-    context: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<Vec<mumi::payload::Planned>> {
-    let plan = context.plan;
+    let plan = ctx.plan;
 
     let mut payloads = pull(plan.extensions(), plan.arch())?;
     let planned = mumi::payload::plan(&mut payloads, &config())
@@ -73,8 +80,30 @@ pub(crate) fn run(
 }
 
 /// One payload stream per extension, in canonical source order.
-pub(crate) fn output_count(build: &BuildPlan) -> usize {
-    build.extensions().len()
+fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
+    let count = ctx.plan.extensions().len();
+    if count == usize::MAX {
+        return Err(WizardError::BuildError(
+            "extension count overflow".to_owned(),
+        ));
+    }
+    Ok(count)
+}
+
+/// Table slot for `preflight`; the real preflight returns the payload list
+/// and is called from `pipeline::preflight` directly until extension payloads
+/// become re-derivable.
+fn preflight_stub(_graph: &mut Graph, _id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    Err(WizardError::BuildError(
+        "extension payloads are handled outside the descriptor table".to_owned(),
+    ))
+}
+
+/// The payload-carrying run is dispatched by the executor directly until extension payloads become re-derivable.
+fn run_stub(_ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+    Err(WizardError::BuildError(
+        "extension payloads are handled outside the descriptor table".to_owned(),
+    ))
 }
 
 fn config() -> mumi::image::BuildConfig {

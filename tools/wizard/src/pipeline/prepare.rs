@@ -1,9 +1,16 @@
 //! Pipe allocation and generic binding of logical nodes into owned `PreparedNode` values.
 
 use crate::error::{Result, WizardError};
-use crate::pipeline::graph::{Graph, Node, NodeKind, StreamId};
+use crate::nodes::NodeKind;
+use crate::pipeline::graph::{Graph, Node, StreamId};
 use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
 use crate::stream::pipe::Pipe;
+
+/// A bound, owned node ready to run on its own scoped thread.
+pub(crate) struct PreparedNode<'a> {
+    pub(crate) kind: NodeKind,
+    pub(crate) ports: NodePorts<'a>,
+}
 
 /// Binds the preflighted graph into owned `PreparedNode` values with pipe endpoints.
 pub(crate) fn bind_nodes(graph: &Graph) -> Result<Vec<PreparedNode<'_>>> {
@@ -105,17 +112,12 @@ impl<'a> PortTable<'a> {
     }
 }
 
-/// A bound, owned node ready to run on its own scoped thread.
-pub(crate) struct PreparedNode<'a> {
-    pub(crate) kind: NodeKind,
-    pub(crate) ports: NodePorts<'a>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::artifact::Artifact;
-    use crate::pipeline::graph::{NodeKind, PortId};
+    use crate::nodes::NodeKind;
+    use crate::pipeline::graph::PortId;
 
     fn fused_graph() -> Graph {
         // ARRANGE

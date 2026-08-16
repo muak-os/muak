@@ -3,9 +3,9 @@
 use std::thread;
 
 use crate::error::Result;
-use crate::nodes;
+use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::graph::{Graph, NodeKind};
+use crate::pipeline::graph::Graph;
 use crate::pipeline::preflight;
 use crate::pipeline::prepare::{PreparedNode, bind_nodes};
 use crate::pipeline::validate;
@@ -22,16 +22,16 @@ pub(crate) enum NodeReport {
 /// # Errors
 ///
 /// Returns the first meaningful node error after joining every thread.
-pub(crate) fn execute(graph: Graph, context: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
+pub(crate) fn execute(graph: Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     validate::normalized(&graph)?;
-    let (graph, planned_payloads) = preflight::preflight(graph, context)?;
-    execute_blocking(&graph, &planned_payloads, context)
+    let (graph, planned_payloads) = preflight::preflight(graph, ctx)?;
+    execute_blocking(&graph, &planned_payloads, ctx)
 }
 
 fn execute_blocking(
     graph: &Graph,
     planned_payloads: &[mumi::payload::Planned],
-    context: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<Metadata> {
     let nodes = bind_nodes(graph)?;
 
@@ -39,7 +39,7 @@ fn execute_blocking(
         let planned = &planned_payloads;
         let mut joins = Vec::with_capacity(nodes.len());
         for node in nodes {
-            joins.push(scope.spawn(move || node.run(context, planned)));
+            joins.push(scope.spawn(move || node.run(ctx, planned)));
         }
         join_all(joins)
     })
@@ -53,19 +53,13 @@ impl PreparedNode<'_> {
         planned: &[mumi::payload::Planned],
     ) -> Result<NodeReport> {
         let PreparedNode { kind, mut ports } = self;
-        match kind {
-            NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports),
-            NodeKind::ExtensionPayloads => nodes::extensions::run(planned, &mut ports),
-            NodeKind::InitramfsTail => nodes::initramfs::tail::run(ctx, &mut ports),
-            NodeKind::Concat => nodes::initramfs::concat::run(&mut ports),
-            NodeKind::Uki => nodes::uki::run(ctx, &mut ports),
-            NodeKind::Sign => nodes::sign::run(ctx, &mut ports),
-            NodeKind::Iso => nodes::media::iso::run(ctx, &mut ports),
-            NodeKind::Raw => nodes::media::raw::run(ctx, &mut ports),
-            NodeKind::OverlayPull => nodes::overlay::pull::run(ctx, &mut ports),
-            NodeKind::OverlayTar => nodes::overlay::tar::run(&mut ports),
-            NodeKind::ArtifactSink { artifact } => nodes::sink::run(ctx, artifact, &mut ports),
-            NodeKind::Fanout => nodes::fanout::run(&mut ports),
+        if let NodeKind::ArtifactSink { artifact } = kind {
+            nodes::sink::run(ctx, artifact, &mut ports)
+        } else if kind == NodeKind::ExtensionPayloads {
+            nodes::extensions::run(planned, &mut ports)
+        } else {
+            let node = nodes::descriptor(kind)?;
+            (node.run)(&mut ports, ctx)
         }
     }
 }

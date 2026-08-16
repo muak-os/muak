@@ -1,8 +1,9 @@
 //! Rewrites multi-consumer streams through explicit fanout nodes.
 
 use crate::error::Result;
+use crate::nodes::NodeKind;
 use crate::nodes::fanout::{FANOUT_INPUT, FANOUT_OUTPUTS_FIRST};
-use crate::pipeline::graph::{Graph, NodeId, NodeKind, PortId, StreamId};
+use crate::pipeline::graph::{Graph, NodeId, PortId, StreamId};
 
 /// Ensures every stream has exactly one consumer.
 ///
@@ -53,7 +54,8 @@ fn rebind_consumers(
 #[cfg(test)]
 mod tests {
     use crate::artifact::Artifact;
-    use crate::pipeline::graph::{Graph, NodeKind, PortId};
+    use crate::nodes::NodeKind;
+    use crate::pipeline::graph::{Graph, PortId};
     use crate::pipeline::normalize::normalize;
 
     fn multi_consumer_graph() -> Graph {
