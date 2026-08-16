@@ -23,7 +23,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 
 /// Stripped overlay file paths plus sizes, path-sorted, with the same
 /// `{name}/` prefix stripping the runtime pull applies.
-pub(crate) async fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
+pub(crate) fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
     let prefix = format!("{}/", overlay.name);
     let mut files: Vec<(String, u64)> = Vec::new();
     pull::metadata(&overlay.source, &overlay.arch, None, |entry| {
@@ -34,7 +34,6 @@ pub(crate) async fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
         }
         Ok(())
     })
-    .await
     .map_err(|e| WizardError::BuildError(format!("list overlay files: {e}")))?;
     files.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
@@ -42,7 +41,7 @@ pub(crate) async fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
 }
 
 /// Sizes and names the overlay output streams from the listing.
-pub(crate) async fn preflight(
+pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
@@ -51,7 +50,7 @@ pub(crate) async fn preflight(
         .plan
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-    let files = listing(overlay).await?;
+    let files = listing(overlay)?;
 
     let bindings = graph
         .node(id)?
@@ -78,7 +77,6 @@ pub(crate) async fn preflight(
 pub(crate) fn run<'a>(
     ctx: &BuildContext<'_, '_, '_>,
     ports: &mut NodePorts<'a>,
-    tokio: &tokio::runtime::Handle,
 ) -> Result<NodeReport> {
     let overlay = ctx
         .plan
@@ -96,14 +94,10 @@ pub(crate) fn run<'a>(
         .collect();
     let prefix = format!("{}/", overlay.name);
 
-    tokio
-        .block_on(async move {
-            pull::files(&overlay.source, &overlay.arch, None, |entry| {
-                route_entry(&entry.path, entry.reader, &prefix, &mut files)
-            })
-            .await
-        })
-        .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))?;
+    pull::files(&overlay.source, &overlay.arch, None, |entry| {
+        route_entry(&entry.path, entry.reader, &prefix, &mut files)
+    })
+    .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
@@ -113,12 +107,12 @@ pub(crate) fn run<'a>(
 /// # Errors
 ///
 /// Returns an error when the overlay file listing cannot be fetched.
-pub(crate) async fn output_count(build: &BuildPlan) -> Result<usize> {
+pub(crate) fn output_count(build: &BuildPlan) -> Result<usize> {
     let overlay = build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
 
-    Ok(listing(overlay).await?.len())
+    Ok(listing(overlay)?.len())
 }
 
 fn route_entry<'a>(

@@ -68,11 +68,11 @@ impl NodeKind {
     ///
     /// Returns an error when a metadata query fails or the kind has no dynamic
     /// output range.
-    pub(crate) async fn output_count(self, context: &BuildContext<'_, '_, '_>) -> Result<usize> {
+    pub(crate) fn output_count(self, context: &BuildContext<'_, '_, '_>) -> Result<usize> {
         if self == NodeKind::ExtensionPayloads {
             Ok(extensions::output_count(context.plan))
         } else if self == NodeKind::OverlayPull {
-            overlay::pull::output_count(context.plan).await
+            overlay::pull::output_count(context.plan)
         } else {
             Err(WizardError::BuildError(format!(
                 "{self:?} has no dynamic output count"

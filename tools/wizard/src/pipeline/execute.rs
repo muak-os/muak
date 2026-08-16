@@ -2,8 +2,6 @@
 
 use std::thread;
 
-use tokio::task::block_in_place;
-
 use crate::error::Result;
 use crate::nodes;
 use crate::pipeline::context::BuildContext;
@@ -24,10 +22,10 @@ pub(crate) enum NodeReport {
 /// # Errors
 ///
 /// Returns the first meaningful node error after joining every thread.
-pub(crate) async fn execute(graph: Graph, context: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
+pub(crate) fn execute(graph: Graph, context: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     validate::normalized(&graph)?;
-    let (graph, planned_payloads) = preflight::preflight(graph, context).await?;
-    block_in_place(|| execute_blocking(&graph, &planned_payloads, context))
+    let (graph, planned_payloads) = preflight::preflight(graph, context)?;
+    execute_blocking(&graph, &planned_payloads, context)
 }
 
 fn execute_blocking(
@@ -35,15 +33,13 @@ fn execute_blocking(
     planned_payloads: &[mumi::payload::Planned],
     context: &BuildContext<'_, '_, '_>,
 ) -> Result<Metadata> {
-    let tokio = tokio::runtime::Handle::current();
     let nodes = bind_nodes(graph)?;
 
     thread::scope(|scope| {
         let planned = &planned_payloads;
         let mut joins = Vec::with_capacity(nodes.len());
         for node in nodes {
-            let tokio = tokio.clone();
-            joins.push(scope.spawn(move || node.run(context, planned, &tokio)));
+            joins.push(scope.spawn(move || node.run(context, planned)));
         }
         join_all(joins)
     })
@@ -55,11 +51,10 @@ impl PreparedNode<'_> {
         self,
         ctx: &BuildContext<'_, '_, '_>,
         planned: &[mumi::payload::Planned],
-        tokio: &tokio::runtime::Handle,
     ) -> Result<NodeReport> {
         let PreparedNode { kind, mut ports } = self;
         match kind {
-            NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports, tokio),
+            NodeKind::InstallerPull => nodes::installer::run(ctx, &mut ports),
             NodeKind::ExtensionPayloads => nodes::extensions::run(planned, &mut ports),
             NodeKind::InitramfsTail => nodes::initramfs::tail::run(ctx, &mut ports),
             NodeKind::Concat => nodes::initramfs::concat::run(&mut ports),
@@ -67,7 +62,7 @@ impl PreparedNode<'_> {
             NodeKind::Sign => nodes::sign::run(ctx, &mut ports),
             NodeKind::Iso => nodes::media::iso::run(ctx, &mut ports),
             NodeKind::Raw => nodes::media::raw::run(ctx, &mut ports),
-            NodeKind::OverlayPull => nodes::overlay::pull::run(ctx, &mut ports, tokio),
+            NodeKind::OverlayPull => nodes::overlay::pull::run(ctx, &mut ports),
             NodeKind::OverlayTar => nodes::overlay::tar::run(&mut ports),
             NodeKind::ArtifactSink { artifact } => nodes::sink::run(ctx, artifact, &mut ports),
             NodeKind::Fanout => nodes::fanout::run(&mut ports),

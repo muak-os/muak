@@ -18,14 +18,14 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 
 /// Pulls and plans the extension payloads exactly once, returning the
 /// `Planned` list in canonical source order for the other nodes.
-pub(crate) async fn preflight(
+pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
 ) -> Result<Vec<mumi::payload::Planned>> {
     let plan = context.plan;
 
-    let mut payloads = pull(plan.extensions(), &plan.arch()).await?;
+    let mut payloads = pull(plan.extensions(), plan.arch())?;
     let planned = mumi::payload::plan(&mut payloads, &config())
         .map_err(|e| WizardError::BuildError(format!("plan extension payloads: {e}")))?;
 

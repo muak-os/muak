@@ -15,10 +15,7 @@ use crate::pipeline::normalize::normalize;
 ///
 /// Returns an error when a dependency is cyclic, a dynamic count cannot be
 /// fetched, or the built graph fails validation.
-pub(crate) async fn plan(
-    context: &BuildContext<'_, '_, '_>,
-    artifacts: &[Artifact],
-) -> Result<Graph> {
+pub(crate) fn plan(context: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(context);
     for artifact in artifacts {
         if *artifact == Artifact::Overlays && context.plan.overlay().is_none() {
@@ -30,7 +27,7 @@ pub(crate) async fn plan(
             artifact: *artifact,
         })?;
     }
-    planner.bind_all().await?;
+    planner.bind_all()?;
     validate(&planner.graph, context)?;
     normalize(&mut planner.graph)?;
 
@@ -92,10 +89,10 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
     }
 
     /// Binds every node's declared dependencies, in node creation order.
-    async fn bind_all(&mut self) -> Result<()> {
+    fn bind_all(&mut self) -> Result<()> {
         for (consumer, dependency) in self.pending_bindings()? {
             let producer = self.instance(dependency.producer)?;
-            self.bind(producer, consumer, &dependency).await?;
+            self.bind(producer, consumer, &dependency)?;
         }
 
         Ok(())
@@ -125,12 +122,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
 
     /// Binds one declared dependency: the producer's output stream (created
     /// on demand, shared with every consumer) to the consumer's input port.
-    async fn bind(
-        &mut self,
-        producer: NodeId,
-        consumer: NodeId,
-        dependency: &Dependency,
-    ) -> Result<()> {
+    fn bind(&mut self, producer: NodeId, consumer: NodeId, dependency: &Dependency) -> Result<()> {
         match dependency.kind {
             DependencyKind::Fixed => {
                 let stream =
@@ -138,20 +130,20 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
                 self.graph
                     .bind_input(consumer, dependency.consumer_port, stream)?;
             }
-            DependencyKind::Many => self.bind_many(producer, consumer, dependency).await?,
+            DependencyKind::Many => self.bind_many(producer, consumer, dependency)?,
         }
 
         Ok(())
     }
 
     /// Binds one stream per dynamic element, in canonical order.
-    async fn bind_many(
+    fn bind_many(
         &mut self,
         producer: NodeId,
         consumer: NodeId,
         dependency: &Dependency,
     ) -> Result<()> {
-        let count = self.dynamic_count(dependency.producer).await?;
+        let count = self.dynamic_count(dependency.producer)?;
         for index in 0..count {
             let producer_port = PortId(dependency.producer_port.0.saturating_add(index));
             let consumer_port = PortId(dependency.consumer_port.0.saturating_add(index));
@@ -179,11 +171,11 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
     }
 
     /// The dynamic output count of a `Many` producer, fetched once.
-    async fn dynamic_count(&mut self, kind: NodeKind) -> Result<usize> {
+    fn dynamic_count(&mut self, kind: NodeKind) -> Result<usize> {
         if let Some(count) = self.counts.get(&kind) {
             return Ok(*count);
         }
-        let count = kind.output_count(self.context).await?;
+        let count = kind.output_count(self.context)?;
         self.counts.insert(kind, count);
 
         Ok(count)
@@ -253,16 +245,14 @@ mod tests {
             .count()
     }
 
-    #[tokio::test]
-    async fn kernel_and_cmdline_need_only_installer() {
+    #[test]
+    fn kernel_and_cmdline_need_only_installer() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Kernel, Artifact::Cmdline])
-            .await
-            .expect("plan");
+        let graph = plan(&context, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
 
         // ASSERT
         assert_eq!(kinds(&graph).len(), 3);
@@ -288,16 +278,14 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::Fanout), 0);
     }
 
-    #[tokio::test]
-    async fn initramfs_and_uki_fanout_the_complete_initramfs() {
+    #[test]
+    fn initramfs_and_uki_fanout_the_complete_initramfs() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Initramfs, Artifact::Uki])
-            .await
-            .expect("plan");
+        let graph = plan(&context, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Uki), 1);
@@ -325,16 +313,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn uki_iso_and_raw_fanout_the_uki_stream() {
+    #[test]
+    fn uki_iso_and_raw_fanout_the_uki_stream() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki, Artifact::Iso, Artifact::Raw])
-            .await
-            .expect("plan");
+        let graph = plan(&context, &[Artifact::Uki, Artifact::Iso, Artifact::Raw]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Uki), 1);
@@ -344,16 +330,15 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::OverlayPull), 0);
     }
 
-    #[tokio::test]
-    async fn overlays_without_overlay_profile_rejected() {
+    #[test]
+    fn overlays_without_overlay_profile_rejected() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        let error = plan(&context, &[Artifact::Overlays])
-            .await
-            .expect_err("overlays without overlay must fail");
+        let error =
+            plan(&context, &[Artifact::Overlays]).expect_err("overlays without overlay must fail");
 
         // ASSERT
         let message = error.to_string();
@@ -363,8 +348,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn signed_request_routes_the_uki_through_sign() {
+    #[test]
+    fn signed_request_routes_the_uki_through_sign() {
         // ARRANGE
         let build = build_plan();
         let (signer, certificate) = generate_pk("muak-test").expect("generate signing pair");
@@ -380,7 +365,7 @@ mod tests {
         };
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki]).await.expect("plan");
+        let graph = plan(&context, &[Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Sign), 1);
@@ -395,14 +380,14 @@ mod tests {
         assert_eq!(graph.node(producer).expect("producer").kind, NodeKind::Sign);
     }
 
-    #[tokio::test]
-    async fn binds_stable_uki_ports() {
+    #[test]
+    fn binds_stable_uki_ports() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        let graph = plan(&context, &[Artifact::Uki]).await.expect("plan");
+        let graph = plan(&context, &[Artifact::Uki]).expect("plan");
 
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Sign), 0);
@@ -431,25 +416,17 @@ mod tests {
         uki_node.output(uki::UKI_OUTPUT).unwrap();
     }
 
-    #[tokio::test]
-    async fn every_artifact_combo_plans_and_validates() {
+    #[test]
+    fn every_artifact_combo_plans_and_validates() {
         // ARRANGE
         let build = build_plan();
         let context = context(&build);
 
         // ACT
-        plan(&context, &[Artifact::Kernel, Artifact::Cmdline])
-            .await
-            .expect("plan");
-        plan(&context, &[Artifact::Initramfs, Artifact::Uki])
-            .await
-            .expect("plan");
-        plan(&context, &[Artifact::Uki, Artifact::Iso])
-            .await
-            .expect("plan");
-        plan(&context, &[Artifact::Uki, Artifact::Raw])
-            .await
-            .expect("plan");
+        plan(&context, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
+        plan(&context, &[Artifact::Initramfs, Artifact::Uki]).expect("plan");
+        plan(&context, &[Artifact::Uki, Artifact::Iso]).expect("plan");
+        plan(&context, &[Artifact::Uki, Artifact::Raw]).expect("plan");
 
         // ASSERT
     }

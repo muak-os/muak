@@ -25,7 +25,7 @@ pub(crate) fn dependencies() -> Vec<Dependency> {
 }
 
 /// Exact tar-entry sizes via the existing koci metadata callback.
-pub(crate) async fn preflight(
+pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
@@ -42,7 +42,6 @@ pub(crate) async fn preflight(
             Ok(())
         },
     )
-    .await
     .map_err(|e| WizardError::BuildError(format!("extract installer metadata: {e}")))?;
 
     let bindings = graph
@@ -67,11 +66,7 @@ pub(crate) async fn preflight(
 }
 
 /// Pulls the installer once and routes known files to their output streams.
-pub(crate) fn run(
-    ctx: &BuildContext<'_, '_, '_>,
-    ports: &mut NodePorts<'_>,
-    tokio: &tokio::runtime::Handle,
-) -> Result<NodeReport> {
+pub(crate) fn run(ctx: &BuildContext<'_, '_, '_>, ports: &mut NodePorts<'_>) -> Result<NodeReport> {
     let plan = ctx.plan;
     let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(STUB, None)?
@@ -81,20 +76,16 @@ pub(crate) fn run(
     let mut seen_stub = false;
     let mut seen_cmdline = false;
 
-    tokio
-        .block_on(async move {
-            pull::files(plan.installer(), &plan.arch(), None, |entry| {
-                route_entry(
-                    &entry.path,
-                    entry.reader,
-                    &mut outputs,
-                    &mut seen_stub,
-                    &mut seen_cmdline,
-                )
-            })
-            .await
-        })
-        .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;
+    pull::files(plan.installer(), &plan.arch(), None, |entry| {
+        route_entry(
+            &entry.path,
+            entry.reader,
+            &mut outputs,
+            &mut seen_stub,
+            &mut seen_cmdline,
+        )
+    })
+    .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;
 
     Ok(NodeReport::Empty)
 }

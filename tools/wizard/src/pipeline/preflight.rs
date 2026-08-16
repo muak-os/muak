@@ -11,7 +11,7 @@ use crate::pipeline::graph::{Graph, NodeKind};
 ///
 /// Returns an error when a source metadata query or size computation fails,
 /// or when any stream ended up unnamed.
-pub(crate) async fn preflight(
+pub(crate) fn preflight(
     mut graph: Graph,
     context: &BuildContext<'_, '_, '_>,
 ) -> Result<(Graph, Vec<mumi::payload::Planned>)> {
@@ -19,16 +19,16 @@ pub(crate) async fn preflight(
 
     for id in graph.topological_order() {
         match graph.node(id)?.kind {
-            NodeKind::InstallerPull => nodes::installer::preflight(&mut graph, id, context).await?,
+            NodeKind::InstallerPull => nodes::installer::preflight(&mut graph, id, context)?,
             NodeKind::ExtensionPayloads => {
-                planned_payloads = nodes::extensions::preflight(&mut graph, id, context).await?;
+                planned_payloads = nodes::extensions::preflight(&mut graph, id, context)?;
             }
             NodeKind::InitramfsTail => nodes::initramfs::tail::preflight(&mut graph, id, context)?,
             NodeKind::Concat => nodes::initramfs::concat::preflight(&mut graph, id)?,
-            NodeKind::Uki => nodes::uki::preflight(&mut graph, id, context).await?,
+            NodeKind::Uki => nodes::uki::preflight(&mut graph, id, context)?,
             NodeKind::Sign => nodes::sign::preflight(&mut graph, id, context)?,
             NodeKind::OverlayPull => {
-                nodes::overlay::pull::preflight(&mut graph, id, context).await?;
+                nodes::overlay::pull::preflight(&mut graph, id, context)?;
             }
             NodeKind::OverlayTar => nodes::overlay::tar::preflight(&mut graph, id)?,
             NodeKind::Fanout => nodes::fanout::preflight(&mut graph, id)?,

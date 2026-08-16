@@ -20,22 +20,22 @@ use crate::resolve;
 /// # Errors
 ///
 /// Returns an error when argument parsing or command execution fails.
-pub async fn run_from<I, T>(args: I) -> Result<()>
+pub fn run_from<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     let args = Cli::parse_from(args);
-    run_command(args.command).await
+    run_command(args.command)
 }
 
 /// Runs the CLI with the given arguments and returns an exit code.
-pub async fn run_with<I, T>(args: I) -> i32
+pub fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    match run_from(args).await {
+    match run_from(args) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:?}");
@@ -46,8 +46,8 @@ where
 
 /// Runs the CLI with `std::env::args_os()` and returns an exit code.
 #[must_use]
-pub async fn run() -> i32 {
-    run_with(std::env::args_os()).await
+pub fn run() -> i32 {
+    run_with(std::env::args_os())
 }
 
 struct BuildArgs {
@@ -164,7 +164,7 @@ fn parse_artifact(input: &str) -> Result<Artifact> {
     }
 }
 
-async fn run_command(command: Command) -> Result<()> {
+fn run_command(command: Command) -> Result<()> {
     match command {
         Command::ProfileId { profile } => run_profile_id(&profile),
         Command::Resolve {
@@ -189,24 +189,21 @@ async fn run_command(command: Command) -> Result<()> {
             installer,
             signing_key,
             signing_cert,
-        } => {
-            run_build(BuildArgs {
-                profile,
-                artifacts,
-                version,
-                arch,
-                platform,
-                extension,
-                overlay_image,
-                overlay_name,
-                output_dir,
-                registry,
-                installer,
-                signing_key,
-                signing_cert,
-            })
-            .await
-        }
+        } => run_build(BuildArgs {
+            profile,
+            artifacts,
+            version,
+            arch,
+            platform,
+            extension,
+            overlay_image,
+            overlay_name,
+            output_dir,
+            registry,
+            installer,
+            signing_key,
+            signing_cert,
+        }),
     }
 }
 
@@ -256,7 +253,7 @@ fn run_resolve(
     Ok(())
 }
 
-async fn run_build(args: BuildArgs) -> Result<()> {
+fn run_build(args: BuildArgs) -> Result<()> {
     let platform = parse_platform(&args.platform)?;
 
     let artifacts: Vec<Artifact> = args
@@ -329,7 +326,7 @@ async fn run_build(args: BuildArgs) -> Result<()> {
         None => request,
     };
 
-    let _meta = request.build(&profile).await.context("build artifacts")?;
+    let _meta = request.build(&profile).context("build artifacts")?;
 
     for &artifact in &artifacts {
         let path = args.output_dir.join(artifact.filename());

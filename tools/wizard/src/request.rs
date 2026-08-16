@@ -176,7 +176,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when resolution, pulling, building, or signing fails.
-    pub async fn build(self, profile: &Profile) -> Result<crate::Metadata> {
+    pub fn build(self, profile: &Profile) -> Result<crate::Metadata> {
         if self.targets.is_empty() {
             return Err(WizardError::BuildError(
                 "at least one artifact must be requested".to_owned(),
@@ -192,9 +192,9 @@ impl<'a> Request<'a> {
             signing: self.signing,
             writers: Mutex::new(TargetWriters::new(self.targets)),
         };
-        let graph = plan(&context, &artifacts).await?;
+        let graph = plan(&context, &artifacts)?;
 
-        execute(graph, &context).await
+        execute(graph, &context)
     }
 }
 

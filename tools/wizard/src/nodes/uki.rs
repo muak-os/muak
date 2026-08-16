@@ -45,7 +45,7 @@ const MIN_UKI_BYTES: u64 = 32 << 20;
 const MAX_UKI_BYTES: u64 = 512 << 20;
 
 /// Probes the bounded stub header prefix and plans the UKI layout to get the size.
-pub(crate) async fn preflight(
+pub(crate) fn preflight(
     graph: &mut Graph,
     id: NodeId,
     context: &BuildContext<'_, '_, '_>,
@@ -61,7 +61,6 @@ pub(crate) async fn preflight(
         }
         Ok(())
     })
-    .await
     .map_err(|e| WizardError::BuildError(format!("probe stub prefix: {e}")))?;
 
     let mut stub = prefix.as_slice();

@@ -38,18 +38,14 @@ impl Extension {
 /// # Errors
 ///
 /// Returns an error when any extension OCI file pull or payload assembly fails.
-pub(crate) async fn pull(
-    extensions: &[Extension],
-    arch: &Arch,
-) -> Result<Vec<mumi::payload::Payload>> {
+pub(crate) fn pull(extensions: &[Extension], arch: Arch) -> Result<Vec<mumi::payload::Payload>> {
     let mut payloads = Vec::with_capacity(extensions.len());
 
     for ext in extensions {
         let mut payload = mumi::payload::Payload::new(ext.name());
-        pull::files(ext.source(), arch, None, |entry| {
+        pull::files(ext.source(), &arch, None, |entry| {
             add_entry(&mut payload, entry)
         })
-        .await
         .map_err(|e| WizardError::BuildError(format!("pull extension {}: {e}", ext.source())))?;
         payloads.push(payload);
     }

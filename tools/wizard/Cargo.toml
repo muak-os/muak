@@ -14,9 +14,6 @@ name = "wizard"
 required-features = ["cli"]
 
 [dependencies]
-# Asynchronous
-tokio = { workspace = true }
-
 # Compression
 tar = { workspace = true }
 
