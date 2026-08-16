@@ -10,4 +10,5 @@ pub mod error;
 mod image;
 pub mod pull;
 mod registry;
+mod runtime;
 pub mod sign;

@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-use tokio::runtime::Builder;
 
 use crate::arch;
 use crate::arch::Arch;
@@ -66,7 +65,7 @@ fn write_entry_to_dir(
     Ok(())
 }
 
-async fn run_command(command: Command) -> Result<()> {
+fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Pull {
             image,
@@ -84,7 +83,6 @@ async fn run_command(command: Command) -> Result<()> {
             pull::files(&image, &target_arch, key_contents.as_deref(), |entry| {
                 write_entry_to_dir(entry, &output)
             })
-            .await
             .context("Failed to stream image")?;
 
             println!("Successfully extracted image to {}", output.display());
@@ -94,9 +92,7 @@ async fn run_command(command: Command) -> Result<()> {
         Command::Sign { image, key } => {
             let private_key_pem = read_key_file(&key)?;
 
-            sign::manifest(&image, &private_key_pem)
-                .await
-                .context("Failed to sign image")?;
+            sign::manifest(&image, &private_key_pem).context("Failed to sign image")?;
             println!("Successfully signed {image}");
 
             Ok(())
@@ -115,10 +111,7 @@ where
     T: Into<OsString> + Clone,
 {
     let args = Args::parse_from(args);
-    Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(run_command(args.command))
+    run_command(args.command)
 }
 
 /// Runs the CLI with the given arguments and returns an exit code.

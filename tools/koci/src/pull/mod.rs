@@ -2,6 +2,7 @@
 
 use crate::arch::Arch;
 use crate::error::Result;
+use crate::runtime;
 
 pub mod cache;
 pub(crate) mod download;
@@ -16,7 +17,7 @@ pub(crate) mod scan;
 ///
 /// Returns an error if the image cannot be fetched, signature verification fails,
 /// a layer cannot be decompressed, or the handler returns an error.
-pub async fn metadata<F>(
+pub fn metadata<F>(
     reference: &str,
     arch: &Arch,
     pubkey_pem: Option<&str>,
@@ -25,15 +26,14 @@ pub async fn metadata<F>(
 where
     F: FnMut(entries::MetadataEntry) -> Result<()>,
 {
-    layer::process(
+    runtime::runtime()?.block_on(layer::process(
         reference,
         arch,
         pubkey_pem,
         |layer_idx, _entry, info, whiteout_layers| {
             scan::handle_metadata_entry(info, layer_idx, whiteout_layers, &mut handler)
         },
-    )
-    .await
+    ))
 }
 
 /// Stream file data from an OCI image.
@@ -42,7 +42,7 @@ where
 ///
 /// Returns an error if the image cannot be fetched, signature verification fails,
 /// a layer cannot be decompressed, or the handler returns an error.
-pub async fn files<F>(
+pub fn files<F>(
     reference: &str,
     arch: &Arch,
     pubkey_pem: Option<&str>,
@@ -51,13 +51,12 @@ pub async fn files<F>(
 where
     F: FnMut(entries::FileEntry) -> Result<()>,
 {
-    layer::process(
+    runtime::runtime()?.block_on(layer::process(
         reference,
         arch,
         pubkey_pem,
         |layer_idx, entry, info, whiteout_layers| {
             scan::handle_file_entry(entry, info, layer_idx, whiteout_layers, &mut handler)
         },
-    )
-    .await
+    ))
 }

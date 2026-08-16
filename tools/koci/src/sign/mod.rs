@@ -13,6 +13,7 @@ use crate::image::manifest;
 use crate::image::{ImageReference, OciManifest};
 use crate::registry::auth::fetch_auth_token;
 use crate::registry::http::{HttpClient, build_client, put};
+use crate::runtime;
 use crate::sign::key::parse_pem_private_key;
 
 pub(crate) mod key;
@@ -26,7 +27,12 @@ pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 /// # Errors
 ///
 /// Returns an error if the manifest cannot be fetched, signed, or pushed.
-pub async fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
+pub fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
+    runtime::runtime()?.block_on(sign_manifest(reference, privkey_pem))
+}
+
+/// Sign an OCI image manifest in the registry.
+async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let image_ref = ImageReference::parse(reference);
     let client = build_client();
 
