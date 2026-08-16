@@ -563,9 +563,9 @@ mod tests {
             layer_archive(&[("etc/arch", b"arm64\n")]).expect("build layer archive");
         let selected_layer_digest = sha256_digest(&selected_layer);
         let selected_manifest_digest =
-            "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+            "sha256:4444444444444444444444444444444444444444444444444444444444444444";
         let other_manifest_digest =
-            "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+            "sha256:5555555555555555555555555555555555555555555555555555555555555555";
         let index = index_for_arches_json(&[
             (other_manifest_digest, "amd64", "linux"),
             (selected_manifest_digest, "arm64", "linux"),

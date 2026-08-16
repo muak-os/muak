@@ -57,9 +57,7 @@ async fn fetch_cached_manifest(
         }
         let url = manifest::build_url(image_ref, manifest_ref);
         let json = manifest::fetch(client, &url, token).await?;
-        if let Some(path) = cache.blob_path(manifest_ref) {
-            drop(std::fs::write(&path, json.as_bytes()));
-        }
+        cache.put_blob(manifest_ref, json.as_bytes());
 
         Ok(json)
     } else {

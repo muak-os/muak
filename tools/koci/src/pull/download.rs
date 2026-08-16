@@ -5,7 +5,7 @@ use std::io::Read;
 
 use flate2::read::GzDecoder;
 
-use super::cache::Store;
+use super::cache::{Store, temp_sibling};
 use crate::digest::StreamingDigest;
 use crate::error::{KociError, Result};
 use crate::image::ImageReference;
@@ -60,21 +60,28 @@ pub(crate) async fn cached(
     token: Option<&str>,
 ) -> Result<File> {
     if let Some(reader) = cache.get_blob_reader(digest) {
+        // eprintln!("  cache hit: {}", digest.get(..12).unwrap_or(digest));
         return Ok(reader);
     }
+    // eprintln!("  cache miss: {}", digest.get(..12).unwrap_or(digest));
 
-    let dest_path = cache.blob_path(digest).ok_or_else(|| {
-        KociError::DownloadError("no cache directory configured".to_owned())
-    })?;
+    let dest_path = cache
+        .blob_path(digest)
+        .ok_or_else(|| KociError::DownloadError("no cache directory configured".to_owned()))?;
 
     if let Some(parent) = dest_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| KociError::DownloadError(format!("create cache directory: {e}")))?;
     }
+    let tmp_path = temp_sibling(&dest_path);
 
-    blob(client, image_ref, digest, token, &dest_path).await?;
+    if let Err(error) = blob(client, image_ref, digest, token, &tmp_path).await {
+        drop(std::fs::remove_file(&tmp_path));
+        return Err(error);
+    }
 
-    cache.put_blob_from_file(digest, &dest_path);
+    cache.put_blob_from_file(digest, &tmp_path);
+
     cache
         .get_blob_reader(digest)
         .ok_or_else(|| KociError::DownloadError("failed to open cached blob".to_owned()))

@@ -4,10 +4,14 @@ use core::time::Duration;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Sequence number for unique temporary file names.
+static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
 #[derive(Clone)]
@@ -64,6 +68,13 @@ impl Store {
         drop(std::fs::rename(src, dest));
     }
 
+    /// Store blob bytes atomically, so a crash never leaves a partial entry.
+    pub(crate) fn put_blob(&self, digest: &str, data: &[u8]) {
+        if let Some(path) = self.blob_path(digest) {
+            atomic_write(&path, data);
+        }
+    }
+
     /// Return the filesystem path for a blob digest.
     pub(crate) fn blob_path(&self, digest: &str) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
@@ -114,12 +125,19 @@ fn atomic_write(path: &Path, data: &[u8]) {
     if std::fs::create_dir_all(parent).is_err() {
         return;
     }
-    let tmp = path.with_extension("tmp");
+    let tmp = temp_sibling(path);
     if std::fs::write(&tmp, data).is_err() {
         return;
     }
 
     drop(std::fs::rename(&tmp, path));
+}
+
+/// Return a unique sibling path for an in-progress write.
+pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
+    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+
+    path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
 }
 
 #[cfg(test)]
@@ -242,7 +260,64 @@ mod tests {
 
         // ASSERT
         assert!(path.exists());
-        assert!(!path.with_extension("tmp").exists());
+        let leftovers: Vec<String> = tmp
+            .path()
+            .read_dir()
+            .expect("read dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|name| name.contains(".part."))
+            .collect();
+        assert!(leftovers.is_empty());
+    }
+
+    #[test]
+    fn temp_sibling_names_are_unique() {
+        // ARRANGE
+        let path = Path::new("/cache/blobs/sha256/abc");
+
+        // ACT
+        let first = temp_sibling(path);
+        let second = temp_sibling(path);
+
+        // ASSERT
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), Some(Path::new("/cache/blobs/sha256")));
+        assert_eq!(second.parent(), Some(Path::new("/cache/blobs/sha256")));
+    }
+
+    #[test]
+    fn put_blob_roundtrip() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let digest = "sha256:abcd1234";
+
+        // ACT
+        cache.put_blob(digest, b"hello blob");
+
+        // ASSERT
+        let path = cache.blob_path(digest).expect("blob path");
+        let got = std::fs::read(&path).expect("read blob");
+        assert_eq!(got, b"hello blob");
+        let files: Vec<String> = tmp
+            .path()
+            .read_dir()
+            .expect("read dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(files, vec!["blobs"]);
     }
 
     #[test]
