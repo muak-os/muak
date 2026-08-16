@@ -40,31 +40,26 @@ mod tests {
         contents: Vec<u8>,
     }
 
-    async fn collect_files(
-        reference: &str,
-        arch: &Arch,
-        pubkey_pem: Option<&str>,
-    ) -> Vec<CollectedFile> {
+    fn collect_files(reference: &str, arch: Arch, pubkey_pem: Option<&str>) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, arch, pubkey_pem, |entry| {
+        pull::files(reference, &arch, pubkey_pem, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
             files.push(CollectedFile { path, contents });
             Ok(())
         })
-        .await
         .expect("stream files should succeed");
         files
     }
 
-    async fn collect_metadata(
+    fn collect_metadata(
         reference: &str,
-        arch: &Arch,
+        arch: Arch,
         pubkey_pem: Option<&str>,
     ) -> Vec<pull::entries::MetadataEntry> {
         let mut entries = Vec::new();
-        pull::metadata(reference, arch, pubkey_pem, |entry| {
+        pull::metadata(reference, &arch, pubkey_pem, |entry| {
             entries.push(pull::entries::MetadataEntry {
                 path: entry.path.clone(),
                 size: entry.size,
@@ -72,21 +67,17 @@ mod tests {
             });
             Ok(())
         })
-        .await
         .expect("extract metadata should succeed");
         entries
     }
 
-    async fn expect_stream_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
+    fn expect_stream_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
         pull::files(reference, &Arch::Amd64, pubkey_pem, |_entry| Ok(()))
-            .await
             .expect_err("stream should fail")
     }
 
-    async fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
-        sign::manifest(reference, private_key_pem)
-            .await
-            .expect_err("sign should fail")
+    fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
+        sign::manifest(reference, private_key_pem).expect_err("sign should fail")
     }
 
     fn assert_signed_manifest_has_signature(registry: &MockRegistry, path: &str) {
@@ -109,8 +100,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn stream_files_yields_files_from_single_layer() {
+    #[test]
+    fn stream_files_yields_files_from_single_layer() {
         // ARRANGE
         let layer = layer_archive(&[
             ("etc/motd", b"hello from koci\n"),
@@ -130,7 +121,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
 
         // ASSERT
         assert_eq!(files.len(), 2);
@@ -140,8 +131,8 @@ mod tests {
         assert_eq!(&files.get(1).unwrap().contents, b"integration test\n");
     }
 
-    #[tokio::test]
-    async fn stream_files_selects_requested_platform() {
+    #[test]
+    fn stream_files_selects_requested_platform() {
         // ARRANGE
         let layer = layer_archive(&[("etc/platform", b"selected requested manifest\n")])
             .expect("build layer archive");
@@ -182,7 +173,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), &Arch::Arm64, None).await;
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Arm64, None);
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -192,8 +183,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_missing_platform() {
+    #[test]
+    fn stream_files_rejects_missing_platform() {
         // ARRANGE
         let index = index_for_arches_json(&[(
             "sha256:3333333333333333333333333333333333333333333333333333333333333333",
@@ -214,15 +205,14 @@ mod tests {
             None,
             |_entry| Ok(()),
         )
-        .await
         .expect_err("stream should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
     }
 
-    #[tokio::test]
-    async fn stream_files_supports_digest_reference() {
+    #[test]
+    fn stream_files_supports_digest_reference() {
         // ARRANGE
         let layer = layer_archive(&[("etc/digest", b"pulled by digest\n")]).expect("build layer");
         let layer_digest = sha256_digest(&layer);
@@ -244,10 +234,9 @@ mod tests {
         // ACT
         let files = collect_files(
             &registry.digest_reference("repo", &manifest_digest),
-            &Arch::Amd64,
+            Arch::Amd64,
             None,
-        )
-        .await;
+        );
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -263,8 +252,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_blob_digest_mismatch() {
+    #[test]
+    fn stream_files_rejects_blob_digest_mismatch() {
         // ARRANGE
         let layer =
             layer_archive(&[("etc/invalid", b"digest mismatch\n")]).expect("build layer archive");
@@ -284,14 +273,14 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None);
 
         // ASSERT
         assert!(matches!(error, KociError::DigestMismatch { .. }));
     }
 
-    #[tokio::test]
-    async fn sign_signs_index_and_platform_manifests() {
+    #[test]
+    fn sign_signs_index_and_platform_manifests() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let top_level_path = "/v2/repo/manifests/test";
@@ -330,7 +319,6 @@ mod tests {
 
         // ACT
         sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .await
             .expect("sign image");
 
         // ASSERT
@@ -342,8 +330,8 @@ mod tests {
         assert_signed_manifests_have_signatures(&registry, &signed_paths);
     }
 
-    #[tokio::test]
-    async fn sign_uses_default_manifest_content_type_when_media_type_is_missing() {
+    #[test]
+    fn sign_uses_default_manifest_content_type_when_media_type_is_missing() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let path = "/v2/repo/manifests/test";
@@ -360,7 +348,6 @@ mod tests {
 
         // ACT
         sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .await
             .expect("sign image");
 
         // ASSERT
@@ -372,8 +359,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn sign_signs_single_manifest_in_registry() {
+    #[test]
+    fn sign_signs_single_manifest_in_registry() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let path = "/v2/repo/manifests/test";
@@ -388,7 +375,6 @@ mod tests {
 
         // ACT
         sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .await
             .expect("sign image");
 
         // ASSERT
@@ -404,22 +390,22 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn sign_rejects_invalid_private_key_before_network() {
+    #[test]
+    fn sign_rejects_invalid_private_key_before_network() {
         // ARRANGE / ACT
-        let error = expect_sign_error("127.0.0.1:9/repo:test", "not a pem file").await;
+        let error = expect_sign_error("127.0.0.1:9/repo:test", "not a pem file");
 
         // ASSERT
         assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 
-    #[tokio::test]
-    async fn sign_rejects_invalid_private_key_base64_before_network() {
+    #[test]
+    fn sign_rejects_invalid_private_key_base64_before_network() {
         // ARRANGE
         let private_key_pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
 
         // ACT
-        let error = expect_sign_error("127.0.0.1:9/repo:test", private_key_pem).await;
+        let error = expect_sign_error("127.0.0.1:9/repo:test", private_key_pem);
 
         // ASSERT
         assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
@@ -430,14 +416,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn sign_rejects_invalid_private_key_pkcs8_before_network() {
+    #[test]
+    fn sign_rejects_invalid_private_key_pkcs8_before_network() {
         // ARRANGE
         let private_key_pem =
             "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
 
         // ACT
-        let error = expect_sign_error("127.0.0.1:9/repo:test", private_key_pem).await;
+        let error = expect_sign_error("127.0.0.1:9/repo:test", private_key_pem);
 
         // ASSERT
         assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
@@ -448,8 +434,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn sign_rejects_non_object_manifest_annotations() {
+    #[test]
+    fn sign_rejects_non_object_manifest_annotations() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
         let registry = MockRegistry::start(HashMap::from([
@@ -464,8 +450,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error =
-            expect_sign_error(&registry.reference("repo", "test"), &keys.private_key_pem).await;
+        let error = expect_sign_error(&registry.reference("repo", "test"), &keys.private_key_pem);
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
@@ -615,8 +600,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn stream_files_applies_multiple_layers_with_whiteouts() {
+    #[test]
+    fn stream_files_applies_multiple_layers_with_whiteouts() {
         // ARRANGE
         let first_layer = layer_archive(&[("etc/message", b"first\n")]).expect("build first layer");
         let second_layer = layer_archive(&[("etc/.wh.message", b""), ("etc/message", b"second\n")])
@@ -650,7 +635,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -658,8 +643,8 @@ mod tests {
         assert_eq!(&files.first().unwrap().contents, b"second\n");
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_unsupported_layer_media_type() {
+    #[test]
+    fn stream_files_rejects_unsupported_layer_media_type() {
         // ARRANGE
         let layer = b"plain bytes".to_vec();
         let layer_digest = sha256_digest(&layer);
@@ -676,14 +661,14 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None);
 
         // ASSERT
         assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
     }
 
-    #[tokio::test]
-    async fn stream_files_allows_empty_layer_list() {
+    #[test]
+    fn stream_files_allows_empty_layer_list() {
         // ARRANGE
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
@@ -692,14 +677,14 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
 
         // ASSERT
         assert!(files.is_empty());
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_missing_blob() {
+    #[test]
+    fn stream_files_rejects_missing_blob() {
         // ARRANGE
         let layer_digest =
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -711,14 +696,14 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None).await;
+        let error = expect_stream_error(&registry.reference("repo", "test"), None);
 
         // ASSERT
         assert!(matches!(error, KociError::DownloadError(_)));
     }
 
-    #[tokio::test]
-    async fn extract_metadata_returns_file_information() {
+    #[test]
+    fn extract_metadata_returns_file_information() {
         // ARRANGE
         let layer = layer_archive(&[("etc/motd", b"hello\n"), ("usr/bin/app", b"binary\n")])
             .expect("build layer archive");
@@ -735,8 +720,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let metadata =
-            collect_metadata(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+        let metadata = collect_metadata(&registry.reference("repo", "test"), Arch::Amd64, None);
 
         // ASSERT
         assert_eq!(metadata.len(), 2);
@@ -746,8 +730,8 @@ mod tests {
         assert_eq!(metadata.get(1).unwrap().size, 7);
     }
 
-    #[tokio::test]
-    async fn extract_metadata_skips_whiteout_files() {
+    #[test]
+    fn extract_metadata_skips_whiteout_files() {
         // ARRANGE
         let first_layer = layer_archive(&[("etc/keep", b"keep\n"), ("etc/remove", b"remove\n")])
             .expect("build first layer");
@@ -782,8 +766,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let metadata =
-            collect_metadata(&registry.reference("repo", "test"), &Arch::Amd64, None).await;
+        let metadata = collect_metadata(&registry.reference("repo", "test"), Arch::Amd64, None);
 
         // ASSERT
         assert_eq!(metadata.len(), 2);
@@ -791,8 +774,8 @@ mod tests {
         assert_eq!(metadata.get(1).unwrap().path, "etc/add");
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_non_utf8_manifest_response() {
+    #[test]
+    fn stream_files_rejects_non_utf8_manifest_response() {
         // ARRANGE
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
@@ -807,15 +790,14 @@ mod tests {
             None,
             |_entry| Ok(()),
         )
-        .await
         .expect_err("stream should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));
     }
 
-    #[tokio::test]
-    async fn stream_files_rejects_invalid_manifest_json() {
+    #[test]
+    fn stream_files_rejects_invalid_manifest_json() {
         // ARRANGE
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
@@ -830,7 +812,6 @@ mod tests {
             None,
             |_entry| Ok(()),
         )
-        .await
         .expect_err("stream should fail");
 
         // ASSERT
