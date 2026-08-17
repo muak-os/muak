@@ -1,9 +1,11 @@
 //! OCI layer processing and tar path utilities.
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
 use tar::Archive;
+use tokio::task::JoinSet;
 
 use super::{cache, download, resolve, scan};
 use crate::arch::Arch;
@@ -33,6 +35,7 @@ where
     let client = build_client();
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
 
+    eprintln!("Pulling {} for {}", reference, arch.as_str());
     let layers = resolve::layers(
         &cache,
         &client,
@@ -42,11 +45,48 @@ where
         pubkey_pem,
     )
     .await?;
+    eprintln!("Resolved {} layer(s)", layers.len());
 
     let mut whiteout_layers: HashMap<PathBuf, usize> = HashMap::new();
+    let n = layers.len();
+
+    let mut downloads = JoinSet::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let file =
-            download::cached(&cache, &client, &image_ref, &layer.digest, token.as_deref()).await?;
+        let cache = cache.clone();
+        let client = client.clone();
+        let image_ref = image_ref.clone();
+        let token = token.clone();
+        let digest = layer.digest.clone();
+        downloads.spawn(async move {
+            let layer_number = layer_idx.saturating_add(1);
+            let short = short_digest(&digest);
+            eprintln!("Downloading layer {layer_number}/{n}: {short}");
+            (
+                layer_idx,
+                download::cached(&cache, &client, &image_ref, &digest, token.as_deref()).await,
+            )
+        });
+    }
+
+    let mut files: Vec<Option<Result<File>>> =
+        std::iter::repeat_with(|| None).take(layers.len()).collect();
+    while let Some(joined) = downloads.join_next().await {
+        let (layer_idx, file) = joined.map_err(|error| {
+            KociError::NetworkError(format!("layer download task failed: {error}"))
+        })?;
+        let slot = files.get_mut(layer_idx).ok_or_else(|| {
+            KociError::DownloadError(format!("missing download slot for layer {layer_idx}"))
+        })?;
+        *slot = Some(file);
+    }
+
+    for (layer_idx, layer) in layers.iter().enumerate() {
+        let file = files
+            .get_mut(layer_idx)
+            .and_then(Option::take)
+            .ok_or_else(|| {
+                KociError::DownloadError(format!("missing download for layer {layer_idx}"))
+            })??;
         let reader = download::decompress(file, layer.media_type.as_deref())?;
         let whiteouts = scan::scan_whiteouts(reader)?;
         for w in whiteouts {
@@ -55,6 +95,9 @@ where
     }
 
     for (layer_idx, layer) in layers.iter().enumerate() {
+        let layer_number = layer_idx.saturating_add(1);
+        let short = short_digest(&layer.digest);
+        eprintln!("Extracting layer {layer_number}/{n}: {short}");
         let file =
             download::cached(&cache, &client, &image_ref, &layer.digest, token.as_deref()).await?;
         let mut reader = download::decompress(file, layer.media_type.as_deref())?;
@@ -69,6 +112,14 @@ where
     }
 
     Ok(())
+}
+
+fn short_digest(digest: &str) -> &str {
+    if let Some(hash) = digest.strip_prefix("sha256:") {
+        hash.get(..12).unwrap_or(hash)
+    } else {
+        digest
+    }
 }
 
 /// Normalize a tar entry path, rejecting parent traversal and skipping `.` / root entries.

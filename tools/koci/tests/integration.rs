@@ -10,6 +10,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
     use std::process::Command;
+    use std::time::{Duration, Instant, SystemTime};
 
     use koci::arch::Arch;
     use koci::error::KociError;
@@ -641,6 +642,61 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files.first().unwrap().path, "etc/message");
         assert_eq!(&files.first().unwrap().contents, b"second\n");
+    }
+
+    #[test]
+    fn stream_files_downloads_layers_in_parallel() {
+        // ARRANGE
+        let marker = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos()
+            .to_string();
+        let first = format!("first-{marker}\n");
+        let second = format!("second-{marker}\n");
+        let first_layer =
+            layer_archive(&[("etc/first", first.as_bytes())]).expect("build first layer");
+        let second_layer =
+            layer_archive(&[("etc/second", second.as_bytes())]).expect("build second layer");
+        let first_digest = sha256_digest(&first_layer);
+        let second_digest = sha256_digest(&second_layer);
+        let manifest = manifest_with_layers_json(&[
+            (
+                &first_digest,
+                first_layer.len(),
+                "application/vnd.oci.image.layer.v1.tar+gzip",
+            ),
+            (
+                &second_digest,
+                second_layer.len(),
+                "application/vnd.oci.image.layer.v1.tar+gzip",
+            ),
+        ])
+        .expect("build manifest json");
+        let delay = Duration::from_millis(500);
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{first_digest}"),
+                HttpResponse::octet_stream(first_layer).with_delay(delay),
+            ),
+            get(
+                format!("/v2/repo/blobs/{second_digest}"),
+                HttpResponse::octet_stream(second_layer).with_delay(delay),
+            ),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let start = Instant::now();
+        collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
+        let elapsed = start.elapsed();
+
+        // ASSERT
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "parallel layer downloads should take about {delay:?}, took {elapsed:?}"
+        );
     }
 
     #[test]

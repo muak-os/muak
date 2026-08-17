@@ -156,6 +156,13 @@ impl HttpResponse {
             delay: Duration::ZERO,
         }
     }
+
+    /// Delays the response by `delay`, simulating a slow registry.
+    #[must_use]
+    pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
 }
 
 pub(crate) fn get<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
