@@ -151,17 +151,18 @@ artifacts *types:
         exit 1
     fi
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
+    mkdir -p {{ out }}
+    printf '[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
         {{ tools }} \
         /wizard build \
+            --profile /out/profile.toml \
             --artifacts {{ types }} \
             --version {{ tag }} \
             --arch {{ oci_arch }} \
             --platform metal \
-            --registry {{ registry }} \
-            --installer installer \
             -o /out
 
 # Build OCI images (e.g., just oci granola kernel installer cli)
@@ -318,7 +319,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
 # Profile a Rust binary with perf and render a CPU flamegraph
-# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64 --platform metal --registry ghcr.io/muak-os --installer installer)
+# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64 --platform metal)
 # Output always goes to {{ out }}; any user-supplied -o/--output-dir is ignored.
 [script]
 flame pkg *args: _ensure-out

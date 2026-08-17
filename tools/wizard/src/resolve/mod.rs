@@ -87,7 +87,7 @@ impl BuildPlan {
 /// Returns an error when the profile references an unknown source input or
 /// when the global configuration has not been set.
 pub fn plan(request: &Request, profile: &Profile) -> Result<BuildPlan> {
-    let sources = &config::config()?.sources;
+    let config = config::config()?;
     let host = arch::host();
     let arch = request.target_arch().unwrap_or(host);
 
@@ -96,7 +96,14 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<BuildPlan> {
         request.platform(),
         arch,
         profile,
-        sources,
+        config
+            .installer
+            .as_deref()
+            .unwrap_or(engine::DEFAULT_INSTALLER_IMAGE),
+        config
+            .extension_registry
+            .as_deref()
+            .unwrap_or(engine::DEFAULT_EXTENSION_REGISTRY),
     )
 }
 

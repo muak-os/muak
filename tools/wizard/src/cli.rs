@@ -10,8 +10,8 @@ use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 
 use crate::artifact::Artifact;
-use crate::config::{self, Sources};
-use crate::profile::{CustomizationSpec, OverlaySpec, Profile};
+use crate::config;
+use crate::profile::Profile;
 use crate::request::{Platform, Request};
 use crate::resolve;
 
@@ -51,17 +51,12 @@ pub fn run() -> i32 {
 }
 
 struct BuildArgs {
-    profile: Option<PathBuf>,
+    profile: PathBuf,
     artifacts: Vec<String>,
     version: String,
     arch: Arch,
     platform: String,
-    extension: Vec<String>,
-    overlay_image: Option<String>,
-    overlay_name: Option<String>,
     output_dir: PathBuf,
-    registry: String,
-    installer: String,
     signing_key: Option<PathBuf>,
     signing_cert: Option<PathBuf>,
 }
@@ -93,16 +88,10 @@ enum Command {
 
         #[arg(long)]
         platform: String,
-
-        #[arg(long, default_value = "ghcr.io")]
-        registry: String,
-
-        #[arg(long, default_value = "muak-os/installer")]
-        installer: String,
     },
     Build {
         #[arg(short, long)]
-        profile: Option<PathBuf>,
+        profile: PathBuf,
 
         #[arg(long, num_args(1..))]
         artifacts: Vec<String>,
@@ -116,23 +105,8 @@ enum Command {
         #[arg(long)]
         platform: String,
 
-        #[arg(long)]
-        extension: Vec<String>,
-
-        #[arg(long)]
-        overlay_image: Option<String>,
-
-        #[arg(long)]
-        overlay_name: Option<String>,
-
         #[arg(short, long, default_value = ".")]
         output_dir: PathBuf,
-
-        #[arg(long, default_value = "ghcr.io")]
-        registry: String,
-
-        #[arg(long, default_value = "muak-os/installer")]
-        installer: String,
 
         #[arg(long)]
         signing_key: Option<PathBuf>,
@@ -172,38 +146,29 @@ fn run_command(command: Command) -> Result<()> {
             version,
             arch,
             platform,
-            registry,
-            installer,
-        } => run_resolve(&profile, &version, arch, &platform, registry, installer),
+        } => run_resolve(&profile, &version, arch, &platform),
         Command::Build {
             profile,
             artifacts,
             version,
             arch,
             platform,
-            extension,
-            overlay_image,
-            overlay_name,
             output_dir,
-            registry,
-            installer,
             signing_key,
             signing_cert,
-        } => run_build(BuildArgs {
-            profile,
-            artifacts,
-            version,
-            arch,
-            platform,
-            extension,
-            overlay_image,
-            overlay_name,
-            output_dir,
-            registry,
-            installer,
-            signing_key,
-            signing_cert,
-        }),
+        } => {
+            let args = BuildArgs {
+                profile,
+                artifacts,
+                version,
+                arch,
+                platform,
+                output_dir,
+                signing_key,
+                signing_cert,
+            };
+            run_build(&args)
+        }
     }
 }
 
@@ -216,23 +181,14 @@ fn run_profile_id(profile_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn run_resolve(
-    profile_path: &Path,
-    version: &str,
-    arch: Arch,
-    platform: &str,
-    registry: String,
-    installer: String,
-) -> Result<()> {
+fn run_resolve(profile_path: &Path, version: &str, arch: Arch, platform: &str) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
     config::configure(config::Config {
-        sources: Sources {
-            registry,
-            installer,
-        },
         cache_dir: None,
+        installer: None,
+        extension_registry: None,
     })?;
     let request = Request::new(version, parse_platform(platform)?).arch(arch);
     let resolved = resolve::plan(&request, &profile)?;
@@ -253,7 +209,7 @@ fn run_resolve(
     Ok(())
 }
 
-fn run_build(args: BuildArgs) -> Result<()> {
+fn run_build(args: &BuildArgs) -> Result<()> {
     let platform = parse_platform(&args.platform)?;
 
     let artifacts: Vec<Artifact> = args
@@ -272,19 +228,12 @@ fn run_build(args: BuildArgs) -> Result<()> {
 
     let cache_dir = std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache/muak/koci"));
     config::configure(config::Config {
-        sources: Sources {
-            registry: args.registry,
-            installer: args.installer,
-        },
         cache_dir,
+        installer: None,
+        extension_registry: None,
     })?;
 
-    let profile = build_profile(
-        args.profile,
-        args.extension,
-        args.overlay_image,
-        args.overlay_name,
-    )?;
+    let profile = build_profile(&args.profile)?;
 
     let owned_pair = match (args.signing_key.as_ref(), args.signing_cert.as_ref()) {
         (Some(key_path), Some(cert_path)) => {
@@ -337,25 +286,9 @@ fn run_build(args: BuildArgs) -> Result<()> {
     Ok(())
 }
 
-fn build_profile(
-    profile_path: Option<PathBuf>,
-    extensions: Vec<String>,
-    overlay_image: Option<String>,
-    overlay_name: Option<String>,
-) -> Result<Profile> {
-    if let Some(path) = profile_path {
-        let bytes =
-            std::fs::read(&path).with_context(|| format!("read profile {}", path.display()))?;
+fn build_profile(profile_path: &Path) -> Result<Profile> {
+    let bytes = std::fs::read(profile_path)
+        .with_context(|| format!("read profile {}", profile_path.display()))?;
 
-        Ok(Profile::from_toml(&bytes)?)
-    } else {
-        let overlay = if let Some(name) = overlay_name {
-            Some(OverlaySpec::new(name, overlay_image.unwrap_or_default())?)
-        } else {
-            None
-        };
-        let customization = CustomizationSpec::new(extensions)?;
-
-        Ok(Profile::new(overlay, customization))
-    }
+    Ok(Profile::from_toml(&bytes)?)
 }

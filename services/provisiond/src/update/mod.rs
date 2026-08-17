@@ -17,7 +17,7 @@ use sbolt::efi::{secure_boot, setup_mode};
 use sbolt::keys::hierarchy::Bundle;
 use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 use tokio::sync::mpsc;
-use wizard::config::{Config, Sources, configure};
+use wizard::config::{Config, configure};
 use wizard::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
@@ -101,11 +101,9 @@ pub async fn prepare(
 
     let (registry, installer, version) = image_parts(image)?;
     configure(Config {
-        sources: Sources {
-            registry,
-            installer,
-        },
         cache_dir: Some("/run/state/cache/koci".into()),
+        installer: Some(installer),
+        extension_registry: Some(registry),
     })
     .context("Failed to configure wizard")?;
 
@@ -200,7 +198,7 @@ fn image_parts(image: &str) -> Result<(String, String, String)> {
         .find('/')
         .context("invalid installer image: missing registry")?;
     let registry = path.get(..slash).unwrap_or_default();
-    let installer = path.get(slash.saturating_add(1)..).unwrap_or_default();
+    let installer = path;
 
     Ok((
         registry.to_owned(),

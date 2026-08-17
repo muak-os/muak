@@ -2,7 +2,6 @@
 
 use koci::arch::Arch;
 
-use crate::config::Sources;
 use crate::error::{Result, WizardError};
 use crate::profile::Profile;
 use crate::request::Platform;
@@ -11,6 +10,12 @@ use crate::source::extension::Extension;
 use crate::source::overlay::Overlay;
 
 const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
+
+/// Default fully-qualified installer image path (registry + repository, no tag).
+pub(super) const DEFAULT_INSTALLER_IMAGE: &str = "ghcr.io/muak-os/installer";
+
+/// Default registry hostname used to resolve logical extension names.
+pub(super) const DEFAULT_EXTENSION_REGISTRY: &str = "ghcr.io";
 
 /// Resolves a profile and request into versioned OCI references.
 ///
@@ -22,13 +27,14 @@ pub(super) fn resolve(
     platform: Platform,
     arch: Arch,
     profile: &Profile,
-    sources: &Sources,
+    installer: &str,
+    extension_registry: &str,
 ) -> Result<BuildPlan> {
     let mut extensions = profile
         .customization()
         .extensions()
         .iter()
-        .map(|name| resolve_one_extension(name, version, &sources.registry))
+        .map(|name| resolve_one_extension(name, version, extension_registry))
         .collect::<Result<Vec<_>>>()?;
     extensions.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
@@ -36,7 +42,7 @@ pub(super) fn resolve(
         Overlay::new(
             overlay_spec.name().to_owned(),
             overlay_spec.image().to_owned(),
-            versioned_ref(overlay_spec.image(), version, &sources.registry),
+            tagged_ref(overlay_spec.image(), version),
             arch,
         )
     });
@@ -47,7 +53,7 @@ pub(super) fn resolve(
         arch,
         extensions,
         overlay,
-        versioned_ref(&sources.installer, version, &sources.registry),
+        tagged_ref(installer, version),
     ))
 }
 
@@ -59,13 +65,16 @@ fn resolve_extension_name(name: &str) -> &str {
     }
 }
 
-/// Returns true when a logical extension belongs to the checked-in official inventory.
 fn is_official_extension(name: &str) -> bool {
     OFFICIAL_EXTENSION_REPOSITORIES.binary_search(&name).is_ok()
 }
 
 fn versioned_ref(repository: &str, version: &str, registry: &str) -> String {
     format!("{registry}/{repository}:{version}")
+}
+
+fn tagged_ref(image: &str, version: &str) -> String {
+    format!("{image}:{version}")
 }
 
 fn resolve_one_extension(name: &str, version: &str, registry: &str) -> Result<Extension> {
@@ -87,13 +96,6 @@ mod tests {
     use crate::profile::Profile;
     use crate::request::Platform;
 
-    fn sources() -> Sources {
-        Sources {
-            registry: "ghcr.io".into(),
-            installer: "muak-os/installer".into(),
-        }
-    }
-
     #[test]
     fn uses_versioned_installer() {
         // ARRANGE
@@ -106,7 +108,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
 
@@ -130,7 +133,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
 
@@ -155,7 +159,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         );
 
         // ASSERT
@@ -171,7 +176,7 @@ mod tests {
         // ARRANGE
         let request_version = "v1.0.0-beta";
         let profile = Profile::from_toml(
-            b"[overlay]\nname = \"rpi\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
@@ -181,7 +186,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
 
@@ -189,7 +195,7 @@ mod tests {
         assert!(bp.overlay().is_some());
         let ov = bp.overlay().expect("overlay");
         assert_eq!(ov.name(), "rpi");
-        assert_eq!(ov.image(), "muak-os/sbc");
+        assert_eq!(ov.image(), "ghcr.io/muak-os/sbc");
         assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc:v1.0.0-beta");
     }
 
@@ -206,7 +212,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
 
@@ -220,11 +227,11 @@ mod tests {
         // ARRANGE
         let request_version = "v1.0.0";
         let profile_a = Profile::from_toml(
-            b"[overlay]\nname = \"rpi-4\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi-4\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
         )
         .expect("parse");
         let profile_b = Profile::from_toml(
-            b"[overlay]\nname = \"rpi-5\"\nimage = \"muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi-5\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
@@ -234,7 +241,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile_a,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
         let bp_b = resolve(
@@ -242,7 +250,8 @@ mod tests {
             Platform::Metal,
             Arch::Amd64,
             &profile_b,
-            &sources(),
+            DEFAULT_INSTALLER_IMAGE,
+            DEFAULT_EXTENSION_REGISTRY,
         )
         .expect("resolve");
 
