@@ -3,7 +3,6 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use tokio::runtime::Runtime;
     use wizard::cli;
 
     fn wizard_bin() -> PathBuf {
@@ -84,8 +83,8 @@ mod tests {
         assert!(!process_output.status.success());
     }
 
-    #[tokio::test]
-    async fn run_with_profile_id_prints_hex() {
+    #[test]
+    fn run_with_profile_id_prints_hex() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("tempdir");
         let profile = dir.path().join("profile.toml");
@@ -98,12 +97,11 @@ mod tests {
             "--profile",
             profile.to_str().expect("profile path"),
         ])
-        .await
         .expect("run_from profile-id");
     }
 
-    #[tokio::test]
-    async fn run_with_returns_zero_for_success() {
+    #[test]
+    fn run_with_returns_zero_for_success() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("tempdir");
         let profile = dir.path().join("profile.toml");
@@ -115,8 +113,7 @@ mod tests {
             "profile-id",
             "--profile",
             profile.to_str().expect("profile path"),
-        ])
-        .await;
+        ]);
 
         // ASSERT
         assert_eq!(exit_code, 0);
@@ -125,12 +122,12 @@ mod tests {
     #[test]
     fn run_with_returns_one_for_error() {
         // ACT
-        let exit_code = Runtime::new().expect("runtime").block_on(cli::run_with([
+        let exit_code = cli::run_with([
             "muak-wizard",
             "profile-id",
             "--profile",
             "/nonexistent/profile.toml",
-        ]));
+        ]);
 
         // ASSERT
         assert_eq!(exit_code, 1);
