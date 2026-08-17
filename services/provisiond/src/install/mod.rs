@@ -239,7 +239,11 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     let customization =
         CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
 
-    Ok(Profile::new(booted.overlay().cloned(), customization))
+    Ok(Profile::new(
+        booted.overlay().cloned(),
+        customization,
+        booted.kernel().clone(),
+    ))
 }
 
 fn image_parts(image: &str) -> Result<(String, String, String)> {

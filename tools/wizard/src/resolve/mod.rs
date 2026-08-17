@@ -2,6 +2,9 @@
 
 mod engine;
 
+/// Default fully-qualified kernel image path (registry + repository, no tag).
+pub const DEFAULT_KERNEL_IMAGE: &str = "ghcr.io/muak-os/kernel";
+
 use koci::arch;
 use koci::arch::Arch;
 
@@ -10,6 +13,7 @@ use crate::error::Result;
 use crate::profile::Profile;
 use crate::request::{Platform, Request};
 use crate::source::extension::Extension;
+use crate::source::kernel::Kernel;
 use crate::source::overlay::Overlay;
 
 /// Canonical build plan produced from a request and profile.
@@ -20,6 +24,7 @@ pub struct BuildPlan {
     arch: Arch,
     extensions: Vec<Extension>,
     overlay: Option<Overlay>,
+    kernel: Kernel,
     installer: String,
 }
 
@@ -31,6 +36,7 @@ impl BuildPlan {
         arch: Arch,
         extensions: Vec<Extension>,
         overlay: Option<Overlay>,
+        kernel: Kernel,
         installer: String,
     ) -> Self {
         Self {
@@ -39,6 +45,7 @@ impl BuildPlan {
             arch,
             extensions,
             overlay,
+            kernel,
             installer,
         }
     }
@@ -71,6 +78,12 @@ impl BuildPlan {
     #[must_use]
     pub fn overlay(&self) -> Option<&Overlay> {
         self.overlay.as_ref()
+    }
+
+    /// Returns the resolved kernel source.
+    #[must_use]
+    pub fn kernel(&self) -> &Kernel {
+        &self.kernel
     }
 
     /// Returns the versioned installer OCI reference.
@@ -115,6 +128,10 @@ mod tests {
     fn resolved_profile_accessors() {
         // ARRANGE
         let ext = Extension::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
+        let kernel = Kernel::new(
+            "ghcr.io/muak-os/kernel".into(),
+            "ghcr.io/muak-os/kernel:v1.0.0-beta".into(),
+        );
 
         // ACT
         let bp = BuildPlan::new(
@@ -123,6 +140,7 @@ mod tests {
             Arch::Amd64,
             vec![ext],
             None,
+            kernel,
             "ghcr.io/muak-os/installer:v1.0.0-beta".into(),
         );
 
@@ -132,6 +150,7 @@ mod tests {
         assert_eq!(bp.arch(), Arch::Amd64);
         assert_eq!(bp.extensions().len(), 1);
         assert!(bp.overlay().is_none());
+        assert_eq!(bp.kernel().source(), "ghcr.io/muak-os/kernel:v1.0.0-beta");
         assert_eq!(bp.installer(), "ghcr.io/muak-os/installer:v1.0.0-beta");
     }
 }

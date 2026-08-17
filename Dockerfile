@@ -2,7 +2,6 @@
 
 ARG ALPINE_VERSION
 ARG KERNEL_VERSION=7.1.4
-ARG KERNEL_RELEASE=${KERNEL_VERSION}-muak
 
 ARG TOOLS=ghcr.io/muak-os/tools:latest
 
@@ -39,8 +38,6 @@ FROM ${TOOLS} AS tools
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch AS rootfs-base
 
-ARG KERNEL_RELEASE
-
 COPY --link --from=pkg-granola    /granola                       /rootfs/sbin/init
 COPY --link --from=pkg-provisiond /provisiond                    /rootfs/sbin/provisiond
 COPY --link --from=pkg-modd       /modd                          /rootfs/sbin/modd
@@ -49,7 +46,7 @@ COPY --link --from=pkg-apid       /apid                          /rootfs/sbin/ap
 COPY --link --from=pkg-vmd        /vmd                           /rootfs/sbin/vmd
 COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
 COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
-COPY --link --from=pkg-kernel     /lib/modules/${KERNEL_RELEASE} /rootfs/lib/modules/${KERNEL_RELEASE}
+COPY --link --from=pkg-kernel     /lib/modules                   /rootfs/lib/modules
 
 COPY --link --from=services       **/*.service /rootfs/etc/services/
 
@@ -93,8 +90,6 @@ RUN ["/ramune", "create", \
 FROM scratch
 
 COPY --link --from=pkg-stub          /stub.efi      /stub.efi
-COPY --link --from=pkg-kernel        /cmdline       /cmdline
-COPY --link --from=pkg-kernel        /vmlinuz       /vmlinuz
 COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
 
 LABEL org.opencontainers.image.title="installer"

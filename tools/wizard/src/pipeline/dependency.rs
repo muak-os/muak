@@ -152,12 +152,13 @@ mod tests {
 
     use crate::artifact::Artifact;
     use crate::nodes::NodeKind;
-    use crate::nodes::installer;
+    use crate::nodes::kernel;
     use crate::pipeline::context::BuildContext;
     use crate::pipeline::dependency::validate;
     use crate::pipeline::graph::{Graph, PortId};
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
+    use crate::source::kernel::Kernel;
 
     fn build_plan() -> BuildPlan {
         BuildPlan::new(
@@ -166,6 +167,10 @@ mod tests {
             Arch::Amd64,
             Vec::new(),
             None,
+            Kernel::new(
+                "ghcr.io/muak-os/kernel".to_owned(),
+                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+            ),
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         )
     }
@@ -184,12 +189,12 @@ mod tests {
     fn kernel_sink_graph() -> Graph {
         // ARRANGE
         let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::InstallerPull);
+        let producer = graph.add_node(NodeKind::KernelPull);
         let consumer = graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,
         });
         let stream = graph
-            .add_output(producer, installer::KERNEL)
+            .add_output(producer, kernel::KERNEL)
             .expect("add output");
         graph.bind_input(consumer, PortId(0), stream).expect("bind");
 
@@ -231,13 +236,13 @@ mod tests {
     fn rejects_fixed_stream_mismatch() {
         // ARRANGE
         let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::InstallerPull);
+        let producer = graph.add_node(NodeKind::KernelPull);
         let other = graph.add_node(NodeKind::Concat);
         let consumer = graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,
         });
         graph
-            .add_output(producer, installer::KERNEL)
+            .add_output(producer, kernel::KERNEL)
             .expect("add output");
         let other_stream = graph.add_output(other, PortId(0)).expect("add output");
         graph
@@ -298,7 +303,7 @@ mod tests {
     fn rejects_duplicate_node_instances() {
         // ARRANGE
         let mut graph = kernel_sink_graph();
-        graph.add_node(NodeKind::InstallerPull);
+        graph.add_node(NodeKind::KernelPull);
         let plan = build_plan();
         let ctx = context(&plan);
 

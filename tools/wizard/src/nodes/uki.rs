@@ -12,6 +12,7 @@ use crate::SectionInfo;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
 use crate::nodes::installer;
+use crate::nodes::kernel;
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -32,12 +33,12 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
-/// Stub, cmdline, and kernel from the installer and complete initramfs.
+/// Stub and initramfs from the installer and kernel and cmdline from their sources.
 fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
-        Dependency::fixed(NodeKind::InstallerPull, installer::CMDLINE, UKI_CMDLINE),
-        Dependency::fixed(NodeKind::InstallerPull, installer::KERNEL, UKI_KERNEL),
+        Dependency::fixed(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
+        Dependency::fixed(NodeKind::KernelPull, kernel::CMDLINE, UKI_CMDLINE),
         Dependency::fixed(
             NodeKind::Concat,
             initramfs::concat::CONCAT_OUTPUT,

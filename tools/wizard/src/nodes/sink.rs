@@ -5,7 +5,7 @@ use std::io;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
-use crate::nodes::{initramfs, installer, media, overlay, sign, uki};
+use crate::nodes::{initramfs, kernel, media, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -46,8 +46,8 @@ pub(crate) fn run(
 /// The producer of each requested artifact's stream.
 fn artifact_source(artifact: Artifact, signed: bool) -> (NodeKind, PortId) {
     match artifact {
-        Artifact::Kernel => (NodeKind::InstallerPull, installer::KERNEL),
-        Artifact::Cmdline => (NodeKind::InstallerPull, installer::CMDLINE),
+        Artifact::Kernel => (NodeKind::KernelPull, kernel::KERNEL),
+        Artifact::Cmdline => (NodeKind::KernelPull, kernel::CMDLINE),
         Artifact::Initramfs => (NodeKind::Concat, initramfs::concat::CONCAT_OUTPUT),
         Artifact::Uki if signed => (NodeKind::Sign, sign::SIGN_OUTPUT),
         Artifact::Uki => (NodeKind::Uki, uki::UKI_OUTPUT),
@@ -70,6 +70,7 @@ mod tests {
     use crate::pipeline::runtime::{Endpoint, InputStream};
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
+    use crate::source::kernel::Kernel;
 
     fn build_plan() -> BuildPlan {
         BuildPlan::new(
@@ -78,6 +79,10 @@ mod tests {
             Arch::Amd64,
             Vec::new(),
             None,
+            Kernel::new(
+                "ghcr.io/muak-os/kernel".to_owned(),
+                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+            ),
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         )
     }

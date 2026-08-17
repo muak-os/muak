@@ -152,7 +152,7 @@ artifacts *types:
     fi
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
     mkdir -p {{ out }}
-    printf '[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
+    printf '[kernel]\nimage = "%s"\n\n[customization]\nextensions = []\n' "{{ registry }}/kernel" > "{{ out }}/profile.toml"
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \

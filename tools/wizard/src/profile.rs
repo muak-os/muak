@@ -13,6 +13,7 @@ use crate::error::{Result, WizardError};
 pub struct Profile {
     overlay: Option<OverlaySpec>,
     customization: CustomizationSpec,
+    kernel: KernelSpec,
 }
 
 impl Profile {
@@ -35,10 +36,15 @@ impl Profile {
 
     /// Creates a profile from pre-validated components.
     #[must_use]
-    pub fn new(overlay: Option<OverlaySpec>, customization: CustomizationSpec) -> Self {
+    pub fn new(
+        overlay: Option<OverlaySpec>,
+        customization: CustomizationSpec,
+        kernel: KernelSpec,
+    ) -> Self {
         Self {
             overlay,
             customization,
+            kernel,
         }
     }
 
@@ -52,6 +58,12 @@ impl Profile {
     #[must_use]
     pub fn customization(&self) -> &CustomizationSpec {
         &self.customization
+    }
+
+    /// Returns the kernel spec.
+    #[must_use]
+    pub fn kernel(&self) -> &KernelSpec {
+        &self.kernel
     }
 
     /// Serializes to canonical TOML bytes with extensions sorted for a stable hash.
@@ -144,6 +156,36 @@ impl OverlaySpec {
     }
 }
 
+/// Kernel package source, fully-qualified and versioned at resolve time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KernelSpec {
+    #[serde(deserialize_with = "non_empty")]
+    image: String,
+}
+
+impl KernelSpec {
+    /// Creates a validated kernel spec.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `image` is empty.
+    pub fn new(image: String) -> Result<Self> {
+        if image.is_empty() {
+            return Err(WizardError::ProfileValidation(
+                "kernel.image must not be empty".into(),
+            ));
+        }
+        Ok(Self { image })
+    }
+
+    /// Returns the fully-qualified kernel image path.
+    #[must_use]
+    pub fn image(&self) -> &str {
+        &self.image
+    }
+}
+
 /// User-supplied customization, version-neutral and platform-neutral.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -164,6 +206,7 @@ impl CustomizationSpec {
                 "extension name must not be empty".into(),
             ));
         }
+
         Ok(Self { extensions })
     }
 
@@ -214,9 +257,13 @@ fn hex_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolve::DEFAULT_KERNEL_IMAGE;
 
     fn minimal_toml() -> &'static str {
         r#"
+[kernel]
+image = "ghcr.io/muak-os/kernel"
+
 [customization]
 extensions = ["muak-os/qemu"]
 "#
@@ -226,7 +273,10 @@ extensions = ["muak-os/qemu"]
         r#"
 [overlay]
 name = "rpi_generic"
-image = "muak-os/sbc-raspberrypi"
+image = "ghcr.io/muak-os/sbc-raspberrypi"
+
+[kernel]
+image = "ghcr.io/muak-os/kernel"
 
 [customization]
 extensions = ["muak-os/qemu"]
@@ -240,6 +290,7 @@ extensions = ["muak-os/qemu"]
 
         // ASSERT
         assert!(spec.overlay().is_none());
+        assert_eq!(spec.kernel().image(), "ghcr.io/muak-os/kernel");
         assert_eq!(spec.customization().extensions(), vec!["muak-os/qemu"]);
     }
 
@@ -251,7 +302,8 @@ extensions = ["muak-os/qemu"]
         // ASSERT
         let ov = spec.overlay().expect("overlay present");
         assert_eq!(ov.name(), "rpi_generic");
-        assert_eq!(ov.image(), "muak-os/sbc-raspberrypi");
+        assert_eq!(ov.image(), "ghcr.io/muak-os/sbc-raspberrypi");
+        assert_eq!(spec.kernel().image(), "ghcr.io/muak-os/kernel");
     }
 
     #[test]
@@ -271,12 +323,14 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn extension_order_does_not_affect_id() {
         // ARRANGE
-        let first =
-            Profile::from_toml(b"[customization]\nextensions = [\"muak-os/a\", \"muak-os/b\"]")
-                .expect("parse");
-        let second =
-            Profile::from_toml(b"[customization]\nextensions = [\"muak-os/b\", \"muak-os/a\"]")
-                .expect("parse");
+        let first = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/a\", \"muak-os/b\"]",
+        )
+        .expect("parse");
+        let second = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/b\", \"muak-os/a\"]",
+        )
+        .expect("parse");
 
         // ACT / ASSERT
         assert_eq!(first.id().expect("id"), second.id().expect("id"));
@@ -285,7 +339,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_unknown_fields() {
         // ARRANGE
-        let raw = b"unknown_key = true\n[customization]\nextensions = []";
+        let raw = b"unknown_key = true\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -297,8 +351,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_overlay_with_empty_name() {
         // ARRANGE
-        let raw =
-            b"[overlay]\nname = \"\"\nimage = \"muak-os/sbc-raspberrypi\"\n[customization]\nextensions = []";
+        let raw = b"[overlay]\nname = \"\"\nimage = \"ghcr.io/muak-os/sbc-raspberrypi\"\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -310,7 +363,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_overlay_with_empty_image() {
         // ARRANGE
-        let raw = b"[overlay]\nname = \"rpi\"\nimage = \"\"\n[customization]\nextensions = []";
+        let raw = b"[overlay]\nname = \"rpi\"\nimage = \"\"\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -322,7 +375,8 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_empty_extension_name() {
         // ARRANGE
-        let raw = b"[customization]\nextensions = [\"\"]";
+        let raw =
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"\"]";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -334,10 +388,60 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn parses_empty_extensions() {
         // ARRANGE / ACT
-        let spec = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
+        let spec = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
 
         // ASSERT
+        assert_eq!(spec.kernel().image(), "ghcr.io/muak-os/kernel");
         assert!(spec.customization().extensions().is_empty());
+    }
+
+    #[test]
+    fn parses_kernel_section() {
+        // ARRANGE
+        let raw =
+            b"[kernel]\nimage = \"ghcr.io/asahi/kernel-orion\"\n[customization]\nextensions = []";
+
+        // ACT
+        let spec = Profile::from_toml(raw).expect("parse");
+
+        // ASSERT
+        assert_eq!(spec.kernel().image(), "ghcr.io/asahi/kernel-orion");
+    }
+
+    #[test]
+    fn rejects_missing_kernel() {
+        // ARRANGE
+        let raw = b"[customization]\nextensions = []";
+
+        // ACT
+        let err = Profile::from_toml(raw).expect_err("missing kernel must fail");
+
+        // ASSERT
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
+    }
+
+    #[test]
+    fn rejects_empty_kernel_image() {
+        // ARRANGE
+        let raw = b"[kernel]\nimage = \"\"\n[customization]\nextensions = []";
+
+        // ACT
+        let err = Profile::from_toml(raw).expect_err("empty kernel image must fail");
+
+        // ASSERT
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
+    }
+
+    #[test]
+    fn kernel_spec_new_rejects_empty_image() {
+        // ARRANGE / ACT
+        let err = KernelSpec::new(String::new()).expect_err("should fail");
+
+        // ASSERT
+        assert!(matches!(err, WizardError::ProfileValidation(_)));
     }
 
     #[test]
@@ -372,9 +476,10 @@ extensions = ["muak-os/qemu"]
         // ARRANGE
         let overlay = OverlaySpec::new("name".into(), "image".into()).expect("valid overlay");
         let customization = CustomizationSpec::new(vec![]).expect("valid customization");
+        let kernel = KernelSpec::new(DEFAULT_KERNEL_IMAGE.to_owned()).expect("valid kernel");
 
         // ACT
-        let profile = Profile::new(Some(overlay), customization);
+        let profile = Profile::new(Some(overlay), customization, kernel);
         let id = profile.id().expect("id");
 
         // ASSERT
@@ -385,9 +490,10 @@ extensions = ["muak-os/qemu"]
     fn profile_new_accepts_no_overlay() {
         // ARRANGE
         let customization = CustomizationSpec::new(vec![]).expect("valid customization");
+        let kernel = KernelSpec::new(DEFAULT_KERNEL_IMAGE.to_owned()).expect("valid kernel");
 
         // ACT
-        let profile = Profile::new(None, customization);
+        let profile = Profile::new(None, customization, kernel);
         let id = profile.id().expect("id");
 
         // ASSERT

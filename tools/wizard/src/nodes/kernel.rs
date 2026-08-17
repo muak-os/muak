@@ -1,11 +1,9 @@
-//! Routes known installer files to their streams.
+//! Kernel package pull routed to kernel and cmdline consumers.
 
-use std::collections::HashMap;
 use std::io::Read;
 
 use koci::error::KociError;
 use koci::pull;
-use koci::pull::entries::MetadataEntry;
 
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
@@ -15,8 +13,8 @@ use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{NodePorts, OutputStream};
 
-pub(crate) const STUB: PortId = PortId(0);
-pub(crate) const INITRAMFS: PortId = PortId(1);
+pub(crate) const KERNEL: PortId = PortId(0);
+pub(crate) const CMDLINE: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
@@ -30,21 +28,16 @@ fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
-/// Exact tar-entry sizes via the existing koci metadata callback.
+/// Exact sizes of the kernel and cmdline entries via the koci metadata callback.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let plan = ctx.plan;
+    let source = ctx.plan.kernel().source();
 
-    let mut sizes = HashMap::new();
-    pull::metadata(
-        plan.installer(),
-        &plan.arch(),
-        None,
-        |entry: MetadataEntry| {
-            sizes.insert(entry.path, entry.size);
-            Ok(())
-        },
-    )
-    .map_err(|e| WizardError::BuildError(format!("extract installer metadata: {e}")))?;
+    let mut sizes = std::collections::HashMap::new();
+    pull::metadata(source, &ctx.plan.arch(), None, |entry| {
+        sizes.insert(entry.path, entry.size);
+        Ok(())
+    })
+    .map_err(|e| WizardError::BuildError(format!("extract kernel metadata: {e}")))?;
 
     let bindings = graph
         .node(id)?
@@ -58,7 +51,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
         let size = sizes
             .get(path)
             .copied()
-            .ok_or_else(|| WizardError::BuildError(format!("missing installer size for {path}")))?;
+            .ok_or_else(|| WizardError::BuildError(format!("missing kernel size for {path}")))?;
         let stream = graph.stream_mut(binding.stream)?;
         stream.size = size;
         path.clone_into(&mut stream.name);
@@ -67,47 +60,49 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
     Ok(())
 }
 
-/// Pulls the installer once and routes known files to their output streams.
+/// Pulls the kernel package once and routes known files to their output streams.
 fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
-    let plan = ctx.plan;
+    let source = ctx.plan.kernel().source();
     let mut outputs: Vec<(PortId, OutputStream)> = ports
-        .take_from(STUB, None)?
+        .take_from(PortId(0), None)?
         .into_iter()
         .map(|(port, endpoint)| Ok((port, endpoint.into_output()?)))
         .collect::<Result<_>>()?;
+    let mut seen_cmdline = false;
 
-    pull::files(plan.installer(), &plan.arch(), None, |entry| {
-        route_entry(&entry.path, entry.reader, &mut outputs)
+    pull::files(source, &ctx.plan.arch(), None, |entry| {
+        route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline)
     })
-    .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;
+    .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
 
-/// Routes one installer entry to its stream.
+/// Routes one kernel entry, requiring `cmdline` before `vmlinuz`.
 fn route_entry(
     path: &str,
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputStream)],
+    outputs: &mut [(PortId, OutputStream<'_>)],
+    seen_cmdline: &mut bool,
 ) -> koci::error::Result<()> {
     match path {
-        "stub.efi" => copy_optional(reader, outputs, STUB).map_err(KociError::IoError),
-        "initramfs.img" => copy_optional(reader, outputs, INITRAMFS).map_err(KociError::IoError),
+        "cmdline" => {
+            *seen_cmdline = true;
+            copy_optional(reader, outputs, CMDLINE).map_err(KociError::IoError)
+        }
+        "vmlinuz" if *seen_cmdline => {
+            copy_optional(reader, outputs, KERNEL).map_err(KociError::IoError)
+        }
+        "vmlinuz" => Err(KociError::IoError(std::io::Error::other(
+            "kernel entry order: vmlinuz before cmdline",
+        ))),
         _ => Ok(()),
-    }
-}
-
-fn file_path(port: PortId) -> Option<&'static str> {
-    match port {
-        STUB => Some("stub.efi"),
-        INITRAMFS => Some("initramfs.img"),
-        _ => None,
     }
 }
 
 fn copy_optional(
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputStream)],
+    outputs: &mut [(PortId, OutputStream<'_>)],
     port: PortId,
 ) -> std::io::Result<()> {
     let Some(index) = outputs.iter().position(|output| output.0 == port) else {
@@ -118,4 +113,12 @@ fn copy_optional(
     }
 
     Ok(())
+}
+
+fn file_path(port: PortId) -> Option<&'static str> {
+    match port {
+        KERNEL => Some("vmlinuz"),
+        CMDLINE => Some("cmdline"),
+        _ => None,
+    }
 }

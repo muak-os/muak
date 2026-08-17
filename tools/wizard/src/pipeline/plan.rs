@@ -194,6 +194,7 @@ mod tests {
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
     use crate::source::extension::Extension;
+    use crate::source::kernel::Kernel;
 
     fn build_plan() -> BuildPlan {
         // ARRANGE
@@ -206,6 +207,10 @@ mod tests {
                 "ghcr.io/muak-os/qemu:v1.0.0".to_owned(),
             )],
             None,
+            Kernel::new(
+                "ghcr.io/muak-os/kernel".to_owned(),
+                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+            ),
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         )
     }
@@ -246,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn kernel_and_cmdline_need_only_installer() {
+    fn kernel_and_cmdline_need_only_kernel_pull() {
         // ARRANGE
         let build = build_plan();
         let ctx = context(&build);
@@ -256,7 +261,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(kinds(&graph).len(), 3);
-        assert_eq!(count(&graph, NodeKind::InstallerPull), 1);
+        assert_eq!(count(&graph, NodeKind::KernelPull), 1);
+        assert_eq!(count(&graph, NodeKind::InstallerPull), 0);
         assert_eq!(
             count(
                 &graph,

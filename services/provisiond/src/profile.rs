@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use wizard::profile::{CustomizationSpec, Profile};
+use wizard::profile::{CustomizationSpec, KernelSpec, Profile};
+use wizard::resolve::DEFAULT_KERNEL_IMAGE;
 
 /// Runtime path where `core/init` copies the embedded profile.
 const BOOTED_PROFILE: &str = "/profile.toml";
@@ -17,26 +18,27 @@ pub(crate) fn load() -> Result<Profile> {
         Profile::from_toml(&bytes).context("invalid booted profile")
     } else {
         let customization = CustomizationSpec::new(vec![]).context("empty customization")?;
-        Ok(Profile::new(None, customization))
+        let kernel = KernelSpec::new(DEFAULT_KERNEL_IMAGE.to_owned()).context("default kernel")?;
+        Ok(Profile::new(None, customization, kernel))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use wizard::profile::{CustomizationSpec, Profile};
+    use wizard::profile::{CustomizationSpec, KernelSpec, Profile};
+    use wizard::resolve::DEFAULT_KERNEL_IMAGE;
 
     #[test]
     fn load_parses_minimal_profile() {
-        // ARRANGE
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let profile = dir.path().join("profile.toml");
-        std::fs::write(&profile, b"[customization]\nextensions = []").expect("write");
-
-        // ACT
-        let parsed = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
+        // ARRANGE / ACT
+        let parsed = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
 
         // ASSERT
         assert!(parsed.overlay().is_none());
+        assert_eq!(parsed.kernel().image(), "ghcr.io/muak-os/kernel");
         assert!(parsed.customization().extensions().is_empty());
     }
 
@@ -44,9 +46,10 @@ mod tests {
     fn empty_profile_is_valid() {
         // ARRANGE
         let customization = CustomizationSpec::new(vec![]).expect("empty customization");
-        let profile = Profile::new(None, customization);
+        let kernel = KernelSpec::new(DEFAULT_KERNEL_IMAGE.to_owned()).expect("default kernel");
 
         // ACT
+        let profile = Profile::new(None, customization, kernel);
         let id = profile.id().expect("id");
 
         // ASSERT

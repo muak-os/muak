@@ -194,6 +194,11 @@ fn run_resolve(profile_path: &Path, version: &str, arch: Arch, platform: &str) -
     let resolved = resolve::plan(&request, &profile)?;
 
     println!("resolved installer: {}", resolved.installer());
+    println!(
+        "resolved kernel: {} -> {}",
+        resolved.kernel().image(),
+        resolved.kernel().source()
+    );
     for ext in resolved.extensions() {
         println!(" resolved extension: {} -> {}", ext.name(), ext.source());
     }

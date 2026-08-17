@@ -79,6 +79,7 @@ mod tests {
     use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
     use crate::request::Platform;
     use crate::resolve::BuildPlan;
+    use crate::source::kernel::Kernel;
 
     #[test]
     fn run_fans_out_bytes_to_all_outputs() {
@@ -125,6 +126,10 @@ mod tests {
             Arch::Amd64,
             Vec::new(),
             None,
+            Kernel::new(
+                "ghcr.io/muak-os/kernel".to_owned(),
+                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+            ),
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         );
         let ctx = BuildContext {

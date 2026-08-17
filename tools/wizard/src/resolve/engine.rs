@@ -7,6 +7,7 @@ use crate::profile::Profile;
 use crate::request::Platform;
 use crate::resolve::BuildPlan;
 use crate::source::extension::Extension;
+use crate::source::kernel::Kernel;
 use crate::source::overlay::Overlay;
 
 const OFFICIAL_EXTENSION_REPOSITORIES: &[&str] = &["muak-os/qemu"];
@@ -47,12 +48,18 @@ pub(super) fn resolve(
         )
     });
 
+    let kernel = Kernel::new(
+        profile.kernel().image().to_owned(),
+        tagged_ref(profile.kernel().image(), version),
+    );
+
     Ok(BuildPlan::new(
         platform,
         version.to_owned(),
         arch,
         extensions,
         overlay,
+        kernel,
         tagged_ref(installer, version),
     ))
 }
@@ -100,7 +107,10 @@ mod tests {
     fn uses_versioned_installer() {
         // ARRANGE
         let request_version = "v1.0.0-beta";
-        let profile = Profile::from_toml(b"[customization]\nextensions = []").expect("parse");
+        let profile = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
+        )
+        .expect("parse");
 
         // ACT
         let bp = resolve(
@@ -115,6 +125,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(bp.installer(), "ghcr.io/muak-os/installer:v1.0.0-beta");
+        assert_eq!(bp.kernel().source(), "ghcr.io/muak-os/kernel:v1.0.0-beta");
+        assert_eq!(bp.kernel().image(), "ghcr.io/muak-os/kernel");
         assert_eq!(bp.version(), "v1.0.0-beta");
         assert_eq!(bp.arch(), Arch::Amd64);
         assert_eq!(bp.platform(), Platform::Metal);
@@ -124,8 +136,10 @@ mod tests {
     fn sorts_extensions() {
         // ARRANGE
         let request_version = "v1.0.0-beta";
-        let profile =
-            Profile::from_toml(b"[customization]\nextensions = [\"muak-os/qemu\"]").expect("parse");
+        let profile = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/qemu\"]",
+        )
+        .expect("parse");
 
         // ACT
         let bp = resolve(
@@ -150,8 +164,10 @@ mod tests {
     fn rejects_unknown_extension() {
         // ARRANGE
         let request_version = "v1.0.0-beta";
-        let profile =
-            Profile::from_toml(b"[customization]\nextensions = [\"custom/thing\"]").expect("parse");
+        let profile = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"custom/thing\"]",
+        )
+        .expect("parse");
 
         // ACT
         let result = resolve(
@@ -176,7 +192,7 @@ mod tests {
         // ARRANGE
         let request_version = "v1.0.0-beta";
         let profile = Profile::from_toml(
-            b"[overlay]\nname = \"rpi\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi\"\nimage = \"ghcr.io/muak-os/sbc\"\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
@@ -197,14 +213,17 @@ mod tests {
         assert_eq!(ov.name(), "rpi");
         assert_eq!(ov.image(), "ghcr.io/muak-os/sbc");
         assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc:v1.0.0-beta");
+        assert_eq!(bp.kernel().source(), "ghcr.io/muak-os/kernel:v1.0.0-beta");
     }
 
     #[test]
     fn aliases_extension_name() {
         // ARRANGE
         let request_version = "v1.0.0";
-        let profile =
-            Profile::from_toml(b"[customization]\nextensions = [\"qemu\"]").expect("parse");
+        let profile = Profile::from_toml(
+            b"[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = [\"qemu\"]",
+        )
+        .expect("parse");
 
         // ACT
         let bp = resolve(
@@ -227,11 +246,11 @@ mod tests {
         // ARRANGE
         let request_version = "v1.0.0";
         let profile_a = Profile::from_toml(
-            b"[overlay]\nname = \"rpi-4\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi-4\"\nimage = \"ghcr.io/muak-os/sbc\"\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
         )
         .expect("parse");
         let profile_b = Profile::from_toml(
-            b"[overlay]\nname = \"rpi-5\"\nimage = \"ghcr.io/muak-os/sbc\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi-5\"\nimage = \"ghcr.io/muak-os/sbc\"\n[kernel]\nimage = \"ghcr.io/muak-os/kernel\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 

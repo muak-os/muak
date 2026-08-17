@@ -4,6 +4,7 @@ pub(crate) mod extensions;
 pub(crate) mod fanout;
 pub(crate) mod initramfs;
 pub(crate) mod installer;
+pub(crate) mod kernel;
 pub(crate) mod media;
 pub(crate) mod overlay;
 pub(crate) mod sign;
@@ -22,6 +23,7 @@ use crate::pipeline::runtime::NodePorts;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum NodeKind {
     InstallerPull,
+    KernelPull,
     ExtensionPayloads,
     InitramfsTail,
     Concat,
@@ -47,6 +49,7 @@ pub(crate) struct NodeDescriptor {
 pub(crate) fn descriptor(kind: NodeKind) -> Result<&'static NodeDescriptor> {
     match kind {
         NodeKind::InstallerPull => Ok(&installer::DESCRIPTOR),
+        NodeKind::KernelPull => Ok(&kernel::DESCRIPTOR),
         NodeKind::ExtensionPayloads => Ok(&extensions::DESCRIPTOR),
         NodeKind::InitramfsTail => Ok(&initramfs::tail::DESCRIPTOR),
         NodeKind::Concat => Ok(&initramfs::concat::DESCRIPTOR),

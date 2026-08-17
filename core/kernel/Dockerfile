@@ -127,8 +127,8 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=kernel-export   /vmlinuz             /vmlinuz
 COPY --link --from=kernel-export   /cmdline             /cmdline
+COPY --link --from=kernel-export   /vmlinuz             /vmlinuz
 COPY --link --from=modules-install /modules/lib/modules /lib/modules
 
 LABEL org.opencontainers.image.title="muak-kernel"
