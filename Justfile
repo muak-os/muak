@@ -78,14 +78,14 @@ build release="" *pkgs:
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
             if [ "$pkg" = "stub" ]; then
-                cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+                cargo +nightly-2026-07-31 build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
             else
                 cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
             fi
         done
     else
         cargo build {{ release }} --target {{ arch }}-unknown-linux-musl
-        cargo +nightly build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
+        cargo +nightly-2026-07-31 build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
@@ -248,20 +248,27 @@ lint *pkgs: format
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
             if [ "$pkg" = "stub" ]; then
-                cargo +nightly clippy --all-targets --features uefi -p stub
+                cargo +nightly-2026-07-31 clippy --all-targets --features uefi -p stub
             else
                 cargo clippy --all-targets -p "$pkg"
             fi
         done
     else
         cargo clippy --all-targets
-        cargo +nightly clippy --all-targets --features uefi -p stub
+        cargo +nightly-2026-07-31 clippy --all-targets --features uefi -p stub
     fi
 
 # Run tests (e.g., just test or just test yuki koci)
 [script]
 test *pkgs:
     just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}
+
+# Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
+[arg("missing", long="missing", value="--show-missing-lines")]
+[script]
+coverage missing="" *pkgs:
+    cargo llvm-cov clean --workspace
+    just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [script]
@@ -310,12 +317,33 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
         -drive file="/tmp/nvme-disk.img",format=raw,if=none,id=nvme0 \
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
-# Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
-[arg("missing", long="missing", value="--show-missing-lines")]
+# Profile a Rust binary with perf and render a CPU flamegraph
+# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64 --platform metal --registry ghcr.io/muak-os --installer installer)
+# Output always goes to {{ out }}; any user-supplied -o/--output-dir is ignored.
 [script]
-coverage missing="" *pkgs:
-    cargo llvm-cov clean --workspace
-    just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
+flame pkg *args: _ensure-out
+    flame=$(command -v cargo-flamegraph || echo "$HOME/.cargo/bin/cargo-flamegraph")
+    [ -x "$flame" ] || { printf "{{ red }}Missing flamegraph. Run: cargo install flamegraph{{ reset }}\n"; exit 1; }
+    if [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt 1 ]; then
+        printf "{{ red }}perf_event_paranoid too high; run once: sudo sysctl -w kernel.perf_event_paranoid=1{{ reset }}\n"
+        exit 1
+    fi
+    if [ "$(cat /proc/sys/kernel/kptr_restrict)" -gt 0 ]; then
+        printf "{{ red }}kptr_restrict=$(cat /proc/sys/kernel/kptr_restrict): kernel frames will show as [unknown]; run once as root: sysctl -w kernel.kptr_restrict=0{{ reset }}\n"
+    fi
+    args=""
+    skip_o=false
+    for a in {{ args }}; do
+        if [ "$skip_o" = "true" ]; then skip_o=false; continue; fi
+        case "$a" in
+            -o|--output-dir) skip_o=true ;;
+            -o?*|--output-dir=*) ;;
+            *) args="$args $a" ;;
+        esac
+    done
+    RUSTFLAGS="-C force-frame-pointers=yes -Clink-arg=-Wl,--no-rosegment" \
+        "$flame" flamegraph --profile profiling --no-inline -c "record -F 997 --call-graph dwarf -o {{ out }}/flame.data" -o {{ out }}/flamegraph.svg -p {{ pkg }} -- $args -o {{ out }}
+    printf "{{ green }}Flamegraph written to {{ out }}/flamegraph.svg{{ reset }}\n"
 
 # Check kernel config, cmdline & sysctl against KSPP security hardening recommendations
 [script]
