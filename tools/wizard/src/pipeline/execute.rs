@@ -25,6 +25,7 @@ pub(crate) enum NodeReport {
 pub(crate) fn execute(graph: Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     validate::normalized(&graph)?;
     let (graph, planned_payloads) = preflight::preflight(graph, ctx)?;
+
     execute_blocking(&graph, &planned_payloads, ctx)
 }
 
@@ -53,21 +54,15 @@ impl PreparedNode<'_> {
         planned: &[mumi::payload::Planned],
     ) -> Result<NodeReport> {
         let PreparedNode { kind, mut ports } = self;
-        if let NodeKind::ArtifactSink { artifact } = kind {
-            nodes::sink::run(ctx, artifact, &mut ports)
-        } else if kind == NodeKind::ExtensionPayloads {
+        if kind == NodeKind::ExtensionPayloads {
             nodes::extensions::run(planned, &mut ports)
         } else {
-            let node = nodes::descriptor(kind)?;
-            (node.run)(&mut ports, ctx)
+            let node = nodes::descriptor(kind);
+            (node.run)(kind, &mut ports, ctx)
         }
     }
 }
 
-/// Joins every thread, collecting metadata and the first error.
-///
-/// Joining continues after the first error: other nodes may need their pipe
-/// ends to close before the executor can safely return.
 fn join_all(joins: Vec<thread::ScopedJoinHandle<'_, Result<NodeReport>>>) -> Result<Metadata> {
     let mut report = Metadata::default();
     let mut first_error = None;

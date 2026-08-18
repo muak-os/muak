@@ -21,9 +21,8 @@ pub(crate) fn preflight(
         let kind = graph.node(id)?.kind;
         if let NodeKind::ExtensionPayloads = kind {
             planned_payloads = nodes::extensions::preflight(&mut graph, id, ctx)?;
-        } else if let NodeKind::ArtifactSink { .. } = kind {
         } else {
-            let node = nodes::descriptor(kind)?;
+            let node = nodes::descriptor(kind);
             (node.preflight)(&mut graph, id, ctx)?;
         }
     }

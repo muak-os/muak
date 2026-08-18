@@ -78,7 +78,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         }
         self.states.insert(kind, VisitState::InProgress);
 
-        for dependency in nodes::dependencies(kind, self.ctx)? {
+        for dependency in nodes::dependencies(kind, self.ctx) {
             self.ensure(dependency.producer)?;
         }
 
@@ -91,7 +91,7 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
 
     /// Binds every node's declared dependencies, in node creation order.
     fn bind_all(&mut self) -> Result<()> {
-        for (consumer, dependency) in self.pending_bindings()? {
+        for (consumer, dependency) in self.pending_bindings() {
             let producer = self.instance(dependency.producer)?;
             self.bind(producer, consumer, &dependency)?;
         }
@@ -100,17 +100,17 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
     }
 
     /// Every `(node, declared dependency)` pair in node creation order.
-    fn pending_bindings(&self) -> Result<Vec<(NodeId, Dependency)>> {
+    fn pending_bindings(&self) -> Vec<(NodeId, Dependency)> {
         let mut bindings = Vec::new();
         for node in self.graph.nodes() {
             bindings.extend(
-                nodes::dependencies(node.kind, self.ctx)?
+                nodes::dependencies(node.kind, self.ctx)
                     .into_iter()
                     .map(|dependency| (node.id, dependency)),
             );
         }
 
-        Ok(bindings)
+        bindings
     }
 
     fn instance(&self, kind: NodeKind) -> Result<NodeId> {

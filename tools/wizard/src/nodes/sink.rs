@@ -5,27 +5,48 @@ use std::io;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
+use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
 use crate::nodes::{initramfs, kernel, media, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::PortId;
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const SINK_INPUT: PortId = PortId(0);
 
+pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
+    dependencies,
+    output_count: no_dynamic_output_count,
+    preflight,
+    run,
+};
+
 /// The requested artifact's stream.
-pub(crate) fn dependencies(artifact: Artifact, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    let NodeKind::ArtifactSink { artifact } = kind else {
+        return Vec::new();
+    };
     let (producer, producer_port) = artifact_source(artifact, ctx.signing.is_some());
     vec![Dependency::fixed(producer, producer_port, SINK_INPUT)]
 }
 
+/// Confirms the sink's input dependency is bound to a stream.
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    graph.node(id)?.input(SINK_INPUT).map(|_| ())
+}
+
 /// Streams the artifact pipe into the user writer.
-pub(crate) fn run(
-    ctx: &BuildContext<'_, '_, '_>,
-    artifact: Artifact,
+fn run(
+    kind: NodeKind,
     ports: &mut NodePorts<'_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
+    let NodeKind::ArtifactSink { artifact } = kind else {
+        return Err(WizardError::BuildError(
+            "sink run dispatched for a non-sink kind".to_owned(),
+        ));
+    };
     let input = ports.take(SINK_INPUT)?.into_input()?;
     let mut writers = ctx
         .writers
@@ -87,6 +108,28 @@ mod tests {
         )
     }
 
+    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+        BuildContext {
+            plan,
+            profile: b"",
+            signing: None,
+            writers: Mutex::new(TargetWriters::new(Vec::new())),
+        }
+    }
+
+    fn sink_input(reader: UnixStream) -> NodePorts<'static> {
+        NodePorts {
+            endpoints: vec![(
+                SINK_INPUT,
+                Endpoint::Input(InputStream {
+                    size: 0,
+                    name: "kernel",
+                    reader,
+                }),
+            )],
+        }
+    }
+
     #[test]
     fn run_streams_input_into_the_artifact_writer() {
         // ARRANGE
@@ -103,19 +146,17 @@ mod tests {
             signing: None,
             writers: Mutex::new(TargetWriters::new(vec![(Artifact::Kernel, &mut writer)])),
         };
-        let mut ports = NodePorts {
-            endpoints: vec![(
-                SINK_INPUT,
-                Endpoint::Input(InputStream {
-                    size: 14,
-                    name: "kernel",
-                    reader: pipe_reader,
-                }),
-            )],
-        };
+        let mut ports = sink_input(pipe_reader);
 
         // ACT
-        run(&ctx, Artifact::Kernel, &mut ports).expect("sink run");
+        run(
+            NodeKind::ArtifactSink {
+                artifact: Artifact::Kernel,
+            },
+            &mut ports,
+            &ctx,
+        )
+        .expect("sink run");
 
         // ASSERT
         assert_eq!(writer, b"artifact bytes");
@@ -127,27 +168,19 @@ mod tests {
         let (pipe_writer, pipe_reader) = UnixStream::pair().expect("pipe");
         drop(pipe_writer);
         let plan = build_plan();
-        let ctx = BuildContext {
-            plan: &plan,
-            profile: b"",
-            signing: None,
-            writers: Mutex::new(TargetWriters::new(Vec::new())),
-        };
-        let mut ports = NodePorts {
-            endpoints: vec![(
-                SINK_INPUT,
-                Endpoint::Input(InputStream {
-                    size: 0,
-                    name: "kernel",
-                    reader: pipe_reader,
-                }),
-            )],
-        };
+        let ctx = context(&plan);
+        let mut ports = sink_input(pipe_reader);
 
         // ACT
-        let error = run(&ctx, Artifact::Kernel, &mut ports)
-            .err()
-            .expect("missing writer");
+        let error = run(
+            NodeKind::ArtifactSink {
+                artifact: Artifact::Kernel,
+            },
+            &mut ports,
+            &ctx,
+        )
+        .err()
+        .expect("missing writer");
 
         // ASSERT
         let message = error.to_string();
@@ -155,5 +188,66 @@ mod tests {
             message.contains("missing target writer for kernel"),
             "unexpected error: {message}"
         );
+    }
+
+    #[test]
+    fn run_rejects_a_non_sink_kind() {
+        // ARRANGE
+        let plan = build_plan();
+        let ctx = context(&plan);
+        let mut ports = NodePorts {
+            endpoints: Vec::new(),
+        };
+
+        // ACT
+        let error = run(NodeKind::Concat, &mut ports, &ctx)
+            .err()
+            .expect("non-sink kind");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(
+            message.contains("non-sink kind"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[test]
+    fn preflight_confirms_the_input_binding() {
+        // ARRANGE
+        let plan = build_plan();
+        let ctx = context(&plan);
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::KernelPull);
+        let sink = graph.add_node(NodeKind::ArtifactSink {
+            artifact: Artifact::Kernel,
+        });
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph
+            .bind_input(sink, SINK_INPUT, stream)
+            .expect("bind input");
+
+        // ACT
+        let result = preflight(&mut graph, sink, &ctx);
+
+        // ASSERT
+        result.expect("sink preflight");
+    }
+
+    #[test]
+    fn preflight_rejects_an_unbound_sink() {
+        // ARRANGE
+        let plan = build_plan();
+        let ctx = context(&plan);
+        let mut graph = Graph::new();
+        let sink = graph.add_node(NodeKind::ArtifactSink {
+            artifact: Artifact::Kernel,
+        });
+
+        // ACT
+        let result = preflight(&mut graph, sink, &ctx);
+
+        // ASSERT
+        result.unwrap_err();
     }
 }

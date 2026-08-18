@@ -8,7 +8,7 @@ use koci::pull;
 use koci::pull::entries::MetadataEntry;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -26,7 +26,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -68,7 +68,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Pulls the installer once and routes known files to their output streams.
-fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let plan = ctx.plan;
     let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(STUB, None)?

@@ -22,7 +22,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// One stream per overlay file, in canonical (path-sorted) order.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::OverlayPull,
         pull::PULL_OUTPUTS_FIRST,
@@ -46,7 +46,11 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
 }
 
 /// Emits one tar entry per overlay input with the stream's path and preflight size.
-fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    _ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
             .take_from(TAR_INPUTS_FIRST, None)?

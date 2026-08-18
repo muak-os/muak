@@ -24,7 +24,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// One extension payload stream per extension, in canonical source order.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::ExtensionPayloads,
         extensions::FIRST_OUTPUT,
@@ -66,7 +66,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Streams one CPIO entry per extension input stream plus the profile entry in canonical order.
-fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports
             .take_from(TAIL_INPUTS_FIRST, None)?

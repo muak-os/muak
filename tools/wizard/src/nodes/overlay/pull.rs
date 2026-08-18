@@ -6,7 +6,7 @@ use koci::error::KociError;
 use koci::pull;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::NodeDescriptor;
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -24,7 +24,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -77,7 +77,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Pulls the overlay source once and routes each matching entry to its named output stream.
-fn run<'a>(ports: &mut NodePorts<'a>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run<'a>(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'a>,
+    ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let overlay = ctx
         .plan
         .overlay()

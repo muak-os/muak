@@ -34,7 +34,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Stub and initramfs from the installer and kernel and cmdline from their sources.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
         Dependency::fixed(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
@@ -102,7 +102,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Builds the unsigned UKI from the live input streams.
-fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    _ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
     let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;

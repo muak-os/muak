@@ -23,7 +23,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// The unsigned UKI stream from the Uki node.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::fixed(
         NodeKind::Uki,
         uki::UKI_OUTPUT,
@@ -47,7 +47,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Streams the unsigned UKI through sbolt into the final output.
-fn run(ports: &mut NodePorts<'_>, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut input = ports.take(SIGN_INPUT)?.into_input()?;
     let mut output = ports.take(SIGN_OUTPUT)?.into_output()?;
     let signing = ctx

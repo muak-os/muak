@@ -22,7 +22,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// The base installer initramfs plus the CPIO tail.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::fixed(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_BASE),
         Dependency::fixed(NodeKind::InitramfsTail, tail::TAIL_OUTPUT, CONCAT_TAIL),
@@ -45,7 +45,11 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
 }
 
 /// Emits the first input stream followed by the second into one output.
-fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    _ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut first = ports.take(CONCAT_BASE)?.into_input()?;
     let mut second = ports.take(CONCAT_TAIL)?.into_input()?;
     let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;

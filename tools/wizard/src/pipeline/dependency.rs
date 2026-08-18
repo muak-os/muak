@@ -79,7 +79,7 @@ fn check_node_dependencies(
     node: &Node,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<()> {
-    for dependency in nodes::dependencies(node.kind, ctx)? {
+    for dependency in nodes::dependencies(node.kind, ctx) {
         let producer = find_node(graph, dependency.producer)?;
         match dependency.kind {
             DependencyKind::Fixed => check_fixed(producer, node, &dependency)?,

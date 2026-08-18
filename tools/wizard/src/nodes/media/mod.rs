@@ -18,7 +18,7 @@ pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
 pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(2);
 
 /// The UKI stream, plus overlay file streams when the profile has an overlay.
-pub(crate) fn dependencies(ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     let uki = if ctx.signing.is_some() {
         Dependency::fixed(NodeKind::Sign, sign::SIGN_OUTPUT, MEDIA_UKI)
     } else {

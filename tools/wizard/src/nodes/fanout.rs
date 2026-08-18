@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -22,7 +22,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Fanout has no dependencies because they're created at normalization.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -46,7 +46,11 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
     Ok(())
 }
 
-fn run(ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run(
+    _kind: NodeKind,
+    ports: &mut NodePorts<'_>,
+    _ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     let mut input = ports.take(FANOUT_INPUT)?.into_input()?;
     let mut outputs = Endpoint::into_outputs(
         ports
@@ -138,7 +142,7 @@ mod tests {
             signing: None,
             writers: Mutex::new(TargetWriters::new(Vec::new())),
         };
-        run(&mut ports, &ctx).expect("fanout run");
+        run(NodeKind::Fanout, &mut ports, &ctx).expect("fanout run");
 
         // ASSERT
         let mut first = Vec::new();

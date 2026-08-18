@@ -1,7 +1,7 @@
 //! Streams pre-planned opaque extension payloads.
 
 use crate::error::{Result, WizardError};
-use crate::nodes::NodeDescriptor;
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -19,7 +19,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -100,7 +100,11 @@ fn preflight_stub(_graph: &mut Graph, _id: NodeId, _ctx: &BuildContext<'_, '_, '
 }
 
 /// The payload-carrying run is dispatched by the executor directly until extension payloads become re-derivable.
-fn run_stub(_ports: &mut NodePorts<'_>, _ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
+fn run_stub(
+    _kind: NodeKind,
+    _ports: &mut NodePorts<'_>,
+    _ctx: &BuildContext<'_, '_, '_>,
+) -> Result<NodeReport> {
     Err(WizardError::BuildError(
         "extension payloads are handled outside the descriptor table".to_owned(),
     ))
