@@ -152,7 +152,7 @@ artifacts *types:
     fi
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
     mkdir -p {{ out }}
-    printf '[kernel]\nimage = "%s"\n\n[customization]\nextensions = []\n' "{{ registry }}/kernel" > "{{ out }}/profile.toml"
+    printf '[kernel]\nsource = "muak-os/kernel"\n\n[customization]\nextensions = []\n\n[release]\nname = "muak-os/release"\n' > "{{ out }}/profile.toml"
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
@@ -161,6 +161,7 @@ artifacts *types:
             --profile /out/profile.toml \
             --artifacts {{ types }} \
             --version {{ tag }} \
+            --registry {{ registry }} \
             --arch {{ oci_arch }} \
             --platform metal \
             -o /out

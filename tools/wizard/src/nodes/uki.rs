@@ -88,11 +88,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 
     let total_size = manifest.layout().total_size;
 
-    if !(MIN_UKI_BYTES..=MAX_UKI_BYTES).contains(&total_size) {
-        return Err(WizardError::BuildError(format!(
-            "UKI size {total_size} outside [{MIN_UKI_BYTES}, {MAX_UKI_BYTES}] bytes (FAT32 bounds)"
-        )));
-    }
+    check_bounds(total_size)?;
 
     let output = graph.stream_mut(graph.node(id)?.output(UKI_OUTPUT)?)?;
     output.size = total_size;
@@ -163,4 +159,56 @@ fn to_section_infos(sections: Vec<Section>) -> Vec<SectionInfo> {
             hash: section.checksum,
         })
         .collect()
+}
+
+fn check_bounds(total_size: u64) -> Result<()> {
+    if !(MIN_UKI_BYTES..=MAX_UKI_BYTES).contains(&total_size) {
+        return Err(WizardError::BuildError(format!(
+            "UKI size {total_size} outside [{MIN_UKI_BYTES}, {MAX_UKI_BYTES}] bytes (FAT32 bounds)"
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounds_accept_in_range_size() {
+        // ARRANGE / ACT
+        let result = check_bounds(MIN_UKI_BYTES);
+        let upper = check_bounds(MAX_UKI_BYTES);
+
+        // ASSERT
+        result.expect("lower bound must pass");
+        upper.expect("upper bound must pass");
+    }
+
+    #[test]
+    fn bounds_reject_undersized_uki() {
+        // ARRANGE / ACT
+        let result = check_bounds(MIN_UKI_BYTES.saturating_sub(1));
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("FAT32 bounds"))
+        );
+    }
+
+    #[test]
+    fn bounds_reject_oversized_uki() {
+        // ARRANGE / ACT
+        let result = check_bounds(MAX_UKI_BYTES.saturating_add(1));
+
+        // ASSERT
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("FAT32 bounds"))
+        );
+    }
 }
