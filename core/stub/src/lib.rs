@@ -2,7 +2,6 @@
 
 #![cfg_attr(feature = "uefi", feature(uefi_std))]
 
-pub mod dtb;
 pub mod loadfile2;
 pub mod log;
 pub mod pe;

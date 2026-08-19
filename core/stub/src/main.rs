@@ -2,8 +2,6 @@
 
 #![feature(uefi_std)]
 
-#[cfg(target_arch = "aarch64")]
-mod dtb;
 mod loadfile2;
 mod log;
 mod luks;
@@ -103,11 +101,6 @@ fn main() -> Result<()> {
 
     if let Some(initrd_bytes) = sections.initrd {
         loadfile2::install(initrd_bytes, &LINUX_INITRD_GUID)?;
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    if let Some(dtb_bytes) = sections.dtb {
-        dtb::install(dtb_bytes)?;
     }
 
     let combined_cmdline: Vec<u8>;

@@ -14,8 +14,6 @@ pub const KERNEL: &str = ".kernel";
 pub const INITRD: &str = ".initrd";
 /// PE section name for the kernel command line.
 pub const CMDLINE: &str = ".cmdline";
-/// PE section name for the device tree blob.
-pub const DTB: &str = ".dtb";
 
 /// Parsed UKI sections from a PE image.
 #[derive(Debug)]
@@ -26,8 +24,6 @@ pub struct Sections<'a> {
     pub initrd: Option<&'a [u8]>,
     /// Optional command line bytes.
     pub cmdline: Option<&'a [u8]>,
-    /// Optional device tree blob bytes.
-    pub dtb: Option<&'a [u8]>,
 }
 
 impl<'a> Sections<'a> {
@@ -53,24 +49,15 @@ impl<'a> Sections<'a> {
         let mut kernel = None::<&'a [u8]>;
         let mut initrd = None::<&'a [u8]>;
         let mut cmdline = None::<&'a [u8]>;
-        let mut dtb = None::<&'a [u8]>;
 
         for (name, section_data) in items {
-            set_uki_section(
-                name,
-                section_data,
-                &mut kernel,
-                &mut initrd,
-                &mut cmdline,
-                &mut dtb,
-            )?;
+            set_uki_section(name, section_data, &mut kernel, &mut initrd, &mut cmdline)?;
         }
 
         Ok(Sections {
             kernel: kernel.ok_or(UkiError::InvalidPe("missing .kernel section"))?,
             initrd,
             cmdline,
-            dtb,
         })
     }
 
@@ -80,7 +67,6 @@ impl<'a> Sections<'a> {
             (KERNEL, Some(self.kernel)),
             (CMDLINE, self.cmdline),
             (INITRD, self.initrd),
-            (DTB, self.dtb),
         ]
         .into_iter()
         .filter_map(|(name, data)| data.map(|section_data| (name, section_data)))
@@ -93,13 +79,11 @@ fn set_uki_section<'a>(
     kernel: &mut Option<&'a [u8]>,
     initrd: &mut Option<&'a [u8]>,
     cmdline: &mut Option<&'a [u8]>,
-    dtb: &mut Option<&'a [u8]>,
 ) -> Result<()> {
     match name {
         KERNEL => *kernel = Some(section_data),
         INITRD => *initrd = Some(section_data),
         CMDLINE => *cmdline = Some(section_data),
-        DTB => *dtb = Some(section_data),
         _ => return Err(UkiError::InvalidPe("unexpected UKI section")),
     }
 
@@ -140,7 +124,6 @@ fn canonical_uki_section_name(name: &str) -> Option<&'static str> {
         KERNEL => Some(KERNEL),
         INITRD => Some(INITRD),
         CMDLINE => Some(CMDLINE),
-        DTB => Some(DTB),
         _ => None,
     }
 }
@@ -364,17 +347,15 @@ mod tests {
         assert_eq!(sections.kernel, b"kernel_data");
         assert!(sections.initrd.is_none());
         assert!(sections.cmdline.is_none());
-        assert!(sections.dtb.is_none());
     }
 
     #[test]
-    fn parse_all_sections() {
+    fn parse_standard_sections() {
         // ARRANGE
         let mut data = build_test_pe();
         add_section(&mut data, *b".kernel\0", b"kernel");
         add_section(&mut data, *b".initrd\0", b"initrd");
         add_section(&mut data, *b".cmdline", b"cmdline");
-        add_section(&mut data, *b".dtb\0\0\0\0", b"dtb");
 
         // ACT
         let sections = Sections::parse(&data).expect("parse should succeed");
@@ -383,7 +364,6 @@ mod tests {
         assert_eq!(sections.kernel, b"kernel");
         assert_eq!(sections.initrd.expect("initrd"), b"initrd");
         assert_eq!(sections.cmdline.expect("cmdline"), b"cmdline");
-        assert_eq!(sections.dtb.expect("dtb"), b"dtb");
     }
 
     #[test]
@@ -407,7 +387,6 @@ mod tests {
             kernel: b"kern",
             initrd: None,
             cmdline: None,
-            dtb: None,
         };
 
         // ACT
@@ -424,7 +403,6 @@ mod tests {
             kernel: b"kern",
             initrd: Some(b"initrd"),
             cmdline: Some(b"quiet"),
-            dtb: Some(b"dtb"),
         };
 
         // ACT
@@ -437,7 +415,6 @@ mod tests {
                 (KERNEL, &b"kern"[..]),
                 (CMDLINE, &b"quiet"[..]),
                 (INITRD, &b"initrd"[..]),
-                (DTB, &b"dtb"[..]),
             ]
         );
     }
@@ -449,7 +426,6 @@ mod tests {
             kernel: b"l",
             initrd: Some(b"i"),
             cmdline: Some(b"c"),
-            dtb: None,
         };
 
         // ACT

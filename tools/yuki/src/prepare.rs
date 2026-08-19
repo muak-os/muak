@@ -1,6 +1,6 @@
 //! Prepares a UKI manifest from a probed stub and component sizes.
 
-use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
+use uki::section::{CMDLINE, INITRD, KERNEL};
 
 use crate::error::{Result, YukiError};
 use crate::layout::{self, Layout};
@@ -51,7 +51,6 @@ pub fn prepare(
     cmdline_size: u64,
     kernel_size: u64,
     initramfs_size: u64,
-    dtb_size: Option<u64>,
 ) -> Result<Manifest> {
     let consumed = probe.consumed();
     let stub_remainder = stub_size.checked_sub(consumed).ok_or_else(|| {
@@ -67,22 +66,20 @@ pub fn prepare(
         )));
     }
 
-    let has_dtb = dtb_size.is_some();
     let sizes = [
         (CMDLINE, Some(cmdline_size)),
-        (DTB, dtb_size),
         (KERNEL, Some(kernel_size)),
         (INITRD, Some(initramfs_size)),
     ];
 
-    let table = section::build_table(&probe.metadata, stub_size, has_dtb, &sizes)?;
+    let table = section::build_table(&probe.metadata, stub_size, &sizes)?;
 
     let mut patched_prefix = probe.prefix;
     header::patch(
         &mut patched_prefix,
         &probe.metadata,
         &table,
-        section::count(has_dtb),
+        section::NEW_SECTION_COUNT,
     )?;
 
     let layout = layout::from_table(stub_size, &table)?;
@@ -100,7 +97,7 @@ pub fn prepare(
 mod tests {
     use uki::align;
     use uki::metadata::Metadata;
-    use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
+    use uki::section::{CMDLINE, INITRD, KERNEL};
 
     use super::*;
 
@@ -134,7 +131,7 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let result = prepare(probe, 100, 10, 100, 100, None);
+        let result = prepare(probe, 100, 10, 100, 100);
 
         // ASSERT
         assert!(matches!(
@@ -145,34 +142,15 @@ mod tests {
     }
 
     #[test]
-    fn prepare_orders_offsets_with_dtb() {
+    fn prepare_orders_offsets() {
         // ARRANGE
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
+        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
 
         // ASSERT
         let layout = manifest.layout();
-        assert!(layout.stub_size <= layout.cmdline_offset);
-        let dtb_offset = layout.dtb_offset.expect("dtb offset present");
-        assert!(layout.cmdline_offset < dtb_offset);
-        assert!(dtb_offset < layout.kernel_offset);
-        assert!(layout.kernel_offset < layout.initramfs_offset);
-        assert!(layout.initramfs_offset < layout.total_size);
-    }
-
-    #[test]
-    fn prepare_orders_offsets_without_dtb() {
-        // ARRANGE
-        let probe = probe_with(test_metadata());
-
-        // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096, None).unwrap();
-
-        // ASSERT
-        let layout = manifest.layout();
-        assert_eq!(layout.dtb_offset, None);
         assert!(layout.cmdline_offset < layout.kernel_offset);
         assert!(layout.kernel_offset < layout.initramfs_offset);
         assert!(layout.initramfs_offset < layout.total_size);
@@ -184,13 +162,12 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
+        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
 
         // ASSERT
         for planned in &manifest.assembly().sections {
             let expected = match planned.name {
                 CMDLINE => manifest.layout().cmdline_offset,
-                DTB => manifest.layout().dtb_offset.expect("dtb offset present"),
                 KERNEL => manifest.layout().kernel_offset,
                 INITRD => manifest.layout().initramfs_offset,
                 _ => panic!("unexpected section '{}'", planned.name),
@@ -210,7 +187,7 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096, Some(512)).unwrap();
+        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
 
         // ASSERT
         let last = manifest.assembly().sections.last().unwrap();
@@ -238,7 +215,7 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 1024, 10, 100, 100, None);
+        let result = prepare(probe, 1024, 10, 100, 100);
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::TooManySections)));
@@ -254,7 +231,7 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 1024, 10, 100, 100, None);
+        let result = prepare(probe, 1024, 10, 100, 100);
 
         // ASSERT
         assert!(matches!(
@@ -275,7 +252,7 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 2048, 10, 100, 100, None);
+        let result = prepare(probe, 2048, 10, 100, 100);
 
         // ASSERT
         assert!(matches!(

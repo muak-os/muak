@@ -32,13 +32,6 @@ struct Cli {
     )]
     cmdline: PathBuf,
 
-    #[arg(
-        short = 'd',
-        long,
-        help = "Optional device tree blob to include in the UKI"
-    )]
-    dtb: Option<PathBuf>,
-
     #[arg(short, long)]
     output: PathBuf,
 }
@@ -70,15 +63,6 @@ fn run(args: &Cli) -> Result<String> {
     let initrd_size = std::fs::metadata(&args.initrd)
         .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?
         .len();
-    let dtb_size = args
-        .dtb
-        .as_ref()
-        .map(|path| {
-            std::fs::metadata(path)
-                .with_context(|| format!("Failed to read DTB from {}", path.display()))
-                .map(|meta| meta.len())
-        })
-        .transpose()?;
 
     let mut stub_file = File::open(&args.stub)
         .with_context(|| format!("Failed to read EFI stub from {}", args.stub.display()))?;
@@ -88,13 +72,6 @@ fn run(args: &Cli) -> Result<String> {
         .with_context(|| format!("Failed to read initramfs from {}", args.initrd.display()))?;
     let mut cmdline = File::open(&args.cmdline)
         .with_context(|| format!("Failed to read cmdline from {}", args.cmdline.display()))?;
-    let mut dtb = args
-        .dtb
-        .as_ref()
-        .map(|path| {
-            File::open(path).with_context(|| format!("Failed to read DTB from {}", path.display()))
-        })
-        .transpose()?;
 
     let manifest = prepare::prepare(
         probe::probe(&mut stub_file).context("Failed to compute UKI layout")?,
@@ -102,17 +79,12 @@ fn run(args: &Cli) -> Result<String> {
         cmdline_size,
         kernel_size,
         initrd_size,
-        dtb_size,
     )
     .context("Failed to compute UKI layout")?;
 
     let mut output = File::create(&args.output)
         .with_context(|| format!("Failed to write UKI to {}", args.output.display()))?;
 
-    let dtb_input = dtb.as_mut().map(|file| Input {
-        reader: file,
-        size: dtb_size.unwrap_or_default(),
-    });
     write::write(
         &manifest,
         &mut stub_file,
@@ -120,7 +92,6 @@ fn run(args: &Cli) -> Result<String> {
             reader: &mut cmdline,
             size: cmdline_size,
         },
-        dtb_input,
         Input {
             reader: &mut kernel,
             size: kernel_size,

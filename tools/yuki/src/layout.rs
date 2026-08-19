@@ -1,6 +1,6 @@
 //! Compute the layout of a UKI image from its section table.
 
-use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
+use uki::section::{CMDLINE, INITRD, KERNEL};
 
 use crate::error::{Result, YukiError};
 use crate::pe::section::Table;
@@ -12,8 +12,6 @@ pub struct Layout {
     pub stub_size: u64,
     /// File offset of the `.cmdline` section.
     pub cmdline_offset: u64,
-    /// File offset of the `.dtb` section, if present.
-    pub dtb_offset: Option<u64>,
     /// File offset of the `.kernel` section.
     pub kernel_offset: u64,
     /// File offset of the `.initrd` section.
@@ -25,7 +23,6 @@ pub struct Layout {
 /// Extracts the geometry view from a section table.
 pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
     let mut cmdline_offset = 0_u64;
-    let mut dtb_offset = None;
     let mut kernel_offset = 0_u64;
     let mut initramfs_offset = 0_u64;
 
@@ -35,7 +32,6 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
         })?;
         match sec.name {
             CMDLINE => cmdline_offset = offset,
-            DTB => dtb_offset = Some(offset),
             KERNEL => kernel_offset = offset,
             INITRD => initramfs_offset = offset,
             _ => {}
@@ -45,7 +41,6 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
     Ok(Layout {
         stub_size,
         cmdline_offset,
-        dtb_offset,
         kernel_offset,
         initramfs_offset,
         total_size: u64::from(table.current_file_offset),
@@ -55,7 +50,7 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
 #[cfg(test)]
 mod tests {
     use uki::metadata::Metadata;
-    use uki::section::{CMDLINE, DTB, INITRD, KERNEL};
+    use uki::section::{CMDLINE, INITRD, KERNEL};
 
     use super::*;
 
@@ -80,7 +75,6 @@ mod tests {
         let metadata = test_metadata();
         let mut table = Table::new(&metadata);
         table.finalize_section(CMDLINE, 10).unwrap();
-        table.finalize_section(DTB, 512).unwrap();
         table.finalize_section(KERNEL, 100).unwrap();
         table.finalize_section(INITRD, 300).unwrap();
 
@@ -100,20 +94,6 @@ mod tests {
                     .file_offset
             )
             .unwrap()
-        );
-        assert_eq!(
-            layout.dtb_offset,
-            Some(
-                u64::try_from(
-                    table
-                        .sections
-                        .iter()
-                        .find(|sec| sec.name == DTB)
-                        .unwrap()
-                        .file_offset
-                )
-                .unwrap()
-            )
         );
         assert_eq!(
             layout.kernel_offset,
@@ -166,20 +146,5 @@ mod tests {
             u64::try_from(last_end).unwrap(),
             "total size should match the last aligned section end"
         );
-    }
-
-    #[test]
-    fn from_table_handles_missing_dtb() {
-        // ARRANGE
-        let metadata = test_metadata();
-        let mut table = Table::new(&metadata);
-        table.finalize_section(CMDLINE, 10).unwrap();
-        table.finalize_section(KERNEL, 100).unwrap();
-
-        // ACT
-        let layout = from_table(512, &table).unwrap();
-
-        // ASSERT
-        assert_eq!(layout.dtb_offset, None);
     }
 }

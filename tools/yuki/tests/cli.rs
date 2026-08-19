@@ -10,7 +10,7 @@ mod tests {
     use tempfile::TempDir;
     use yuki::cli;
 
-    use super::fixtures::components::{fake_dtb, fake_initrd, fake_kernel, sample_cmdline};
+    use super::fixtures::components::{fake_initrd, fake_kernel, sample_cmdline};
     use super::fixtures::pe::generate_minimal_stub;
 
     struct CliEnv {
@@ -79,39 +79,6 @@ mod tests {
             result.contains(&format!("({output_len} bytes)")),
             "result should contain exact output size"
         );
-    }
-
-    #[test]
-    fn run_with_reads_optional_dtb() {
-        // ARRANGE
-        let env = CliEnv::new();
-        let stub = env.write("stub.efi", &generate_minimal_stub());
-        let kernel = env.write("vmlinuz", &fake_kernel(4096));
-        let initrd = env.write("initrd.img", &fake_initrd(4096));
-        let cmdline = env.write("cmdline.txt", &sample_cmdline());
-        let dtb = env.write("device.dtb", &fake_dtb(1024));
-        let output = env.path("output.efi");
-
-        // ACT
-        cli::run_with([
-            "yuki",
-            "--stub",
-            stub.to_str().expect("stub path"),
-            "--kernel",
-            kernel.to_str().expect("kernel path"),
-            "--initrd",
-            initrd.to_str().expect("initrd path"),
-            "--cmdline",
-            cmdline.to_str().expect("cmdline path"),
-            "--dtb",
-            dtb.to_str().expect("dtb path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect("build with optional dtb should succeed");
-
-        // ASSERT
-        assert!(output.exists(), "output should be written");
     }
 
     #[test]
@@ -231,38 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn run_with_reports_missing_dtb() {
-        // ARRANGE
-        let env = CliEnv::new();
-        let stub = env.write("stub.efi", &generate_minimal_stub());
-        let kernel = env.write("vmlinuz", &fake_kernel(1024));
-        let initrd = env.write("initrd.img", &fake_initrd(1024));
-        let cmdline = env.write("cmdline.txt", &sample_cmdline());
-        let output = env.path("output.efi");
-
-        // ACT
-        let error = cli::run_with([
-            "yuki",
-            "--stub",
-            stub.to_str().expect("stub path"),
-            "--kernel",
-            kernel.to_str().expect("kernel path"),
-            "--initrd",
-            initrd.to_str().expect("initrd path"),
-            "--cmdline",
-            cmdline.to_str().expect("cmdline path"),
-            "--dtb",
-            env.path("missing.dtb").to_str().expect("dtb path"),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect_err("missing dtb should error");
-
-        // ASSERT
-        assert!(error.to_string().contains("Failed to read DTB"));
-    }
-
-    #[test]
     fn run_with_reports_unwritable_output() {
         // ARRANGE
         let env = CliEnv::new();
@@ -356,41 +291,6 @@ mod tests {
     }
 
     #[test]
-    fn cli_builds_uki_with_dtb() {
-        // ARRANGE
-        let env = CliEnv::new();
-        let stub = env.write("stub.efi", &generate_minimal_stub());
-        let kernel = env.write("vmlinuz", &fake_kernel(4096));
-        let initrd = env.write("initrd.img", &fake_initrd(4096));
-        let cmdline = env.write("cmdline.txt", &sample_cmdline());
-        let dtb = env.write("device.dtb", &fake_dtb(1024));
-        let output = env.path("output.efi");
-
-        // ACT
-        let status = std::process::Command::new(yuki_bin())
-            .args([
-                "--stub",
-                stub.to_str().expect("stub path"),
-                "--kernel",
-                kernel.to_str().expect("kernel path"),
-                "--initrd",
-                initrd.to_str().expect("initrd path"),
-                "--cmdline",
-                cmdline.to_str().expect("cmdline path"),
-                "--dtb",
-                dtb.to_str().expect("dtb path"),
-                "--output",
-                output.to_str().expect("output path"),
-            ])
-            .status()
-            .expect("failed to run yuki");
-
-        // ASSERT
-        assert!(status.success(), "yuki with dtb should succeed");
-        assert!(output.exists(), "output file should exist");
-    }
-
-    #[test]
     fn cli_exits_with_error_on_missing_stub() {
         // ARRANGE
         let env = CliEnv::new();
@@ -460,7 +360,6 @@ mod tests {
         assert!(combined.contains("--kernel"));
         assert!(combined.contains("--initrd"));
         assert!(combined.contains("--cmdline"));
-        assert!(combined.contains("--dtb"));
         assert!(combined.contains("--output"));
     }
 

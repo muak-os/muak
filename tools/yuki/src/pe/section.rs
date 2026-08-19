@@ -23,6 +23,9 @@ const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
 const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
 const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
 
+/// Number of UKI sections yuki appends to the stub.
+pub const NEW_SECTION_COUNT: u16 = 3;
+
 /// A PE section in the output UKI image, with its file offset and size.
 #[derive(Debug, Clone)]
 pub struct Section {
@@ -188,10 +191,9 @@ pub(crate) fn validate_size(byte_len: u64, name: &'static str) -> Result<usize> 
 pub(crate) fn build_table(
     metadata: &Metadata,
     stub_len: u64,
-    has_dtb: bool,
     sizes: &[(&'static str, Option<u64>)],
 ) -> Result<Table> {
-    let count = new_section_count(has_dtb);
+    let count = NEW_SECTION_COUNT;
     if usize::from(metadata.existing_section_count).saturating_add(usize::from(count))
         > usize::from(u16::MAX)
     {
@@ -223,14 +225,6 @@ pub(crate) fn build_table(
     Ok(table)
 }
 
-pub(crate) fn count(has_dtb: bool) -> u16 {
-    new_section_count(has_dtb)
-}
-
-fn new_section_count(has_dtb: bool) -> u16 {
-    3_u16.saturating_add(u16::from(has_dtb))
-}
-
 pub(crate) fn header_to_bytes(
     header: &ImageSectionHeader,
 ) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
@@ -256,7 +250,7 @@ pub(crate) fn header_to_bytes(
 mod tests {
     use object::LittleEndian as LE;
     use object::pe::ImageSectionHeader;
-    use uki::section::{CMDLINE, DTB, INITRD};
+    use uki::section::{CMDLINE, INITRD};
 
     use super::*;
     use crate::error::YukiError;
@@ -516,25 +510,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_state_with_dtb_order() {
-        // ARRANGE
-        let metadata = create_test_metadata();
-        let mut state = Table::new(&metadata);
-
-        // ACT
-        state.finalize_section(CMDLINE, 10).unwrap();
-        state.finalize_section(DTB, 100).unwrap();
-        state.finalize_section(KERNEL, 200).unwrap();
-        state.finalize_section(INITRD, 300).unwrap();
-
-        assert_eq!(state.sections.len(), 4);
-        assert_eq!(state.sections.first().unwrap().name, CMDLINE);
-        assert_eq!(state.sections.get(1).unwrap().name, DTB);
-        assert_eq!(state.sections.get(2).unwrap().name, KERNEL);
-        assert_eq!(state.sections.get(3).unwrap().name, INITRD);
-    }
-
-    #[test]
     fn layout_state_exact_virtual_size() {
         // ARRANGE
         let metadata = create_test_metadata();
@@ -670,7 +645,7 @@ mod tests {
         ];
 
         // ACT
-        let result = build_table(&metadata, oversized_stub_len, false, &sizes);
+        let result = build_table(&metadata, oversized_stub_len, &sizes);
 
         // ASSERT
         assert!(matches!(
@@ -687,7 +662,7 @@ mod tests {
         let sizes: [(&str, Option<u64>); 0] = [];
 
         // ACT
-        let result = build_table(&metadata, 100, false, &sizes);
+        let result = build_table(&metadata, 100, &sizes);
 
         // ASSERT
         assert!(matches!(

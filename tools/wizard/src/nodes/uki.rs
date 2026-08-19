@@ -82,7 +82,6 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
         input(UKI_CMDLINE)?,
         input(UKI_KERNEL)?,
         input(UKI_INITRAMFS)?,
-        None,
     )
     .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
 
@@ -111,15 +110,8 @@ fn run(
 
     let probed = probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;
-    let manifest = prepare::prepare(
-        probed,
-        stub.size,
-        cmdline.size,
-        kernel.size,
-        initramfs.size,
-        None,
-    )
-    .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
+    let manifest = prepare::prepare(probed, stub.size, cmdline.size, kernel.size, initramfs.size)
+        .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
 
     let total_size = manifest.layout().total_size;
     if total_size != output.size {
@@ -133,7 +125,6 @@ fn run(
         &manifest,
         &mut stub.reader,
         input(&mut cmdline),
-        None,
         input(&mut kernel),
         input(&mut initramfs),
         &mut output.writer,
