@@ -23,10 +23,10 @@ impl Artifacts {
         let artifacts_dir =
             std::env::var("MUAK_ARTIFACTS").map_or_else(|_| workspace.join("_out"), PathBuf::from);
 
-        let iso = artifacts_dir.join("muak-x86_64.iso");
+        let iso = artifacts_dir.join("muak.iso");
         ensure!(
             iso.exists(),
-            "muak-x86_64.iso not found at {}\nRun `just dev` to build artifacts, \
+            "muak.iso not found at {}\nRun `just dev` to build artifacts, \
              or set MUAK_ARTIFACTS to the directory containing them.",
             iso.display()
         );
