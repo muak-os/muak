@@ -1,4 +1,4 @@
-//! Mount the root filesystem with extensions as overlays.
+//! Mount the root filesystem with layer images as overlays.
 
 use alloc::ffi::CString;
 use std::path::Path;
@@ -10,9 +10,10 @@ use rustix::mount::{
     fsconfig_set_string, fsmount, fsopen, mount, move_mount,
 };
 
-use super::extensions;
+use super::layers;
+use super::{IMAGE_EXTENSION, IMAGE_FSTYPE};
 
-/// Mount the root filesystem with extensions as overlays.
+/// Mount the root filesystem with layer images as overlays.
 pub(crate) fn rootfs() -> Result<()> {
     let newroot = Path::new("/newroot");
     if !newroot.exists() {
@@ -31,30 +32,28 @@ pub(crate) fn rootfs() -> Result<()> {
     let base_mount_str = base_mount
         .to_str()
         .context("base mount path contains invalid UTF-8")?;
-    mount_erofs_file("/rootfs.erofs", base_mount_str).context("Failed to mount base rootfs")?;
+    let base_image = format!("/rootfs.{IMAGE_EXTENSION}");
+    mount_image_file(&base_image, base_mount_str).context("Failed to mount base rootfs")?;
     lower_dirs.push(base_mount_str.to_owned());
 
-    let extensions = extensions::discover_extensions();
+    let found = layers::discover_layers();
 
-    if !extensions.is_empty() {
-        kmsg::info!("Loading {} extension(s)", extensions.len());
+    if found.is_empty() {
+        kmsg::info!("No layer images found, using base rootfs only");
+    } else {
+        kmsg::info!("Loading {} layer(s)", found.len());
     }
 
-    for ext_path in &extensions {
-        let ext_name = Path::new(ext_path)
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("ext");
+    for layer_path in &found {
+        let layer_mount = work_dir.join(layer_mount_name(layer_path));
+        mkdirat(CWD, &layer_mount, Mode::from_bits_truncate(0o755))
+            .context("Failed to create layer mount point")?;
 
-        let ext_mount = work_dir.join(ext_name);
-        mkdirat(CWD, &ext_mount, Mode::from_bits_truncate(0o755))
-            .context("Failed to create extension mount point")?;
-
-        let ext_mount_str = ext_mount
+        let layer_mount_str = layer_mount
             .to_str()
-            .context("extension mount path contains invalid UTF-8")?;
-        mount_erofs_file(ext_path, ext_mount_str).context("Failed to mount extension rootfs")?;
-        lower_dirs.push(ext_mount_str.to_owned());
+            .context("layer mount path contains invalid UTF-8")?;
+        mount_image_file(layer_path, layer_mount_str).context("Failed to mount layer rootfs")?;
+        lower_dirs.push(layer_mount_str.to_owned());
     }
 
     if let Some((base, rest)) = lower_dirs.split_first() {
@@ -86,8 +85,18 @@ pub(crate) fn rootfs() -> Result<()> {
     Ok(())
 }
 
-fn mount_erofs_file(image_path: &str, target: &str) -> Result<()> {
-    let fs_fd = fsopen("erofs", FsOpenFlags::empty()).context("Failed to fsopen erofs")?;
+fn layer_mount_name(layer_path: &str) -> String {
+    let name = layer_path.trim_start_matches('/').replace('/', "-");
+    if name.is_empty() {
+        "layer".to_owned()
+    } else {
+        name
+    }
+}
+
+fn mount_image_file(image_path: &str, target: &str) -> Result<()> {
+    let fs_fd =
+        fsopen(IMAGE_FSTYPE, FsOpenFlags::empty()).context("Failed to fsopen image filesystem")?;
     fsconfig_set_string(&fs_fd, "source", image_path).context("Failed to fsconfig source")?;
     fsconfig_create(&fs_fd).context("Failed to fsconfig_create")?;
     let mnt_fd = fsmount(
@@ -96,6 +105,7 @@ fn mount_erofs_file(image_path: &str, target: &str) -> Result<()> {
         MountAttrFlags::MOUNT_ATTR_RDONLY,
     )
     .context("Failed to fsmount")?;
+
     move_mount(
         &mnt_fd,
         "",
