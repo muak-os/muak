@@ -61,9 +61,9 @@ reset := '\e[0m'
 # Full local development build (build → installer → sign → uki + iso)
 dev: (build "--release" "") installer sign (artifacts "iso")
 
-# Build kernel image (use `just extract --image ...` to extract artifacts locally)
+# Build the default Linux kernel image
 kernel:
-    @printf "{{ cyan }}Building kernel{{ reset }}\n"
+    @printf "{{ cyan }}Building Linux kernel{{ reset }}\n"
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
         --tag {{ registry }}/kernel:{{ tag }} \
         --file core/kernel/Dockerfile \
@@ -94,22 +94,16 @@ build release="" *pkgs:
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
     pkgs="granola provisiond modd networkd apid vmd timed consoled init"
+    pkg_args=(--build-arg PKG_KERNEL="{{ registry }}/kernel:{{ tag }}")
     if [ "{{ prod }}" = "false" ]; then
-        test -f {{ out }}/vmlinuz || { printf "{{ red }}{{ bold }}Error:{{ reset }} {{ out }}/vmlinuz not found. Run {{ green }}just kernel{{ reset }} and extract\n"; exit 1; }
-        pkg_args=(
-            --build-context pkg-kernel={{ out }}
-            --build-context pkg-stub=target/{{ arch }}-unknown-uefi/release
-        )
+        pkg_args+=(--build-context pkg-stub=target/{{ arch }}-unknown-uefi/release)
         for pkg in $pkgs; do
             pkg_args+=(--build-context "pkg-$pkg={{ release_dir }}")
         done
     else
-        pkg_args=(
-            --build-arg pkg-kernel={{ registry }}/kernel:{{ tag }}
-            --build-arg pkg-stub={{ registry }}/pkgs/stub:{{ tag }}
-        )
+        pkg_args+=(--build-arg PKG_STUB={{ registry }}/pkgs/stub:{{ tag }})
         for pkg in $pkgs; do
-            pkg_args+=(--build-arg "pkg-$pkg={{ registry }}/pkgs/$pkg:{{ tag }}")
+            pkg_args+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
         done
     fi
     {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
@@ -121,16 +115,6 @@ installer prod="false":
         .
     {{ push_cmd }} "{{ registry }}/installer:{{ tag }}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
-
-# Extract an OCI image filesystem to local artifacts
-[arg("image", long="image")]
-[script]
-extract image: _ensure-out
-    printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
-    cid=$({{ container_runtime }} create "{{ image }}")
-    {{ container_runtime }} export "$cid" | tar -x -C {{ out }}
-    {{ container_runtime }} rm "$cid" >/dev/null
-    printf "{{ green }}Assets extracted to {{ out }}/{{ reset }}\n"
 
 # Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
@@ -366,6 +350,16 @@ kspp:
 # ─────────────────────────────────────────────────────────────────────────────
 # Utilities
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Extract an OCI image filesystem to local artifacts
+[arg("image", long="image")]
+[script]
+extract image: _ensure-out
+    printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
+    cid=$({{ container_runtime }} create "{{ image }}")
+    {{ container_runtime }} export "$cid" | tar -x -C {{ out }}
+    {{ container_runtime }} rm "$cid" >/dev/null
+    printf "{{ green }}Assets extracted to {{ out }}/{{ reset }}\n"
 
 # Validate SELinux CIL policy
 [script]
