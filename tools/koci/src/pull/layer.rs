@@ -1,7 +1,6 @@
 //! OCI layer processing and tar path utilities.
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
 use tar::Archive;
@@ -23,9 +22,9 @@ pub(crate) async fn process<F>(
     mut on_entry: F,
 ) -> Result<()>
 where
-    F: FnMut(
+    F: for<'a, 'b> FnMut(
         usize,
-        tar::Entry<&mut LayerReader>,
+        tar::Entry<&'b mut LayerReader<'a>>,
         scan::EntryInfo,
         &HashMap<PathBuf, usize>,
     ) -> Result<()>,
@@ -46,8 +45,6 @@ where
     )
     .await?;
     eprintln!("Resolved {} layer(s)", layers.len());
-
-    let mut whiteout_layers: HashMap<PathBuf, usize> = HashMap::new();
     let n = layers.len();
 
     let mut downloads = JoinSet::new();
@@ -68,39 +65,44 @@ where
         });
     }
 
-    let mut files: Vec<Option<Result<File>>> =
+    let mut blobs: Vec<Option<Result<Vec<u8>>>> =
         std::iter::repeat_with(|| None).take(layers.len()).collect();
     while let Some(joined) = downloads.join_next().await {
-        let (layer_idx, file) = joined.map_err(|error| {
+        let (layer_idx, blob) = joined.map_err(|error| {
             KociError::NetworkError(format!("layer download task failed: {error}"))
         })?;
-        let slot = files.get_mut(layer_idx).ok_or_else(|| {
+        let slot = blobs.get_mut(layer_idx).ok_or_else(|| {
             KociError::DownloadError(format!("missing download slot for layer {layer_idx}"))
         })?;
-        *slot = Some(file);
+        *slot = Some(blob);
     }
 
+    let mut whiteout_layers: HashMap<PathBuf, usize> = HashMap::new();
+
+    let mut layer_bytes: Vec<Vec<u8>> = Vec::with_capacity(n);
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let file = files
+        let bytes = blobs
             .get_mut(layer_idx)
             .and_then(Option::take)
             .ok_or_else(|| {
                 KociError::DownloadError(format!("missing download for layer {layer_idx}"))
             })??;
-        let reader = download::decompress(file, layer.media_type.as_deref())?;
+        let reader = download::decompress(&bytes, layer.media_type.as_deref())?;
         let whiteouts = scan::scan_whiteouts(reader)?;
-        for w in whiteouts {
-            whiteout_layers.entry(w).or_insert(layer_idx);
+        for whiteout in whiteouts {
+            whiteout_layers.entry(whiteout).or_insert(layer_idx);
         }
+        layer_bytes.push(bytes);
     }
 
     for (layer_idx, layer) in layers.iter().enumerate() {
         let layer_number = layer_idx.saturating_add(1);
         let short = short_digest(&layer.digest);
         eprintln!("Extracting layer {layer_number}/{n}: {short}");
-        let file =
-            download::cached(&cache, &client, &image_ref, &layer.digest, token.as_deref()).await?;
-        let mut reader = download::decompress(file, layer.media_type.as_deref())?;
+        let bytes = layer_bytes.get(layer_idx).ok_or_else(|| {
+            KociError::DownloadError(format!("missing layer bytes for layer {layer_idx}"))
+        })?;
+        let mut reader = download::decompress(bytes, layer.media_type.as_deref())?;
 
         let mut archive = Archive::new(&mut reader);
         let entries = archive.entries()?;

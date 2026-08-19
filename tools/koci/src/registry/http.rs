@@ -2,8 +2,6 @@
 
 use core::result::Result as CoreResult;
 use core::time::Duration;
-use std::fs::File;
-use std::io::Write as _;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
@@ -129,13 +127,13 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
         .map_err(|error| KociError::NetworkError(format!("Failed to read response body: {error}")))
 }
 
-/// Stream an HTTP response body to a file while computing a digest.
-pub(crate) async fn stream_body_to_file(
+/// Stream an HTTP response body into memory while computing a digest.
+pub(crate) async fn stream_body_to_vec(
     resp: Response<Incoming>,
-    file: &mut File,
     digest: &mut StreamingDigest,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let mut body = resp.into_body();
+    let mut bytes = Vec::new();
 
     while let Some(frame) = timeout(HTTP_TIMEOUT, body.frame()).await.map_err(|error| {
         KociError::NetworkError(format!(
@@ -147,12 +145,12 @@ pub(crate) async fn stream_body_to_file(
         })?;
 
         if let Some(data) = frame.data_ref() {
-            file.write_all(data)?;
+            bytes.extend_from_slice(data);
             digest.update(data);
         }
     }
 
-    Ok(())
+    Ok(bytes)
 }
 
 #[cfg(test)]

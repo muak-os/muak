@@ -1,7 +1,6 @@
 //! OCI blob cache backed by the local filesystem.
 
 use core::time::Duration;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -46,26 +45,6 @@ impl Store {
             .map_or(Duration::from_mins(5), Duration::from_secs);
 
         Self { root, ttl }
-    }
-
-    /// Return a reader for the cached blob, or `None`.
-    pub(crate) fn get_blob_reader(&self, digest: &str) -> Option<File> {
-        let path = self.blob_path(digest)?;
-        File::open(&path).ok()
-    }
-
-    /// Store a blob by renaming the source file into the cache.
-    pub(crate) fn put_blob_from_file(&self, digest: &str, src: &Path) {
-        let Some(dest) = self.blob_path(digest) else {
-            return;
-        };
-        let Some(parent) = dest.parent() else {
-            return;
-        };
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
-        drop(std::fs::rename(src, dest));
     }
 
     /// Store blob bytes atomically, so a crash never leaves a partial entry.
@@ -162,13 +141,10 @@ mod tests {
         let cache = new_cache(&tmp);
         let digest = "sha256:abcd1234";
         let data = b"hello blob";
-        let src = tmp.path().join("src");
-        std::fs::write(&src, data).expect("write src");
 
         // ACT
-        cache.put_blob_from_file(digest, &src);
-        let path = cache.blob_path(digest).expect("blob path");
-        let got = std::fs::read(path).expect("read blob");
+        cache.put_blob(digest, data);
+        let got = std::fs::read(cache.blob_path(digest).expect("blob path")).expect("read blob");
 
         // ASSERT
         assert_eq!(got, data);
@@ -181,7 +157,12 @@ mod tests {
         let cache = new_cache(&tmp);
 
         // ACT / ASSERT
-        assert!(cache.get_blob_reader("sha256:nonexistent").is_none());
+        assert!(
+            !cache
+                .blob_path("sha256:nonexistent")
+                .expect("blob path")
+                .exists()
+        );
     }
 
     #[test]
@@ -191,10 +172,10 @@ mod tests {
         let cache = new_cache(&tmp);
         let src = tmp.path().join("src");
         std::fs::write(&src, b"data").expect("write src");
-        cache.put_blob_from_file("sha256:abc", &src);
+        cache.put_blob("sha256:abc", b"data");
 
         // ACT / ASSERT
-        assert!(cache.get_blob_reader("sha512:abc").is_none());
+        assert!(cache.blob_path("sha512:abc").is_none());
     }
 
     #[test]
@@ -238,14 +219,13 @@ mod tests {
             root: None,
             ttl: Duration::from_mins(5),
         };
-        let src = PathBuf::from("/nonexistent");
 
         // ACT
-        cache.put_blob_from_file("sha256:abc", &src);
+        cache.put_blob("sha256:abc", b"data");
         cache.put_ref("r", "n", "t", "{}");
 
         // ASSERT
-        assert!(cache.get_blob_reader("sha256:abc").is_none());
+        assert!(cache.blob_path("sha256:abc").is_none());
         assert!(cache.get_ref("r", "n", "t").is_none());
     }
 
