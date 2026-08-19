@@ -49,8 +49,8 @@ pub fn has_state_partition(disk: &str) -> Result<bool> {
 }
 
 fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
-    let file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let size = file.metadata()?.len();
+    let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
+    let size = file.seek(std::io::SeekFrom::End(0))?;
 
     Ok((file, size))
 }
