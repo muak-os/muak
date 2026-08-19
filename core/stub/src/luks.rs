@@ -37,7 +37,7 @@ pub fn try_inject(cmdline: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
 }
 
 fn read_key() -> Result<Option<Vec<u8>>> {
-    match std::fs::read("luks") {
+    match std::fs::read("\\luks") {
         Ok(data) if !data.is_empty() => Ok(Some(data)),
         Ok(_) => Ok(None),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
