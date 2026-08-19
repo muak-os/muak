@@ -32,7 +32,7 @@ fn main() {
 fn run() -> Result<()> {
     mount::pseudo()?;
 
-    kmsg::init("init")?;
+    kmsg::init("millefeuille")?;
 
     kmsg::info!("Pseudo filesystems mounted");
 

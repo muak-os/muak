@@ -93,7 +93,7 @@ build release="" *pkgs:
 [script]
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
-    pkgs="granola provisiond modd networkd apid vmd timed consoled init"
+    pkgs="granola provisiond modd networkd apid vmd timed consoled millefeuille"
     pkg_args=(--build-arg PKG_KERNEL="{{ registry }}/kernel:{{ tag }}")
     if [ "{{ prod }}" = "false" ]; then
         pkg_args+=(--build-context pkg-stub=target/{{ arch }}-unknown-uefi/release)

@@ -15,7 +15,7 @@ ARG PKG_APID=ghcr.io/muak-os/pkgs/apid:latest
 ARG PKG_VMD=ghcr.io/muak-os/pkgs/vmd:latest
 ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
 ARG PKG_CONSOLED=ghcr.io/muak-os/pkgs/consoled:latest
-ARG PKG_INIT=ghcr.io/muak-os/pkgs/init:latest
+ARG PKG_MILLEFEUILLE=ghcr.io/muak-os/pkgs/millefeuille:latest
 ARG PKG_STUB=ghcr.io/muak-os/pkgs/stub:latest
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ FROM ${PKG_APID} AS pkg-apid
 FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_CONSOLED} AS pkg-consoled
-FROM ${PKG_INIT} AS pkg-init
+FROM ${PKG_MILLEFEUILLE} AS pkg-millefeuille
 FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 FROM ${TOOLS} AS tools
@@ -72,10 +72,10 @@ RUN secilc -f file_contexts \
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ${TOOLS} AS initramfs-builder
 
-COPY --link --from=rootfs-base /rootfs               /rootfs
-COPY --link --from=selinux     /policy/policy.*      /rootfs/etc/selinux/
-COPY --link --from=selinux     /policy/file_contexts /file_contexts
-COPY --link --from=pkg-init    /init                 /init
+COPY --link --from=rootfs-base      /rootfs               /rootfs
+COPY --link --from=selinux          /policy/policy.*      /rootfs/etc/selinux/
+COPY --link --from=selinux          /policy/file_contexts /file_contexts
+COPY --link --from=pkg-millefeuille /init                 /init
 
 RUN ["/mumi", \
   "--dir", "/rootfs", \

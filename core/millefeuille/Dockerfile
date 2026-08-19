@@ -43,7 +43,7 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo chef cook --release --target ${RUST_TARGET} --package init --recipe-path recipe.json
+  cargo chef cook --release --target ${RUST_TARGET} --package millefeuille --recipe-path recipe.json
 
 COPY . .
 
@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   <<EOF
 set -euo pipefail
 
-cargo build --release --target ${RUST_TARGET} --locked -p init
+cargo build --release --target ${RUST_TARGET} --locked -p millefeuille
 cp target/${RUST_TARGET}/release/init /init
 EOF
 
@@ -62,6 +62,6 @@ FROM scratch
 
 COPY --link --from=builder /init /init
 
-LABEL org.opencontainers.image.title="init"
+LABEL org.opencontainers.image.title="millefeuille"
 LABEL org.opencontainers.image.description="Muak stage 1 init"
 LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

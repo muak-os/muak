@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result};
 use wizard::domain::profile::{CustomizationSpec, KernelSpec, Profile};
 use wizard::domain::release;
 
-/// Runtime path where `core/init` copies the embedded profile.
+/// Runtime path for the embedded profile.
 const BOOTED_PROFILE: &str = "/profile.toml";
 
 /// Loads the booted profile or falls back to a generic empty one.
