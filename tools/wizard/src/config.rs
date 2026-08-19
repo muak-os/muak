@@ -12,10 +12,8 @@ use crate::error::{Result, WizardError};
 pub struct Config {
     /// Local directory for caching OCI blobs. When `None`, OCI pulls are not cached.
     pub cache_dir: Option<PathBuf>,
-    /// Fully-qualified installer image path (registry + repository, no tag).
-    pub installer: Option<String>,
-    /// Registry hostname used to resolve logical extension names.
-    pub extension_registry: Option<String>,
+    /// Registry prefix (host[:port][/namespace]) used to build all source references.
+    pub registry: String,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();

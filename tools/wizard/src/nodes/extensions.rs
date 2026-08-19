@@ -1,5 +1,11 @@
 //! Streams pre-planned opaque extension payloads.
 
+use koci::arch::Arch;
+use koci::error::KociError;
+use koci::pull;
+use koci::pull::entries::FileEntry;
+
+use crate::domain::resolution::Extension;
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
@@ -7,7 +13,6 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
-use crate::source::extension::pull;
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
 
@@ -30,9 +35,9 @@ pub(crate) fn preflight(
     id: NodeId,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<Vec<mumi::payload::Planned>> {
-    let plan = ctx.plan;
+    let build = ctx.build;
 
-    let mut payloads = pull(plan.extensions(), plan.arch())?;
+    let mut payloads = pull(build.extensions(), build.arch())?;
     let planned = mumi::payload::plan(&mut payloads, &config())
         .map_err(|e| WizardError::BuildError(format!("plan extension payloads: {e}")))?;
 
@@ -79,9 +84,42 @@ pub(crate) fn run(
     Ok(NodeReport::Empty)
 }
 
+fn pull(extensions: &[Extension], arch: Arch) -> Result<Vec<mumi::payload::Payload>> {
+    let mut payloads = Vec::with_capacity(extensions.len());
+
+    for ext in extensions {
+        let mut payload = mumi::payload::Payload::new(ext.name());
+        pull::files(ext.source(), &arch, None, |entry| {
+            add_entry(&mut payload, entry)
+        })
+        .map_err(|e| WizardError::BuildError(format!("pull extension {}: {e}", ext.source())))?;
+        payloads.push(payload);
+    }
+
+    Ok(payloads)
+}
+
+fn add_entry(
+    payload: &mut mumi::payload::Payload,
+    entry: FileEntry<'_>,
+) -> koci::error::Result<()> {
+    let path = entry.path.clone();
+    let reader = entry.reader;
+    let file = mumi::payload::FileEntry {
+        path: format!("/{path}"),
+        size: entry.size,
+        mode: 0o100_000 | entry.mode,
+    };
+    payload.add_file(file, reader).map_err(|e| {
+        KociError::IoError(std::io::Error::other(format!(
+            "add extension file {path}: {e}"
+        )))
+    })
+}
+
 /// One payload stream per extension, in canonical source order.
 fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
-    let count = ctx.plan.extensions().len();
+    let count = ctx.build.extensions().len();
     if count == usize::MAX {
         return Err(WizardError::BuildError(
             "extension count overflow".to_owned(),

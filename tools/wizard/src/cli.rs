@@ -11,9 +11,9 @@ use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 
 use crate::artifact::Artifact;
 use crate::config;
-use crate::profile::Profile;
+use crate::domain::profile::Profile;
 use crate::request::{Platform, Request};
-use crate::resolve;
+use crate::resolver;
 
 /// Runs the CLI with the given arguments.
 ///
@@ -54,6 +54,7 @@ struct BuildArgs {
     profile: PathBuf,
     artifacts: Vec<String>,
     version: String,
+    registry: String,
     arch: Arch,
     platform: String,
     output_dir: PathBuf,
@@ -83,6 +84,9 @@ enum Command {
         #[arg(long)]
         version: String,
 
+        #[arg(long)]
+        registry: String,
+
         #[arg(long, value_parser = crate::arch::parse)]
         arch: Arch,
 
@@ -98,6 +102,9 @@ enum Command {
 
         #[arg(long)]
         version: String,
+
+        #[arg(long)]
+        registry: String,
 
         #[arg(long, value_parser = crate::arch::parse)]
         arch: Arch,
@@ -144,13 +151,15 @@ fn run_command(command: Command) -> Result<()> {
         Command::Resolve {
             profile,
             version,
+            registry,
             arch,
             platform,
-        } => run_resolve(&profile, &version, arch, &platform),
+        } => run_resolve(&profile, &version, &registry, arch, &platform),
         Command::Build {
             profile,
             artifacts,
             version,
+            registry,
             arch,
             platform,
             output_dir,
@@ -161,6 +170,7 @@ fn run_command(command: Command) -> Result<()> {
                 profile,
                 artifacts,
                 version,
+                registry,
                 arch,
                 platform,
                 output_dir,
@@ -175,34 +185,41 @@ fn run_command(command: Command) -> Result<()> {
 fn run_profile_id(profile_path: &Path) -> Result<()> {
     let bytes = std::fs::read(profile_path)?;
     let spec = Profile::from_toml(&bytes)?;
-    let id = spec.id()?;
-    println!("{id}");
+    println!("{}", spec.profile_id()?);
 
     Ok(())
 }
 
-fn run_resolve(profile_path: &Path, version: &str, arch: Arch, platform: &str) -> Result<()> {
+fn run_resolve(
+    profile_path: &Path,
+    version: &str,
+    registry: &str,
+    arch: Arch,
+    platform: &str,
+) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
     config::configure(config::Config {
         cache_dir: None,
-        installer: None,
-        extension_registry: None,
+        registry: registry.to_owned(),
     })?;
     let request = Request::new(version, parse_platform(platform)?).arch(arch);
-    let resolved = resolve::plan(&request, &profile)?;
+    let resolved = resolver::plan(&request, &profile)?;
 
-    println!("resolved installer: {}", resolved.installer());
+    println!("profile id: {}", resolved.profile_id());
+    println!("release id: {}", resolved.release_id());
+    println!("resolution id: {}", resolved.resolution_id());
+    println!("resolved installer: {}", resolved.build().installer());
     println!(
         "resolved kernel: {} -> {}",
-        resolved.kernel().image(),
-        resolved.kernel().source()
+        resolved.build().kernel().image(),
+        resolved.build().kernel().source()
     );
-    for ext in resolved.extensions() {
+    for ext in resolved.build().extensions() {
         println!(" resolved extension: {} -> {}", ext.name(), ext.source());
     }
-    if let Some(ov) = resolved.overlay() {
+    if let Some(ov) = resolved.build().overlay() {
         println!(
             "  resolved overlay: {}/{} -> {}",
             ov.image(),
@@ -234,8 +251,7 @@ fn run_build(args: &BuildArgs) -> Result<()> {
     let cache_dir = std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache/muak/koci"));
     config::configure(config::Config {
         cache_dir,
-        installer: None,
-        extension_registry: None,
+        registry: args.registry.clone(),
     })?;
 
     let profile = build_profile(&args.profile)?;

@@ -14,7 +14,7 @@ use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
 use wizard::config::{Config, configure};
-use wizard::profile::{CustomizationSpec, Profile};
+use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
 use crate::constants::{DM_DATA, DM_STATE};
@@ -179,11 +179,10 @@ async fn build_and_deploy_efi(
 
     let install_profile = derive_install_profile(extensions)?;
 
-    let (registry, installer, version) = image_parts(image)?;
+    let (registry, version) = image_parts(image)?;
     configure(Config {
         cache_dir: None,
-        installer: Some(installer),
-        extension_registry: Some(registry),
+        registry,
     })
     .context("Failed to configure wizard")?;
 
@@ -246,7 +245,7 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     ))
 }
 
-fn image_parts(image: &str) -> Result<(String, String, String)> {
+fn image_parts(image: &str) -> Result<(String, String)> {
     let colon = image
         .rfind(':')
         .context("invalid installer image: missing tag")?;
@@ -256,13 +255,8 @@ fn image_parts(image: &str) -> Result<(String, String, String)> {
         .find('/')
         .context("invalid installer image: missing registry")?;
     let registry = path.get(..slash).unwrap_or_default();
-    let installer = path;
 
-    Ok((
-        registry.to_owned(),
-        installer.to_owned(),
-        version.to_owned(),
-    ))
+    Ok((registry.to_owned(), version.to_owned()))
 }
 
 struct PartitionInfo {

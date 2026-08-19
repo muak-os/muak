@@ -5,6 +5,7 @@ use std::io::Read;
 use koci::error::KociError;
 use koci::pull;
 
+use crate::domain::resolution::Overlay;
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
@@ -12,7 +13,6 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
-use crate::source::overlay::Overlay;
 
 pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 
@@ -50,7 +50,7 @@ fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
 /// Sizes and names the overlay output streams from the listing.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let overlay = ctx
-        .plan
+        .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
     let files = listing(overlay)?;
@@ -83,7 +83,7 @@ fn run<'a>(
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
     let overlay = ctx
-        .plan
+        .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
     let mut outputs = Endpoint::into_outputs(
@@ -113,7 +113,7 @@ fn run<'a>(
 /// Returns an error when the overlay file listing cannot be fetched.
 fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
     let overlay = ctx
-        .plan
+        .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
 

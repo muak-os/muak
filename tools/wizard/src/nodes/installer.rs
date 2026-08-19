@@ -32,12 +32,12 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
 
 /// Exact tar-entry sizes via the existing koci metadata callback.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let plan = ctx.plan;
+    let build = ctx.build;
 
     let mut sizes = HashMap::new();
     pull::metadata(
-        plan.installer(),
-        &plan.arch(),
+        build.installer(),
+        &build.arch(),
         None,
         |entry: MetadataEntry| {
             sizes.insert(entry.path, entry.size);
@@ -73,14 +73,14 @@ fn run(
     ports: &mut NodePorts<'_>,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
-    let plan = ctx.plan;
+    let build = ctx.build;
     let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(STUB, None)?
         .into_iter()
         .map(|(port, endpoint)| Ok((port, endpoint.into_output()?)))
         .collect::<Result<_>>()?;
 
-    pull::files(plan.installer(), &plan.arch(), None, |entry| {
+    pull::files(build.installer(), &build.arch(), None, |entry| {
         route_entry(&entry.path, entry.reader, &mut outputs)
     })
     .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;

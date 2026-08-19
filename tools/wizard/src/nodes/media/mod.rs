@@ -25,7 +25,7 @@ pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> V
         Dependency::fixed(NodeKind::Uki, uki::UKI_OUTPUT, MEDIA_UKI)
     };
     let mut dependencies = vec![uki];
-    if ctx.plan.overlay().is_some() {
+    if ctx.build.overlay().is_some() {
         dependencies.push(Dependency::many(
             NodeKind::OverlayPull,
             overlay::pull::PULL_OUTPUTS_FIRST,
@@ -57,7 +57,7 @@ pub(crate) fn media_layout<'a>(
 ) -> Result<esp::layout::Layout<'a>> {
     let mut file_metas = Vec::with_capacity(overlays.len().saturating_add(1));
     file_metas.push(FileMeta::new(
-        crate::arch::esp(ctx.plan.arch()).boot_path(),
+        crate::arch::esp(ctx.build.arch()).boot_path(),
         uki.size,
     ));
     file_metas.extend(

@@ -30,10 +30,10 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
 
 /// Exact sizes of the kernel and cmdline entries via the koci metadata callback.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let source = ctx.plan.kernel().source();
+    let source = ctx.build.kernel().source();
 
     let mut sizes = std::collections::HashMap::new();
-    pull::metadata(source, &ctx.plan.arch(), None, |entry| {
+    pull::metadata(source, &ctx.build.arch(), None, |entry| {
         sizes.insert(entry.path, entry.size);
         Ok(())
     })
@@ -66,7 +66,7 @@ fn run(
     ports: &mut NodePorts<'_>,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
-    let source = ctx.plan.kernel().source();
+    let source = ctx.build.kernel().source();
     let mut outputs: Vec<(PortId, OutputStream)> = ports
         .take_from(PortId(0), None)?
         .into_iter()
@@ -74,7 +74,7 @@ fn run(
         .collect::<Result<_>>()?;
     let mut seen_cmdline = false;
 
-    pull::files(source, &ctx.plan.arch(), None, |entry| {
+    pull::files(source, &ctx.build.arch(), None, |entry| {
         route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline)
     })
     .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;

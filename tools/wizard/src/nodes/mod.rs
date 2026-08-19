@@ -89,13 +89,13 @@ mod tests {
     use sbolt::keys::cert::generate_pk;
 
     use super::*;
+    use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::ResolvedBuild;
     use crate::pipeline::context::TargetWriters;
     use crate::request::Platform;
-    use crate::resolve::BuildPlan;
-    use crate::source::kernel::Kernel;
 
-    fn build_plan() -> BuildPlan {
-        BuildPlan::new(
+    fn build_plan() -> ResolvedBuild {
+        ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
@@ -109,9 +109,9 @@ mod tests {
         )
     }
 
-    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
         BuildContext {
-            plan,
+            build,
             profile: b"",
             signing: None,
             writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
@@ -121,8 +121,8 @@ mod tests {
     #[test]
     fn sink_dependencies_route_artifacts_through_the_descriptor_table() {
         // ARRANGE
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
         let routes = [
             (Artifact::Kernel, NodeKind::KernelPull, kernel::KERNEL),
             (Artifact::Cmdline, NodeKind::KernelPull, kernel::CMDLINE),
@@ -157,14 +157,14 @@ mod tests {
     #[test]
     fn signed_uki_routes_the_sink_through_sign() {
         // ARRANGE
-        let plan = build_plan();
+        let build = build_plan();
         let (signer, certificate) = generate_pk("muak-test").expect("generate signing pair");
         let signing = SigningPair {
             signer: &signer,
             certificate: &certificate,
         };
         let ctx = BuildContext {
-            plan: &plan,
+            build: &build,
             profile: b"",
             signing: Some(&signing),
             writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),

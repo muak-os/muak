@@ -19,7 +19,7 @@ use crate::pipeline::normalize::normalize;
 pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(ctx);
     for artifact in artifacts {
-        if *artifact == Artifact::Overlays && ctx.plan.overlay().is_none() {
+        if *artifact == Artifact::Overlays && ctx.build.overlay().is_none() {
             return Err(WizardError::BuildError(
                 "overlays requested but the profile has no overlay".to_owned(),
             ));
@@ -189,16 +189,16 @@ mod tests {
     use sbolt::keys::cert::generate_pk;
 
     use super::*;
+    use crate::domain::resolution::Extension;
+    use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::ResolvedBuild;
     use crate::nodes::uki;
     use crate::pipeline::context::{BuildContext, TargetWriters};
     use crate::request::Platform;
-    use crate::resolve::BuildPlan;
-    use crate::source::extension::Extension;
-    use crate::source::kernel::Kernel;
 
-    fn build_plan() -> BuildPlan {
+    fn build_plan() -> ResolvedBuild {
         // ARRANGE
-        BuildPlan::new(
+        ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
@@ -215,9 +215,9 @@ mod tests {
         )
     }
 
-    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
         BuildContext {
-            plan,
+            build,
             profile: b"",
             signing: None,
             writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
@@ -364,7 +364,7 @@ mod tests {
             certificate: &certificate,
         };
         let ctx = BuildContext {
-            plan: &build,
+            build: &build,
             profile: b"",
             signing: Some(&signing),
             writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),

@@ -9,12 +9,12 @@ use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
+use crate::domain::profile::Profile;
 use crate::error::{Result, WizardError};
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
-use crate::profile::Profile;
-use crate::resolve;
+use crate::resolver;
 
 /// A build request expressing what to build and where to write each artifact.
 pub struct Request<'a> {
@@ -183,11 +183,11 @@ impl<'a> Request<'a> {
             ));
         }
 
-        let resolved = resolve::plan(&self, profile)?;
+        let resolution = resolver::plan(&self, profile)?;
         let profile_bytes = profile.canonical_bytes()?;
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {
-            plan: &resolved,
+            build: resolution.build(),
             profile: &profile_bytes,
             signing: self.signing,
             writers: Mutex::new(TargetWriters::new(self.targets)),

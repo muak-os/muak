@@ -18,7 +18,7 @@ use sbolt::keys::hierarchy::Bundle;
 use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 use tokio::sync::mpsc;
 use wizard::config::{Config, configure};
-use wizard::profile::{CustomizationSpec, Profile};
+use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
 use crate::constants::{SECRETS_DIR, UPDATE_DIR};
@@ -99,11 +99,10 @@ pub async fn prepare(
         None
     };
 
-    let (registry, installer, version) = image_parts(image)?;
+    let (registry, version) = image_parts(image)?;
     configure(Config {
         cache_dir: Some("/run/state/cache/koci".into()),
-        installer: Some(installer),
-        extension_registry: Some(registry),
+        registry,
     })
     .context("Failed to configure wizard")?;
 
@@ -192,7 +191,7 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     ))
 }
 
-fn image_parts(image: &str) -> Result<(String, String, String)> {
+fn image_parts(image: &str) -> Result<(String, String)> {
     let colon = image
         .rfind(':')
         .context("invalid installer image: missing tag")?;
@@ -202,13 +201,8 @@ fn image_parts(image: &str) -> Result<(String, String, String)> {
         .find('/')
         .context("invalid installer image: missing registry")?;
     let registry = path.get(..slash).unwrap_or_default();
-    let installer = path;
 
-    Ok((
-        registry.to_owned(),
-        installer.to_owned(),
-        version.to_owned(),
-    ))
+    Ok((registry.to_owned(), version.to_owned()))
 }
 
 /// Checks for a pending update snapshot and spawns validation in the background.

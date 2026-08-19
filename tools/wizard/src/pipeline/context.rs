@@ -6,13 +6,13 @@ use std::sync::Mutex;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
-use crate::resolve::BuildPlan;
+use crate::domain::resolution::ResolvedBuild;
 
 /// Build inputs, passed explicitly to preflight and runners.
 ///
 /// The context is not part of the logical graph and never contains pipes.
 pub(crate) struct BuildContext<'data, 'sign, 'writers> {
-    pub(crate) plan: &'data BuildPlan,
+    pub(crate) build: &'data ResolvedBuild,
     pub(crate) profile: &'data [u8],
     pub(crate) signing: Option<&'sign SigningPair<'sign>>,
     pub(crate) writers: Mutex<TargetWriters<'writers>>,

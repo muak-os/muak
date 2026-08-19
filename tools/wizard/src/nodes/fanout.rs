@@ -78,12 +78,12 @@ mod tests {
     use koci::arch::Arch;
 
     use super::*;
+    use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::ResolvedBuild;
     use crate::pipeline::context::TargetWriters;
     use crate::pipeline::graph::PortId;
     use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
     use crate::request::Platform;
-    use crate::resolve::BuildPlan;
-    use crate::source::kernel::Kernel;
 
     #[test]
     fn run_fans_out_bytes_to_all_outputs() {
@@ -124,7 +124,7 @@ mod tests {
         };
 
         // ACT
-        let plan = BuildPlan::new(
+        let build = ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
@@ -137,7 +137,7 @@ mod tests {
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
         );
         let ctx = BuildContext {
-            plan: &plan,
+            build: &build,
             profile: b"",
             signing: None,
             writers: Mutex::new(TargetWriters::new(Vec::new())),

@@ -87,14 +87,14 @@ mod tests {
     use koci::arch::Arch;
 
     use super::*;
+    use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::ResolvedBuild;
     use crate::pipeline::context::TargetWriters;
     use crate::pipeline::runtime::{Endpoint, InputStream};
     use crate::request::Platform;
-    use crate::resolve::BuildPlan;
-    use crate::source::kernel::Kernel;
 
-    fn build_plan() -> BuildPlan {
-        BuildPlan::new(
+    fn build_plan() -> ResolvedBuild {
+        ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
@@ -108,9 +108,9 @@ mod tests {
         )
     }
 
-    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
         BuildContext {
-            plan,
+            build,
             profile: b"",
             signing: None,
             writers: Mutex::new(TargetWriters::new(Vec::new())),
@@ -138,10 +138,10 @@ mod tests {
             .write_all(b"artifact bytes")
             .expect("write pipe");
         drop(pipe_writer);
-        let plan = build_plan();
+        let build = build_plan();
         let mut writer = Vec::new();
         let ctx = BuildContext {
-            plan: &plan,
+            build: &build,
             profile: b"",
             signing: None,
             writers: Mutex::new(TargetWriters::new(vec![(Artifact::Kernel, &mut writer)])),
@@ -167,8 +167,8 @@ mod tests {
         // ARRANGE
         let (pipe_writer, pipe_reader) = UnixStream::pair().expect("pipe");
         drop(pipe_writer);
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
         let mut ports = sink_input(pipe_reader);
 
         // ACT
@@ -193,8 +193,8 @@ mod tests {
     #[test]
     fn run_rejects_a_non_sink_kind() {
         // ARRANGE
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
         let mut ports = NodePorts {
             endpoints: Vec::new(),
         };
@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn preflight_confirms_the_input_binding() {
         // ARRANGE
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::KernelPull);
         let sink = graph.add_node(NodeKind::ArtifactSink {
@@ -237,8 +237,8 @@ mod tests {
     #[test]
     fn preflight_rejects_an_unbound_sink() {
         // ARRANGE
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
         let mut graph = Graph::new();
         let sink = graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,

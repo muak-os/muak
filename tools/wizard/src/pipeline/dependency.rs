@@ -151,17 +151,17 @@ mod tests {
     use koci::arch::Arch;
 
     use crate::artifact::Artifact;
+    use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::ResolvedBuild;
     use crate::nodes::NodeKind;
     use crate::nodes::kernel;
     use crate::pipeline::context::BuildContext;
     use crate::pipeline::dependency::validate;
     use crate::pipeline::graph::{Graph, PortId};
     use crate::request::Platform;
-    use crate::resolve::BuildPlan;
-    use crate::source::kernel::Kernel;
 
-    fn build_plan() -> BuildPlan {
-        BuildPlan::new(
+    fn build_plan() -> ResolvedBuild {
+        ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
@@ -175,9 +175,9 @@ mod tests {
         )
     }
 
-    fn context(plan: &BuildPlan) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
         BuildContext {
-            plan,
+            build,
             profile: b"",
             signing: None,
             writers: std::sync::Mutex::new(
@@ -205,8 +205,8 @@ mod tests {
     fn accepts_satisfied_dependencies() {
         // ARRANGE
         let graph = kernel_sink_graph();
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);
@@ -222,8 +222,8 @@ mod tests {
         graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,
         });
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);
@@ -248,8 +248,8 @@ mod tests {
         graph
             .bind_input(consumer, PortId(0), other_stream)
             .expect("bind");
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);
@@ -267,8 +267,8 @@ mod tests {
         let stream = graph.add_output(pull, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), stream).expect("bind");
         graph.bind_input(tar, PortId(2), stream).expect("bind");
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);
@@ -289,8 +289,8 @@ mod tests {
         let wrong = graph.add_output(other, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), first).expect("bind");
         graph.bind_input(tar, PortId(2), wrong).expect("bind");
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);
@@ -304,8 +304,8 @@ mod tests {
         // ARRANGE
         let mut graph = kernel_sink_graph();
         graph.add_node(NodeKind::KernelPull);
-        let plan = build_plan();
-        let ctx = context(&plan);
+        let build = build_plan();
+        let ctx = context(&build);
 
         // ACT
         let result = validate(&graph, &ctx);

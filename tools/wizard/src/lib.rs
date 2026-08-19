@@ -9,13 +9,12 @@ pub mod artifact;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
+pub mod domain;
 pub mod error;
 mod nodes;
 mod pipeline;
-pub mod profile;
 pub mod request;
-pub mod resolve;
-pub mod source;
+pub(crate) mod resolver;
 mod stream;
 
 use serde::{Deserialize, Serialize};
