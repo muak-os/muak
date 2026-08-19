@@ -178,6 +178,7 @@ async fn build_and_deploy_efi(
     send_progress(progress, "Building and deploying EFI").await;
 
     let install_profile = derive_install_profile(extensions)?;
+    let has_overlay = install_profile.overlay().is_some();
 
     let (registry, version) = image_parts(image)?;
     configure(Config {
@@ -193,10 +194,20 @@ async fn build_and_deploy_efi(
         esp::arch::Arch::current().boot_path(),
     )?;
 
-    let (mut overlay_r, mut overlay_w) = UnixStream::pair()?;
+    let (mut overlay_r, mut overlay_w) = if has_overlay {
+        let (r, w) = UnixStream::pair()?;
+        (Some(r), Some(w))
+    } else {
+        (None, None)
+    };
 
     let esp_root = PathBuf::from(efi::MOUNT_POINT);
-    let demux = tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut overlay_r));
+    let demux = match overlay_r.take() {
+        Some(mut reader) => Some(tokio::task::spawn_blocking(move || {
+            efi::extract_tar(&esp_root, &mut reader)
+        })),
+        None => None,
+    };
 
     let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
@@ -204,9 +215,10 @@ async fn build_and_deploy_efi(
             certificate: &hierarchy.db.certificate,
         });
 
-        let request = Request::new(version, Platform::Metal)
-            .uki(&mut uki_file)?
-            .overlays(&mut overlay_w)?;
+        let mut request = Request::new(version, Platform::Metal).uki(&mut uki_file)?;
+        if let Some(writer) = overlay_w.as_mut() {
+            request = request.overlays(writer)?;
+        }
 
         let request = match pair.as_ref() {
             Some(pair) => request.sign(pair),
@@ -226,7 +238,9 @@ async fn build_and_deploy_efi(
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", luks_key)?;
     }
 
-    demux.await??;
+    if let Some(demux) = demux {
+        demux.await??;
+    }
 
     efi::unmount();
 
