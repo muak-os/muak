@@ -88,7 +88,7 @@ mod tests {
 
     use super::*;
     use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::ResolvedBuild;
+    use crate::domain::resolution::{ResolvedBuild, Sources};
     use crate::pipeline::context::TargetWriters;
     use crate::pipeline::runtime::{Endpoint, InputStream};
     use crate::request::Platform;
@@ -98,13 +98,16 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Vec::new(),
-            None,
-            Kernel::new(
-                "ghcr.io/muak-os/kernel".to_owned(),
-                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
-            ),
-            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            Sources {
+                stub: "ghcr.io/muak-os/pkgs/stub:v1.0.0".to_owned(),
+                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+                kernel: Kernel::new(
+                    "ghcr.io/muak-os/kernel".to_owned(),
+                    "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+                ),
+                overlay: None,
+                extensions: Vec::new(),
+            },
         )
     }
 

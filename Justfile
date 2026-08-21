@@ -59,7 +59,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer sign (artifacts "iso")
+dev: (build "--release" "") installer (oci "stub") sign (artifacts "iso")
 
 # Build the default Linux kernel image
 kernel:
@@ -96,12 +96,10 @@ installer prod="false":
     pkgs="granola provisiond modd networkd apid vmd timed consoled millefeuille"
     pkg_args=(--build-arg PKG_KERNEL="{{ registry }}/kernel:{{ tag }}")
     if [ "{{ prod }}" = "false" ]; then
-        pkg_args+=(--build-context pkg-stub=target/{{ arch }}-unknown-uefi/release)
         for pkg in $pkgs; do
             pkg_args+=(--build-context "pkg-$pkg={{ release_dir }}")
         done
     else
-        pkg_args+=(--build-arg PKG_STUB={{ registry }}/pkgs/stub:{{ tag }})
         for pkg in $pkgs; do
             pkg_args+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
         done

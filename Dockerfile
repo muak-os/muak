@@ -16,7 +16,6 @@ ARG PKG_VMD=ghcr.io/muak-os/pkgs/vmd:latest
 ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
 ARG PKG_CONSOLED=ghcr.io/muak-os/pkgs/consoled:latest
 ARG PKG_MILLEFEUILLE=ghcr.io/muak-os/pkgs/millefeuille:latest
-ARG PKG_STUB=ghcr.io/muak-os/pkgs/stub:latest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Import packages
@@ -30,7 +29,6 @@ FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_MILLEFEUILLE} AS pkg-millefeuille
-FROM ${PKG_STUB} AS pkg-stub
 FROM ${PKG_KERNEL} AS pkg-kernel
 FROM ${TOOLS} AS tools
 
@@ -92,7 +90,6 @@ RUN ["/ramune", "create", \
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch
 
-COPY --link --from=pkg-stub          /stub.efi      /stub.efi
 COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
 
 LABEL org.opencontainers.image.title="installer"

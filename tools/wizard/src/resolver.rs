@@ -6,7 +6,7 @@ use crate::config;
 use crate::domain::identity::ResolutionId;
 use crate::domain::profile::{Profile, normalize_extension_name};
 use crate::domain::release::{Manifest, manifest_for_version};
-use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild};
+use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild, Sources};
 use crate::error::{Result, WizardError};
 use crate::request::Request;
 
@@ -30,6 +30,7 @@ pub(crate) fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
 
     let registry = &config.registry;
     let installer = manifest.installer().reference(registry);
+    let stub = manifest.stub().reference(registry);
     let kernel = match_kernel(profile, &manifest, registry)?;
     let extensions = match_extensions(profile, &manifest, registry)?;
     let overlay = match_overlay(profile, &manifest, registry, arch)?;
@@ -38,10 +39,13 @@ pub(crate) fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
         request.platform(),
         manifest.version().to_owned(),
         arch,
-        extensions,
-        overlay,
-        kernel,
-        installer,
+        Sources {
+            stub,
+            installer,
+            kernel,
+            overlay,
+            extensions,
+        },
     );
     let resolution_id = ResolutionId::compute(
         &profile_id,
@@ -204,6 +208,7 @@ mod tests {
         // ASSERT
         let build = resolution.build();
         assert_eq!(build.installer(), "ghcr.io/muak-os/installer:latest");
+        assert_eq!(build.stub(), "ghcr.io/muak-os/pkgs/stub:latest");
         assert_eq!(build.kernel().source(), "ghcr.io/muak-os/kernel:latest");
         assert_eq!(build.kernel().image(), "muak-os/kernel");
         assert_eq!(build.version(), "latest");
@@ -316,6 +321,10 @@ mod tests {
         assert_eq!(
             resolution.build().installer(),
             "ghcr.io/muak-os/installer:v2.0.0"
+        );
+        assert_eq!(
+            resolution.build().stub(),
+            "ghcr.io/muak-os/pkgs/stub:v2.0.0"
         );
         assert_eq!(
             resolution.build().kernel().source(),

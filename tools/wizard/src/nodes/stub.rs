@@ -1,4 +1,4 @@
-//! Routes the installer initramfs into the build stream.
+//! Routes the stub image into the UKI build stream.
 
 use std::collections::HashMap;
 
@@ -14,8 +14,8 @@ use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
-pub(crate) const INITRAMFS: PortId = PortId(0);
-pub(crate) const INITRAMFS_PATH: &str = "initramfs.img";
+pub(crate) const STUB: PortId = PortId(0);
+pub(crate) const STUB_PATH: &str = "stub.efi";
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
@@ -34,62 +34,52 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
     let build = ctx.build;
 
     let mut sizes = HashMap::new();
-    pull::metadata(
-        build.installer(),
-        &build.arch(),
-        None,
-        |entry: MetadataEntry| {
-            sizes.insert(entry.path, entry.size);
+    pull::metadata(build.stub(), &build.arch(), None, |entry: MetadataEntry| {
+        sizes.insert(entry.path, entry.size);
+        Ok(())
+    })
+    .map_err(|e| WizardError::BuildError(format!("extract stub metadata: {e}")))?;
 
-            Ok(())
-        },
-    )
-    .map_err(|e| WizardError::BuildError(format!("extract installer metadata: {e}")))?;
-
-    let size = sizes.get(INITRAMFS_PATH).copied().ok_or_else(|| {
-        WizardError::BuildError(format!("missing installer size for {INITRAMFS_PATH}"))
-    })?;
+    let size = sizes
+        .get(STUB_PATH)
+        .copied()
+        .ok_or_else(|| WizardError::BuildError(format!("missing stub size for {STUB_PATH}")))?;
 
     let binding = graph
         .node(id)?
         .output_bindings()
         .copied()
         .next()
-        .ok_or_else(|| WizardError::BuildError("installer node has no output binding".into()))?;
+        .ok_or_else(|| WizardError::BuildError("stub node has no output binding".into()))?;
     let stream = graph.stream_mut(binding.stream)?;
     stream.size = size;
-    INITRAMFS_PATH.clone_into(&mut stream.name);
+    STUB_PATH.clone_into(&mut stream.name);
 
     Ok(())
 }
 
-/// Pulls the installer once and writes its initramfs to the output stream.
+/// Pulls the stub once and writes its PE binary to the output stream.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_>,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
+    let build = ctx.build;
     let mut output = ports
-        .take_from(INITRAMFS, None)?
+        .take_from(STUB, None)?
         .into_iter()
         .next()
-        .ok_or_else(|| WizardError::BuildError("installer node has no output".into()))?
+        .ok_or_else(|| WizardError::BuildError("stub node has no output".into()))?
         .1
         .into_output()?;
 
-    pull::files(
-        ctx.build.installer(),
-        &ctx.build.arch(),
-        None,
-        |mut entry| {
-            if entry.path == INITRAMFS_PATH {
-                std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;
-            }
-
-            Ok(())
-        },
-    )
-    .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;
+    pull::files(build.stub(), &build.arch(), None, |mut entry| {
+        if entry.path == STUB_PATH {
+            std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;
+        }
+        Ok(())
+    })
+    .map_err(|e| WizardError::BuildError(format!("pull stub files: {e}")))?;
 
     Ok(NodeReport::Empty)
 }

@@ -5,6 +5,16 @@ use koci::arch::Arch;
 use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};
 use crate::request::Platform;
 
+/// The resolved OCI sources and their selected inputs for one build.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Sources {
+    pub(crate) stub: String,
+    pub(crate) installer: String,
+    pub(crate) kernel: Kernel,
+    pub(crate) overlay: Option<Overlay>,
+    pub(crate) extensions: Vec<Extension>,
+}
+
 /// The resolved build inputs produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedBuild {
@@ -15,27 +25,21 @@ pub struct ResolvedBuild {
     overlay: Option<Overlay>,
     kernel: Kernel,
     installer: String,
+    stub: String,
 }
 
 impl ResolvedBuild {
     #[must_use]
-    pub(crate) fn new(
-        platform: Platform,
-        version: String,
-        arch: Arch,
-        extensions: Vec<Extension>,
-        overlay: Option<Overlay>,
-        kernel: Kernel,
-        installer: String,
-    ) -> Self {
+    pub(crate) fn new(platform: Platform, version: String, arch: Arch, sources: Sources) -> Self {
         Self {
             platform,
             version,
             arch,
-            extensions,
-            overlay,
-            kernel,
-            installer,
+            extensions: sources.extensions,
+            overlay: sources.overlay,
+            kernel: sources.kernel,
+            installer: sources.installer,
+            stub: sources.stub,
         }
     }
 
@@ -79,6 +83,12 @@ impl ResolvedBuild {
     #[must_use]
     pub fn installer(&self) -> &str {
         &self.installer
+    }
+
+    /// Returns the resolved stub OCI reference.
+    #[must_use]
+    pub fn stub(&self) -> &str {
+        &self.stub
     }
 }
 
@@ -257,13 +267,16 @@ mod tests {
             Platform::Metal,
             manifest.version().to_owned(),
             Arch::Amd64,
-            vec![],
-            None,
-            Kernel::new(
-                "muak-os/kernel".into(),
-                "ghcr.io/muak-os/kernel:latest".into(),
-            ),
-            "ghcr.io/muak-os/installer:latest".into(),
+            Sources {
+                stub: "ghcr.io/muak-os/pkgs/stub:latest".into(),
+                installer: "ghcr.io/muak-os/installer:latest".into(),
+                kernel: Kernel::new(
+                    "muak-os/kernel".into(),
+                    "ghcr.io/muak-os/kernel:latest".into(),
+                ),
+                overlay: None,
+                extensions: vec![],
+            },
         );
         let resolution = Resolution::new(
             profile.profile_id().expect("profile id"),
@@ -286,6 +299,10 @@ mod tests {
         assert_eq!(
             resolution.build().installer(),
             "ghcr.io/muak-os/installer:latest"
+        );
+        assert_eq!(
+            resolution.build().stub(),
+            "ghcr.io/muak-os/pkgs/stub:latest"
         );
     }
 

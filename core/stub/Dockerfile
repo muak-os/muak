@@ -9,6 +9,7 @@ FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS deps
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
+ARG NIGHTLY=nightly-2026-07-31
 
 ARG TARGET=${TARGETARCH/amd64/x86_64}
 ARG TARGET=${TARGET/arm64/aarch64}
@@ -26,7 +27,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   cargo install --locked cargo-chef
 
-RUN rustup target add ${UEFI_TARGET} --toolchain nightly
+RUN rustup target add ${UEFI_TARGET} --toolchain ${NIGHTLY}
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS planner
@@ -45,8 +46,8 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
-  cargo +nightly chef cook --release --target ${UEFI_TARGET} --features uefi \
-  --package stub --recipe-path recipe.json
+  cargo +${NIGHTLY} chef cook --release --target ${UEFI_TARGET} --features uefi \
+   --package stub --recipe-path recipe.json
 
 COPY . .
 
@@ -56,7 +57,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   <<EOF
 set -euo pipefail
 
-cargo +nightly build --release --target ${UEFI_TARGET} --features uefi --locked -p stub
+cargo +${NIGHTLY} build --release --target ${UEFI_TARGET} --features uefi --locked -p stub
 cp target/${UEFI_TARGET}/release/stub.efi /stub.efi
 EOF
 

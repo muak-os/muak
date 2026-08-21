@@ -9,6 +9,7 @@ pub(crate) mod media;
 pub(crate) mod overlay;
 pub(crate) mod sign;
 pub(crate) mod sink;
+pub(crate) mod stub;
 pub(crate) mod uki;
 
 use crate::artifact::Artifact;
@@ -23,6 +24,7 @@ use crate::pipeline::runtime::NodePorts;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum NodeKind {
     InstallerPull,
+    StubPull,
     KernelPull,
     ExtensionPayloads,
     InitramfsTail,
@@ -50,6 +52,7 @@ pub(crate) struct NodeDescriptor {
 pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
     match kind {
         NodeKind::InstallerPull => &installer::DESCRIPTOR,
+        NodeKind::StubPull => &stub::DESCRIPTOR,
         NodeKind::KernelPull => &kernel::DESCRIPTOR,
         NodeKind::ExtensionPayloads => &extensions::DESCRIPTOR,
         NodeKind::InitramfsTail => &initramfs::tail::DESCRIPTOR,
@@ -90,7 +93,7 @@ mod tests {
 
     use super::*;
     use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::ResolvedBuild;
+    use crate::domain::resolution::{ResolvedBuild, Sources};
     use crate::pipeline::context::TargetWriters;
     use crate::request::Platform;
 
@@ -99,13 +102,16 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Vec::new(),
-            None,
-            Kernel::new(
-                "ghcr.io/muak-os/kernel".to_owned(),
-                "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
-            ),
-            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            Sources {
+                stub: "ghcr.io/muak-os/pkgs/stub:v1.0.0".to_owned(),
+                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+                kernel: Kernel::new(
+                    "ghcr.io/muak-os/kernel".to_owned(),
+                    "ghcr.io/muak-os/kernel:v1.0.0".to_owned(),
+                ),
+                overlay: None,
+                extensions: Vec::new(),
+            },
         )
     }
 

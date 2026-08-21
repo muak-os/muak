@@ -11,8 +11,8 @@ use yuki::write::{self, Input};
 use crate::SectionInfo;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
-use crate::nodes::installer;
 use crate::nodes::kernel;
+use crate::nodes::stub;
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -36,7 +36,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 /// Stub and initramfs from the installer and kernel and cmdline from their sources.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
-        Dependency::fixed(NodeKind::InstallerPull, installer::STUB, UKI_STUB),
+        Dependency::fixed(NodeKind::StubPull, stub::STUB, UKI_STUB),
         Dependency::fixed(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
         Dependency::fixed(NodeKind::KernelPull, kernel::CMDLINE, UKI_CMDLINE),
         Dependency::fixed(
@@ -58,7 +58,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
     let build = ctx.build;
 
     let mut prefix = Vec::new();
-    pull::files(build.installer(), &build.arch(), None, |entry| {
+    pull::files(build.stub(), &build.arch(), None, |entry| {
         if entry.path == "stub.efi" {
             let max = u64::try_from(yuki::probe::MAX_HEADER_BYTES)
                 .map_err(|e| std::io::Error::other(format!("stub prefix size: {e}")))?;

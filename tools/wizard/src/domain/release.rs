@@ -17,6 +17,11 @@ source = "muak-os/installer"
 repository = "installer"
 tag = "latest"
 
+[stub]
+source = "muak-os/stub"
+repository = "pkgs/stub"
+tag = "latest"
+
 [kernel]
 source = "muak-os/kernel"
 repository = "kernel"
@@ -88,6 +93,7 @@ pub struct Manifest {
     name: String,
     version: String,
     installer: Image,
+    stub: Image,
     kernel: Image,
     #[serde(default)]
     extensions: Vec<Extension>,
@@ -129,6 +135,12 @@ impl Manifest {
     #[must_use]
     pub const fn installer(&self) -> &Image {
         &self.installer
+    }
+
+    /// Returns the stub image entry.
+    #[must_use]
+    pub const fn stub(&self) -> &Image {
+        &self.stub
     }
 
     /// Returns the kernel image entry.
@@ -187,6 +199,7 @@ impl Manifest {
         let mut manifest = self.clone();
         version.clone_into(&mut manifest.version);
         set_tag(&mut manifest.installer.tag, version);
+        set_tag(&mut manifest.stub.tag, version);
         set_tag(&mut manifest.kernel.tag, version);
         for entry in &mut manifest.extensions {
             set_tag(&mut entry.tag, version);
@@ -370,6 +383,11 @@ source = "muak-os/installer"
 repository = "installer"
 tag = "v1.0.0"
 
+[stub]
+source = "muak-os/stub"
+repository = "pkgs/stub"
+tag = "v1.0.0"
+
 [kernel]
 source = "muak-os/kernel"
 repository = "kernel"
@@ -396,6 +414,7 @@ tag = "v1.0.0"
         // ASSERT
         assert_eq!(manifest.name(), "muak-os/release");
         assert_eq!(manifest.installer().repository(), "installer");
+        assert_eq!(manifest.stub().repository(), "pkgs/stub");
         assert_eq!(manifest.kernel().repository(), "kernel");
         assert_eq!(manifest.extensions().len(), 1);
         assert_eq!(manifest.overlays().len(), 1);
@@ -409,6 +428,7 @@ tag = "v1.0.0"
         // ASSERT
         assert_eq!(manifest.version(), "v2.3.4");
         assert_eq!(manifest.installer().tag(), "v2.3.4");
+        assert_eq!(manifest.stub().tag(), "v2.3.4");
         assert_eq!(manifest.kernel().tag(), "v2.3.4");
         assert!(
             manifest
@@ -445,6 +465,7 @@ tag = "v1.0.0"
         // ASSERT
         assert_eq!(manifest.version(), "v1.0.0");
         assert_eq!(manifest.installer().source(), "muak-os/installer");
+        assert_eq!(manifest.stub().source(), "muak-os/stub");
         assert_eq!(manifest.kernel().tag(), "v1.0.0");
         assert_eq!(manifest.extensions().first().expect("ext").name(), "qemu");
         assert_eq!(
@@ -539,7 +560,7 @@ tag = "v1.0.0"
     #[test]
     fn default_extensions_and_overlays_are_empty() {
         // ARRANGE
-        let raw = b"api_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
+        let raw = b"api_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[stub]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
 
         // ACT
         let manifest = Manifest::from_toml(raw).expect("parse");
