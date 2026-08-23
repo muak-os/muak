@@ -2755,11 +2755,8 @@ dependencies = [
 name = "yuki"
 version = "1.0.0-beta"
 dependencies = [
- "anyhow",
- "clap",
  "object",
  "ring",
- "tempfile",
  "thiserror 2.0.20",
  "uki",
 ]

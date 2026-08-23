@@ -1,6 +1,6 @@
 [package]
 name = "yuki"
-description = "UKI builder - add PE sections to EFI stub"
+description = "A tool for working with UKIs"
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
@@ -9,19 +9,11 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[[bin]]
-name = "yuki"
-required-features = ["cli"]
-
 [dependencies]
-# CLI
-clap = { workspace = true, optional = true }
-
 # Cryptography
 ring = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
@@ -29,13 +21,6 @@ uki = { workspace = true }
 
 # Utilities
 object = { workspace = true }
-
-[features]
-default = ["cli"]
-cli = ["clap", "anyhow"]
-
-[dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true
