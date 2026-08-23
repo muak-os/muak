@@ -20,6 +20,7 @@ members = [
     "tools/miso",
     "tools/mumi",
     "tools/ramune",
+    "tools/sbolt",
     "tools/yuki",
 
     "libs/btrfs",
@@ -30,7 +31,6 @@ members = [
     "libs/kmsg",
     "libs/luks2",
     "libs/pki",
-    "libs/sbolt",
     "libs/tpm2",
     "libs/erofs",
     "libs/fatfs",
@@ -57,6 +57,7 @@ koci = { path = "tools/koci", default-features = false }
 miso = { path = "tools/miso", default-features = false }
 mumi = { path = "tools/mumi", default-features = false }
 ramune = { path = "tools/ramune", default-features = false }
+sbolt = { path = "tools/sbolt", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
 btrfs = { path = "libs/btrfs" }
@@ -72,7 +73,6 @@ luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 parttable = { path = "libs/parttable" }
 pki = { path = "libs/pki" }
-sbolt = { path = "libs/sbolt" }
 tpm2 = { path = "libs/tpm2" }
 uki = { path = "libs/uki" }
 
