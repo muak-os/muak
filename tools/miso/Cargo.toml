@@ -9,31 +9,16 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[[bin]]
-name = "miso"
-required-features = ["cli"]
-
 [dependencies]
-# CLI
-clap = { workspace = true, optional = true }
-
 # Compression
 zstd = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
 esp = { workspace = true }
 parttable = { workspace = true }
-
-[features]
-default = ["cli"]
-cli = ["clap", "anyhow"]
-
-[dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

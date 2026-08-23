@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/build/target \
   cargo chef cook --release --target ${RUST_TARGET} \
-  --package koci --package miso --package mumi --package ramune --package wizard \
+  --package koci --package mumi --package ramune --package wizard \
   --recipe-path recipe.json
 
 COPY . .
@@ -75,9 +75,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 set -euo pipefail
 
 cargo build --release --target ${RUST_TARGET} --locked \
-  -p koci -p miso -p mumi -p ramune -p wizard
+  -p koci -p mumi -p ramune -p wizard
   cp target/${RUST_TARGET}/release/koci /koci
-  cp target/${RUST_TARGET}/release/miso /miso
   cp target/${RUST_TARGET}/release/mumi /mumi
   cp target/${RUST_TARGET}/release/ramune  /ramune
   cp target/${RUST_TARGET}/release/wizard  /wizard
@@ -87,7 +86,6 @@ EOF
 FROM scratch
 
 COPY --link --from=builder /koci /koci
-COPY --link --from=builder /miso /miso
 COPY --link --from=builder /mumi /mumi
 COPY --link --from=builder /ramune  /ramune
 COPY --link --from=builder /wizard  /wizard
