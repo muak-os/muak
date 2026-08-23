@@ -7,6 +7,8 @@ pub enum Arch {
     X86_64,
     /// 64-bit ARM architecture.
     Aarch64,
+    /// 64-bit RISC-V architecture.
+    Riscv64,
 }
 
 impl Arch {
@@ -21,7 +23,15 @@ impl Arch {
         {
             Self::Aarch64
         }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        #[cfg(target_arch = "riscv64")]
+        {
+            Self::Riscv64
+        }
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64"
+        )))]
         panic!("unsupported target architecture")
     }
 
@@ -31,6 +41,7 @@ impl Arch {
         match self {
             Self::X86_64 => "EFI/BOOT/BOOTX64.EFI",
             Self::Aarch64 => "EFI/BOOT/BOOTAA64.EFI",
+            Self::Riscv64 => "EFI/BOOT/BOOTRISCV64.EFI",
         }
     }
 }
@@ -44,6 +55,7 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Arch::X86_64.boot_path(), "EFI/BOOT/BOOTX64.EFI");
         assert_eq!(Arch::Aarch64.boot_path(), "EFI/BOOT/BOOTAA64.EFI");
+        assert_eq!(Arch::Riscv64.boot_path(), "EFI/BOOT/BOOTRISCV64.EFI");
     }
 
     #[test]
@@ -56,5 +68,7 @@ mod tests {
         assert_eq!(arch, Arch::X86_64);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(arch, Arch::Aarch64);
+        #[cfg(target_arch = "riscv64")]
+        assert_eq!(arch, Arch::Riscv64);
     }
 }

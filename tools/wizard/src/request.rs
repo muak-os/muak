@@ -237,8 +237,10 @@ mod tests {
         // ARRANGE & ACT & ASSERT
         assert_eq!(Arch::Amd64.as_str(), "amd64");
         assert_eq!(Arch::Arm64.as_str(), "arm64");
+        assert_eq!(Arch::Riscv64.as_str(), "riscv64");
         assert_eq!(format!("{}", Arch::Amd64), "amd64");
         assert_eq!(format!("{}", Arch::Arm64), "arm64");
+        assert_eq!(format!("{}", Arch::Riscv64), "riscv64");
         assert_eq!(format!("{}", Platform::Metal), "metal");
     }
 

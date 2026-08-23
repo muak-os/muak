@@ -11,6 +11,7 @@ pub fn esp(arch: Arch) -> EspArch {
     match arch {
         Arch::Amd64 => EspArch::X86_64,
         Arch::Arm64 => EspArch::Aarch64,
+        Arch::Riscv64 => EspArch::Riscv64,
     }
 }
 
@@ -23,6 +24,7 @@ pub fn parse(name: &str) -> Result<Arch> {
     match name {
         "amd64" => Ok(Arch::Amd64),
         "arm64" => Ok(Arch::Arm64),
+        "riscv64" => Ok(Arch::Riscv64),
         other => Err(WizardError::ProfileValidation(format!(
             "unknown architecture: {other}"
         ))),

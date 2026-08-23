@@ -19,6 +19,9 @@ const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;
 #[cfg(target_arch = "aarch64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 
+#[cfg(target_arch = "riscv64")]
+const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
+
 /// Loads the staged kernel via kexec and reboots into it.
 pub fn run(update_id: &str) -> Result<()> {
     let update_dir = Path::new(UPDATE_DIR);

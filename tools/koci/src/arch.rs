@@ -13,6 +13,8 @@ pub enum Arch {
     Amd64,
     /// 64-bit ARM architecture.
     Arm64,
+    /// 64-bit RISC-V architecture.
+    Riscv64,
 }
 
 impl Arch {
@@ -22,6 +24,7 @@ impl Arch {
         match self {
             Self::Amd64 => "amd64",
             Self::Arm64 => "arm64",
+            Self::Riscv64 => "riscv64",
         }
     }
 }
@@ -35,10 +38,10 @@ impl fmt::Display for Arch {
 /// Returns the OCI architecture for the current host.
 #[must_use]
 pub fn host() -> Arch {
-    if std::env::consts::ARCH == "aarch64" {
-        Arch::Arm64
-    } else {
-        Arch::Amd64
+    match std::env::consts::ARCH {
+        "aarch64" => Arch::Arm64,
+        "riscv64" => Arch::Riscv64,
+        _ => Arch::Amd64,
     }
 }
 
@@ -51,6 +54,7 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Arch::Amd64.as_str(), "amd64");
         assert_eq!(Arch::Arm64.as_str(), "arm64");
+        assert_eq!(Arch::Riscv64.as_str(), "riscv64");
     }
 
     #[test]
@@ -58,5 +62,6 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(format!("{}", Arch::Amd64), "amd64");
         assert_eq!(format!("{}", Arch::Arm64), "arm64");
+        assert_eq!(format!("{}", Arch::Riscv64), "riscv64");
     }
 }
