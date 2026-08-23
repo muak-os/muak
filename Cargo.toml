@@ -145,7 +145,7 @@ uefi = "0.37"
 
 ## Utilities
 object = { version = "0.39", default-features = false, features = ["read", "pe"] }
-uuid = { version = "1.24", default-features = false, features = ["v4", "v7"] }
+uuid = { version = "1.25", default-features = false, features = ["v4", "v7"] }
 
 ## Procedural macros
 syn = { version = "3.0", features = ["full"] }
