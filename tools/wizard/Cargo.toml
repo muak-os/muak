@@ -32,13 +32,13 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
-mumi = { workspace = true, default-features = false }
+mumi = { workspace = true }
 esp = { workspace = true }
-koci = { workspace = true, default-features = false }
-miso = { workspace = true, default-features = false }
-ramune = { workspace = true, default-features = false }
+koci = { workspace = true }
+miso = { workspace = true}
+ramune = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
-yuki = { workspace = true, default-features = false }
+yuki = { workspace = true }
 
 [features]
 default = ["cli"]
