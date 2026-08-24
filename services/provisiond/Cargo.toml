@@ -46,7 +46,7 @@ kmsg = { workspace = true }
 luks2 = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
-sbolt = { workspace = true }
+sbolt = { workspace = true, features = ["linux"] }
 tpm2 = { workspace = true }
 
 # System/platform APIs

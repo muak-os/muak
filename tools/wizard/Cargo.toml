@@ -37,7 +37,7 @@ esp = { workspace = true }
 koci = { workspace = true, default-features = false }
 miso = { workspace = true, default-features = false }
 ramune = { workspace = true, default-features = false }
-sbolt = { workspace = true }
+sbolt = { workspace = true, features = ["linux"] }
 yuki = { workspace = true, default-features = false }
 
 [features]
