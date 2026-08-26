@@ -114,13 +114,14 @@ impl DepDb {
     }
 }
 
-/// Extracts the module name from a relative module path.
+/// Extracts the canonical module name from a relative module path.
 pub(crate) fn get_module_name(path: &str) -> Option<String> {
     let filename = path.rsplit('/').next()?;
     let name = filename
         .strip_suffix(".ko.zst")
         .or_else(|| filename.strip_suffix(".ko"))?;
-    Some(name.to_owned())
+
+    Some(name.replace('-', "_"))
 }
 
 #[cfg(test)]
@@ -141,6 +142,30 @@ mod tests {
 
         // ASSERT
         assert_eq!(result, Some("igc".to_owned()));
+    }
+
+    #[test]
+    fn get_module_name_normalizes_dashes_to_underscores() {
+        // ARRANGE
+        let path = "kernel/drivers/i2c/busses/i2c-i801.ko.zst";
+
+        // ACT
+        let result = get_module_name(path);
+
+        // ASSERT
+        assert_eq!(result, Some("i2c_i801".to_owned()));
+    }
+
+    #[test]
+    fn get_module_name_plain_ko_normalizes_dashes() {
+        // ARRANGE
+        let path = "kernel/drivers/vfio/pci/vfio-pci.ko";
+
+        // ACT
+        let result = get_module_name(path);
+
+        // ASSERT
+        assert_eq!(result, Some("vfio_pci".to_owned()));
     }
 
     #[test]
@@ -334,6 +359,32 @@ mod tests {
     }
 
     #[test]
+    fn resolve_load_order_dash_module_by_underscore_name() {
+        // ARRANGE
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(
+            file,
+            "kernel/i2c/busses/i2c-i801.ko.zst: kernel/i2c/i2c-smbus.ko.zst"
+        )
+        .expect("write failed");
+        writeln!(file, "kernel/i2c/i2c-smbus.ko.zst:").expect("write failed");
+
+        let db = DepDb::load(file.path()).expect("load failed");
+
+        // ACT
+        let order = db.resolve_load_order("i2c_i801").expect("resolve failed");
+
+        // ASSERT
+        assert_eq!(
+            order,
+            vec![
+                "kernel/i2c/i2c-smbus.ko.zst",
+                "kernel/i2c/busses/i2c-i801.ko.zst"
+            ]
+        );
+    }
+
+    #[test]
     fn resolve_load_order_chain() {
         // ARRANGE
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
@@ -369,7 +420,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(order.len(), 4);
-        assert!(order.iter().filter(|x| x.contains("/d.")).count() == 1);
+        assert_eq!(order.iter().filter(|x| x.contains("/d.")).count(), 1);
         let d_pos = order
             .iter()
             .position(|x| x.contains("/d."))
