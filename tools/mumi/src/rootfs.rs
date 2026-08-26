@@ -1,13 +1,12 @@
-//! Rootfs-specific directory injection and positional file readers.
+//! Rootfs-specific directory injection and per-entry file readers.
 
-use std::io::{self, Read as _};
+use std::io::{self, Read};
 use std::path::Path;
 
 use erofs::dir::EROFS_FT_REG_FILE;
 use erofs::tree::TreeEntry;
 
 use crate::error::{MumiError, Result};
-use crate::image::Reader;
 
 /// Required Linux boot directories.
 pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "etc/selinux"];
@@ -20,10 +19,9 @@ pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services"
 pub fn inject_required_dirs(root: &Path) -> Result<()> {
     for dir in REQUIRED_DIRS {
         std::fs::create_dir_all(root.join(dir)).map_err(|source| {
-            MumiError::Io(io::Error::new(
-                source.kind(),
-                format!("Failed to create required directory: {dir}: {source}"),
-            ))
+            MumiError::Io(io::Error::other(format!(
+                "Failed to create required directory: {dir}: {source}"
+            )))
         })?;
     }
 
@@ -41,35 +39,42 @@ pub fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| {
-            MumiError::Io(io::Error::new(
-                source.kind(),
-                format!("Failed to create parent for {}: {source}", path.display()),
-            ))
+            MumiError::Io(io::Error::other(format!(
+                "Failed to create parent for {}: {source}",
+                path.display()
+            )))
         })?;
     }
     std::os::unix::fs::symlink("/run/resolv.conf", path).map_err(|source| {
-        MumiError::Io(io::Error::new(
-            source.kind(),
-            format!("Failed to create symlink at {}: {source}", path.display()),
-        ))
+        MumiError::Io(io::Error::other(format!(
+            "Failed to create symlink at {}: {source}",
+            path.display()
+        )))
     })?;
 
     Ok(())
 }
 
-/// Positional file data source over open `File`s, with empty sources for
-/// directories, symlinks, and empty files.
+/// One sequential `Read` view per entry, for a single consumer pass.
 #[derive(Debug)]
-pub struct FileReader {
+pub struct FileReaders {
     files: Vec<Option<std::fs::File>>,
+    empties: Vec<std::io::Empty>,
 }
 
-impl Reader for FileReader {
-    fn read(&mut self, index: usize, buf: &mut [u8]) -> io::Result<usize> {
-        match self.files.get_mut(index).and_then(|slot| slot.as_mut()) {
-            Some(file) => file.read(buf),
-            None => Ok(0),
-        }
+impl FileReaders {
+    /// Borrows every entry as a `Read` view.
+    pub fn views(&mut self) -> Vec<&mut dyn Read> {
+        self.files
+            .iter_mut()
+            .zip(self.empties.iter_mut())
+            .map(|(file, empty)| -> &mut dyn Read {
+                match file.as_mut() {
+                    Some(file) => file,
+                    None => empty,
+                }
+            })
+            .collect()
     }
 }
 
@@ -78,7 +83,7 @@ impl Reader for FileReader {
 /// # Errors
 ///
 /// Returns an error if a regular file with non-zero size cannot be opened.
-pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReader> {
+pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReaders> {
     let mut files = Vec::with_capacity(entries.len());
     for ent in entries {
         let should_open = ent.file_type == EROFS_FT_REG_FILE && ent.size > 0;
@@ -88,15 +93,16 @@ pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReader> {
         }
         let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
         let file = std::fs::File::open(&path).map_err(|source| {
-            MumiError::Io(io::Error::new(
-                source.kind(),
-                format!("Failed to open {}: {source}", path.display()),
-            ))
+            MumiError::Io(io::Error::other(format!(
+                "Failed to open {}: {source}",
+                path.display()
+            )))
         })?;
         files.push(Some(file));
     }
+    let empties = vec![io::empty(); entries.len()];
 
-    Ok(FileReader { files })
+    Ok(FileReaders { files, empties })
 }
 
 #[cfg(test)]
@@ -118,10 +124,12 @@ mod tests {
         }
     }
 
-    fn read_all(reader: &mut FileReader, index: usize) -> Vec<u8> {
+    fn read_all(readers: &mut FileReaders, index: usize) -> Vec<u8> {
+        let mut views = readers.views();
         let mut buf = Vec::new();
         let mut chunk = [0_u8; 64];
-        while let Ok(n) = reader.read(index, &mut chunk)
+        let view: &mut dyn Read = &mut **views.get_mut(index).expect("entry view");
+        while let Ok(n) = view.read(&mut chunk)
             && n > 0
         {
             buf.extend_from_slice(chunk.get(..n).unwrap_or_default());

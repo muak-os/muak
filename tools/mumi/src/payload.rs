@@ -1,5 +1,4 @@
 //! Generic image payload packaging.
-//! TODO: Remove buffering.
 
 use std::io::{self, Read, Write};
 
@@ -29,8 +28,8 @@ pub struct FileEntry {
     pub mode: u32,
 }
 
-/// A payload being assembled. File data is streamed in single-pass and
-/// buffered internally by mumi.
+/// A payload being assembled. File data is collected transiently during
+/// [`plan`]; the buffers stay caller-owned and are dropped with the payload.
 pub struct Payload {
     name: String,
     files: Vec<FileEntry>,
@@ -56,10 +55,10 @@ impl Payload {
     pub fn add_file(&mut self, entry: FileEntry, data: &mut dyn Read) -> Result<()> {
         let mut buf = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(usize::MAX));
         data.read_to_end(&mut buf).map_err(|source| {
-            MumiError::Io(io::Error::new(
-                source.kind(),
-                format!("read payload file {}: {source}", entry.path),
-            ))
+            MumiError::Io(io::Error::other(format!(
+                "read payload file {}: {source}",
+                entry.path
+            )))
         })?;
         if u64::try_from(buf.len()).unwrap_or(u64::MAX) != entry.size {
             return Err(MumiError::InvalidArgument(format!(
@@ -76,7 +75,8 @@ impl Payload {
     }
 }
 
-/// A planned, ready-to-write payload. All fields are private.
+/// A planned, ready-to-write payload. Carries layout only; writing re-reads the
+/// source payload's buffers through fresh `Read` views.
 pub struct Planned {
     meta: Meta,
     image: image::Image,
@@ -100,12 +100,15 @@ impl Planned {
     /// # Errors
     ///
     /// Returns an error when image serialization or data emission fails.
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
-        self.image.write(writer)
+    pub fn write<W: Write>(&self, writer: &mut W, source: &Payload) -> Result<()> {
+        let mut readers = root_and_buffer_readers(&source.buffers);
+        let mut views = read_views(&mut readers);
+
+        self.image.write(writer, &mut views)
     }
 }
 
-/// Plans one payload per source. Reads and buffers all file data internally.
+/// Plans one payload per source, measuring each into a layout-only [`Planned`].
 ///
 /// # Errors
 ///
@@ -114,12 +117,11 @@ pub fn plan(payloads: &mut [Payload], config: &image::BuildConfig) -> Result<Vec
     let mut planned = Vec::with_capacity(payloads.len());
 
     for payload in payloads {
-        let entries: Vec<Entry> = payload.files.iter().map(to_image_entry).collect();
-        let mut reader = BufferReader {
-            buffers: &payload.buffers,
-            positions: vec![0; payload.buffers.len()],
-        };
-        let image = image::build(&payload.name, &entries, &mut reader, config)?;
+        let mut entries = vec![root_entry()];
+        entries.extend(payload.files.iter().map(to_image_entry));
+        let mut readers = root_and_buffer_readers(&payload.buffers);
+        let mut views = read_views(&mut readers);
+        let image = image::build(&entries, &mut views, config)?;
         planned.push(Planned {
             meta: Meta {
                 name: payload.name.clone(),
@@ -133,36 +135,6 @@ pub fn plan(payloads: &mut [Payload], config: &image::BuildConfig) -> Result<Vec
     Ok(planned)
 }
 
-/// A positional `Reader` over an owned buffer set.
-struct BufferReader<'a> {
-    buffers: &'a [Vec<u8>],
-    positions: Vec<usize>,
-}
-
-impl image::Reader for BufferReader<'_> {
-    fn read(&mut self, index: usize, buf: &mut [u8]) -> io::Result<usize> {
-        let file = self
-            .buffers
-            .get(index)
-            .ok_or_else(|| io::Error::other("file out of bounds"))?;
-        let position = self
-            .positions
-            .get_mut(index)
-            .ok_or_else(|| io::Error::other("position out of bounds"))?;
-        let remaining = file.len().saturating_sub(*position);
-        let n = remaining.min(buf.len());
-        let data = file
-            .get(*position..position.saturating_add(n))
-            .unwrap_or_default();
-        buf.get_mut(..n)
-            .ok_or_else(|| io::Error::other("buffer too small"))?
-            .copy_from_slice(data);
-        *position = position.saturating_add(n);
-
-        Ok(n)
-    }
-}
-
 /// Maps a caller file entry to an image entry.
 fn to_image_entry(file: &FileEntry) -> Entry {
     Entry {
@@ -173,12 +145,63 @@ fn to_image_entry(file: &FileEntry) -> Entry {
     }
 }
 
+fn root_entry() -> Entry {
+    Entry {
+        path: "/".to_owned(),
+        size: 0,
+        mode: 0o040_755,
+        symlink_target: Vec::new(),
+    }
+}
+
+/// Builds one independent reader set over caller-owned buffers, with the root
+/// entry's empty reader first.
+fn root_and_buffer_readers(buffers: &[Vec<u8>]) -> Vec<SliceReader<'_>> {
+    let mut readers = Vec::with_capacity(buffers.len().saturating_add(1));
+    readers.push(SliceReader { data: &[] });
+    readers.extend(buffer_readers(buffers));
+
+    readers
+}
+
+/// Builds one independent reader set over caller-owned buffers.
+pub(crate) fn buffer_readers(buffers: &[Vec<u8>]) -> Vec<SliceReader<'_>> {
+    buffers
+        .iter()
+        .map(|buffer| SliceReader { data: buffer })
+        .collect()
+}
+
+/// Borrows a reader collection as plain `Read` views, one per element.
+pub(crate) fn read_views<R: Read>(readers: &mut [R]) -> Vec<&mut dyn Read> {
+    readers
+        .iter_mut()
+        .map(|reader| -> &mut dyn Read { reader })
+        .collect()
+}
+
+/// A `Read` view over a byte slice, without allocation or seeking.
+pub(crate) struct SliceReader<'a> {
+    data: &'a [u8],
+}
+
+impl Read for SliceReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = buf.len().min(self.data.len());
+        let (head, tail) = self.data.split_at(n);
+        let (dst, _) = buf.split_at_mut(n);
+        dst.copy_from_slice(head);
+        self.data = tail;
+
+        Ok(n)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::image::Reader as _;
 
     fn file(path: &str, size: usize, data: &[u8]) -> (FileEntry, Cursor<Vec<u8>>) {
         (
@@ -259,8 +282,9 @@ mod tests {
         // ACT
         let planned = plan(&mut payloads, &config()).expect("plan payloads");
         let payload = planned.first().expect("one payload");
+        let source = payloads.first().expect("p");
         let mut buf = Vec::new();
-        payload.write(&mut buf).expect("write payload");
+        payload.write(&mut buf, source).expect("write payload");
 
         // ASSERT
         assert_eq!(payload.size(), payload.meta().size);
@@ -294,19 +318,65 @@ mod tests {
     }
 
     #[test]
-    fn reader_exhausted_returns_zero() {
+    fn read_views_exhaust_buffers() {
         // ARRANGE
-        let mut reader = BufferReader {
-            buffers: &[b"ab".to_vec()],
-            positions: vec![0],
-        };
+        let buffers = vec![b"ab".to_vec()];
+        let mut readers = buffer_readers(&buffers);
+        let mut views = read_views(&mut readers);
         let mut buf = [0_u8; 4];
-        reader.read(0, &mut buf).expect("read");
 
         // ACT
-        let n = reader.read(0, &mut buf).expect("read");
+        let view: &mut dyn Read = &mut **views.get_mut(0).expect("one view");
+        let first = view.read(&mut buf).expect("read");
+        let second = view.read(&mut buf).expect("read");
 
         // ASSERT
-        assert_eq!(n, 0);
+        assert_eq!(first, 2);
+        assert_eq!(second, 0);
+    }
+
+    #[test]
+    fn plan_is_deterministic_over_identical_content() {
+        // ARRANGE
+        let content = vec![0xAB_u8; 16_384];
+        let build = |data: Vec<u8>| {
+            let (entry, mut reader) = file("/f", data.len(), &data);
+            let mut payload = Payload::new("p");
+            payload.add_file(entry, &mut reader).expect("add file");
+            plan(&mut [payload], &config()).expect("plan")
+        };
+
+        // ACT
+        let first = build(content.clone());
+        let second = build(content.clone());
+
+        // ASSERT
+        let size1 = first.first().expect("one").size();
+        let size2 = second.first().expect("one").size();
+        assert_eq!(size1, size2, "identical content must measure identically");
+    }
+
+    #[test]
+    fn plan_size_tracks_content_changes() {
+        // ARRANGE
+        let small = vec![0xAB_u8; 16_384];
+        let large = vec![0xAB_u8; 32_768];
+        let plan_for = |data: Vec<u8>| {
+            let (entry, mut reader) = file("/f", data.len(), &data);
+            let mut payload = Payload::new("p");
+            payload.add_file(entry, &mut reader).expect("add file");
+            plan(&mut [payload], &config()).expect("plan")
+        };
+
+        // ACT
+        let planned_small = plan_for(small);
+        let planned_large = plan_for(large);
+
+        // ASSERT
+        assert_ne!(
+            planned_small.first().expect("one").size(),
+            planned_large.first().expect("one").size(),
+            "different content must measure to different payload sizes"
+        );
     }
 }

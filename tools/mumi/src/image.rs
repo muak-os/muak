@@ -1,7 +1,6 @@
 //! EROFS image construction from synthetic file entries.
 
-use core::cell::RefCell;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 
 use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use erofs::tree::TreeEntry;
@@ -30,28 +29,8 @@ pub struct BuildConfig {
     pub file_contexts: Option<FileContexts>,
 }
 
-/// TODO: Delete this.
-/// Positional data source for image file contents.
-///
-/// `read(index, …)` returns bytes for the file at positional `index` into the
-/// `entries` slice passed to [`build`]. Mumi wraps this in per-file adapters
-/// that erofs sees as `Read`.
-pub trait Reader {
-    /// Reads the next chunk of bytes for the file at `index`.
-    ///
-    /// Returns the number of bytes copied into `buf`, or `0` when the file is
-    /// exhausted or `index` is out of range.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the underlying data source cannot be read.
-    fn read(&mut self, index: usize, buf: &mut [u8]) -> io::Result<usize>;
-}
-
-/// A fully-planned image. Owns all data internally; self-contained and
-/// `Send` once built.
+/// A fully-planned image. Carries layout only.
 pub struct Image {
-    name: String,
     len: u64,
     plan: erofs::ImagePlan,
     file_contexts: Option<FileContexts>,
@@ -59,10 +38,36 @@ pub struct Image {
 }
 
 impl Image {
-    /// Returns the logical identity passed to [`build`].
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Writes the complete EROFS image to `writer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reader set length mismatches the entries,
+    /// metadata serialization fails, or data emission fails.
+    pub fn write<W: Write>(&self, writer: &mut W, readers: &mut [&mut dyn Read]) -> Result<()> {
+        let config = mkfs_config(self.file_contexts.as_ref(), self.compression);
+        let entry_count = self.plan.inodes.len();
+        if readers.len() != entry_count {
+            return Err(MumiError::InvalidArgument(format!(
+                "write reader set size mismatch: {} inodes, {} readers",
+                entry_count,
+                readers.len(),
+            )));
+        }
+
+        let mut sized: Vec<erofs::SizedFile<'_>> = self
+            .plan
+            .inodes
+            .iter()
+            .zip(readers.iter_mut())
+            .map(|(inode, reader)| erofs::SizedFile {
+                entry: inode_entry(inode),
+                reader: &mut **reader,
+            })
+            .collect();
+
+        erofs::writer::image(writer, &self.plan, &mut sized, &config)
+            .map_err(|e| MumiError::Erofs(e.to_string()))
     }
 
     /// Returns the exact image size in bytes.
@@ -76,40 +81,18 @@ impl Image {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
-
-    /// Writes the complete EROFS image to `writer`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when metadata serialization or data emission fails.
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
-        let config = MkfsConfig {
-            source_date_epoch: 0,
-            file_contexts: self.file_contexts.as_ref(),
-            uuid: [0; 16],
-            force_uid: Some(0),
-            force_gid: Some(0),
-            compression: self.compression,
-        };
-        erofs::writer::image(writer, &self.plan, &config)
-            .map_err(|e| MumiError::Erofs(e.to_string()))
-    }
 }
 
-/// Builds an EROFS image named `name` from synthetic entries and their data.
-///
-/// The root entry is added automatically when `entries` does not already
-/// contain a path of `/`. File data is read eagerly during planning, so the
-/// returned [`Image`] is self-contained and no longer borrows `readers`.
+/// Builds an EROFS image from synthetic entries and their data.
 ///
 /// # Errors
 ///
-/// Returns an error when entries are invalid, compression settings are invalid,
+/// Returns an error when the root entry is missing, entries are invalid,
+/// `readers` length mismatches `entries`, compression settings are invalid,
 /// file data cannot be read, or the image layout cannot be planned.
 pub fn build(
-    name: &str,
     entries: &[Entry],
-    readers: &mut dyn Reader,
+    readers: &mut [&mut dyn Read],
     config: &BuildConfig,
 ) -> Result<Image> {
     let compression = Compression::Zstd {
@@ -117,37 +100,25 @@ pub fn build(
     };
     erofs::validate_compression_level(config.compression_level)
         .map_err(|e| MumiError::InvalidArgument(e.to_string()))?;
-    let cell = RefCell::new(readers);
-    let mut adapters: Vec<FileAdapter<'_, '_>> = Vec::with_capacity(entries.len());
-    for (index, _) in entries.iter().enumerate() {
-        adapters.push(FileAdapter {
-            reader: &cell,
-            index,
-        });
+    if !entries.iter().any(|entry| entry.path == "/") {
+        return Err(MumiError::InvalidArgument(
+            "entries must include the root directory \"/\"".to_owned(),
+        ));
+    }
+    if readers.len() != entries.len() {
+        return Err(MumiError::InvalidArgument(format!(
+            "reader set size mismatch: {} entries, {} readers",
+            entries.len(),
+            readers.len(),
+        )));
     }
 
-    let mkfs_config = MkfsConfig {
-        source_date_epoch: 0,
-        file_contexts: config.file_contexts.as_ref(),
-        uuid: [0; 16],
-        force_uid: Some(0),
-        force_gid: Some(0),
-        compression,
-    };
-
-    let has_root = entries.iter().any(|entry| entry.path == "/");
-    let mut sized: Vec<erofs::SizedFile<'_>> = Vec::with_capacity(entries.len().saturating_add(1));
-    let mut empty = io::empty();
-    if !has_root {
-        sized.push(erofs::SizedFile {
-            entry: root_entry(),
-            reader: &mut empty,
-        });
-    }
-    for (entry, adapter) in entries.iter().zip(adapters.iter_mut()) {
+    let mkfs_config = mkfs_config(config.file_contexts.as_ref(), compression);
+    let mut sized: Vec<erofs::SizedFile<'_>> = Vec::with_capacity(entries.len());
+    for (entry, reader) in entries.iter().zip(readers.iter_mut()) {
         sized.push(erofs::SizedFile {
             entry: tree_entry(entry),
-            reader: adapter,
+            reader: &mut **reader,
         });
     }
 
@@ -156,7 +127,6 @@ pub fn build(
     let len = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
 
     Ok(Image {
-        name: name.to_owned(),
         len,
         plan,
         file_contexts: config.file_contexts.clone(),
@@ -164,21 +134,37 @@ pub fn build(
     })
 }
 
-/// A per-file `Read` adapter that forwards to the positional [`Reader`].
-struct FileAdapter<'a, 'r> {
-    reader: &'a RefCell<&'r mut dyn Reader>,
-    index: usize,
-}
-
-impl Read for FileAdapter<'_, '_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.reader.borrow_mut().read(self.index, buf)
+/// Builds the mkfs configuration shared by planning and writing.
+fn mkfs_config(file_contexts: Option<&FileContexts>, compression: Compression) -> MkfsConfig<'_> {
+    MkfsConfig {
+        source_date_epoch: 0,
+        file_contexts,
+        uuid: [0; 16],
+        force_uid: Some(0),
+        force_gid: Some(0),
+        compression,
     }
 }
 
 const S_IFMT: u32 = 0o170_000;
 const S_IFDIR: u32 = 0o040_000;
 const S_IFLNK: u32 = 0o120_000;
+
+/// Reconstructs the source entry metadata from a planned inode.
+fn inode_entry(inode: &erofs::InodeLayout) -> TreeEntry {
+    TreeEntry {
+        rel_path: inode.rel_path.clone(),
+        file_type: inode.file_type,
+        size: u64::from(inode.size),
+        mode: u32::from(inode.mode),
+        uid: u32::from(inode.uid),
+        gid: u32::from(inode.gid),
+        mtime: inode.mtime,
+        mtime_nsec: inode.mtime_nsec,
+        symlink_target: inode.symlink_target.clone(),
+        rdev: inode.rdev,
+    }
+}
 
 fn tree_entry(entry: &Entry) -> TreeEntry {
     TreeEntry {
@@ -195,21 +181,6 @@ fn tree_entry(entry: &Entry) -> TreeEntry {
     }
 }
 
-fn root_entry() -> TreeEntry {
-    TreeEntry {
-        rel_path: "/".to_owned(),
-        file_type: EROFS_FT_DIR,
-        size: 0,
-        mode: 0o40755,
-        uid: 0,
-        gid: 0,
-        mtime: 0,
-        mtime_nsec: 0,
-        symlink_target: Vec::new(),
-        rdev: 0,
-    }
-}
-
 fn file_type_from_mode(mode: u32) -> u8 {
     match mode & S_IFMT {
         S_IFDIR => EROFS_FT_DIR,
@@ -221,44 +192,7 @@ fn file_type_from_mode(mode: u32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct TestReader {
-        files: Vec<Vec<u8>>,
-        positions: Vec<usize>,
-    }
-
-    impl TestReader {
-        fn new(files: Vec<Vec<u8>>) -> Self {
-            Self {
-                positions: vec![0; files.len()],
-                files,
-            }
-        }
-    }
-
-    impl Reader for TestReader {
-        fn read(&mut self, index: usize, buf: &mut [u8]) -> io::Result<usize> {
-            let file = self
-                .files
-                .get(index)
-                .ok_or_else(|| io::Error::other("file out of bounds"))?;
-            let position = self
-                .positions
-                .get_mut(index)
-                .ok_or_else(|| io::Error::other("position out of bounds"))?;
-            let remaining = file.len().saturating_sub(*position);
-            let n = remaining.min(buf.len());
-            let data = file
-                .get(*position..position.saturating_add(n))
-                .unwrap_or_default();
-            buf.get_mut(..n)
-                .ok_or_else(|| io::Error::other("buffer too small"))?
-                .copy_from_slice(data);
-            *position = position.saturating_add(n);
-
-            Ok(n)
-        }
-    }
+    use crate::payload::{buffer_readers, read_views};
 
     fn config() -> BuildConfig {
         BuildConfig {
@@ -267,10 +201,36 @@ mod tests {
         }
     }
 
+    fn root() -> Entry {
+        Entry {
+            path: "/".to_owned(),
+            size: 0,
+            mode: 0o040_755,
+            symlink_target: Vec::new(),
+        }
+    }
+
+    fn build_image(entries: &[Entry], datas: &[Vec<u8>]) -> Result<Image> {
+        let mut readers = buffer_readers(datas);
+        let mut views = read_views(&mut readers);
+        build(entries, &mut views, &config())
+    }
+
+    fn write_image(image: &Image, datas: &[Vec<u8>]) -> Vec<u8> {
+        let mut readers = buffer_readers(datas);
+        let mut views = read_views(&mut readers);
+
+        let mut buf = Vec::new();
+        image.write(&mut buf, &mut views).expect("write image");
+
+        buf
+    }
+
     #[test]
     fn builds_image_from_synthetic_entries() {
         // ARRANGE
         let entries = vec![
+            root(),
             Entry {
                 path: "/usr/bin/tool".to_owned(),
                 size: 5,
@@ -284,13 +244,12 @@ mod tests {
                 symlink_target: Vec::new(),
             },
         ];
-        let mut reader = TestReader::new(vec![b"hello".to_vec(), b"conf".to_vec()]);
+        let datas = vec![Vec::new(), b"hello".to_vec(), b"conf".to_vec()];
 
         // ACT
-        let image = build("test", &entries, &mut reader, &config()).expect("build image");
+        let image = build_image(&entries, &datas).expect("build image");
 
         // ASSERT
-        assert_eq!(image.name(), "test");
         assert!(!image.is_empty());
         assert!(image.len().is_multiple_of(4096));
     }
@@ -298,18 +257,20 @@ mod tests {
     #[test]
     fn len_matches_written_bytes() {
         // ARRANGE
-        let entries = vec![Entry {
-            path: "/f".to_owned(),
-            size: 8,
-            mode: 0o100_644,
-            symlink_target: Vec::new(),
-        }];
-        let mut reader = TestReader::new(vec![b"data....".to_vec()]);
-        let image = build("rootfs", &entries, &mut reader, &config()).expect("build image");
+        let entries = vec![
+            root(),
+            Entry {
+                path: "/f".to_owned(),
+                size: 8,
+                mode: 0o100_644,
+                symlink_target: Vec::new(),
+            },
+        ];
+        let datas = vec![Vec::new(), b"data....".to_vec()];
+        let image = build_image(&entries, &datas).expect("build image");
 
         // ACT
-        let mut buf = Vec::new();
-        image.write(&mut buf).expect("write image");
+        let buf = write_image(&image, &datas);
 
         // ASSERT
         assert_eq!(u64::try_from(buf.len()).unwrap_or(0), image.len());
@@ -318,41 +279,29 @@ mod tests {
     #[test]
     fn reproducible_output() {
         // ARRANGE
-        let entries = vec![Entry {
-            path: "/f".to_owned(),
-            size: 3,
-            mode: 0o100_644,
-            symlink_target: Vec::new(),
-        }];
+        let entries = vec![
+            root(),
+            Entry {
+                path: "/f".to_owned(),
+                size: 3,
+                mode: 0o100_644,
+                symlink_target: Vec::new(),
+            },
+        ];
+        let datas = vec![Vec::new(), b"abc".to_vec()];
 
         // ACT
-        let mut reader = TestReader::new(vec![b"abc".to_vec()]);
-        let image1 = build("rootfs", &entries, &mut reader, &config()).expect("build 1");
-        let mut reader = TestReader::new(vec![b"abc".to_vec()]);
-        let image2 = build("rootfs", &entries, &mut reader, &config()).expect("build 2");
-        let mut buf1 = Vec::new();
-        image1.write(&mut buf1).expect("write 1");
-        let mut buf2 = Vec::new();
-        image2.write(&mut buf2).expect("write 2");
+        let image1 = build_image(&entries, &datas).expect("build image");
+        let image2 = build_image(&entries, &datas).expect("build image");
+        let buf1 = write_image(&image1, &datas);
+        let buf2 = write_image(&image2, &datas);
 
         // ASSERT
         assert_eq!(buf1, buf2);
     }
 
     #[test]
-    fn name_returns_identity() {
-        // ARRANGE
-        let mut reader = TestReader::new(Vec::new());
-
-        // ACT
-        let image = build("muak-os/qemu", &[], &mut reader, &config()).expect("build image");
-
-        // ASSERT
-        assert_eq!(image.name(), "muak-os/qemu");
-    }
-
-    #[test]
-    fn prepends_root_when_absent() {
+    fn missing_root_errors() {
         // ARRANGE
         let entries = vec![Entry {
             path: "/f".to_owned(),
@@ -360,30 +309,31 @@ mod tests {
             mode: 0o100_644,
             symlink_target: Vec::new(),
         }];
-        let mut reader = TestReader::new(vec![b"x".to_vec()]);
+        let datas = vec![b"x".to_vec()];
 
         // ACT
-        let image = build("rootfs", &entries, &mut reader, &config()).expect("build image");
-        let mut buf = Vec::new();
-        image.write(&mut buf).expect("write image");
+        let result = build_image(&entries, &datas);
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert!(result.is_err());
     }
 
     #[test]
     fn keeps_symlink_target() {
         // ARRANGE
-        let entries = vec![Entry {
-            path: "/link".to_owned(),
-            size: 0,
-            mode: 0o120_777,
-            symlink_target: b"/target".to_vec(),
-        }];
-        let mut reader = TestReader::new(Vec::new());
+        let entries = vec![
+            root(),
+            Entry {
+                path: "/link".to_owned(),
+                size: 0,
+                mode: 0o120_777,
+                symlink_target: b"/target".to_vec(),
+            },
+        ];
+        let datas: Vec<Vec<u8>> = vec![Vec::new(), Vec::new()];
 
         // ACT
-        let image = build("rootfs", &entries, &mut reader, &config()).expect("build image");
+        let image = build_image(&entries, &datas).expect("build image");
 
         // ASSERT
         assert!(
