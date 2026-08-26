@@ -61,7 +61,7 @@ fn build_image<W: Write>(
     };
     let mut measure_readers = rootfs::build_readers(dir, &entries)?;
     let mut measure_views = measure_readers.views();
-    let image = mumi::image::build(&mumi_entries, &mut measure_views, &config)?;
+    let image = mumi::image::Image::build(&mumi_entries, &mut measure_views, &config)?;
 
     let mut write_readers = rootfs::build_readers(dir, &entries)?;
     let mut write_views = write_readers.views();

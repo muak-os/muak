@@ -38,6 +38,57 @@ pub struct Image {
 }
 
 impl Image {
+    /// Builds an EROFS image from synthetic entries and their data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the root entry is missing, entries are invalid,
+    /// `readers` length mismatches `entries`, compression settings are invalid,
+    /// file data cannot be read, or the image layout cannot be planned.
+    pub fn build(
+        entries: &[Entry],
+        readers: &mut [&mut dyn Read],
+        config: &BuildConfig,
+    ) -> Result<Image> {
+        let compression = Compression::Zstd {
+            level: config.compression_level,
+        };
+        erofs::validate_compression_level(config.compression_level)
+            .map_err(|e| MumiError::InvalidArgument(e.to_string()))?;
+        if !entries.iter().any(|entry| entry.path == "/") {
+            return Err(MumiError::InvalidArgument(
+                "entries must include the root directory \"/\"".to_owned(),
+            ));
+        }
+        if readers.len() != entries.len() {
+            return Err(MumiError::InvalidArgument(format!(
+                "reader set size mismatch: {} entries, {} readers",
+                entries.len(),
+                readers.len(),
+            )));
+        }
+
+        let mkfs_config = mkfs_config(config.file_contexts.as_ref(), compression);
+        let mut sized: Vec<erofs::SizedFile<'_>> = Vec::with_capacity(entries.len());
+        for (entry, reader) in entries.iter().zip(readers.iter_mut()) {
+            sized.push(erofs::SizedFile {
+                entry: tree_entry(entry),
+                reader: &mut **reader,
+            });
+        }
+
+        let plan = erofs::layout::plan(&mut sized, &mkfs_config)
+            .map_err(|e| MumiError::Erofs(e.to_string()))?;
+        let len = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
+
+        Ok(Image {
+            len,
+            plan,
+            file_contexts: config.file_contexts.clone(),
+            compression,
+        })
+    }
+
     /// Writes the complete EROFS image to `writer`.
     ///
     /// # Errors
@@ -81,57 +132,6 @@ impl Image {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
-}
-
-/// Builds an EROFS image from synthetic entries and their data.
-///
-/// # Errors
-///
-/// Returns an error when the root entry is missing, entries are invalid,
-/// `readers` length mismatches `entries`, compression settings are invalid,
-/// file data cannot be read, or the image layout cannot be planned.
-pub fn build(
-    entries: &[Entry],
-    readers: &mut [&mut dyn Read],
-    config: &BuildConfig,
-) -> Result<Image> {
-    let compression = Compression::Zstd {
-        level: config.compression_level,
-    };
-    erofs::validate_compression_level(config.compression_level)
-        .map_err(|e| MumiError::InvalidArgument(e.to_string()))?;
-    if !entries.iter().any(|entry| entry.path == "/") {
-        return Err(MumiError::InvalidArgument(
-            "entries must include the root directory \"/\"".to_owned(),
-        ));
-    }
-    if readers.len() != entries.len() {
-        return Err(MumiError::InvalidArgument(format!(
-            "reader set size mismatch: {} entries, {} readers",
-            entries.len(),
-            readers.len(),
-        )));
-    }
-
-    let mkfs_config = mkfs_config(config.file_contexts.as_ref(), compression);
-    let mut sized: Vec<erofs::SizedFile<'_>> = Vec::with_capacity(entries.len());
-    for (entry, reader) in entries.iter().zip(readers.iter_mut()) {
-        sized.push(erofs::SizedFile {
-            entry: tree_entry(entry),
-            reader: &mut **reader,
-        });
-    }
-
-    let plan = erofs::layout::plan(&mut sized, &mkfs_config)
-        .map_err(|e| MumiError::Erofs(e.to_string()))?;
-    let len = u64::try_from(plan.total_size).unwrap_or(u64::MAX);
-
-    Ok(Image {
-        len,
-        plan,
-        file_contexts: config.file_contexts.clone(),
-        compression,
-    })
 }
 
 /// Builds the mkfs configuration shared by planning and writing.
@@ -213,7 +213,7 @@ mod tests {
     fn build_image(entries: &[Entry], datas: &[Vec<u8>]) -> Result<Image> {
         let mut readers = buffer_readers(datas);
         let mut views = read_views(&mut readers);
-        build(entries, &mut views, &config())
+        Image::build(entries, &mut views, &config())
     }
 
     fn write_image(image: &Image, datas: &[Vec<u8>]) -> Vec<u8> {

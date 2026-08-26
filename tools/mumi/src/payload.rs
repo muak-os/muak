@@ -121,7 +121,7 @@ pub fn plan(payloads: &mut [Payload], config: &image::BuildConfig) -> Result<Vec
         entries.extend(payload.files.iter().map(to_image_entry));
         let mut readers = root_and_buffer_readers(&payload.buffers);
         let mut views = read_views(&mut readers);
-        let image = image::build(&entries, &mut views, config)?;
+        let image = image::Image::build(&entries, &mut views, config)?;
         planned.push(Planned {
             meta: Meta {
                 name: payload.name.clone(),
