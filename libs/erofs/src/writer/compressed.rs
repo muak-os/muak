@@ -1,16 +1,18 @@
 //! Compressed inode map encoding and pcluster data emission.
 
-use std::io::Write;
+use std::io::{Read, Write};
 
 use super::dir::align8;
 use super::sizes::{block_size_usize, mul, usize_from_u32};
+use crate::Compression;
 use crate::checked::{add, u16_from_usize, write_byte, write_bytes};
-use crate::compress::{self, CompressedFile};
+use crate::compress::{self, CompressedLayout};
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, Z_EROFS_COMPRESSION_ZSTD, Z_EROFS_MAP_HEADER_SIZE};
 use crate::layout::{self, InodeLayout};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
+const RECOMPRESS_DST_LEN: usize = 4096 + 32;
 
 #[derive(Clone, Copy)]
 pub(super) struct LegacyIndexEntry {
@@ -125,37 +127,55 @@ pub(super) fn write_metadata(
     )
 }
 
-pub(super) fn compressed_blocks<W: Write>(writer: &mut W, inode: &InodeLayout) -> Result<()> {
+pub(super) fn compressed_blocks<W: Write>(
+    writer: &mut W,
+    inode: &InodeLayout,
+    reader: &mut dyn Read,
+    compression: Compression,
+    stage: &mut [u8],
+) -> Result<()> {
     let block_size = block_size_usize();
-    let compressed_file = inode
+    let Some(level) = compression.level() else {
+        return Err(ErofsError::Internal("compressed inode without level"));
+    };
+    let compressed_layout = inode
         .compressed
         .as_ref()
         .ok_or(ErofsError::Internal("compressed data present"))?;
-    for pcluster in &compressed_file.pclusters {
-        let pad_len = block_size.saturating_sub(pcluster.compressed_data.len());
+    let mut dst = [0_u8; RECOMPRESS_DST_LEN];
+    for pcluster in &compressed_layout.pclusters {
+        let written =
+            compress::recompress_pcluster(level, reader, pcluster.input_len, stage, &mut dst)?;
+        if written != pcluster.compressed_len {
+            return Err(ErofsError::Internal(
+                "re-compressed pcluster length drifts from recorded layout",
+            ));
+        }
+        let pad_len = block_size.saturating_sub(written);
         let Some(slice) = ZERO_BLOCK.get(..pad_len) else {
             return Err(ErofsError::Internal("pad_len exceeds ZERO_BLOCK"));
         };
         writer.write_all(slice).map_err(ErofsError::Io)?;
-        writer
-            .write_all(&pcluster.compressed_data)
-            .map_err(ErofsError::Io)?;
+        let Some(bytes) = dst.get(..written) else {
+            return Err(ErofsError::Internal("pcluster output out of bounds"));
+        };
+        writer.write_all(bytes).map_err(ErofsError::Io)?;
     }
 
     Ok(())
 }
 
 pub(super) fn build_legacy_index_entries(
-    compressed_file: &CompressedFile,
+    compressed_layout: &CompressedLayout,
     start_blkaddr: u32,
 ) -> Result<Vec<LegacyIndexEntry>> {
     let block_size = block_size_usize();
-    let totalidx = usize_from_u32(compress::lcluster_count(compressed_file));
+    let totalidx = usize_from_u32(compress::lcluster_count(compressed_layout));
     let mut entries = Vec::with_capacity(totalidx);
     let mut cluster_offset = 0_usize;
     let mut blkaddr = start_blkaddr;
 
-    for pcluster in &compressed_file.pclusters {
+    for pcluster in &compressed_layout.pclusters {
         let mut local_cluster_offset = cluster_offset;
         let mut remaining_count = pcluster.input_len;
         let mut delta0 = 0_usize;
@@ -455,20 +475,19 @@ mod tests {
         two_entry_pack, write_indexes, write_pack,
     };
     use crate::SLOT_SIZE;
-    use crate::compress::{self, CompressedFile};
+    use crate::compress::{self, CompressedLayout};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::COMPACT_INODE_SIZE;
     use crate::layout;
     use crate::source::SizedFile;
-    use crate::testutil::compress_config;
+    use crate::testutil::{compress_config, entry_of, zero_data};
     use crate::tree::TreeEntry;
-    use crate::writer::image;
 
-    fn compressed_file(data_len: usize) -> CompressedFile {
+    fn measured_layout(data_len: usize) -> CompressedLayout {
         let data = vec![0_u8; data_len];
-        compress::compress_file(&data, 3)
+        compress::measure_slice(&data, 3)
             .expect("compress")
-            .expect("compressed file")
+            .expect("compressed layout")
     }
 
     fn make_compressed_plan(cfg: &crate::MkfsConfig<'_>) -> layout::ImagePlan {
@@ -510,8 +529,15 @@ mod tests {
     }
 
     fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
+        let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
+        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
+        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+
         let mut buf = Vec::new();
-        image(&mut buf, planned, cfg).expect("image");
+        crate::writer::image(&mut buf, planned, &mut meta_files, &mut data_files, cfg)
+            .expect("image");
         buf
     }
 
@@ -538,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn write_compressed_data_at_blkaddr() {
+    fn write_compressed_data_decompresses_at_block_end_placement() {
         // ARRANGE
         let cfg = compress_config(0);
 
@@ -555,15 +581,17 @@ mod tests {
         let cf = file.compressed.as_ref().expect("compressed");
         let mut blk_off = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
         for pcluster in &cf.pclusters {
-            let write_start = blk_off + 4096 - pcluster.compressed_data.len();
-            assert_eq!(
-                image
-                    .get(write_start..write_start + pcluster.compressed_data.len())
-                    .expect("compressed data bytes"),
-                pcluster.compressed_data.as_slice()
-            );
+            assert!(pcluster.compressed_len <= 4096);
+            let write_start = blk_off + 4096 - pcluster.compressed_len;
+            let bytes = image
+                .get(write_start..write_start + pcluster.compressed_len)
+                .expect("compressed data bytes");
+            let decompressed = decompress(bytes, pcluster.input_len).expect("decompress");
+            assert_eq!(decompressed, vec![0_u8; pcluster.input_len]);
             blk_off += 4096;
         }
+        let total_input: usize = cf.pclusters.iter().map(|pcluster| pcluster.input_len).sum();
+        assert_eq!(total_input, 8192);
     }
 
     #[test]
@@ -601,7 +629,7 @@ mod tests {
     #[test]
     fn build_legacy_index_entries_tracks_clusterofs_and_local_d1() {
         // ARRANGE
-        let cf = compressed_file(17_000);
+        let cf = measured_layout(17_000);
 
         // ACT
         let entries = build_legacy_index_entries(&cf, 123).expect("entries");
@@ -687,9 +715,9 @@ mod tests {
         let mut blk_off = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
         let mut input_off = 0_usize;
         for pcluster in &cf.pclusters {
-            let write_start = blk_off + 4096 - pcluster.compressed_data.len();
+            let write_start = blk_off + 4096 - pcluster.compressed_len;
             let compressed_data = image
-                .get(write_start..write_start + pcluster.compressed_data.len())
+                .get(write_start..write_start + pcluster.compressed_len)
                 .expect("compressed data bytes");
             let decompressed = decompress(compressed_data, pcluster.input_len).expect("decompress");
             assert_eq!(
@@ -701,6 +729,7 @@ mod tests {
             input_off += pcluster.input_len;
             blk_off += 4096;
         }
+        assert_eq!(input_off, original.len());
     }
 
     #[test]
@@ -766,7 +795,7 @@ mod tests {
     fn compact_index_helpers_cover_remaining_pack_paths() {
         // ARRANGE
         let mut image = vec![0_u8; 128];
-        let entries = build_legacy_index_entries(&compressed_file(18 * 4096), 0).expect("entries");
+        let entries = build_legacy_index_entries(&measured_layout(18 * 4096), 0).expect("entries");
         let mut state = CompactWriteState {
             out_off: 0,
             blkaddr_ret: 0,

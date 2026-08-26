@@ -1,19 +1,52 @@
-//! Destsize-bounded zstd compression for EROFS, producing per-pcluster streams.
+//! Deterministic single-pass zstd compression producing layout-only pclusters.
 
+mod chunk;
 mod config;
-mod fit;
 mod model;
 mod zstd;
 
 pub type Compression = config::Compression;
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = config::DEFAULT_ZSTD_COMPRESSION_LEVEL;
-pub type CompressedFile = model::CompressedFile;
+pub type CompressedLayout = model::CompressedLayout;
+pub(super) const CHUNK_MAX: usize = chunk::CHUNK_MAX;
+
+use std::io::Read;
 
 use crate::error::{ErofsError, Result};
 
-/// Compress file data into multiple destsize-bounded pclusters.
-pub fn compress_file(data: &[u8], compression_level: i32) -> Result<Option<CompressedFile>> {
-    fit::compress_file(data, compression_level)
+/// Measure file data into layout-only pclusters without retaining bytes (pass 1).
+pub(crate) fn compress_file(
+    reader: &mut dyn Read,
+    size: usize,
+    path: &str,
+    compression_level: i32,
+) -> Result<Option<CompressedLayout>> {
+    chunk::compress_file(reader, size, path, compression_level)
+}
+
+/// Re-compress one recorded pcluster in a single shot (pass 2 emit).
+pub(crate) fn recompress_pcluster(
+    level: i32,
+    reader: &mut dyn Read,
+    input_len: usize,
+    src: &mut [u8],
+    dst: &mut [u8],
+) -> Result<usize> {
+    chunk::recompress_pcluster(level, reader, input_len, src, dst)
+}
+
+pub(crate) fn has_representable_compact_indexes(cf: &CompressedLayout) -> bool {
+    chunk::has_representable_compact_indexes(cf)
+}
+
+/// Number of logical clusters (input 4KB blocks).
+pub fn lcluster_count(cf: &CompressedLayout) -> u32 {
+    model::lcluster_count(cf)
+}
+
+/// Total number of physical 4KB blocks needed across all pclusters.
+pub fn pcluster_blocks(cf: &CompressedLayout) -> u32 {
+    model::pcluster_blocks(cf)
 }
 
 pub(crate) fn validate_compression_level(level: i32) -> Result<i32> {
@@ -30,16 +63,8 @@ pub(crate) fn validate_compression_level(level: i32) -> Result<i32> {
     }
 }
 
-pub(crate) fn has_representable_compact_indexes(cf: &CompressedFile) -> bool {
-    fit::has_representable_compact_indexes(cf)
-}
-
-/// Number of logical clusters (input 4KB blocks).
-pub fn lcluster_count(cf: &CompressedFile) -> u32 {
-    model::lcluster_count(cf)
-}
-
-/// Total number of physical 4KB blocks needed across all pclusters.
-pub fn pcluster_blocks(cf: &CompressedFile) -> u32 {
-    model::pcluster_blocks(cf)
+#[cfg(test)]
+pub(crate) fn measure_slice(data: &[u8], level: i32) -> Result<Option<CompressedLayout>> {
+    let mut cursor = std::io::Cursor::new(data);
+    chunk::compress_file(&mut cursor, data.len(), "/test", level)
 }

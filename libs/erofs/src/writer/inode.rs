@@ -63,54 +63,71 @@ mod tests {
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::{self, InodeLayout};
-    use crate::source::SizedFile;
-    use crate::testutil::{compress_config, test_config};
+    use crate::testutil::{compress_config, entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
     use crate::writer::image;
+
+    fn root_entry() -> TreeEntry {
+        TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }
+    }
+
+    fn reg_entry(rel_path: &str, size: u64) -> TreeEntry {
+        TreeEntry {
+            rel_path: rel_path.to_owned(),
+            file_type: EROFS_FT_REG_FILE,
+            size,
+            mode: 0o644,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }
+    }
+
+    fn plan_from(entries: &[TreeEntry], cfg: &crate::MkfsConfig<'_>) -> layout::ImagePlan {
+        let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
+            .iter_mut()
+            .map(|data| io::Cursor::new(data.as_mut_slice()))
+            .collect();
+        let mut files = crate::testutil::pair_files(entries.to_vec(), &mut cursors);
+        layout::plan(&mut files, cfg).expect("plan")
+    }
+
+    fn write_image(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
+        let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
+        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
+        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+
+        let mut buf = Vec::new();
+        image(&mut buf, planned, &mut meta_files, &mut data_files, cfg).expect("write");
+        buf
+    }
 
     #[test]
     fn compact_inode_at_correct_offset() {
         // ARRANGE
-        let mut data_buf = [0_u8; 4];
-        let mut data_cursor = io::Cursor::new(data_buf.as_mut_slice());
-        let files = &mut [
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/".to_owned(),
-                    file_type: EROFS_FT_DIR,
-                    size: 0,
-                    mode: 0o40755,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut io::empty(),
-            },
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/test".to_owned(),
-                    file_type: EROFS_FT_REG_FILE,
-                    size: 4,
-                    mode: 0o644,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut data_cursor,
-            },
-        ];
+        let entries = &[root_entry(), reg_entry("/test", 4)];
         let cfg = test_config(0);
 
         // ACT
-        let planned = layout::plan(files, &cfg).expect("plan");
-        let mut buf = Vec::new();
-        image(&mut buf, &planned, &cfg).expect("write");
+        let planned = plan_from(entries, &cfg);
+        let buf = write_image(&planned, &cfg);
         let root_offset = 36 * SLOT_SIZE;
         let i_format = u16::from_le_bytes(
             buf.get(root_offset..root_offset + 2)
@@ -126,46 +143,12 @@ mod tests {
     #[test]
     fn write_compressed_inode_has_compressed_compact_format() {
         // ARRANGE
-        let mut zeros = vec![0_u8; 8192];
-        let mut zeros_cursor = io::Cursor::new(zeros.as_mut_slice());
-        let files = &mut [
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/".to_owned(),
-                    file_type: EROFS_FT_DIR,
-                    size: 0,
-                    mode: 0o40755,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut io::empty(),
-            },
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/zeros".to_owned(),
-                    file_type: EROFS_FT_REG_FILE,
-                    size: 8192,
-                    mode: 0o644,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut zeros_cursor,
-            },
-        ];
+        let entries = &[root_entry(), reg_entry("/zeros", 8192)];
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(files, &cfg).expect("plan");
-        let mut buf = Vec::new();
-        image(&mut buf, &planned, &cfg).expect("write");
+        let planned = plan_from(entries, &cfg);
+        let buf = write_image(&planned, &cfg);
         let file = planned
             .inodes
             .iter()
@@ -187,46 +170,12 @@ mod tests {
     #[test]
     fn write_compressed_inode_i_u_is_pcluster_blocks() {
         // ARRANGE
-        let mut zeros = vec![0_u8; 8192];
-        let mut zeros_cursor = io::Cursor::new(zeros.as_mut_slice());
-        let files = &mut [
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/".to_owned(),
-                    file_type: EROFS_FT_DIR,
-                    size: 0,
-                    mode: 0o40755,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut io::empty(),
-            },
-            SizedFile {
-                entry: TreeEntry {
-                    rel_path: "/zeros".to_owned(),
-                    file_type: EROFS_FT_REG_FILE,
-                    size: 8192,
-                    mode: 0o644,
-                    uid: 0,
-                    gid: 0,
-                    mtime: 0,
-                    mtime_nsec: 0,
-                    symlink_target: vec![],
-                    rdev: 0,
-                },
-                reader: &mut zeros_cursor,
-            },
-        ];
+        let entries = &[root_entry(), reg_entry("/zeros", 8192)];
         let cfg = compress_config(0);
 
         // ACT
-        let planned = layout::plan(files, &cfg).expect("plan");
-        let mut buf = Vec::new();
-        image(&mut buf, &planned, &cfg).expect("write");
+        let planned = plan_from(entries, &cfg);
+        let buf = write_image(&planned, &cfg);
         let file = planned
             .inodes
             .iter()
@@ -263,7 +212,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

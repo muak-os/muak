@@ -61,7 +61,6 @@ pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload,
             xattr_icount: xattr_ic,
-            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

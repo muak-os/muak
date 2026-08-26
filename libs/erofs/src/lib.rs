@@ -64,26 +64,37 @@ pub struct MkfsConfig<'a> {
 
 /// Build an EROFS filesystem image from sized file entries.
 ///
+/// Performs three sequential passes over positional readers — measure, metadata
+/// tails, and data blocks — so each set must be positioned at the start of its
+/// content; nothing is rewound internally.
+///
 /// # Errors
 ///
 /// Returns an error when entries are invalid, compression settings are invalid,
 /// filesystem metadata cannot be read, or the image cannot be serialized.
 pub fn mkfs<W: std::io::Write>(
     writer: &mut W,
-    files: &mut [SizedFile<'_>],
+    measure_files: &mut [SizedFile<'_>],
+    meta_files: &mut [SizedFile<'_>],
+    data_files: &mut [SizedFile<'_>],
     config: &MkfsConfig<'_>,
 ) -> error::Result<()> {
     if let Some(level) = config.compression.level() {
         compress::validate_compression_level(level)?;
     }
-    let plan = layout::plan(files, config)?;
+    let plan = layout::plan(measure_files, config)?;
 
-    writer::image(writer, &plan, config)
+    writer::image(writer, &plan, meta_files, data_files, config)
 }
 
 #[cfg(test)]
 pub(crate) mod testutil {
+    use std::io::Read;
+
     use super::{Compression, MkfsConfig};
+    use crate::layout::InodeLayout;
+    use crate::source::SizedFile;
+    use crate::tree::TreeEntry;
 
     /// Returns a minimal uncompressed [`MkfsConfig`] for use in unit tests.
     pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
@@ -108,6 +119,57 @@ pub(crate) mod testutil {
             compression: Compression::default(),
         }
     }
+
+    /// Reconstructs a [`TreeEntry`] from a planned inode (test support).
+    pub(crate) fn entry_of(inode: &InodeLayout) -> TreeEntry {
+        TreeEntry {
+            rel_path: inode.rel_path.clone(),
+            file_type: inode.file_type,
+            size: u64::from(inode.size),
+            mode: u32::from(inode.mode),
+            uid: u32::from(inode.uid),
+            gid: u32::from(inode.gid),
+            mtime: inode.mtime,
+            mtime_nsec: inode.mtime_nsec,
+            symlink_target: inode.symlink_target.clone(),
+            rdev: inode.rdev,
+        }
+    }
+
+    /// Zero-filled placeholder content matching each entry's size (test support).
+    pub(crate) fn zero_data(entry: &TreeEntry) -> Vec<u8> {
+        if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
+            vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Pairs owned entries with mutable readers into [`SizedFile`]s (test support).
+    pub(crate) fn pair_files<R: Read>(
+        entries: Vec<TreeEntry>,
+        readers: &mut [R],
+    ) -> Vec<SizedFile<'_>> {
+        entries
+            .into_iter()
+            .zip(readers.iter_mut())
+            .map(|(entry, reader)| SizedFile { entry, reader })
+            .collect()
+    }
+
+    /// Cursor sets over shared content, one per emit consumer (test support).
+    pub(crate) type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
+
+    /// Builds two independent cursor sets over shared content (test support).
+    pub(crate) fn two_cursor_sets(datas: &[Vec<u8>]) -> (CursorSet<'_>, CursorSet<'_>) {
+        let build = || {
+            datas
+                .iter()
+                .map(|data| std::io::Cursor::new(data.as_slice()))
+                .collect()
+        };
+        (build(), build())
+    }
 }
 
 #[cfg(test)]
@@ -126,21 +188,31 @@ mod tests {
         data_map: &std::collections::HashMap<String, Vec<u8>>,
         config: &MkfsConfig<'_>,
     ) -> Vec<u8> {
-        let files = entries
+        let datas: Vec<Vec<u8>> = entries
             .iter()
             .map(|e| data_map.get(&e.rel_path).cloned().unwrap_or_default())
-            .collect::<Vec<_>>();
-        let mut cursors: Vec<Cursor<Vec<u8>>> = files.into_iter().map(Cursor::new).collect();
-        let mut sized: Vec<SizedFile<'_>> = entries
-            .into_iter()
-            .zip(cursors.iter_mut())
-            .map(|(entry, cursor)| SizedFile {
-                entry,
-                reader: cursor,
-            })
             .collect();
+
+        let mut pass1: Vec<Cursor<&[u8]>> = datas
+            .iter()
+            .map(|data| Cursor::new(data.as_slice()))
+            .collect();
+        let mut files1 = testutil::pair_files(entries.clone(), &mut pass1);
+        let planned = layout::plan(&mut files1, config).expect("plan");
+
+        let mut pass2: Vec<Cursor<&[u8]>> = datas
+            .iter()
+            .map(|data| Cursor::new(data.as_slice()))
+            .collect();
+        let mut pass3: Vec<Cursor<&[u8]>> = datas
+            .iter()
+            .map(|data| Cursor::new(data.as_slice()))
+            .collect();
+        let mut meta_files = testutil::pair_files(entries.clone(), &mut pass2);
+        let mut data_files = testutil::pair_files(entries, &mut pass3);
+
         let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &mut sized, config).expect("mkfs");
+        writer::image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("mkfs");
         buf.into_inner()
     }
 
@@ -155,17 +227,25 @@ mod tests {
 
     fn mkfs_from_dir(dir_path: &Path, config: &MkfsConfig<'_>) -> Vec<u8> {
         let entries = source::collect_entries(dir_path).expect("collect_entries");
-        let mut readers: Vec<Box<dyn Read>> = entries
-            .iter()
-            .map(|ent| open_reader(dir_path, ent))
-            .collect();
-        let mut files: Vec<SizedFile<'_>> = entries
-            .into_iter()
-            .zip(readers.iter_mut())
-            .map(|(entry, reader)| SizedFile { entry, reader })
-            .collect();
+
+        let readers = |entries: &[TreeEntry]| {
+            entries
+                .iter()
+                .map(|ent| open_reader(dir_path, ent))
+                .collect::<Vec<_>>()
+        };
+
+        let mut pass1 = readers(&entries);
+        let mut files1 = testutil::pair_files(entries.clone(), &mut pass1);
+        let planned = layout::plan(&mut files1, config).expect("plan");
+
+        let mut pass2 = readers(&entries);
+        let mut pass3 = readers(&entries);
+        let mut meta_files = testutil::pair_files(entries.clone(), &mut pass2);
+        let mut data_files = testutil::pair_files(entries, &mut pass3);
+
         let mut buf = Cursor::new(Vec::new());
-        mkfs(&mut buf, &mut files, config).expect("mkfs");
+        writer::image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("mkfs");
         buf.into_inner()
     }
 
@@ -321,15 +401,26 @@ mod tests {
 
         // ACT
         let entries = source::collect_entries(dir.path()).expect("collect_entries");
-        let mut empties = entries
-            .into_iter()
-            .map(|e| SizedFile {
-                entry: e,
-                reader: Box::leak(Box::new(std::io::empty())),
-            })
-            .collect::<Vec<_>>();
+        let empties = || {
+            entries
+                .iter()
+                .map(|e| SizedFile {
+                    entry: e.clone(),
+                    reader: Box::leak(Box::new(std::io::empty())),
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut measure_files = empties();
+        let mut meta_files = empties();
+        let mut data_files = empties();
         let mut buf = Cursor::new(Vec::new());
-        let result = mkfs(&mut buf, &mut empties, &config);
+        let result = mkfs(
+            &mut buf,
+            &mut measure_files,
+            &mut meta_files,
+            &mut data_files,
+            &config,
+        );
 
         // ASSERT
         assert!(matches!(

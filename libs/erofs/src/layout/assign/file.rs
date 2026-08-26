@@ -62,27 +62,14 @@ pub(super) fn regular(
         return Ok(0);
     };
 
-    if file_size > 0 {
-        let mut file_data = Vec::with_capacity(file_size);
-        let sized = files
-            .get_mut(i)
-            .ok_or(ErofsError::Internal("file index out of bounds"))?;
-        sized.reader.read_to_end(&mut file_data)?;
-
-        if file_data.len() != file_size {
-            let rel = inodes.get(i).map_or("?", |inode| inode.rel_path.as_str());
-            return Err(ErofsError::FileReadMismatch {
-                path: rel.to_owned(),
-                expected: file_size,
-                actual: file_data.len(),
-            });
+    let compressed_advance = match (file_size > 0, compression.level()) {
+        (true, Some(level)) => {
+            compressed_regular(inodes, i, nid, inode_header, files, file_size, level)?
         }
-
-        if let Some(advance) =
-            try_compress_or_store(inodes, i, nid, inode_header, &mut file_data, compression)
-        {
-            return Ok(advance);
-        }
+        _ => None,
+    };
+    if let Some(advance) = compressed_advance {
+        return Ok(advance);
     }
 
     let tail_size = file_size.checked_rem(bs).unwrap_or_default();
@@ -116,58 +103,54 @@ pub(super) fn regular(
     }
 }
 
-fn try_compress_or_store(
+fn compressed_regular(
     inodes: &mut [InodeLayout],
     i: usize,
     nid: u64,
     inode_header: usize,
-    file_data: &mut Vec<u8>,
-    compression: Compression,
-) -> Option<usize> {
-    let Compression::Zstd { level } = compression else {
-        let data = core::mem::take(file_data);
-        if let Some(inode) = inodes.get_mut(i) {
-            inode.raw_data = data;
-        }
-        return None;
+    files: &mut [SizedFile<'_>],
+    file_size: usize,
+    level: i32,
+) -> Result<Option<usize>> {
+    let Some(rel_path) = inodes.get(i).map(|inode| inode.rel_path.clone()) else {
+        return Ok(None);
     };
-    let Some(cf) = compress::compress_file(file_data, level).ok().flatten() else {
-        let data = core::mem::take(file_data);
-        if let Some(inode) = inodes.get_mut(i) {
-            inode.raw_data = data;
-        }
-        return None;
+    let sized = files
+        .get_mut(i)
+        .ok_or(ErofsError::Internal("file index out of bounds"))?;
+    let Some(cf) = compress::compress_file(sized.reader, file_size, &rel_path, level)? else {
+        return Ok(None);
     };
 
     if !compress::has_representable_compact_indexes(&cf) {
-        let data = core::mem::take(file_data);
-        if let Some(inode) = inodes.get_mut(i) {
-            inode.raw_data = data;
-        }
-        return None;
+        return Ok(None);
     }
 
-    let totalidx = usize::try_from(compress::lcluster_count(&cf)).ok()?;
+    let Some(totalidx) = usize::try_from(compress::lcluster_count(&cf)).ok() else {
+        return Ok(None);
+    };
     let pclusters = compress::pcluster_blocks(&cf);
+    let Some(pcluster_count) = usize::try_from(pclusters).ok() else {
+        return Ok(None);
+    };
 
-    if usize::try_from(pclusters).ok()? >= totalidx {
-        let data = core::mem::take(file_data);
-        if let Some(inode) = inodes.get_mut(i) {
-            inode.raw_data = data;
-        }
-        return None;
+    if pcluster_count >= totalidx {
+        return Ok(None);
     }
+
     let ebase = align8(inode_header).saturating_add(Z_EROFS_MAP_HEADER_SIZE);
     let index_size = index_bytes(totalidx, ebase);
     let meta_total = ebase.saturating_add(index_size);
 
-    let inode = inodes.get_mut(i)?;
+    let Some(inode) = inodes.get_mut(i) else {
+        return Ok(None);
+    };
     inode.nid = nid;
     inode.datalayout = EROFS_INODE_COMPRESSED_COMPACT;
     inode.data_blocks = pclusters;
     inode.compressed = Some(cf);
 
-    Some(align_up(meta_total, SLOT_SIZE).unwrap_or(meta_total))
+    Ok(Some(align_up(meta_total, SLOT_SIZE).unwrap_or(meta_total)))
 }
 
 pub(super) fn special(
@@ -213,21 +196,40 @@ mod tests {
         Box::new(std::fs::File::open(&full).expect("open"))
     }
 
+    fn sized_files<'a>(
+        entries: &[TreeEntry],
+        readers: &'a mut [Box<dyn Read>],
+    ) -> Vec<SizedFile<'a>> {
+        entries
+            .iter()
+            .zip(readers.iter_mut())
+            .map(|(entry, reader)| SizedFile {
+                entry: entry.clone(),
+                reader: reader.as_mut(),
+            })
+            .collect()
+    }
+
     fn mkfs_from_dir(dir_path: &Path, config: &crate::MkfsConfig<'_>) -> Vec<u8> {
         let entries = source::collect_entries(dir_path).expect("collect_entries");
-        let mut readers: Vec<Box<dyn Read>> = entries
-            .iter()
-            .map(|ent| open_reader(dir_path, ent))
-            .collect();
-        let mut files: Vec<SizedFile<'_>> = entries
-            .into_iter()
-            .zip(readers.iter_mut())
-            .map(|(entry, reader)| SizedFile { entry, reader })
-            .collect();
-        let planned = plan(&mut files, config).expect("plan");
-        core::mem::drop(files);
+        let readers = |entries: &[TreeEntry]| {
+            entries
+                .iter()
+                .map(|ent| open_reader(dir_path, ent))
+                .collect::<Vec<_>>()
+        };
+
+        let mut pass1 = readers(&entries);
+        let mut files1 = sized_files(&entries, &mut pass1);
+        let planned = plan(&mut files1, config).expect("plan");
+
+        let mut pass2 = readers(&entries);
+        let mut pass3 = readers(&entries);
+        let mut meta_files = sized_files(&entries, &mut pass2);
+        let mut data_files = sized_files(&entries, &mut pass3);
+
         let mut buf = Vec::new();
-        image(&mut buf, &planned, config).expect("image");
+        image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("image");
         buf
     }
 
@@ -960,7 +962,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

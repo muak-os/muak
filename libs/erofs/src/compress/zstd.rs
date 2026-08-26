@@ -1,6 +1,6 @@
-//! Thin zstd context setup and whole-input compression helpers.
+//! Thin zstd context setup helpers.
 
-use zstd::zstd_safe::{CCtx, CParameter, compress_bound, get_error_name};
+use zstd::zstd_safe::{CCtx, CParameter};
 
 use super::validate_compression_level;
 use crate::error::{ErofsError, Result};
@@ -24,23 +24,9 @@ pub(super) fn compression_error(code: usize) -> ErofsError {
     }
 }
 
-pub(super) fn compress_whole_input(cctx: &mut CCtx<'_>, src: &[u8]) -> Result<Vec<u8>> {
-    let upper = compress_bound(src.len());
-    let mut dst = vec![0_u8; upper];
-    let written = cctx.compress2(&mut dst, src).map_err(compression_error)?;
-    dst.truncate(written);
-    Ok(dst)
-}
-
-pub(super) fn error_name(code: usize) -> &'static str {
-    get_error_name(code)
-}
-
 #[cfg(test)]
 mod tests {
-    use zstd::bulk::decompress;
-
-    use super::{compress_whole_input, new_cctx};
+    use super::new_cctx;
     use crate::error::ErofsError;
 
     #[test]
@@ -53,19 +39,5 @@ mod tests {
             result,
             Err(ErofsError::InvalidCompressionLevel { .. })
         ));
-    }
-
-    #[test]
-    fn compress_whole_input_round_trips() {
-        // ARRANGE
-        let mut cctx = new_cctx(3).expect("cctx");
-        let data = vec![0_u8; 8192];
-
-        // ACT
-        let compressed = compress_whole_input(&mut cctx, &data).expect("compress");
-        let decompressed = decompress(&compressed, data.len()).expect("decompress");
-
-        // ASSERT
-        assert_eq!(decompressed, data);
     }
 }

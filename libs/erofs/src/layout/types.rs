@@ -1,6 +1,6 @@
 //! In-memory representation of a single inode's planned on-disk layout.
 
-use crate::compress::CompressedFile;
+use crate::compress::CompressedLayout;
 
 /// Planned layout for a single inode.
 #[derive(Debug, Clone)]
@@ -19,11 +19,10 @@ pub struct InodeLayout {
     pub datalayout: u16,
     pub xattr_payload: Vec<u8>,
     pub xattr_icount: u16,
-    pub raw_data: Vec<u8>,
     pub data_blkaddr: u32,
     pub data_blocks: u32,
     pub children: Vec<String>,
     pub symlink_target: Vec<u8>,
     pub rdev: u32,
-    pub compressed: Option<CompressedFile>,
+    pub compressed: Option<CompressedLayout>,
 }

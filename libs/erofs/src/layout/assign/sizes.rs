@@ -118,7 +118,6 @@ mod tests {
             datalayout: EROFS_INODE_FLAT_PLAIN,
             xattr_payload: Vec::new(),
             xattr_icount: 0,
-            raw_data: Vec::new(),
             data_blkaddr: 0,
             data_blocks: 0,
             children: Vec::new(),

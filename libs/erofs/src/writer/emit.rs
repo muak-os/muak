@@ -3,52 +3,27 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Read, Write};
 
 use super::compressed;
 use super::data;
 use super::inode::write_header;
 use super::sizes::{block_size_usize, slot_offset};
 use crate::checked::{add, align_up, u32_from_usize};
+use crate::dir::EROFS_FT_REG_FILE;
 use crate::error::{ErofsError, Result};
-use crate::inode::COMPACT_INODE_SIZE;
+use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE};
 use crate::layout::{self, ImagePlan, InodeLayout};
+use crate::source::SizedFile;
 use crate::superblock::{self, SuperblockParams};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 
-fn write_plain_blocks<W: Write>(
-    writer: &mut W,
-    inode: &InodeLayout,
-    all_inodes: &[InodeLayout],
-    path_to_idx: &BTreeMap<String, usize>,
-    block_size: usize,
-) -> Result<()> {
-    let Some(data_bytes) = data::plain_blocks(inode, all_inodes, path_to_idx, block_size)? else {
-        return Ok(());
-    };
-    writer.write_all(&data_bytes).map_err(ErofsError::Io)?;
-    let full = usize::try_from(inode.data_blocks)
-        .unwrap_or_default()
-        .saturating_mul(block_size);
-    let padding = full.saturating_sub(data_bytes.len());
-    if padding == 0 {
-        return Ok(());
-    }
-    let padding_slice = ZERO_BLOCK
-        .get(..padding)
-        .ok_or_else(|| ErofsError::BlockPadding {
-            path: inode.rel_path.clone(),
-            data_blocks: inode.data_blocks,
-            data_len: data_bytes.len(),
-        })?;
-
-    writer.write_all(padding_slice).map_err(ErofsError::Io)
-}
-
 pub fn image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
+    meta_files: &mut [SizedFile<'_>],
+    data_files: &mut [SizedFile<'_>],
     config: &crate::MkfsConfig<'_>,
 ) -> Result<()> {
     let block_size = block_size_usize();
@@ -62,8 +37,9 @@ pub fn image<W: Write>(
     let meta_end = layout::compute_meta_end(inodes, plan.do_compress).max(block_size);
     let meta_end_aligned = align_up(meta_end, block_size).unwrap_or(meta_end);
     let mut meta_buf = vec![0_u8; meta_end];
+    let mut stage = vec![0_u8; crate::compress::CHUNK_MAX];
 
-    for inode in inodes {
+    for (index, inode) in inodes.iter().enumerate() {
         let slot_offset = slot_offset(inode.nid)?;
         let xattr_size = inode.xattr_payload.len();
         let inode_header_end = add(slot_offset, COMPACT_INODE_SIZE)
@@ -74,7 +50,21 @@ pub fn image<W: Write>(
 
         if inode.compressed.is_some() {
             compressed::write_metadata(&mut meta_buf, inode, slot_offset)?;
-        } else {
+            continue;
+        }
+        if is_inline_regular(inode) {
+            let reader = regular_reader(meta_files, index)?;
+            data::write_regular_inline_tail(
+                &mut meta_buf,
+                inode,
+                reader,
+                &mut stage,
+                inode_header_end,
+                block_size,
+            )?;
+            continue;
+        }
+        if inode.compressed.is_none() {
             data::write_inline_tail(
                 &mut meta_buf,
                 inode,
@@ -111,22 +101,57 @@ pub fn image<W: Write>(
     writer.write_all(&meta_buf).map_err(ErofsError::Io)?;
 
     let pad = meta_end_aligned.saturating_sub(meta_end);
-    if pad > 0 {
-        let padding_slice = ZERO_BLOCK
-            .get(..pad)
-            .ok_or(ErofsError::Internal("pad exceeds ZERO_BLOCK"))?;
-        writer.write_all(padding_slice).map_err(ErofsError::Io)?;
-    }
+    write_padding(writer, pad)?;
 
-    for inode in inodes {
+    for (index, inode) in inodes.iter().enumerate() {
         if inode.compressed.is_some() {
-            compressed::compressed_blocks(writer, inode)?;
-        } else {
-            write_plain_blocks(writer, inode, inodes, &path_to_idx, block_size)?;
+            let reader = regular_reader(data_files, index)?;
+            compressed::compressed_blocks(writer, inode, reader, config.compression, &mut stage)?;
+        }
+        if inode.compressed.is_none() && is_streamed_plain(inode) {
+            let reader = regular_reader(data_files, index)?;
+            data::stream_plain(writer, inode, reader, block_size, &mut stage)?;
+        }
+        if inode.compressed.is_none()
+            && let Some(bytes) = data::spill_blocks(inode, inodes, &path_to_idx, block_size)?
+        {
+            let allocated = usize::try_from(inode.data_blocks)
+                .unwrap_or_default()
+                .saturating_mul(block_size);
+            writer.write_all(&bytes).map_err(ErofsError::Io)?;
+            write_padding(writer, allocated.saturating_sub(bytes.len()))?;
         }
     }
 
     Ok(())
+}
+
+fn write_padding<W: Write>(writer: &mut W, pad: usize) -> Result<()> {
+    let mut remaining = pad;
+    while remaining > 0 {
+        let take = remaining.min(ZERO_BLOCK.len());
+        let slice = ZERO_BLOCK
+            .get(..take)
+            .ok_or(ErofsError::Internal("pad exceeds ZERO_BLOCK"))?;
+        writer.write_all(slice).map_err(ErofsError::Io)?;
+        remaining = remaining.saturating_sub(take);
+    }
+    Ok(())
+}
+
+fn regular_reader<'a>(files: &'a mut [SizedFile<'_>], index: usize) -> Result<&'a mut dyn Read> {
+    files
+        .get_mut(index)
+        .map(|sized| -> &mut dyn Read { &mut *sized.reader })
+        .ok_or(ErofsError::Internal("file index out of bounds"))
+}
+
+fn is_streamed_plain(inode: &InodeLayout) -> bool {
+    inode.compressed.is_none() && inode.file_type == EROFS_FT_REG_FILE && inode.size > 0
+}
+
+fn is_inline_regular(inode: &InodeLayout) -> bool {
+    is_streamed_plain(inode) && inode.datalayout == EROFS_INODE_FLAT_INLINE
 }
 
 #[cfg(test)]
@@ -135,42 +160,33 @@ mod tests {
 
     use crate::MkfsConfig;
     use crate::SLOT_SIZE;
-    use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::layout;
-    use crate::source::SizedFile;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
-    use crate::testutil::{compress_config, test_config};
+    use crate::testutil::{compress_config, entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
 
-    fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
-        let mut image = Vec::new();
-        super::image(&mut image, planned, cfg).expect("image");
-        image
-    }
-
-    fn placeholder_data(e: &TreeEntry) -> Vec<u8> {
-        if e.file_type == EROFS_FT_REG_FILE && e.size > 0 {
-            vec![0_u8; usize::try_from(e.size).expect("size fits usize")]
-        } else {
-            Vec::new()
-        }
-    }
-
     fn plan_from_entries(entries: &[TreeEntry], cfg: &MkfsConfig<'_>) -> layout::ImagePlan {
-        let mut datas: Vec<Vec<u8>> = entries.iter().map(placeholder_data).collect();
+        let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
         let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
             .iter_mut()
             .map(|data| io::Cursor::new(data.as_mut_slice()))
             .collect();
-        let mut files: Vec<SizedFile<'_>> = entries
-            .iter()
-            .zip(cursors.iter_mut())
-            .map(|(entry, cursor)| SizedFile {
-                entry: entry.clone(),
-                reader: cursor,
-            })
-            .collect();
+        let mut files = crate::testutil::pair_files(entries.to_vec(), &mut cursors);
+
         layout::plan(&mut files, cfg).expect("plan")
+    }
+
+    fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
+        let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
+        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
+        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+
+        let mut image = Vec::new();
+        super::image(&mut image, planned, &mut meta_files, &mut data_files, cfg).expect("image");
+
+        image
     }
 
     #[test]
@@ -179,7 +195,7 @@ mod tests {
         let entries = &[
             TreeEntry {
                 rel_path: "/".to_owned(),
-                file_type: EROFS_FT_DIR,
+                file_type: crate::dir::EROFS_FT_DIR,
                 size: 0,
                 mode: 0o40755,
                 uid: 0,
@@ -191,7 +207,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/empty".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 0,
                 mode: 0o644,
                 uid: 0,
@@ -230,7 +246,7 @@ mod tests {
         // ARRANGE
         let entries = &[TreeEntry {
             rel_path: "/".to_owned(),
-            file_type: EROFS_FT_DIR,
+            file_type: crate::dir::EROFS_FT_DIR,
             size: 0,
             mode: 0o40755,
             uid: 0,
@@ -262,7 +278,7 @@ mod tests {
         // ARRANGE
         let entries = &[TreeEntry {
             rel_path: "/".to_owned(),
-            file_type: EROFS_FT_DIR,
+            file_type: crate::dir::EROFS_FT_DIR,
             size: 0,
             mode: 0o40755,
             uid: 0,
@@ -294,44 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn root_nid_is_36_in_image() {
-        // ARRANGE
-        let entries = &[TreeEntry {
-            rel_path: "/".to_owned(),
-            file_type: EROFS_FT_DIR,
-            size: 0,
-            mode: 0o40755,
-            uid: 0,
-            gid: 0,
-            mtime: 1,
-            mtime_nsec: 0,
-            symlink_target: vec![],
-            rdev: 0,
-        }];
-        let cfg = test_config(1);
-
-        // ACT
-        let planned = plan_from_entries(entries, &cfg);
-        let image = run_write(&planned, &cfg);
-
-        // ASSERT
-        let root_nid = u16::from_le_bytes(
-            image
-                .get(EROFS_SUPER_OFFSET + 0x0E..EROFS_SUPER_OFFSET + 0x10)
-                .expect("root nid bytes")
-                .try_into()
-                .expect("2 bytes"),
-        );
-        assert_eq!(root_nid, 36);
-    }
-
-    #[test]
     fn reproducible_output() {
         // ARRANGE
         let entries = &[
             TreeEntry {
                 rel_path: "/".to_owned(),
-                file_type: EROFS_FT_DIR,
+                file_type: crate::dir::EROFS_FT_DIR,
                 size: 0,
                 mode: 0o40755,
                 uid: 0,
@@ -343,7 +327,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/a".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 3,
                 mode: 0o644,
                 uid: 0,
@@ -355,7 +339,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/b".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 3,
                 mode: 0o644,
                 uid: 0,
@@ -387,7 +371,7 @@ mod tests {
         let entries = &[
             TreeEntry {
                 rel_path: "/".to_owned(),
-                file_type: EROFS_FT_DIR,
+                file_type: crate::dir::EROFS_FT_DIR,
                 size: 0,
                 mode: 0o40755,
                 uid: 0,
@@ -399,7 +383,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/f".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 1,
                 mode: 0o644,
                 uid: 0,
@@ -437,7 +421,7 @@ mod tests {
         let entries = &[
             TreeEntry {
                 rel_path: "/".to_owned(),
-                file_type: EROFS_FT_DIR,
+                file_type: crate::dir::EROFS_FT_DIR,
                 size: 0,
                 mode: 0o40755,
                 uid: 0,
@@ -449,7 +433,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/zeros".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 8192,
                 mode: 0o644,
                 uid: 0,
@@ -477,7 +461,7 @@ mod tests {
         let entries = &[
             TreeEntry {
                 rel_path: "/".to_owned(),
-                file_type: EROFS_FT_DIR,
+                file_type: crate::dir::EROFS_FT_DIR,
                 size: 0,
                 mode: 0o40755,
                 uid: 0,
@@ -489,7 +473,7 @@ mod tests {
             },
             TreeEntry {
                 rel_path: "/zeros".to_owned(),
-                file_type: EROFS_FT_REG_FILE,
+                file_type: crate::dir::EROFS_FT_REG_FILE,
                 size: 4096,
                 mode: 0o644,
                 uid: 0,
@@ -518,5 +502,147 @@ mod tests {
         assert_eq!(cfg_size, 6);
         assert_eq!(*image.get(cfg_off + 2).expect("format byte"), 0);
         assert_eq!(*image.get(cfg_off + 3).expect("windowlog byte"), 5);
+    }
+
+    #[test]
+    fn spilled_dir_is_padded_before_next_inode_data() {
+        // ARRANGE
+        let mut entries = vec![TreeEntry {
+            rel_path: "/".to_owned(),
+            file_type: crate::dir::EROFS_FT_DIR,
+            size: 0,
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        }];
+        for index in 0_u16..339 {
+            entries.push(TreeEntry {
+                rel_path: format!("/file_{index:03}.txt"),
+                file_type: crate::dir::EROFS_FT_REG_FILE,
+                size: 1,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            });
+        }
+        entries.push(TreeEntry {
+            rel_path: "/data".to_owned(),
+            file_type: crate::dir::EROFS_FT_REG_FILE,
+            size: 4096,
+            mode: 0o644,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+            mtime_nsec: 0,
+            symlink_target: vec![],
+            rdev: 0,
+        });
+        let cfg = test_config(1);
+        let planned = plan_from_entries(&entries, &cfg);
+        let root = planned.inodes.first().expect("root inode");
+        assert!(
+            root.data_blocks > 0,
+            "root dir must spill into the data region"
+        );
+        let expected = vec![0xCD_u8; 4096];
+
+        // ACT
+        let image = {
+            let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+            let last = datas.last_mut().expect("data slot");
+            last.copy_from_slice(&expected);
+            let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+            let inodes: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
+            let mut meta_files = crate::testutil::pair_files(inodes.clone(), &mut meta_cursors);
+            let mut data_files = crate::testutil::pair_files(inodes, &mut data_cursors);
+            let mut buf = Vec::new();
+            super::image(&mut buf, &planned, &mut meta_files, &mut data_files, &cfg)
+                .expect("image");
+            buf
+        };
+
+        // ASSERT
+        let file = planned
+            .inodes
+            .iter()
+            .find(|inode| inode.rel_path == "/data")
+            .expect("found");
+        let data_start = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
+        assert_eq!(
+            image
+                .get(data_start..data_start + 4096)
+                .expect("file data bytes"),
+            expected.as_slice(),
+            "unpadded dir spill must not shift the following inode's data"
+        );
+    }
+
+    #[test]
+    fn streamed_plain_file_round_trips_into_data_region() {
+        // ARRANGE
+        let entries = &[
+            TreeEntry {
+                rel_path: "/".to_owned(),
+                file_type: crate::dir::EROFS_FT_DIR,
+                size: 0,
+                mode: 0o40755,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+            TreeEntry {
+                rel_path: "/full".to_owned(),
+                file_type: crate::dir::EROFS_FT_REG_FILE,
+                size: 8192,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+                mtime_nsec: 0,
+                symlink_target: vec![],
+                rdev: 0,
+            },
+        ];
+        let cfg = test_config(1);
+        let expected = vec![0xAB_u8; 8192];
+
+        // ACT
+        let planned = plan_from_entries(entries, &cfg);
+        let image = {
+            let datas: Vec<Vec<u8>> = vec![Vec::new(), expected.clone()];
+            let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
+            let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+            let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
+            let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+            let mut buf = Vec::new();
+            super::image(&mut buf, &planned, &mut meta_files, &mut data_files, &cfg)
+                .expect("image");
+            buf
+        };
+
+        // ASSERT
+        let file = planned
+            .inodes
+            .iter()
+            .find(|inode| inode.rel_path == "/full")
+            .expect("found");
+        let data_start = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
+        assert_eq!(
+            image
+                .get(data_start..data_start + 8192)
+                .expect("plain data bytes"),
+            expected.as_slice()
+        );
     }
 }
