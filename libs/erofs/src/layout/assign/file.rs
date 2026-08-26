@@ -72,9 +72,8 @@ pub(super) fn regular(
         return Ok(advance);
     }
 
-    let tail_size = file_size.checked_rem(bs).unwrap_or_default();
     let full_blocks = file_size.checked_div(bs).unwrap_or_default();
-    let can_inline_tail = tail_size > 0 && inline_fits(slot_offset, inode_header, tail_size, bs);
+    let can_inline = full_blocks == 0 && inline_fits(slot_offset, inode_header, file_size, bs);
 
     let Some(inode) = inodes.get_mut(i) else {
         return Ok(0);
@@ -86,15 +85,9 @@ pub(super) fn regular(
         return Ok(header_only_padded(inode_header));
     }
 
-    if can_inline_tail {
+    if can_inline {
         inode.datalayout = EROFS_INODE_FLAT_INLINE;
-        inode.data_blocks = truncate_usize_to_u32(full_blocks);
-        let inline_len = if full_blocks == 0 {
-            file_size
-        } else {
-            tail_size
-        };
-        Ok(padded_slots(inode_header, inline_len))
+        Ok(padded_slots(inode_header, file_size))
     } else {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
         inode.data_blocks = truncate_usize_to_u32(file_size.div_ceil(bs));
@@ -224,12 +217,10 @@ mod tests {
         let planned = plan(&mut files1, config).expect("plan");
 
         let mut pass2 = readers(&entries);
-        let mut pass3 = readers(&entries);
-        let mut meta_files = sized_files(&entries, &mut pass2);
-        let mut data_files = sized_files(&entries, &mut pass3);
+        let mut files = sized_files(&entries, &mut pass2);
 
         let mut buf = Vec::new();
-        image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("image");
+        image(&mut buf, &planned, &mut files, config).expect("image");
         buf
     }
 

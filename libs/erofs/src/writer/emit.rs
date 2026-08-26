@@ -22,8 +22,7 @@ const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 pub fn image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
-    meta_files: &mut [SizedFile<'_>],
-    data_files: &mut [SizedFile<'_>],
+    files: &mut [SizedFile<'_>],
     config: &crate::MkfsConfig<'_>,
 ) -> Result<()> {
     let block_size = block_size_usize();
@@ -53,15 +52,8 @@ pub fn image<W: Write>(
             continue;
         }
         if is_inline_regular(inode) {
-            let reader = regular_reader(meta_files, index)?;
-            data::write_regular_inline_tail(
-                &mut meta_buf,
-                inode,
-                reader,
-                &mut stage,
-                inode_header_end,
-                block_size,
-            )?;
+            let reader = regular_reader(files, index)?;
+            data::write_regular_inline_tail(&mut meta_buf, inode, reader, inode_header_end)?;
             continue;
         }
         if inode.compressed.is_none() {
@@ -105,11 +97,11 @@ pub fn image<W: Write>(
 
     for (index, inode) in inodes.iter().enumerate() {
         if inode.compressed.is_some() {
-            let reader = regular_reader(data_files, index)?;
+            let reader = regular_reader(files, index)?;
             compressed::compressed_blocks(writer, inode, reader, config.compression, &mut stage)?;
         }
         if inode.compressed.is_none() && is_streamed_plain(inode) {
-            let reader = regular_reader(data_files, index)?;
+            let reader = regular_reader(files, index)?;
             data::stream_plain(writer, inode, reader, block_size, &mut stage)?;
         }
         if inode.compressed.is_none()
@@ -179,12 +171,11 @@ mod tests {
     fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
         let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
-        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
-        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+        let mut cursors = crate::testutil::cursor_set(&datas);
+        let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut image = Vec::new();
-        super::image(&mut image, planned, &mut meta_files, &mut data_files, cfg).expect("image");
+        super::image(&mut image, planned, &mut files, cfg).expect("image");
 
         image
     }
@@ -559,13 +550,11 @@ mod tests {
             let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
             let last = datas.last_mut().expect("data slot");
             last.copy_from_slice(&expected);
-            let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
+            let mut cursors = crate::testutil::cursor_set(&datas);
             let inodes: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-            let mut meta_files = crate::testutil::pair_files(inodes.clone(), &mut meta_cursors);
-            let mut data_files = crate::testutil::pair_files(inodes, &mut data_cursors);
+            let mut files = crate::testutil::pair_files(inodes, &mut cursors);
             let mut buf = Vec::new();
-            super::image(&mut buf, &planned, &mut meta_files, &mut data_files, &cfg)
-                .expect("image");
+            super::image(&mut buf, &planned, &mut files, &cfg).expect("image");
             buf
         };
 
@@ -622,12 +611,10 @@ mod tests {
         let image = {
             let datas: Vec<Vec<u8>> = vec![Vec::new(), expected.clone()];
             let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-            let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
-            let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
-            let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+            let mut cursors = crate::testutil::cursor_set(&datas);
+            let mut files = crate::testutil::pair_files(entries, &mut cursors);
             let mut buf = Vec::new();
-            super::image(&mut buf, &planned, &mut meta_files, &mut data_files, &cfg)
-                .expect("image");
+            super::image(&mut buf, &planned, &mut files, &cfg).expect("image");
             buf
         };
 

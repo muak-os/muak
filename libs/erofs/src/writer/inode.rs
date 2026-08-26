@@ -110,12 +110,12 @@ mod tests {
     fn write_image(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
         let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(&datas);
-        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
-        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+        let mut cursors = crate::testutil::cursor_set(&datas);
+        let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut buf = Vec::new();
-        image(&mut buf, planned, &mut meta_files, &mut data_files, cfg).expect("write");
+        image(&mut buf, planned, &mut files, cfg).expect("write");
+
         buf
     }
 

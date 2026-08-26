@@ -23,9 +23,8 @@ use crate::source::SizedFile;
 pub fn image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
-    meta_files: &mut [SizedFile<'_>],
-    data_files: &mut [SizedFile<'_>],
+    files: &mut [SizedFile<'_>],
     config: &MkfsConfig<'_>,
 ) -> Result<()> {
-    emit::image(writer, plan, meta_files, data_files, config)
+    emit::image(writer, plan, files, config)
 }

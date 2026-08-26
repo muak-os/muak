@@ -64,10 +64,6 @@ pub struct MkfsConfig<'a> {
 
 /// Build an EROFS filesystem image from sized file entries.
 ///
-/// Performs three sequential passes over positional readers — measure, metadata
-/// tails, and data blocks — so each set must be positioned at the start of its
-/// content; nothing is rewound internally.
-///
 /// # Errors
 ///
 /// Returns an error when entries are invalid, compression settings are invalid,
@@ -75,8 +71,7 @@ pub struct MkfsConfig<'a> {
 pub fn mkfs<W: std::io::Write>(
     writer: &mut W,
     measure_files: &mut [SizedFile<'_>],
-    meta_files: &mut [SizedFile<'_>],
-    data_files: &mut [SizedFile<'_>],
+    files: &mut [SizedFile<'_>],
     config: &MkfsConfig<'_>,
 ) -> error::Result<()> {
     if let Some(level) = config.compression.level() {
@@ -84,7 +79,7 @@ pub fn mkfs<W: std::io::Write>(
     }
     let plan = layout::plan(measure_files, config)?;
 
-    writer::image(writer, &plan, meta_files, data_files, config)
+    writer::image(writer, &plan, files, config)
 }
 
 #[cfg(test)]
@@ -157,18 +152,15 @@ pub(crate) mod testutil {
             .collect()
     }
 
-    /// Cursor sets over shared content, one per emit consumer (test support).
+    /// Cursor set over shared content (test support).
     pub(crate) type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
-    /// Builds two independent cursor sets over shared content (test support).
-    pub(crate) fn two_cursor_sets(datas: &[Vec<u8>]) -> (CursorSet<'_>, CursorSet<'_>) {
-        let build = || {
-            datas
-                .iter()
-                .map(|data| std::io::Cursor::new(data.as_slice()))
-                .collect()
-        };
-        (build(), build())
+    /// Builds one independent cursor set over shared content (test support).
+    pub(crate) fn cursor_set(datas: &[Vec<u8>]) -> CursorSet<'_> {
+        datas
+            .iter()
+            .map(|data| std::io::Cursor::new(data.as_slice()))
+            .collect()
     }
 }
 
@@ -204,15 +196,10 @@ mod tests {
             .iter()
             .map(|data| Cursor::new(data.as_slice()))
             .collect();
-        let mut pass3: Vec<Cursor<&[u8]>> = datas
-            .iter()
-            .map(|data| Cursor::new(data.as_slice()))
-            .collect();
-        let mut meta_files = testutil::pair_files(entries.clone(), &mut pass2);
-        let mut data_files = testutil::pair_files(entries, &mut pass3);
+        let mut files = testutil::pair_files(entries, &mut pass2);
 
         let mut buf = Cursor::new(Vec::new());
-        writer::image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("mkfs");
+        writer::image(&mut buf, &planned, &mut files, config).expect("mkfs");
         buf.into_inner()
     }
 
@@ -240,12 +227,10 @@ mod tests {
         let planned = layout::plan(&mut files1, config).expect("plan");
 
         let mut pass2 = readers(&entries);
-        let mut pass3 = readers(&entries);
-        let mut meta_files = testutil::pair_files(entries.clone(), &mut pass2);
-        let mut data_files = testutil::pair_files(entries, &mut pass3);
+        let mut files = testutil::pair_files(entries, &mut pass2);
 
         let mut buf = Cursor::new(Vec::new());
-        writer::image(&mut buf, &planned, &mut meta_files, &mut data_files, config).expect("mkfs");
+        writer::image(&mut buf, &planned, &mut files, config).expect("mkfs");
         buf.into_inner()
     }
 
@@ -411,16 +396,9 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let mut measure_files = empties();
-        let mut meta_files = empties();
-        let mut data_files = empties();
+        let mut files = empties();
         let mut buf = Cursor::new(Vec::new());
-        let result = mkfs(
-            &mut buf,
-            &mut measure_files,
-            &mut meta_files,
-            &mut data_files,
-            &config,
-        );
+        let result = mkfs(&mut buf, &mut measure_files, &mut files, &config);
 
         // ASSERT
         assert!(matches!(

@@ -41,27 +41,19 @@ pub(super) fn write_inline_tail(
     }
 }
 
-/// Write the inline metadata tail of an uncompressed regular file.
+/// Write the inline metadata data of an uncompressed regular file.
 pub(super) fn write_regular_inline_tail(
     buf: &mut [u8],
     inode: &InodeLayout,
     reader: &mut dyn Read,
-    stage: &mut [u8],
     inode_header_end: usize,
-    block_size: usize,
 ) -> Result<()> {
-    let full_block_data_len = full_block_bytes(inode.data_blocks, block_size)?;
     let size = usize_from_u32(inode.size);
-    let tail_len = size.saturating_sub(full_block_data_len);
-    if tail_len > ZERO_BLOCK.len() {
-        return Err(ErofsError::Internal("inline tail exceeds block size"));
-    }
-    discard(reader, size.saturating_sub(tail_len), stage)?;
-    if tail_len == 0 {
-        return Ok(());
+    if size > ZERO_BLOCK.len() {
+        return Err(ErofsError::Internal("inline data exceeds block size"));
     }
     let mut tail = ZERO_BLOCK;
-    let Some(slot) = tail.get_mut(..tail_len) else {
+    let Some(slot) = tail.get_mut(..size) else {
         return Err(ErofsError::Internal("inline tail slot out of bounds"));
     };
     fill_exact(reader, slot)?;
@@ -156,19 +148,6 @@ fn write_tail(buf: &mut [u8], inode_header_end: usize, tail: &[u8]) -> Result<()
     Ok(())
 }
 
-fn discard(reader: &mut dyn Read, mut amount: usize, stage: &mut [u8]) -> Result<()> {
-    while amount > 0 {
-        let take = amount.min(stage.len());
-        let Some(slot) = stage.get_mut(..take) else {
-            return Err(ErofsError::Internal("discard stage out of bounds"));
-        };
-        fill_exact(reader, slot)?;
-        amount = amount.saturating_sub(take);
-    }
-
-    Ok(())
-}
-
 fn fill_exact(reader: &mut dyn Read, buf: &mut [u8]) -> Result<()> {
     let mut filled = 0_usize;
     while filled < buf.len() {
@@ -243,12 +222,11 @@ mod tests {
         cfg: &crate::MkfsConfig<'_>,
     ) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-        let (mut meta_cursors, mut data_cursors) = crate::testutil::two_cursor_sets(datas);
-        let mut meta_files = crate::testutil::pair_files(entries.clone(), &mut meta_cursors);
-        let mut data_files = crate::testutil::pair_files(entries, &mut data_cursors);
+        let mut cursors = crate::testutil::cursor_set(datas);
+        let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut buf = Vec::new();
-        writer::image(&mut buf, planned, &mut meta_files, &mut data_files, cfg).expect("image");
+        writer::image(&mut buf, planned, &mut files, cfg).expect("image");
         buf
     }
 
@@ -359,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_tail_bytes_land_in_metadata_region() {
+    fn partial_block_file_round_trips_into_data_region() {
         // ARRANGE
         let entries = &[root_entry(), reg_entry("/partial", 4100)];
         let cfg = test_config(1);
@@ -376,21 +354,13 @@ mod tests {
             .iter()
             .find(|inode| inode.rel_path == "/partial")
             .expect("found");
-        assert_eq!(file.datalayout, EROFS_INODE_FLAT_INLINE);
-        assert!(file.data_blocks > 0);
-        let slot_off = usize::try_from(file.nid).expect("nid fits usize") * crate::SLOT_SIZE;
-        let header_end = slot_off + COMPACT_INODE_SIZE;
-        let tail_len = usize::try_from(file.size)
-            .expect("size fits usize")
-            .saturating_sub(usize::try_from(file.data_blocks).expect("blocks fit usize") * 4096);
-        assert!(tail_len > 0);
-        let tail_start = content.len().saturating_sub(tail_len);
-        let tail = content.get(tail_start..).expect("tail bytes");
+        assert_eq!(file.datalayout, EROFS_INODE_FLAT_PLAIN);
+        let data_start = usize::try_from(file.data_blkaddr).expect("blkaddr fits usize") * 4096;
         assert_eq!(
             image
-                .get(header_end..header_end + tail_len)
-                .expect("tail image bytes"),
-            tail
+                .get(data_start..data_start + 4100)
+                .expect("data bytes"),
+            content.as_slice()
         );
     }
 
