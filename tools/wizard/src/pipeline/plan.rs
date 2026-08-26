@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::Uki), 1);
         assert_eq!(count(&graph, NodeKind::Concat), 1);
         assert_eq!(count(&graph, NodeKind::InitramfsTail), 1);
-        assert_eq!(count(&graph, NodeKind::ExtensionPayloads), 1);
+        assert_eq!(count(&graph, NodeKind::LayerPayloads), 1);
         assert_eq!(count(&graph, NodeKind::Fanout), 1);
         assert_eq!(
             count(

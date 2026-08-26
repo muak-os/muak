@@ -5,7 +5,7 @@ use std::io::Read;
 use ramune::Entry;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::extensions;
+use crate::nodes::layers;
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -23,16 +23,16 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
-/// One extension payload stream per extension, in canonical source order.
+/// One layer payload stream per layer, in canonical source order.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
-        NodeKind::ExtensionPayloads,
-        extensions::FIRST_OUTPUT,
+        NodeKind::LayerPayloads,
+        layers::FIRST_OUTPUT,
         TAIL_INPUTS_FIRST,
     )]
 }
 
-/// Exact CPIO tail size from the named extension input streams plus the profile entry.
+/// Exact CPIO tail size from the named layer input streams plus the profile entry.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
@@ -65,7 +65,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
     Ok(())
 }
 
-/// Streams one CPIO entry per extension input stream plus the profile entry in canonical order.
+/// Streams one CPIO entry per layer input stream plus the profile entry in canonical order.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_>,

@@ -4,8 +4,10 @@ use std::io::Read;
 
 use koci::error::KociError;
 use koci::pull;
+use koci::pull::entries::FileEntry;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::layers::Layer;
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -124,5 +126,81 @@ fn file_path(port: PortId) -> Option<&'static str> {
         KERNEL => Some("vmlinuz"),
         CMDLINE => Some("cmdline"),
         _ => None,
+    }
+}
+
+/// Payload identity of the kernel modules layer.
+const MODULE_LAYER_NAME: &str = "modules";
+
+/// Kernel image path prefix of the module files.
+const MODULE_PATH: &str = "lib/modules/";
+
+/// `SELinux` file context rules for the kernel modules layer.
+const MODULE_FILE_CONTEXTS: &[u8] = b"/lib/modules    system_u:object_r:modules_t:s0\n\
+                                      /lib/modules/.* system_u:object_r:modules_t:s0\n";
+
+/// The kernel modules layer the kernel image contributes to the initramfs.
+///
+/// # Errors
+///
+/// Returns an error when the embedded `SELinux` file contexts cannot be parsed.
+pub(crate) fn module_layer(ctx: &BuildContext<'_, '_, '_>) -> Result<Layer> {
+    Ok(Layer {
+        name: MODULE_LAYER_NAME.to_owned(),
+        source: ctx.build.kernel().source().to_owned(),
+        arch: ctx.build.arch(),
+        entry: module_entry,
+        file_contexts: Some(module_file_contexts()?),
+        output_prefix: "",
+    })
+}
+
+/// Only the kernel module files.
+fn module_entry(entry: &FileEntry<'_>) -> bool {
+    entry.path.starts_with(MODULE_PATH)
+}
+
+/// Parses the kernel modules `SELinux` file contexts.
+///
+/// # Errors
+///
+/// Returns an error when the embedded rules cannot be parsed.
+fn module_file_contexts() -> Result<mumi::image::FileContexts> {
+    mumi::image::FileContexts::parse(MODULE_FILE_CONTEXTS)
+        .map_err(|e| WizardError::BuildError(format!("parse module file contexts: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_entry_accepts_module_files_only() {
+        // ARRANGE
+        let module_file = FileEntry {
+            path: "lib/modules/7.2.0-muak/modules.dep".to_owned(),
+            size: 0,
+            mode: 0o100_644,
+            reader: &mut std::io::empty(),
+        };
+        let other_file = FileEntry {
+            path: "vmlinuz".to_owned(),
+            size: 0,
+            mode: 0o100_644,
+            reader: &mut std::io::empty(),
+        };
+
+        // ACT / ASSERT
+        assert!(module_entry(&module_file));
+        assert!(!module_entry(&other_file));
+    }
+
+    #[test]
+    fn module_file_contexts_parse() {
+        // ARRANGE / ACT
+        let contexts = module_file_contexts().expect("parse module file contexts");
+
+        // ASSERT
+        drop(contexts);
     }
 }

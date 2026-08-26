@@ -38,7 +38,7 @@ fn run(args: &cli::Args) -> Result<()> {
 
 fn build_image<W: Write>(
     dir: &Path,
-    file_contexts: Option<&erofs::FileContexts>,
+    file_contexts: Option<&mumi::image::FileContexts>,
     compression_level: i32,
     writer: &mut W,
 ) -> Result<()> {
@@ -82,7 +82,7 @@ mod tests {
 
     fn run_mumi(dir: &Path, fc: Option<&Path>, clevel: i32) -> Vec<u8> {
         let file_contexts = fc.map(|path| {
-            erofs::FileContexts::from_reader(std::fs::File::open(path).unwrap())
+            mumi::image::FileContexts::parse(&std::fs::read(path).unwrap())
                 .expect("parse file_contexts")
         });
         let mut buf = Vec::new();

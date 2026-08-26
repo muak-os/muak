@@ -94,7 +94,7 @@ build release="" *pkgs:
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
     pkgs="granola provisiond modd networkd apid vmd timed consoled millefeuille"
-    pkg_args=(--build-arg PKG_KERNEL="{{ registry }}/kernel:{{ tag }}")
+    pkg_args=()
     if [ "{{ prod }}" = "false" ]; then
         for pkg in $pkgs; do
             pkg_args+=(--build-context "pkg-$pkg={{ release_dir }}")

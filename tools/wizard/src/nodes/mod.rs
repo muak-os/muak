@@ -1,10 +1,10 @@
 //! Build pipeline node runners.
 
-pub(crate) mod extensions;
 pub(crate) mod fanout;
 pub(crate) mod initramfs;
 pub(crate) mod installer;
 pub(crate) mod kernel;
+pub(crate) mod layers;
 pub(crate) mod media;
 pub(crate) mod overlay;
 pub(crate) mod sign;
@@ -26,7 +26,7 @@ pub(crate) enum NodeKind {
     InstallerPull,
     StubPull,
     KernelPull,
-    ExtensionPayloads,
+    LayerPayloads,
     InitramfsTail,
     Concat,
     Uki,
@@ -54,7 +54,7 @@ pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
         NodeKind::InstallerPull => &installer::DESCRIPTOR,
         NodeKind::StubPull => &stub::DESCRIPTOR,
         NodeKind::KernelPull => &kernel::DESCRIPTOR,
-        NodeKind::ExtensionPayloads => &extensions::DESCRIPTOR,
+        NodeKind::LayerPayloads => &layers::DESCRIPTOR,
         NodeKind::InitramfsTail => &initramfs::tail::DESCRIPTOR,
         NodeKind::Concat => &initramfs::concat::DESCRIPTOR,
         NodeKind::Uki => &uki::DESCRIPTOR,

@@ -1,12 +1,9 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
 ARG ALPINE_VERSION
-ARG KERNEL_VERSION=7.2.0
-ARG KERNEL_RELEASE=${KERNEL_VERSION}-muak
 
 ARG TOOLS=ghcr.io/muak-os/tools:latest
 
-ARG PKG_KERNEL=ghcr.io/muak-os/pkgs/kernel:${KERNEL_VERSION}
 ARG PKG_GRANOLA=ghcr.io/muak-os/pkgs/granola:latest
 ARG PKG_PROVISIOND=ghcr.io/muak-os/pkgs/provisiond:latest
 ARG PKG_MODD=ghcr.io/muak-os/pkgs/modd:latest
@@ -29,15 +26,12 @@ FROM ${PKG_VMD} AS pkg-vmd
 FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_MILLEFEUILLE} AS pkg-millefeuille
-FROM ${PKG_KERNEL} AS pkg-kernel
 FROM ${TOOLS} AS tools
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Assemble rootfs
 # ─────────────────────────────────────────────────────────────────────────────
 FROM scratch AS rootfs-base
-
-ARG KERNEL_RELEASE
 
 COPY --link --from=pkg-granola    /granola                       /rootfs/sbin/init
 COPY --link --from=pkg-provisiond /provisiond                    /rootfs/sbin/provisiond
@@ -47,7 +41,6 @@ COPY --link --from=pkg-apid       /apid                          /rootfs/sbin/ap
 COPY --link --from=pkg-vmd        /vmd                           /rootfs/sbin/vmd
 COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
 COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
-COPY --link --from=pkg-kernel     /lib/modules/${KERNEL_RELEASE} /rootfs/lib/modules/${KERNEL_RELEASE}
 
 COPY --link --from=services       **/*.service /rootfs/etc/services/
 

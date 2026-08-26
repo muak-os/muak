@@ -1,6 +1,10 @@
 //! Generic image payload packaging.
 
+extern crate alloc;
+
+use alloc::collections::BTreeSet;
 use std::io::{self, Read, Write};
+use std::path::Path;
 
 use crate::error::{MumiError, Result};
 use crate::image::{self, Entry};
@@ -101,7 +105,7 @@ impl Planned {
     ///
     /// Returns an error when image serialization or data emission fails.
     pub fn write<W: Write>(&self, writer: &mut W, source: &Payload) -> Result<()> {
-        let mut readers = root_and_buffer_readers(&source.buffers);
+        let (_entries, mut readers) = entries_and_readers(&source.files, &source.buffers);
         let mut views = read_views(&mut readers);
 
         self.image.write(writer, &mut views)
@@ -117,9 +121,7 @@ pub fn plan(payloads: &mut [Payload], config: &image::BuildConfig) -> Result<Vec
     let mut planned = Vec::with_capacity(payloads.len());
 
     for payload in payloads {
-        let mut entries = vec![root_entry()];
-        entries.extend(payload.files.iter().map(to_image_entry));
-        let mut readers = root_and_buffer_readers(&payload.buffers);
+        let (entries, mut readers) = entries_and_readers(&payload.files, &payload.buffers);
         let mut views = read_views(&mut readers);
         let image = image::Image::build(&entries, &mut views, config)?;
         planned.push(Planned {
@@ -135,41 +137,63 @@ pub fn plan(payloads: &mut [Payload], config: &image::BuildConfig) -> Result<Vec
     Ok(planned)
 }
 
-/// Maps a caller file entry to an image entry.
-fn to_image_entry(file: &FileEntry) -> Entry {
-    Entry {
-        path: file.path.clone(),
-        size: file.size,
-        mode: file.mode,
-        symlink_target: Vec::new(),
+/// The root, every intermediate parent directory, and the payload files in deterministic order.
+fn entries_and_readers<'a>(
+    files: &[FileEntry],
+    buffers: &'a [Vec<u8>],
+) -> (Vec<Entry>, Vec<SliceReader<'a>>) {
+    let file_paths: BTreeSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    let mut dirs: BTreeSet<String> = BTreeSet::new();
+    for file in files {
+        let mut parent = parent_dir(&file.path);
+        while parent != "/" {
+            dirs.insert(parent.clone());
+            parent = parent_dir(&parent);
+        }
     }
-}
+    dirs.retain(|dir| !file_paths.contains(dir.as_str()));
 
-fn root_entry() -> Entry {
-    Entry {
+    let mut entries = vec![Entry {
         path: "/".to_owned(),
         size: 0,
         mode: 0o040_755,
         symlink_target: Vec::new(),
+    }];
+    let mut readers = vec![SliceReader { data: &[] }];
+    for dir in &dirs {
+        entries.push(Entry {
+            path: dir.clone(),
+            size: 0,
+            mode: 0o040_755,
+            symlink_target: Vec::new(),
+        });
+        readers.push(SliceReader { data: &[] });
     }
+    for (file, buffer) in files.iter().zip(buffers) {
+        entries.push(Entry {
+            path: file.path.clone(),
+            size: file.size,
+            mode: file.mode,
+            symlink_target: Vec::new(),
+        });
+        readers.push(SliceReader { data: buffer });
+    }
+
+    (entries, readers)
 }
 
-/// Builds one independent reader set over caller-owned buffers, with the root
-/// entry's empty reader first.
-fn root_and_buffer_readers(buffers: &[Vec<u8>]) -> Vec<SliceReader<'_>> {
-    let mut readers = Vec::with_capacity(buffers.len().saturating_add(1));
-    readers.push(SliceReader { data: &[] });
-    readers.extend(buffer_readers(buffers));
-
-    readers
-}
-
-/// Builds one independent reader set over caller-owned buffers.
-pub(crate) fn buffer_readers(buffers: &[Vec<u8>]) -> Vec<SliceReader<'_>> {
-    buffers
-        .iter()
-        .map(|buffer| SliceReader { data: buffer })
-        .collect()
+/// The immediate parent of an absolute path, rooted at `/`.
+fn parent_dir(path: &str) -> String {
+    let parent = Path::new(path)
+        .parent()
+        .unwrap_or(Path::new("/"))
+        .to_string_lossy()
+        .into_owned();
+    if parent.is_empty() {
+        "/".to_owned()
+    } else {
+        parent
+    }
 }
 
 /// Borrows a reader collection as plain `Read` views, one per element.
@@ -212,6 +236,14 @@ mod tests {
             },
             Cursor::new(data.to_vec()),
         )
+    }
+
+    /// One independent reader per caller-owned buffer.
+    fn buffer_readers(buffers: &[Vec<u8>]) -> Vec<SliceReader<'_>> {
+        buffers
+            .iter()
+            .map(|buffer| SliceReader { data: buffer })
+            .collect()
     }
 
     fn config() -> image::BuildConfig {
@@ -302,6 +334,52 @@ mod tests {
 
         // ASSERT
         assert!(planned.is_empty());
+    }
+
+    #[test]
+    fn nested_files_plan_with_directories() {
+        // ARRANGE
+        let mut payload = Payload::new("p");
+        let mut state = 0xdead_beef_u64;
+        let mut data = Vec::with_capacity(8192);
+        for _ in 0..8192 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            data.push(u8::try_from(state & 0xff).unwrap_or(0));
+        }
+        let (entry, mut data) = file("/usr/bin/tool", data.len(), &data);
+        payload.add_file(entry, &mut data).expect("add file");
+        let mut payloads = [payload];
+
+        // ACT
+        let planned = plan(&mut payloads, &config()).expect("plan payloads");
+        let payload = planned.first().expect("one payload");
+
+        // ASSERT
+        assert!(
+            payload.size() > 4096,
+            "nested payload must carry the file data, not just the root directory"
+        );
+    }
+
+    #[test]
+    fn nested_files_round_trip_size() {
+        // ARRANGE
+        let mut payload = Payload::new("p");
+        let (entry, mut data) = file("/lib/modules/7.2.0-muak/kernel/foo.ko.zst", 5, b"kdata");
+        payload.add_file(entry, &mut data).expect("add file");
+        let mut payloads = [payload];
+
+        // ACT
+        let planned = plan(&mut payloads, &config()).expect("plan payloads");
+        let payload = planned.first().expect("one payload");
+        let source = payloads.first().expect("source");
+        let mut buf = Vec::new();
+        payload.write(&mut buf, source).expect("write payload");
+
+        // ASSERT
+        assert_eq!(u64::try_from(buf.len()).unwrap_or(0), payload.size());
     }
 
     #[test]

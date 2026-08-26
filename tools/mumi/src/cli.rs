@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use erofs::FileContexts;
+use mumi::image::FileContexts;
 
 /// Rootfs image build arguments.
 #[derive(Debug, Parser)]
@@ -38,10 +38,10 @@ impl Args {
     pub fn load_file_contexts(&self) -> Result<Option<FileContexts>> {
         match self.file_contexts.as_ref() {
             Some(path) => {
-                let file = std::fs::File::open(path)
+                let bytes = std::fs::read(path)
                     .with_context(|| format!("Failed to open file_contexts: {}", path.display()))?;
                 Ok(Some(
-                    FileContexts::from_reader(file).context("Failed to parse file_contexts")?,
+                    FileContexts::parse(&bytes).context("Failed to parse file_contexts")?,
                 ))
             }
             None => Ok(None),

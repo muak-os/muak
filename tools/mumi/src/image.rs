@@ -4,9 +4,33 @@ use std::io::{Read, Write};
 
 use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use erofs::tree::TreeEntry;
-use erofs::{Compression, FileContexts, MkfsConfig};
+use erofs::{Compression, MkfsConfig};
 
 use crate::error::{MumiError, Result};
+
+/// `SELinux` file context rules for labeling EROFS inodes.
+#[derive(Debug, Clone)]
+pub struct FileContexts {
+    rules: erofs::FileContexts,
+}
+
+impl FileContexts {
+    /// Parses `SELinux` file context rules (as produced by `secilc -f`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the rules text cannot be parsed.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        erofs::FileContexts::from_reader(bytes)
+            .map(|rules| Self { rules })
+            .map_err(|e| MumiError::Erofs(e.to_string()))
+    }
+
+    /// Borrows the underlying EROFS file contexts.
+    fn as_erofs(&self) -> &erofs::FileContexts {
+        &self.rules
+    }
+}
 
 /// A single file entry for building an image from synthetic data.
 pub struct Entry {
@@ -24,8 +48,7 @@ pub struct Entry {
 pub struct BuildConfig {
     /// Zstd compression level.
     pub compression_level: i32,
-    /// Optional `SELinux` file contexts. Rootfs builds pass `Some`,
-    /// extension builds pass `None`.
+    /// Optional `SELinux` file contexts.
     pub file_contexts: Option<FileContexts>,
 }
 
@@ -138,7 +161,7 @@ impl Image {
 fn mkfs_config(file_contexts: Option<&FileContexts>, compression: Compression) -> MkfsConfig<'_> {
     MkfsConfig {
         source_date_epoch: 0,
-        file_contexts,
+        file_contexts: file_contexts.map(FileContexts::as_erofs),
         uuid: [0; 16],
         force_uid: Some(0),
         force_gid: Some(0),
@@ -192,7 +215,7 @@ fn file_type_from_mode(mode: u32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::payload::{buffer_readers, read_views};
+    use crate::payload::read_views;
 
     fn config() -> BuildConfig {
         BuildConfig {
@@ -211,13 +234,13 @@ mod tests {
     }
 
     fn build_image(entries: &[Entry], datas: &[Vec<u8>]) -> Result<Image> {
-        let mut readers = buffer_readers(datas);
+        let mut readers: Vec<&[u8]> = datas.iter().map(alloc::vec::Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
         Image::build(entries, &mut views, &config())
     }
 
     fn write_image(image: &Image, datas: &[Vec<u8>]) -> Vec<u8> {
-        let mut readers = buffer_readers(datas);
+        let mut readers: Vec<&[u8]> = datas.iter().map(alloc::vec::Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
 
         let mut buf = Vec::new();
@@ -342,6 +365,34 @@ mod tests {
                 .inodes
                 .iter()
                 .any(|inode| inode.rel_path == "/link")
+        );
+    }
+
+    #[test]
+    fn parses_file_context_rules() {
+        // ARRANGE
+        let rules = b"/lib/modules    system_u:object_r:modules_t:s0\n\
+                      /lib/modules/.* system_u:object_r:modules_t:s0\n";
+
+        // ACT
+        let contexts = FileContexts::parse(rules).expect("parse rules");
+
+        // ASSERT
+        drop(contexts);
+    }
+
+    #[test]
+    fn rejects_invalid_file_context_rules() {
+        // ARRANGE
+        let rules = b"not a valid rule line\n";
+
+        // ACT
+        let result = FileContexts::parse(rules);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(MumiError::Erofs(_))),
+            "invalid rules must map to an EROFS error"
         );
     }
 }
