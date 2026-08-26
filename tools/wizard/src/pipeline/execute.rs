@@ -3,7 +3,7 @@
 use std::thread;
 
 use crate::error::Result;
-use crate::nodes::{self, NodeKind};
+use crate::nodes;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::preflight;
@@ -24,42 +24,29 @@ pub(crate) enum NodeReport {
 /// Returns the first meaningful node error after joining every thread.
 pub(crate) fn execute(graph: Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     validate::normalized(&graph)?;
-    let (graph, planned_payloads) = preflight::preflight(graph, ctx)?;
+    let graph = preflight::preflight(graph, ctx)?;
 
-    execute_blocking(&graph, &planned_payloads, ctx)
+    execute_blocking(&graph, ctx)
 }
 
-fn execute_blocking(
-    graph: &Graph,
-    planned_payloads: &[mumi::payload::Planned],
-    ctx: &BuildContext<'_, '_, '_>,
-) -> Result<Metadata> {
+fn execute_blocking(graph: &Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<Metadata> {
     let nodes = bind_nodes(graph)?;
 
     thread::scope(|scope| {
-        let planned = &planned_payloads;
         let mut joins = Vec::with_capacity(nodes.len());
         for node in nodes {
-            joins.push(scope.spawn(move || node.run(ctx, planned)));
+            joins.push(scope.spawn(move || node.run(ctx)));
         }
         join_all(joins)
     })
 }
 
 impl PreparedNode<'_> {
-    /// Dispatches the node logic by kind and runs it on its own thread.
-    fn run(
-        self,
-        ctx: &BuildContext<'_, '_, '_>,
-        planned: &[mumi::payload::Planned],
-    ) -> Result<NodeReport> {
+    fn run(self, ctx: &BuildContext<'_, '_, '_>) -> Result<NodeReport> {
         let PreparedNode { kind, mut ports } = self;
-        if kind == NodeKind::ExtensionPayloads {
-            nodes::extensions::run(planned, &mut ports)
-        } else {
-            let node = nodes::descriptor(kind);
-            (node.run)(kind, &mut ports, ctx)
-        }
+        let node = nodes::descriptor(kind);
+
+        (node.run)(kind, &mut ports, ctx)
     }
 }
 
