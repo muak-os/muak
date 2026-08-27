@@ -6,6 +6,7 @@ use miso::iso;
 
 use crate::error::{Result, WizardError};
 use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
+use crate::nodes::overlay::discovery::{OverlayAsset, assets};
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
@@ -28,14 +29,26 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
     Ok(())
 }
 
-/// Builds the ISO from the UKI stream and overlay file streams.
+/// Builds the ISO from the UKI stream and overlay ESP file streams.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_>,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
     let (mut uki, mut overlays) = media_inputs(ports)?;
-    let layout = media_layout(ctx, &uki, &overlays)?;
+    let assets = match ctx.build.overlay() {
+        Some(overlay) => assets(overlay)?,
+        None => Vec::new(),
+    };
+    if assets
+        .iter()
+        .any(|asset| matches!(asset, OverlayAsset::RawBlob { .. }))
+    {
+        return Err(WizardError::BuildError(
+            "raw blobs cannot be written to an ISO image".to_owned(),
+        ));
+    }
+    let layout = media_layout(ctx, &uki, &assets)?;
     let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));

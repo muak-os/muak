@@ -233,7 +233,9 @@ fn slot_number(index: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::partition::{EFI_GUID, LINUX_FS_GUID};
+    use esp::EFI_GUID;
+
+    use super::super::partition::LINUX_FS_GUID;
     use super::*;
 
     fn efi_partition(starting_lba: u64, ending_lba: u64) -> Partition {

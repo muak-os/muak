@@ -5,8 +5,8 @@ use std::io::Read;
 use koci::error::KociError;
 use koci::pull;
 
-use crate::domain::resolution::Overlay;
 use crate::error::{Result, WizardError};
+use crate::nodes::overlay::discovery::{assets, entry_name};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -28,55 +28,36 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
     Vec::new()
 }
 
-/// Stripped overlay file paths plus sizes, path-sorted, with the same
-/// `{name}/` prefix stripping the runtime pull applies.
-fn listing(overlay: &Overlay) -> Result<Vec<(String, u64)>> {
-    let prefix = format!("{}/", overlay.name);
-    let mut files: Vec<(String, u64)> = Vec::new();
-    pull::metadata(&overlay.source, &overlay.arch, None, |entry| {
-        if let Some(rel) = entry.path.strip_prefix(&prefix)
-            && !rel.is_empty()
-        {
-            files.push((rel.to_owned(), entry.size));
-        }
-        Ok(())
-    })
-    .map_err(|e| WizardError::BuildError(format!("list overlay files: {e}")))?;
-    files.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-
-    Ok(files)
-}
-
-/// Sizes and names the overlay output streams from the listing.
+/// Sizes and names the overlay output streams from the asset listing.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
     let overlay = ctx
         .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-    let files = listing(overlay)?;
+    let assets = assets(overlay)?;
 
     let bindings = graph
         .node(id)?
         .output_bindings()
         .copied()
         .collect::<Vec<_>>();
-    if bindings.len() != files.len() {
+    if bindings.len() != assets.len() {
         return Err(WizardError::BuildError(format!(
-            "overlay output/file count mismatch: {} != {}",
+            "overlay output/asset count mismatch: {} != {}",
             bindings.len(),
-            files.len(),
+            assets.len(),
         )));
     }
-    for (binding, file) in bindings.iter().zip(&files) {
+    for (binding, asset) in bindings.iter().zip(&assets) {
         let stream = graph.stream_mut(binding.stream)?;
-        stream.size = file.1;
-        stream.name.clone_from(&file.0);
+        stream.size = asset.size();
+        asset.name().clone_into(&mut stream.name);
     }
 
     Ok(())
 }
 
-/// Pulls the overlay source once and routes each matching entry to its named output stream.
+/// Pulls the overlay source once and routes each matching entry to its named output stream by its stripped asset path.
 fn run<'a>(
     _kind: NodeKind,
     ports: &mut NodePorts<'a>,
@@ -96,51 +77,33 @@ fn run<'a>(
         .iter_mut()
         .map(|output| (output.name, output))
         .collect();
-    let prefix = format!("{}/", overlay.name);
 
     pull::files(&overlay.source, &overlay.arch, None, |entry| {
-        route_entry(&entry.path, entry.reader, &prefix, &mut files)
+        if let Some(name) = entry_name(overlay, &entry.path) {
+            write_to_matching(&name, entry.reader, &mut files).map_err(KociError::IoError)?;
+        }
+        Ok(())
     })
     .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))?;
 
     Ok(NodeReport::Empty)
 }
 
-/// Number of overlay files under the `{name}/` prefix.
-///
-/// # Errors
-///
-/// Returns an error when the overlay file listing cannot be fetched.
 fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
     let overlay = ctx
         .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
 
-    Ok(listing(overlay)?.len())
-}
-
-fn route_entry<'a>(
-    path: &str,
-    reader: &mut dyn Read,
-    prefix: &str,
-    files: &mut [(&'a str, &mut OutputStream<'a>)],
-) -> koci::error::Result<()> {
-    if let Some(rel) = path.strip_prefix(prefix)
-        && !rel.is_empty()
-    {
-        write_to_matching(rel, reader, files).map_err(KociError::IoError)?;
-    }
-
-    Ok(())
+    Ok(assets(overlay)?.len())
 }
 
 fn write_to_matching<'a>(
-    rel: &str,
+    name: &str,
     reader: &mut dyn Read,
     files: &mut [(&'a str, &mut OutputStream<'a>)],
 ) -> std::io::Result<()> {
-    let Some(index) = files.iter().position(|file| file.0 == rel) else {
+    let Some(index) = files.iter().position(|file| file.0 == name) else {
         return Ok(());
     };
     let Some(output) = files.get_mut(index).map(|file| &mut *file.1) else {

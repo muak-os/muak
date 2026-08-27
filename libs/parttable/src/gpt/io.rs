@@ -169,8 +169,10 @@ fn skip<R: Read>(reader: &mut R, remaining: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use esp::EFI_GUID;
+
     use super::*;
-    use crate::gpt::partition::{EFI_GUID, LINUX_FS_GUID, Partition};
+    use crate::gpt::partition::{LINUX_FS_GUID, Partition};
 
     fn sample_table() -> Table {
         let sector_count = 8 * 2048;

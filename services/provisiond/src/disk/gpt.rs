@@ -5,9 +5,10 @@ use std::io::Seek as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use esp::EFI_GUID;
 use parttable::gpt;
 use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
-use parttable::gpt::partition::{EFI_GUID, LINUX_FS_GUID};
+use parttable::gpt::partition::LINUX_FS_GUID;
 use parttable::gpt::table::Table;
 use parttable::mbr::read;
 

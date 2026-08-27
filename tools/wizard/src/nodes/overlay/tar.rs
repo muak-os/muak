@@ -1,8 +1,9 @@
-//! Creates a tar archive of overlay files, with stripped paths and preflight sizes.
+//! Creates a tar archive of overlay ESP files, with stripped paths and preflight sizes.
 
 use tar::{Builder, Header};
 
 use crate::error::{Result, WizardError};
+use crate::nodes::overlay::discovery::{OverlayAsset, assets};
 use crate::nodes::overlay::pull;
 use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
 use crate::pipeline::context::BuildContext;
@@ -21,7 +22,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
-/// One stream per overlay file, in canonical (path-sorted) order.
+/// One stream per overlay asset, in canonical (path-sorted) order.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![Dependency::many(
         NodeKind::OverlayPull,
@@ -31,13 +32,19 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
 }
 
 /// tar size = headers + file data + padding per entry, plus the two zero trailer blocks.
-fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let files = graph
-        .node(id)?
-        .input_bindings()
-        .map(|binding| Ok(graph.stream(binding.stream)?.size))
-        .collect::<Result<Vec<_>>>()?;
-    let tar = tar_total_size(&files);
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+    let overlay = ctx
+        .build
+        .overlay()
+        .ok_or_else(|| WizardError::BuildError("overlay tar has no overlay source".to_owned()))?;
+    let esp_sizes: Vec<u64> = assets(overlay)?
+        .iter()
+        .filter_map(|asset| match *asset {
+            OverlayAsset::EspFile { size, .. } => Some(size),
+            OverlayAsset::RawBlob { .. } => None,
+        })
+        .collect();
+    let tar = tar_total_size(&esp_sizes);
     let output = graph.stream_mut(graph.node(id)?.output(TAR_OUTPUT)?)?;
     output.size = tar;
     "overlays.tar".clone_into(&mut output.name);
@@ -45,12 +52,18 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
     Ok(())
 }
 
-/// Emits one tar entry per overlay input with the stream's path and preflight size.
+/// Emits one tar entry per overlay ESP file, skipping raw blobs.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_>,
-    _ctx: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
+    let overlay = ctx
+        .build
+        .overlay()
+        .ok_or_else(|| WizardError::BuildError("overlay tar has no overlay source".to_owned()))?;
+    let assets = assets(overlay)?;
+
     let mut inputs = Endpoint::into_inputs(
         ports
             .take_from(TAR_INPUTS_FIRST, None)?
@@ -60,10 +73,13 @@ fn run(
     let mut output = ports.take(TAR_OUTPUT)?.into_output()?;
 
     let mut builder = Builder::new(&mut output.writer);
-    for input in &mut inputs {
+    for (asset, input) in assets.iter().zip(inputs.iter_mut()) {
+        let OverlayAsset::EspFile { ref path, .. } = *asset else {
+            continue;
+        };
         let mut header = Header::new_gnu();
         header
-            .set_path(input.name)
+            .set_path(path)
             .map_err(|e| WizardError::BuildError(format!("set tar header path: {e}")))?;
         header.set_size(input.size);
         header.set_mode(0o644);

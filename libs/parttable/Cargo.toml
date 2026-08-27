@@ -16,5 +16,8 @@ thiserror = { workspace = true }
 # Filesystem
 crc32fast = { workspace = true }
 
+[dev-dependencies]
+esp = { workspace = true }
+
 [lints]
 workspace = true

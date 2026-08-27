@@ -7,6 +7,7 @@ use esp::FileMeta;
 use esp::layout::compute;
 
 use crate::error::{Result, WizardError};
+use crate::nodes::overlay::discovery::OverlayAsset;
 use crate::nodes::{NodeKind, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -53,18 +54,18 @@ pub(crate) fn media_inputs<'a>(
 pub(crate) fn media_layout<'a>(
     ctx: &BuildContext<'_, '_, '_>,
     uki: &InputStream<'a>,
-    overlays: &[InputStream<'a>],
+    assets: &'a [OverlayAsset],
 ) -> Result<esp::layout::Layout<'a>> {
-    let mut file_metas = Vec::with_capacity(overlays.len().saturating_add(1));
+    let mut file_metas = Vec::with_capacity(assets.len().saturating_add(1));
     file_metas.push(FileMeta::new(
         crate::arch::esp(ctx.build.arch()).boot_path(),
         uki.size,
     ));
-    file_metas.extend(
-        overlays
-            .iter()
-            .map(|input| FileMeta::new(input.name, input.size)),
-    );
+    for asset in assets {
+        if let OverlayAsset::EspFile { ref path, size } = *asset {
+            file_metas.push(FileMeta::new(path, size));
+        }
+    }
 
     compute(&file_metas).map_err(|e| WizardError::BuildError(format!("compute ESP layout: {e}")))
 }

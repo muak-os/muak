@@ -4,6 +4,7 @@
 mod tests {
     use std::io::Cursor;
 
+    use esp::EFI_GUID;
     use esp::FileMeta;
     use esp::arch::Arch;
     use esp::layout::compute;
@@ -11,7 +12,6 @@ mod tests {
     use miso::raw;
     use parttable::gpt::io;
     use parttable::gpt::layout::ALIGN_1_MIB_SECTORS;
-    use parttable::gpt::partition::EFI_GUID;
     use parttable::mbr::MBR_PROTECTIVE_GPT_TYPE;
 
     fn fake_uki(size: usize) -> Vec<u8> {
@@ -35,7 +35,15 @@ mod tests {
         let layout = compute(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        raw::build(&layout, &mut readers, &mut out, None).expect("raw::build must succeed");
+        raw::build(
+            &layout,
+            &mut readers,
+            &mut [],
+            ALIGN_1_MIB_SECTORS * 512,
+            &mut out,
+            None,
+        )
+        .expect("raw::build must succeed");
 
         out.into_inner()
     }
@@ -126,8 +134,15 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        raw::build(&layout, &mut readers, &mut out, Some(3))
-            .expect("compressed raw::build must succeed");
+        raw::build(
+            &layout,
+            &mut readers,
+            &mut [],
+            ALIGN_1_MIB_SECTORS * 512,
+            &mut out,
+            Some(3),
+        )
+        .expect("compressed raw::build must succeed");
         let compressed = out.into_inner();
         let raw = zstd::decode_all(&*compressed).expect("decode compressed raw");
 
@@ -157,7 +172,15 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        raw::build(&layout, &mut readers, &mut out, None).expect("raw::build must succeed");
+        raw::build(
+            &layout,
+            &mut readers,
+            &mut [],
+            ALIGN_1_MIB_SECTORS * 512,
+            &mut out,
+            None,
+        )
+        .expect("raw::build must succeed");
         let img = out.into_inner();
 
         // ASSERT
@@ -193,7 +216,14 @@ mod tests {
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
 
         // ACT
-        let result = raw::build(&layout, &mut readers, &mut out, Some(i32::MAX));
+        let result = raw::build(
+            &layout,
+            &mut readers,
+            &mut [],
+            ALIGN_1_MIB_SECTORS * 512,
+            &mut out,
+            Some(i32::MAX),
+        );
 
         // ASSERT
         assert!(matches!(

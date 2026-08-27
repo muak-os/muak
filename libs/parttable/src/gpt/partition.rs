@@ -5,11 +5,6 @@ pub const LINUX_FS_GUID: [u8; 16] = [
     0xaf, 0x3d, 0xc6, 0x0f, 0x83, 0x84, 0x72, 0x47, 0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d, 0xe4,
 ];
 
-/// The EFI System Partition type GUID (C12A7328-F81F-11D2-BA4B-00A0C93EC93B).
-pub const EFI_GUID: [u8; 16] = [
-    0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
-];
-
 // Partition entry field offsets within the 128-byte entry.
 const ENT_TYPE_GUID: core::ops::Range<usize> = 0..16;
 const ENT_UNIQUE_GUID: core::ops::Range<usize> = 16..32;
@@ -52,7 +47,12 @@ impl Partition {
         put(&mut bytes, ENT_ATTRIBUTES, &self.attributes.to_le_bytes());
 
         let mut name_bytes = [0_u8; ENT_NAME_MAX_BYTES];
-        for (dst, unit) in name_bytes.chunks_exact_mut(2).zip(self.name.encode_utf16()) {
+        for (dst, unit) in name_bytes
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(self.name.encode_utf16())
+        {
             dst.copy_from_slice(&unit.to_le_bytes());
         }
         put(
@@ -89,9 +89,8 @@ impl Partition {
 fn decode_name(bytes: &[u8; 128]) -> Option<String> {
     let raw = bytes.get(ENT_NAME_START..ENT_NAME_START.saturating_add(ENT_NAME_MAX_BYTES))?;
     let mut units = Vec::new();
-    for chunk in raw.chunks_exact(2) {
-        let unit: [u8; 2] = chunk.try_into().ok()?;
-        units.push(u16::from_le_bytes(unit));
+    for &chunk in raw.as_chunks::<2>().0 {
+        units.push(u16::from_le_bytes(chunk));
     }
     let end = units
         .iter()
@@ -122,21 +121,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn efi_guid_matches_uefi_spec_value() {
-        assert_eq!(
-            EFI_GUID,
-            [
-                0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e,
-                0xc9, 0x3b,
-            ]
-        );
-    }
-
-    #[test]
     fn encode_then_decode_round_trips() {
         // ARRANGE
         let partition = Partition {
-            type_guid: EFI_GUID,
+            type_guid: esp::EFI_GUID,
             unique_guid: [0xAB; 16],
             starting_lba: 2048,
             ending_lba: 4095,
@@ -168,7 +156,7 @@ mod tests {
     fn encode_truncates_long_names_to_72_bytes() {
         // ARRANGE
         let partition = Partition {
-            type_guid: EFI_GUID,
+            type_guid: esp::EFI_GUID,
             unique_guid: [0xAB; 16],
             starting_lba: 2048,
             ending_lba: 4095,

@@ -162,11 +162,9 @@ pub fn read<R: Read>(reader: &mut R) -> Result<[Option<PartitionEntry>; MBR_ENTR
     let mut entries = [None; MBR_ENTRIES];
     for (slot, chunk) in entries
         .iter_mut()
-        .zip(entries_region.chunks_exact(MBR_ENTRY_SIZE))
+        .zip(entries_region.as_chunks::<MBR_ENTRY_SIZE>().0)
     {
-        let mut bytes = [0_u8; MBR_ENTRY_SIZE];
-        bytes.copy_from_slice(chunk);
-        *slot = PartitionEntry::decode(&bytes);
+        *slot = PartitionEntry::decode(chunk);
     }
 
     Ok(entries)

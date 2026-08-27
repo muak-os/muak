@@ -203,7 +203,9 @@ fn nonzero_lbas(lbas: u64) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::partition::{EFI_GUID, LINUX_FS_GUID, Partition};
+    use esp::EFI_GUID;
+
+    use super::super::partition::{LINUX_FS_GUID, Partition};
     use super::super::table::ENTRIES_COUNT;
     use super::*;
     use crate::error::ParttableError;

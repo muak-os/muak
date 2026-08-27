@@ -2,10 +2,11 @@
 
 #[cfg(test)]
 mod tests {
+    use esp::EFI_GUID;
     use parttable::error::ParttableError;
     use parttable::gpt::io;
     use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
-    use parttable::gpt::partition::{EFI_GUID, LINUX_FS_GUID, Partition};
+    use parttable::gpt::partition::{LINUX_FS_GUID, Partition};
     use parttable::gpt::table::Table;
 
     fn sector_count(bytes: usize, sector_size: u64) -> u64 {
