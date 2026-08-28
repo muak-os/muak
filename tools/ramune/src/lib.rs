@@ -3,8 +3,6 @@
 #![warn(missing_docs)]
 
 pub mod archive;
-#[cfg(feature = "cli")]
-pub mod cli;
 mod compress;
 mod cpio;
 pub mod error;

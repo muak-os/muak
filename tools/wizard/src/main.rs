@@ -1,7 +1,7 @@
-#[cfg(feature = "cli")]
-use wizard::cli;
+//! CLI entry point for wizard.
 
-#[cfg(feature = "cli")]
+pub mod cli;
+
 fn main() {
     std::process::exit(cli::run());
 }

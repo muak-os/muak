@@ -6,15 +6,13 @@ extern crate alloc;
 
 pub mod arch;
 pub mod artifact;
-#[cfg(feature = "cli")]
-pub mod cli;
 pub mod config;
 pub mod domain;
 pub mod error;
 mod nodes;
 mod pipeline;
 pub mod request;
-pub(crate) mod resolver;
+pub mod resolver;
 mod stream;
 
 use serde::{Deserialize, Serialize};

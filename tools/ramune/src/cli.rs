@@ -8,8 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser;
-
-use crate::archive;
+use ramune::archive;
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -29,7 +28,7 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
 
-        #[arg(long, default_value_t = crate::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
+        #[arg(long, default_value_t = ramune::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
         compression_level: i32,
     },
 }
@@ -142,14 +141,14 @@ fn run_create(files: &[FileEntry], output: &Path, compression_level: i32) -> Res
             .len();
 
         open_files.push(file);
-        archive_entries.push(crate::Entry {
+        archive_entries.push(ramune::Entry {
             path: entry.name.clone(),
             mode: entry.mode,
             len,
         });
     }
 
-    let mut pairs: Vec<(crate::Entry, &mut dyn Read)> = archive_entries
+    let mut pairs: Vec<(ramune::Entry, &mut dyn Read)> = archive_entries
         .into_iter()
         .zip(open_files.iter_mut())
         .map(|(entry, file)| {

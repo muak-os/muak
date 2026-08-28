@@ -3,8 +3,6 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use wizard::cli;
-
     fn wizard_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_BIN_EXE_wizard"))
     }
@@ -65,10 +63,7 @@ mod tests {
             .expect("failed to run muak-wizard profile-id");
 
         // ASSERT
-        assert!(
-            process_output.status.success(),
-            "muak-wizard profile-id should exit successfully"
-        );
+        assert_eq!(process_output.status.code(), Some(0));
         let id = String::from_utf8_lossy(&process_output.stdout)
             .trim()
             .to_owned();
@@ -140,52 +135,14 @@ mod tests {
     }
 
     #[test]
-    fn run_with_profile_id_prints_hex() {
-        // ARRANGE
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let profile = dir.path().join("profile.toml");
-        std::fs::write(&profile, PROFILE_TOML).expect("write profile");
-
+    fn cli_profile_id_missing_profile_exits_with_error() {
         // ACT
-        cli::run_from([
-            "muak-wizard",
-            "profile-id",
-            "--profile",
-            profile.to_str().expect("profile path"),
-        ])
-        .expect("run_from profile-id");
-    }
-
-    #[test]
-    fn run_with_returns_zero_for_success() {
-        // ARRANGE
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let profile = dir.path().join("profile.toml");
-        std::fs::write(&profile, PROFILE_TOML).expect("write profile");
-
-        // ACT
-        let exit_code = cli::run_with([
-            "muak-wizard",
-            "profile-id",
-            "--profile",
-            profile.to_str().expect("profile path"),
-        ]);
+        let process_output = Command::new(wizard_bin())
+            .args(["profile-id", "--profile", "/nonexistent/profile.toml"])
+            .output()
+            .expect("failed to run muak-wizard profile-id");
 
         // ASSERT
-        assert_eq!(exit_code, 0);
-    }
-
-    #[test]
-    fn run_with_returns_one_for_error() {
-        // ACT
-        let exit_code = cli::run_with([
-            "muak-wizard",
-            "profile-id",
-            "--profile",
-            "/nonexistent/profile.toml",
-        ]);
-
-        // ASSERT
-        assert_eq!(exit_code, 1);
+        assert_eq!(process_output.status.code(), Some(1));
     }
 }

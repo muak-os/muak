@@ -8,12 +8,11 @@ use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
-
-use crate::artifact::Artifact;
-use crate::config;
-use crate::domain::profile::Profile;
-use crate::request::{Platform, Request};
-use crate::resolver;
+use wizard::artifact::Artifact;
+use wizard::config;
+use wizard::domain::profile::Profile;
+use wizard::request::{Platform, Request};
+use wizard::resolver;
 
 /// Runs the CLI with the given arguments.
 ///
@@ -87,7 +86,7 @@ enum Command {
         #[arg(long)]
         registry: String,
 
-        #[arg(long, value_parser = crate::arch::parse)]
+        #[arg(long, value_parser = wizard::arch::parse)]
         arch: Arch,
 
         #[arg(long)]
@@ -106,7 +105,7 @@ enum Command {
         #[arg(long)]
         registry: String,
 
-        #[arg(long, value_parser = crate::arch::parse)]
+        #[arg(long, value_parser = wizard::arch::parse)]
         arch: Arch,
 
         #[arg(long)]

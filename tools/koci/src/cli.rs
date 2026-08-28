@@ -5,12 +5,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-
-use crate::arch;
-use crate::arch::Arch;
-use crate::error;
-use crate::pull;
-use crate::sign;
+use koci::arch;
+use koci::arch::Arch;
+use koci::error;
+use koci::pull;
+use koci::sign;
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -140,10 +139,10 @@ mod tests {
     use std::path::Path;
 
     use clap::Parser as _;
+    use koci::arch::Arch;
     use tempfile::TempDir;
 
     use super::{Args, Command, read_key_file, run_from, run_with};
-    use crate::arch::Arch;
 
     #[test]
     fn pull_subcommand_parses_optional_arch_and_pubkey() {

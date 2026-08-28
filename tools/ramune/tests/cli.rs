@@ -6,8 +6,6 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use ramune::cli;
-
     use super::fixtures::{TestEnv, parse_newc_archive};
 
     fn ramune_bin() -> PathBuf {
@@ -48,7 +46,7 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert!(process_output.status.success());
+        assert_eq!(process_output.status.code(), Some(0));
         assert!(
             String::from_utf8_lossy(&process_output.stdout)
                 .contains("Successfully created initramfs at")
@@ -80,7 +78,7 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert!(!process_output.status.success());
+        assert_eq!(process_output.status.code(), Some(1));
         assert!(
             String::from_utf8_lossy(&process_output.stderr).contains("Failed to open 'init' at")
         );
@@ -114,78 +112,6 @@ mod tests {
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
         assert!(process_output.stderr.is_empty());
-    }
-
-    #[test]
-    fn run_from_create_writes_output() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write("rootfs.erofs", b"fake-erofs-content");
-        let output = env.path("run-from-initramfs.img");
-
-        // ACT
-        cli::run_from([
-            "ramune",
-            "create",
-            "--file",
-            &file_arg("init", &init, "755"),
-            "--file",
-            &file_arg("rootfs.erofs", &rootfs, "644"),
-            "--output",
-            output.to_str().expect("output path"),
-        ])
-        .expect("run_from create");
-
-        // ASSERT
-        assert!(output.exists());
-    }
-
-    #[test]
-    fn run_with_returns_zero_for_success() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let init = env.write("init", b"#!/bin/sh\nexec /sbin/init\n");
-        let rootfs = env.write("rootfs.erofs", b"fake-erofs-content");
-        let output = env.path("run-with-initramfs.img");
-
-        // ACT
-        let exit_code = cli::run_with([
-            "ramune",
-            "create",
-            "--file",
-            &file_arg("init", &init, "755"),
-            "--file",
-            &file_arg("rootfs.erofs", &rootfs, "644"),
-            "--output",
-            output.to_str().expect("output path"),
-        ]);
-
-        // ASSERT
-        assert_eq!(exit_code, 0);
-    }
-
-    #[test]
-    fn run_with_returns_one_for_error() {
-        // ARRANGE
-        let env = TestEnv::new();
-        let output = env.path("run-with-error.img");
-
-        // ACT
-        let exit_code = cli::run_with([
-            "ramune",
-            "create",
-            "--file",
-            &format!(
-                "init={}:755",
-                env.path("missing-init").to_str().expect("path")
-            ),
-            "--output",
-            output.to_str().expect("output path"),
-        ]);
-
-        // ASSERT
-        assert_eq!(exit_code, 1);
     }
 
     #[test]

@@ -19,7 +19,7 @@ const RESOLUTION_POLICY: &str = "muak/default";
 ///
 /// Returns an error when the request version is invalid, the profile references
 /// an unknown source input, or the global configuration has not been set.
-pub(crate) fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
+pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let config = config::config()?;
     let host = arch::host();
     let arch = request.target_arch().unwrap_or(host);
