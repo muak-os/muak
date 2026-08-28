@@ -1,0 +1,35 @@
+; Muak SELinux policy: workloadd (workload manager)
+; Domain: workloadd_t
+
+(type workloadd_exec_t)
+(call declare_exec (workloadd_t workloadd_exec_t))
+
+(allow workloadd_t self (capability (sys_admin net_admin)))
+
+(allow workloadd_t self (tun_socket (create)))
+
+; networkd creates the TAP fd and passes it to cloud-hypervisor over the IPC
+; socket. The kernel requires relabelfrom on the fd's current label (network_t)
+; and relabelto on the destination label (workloadd_t) to transfer socket ownership.
+(allow workloadd_t network_t (tun_socket (relabelfrom)))
+(allow workloadd_t self      (tun_socket (relabelto)))
+
+(allow workloadd_t network_t (unix_stream_socket (connectto)))
+
+(allow workloadd_t file_t      (file (execute execute_no_trans map)))
+(allow workloadd_t unlabeled_t (file (read open getattr execute execute_no_trans map)))
+
+(call allow_sysfs_read    (workloadd_t))
+(call allow_devtmpfs_read (workloadd_t))
+(allow workloadd_t devtmpfs_t (chr_file (ioctl)))
+
+(call allow_run_rw   (workloadd_t))
+
+(allow workloadd_t tmpfs_t (dir (write add_name remove_name)))
+(typetransition workloadd_t tmpfs_t dir muak_run_t)
+
+(allow workloadd_t fs_t (dir  (read write search create add_name remove_name)))
+(allow workloadd_t fs_t (file (read write create open getattr unlink rename)))
+
+(call allow_state_rw (workloadd_t))
+(call allow_data_rw  (workloadd_t))

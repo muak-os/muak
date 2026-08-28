@@ -37,7 +37,7 @@ impl BackendPool {
     #[must_use]
     pub fn new() -> Self {
         let mut senders = HashMap::new();
-        senders.insert(constants::VMD_SOCKET.to_owned(), Mutex::new(None));
+        senders.insert(constants::WORKLOADD_SOCKET.to_owned(), Mutex::new(None));
         senders.insert(constants::GRANOLA_SOCKET.to_owned(), Mutex::new(None));
         senders.insert(constants::PROVISIOND_SOCKET.to_owned(), Mutex::new(None));
         Self { senders }
@@ -142,7 +142,7 @@ mod tests {
         let pool = BackendPool::new();
 
         // ASSERT
-        assert!(pool.senders.contains_key(constants::VMD_SOCKET));
+        assert!(pool.senders.contains_key(constants::WORKLOADD_SOCKET));
         assert!(pool.senders.contains_key(constants::GRANOLA_SOCKET));
         assert!(pool.senders.contains_key(constants::PROVISIOND_SOCKET));
     }

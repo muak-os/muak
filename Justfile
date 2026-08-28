@@ -93,7 +93,7 @@ build release="" *pkgs:
 [script]
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
-    pkgs="granola provisiond modd networkd apid vmd timed consoled millefeuille"
+    pkgs="granola provisiond modd networkd apid workloadd timed consoled millefeuille"
     pkg_args=()
     if [ "{{ prod }}" = "false" ]; then
         for pkg in $pkgs; do

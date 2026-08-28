@@ -13,7 +13,7 @@ members = [
     "services/networkd",
     "services/provisiond",
     "services/timed",
-    "services/vmd",
+    "services/workloadd",
 
     "tools/wizard",
     "tools/koci",

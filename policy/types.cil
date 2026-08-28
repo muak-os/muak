@@ -30,14 +30,14 @@
 (roletype system_r module_t)
 
 ; VM hypervisor management
-(type vmd_t)
-(roletype system_r vmd_t)
+(type workloadd_t)
+(roletype system_r workloadd_t)
 
 ; ── Attributes ───────────────────────────────────────────────────────────────
 
 ; All confined service process domains.
 (typeattribute service_t)
-(typeattributeset service_t (system_t api_t network_t clock_t module_t vmd_t))
+(typeattributeset service_t (system_t api_t network_t clock_t module_t workloadd_t))
 
 ; All confined service executable types.
 (typeattribute service_exec_t)
@@ -78,7 +78,7 @@
 ; Excludes kernel_t (needs mutable exec for NFS etc), granola_t (PID 1),
 ; and api_t (runs migrations from sealed anonymous memory).
 (typeattribute verified_s)
-(typeattributeset verified_s (system_t network_t clock_t module_t vmd_t))
+(typeattributeset verified_s (system_t network_t clock_t module_t workloadd_t))
 
 ; ── Object attributes ─────────────────────────────────────────────────────────
 

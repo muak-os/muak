@@ -59,7 +59,7 @@
 (filecon "/sbin/networkd"   file (system_u object_r networkd_exec_t   s0))
 (filecon "/sbin/provisiond" file (system_u object_r provisiond_exec_t s0))
 (filecon "/sbin/timed"      file (system_u object_r timed_exec_t      s0))
-(filecon "/sbin/vmd"        file (system_u object_r vmd_exec_t        s0))
+(filecon "/sbin/workloadd"        file (system_u object_r workloadd_exec_t        s0))
 
 ; Kernel modules.
 (filecon "/lib/modules"    any  (system_u object_r modules_t s0))

@@ -6,7 +6,7 @@ pub const SERVER_CERT_PATH: &str = "/run/state/secrets/server.crt";
 pub const SERVER_KEY_PATH: &str = "/run/state/secrets/server.key";
 
 /// Backend socket paths.
-pub const VMD_SOCKET: &str = "/run/services/vmd.sock";
+pub const WORKLOADD_SOCKET: &str = "/run/services/workloadd.sock";
 pub const GRANOLA_SOCKET: &str = "/run/services/granola.sock";
 pub const PROVISIOND_SOCKET: &str = "/run/services/provisiond.sock";
 

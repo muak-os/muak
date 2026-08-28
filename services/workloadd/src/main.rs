@@ -1,4 +1,4 @@
-//! VM daemon for Muak - Manages virtual machines and their life cycle.
+//! Workload daemon for Muak - Manages virtual machines and their life cycle.
 
 extern crate alloc;
 
@@ -47,16 +47,16 @@ pub mod proto {
     }
 }
 
-const STATE_DIR: &str = "/run/state/vmd";
+const STATE_DIR: &str = "/run/state/workloadd";
 
 /// Entry point for the VM daemon.
-#[granola::service("vmd")]
+#[granola::service("workloadd")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
     config::init()?;
     set_child_subreaper()?;
 
-    notifier.status("Initializing VM daemon", Health::Healthy)?;
+    notifier.status("Initializing workload daemon", Health::Healthy)?;
 
     let kvm_available = std::fs::OpenOptions::new()
         .read(true)
@@ -64,7 +64,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .open("/dev/kvm")
         .is_ok();
     if !kvm_available {
-        kmsg::warn!(@ "vmd", "/dev/kvm is not available, entering degraded mode");
+        kmsg::warn!(@ "workloadd", "/dev/kvm is not available, entering degraded mode");
         notifier.status("KVM not available", Health::Degraded)?;
     }
 

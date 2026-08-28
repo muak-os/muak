@@ -69,12 +69,12 @@ pub async fn handle_request(
 /// Routes a request path to the appropriate backend socket.
 pub async fn route_request(path: &str) -> Option<&'static str> {
     if path.starts_with(constants::VM_SERVICE_PREFIX) {
-        let socket_exists = try_exists(constants::VMD_SOCKET).await.unwrap_or(false);
+        let socket_exists = try_exists(constants::WORKLOADD_SOCKET).await.unwrap_or(false);
         if !socket_exists {
             kmsg::warn!("VM service not available in maintenance mode");
             return None;
         }
-        Some(constants::VMD_SOCKET)
+        Some(constants::WORKLOADD_SOCKET)
     } else if path.starts_with(constants::PROCESS_SERVICE_PREFIX)
         || path.starts_with(constants::LOG_SERVICE_PREFIX)
     {

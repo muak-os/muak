@@ -566,8 +566,8 @@ async fn cleanup_tap_on_err(handle: &rtnetlink::Handle, tap_name: Option<String>
 }
 
 fn delete_orphaned_disk(vm_id: &str) {
-    kmsg::warn!(@ "vmd", "Cleaning up orphaned disk: {}", vm_id);
+    kmsg::warn!(@ "workloadd", "Cleaning up orphaned disk: {}", vm_id);
     if let Err(e) = delete(vm_id, disk::DATA_DIR) {
-        kmsg::error!(@ "vmd", "Failed to delete orphaned disk {}: {}", vm_id, e);
+        kmsg::error!(@ "workloadd", "Failed to delete orphaned disk {}: {}", vm_id, e);
     }
 }

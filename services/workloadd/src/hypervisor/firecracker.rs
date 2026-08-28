@@ -17,7 +17,7 @@ impl Driver {
     }
 
     pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
-        let config_path = format!("/run/vmd/{}/config.json", config.vm_id);
+        let config_path = format!("/run/workloadd/{}/config.json", config.vm_id);
 
         let mut drives: Vec<_> = config
             .disks

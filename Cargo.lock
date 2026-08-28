@@ -2558,31 +2558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vmd"
-version = "1.0.0-beta"
-dependencies = [
- "anyhow",
- "btrfs",
- "config",
- "granola",
- "kmsg",
- "libc",
- "netlib",
- "prost",
- "protox",
- "rtnetlink",
- "rustix",
- "serde",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "uuid",
-]
-
-[[package]]
 name = "want"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2723,6 +2698,31 @@ dependencies = [
  "toml",
  "yuki",
  "zstd",
+]
+
+[[package]]
+name = "workloadd"
+version = "1.0.0-beta"
+dependencies = [
+ "anyhow",
+ "btrfs",
+ "config",
+ "granola",
+ "kmsg",
+ "libc",
+ "netlib",
+ "prost",
+ "protox",
+ "rtnetlink",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "uuid",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ ARG PKG_PROVISIOND=ghcr.io/muak-os/pkgs/provisiond:latest
 ARG PKG_MODD=ghcr.io/muak-os/pkgs/modd:latest
 ARG PKG_NETWORKD=ghcr.io/muak-os/pkgs/networkd:latest
 ARG PKG_APID=ghcr.io/muak-os/pkgs/apid:latest
-ARG PKG_VMD=ghcr.io/muak-os/pkgs/vmd:latest
+ARG PKG_WORKLOADD=ghcr.io/muak-os/pkgs/workloadd:latest
 ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
 ARG PKG_CONSOLED=ghcr.io/muak-os/pkgs/consoled:latest
 ARG PKG_MILLEFEUILLE=ghcr.io/muak-os/pkgs/millefeuille:latest
@@ -22,7 +22,7 @@ FROM ${PKG_PROVISIOND} AS pkg-provisiond
 FROM ${PKG_MODD} AS pkg-modd
 FROM ${PKG_NETWORKD} AS pkg-networkd
 FROM ${PKG_APID} AS pkg-apid
-FROM ${PKG_VMD} AS pkg-vmd
+FROM ${PKG_WORKLOADD} AS pkg-workloadd
 FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_MILLEFEUILLE} AS pkg-millefeuille
@@ -38,7 +38,7 @@ COPY --link --from=pkg-provisiond /provisiond                    /rootfs/sbin/pr
 COPY --link --from=pkg-modd       /modd                          /rootfs/sbin/modd
 COPY --link --from=pkg-networkd   /networkd                      /rootfs/sbin/networkd
 COPY --link --from=pkg-apid       /apid                          /rootfs/sbin/apid
-COPY --link --from=pkg-vmd        /vmd                           /rootfs/sbin/vmd
+COPY --link --from=pkg-workloadd        /workloadd                           /rootfs/sbin/workloadd
 COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
 COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
 

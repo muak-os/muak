@@ -1,5 +1,5 @@
 [package]
-name = "vmd"
+name = "workloadd"
 description = "Virtual machine management daemon"
 edition.workspace = true
 version.workspace = true

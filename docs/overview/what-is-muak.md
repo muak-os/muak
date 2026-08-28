@@ -51,7 +51,7 @@ muakctl (CLI)
     v
   apid  ─── RBAC ─── mTLS termination
     |
-    ├── vmd          VM lifecycle (QEMU / Cloud Hypervisor / Firecracker)
+    ├── workloadd    VM lifecycle (QEMU / Cloud Hypervisor / Firecracker)
     ├── provisiond   Install, update, certificates, history
     ├── networkd     DHCP, TAP/bridge, SLAAC (internal)
     └── granola      PID 1 supervisor, logs, process list

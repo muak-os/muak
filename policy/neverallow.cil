@@ -19,8 +19,8 @@
 
 ; ── Code execution integrity ──────────────────────────────────────────────────
 
-; verified_s domains (system_t, network_t, clock_t, module_t, vmd_t) must not
-; execute mutable runtime files. file_t is excluded because vmd_t legitimately
+; verified_s domains (system_t, network_t, clock_t, module_t, workloadd_t) must not
+; execute mutable runtime files. file_t is excluded because workloadd_t legitimately
 ; executes hypervisor binaries labeled file_t from extension images.
 ; mutable_o covers: muak_run_t, muak_state_t, muak_data_t, tmpfs_t.
 (neverallow verified_s mutable_o (files (execute)))

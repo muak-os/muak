@@ -57,7 +57,7 @@
 
 ; Wire an executable type to an existing functional service domain.
 ;
-; Domain types (system_t, api_t, network_t, clock_t, module_t, vmd_t) are
+; Domain types (system_t, api_t, network_t, clock_t, module_t, workloadd_t) are
 ; declared once in types.cil. declare_exec registers a per-binary exec type
 ; and connects it to the appropriate domain:
 ;
