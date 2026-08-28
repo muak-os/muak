@@ -20,7 +20,6 @@ tag := env_var_or_default("TAG", "latest")
 tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:" + tag)
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
-ci_args := env_var_or_default("CI_ARGS", "")
 kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
@@ -63,12 +62,7 @@ dev: (build "--release" "") installer (oci "stub") sign (artifacts "iso")
 
 # Build the default Linux kernel image
 kernel:
-    @printf "{{ cyan }}Building Linux kernel{{ reset }}\n"
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ kernel_signing }} {{ pull_arg }} \
-        --tag {{ registry }}/kernel:{{ tag }} \
-        --file core/kernel/Dockerfile \
-        .
-    {{ push_cmd }} "{{ registry }}/kernel:{{ tag }}"
+    @just _build-oci kernel core/kernel/Dockerfile {{ kernel_signing }}
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
 [arg("release", long="release", value="--release")]
@@ -104,10 +98,11 @@ installer prod="false":
             pkg_args+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
         done
     fi
-    {{ build_cmd }} {{ common_args }} {{ ci_args }} {{ pull_arg }} \
+    {{ build_cmd }} {{ common_args }} {{ pull_arg }} \
         --build-context services=. \
         --build-arg TOOLS={{ tools }} \
         "${pkg_args[@]}" \
+        $(just _cache-from installer) $(just _cache-to installer) \
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
         .
@@ -148,7 +143,7 @@ artifacts *types:
             --platform metal \
             -o /out
 
-# Build OCI images (e.g., just oci granola kernel installer cli)
+# Build OCI images (e.g., just oci granola kernel installer cli tools)
 [script]
 oci *pkgs:
     pkgs="{{ pkgs }}"
@@ -156,40 +151,13 @@ oci *pkgs:
         printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just oci <pkg1> [pkg2...]\n"
         exit 1
     fi
+    rust_arg="--build-arg RUST_VERSION={{ rust_version }}"
     for pkg in $pkgs; do
         case "$pkg" in
-            kernel)
-                printf "{{ cyan }}Building kernel OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-                just kernel
-                ;;
-            installer)
-                printf "{{ cyan }}Building installer OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-                just installer --prod
-                ;;
-            cli)
-                printf "{{ cyan }}Building muakctl OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                    --tag {{ registry }}/muakctl:{{ tag }} \
-                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/muakctl:latest" || echo "") \
-                    --file cli/Dockerfile \
-                    .
-                {{ push_cmd }} "{{ registry }}/muakctl:{{ tag }}"
-                if [ "{{ latest }}" = "true" ]; then
-                    {{ push_cmd }} "{{ registry }}/muakctl:latest"
-                fi
-                ;;
-            tools)
-                printf "{{ cyan }}Building tools OCI{{ reset }} (push={{ push }}, latest={{ latest }})\n"
-                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                    --tag {{ registry }}/tools:{{ tag }} \
-                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/tools:latest" || echo "") \
-                    --file tools/Dockerfile \
-                    .
-                {{ push_cmd }} "{{ registry }}/tools:{{ tag }}"
-                if [ "{{ latest }}" = "true" ]; then
-                    {{ push_cmd }} "{{ registry }}/tools:latest"
-                fi
-                ;;
+            kernel)    just kernel ;;
+            installer) just installer --prod ;;
+            cli)      just _build-oci muakctl cli/Dockerfile ${rust_arg} ;;
+            tools)    just _build-oci tools tools/Dockerfile ${rust_arg} ;;
             *)
                 dockerfile=""
                 for dir in core services tools pkgs; do
@@ -202,16 +170,7 @@ oci *pkgs:
                     printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in core/, services/, tools/, or pkgs/\n"
                     exit 1
                 fi
-                printf "{{ cyan }}Building OCI:{{ reset }} $pkg (push={{ push }}, latest={{ latest }})\n"
-                {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ ci_args }} {{ pull_arg }} \
-                    --tag {{ registry }}/pkgs/$pkg:{{ tag }} \
-                    $([ "{{ latest }}" = "true" ] && echo "--tag {{ registry }}/pkgs/$pkg:latest" || echo "") \
-                    --file "$dockerfile" \
-                    .
-                {{ push_cmd }} "{{ registry }}/pkgs/$pkg:{{ tag }}"
-                if [ "{{ latest }}" = "true" ]; then
-                    {{ push_cmd }} "{{ registry }}/pkgs/$pkg:latest"
-                fi
+                just _build-oci "pkgs/$pkg" "$dockerfile" ${rust_arg}
                 ;;
         esac
     done
@@ -386,6 +345,26 @@ clean:
 
 [private]
 [script]
+_build-oci name dockerfile *extra:
+    image="{{ registry }}/{{ name }}:{{ tag }}"
+    cache_from=$(just _cache-from "{{ name }}")
+    cache_to=$(just _cache-to "{{ name }}")
+    tags="--tag ${image}"
+    if [ "{{ latest }}" = "true" ]; then
+        tags="${tags} --tag {{ registry }}/{{ name }}:latest"
+    fi
+    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }}, latest={{ latest }})\n"
+    {{ build_cmd }} {{ common_args }} {{ pull_arg }} \
+        ${cache_from} ${cache_to} ${tags} {{ extra }} \
+        --file {{ dockerfile }} \
+        .
+    {{ push_cmd }} "${image}"
+    if [ "{{ latest }}" = "true" ]; then
+        {{ push_cmd }} "{{ registry }}/{{ name }}:latest"
+    fi
+
+[private]
+[script]
 _ensure-fw: _ensure-out
     if [ "{{ arch }}" != "x86_64" ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} QEMU helpers currently support only x86_64\n"
@@ -426,3 +405,10 @@ _test-run runner label *pkgs:
         {{ runner }} -E 'not package(e2e)'
     fi
 
+[private]
+_cache-from name:
+    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-from=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }}"; fi
+
+[private]
+_cache-to name:
+    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ] && [ "{{ push }}" = "true" ]; then printf '%s' "--cache-to=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }},mode=max"; fi

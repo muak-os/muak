@@ -6,7 +6,9 @@ on:
     paths:
       - "tools/miso/**"
       - "tools/koci/**"
+      - "tools/mumi/**"
       - "tools/ramune/**"
+      - "tools/wizard/**"
       - "tools/yuki/**"
       - "libs/erofs/**"
       - "Cargo.toml"
@@ -20,7 +22,9 @@ on:
     paths:
       - "tools/miso/**"
       - "tools/koci/**"
+      - "tools/mumi/**"
       - "tools/ramune/**"
+      - "tools/wizard/**"
       - "tools/yuki/**"
       - "libs/erofs/**"
       - "Cargo.toml"
@@ -52,4 +56,4 @@ jobs:
       push: ${{ github.event_name != 'pull_request' }}
       latest: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.latest) }}
       tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
-      arch_matrix: '["amd64"]'
+      arch_matrix: '["amd64","arm64"]'
