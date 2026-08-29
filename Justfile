@@ -21,6 +21,7 @@ tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:" + tag)
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
 signature := env_var_or_default("SIGNATURE", "signature.key")
+profile := env_var_or_default("PROFILE", "")
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
 # Architecture
@@ -124,7 +125,11 @@ artifacts *types:
     fi
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
     mkdir -p {{ out }}
-    printf '[kernel]\nsource = "muak-os/linux"\n\n[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
+    if [ -n "{{ profile }}" ]; then
+        cp "{{ profile }}" "{{ out }}/profile.toml"
+    else
+        printf '[kernel]\nsource = "muak-os/linux"\n\n[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
+    fi
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
