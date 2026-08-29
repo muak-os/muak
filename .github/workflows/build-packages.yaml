@@ -177,7 +177,7 @@ jobs:
           elif [[ -n "${TAG_PACKAGES}" ]]; then
             echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
           elif [[ "${REBUILD_ALL}" == "true" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille","stub","cloud-hypervisor","firecracker","qemu"]' >> $GITHUB_OUTPUT
+            echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille","stub"]' >> $GITHUB_OUTPUT
           elif [[ "${REBUILD_RUST}" == "true" ]]; then
             echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille","stub"]' >> $GITHUB_OUTPUT
           elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
