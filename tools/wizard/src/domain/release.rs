@@ -36,7 +36,13 @@ tag = "latest"
 [[overlays]]
 name = "rpi_generic"
 source = "muak-os/sbc-raspberrypi"
-repository = "pkgs/sbc-raspberrypi"
+repository = "sbc/raspberrypi"
+tag = "latest"
+
+[[overlays]]
+name = "rpi_5"
+source = "muak-os/sbc-raspberrypi"
+repository = "sbc/raspberrypi-5"
 tag = "latest"
 "#;
 
@@ -402,7 +408,7 @@ tag = "v1.0.0"
 [[overlays]]
 name = "rpi_generic"
 source = "muak-os/sbc-raspberrypi"
-repository = "pkgs/sbc-raspberrypi"
+repository = "sbc/raspberrypi"
 tag = "v1.0.0"
 "#;
 
@@ -417,7 +423,15 @@ tag = "v1.0.0"
         assert_eq!(manifest.stub().repository(), "pkgs/stub");
         assert_eq!(manifest.kernel().repository(), "linux");
         assert_eq!(manifest.extensions().len(), 1);
-        assert_eq!(manifest.overlays().len(), 1);
+        assert_eq!(manifest.overlays().len(), 2);
+        assert_eq!(
+            manifest.overlays().first().expect("overlay").repository(),
+            "sbc/raspberrypi"
+        );
+        assert_eq!(
+            manifest.overlays().get(1).expect("overlay").repository(),
+            "sbc/raspberrypi-5"
+        );
     }
 
     #[test]

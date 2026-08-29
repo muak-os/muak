@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(overlay.image(), "muak-os/sbc-raspberrypi");
         assert_eq!(
             overlay.source_ref(),
-            "ghcr.io/muak-os/pkgs/sbc-raspberrypi:latest"
+            "ghcr.io/muak-os/sbc/raspberrypi:latest"
         );
     }
 

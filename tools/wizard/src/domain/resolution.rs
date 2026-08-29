@@ -335,13 +335,13 @@ mod tests {
         let ov = Overlay::new(
             "rpi_generic".into(),
             "muak-os/sbc-raspberrypi".into(),
-            "ghcr.io/muak-os/sbc-raspberrypi:v1.0.0".into(),
+            "ghcr.io/muak-os/sbc/raspberrypi:v1.0.0".into(),
             Arch::Amd64,
         );
 
         // ACT & ASSERT
         assert_eq!(ov.name(), "rpi_generic");
         assert_eq!(ov.image(), "muak-os/sbc-raspberrypi");
-        assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc-raspberrypi:v1.0.0");
+        assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc/raspberrypi:v1.0.0");
     }
 }
