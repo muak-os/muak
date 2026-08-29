@@ -214,7 +214,7 @@ mod tests {
     fn minimal_toml() -> &'static str {
         r#"
 [kernel]
-source = "muak-os/kernel"
+source = "muak-os/linux"
 
 [customization]
 extensions = []
@@ -224,7 +224,7 @@ extensions = []
     fn extension_toml() -> &'static str {
         r#"
 [kernel]
-source = "muak-os/kernel"
+source = "muak-os/linux"
 
 [customization]
 extensions = ["muak-os/qemu"]
@@ -238,7 +238,7 @@ name = "rpi_generic"
 source = "muak-os/sbc-raspberrypi"
 
 [kernel]
-source = "muak-os/kernel"
+source = "muak-os/linux"
 
 [customization]
 extensions = ["muak-os/qemu"]
@@ -252,7 +252,7 @@ extensions = ["muak-os/qemu"]
 
         // ASSERT
         assert!(doc.overlay().is_none());
-        assert_eq!(doc.kernel().source(), "muak-os/kernel");
+        assert_eq!(doc.kernel().source(), "muak-os/linux");
         assert!(doc.customization().extensions().is_empty());
     }
 
@@ -265,7 +265,7 @@ extensions = ["muak-os/qemu"]
         let ov = doc.overlay().expect("overlay present");
         assert_eq!(ov.name(), "rpi_generic");
         assert_eq!(ov.source(), "muak-os/sbc-raspberrypi");
-        assert_eq!(doc.kernel().source(), "muak-os/kernel");
+        assert_eq!(doc.kernel().source(), "muak-os/linux");
     }
 
     #[test]
@@ -286,11 +286,11 @@ extensions = ["muak-os/qemu"]
     fn extension_order_does_not_affect_profile_id() {
         // ARRANGE
         let first = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/a\", \"muak-os/b\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/a\", \"muak-os/b\"]",
         )
         .expect("parse");
         let second = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/b\", \"muak-os/a\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/b\", \"muak-os/a\"]",
         )
         .expect("parse");
 
@@ -305,7 +305,7 @@ extensions = ["muak-os/qemu"]
     fn extension_alias_normalizes_to_same_profile_id() {
         // ARRANGE
         let aliased = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = [\"qemu\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"qemu\"]",
         )
         .expect("parse");
         let canonical = Profile::from_toml(extension_toml().as_bytes()).expect("parse");
@@ -338,7 +338,7 @@ extensions = ["muak-os/qemu"]
         // ARRANGE
         let first = Profile::from_toml(overlay_toml().as_bytes()).expect("parse");
         let second = Profile::from_toml(
-            b"[overlay]\nname = \"rpi_generic\"\nsource = \"other/sbc\"\n[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi_generic\"\nsource = \"other/sbc\"\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
@@ -352,7 +352,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_unknown_fields() {
         // ARRANGE
-        let raw = b"unknown_key = true\n[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []";
+        let raw = b"unknown_key = true\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -364,7 +364,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_overlay_with_empty_name() {
         // ARRANGE
-        let raw = b"[overlay]\nname = \"\"\nsource = \"muak-os/sbc\"\n[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []";
+        let raw = b"[overlay]\nname = \"\"\nsource = \"muak-os/sbc\"\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -376,7 +376,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_overlay_with_empty_source() {
         // ARRANGE
-        let raw = b"[overlay]\nname = \"rpi\"\nsource = \"\"\n[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []";
+        let raw = b"[overlay]\nname = \"rpi\"\nsource = \"\"\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -388,7 +388,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn rejects_empty_extension_name() {
         // ARRANGE
-        let raw = b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = [\"\"]";
+        let raw = b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"\"]";
 
         // ACT
         let err = Profile::from_toml(raw).expect_err("should fail");
@@ -401,7 +401,7 @@ extensions = ["muak-os/qemu"]
     fn rejects_duplicate_extensions() {
         // ARRANGE
         let doc = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = [\"muak-os/qemu\", \"qemu\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/qemu\", \"qemu\"]",
         )
         .expect("parse");
 
@@ -477,7 +477,7 @@ extensions = ["muak-os/qemu"]
         // ARRANGE
         let overlay = OverlaySpec::new("name".into(), "source".into()).expect("valid overlay");
         let customization = CustomizationSpec::new(vec![]).expect("valid customization");
-        let kernel = KernelSpec::new("muak-os/kernel".to_owned()).expect("valid kernel");
+        let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("valid kernel");
         // ACT
         let doc = Profile::new(Some(overlay), customization, kernel);
         let id = doc.profile_id().expect("id");
@@ -490,7 +490,7 @@ extensions = ["muak-os/qemu"]
     fn document_new_accepts_no_overlay() {
         // ARRANGE
         let customization = CustomizationSpec::new(vec![]).expect("valid customization");
-        let kernel = KernelSpec::new("muak-os/kernel".to_owned()).expect("valid kernel");
+        let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("valid kernel");
         // ACT
         let doc = Profile::new(None, customization, kernel);
         let id = doc.profile_id().expect("id");

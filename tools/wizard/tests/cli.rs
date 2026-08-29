@@ -8,7 +8,7 @@ mod tests {
     }
 
     const PROFILE_TOML: &[u8] =
-        b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []";
+        b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
 
     #[test]
     fn cli_help_exits_successfully() {
@@ -118,7 +118,7 @@ mod tests {
             "resolve should honor --registry for the installer: {stdout}"
         );
         assert!(
-            stdout.contains("resolved kernel: muak-os/kernel -> localhost:5000/kernel:latest"),
+            stdout.contains("resolved kernel: muak-os/linux -> localhost:5000/linux:latest"),
             "resolve should resolve the kernel against --registry: {stdout}"
         );
     }

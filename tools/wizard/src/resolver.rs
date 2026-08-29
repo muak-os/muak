@@ -184,7 +184,7 @@ mod tests {
         let customization =
             CustomizationSpec::new(extensions.iter().map(|name| (*name).to_owned()).collect())
                 .expect("customization");
-        let kernel = KernelSpec::new("muak-os/kernel".into()).expect("kernel");
+        let kernel = KernelSpec::new("muak-os/linux".into()).expect("kernel");
 
         Profile::new(overlay, customization, kernel)
     }
@@ -209,8 +209,8 @@ mod tests {
         let build = resolution.build();
         assert_eq!(build.installer(), "ghcr.io/muak-os/installer:latest");
         assert_eq!(build.stub(), "ghcr.io/muak-os/pkgs/stub:latest");
-        assert_eq!(build.kernel().source(), "ghcr.io/muak-os/kernel:latest");
-        assert_eq!(build.kernel().image(), "muak-os/kernel");
+        assert_eq!(build.kernel().source(), "ghcr.io/muak-os/linux:latest");
+        assert_eq!(build.kernel().image(), "muak-os/linux");
         assert_eq!(build.version(), "latest");
         assert_eq!(build.arch(), Arch::Amd64);
         assert_eq!(build.platform(), Platform::Metal);
@@ -328,7 +328,7 @@ mod tests {
         );
         assert_eq!(
             resolution.build().kernel().source(),
-            "ghcr.io/muak-os/kernel:v2.0.0"
+            "ghcr.io/muak-os/linux:v2.0.0"
         );
     }
 

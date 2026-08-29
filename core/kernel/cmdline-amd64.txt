@@ -1,1 +1,0 @@
-console=tty0 console=ttyS0 init=/init rootfstype=ramfs mitigations=auto,nosmt nosmt iommu.strict=1 rodata=on page_alloc.shuffle=1 hash_pointers=always init_on_free=1 lockdown=confidentiality efi=disable_early_pci_dma proc_mem.force_override=never pti=on cfi=kcfi iommu=force debugfs=off

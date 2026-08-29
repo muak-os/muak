@@ -250,7 +250,7 @@ mod tests {
 
     fn profile() -> Profile {
         let customization = CustomizationSpec::new(vec![]).expect("customization");
-        let kernel = KernelSpec::new("muak-os/kernel".into()).expect("kernel");
+        let kernel = KernelSpec::new("muak-os/linux".into()).expect("kernel");
         Profile::new(None, customization, kernel)
     }
 
@@ -271,8 +271,8 @@ mod tests {
                 stub: "ghcr.io/muak-os/pkgs/stub:latest".into(),
                 installer: "ghcr.io/muak-os/installer:latest".into(),
                 kernel: Kernel::new(
-                    "muak-os/kernel".into(),
-                    "ghcr.io/muak-os/kernel:latest".into(),
+                    "muak-os/linux".into(),
+                    "ghcr.io/muak-os/linux:latest".into(),
                 ),
                 overlay: None,
                 extensions: vec![],
@@ -310,13 +310,13 @@ mod tests {
     fn resolved_kernel_accessors() {
         // ARRANGE
         let kernel = Kernel::new(
-            "ghcr.io/muak-os/kernel".into(),
-            "ghcr.io/muak-os/kernel:v1.0.0".into(),
+            "ghcr.io/muak-os/linux".into(),
+            "ghcr.io/muak-os/linux:v1.0.0".into(),
         );
 
         // ACT & ASSERT
-        assert_eq!(kernel.image(), "ghcr.io/muak-os/kernel");
-        assert_eq!(kernel.source(), "ghcr.io/muak-os/kernel:v1.0.0");
+        assert_eq!(kernel.image(), "ghcr.io/muak-os/linux");
+        assert_eq!(kernel.source(), "ghcr.io/muak-os/linux:v1.0.0");
     }
 
     #[test]

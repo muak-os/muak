@@ -23,8 +23,8 @@ repository = "pkgs/stub"
 tag = "latest"
 
 [kernel]
-source = "muak-os/kernel"
-repository = "kernel"
+source = "muak-os/linux"
+repository = "linux"
 tag = "latest"
 
 [[extensions]]
@@ -389,8 +389,8 @@ repository = "pkgs/stub"
 tag = "v1.0.0"
 
 [kernel]
-source = "muak-os/kernel"
-repository = "kernel"
+source = "muak-os/linux"
+repository = "linux"
 tag = "v1.0.0"
 
 [[extensions]]
@@ -415,7 +415,7 @@ tag = "v1.0.0"
         assert_eq!(manifest.name(), "muak-os/release");
         assert_eq!(manifest.installer().repository(), "installer");
         assert_eq!(manifest.stub().repository(), "pkgs/stub");
-        assert_eq!(manifest.kernel().repository(), "kernel");
+        assert_eq!(manifest.kernel().repository(), "linux");
         assert_eq!(manifest.extensions().len(), 1);
         assert_eq!(manifest.overlays().len(), 1);
     }

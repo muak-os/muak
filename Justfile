@@ -20,7 +20,6 @@ tag := env_var_or_default("TAG", "latest")
 tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:" + tag)
 push := env_var_or_default("PUSH", "false")
 latest := env_var_or_default("LATEST", "false")
-kernel_signing := env_var_or_default("KERNEL_SIGNING", "")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 
@@ -59,10 +58,6 @@ reset := '\e[0m'
 
 # Full local development build (build → installer → sign → uki + iso)
 dev: (build "--release" "") installer (oci "stub") sign (artifacts "iso")
-
-# Build the default Linux kernel image
-kernel:
-    @just _build-oci kernel core/kernel/Dockerfile {{ kernel_signing }}
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
 [arg("release", long="release", value="--release")]
@@ -129,7 +124,7 @@ artifacts *types:
     fi
     printf "{{ cyan }}Building artifacts: {{ types }}{{ reset }}\n"
     mkdir -p {{ out }}
-    printf '[kernel]\nsource = "muak-os/kernel"\n\n[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
+    printf '[kernel]\nsource = "muak-os/linux"\n\n[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
@@ -143,7 +138,7 @@ artifacts *types:
             --platform metal \
             -o /out
 
-# Build OCI images (e.g., just oci granola kernel installer cli tools)
+# Build OCI images (e.g., just oci granola installer cli tools)
 [script]
 oci *pkgs:
     pkgs="{{ pkgs }}"
@@ -151,13 +146,11 @@ oci *pkgs:
         printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just oci <pkg1> [pkg2...]\n"
         exit 1
     fi
-    rust_arg="--build-arg RUST_VERSION={{ rust_version }}"
     for pkg in $pkgs; do
         case "$pkg" in
-            kernel)    just kernel ;;
             installer) just installer --prod ;;
-            cli)      just _build-oci muakctl cli/Dockerfile ${rust_arg} ;;
-            tools)    just _build-oci tools tools/Dockerfile ${rust_arg} ;;
+            cli)      just _build-oci muakctl cli/Dockerfile ;;
+            tools)    just _build-oci tools tools/Dockerfile ;;
             *)
                 dockerfile=""
                 for dir in core services tools pkgs; do
@@ -170,7 +163,7 @@ oci *pkgs:
                     printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in core/, services/, tools/, or pkgs/\n"
                     exit 1
                 fi
-                just _build-oci "pkgs/$pkg" "$dockerfile" ${rust_arg}
+                just _build-oci "pkgs/$pkg" "$dockerfile"
                 ;;
         esac
     done
@@ -288,22 +281,6 @@ flame pkg *args: _ensure-out
         "$flame" flamegraph --profile profiling --no-inline -c "record -F 997 --call-graph dwarf -o {{ out }}/flame.data" -o {{ out }}/flamegraph.svg -p {{ pkg }} -- $args -o {{ out }}
     printf "{{ green }}Flamegraph written to {{ out }}/flamegraph.svg{{ reset }}\n"
 
-# Check kernel config, cmdline & sysctl against KSPP security hardening recommendations
-[script]
-kspp:
-    config="config-{{ oci_arch }}"
-    cmdline="cmdline-{{ oci_arch }}.txt"
-    sysctl="sysctl-{{ oci_arch }}.conf"
-    printf "{{ cyan }}Checking kernel config, cmdline & sysctl against KSPP recommendations{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host \
-        -v {{ justfile_directory() }}/core/kernel/$config:/config:ro \
-        -v {{ justfile_directory() }}/core/kernel/$cmdline:/cmdline:ro \
-        -v {{ justfile_directory() }}/core/kernel/$sysctl:/sysctl:ro \
-        docker.io/alpine:{{ alpine_version }} sh -c '\
-        apk add --no-cache git python3 >/dev/null 2>&1 && \
-        git clone --depth 1 --quiet https://github.com/a13xp0p0v/kernel-hardening-checker.git /tmp/khc && \
-        /tmp/khc/bin/kernel-hardening-checker -c /config -l /cmdline -s /sysctl'
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Utilities
 # ─────────────────────────────────────────────────────────────────────────────
@@ -354,7 +331,7 @@ _build-oci name dockerfile *extra:
         tags="${tags} --tag {{ registry }}/{{ name }}:latest"
     fi
     printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }}, latest={{ latest }})\n"
-    {{ build_cmd }} {{ common_args }} {{ pull_arg }} \
+    {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
         ${cache_from} ${cache_to} ${tags} {{ extra }} \
         --file {{ dockerfile }} \
         .

@@ -34,13 +34,13 @@ mod tests {
     fn load_parses_minimal_profile() {
         // ARRANGE / ACT
         let parsed = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/kernel\"\n[customization]\nextensions = []",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
         // ASSERT
         assert!(parsed.overlay().is_none());
-        assert_eq!(parsed.kernel().source(), "muak-os/kernel");
+        assert_eq!(parsed.kernel().source(), "muak-os/linux");
         assert!(parsed.customization().extensions().is_empty());
     }
 
@@ -48,7 +48,7 @@ mod tests {
     fn empty_profile_is_valid() {
         // ARRANGE
         let customization = CustomizationSpec::new(vec![]).expect("empty customization");
-        let kernel = KernelSpec::new("muak-os/kernel".to_owned()).expect("kernel");
+        let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("kernel");
 
         // ACT
         let profile = Profile::new(None, customization, kernel);

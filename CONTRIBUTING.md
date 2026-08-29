@@ -25,9 +25,6 @@ Local QEMU development uses two addresses for the same registry:
 ```sh
 podman run -d -p 5000:5000 --name registry docker.io/library/registry:3
 
-# Create a signing key for the kernel and place it in core/kernel/
-KERNEL_SIGNING="--secret id=kernel_key,src=core/kernel/kernel-signing-key.pem" REGISTRY="localhost:5000" PUSH="true" just kernel
-
 REGISTRY="localhost:5000" PUSH="true" just dev
 just start
 
