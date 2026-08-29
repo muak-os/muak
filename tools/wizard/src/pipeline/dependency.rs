@@ -166,7 +166,7 @@ mod tests {
             "v1.0.0".to_owned(),
             Arch::Amd64,
             Sources {
-                stub: "ghcr.io/muak-os/pkgs/stub:v1.0.0".to_owned(),
+                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
                 installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
                 kernel: Kernel::new(
                     "ghcr.io/muak-os/linux".to_owned(),

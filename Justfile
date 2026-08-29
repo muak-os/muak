@@ -156,6 +156,7 @@ oci *pkgs:
             installer) just installer --prod ;;
             cli)      just _build-oci muakctl cli/Dockerfile ;;
             tools)    just _build-oci tools tools/Dockerfile ;;
+            stub)     just _build-oci "stub" "core/stub/Dockerfile" ;;
             *)
                 dockerfile=""
                 for dir in core services tools pkgs; do

@@ -268,7 +268,7 @@ mod tests {
             manifest.version().to_owned(),
             Arch::Amd64,
             Sources {
-                stub: "ghcr.io/muak-os/pkgs/stub:latest".into(),
+                stub: "ghcr.io/muak-os/stub:latest".into(),
                 installer: "ghcr.io/muak-os/installer:latest".into(),
                 kernel: Kernel::new(
                     "muak-os/linux".into(),
@@ -302,7 +302,7 @@ mod tests {
         );
         assert_eq!(
             resolution.build().stub(),
-            "ghcr.io/muak-os/pkgs/stub:latest"
+            "ghcr.io/muak-os/stub:latest"
         );
     }
 

@@ -208,7 +208,7 @@ mod tests {
         // ASSERT
         let build = resolution.build();
         assert_eq!(build.installer(), "ghcr.io/muak-os/installer:latest");
-        assert_eq!(build.stub(), "ghcr.io/muak-os/pkgs/stub:latest");
+        assert_eq!(build.stub(), "ghcr.io/muak-os/stub:latest");
         assert_eq!(build.kernel().source(), "ghcr.io/muak-os/linux:latest");
         assert_eq!(build.kernel().image(), "muak-os/linux");
         assert_eq!(build.version(), "latest");
@@ -324,7 +324,7 @@ mod tests {
         );
         assert_eq!(
             resolution.build().stub(),
-            "ghcr.io/muak-os/pkgs/stub:v2.0.0"
+            "ghcr.io/muak-os/stub:v2.0.0"
         );
         assert_eq!(
             resolution.build().kernel().source(),
