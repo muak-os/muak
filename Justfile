@@ -37,11 +37,6 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
-push_cmd := if push == "true" {
-    if container_runtime == "podman" { "podman push --tls-verify=false" } else { "docker push" }
-} else {
-    "true"
-}
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
 common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
@@ -102,7 +97,7 @@ installer prod="false":
         --tag {{ registry }}/installer:{{ tag }} \
         --file Dockerfile \
         .
-    {{ push_cmd }} "{{ registry }}/installer:{{ tag }}"
+    if [ "{{ push }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/installer:{{ tag }}"; fi
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Sign an OCI image in the registry (default to installer image)
@@ -341,9 +336,9 @@ _build-oci name dockerfile *extra:
         ${cache_from} ${cache_to} ${tags} {{ extra }} \
         --file {{ dockerfile }} \
         .
-    {{ push_cmd }} "${image}"
-    if [ "{{ latest }}" = "true" ]; then
-        {{ push_cmd }} "{{ registry }}/{{ name }}:latest"
+    if [ "{{ push }}" = "true" ]; then
+        {{ container_runtime }} push "${image}"
+        if [ "{{ latest }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/{{ name }}:latest"; fi
     fi
 
 [private]
