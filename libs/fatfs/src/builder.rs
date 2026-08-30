@@ -630,6 +630,36 @@ mod tests {
     }
 
     #[test]
+    fn high_cluster_file_keeps_full_cluster_number() {
+        // ARRANGE
+        let big = vec![0xAB_u8; 70 * 1024 * 1024];
+        let files = &[
+            ("first.bin", big.as_slice()),
+            ("second.bin", b"x".as_slice()),
+        ];
+
+        // ACT
+        let out = build_image(files, 90 * 1024 * 1024);
+
+        // ASSERT
+        let fat_offset = usize::try_from(8_u64.wrapping_mul(SECTOR_SIZE)).unwrap_or(4096);
+        let (second_cluster, _) =
+            find_in_dir(&out, ROOT_CLUSTER, "SECOND.BIN").expect("must find second.bin in root");
+        assert!(
+            second_cluster > 0xFFFF,
+            "second file must live past cluster 65535, got {second_cluster}"
+        );
+        assert_eq!(
+            read_u32_le(
+                &out,
+                fat_offset + usize::try_from(second_cluster.wrapping_mul(4)).unwrap_or(0)
+            ),
+            FAT32_EOC,
+            "the dir entry must reference the real start of the single-cluster file's chain"
+        );
+    }
+
+    #[test]
     fn image_has_boot_file_at_expected_path() {
         // ARRANGE
         let payload = b"uki-binary-data-1234";

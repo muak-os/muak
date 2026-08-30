@@ -97,7 +97,7 @@ fn short_entry(name: &[u8; 11], attr: u8, cluster: u32, size: u32) -> [u8; 32] {
         *slot = attr;
     }
     let hi = u16::try_from(cluster.wrapping_shr(16)).unwrap_or(0);
-    let lo = u16::try_from(cluster).unwrap_or(0);
+    let lo = u16::try_from(cluster & 0xFFFF).unwrap_or(0);
     if let Some(slot) = e.get_mut(20..22) {
         slot.copy_from_slice(&hi.to_le_bytes());
     }
