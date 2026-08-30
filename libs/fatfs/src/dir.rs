@@ -235,7 +235,7 @@ fn valid_char(byte: u8) -> u8 {
 fn lfn_checksum(short: &[u8; 11]) -> u8 {
     let mut sum = 0_u8;
     for &byte in short {
-        sum = sum.wrapping_add(byte).rotate_right(1);
+        sum = sum.rotate_right(1).wrapping_add(byte);
     }
 
     sum
@@ -248,8 +248,8 @@ fn lfn_entries(name: &str, checksum: u8) -> Vec<[u8; 32]> {
     let mut entries = Vec::with_capacity(chunks.len());
     for (i, chunk) in chunks.iter().enumerate().rev() {
         let mut ent = [0_u8; 32];
-        let ordinal = if i == 0 { 0x40 } else { 0 };
-        let ordinal_val = u8::try_from(total.wrapping_sub(i)).unwrap_or(0);
+        let ordinal = if i.wrapping_add(1) == total { 0x40 } else { 0 };
+        let ordinal_val = u8::try_from(i.wrapping_add(1)).unwrap_or(0);
         if let Some(slot) = ent.get_mut(0) {
             *slot = ordinal | ordinal_val;
         }
@@ -304,6 +304,36 @@ pub(crate) fn write_zeros<W: Write>(writer: &mut W, count: u64) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn decode_lfn_fragment(entry: &[u8; 32]) -> String {
+        [1_usize, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30]
+            .into_iter()
+            .map(|off| {
+                entry
+                    .get(off..off.wrapping_add(2))
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .map_or(0, u16::from_le_bytes)
+            })
+            .take_while(|&code| code != 0)
+            .filter(|&code| code != 0xFFFF)
+            .map(|code| char::from_u32(u32::from(code)).unwrap_or_default())
+            .collect()
+    }
+
+    fn decode_lfn_entry(entry: &[u8; 32], expected_checksum: u8) -> (u8, String) {
+        assert_eq!(entry[11], ATTR_LFN, "LFN attribute");
+        assert_eq!(
+            entry[13], expected_checksum,
+            "stored checksum must match the short name"
+        );
+        assert_eq!(
+            entry.get(26..28),
+            Some(&[0, 0][..]),
+            "cluster field must be zero"
+        );
+
+        (entry[0] & 0x3F, decode_lfn_fragment(entry))
+    }
+
     #[test]
     fn short_name_truncation() {
         // ARRANGE / ACT
@@ -327,14 +357,56 @@ mod tests {
     }
 
     #[test]
-    fn lfn_checksum_test() {
+    fn lfn_checksum_matches_spec_reference() {
         // ARRANGE
-        let sn = make_short_name("BOOTX64.EFI", 0);
+        let short_bin = make_short_name("bin", 0);
+        let short_boot = make_short_name("BOOTX64.EFI", 0);
 
         // ACT
-        let checksum = lfn_checksum(&sn);
+        let csum_bin = lfn_checksum(&short_bin);
+        let csum_boot = lfn_checksum(&short_boot);
 
         // ASSERT
-        assert!(checksum > 0);
+        assert_eq!(
+            csum_bin, 0x7F,
+            "checksum of 'BIN' padded to 11 must match the spec"
+        );
+        assert_eq!(
+            csum_boot, 0x1D,
+            "checksum of 'BOOTX64.EFI' must match the spec"
+        );
+    }
+
+    #[test]
+    fn lfn_entries_reconstruct_original_name() {
+        // ARRANGE
+        let names = [
+            "act-led.dtbo",
+            "LICENCE.broadcom",
+            "File with very long filename.ext",
+        ];
+
+        // ACT
+        for name in names {
+            let short = make_short_name(name, 1);
+            let csum = lfn_checksum(&short);
+            let entries = lfn_entries(name, csum);
+
+            let mut fragments: Vec<(u8, String)> = entries
+                .iter()
+                .map(|entry| decode_lfn_entry(entry, csum))
+                .collect();
+
+            assert_eq!(
+                fragments.last().map(|&(seq, _)| seq),
+                Some(1),
+                "seq 1 must be the fragment adjacent to the 8.3 entry"
+            );
+
+            // ASSERT
+            fragments.sort_by_key(|&(seq, _)| seq);
+            let reconstructed: String = fragments.into_iter().map(|(_, frag)| frag).collect();
+            assert_eq!(reconstructed, name, "round-trip must reproduce the name");
+        }
     }
 }
