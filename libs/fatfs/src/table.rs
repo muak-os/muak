@@ -10,14 +10,10 @@ pub(crate) fn make_fat(map: &ClusterMap, layout: &FatLayout) -> Vec<u8> {
     if let Some(entry) = fat.get_mut(1) {
         *entry = FAT32_EOC;
     }
-    for &dc in &map.dir_clusters {
-        if dc < 2 {
-            continue;
-        }
-        let dc_idx = usize::try_from(dc).unwrap_or(0);
-        if let Some(entry) = fat.get_mut(dc_idx) {
-            *entry = FAT32_EOC;
-        }
+    for i in 0..map.dir_starts.len() {
+        let start = usize::try_from(map.dir_starts.get(i).copied().unwrap_or(0)).unwrap_or(0);
+        let count = usize::try_from(map.dir_counts.get(i).copied().unwrap_or(0)).unwrap_or(0);
+        fill_fat_chain(&mut fat, start, count, FAT32_EOC);
     }
     for i in 0..map.file_starts.len() {
         let start =

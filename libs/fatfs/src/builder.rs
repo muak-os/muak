@@ -8,7 +8,7 @@ use crate::error::{FatError, Result};
 use crate::table;
 use crate::types::{
     ClusterMap, FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, MAX_IMAGE_SIZE,
-    Precomputed, RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE, fat32_cluster,
+    Precomputed, RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE,
 };
 
 /// Precomputes all FAT metadata from file paths and sizes.
@@ -19,7 +19,19 @@ use crate::types::{
 pub fn precompute(files: &[FileMeta<'_>], image_size: u64) -> Result<Precomputed> {
     let layout = compute_layout(image_size)?;
     let dirs = collect_dir_paths(files);
-    let cluster_map = assign_clusters(files, &dirs, &layout)?;
+    let probe = ClusterMap {
+        dir_starts: vec![0; dirs.len()],
+        dir_counts: vec![0; dirs.len()],
+        file_starts: vec![0; files.len()],
+        file_counts: vec![0; files.len()],
+        file_sizes: files.iter().map(|file| file.size).collect(),
+    };
+    let probe_dirs = build_all_dir_data(files, &dirs, &probe, &layout);
+    let dir_sizes: Vec<u64> = probe_dirs
+        .iter()
+        .map(|data| u64::try_from(data.len()).unwrap_or(u64::MAX))
+        .collect();
+    let cluster_map = assign_clusters(files, &dirs, &layout, &dir_sizes)?;
     let fat_bytes = table::make_fat(&cluster_map, &layout);
     let dir_data: Vec<Vec<u8>> = build_all_dir_data(files, &dirs, &cluster_map, &layout);
 
@@ -122,8 +134,17 @@ fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Res
             .map_or(&[][..], |dir_bytes| dir_bytes.as_slice());
         writer.write_all(dir_data)?;
         let dir_len = u64::try_from(dir_data.len()).unwrap_or(u64::MAX);
-        let pad = cluster_bytes.wrapping_sub(dir_len.rem_euclid(cluster_bytes));
-        if pad != cluster_bytes {
+        let clusters = u64::from(
+            precomputed
+                .cluster_map
+                .dir_counts
+                .get(i)
+                .copied()
+                .unwrap_or(1),
+        );
+        let want = clusters.wrapping_mul(cluster_bytes);
+        let pad = want.saturating_sub(dir_len);
+        if pad > 0 {
             dir::write_zeros(writer, pad)?;
         }
     }
@@ -246,16 +267,26 @@ fn assign_clusters(
     files: &[FileMeta<'_>],
     dirs: &[String],
     layout: &FatLayout,
+    dir_sizes: &[u64],
 ) -> Result<ClusterMap> {
-    let dir_clusters: Vec<u32> = (0..dirs.len()).map(fat32_cluster).collect();
-    let dir_data_count = dirs.len();
-    let dir_count =
-        u64::try_from(dir_data_count).map_err(|_conv| FatError::Fat("too many dirs".into()))?;
-    let mut next_cluster = u64::from(ROOT_CLUSTER).wrapping_add(dir_count);
+    let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
+    let mut next_cluster = u64::from(ROOT_CLUSTER);
+    let mut dir_starts = Vec::with_capacity(dirs.len());
+    let mut dir_counts = Vec::with_capacity(dirs.len());
+    for &size in dir_sizes {
+        let count = size.div_ceil(cluster_bytes);
+        let start = u32::try_from(next_cluster)
+            .map_err(|_conv| FatError::Fat("cluster index exceeds FAT32 range".into()))?;
+        dir_starts.push(start);
+        dir_counts
+            .push(u32::try_from(count).map_err(|_conv| FatError::Fat("too many clusters".into()))?);
+        next_cluster = next_cluster
+            .checked_add(count)
+            .ok_or_else(|| FatError::Fat("cluster overflow".into()))?;
+    }
     let mut file_starts = Vec::with_capacity(files.len());
     let mut file_counts = Vec::with_capacity(files.len());
     let mut file_sizes = Vec::with_capacity(files.len());
-    let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
     for file in files {
         if file.size > u64::from(u32::MAX) {
             return Err(FatError::Fat(format!(
@@ -283,7 +314,8 @@ fn assign_clusters(
     }
 
     Ok(ClusterMap {
-        dir_clusters,
+        dir_starts,
+        dir_counts,
         file_starts,
         file_counts,
         file_sizes,
@@ -315,7 +347,7 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::types::{MIN_IMAGE_SIZE, SECTOR_SIZE};
+    use crate::types::{FAT32_EOC, MIN_IMAGE_SIZE, SECTOR_SIZE};
 
     fn read_u16_le(buf: &[u8], off: usize) -> u16 {
         let bytes = buf.get(off..off.wrapping_add(2)).unwrap_or(&[0, 0]);
@@ -572,6 +604,29 @@ mod tests {
 
         // ASSERT
         assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn build_chains_root_directory_across_multiple_clusters() {
+        // ARRANGE
+        let names: Vec<String> = (0..200).map(|i| format!("file{i:03}.bin")).collect();
+        let files: Vec<(&str, &[u8])> = names.iter().map(|name| (name.as_str(), &[][..])).collect();
+        let image_size = MIN_IMAGE_SIZE.wrapping_add(1024 * 1024);
+
+        // ACT
+        let out = build_image(&files, image_size);
+
+        // ASSERT
+        let fat_offset = usize::try_from(8_u64.wrapping_mul(SECTOR_SIZE)).unwrap_or(4096);
+        let root_next = read_u32_le(&out, fat_offset + 2 * 4);
+        assert_ne!(
+            root_next, FAT32_EOC,
+            "root directory must span more than one cluster"
+        );
+        assert_eq!(
+            root_next, 3,
+            "root directory must chain from cluster 2 to 3"
+        );
     }
 
     #[test]

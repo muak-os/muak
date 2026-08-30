@@ -84,12 +84,9 @@ pub(crate) struct FatLayout {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClusterMap {
-    pub dir_clusters: Vec<u32>,
+    pub dir_starts: Vec<u32>,
+    pub dir_counts: Vec<u32>,
     pub file_starts: Vec<u32>,
     pub file_counts: Vec<u64>,
     pub file_sizes: Vec<u64>,
-}
-
-pub(crate) fn fat32_cluster(index: usize) -> u32 {
-    u32::try_from(index).map_or(ROOT_CLUSTER, |idx| ROOT_CLUSTER.wrapping_add(idx))
 }
