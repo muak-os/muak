@@ -1,8 +1,12 @@
 //! Single overlay pull routed to media and tar consumers.
 
+use std::thread::ScopedJoinHandle;
+
+use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
 
+use crate::domain::resolution::Overlay;
 use crate::error::{Result, WizardError};
 use crate::nodes::overlay::discovery::{assets, entry_name};
 use crate::nodes::{NodeDescriptor, NodeKind};
@@ -71,56 +75,63 @@ fn run<'a>(
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
-    let mut files: Vec<(&'a str, &mut OutputStream<'a>)> = outputs
+    let files: Vec<(&'a str, &mut OutputStream<'a>)> = outputs
         .iter_mut()
         .map(|output| (output.name, output))
         .collect();
     let source = &overlay.source;
-    let arch = &overlay.arch;
+    let arch = overlay.arch;
 
     let mut error: Option<WizardError> = None;
     std::thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for (name, output) in &mut files {
-            let name = *name;
-            let output = &mut *output;
-            handles.push(scope.spawn(move || {
-                pull::files(source, arch, None, |entry| {
-                    if let Some(found) = entry_name(overlay, &entry.path) {
-                        if found == name {
-                            std::io::copy(entry.reader, &mut output.writer)
-                                .map_err(KociError::IoError)?;
-                        }
-                    }
-                    Ok(())
-                })
-                .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))
-            }));
-        }
-        for handle in handles {
-            match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    if error.is_none() {
-                        error = Some(e);
-                    }
-                }
-                Err(e) => {
-                    if error.is_none() {
-                        error = Some(WizardError::BuildError(format!(
-                            "overlay pull panicked: {e:?}"
-                        )));
-                    }
-                }
-            }
-        }
+        let handles = files
+            .into_iter()
+            .map(|(name, output)| {
+                scope.spawn(move || pull_into_output(source, arch, overlay, name, output))
+            })
+            .collect::<Vec<_>>();
+        error = collect_first_error(handles);
     });
 
-    if let Some(e) = error {
-        return Err(e);
+    error.map_or(Ok(NodeReport::Empty), Err)
+}
+
+fn pull_into_output(
+    source: &str,
+    arch: Arch,
+    overlay: &Overlay,
+    name: &str,
+    output: &mut OutputStream<'_>,
+) -> Result<()> {
+    pull::files(source, &arch, None, |entry| {
+        if let Some(found) = entry_name(overlay, &entry.path)
+            && found == name
+        {
+            std::io::copy(entry.reader, &mut output.writer).map_err(KociError::IoError)?;
+        }
+
+        Ok(())
+    })
+    .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))
+}
+
+fn collect_first_error(handles: Vec<ScopedJoinHandle<'_, Result<()>>>) -> Option<WizardError> {
+    let mut error = None;
+    for handle in handles {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                error.get_or_insert(e);
+            }
+            Err(e) => {
+                error.get_or_insert(WizardError::BuildError(format!(
+                    "overlay pull panicked: {e:?}"
+                )));
+            }
+        }
     }
 
-    Ok(NodeReport::Empty)
+    error
 }
 
 fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {

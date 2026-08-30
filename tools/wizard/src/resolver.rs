@@ -322,10 +322,7 @@ mod tests {
             resolution.build().installer(),
             "ghcr.io/muak-os/installer:v2.0.0"
         );
-        assert_eq!(
-            resolution.build().stub(),
-            "ghcr.io/muak-os/stub:v2.0.0"
-        );
+        assert_eq!(resolution.build().stub(), "ghcr.io/muak-os/stub:v2.0.0");
         assert_eq!(
             resolution.build().kernel().source(),
             "ghcr.io/muak-os/linux:v2.0.0"
