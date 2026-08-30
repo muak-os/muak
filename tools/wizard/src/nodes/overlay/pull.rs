@@ -1,7 +1,5 @@
 //! Single overlay pull routed to media and tar consumers.
 
-use std::io::Read;
-
 use koci::error::KociError;
 use koci::pull;
 
@@ -57,7 +55,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
     Ok(())
 }
 
-/// Pulls the overlay source once and routes each matching entry to its named output stream by its stripped asset path.
+/// Pulls the overlay source once per output stream, each on its own thread.
 fn run<'a>(
     _kind: NodeKind,
     ports: &mut NodePorts<'a>,
@@ -77,14 +75,50 @@ fn run<'a>(
         .iter_mut()
         .map(|output| (output.name, output))
         .collect();
+    let source = &overlay.source;
+    let arch = &overlay.arch;
 
-    pull::files(&overlay.source, &overlay.arch, None, |entry| {
-        if let Some(name) = entry_name(overlay, &entry.path) {
-            write_to_matching(&name, entry.reader, &mut files).map_err(KociError::IoError)?;
+    let mut error: Option<WizardError> = None;
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for (name, output) in &mut files {
+            let name = *name;
+            let output = &mut *output;
+            handles.push(scope.spawn(move || {
+                pull::files(source, arch, None, |entry| {
+                    if let Some(found) = entry_name(overlay, &entry.path) {
+                        if found == name {
+                            std::io::copy(entry.reader, &mut output.writer)
+                                .map_err(KociError::IoError)?;
+                        }
+                    }
+                    Ok(())
+                })
+                .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))
+            }));
         }
-        Ok(())
-    })
-    .map_err(|e| WizardError::BuildError(format!("pull overlay files: {e}")))?;
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    if error.is_none() {
+                        error = Some(e);
+                    }
+                }
+                Err(e) => {
+                    if error.is_none() {
+                        error = Some(WizardError::BuildError(format!(
+                            "overlay pull panicked: {e:?}"
+                        )));
+                    }
+                }
+            }
+        }
+    });
+
+    if let Some(e) = error {
+        return Err(e);
+    }
 
     Ok(NodeReport::Empty)
 }
@@ -96,20 +130,4 @@ fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
 
     Ok(assets(overlay)?.len())
-}
-
-fn write_to_matching<'a>(
-    name: &str,
-    reader: &mut dyn Read,
-    files: &mut [(&'a str, &mut OutputStream<'a>)],
-) -> std::io::Result<()> {
-    let Some(index) = files.iter().position(|file| file.0 == name) else {
-        return Ok(());
-    };
-    let Some(output) = files.get_mut(index).map(|file| &mut *file.1) else {
-        return Ok(());
-    };
-    std::io::copy(reader, &mut output.writer)?;
-
-    Ok(())
 }
