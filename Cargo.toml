@@ -5,7 +5,6 @@ members = [
 
     "core/granola",
     "core/millefeuille",
-    "core/stub",
 
     "services/apid",
     "services/consoled",

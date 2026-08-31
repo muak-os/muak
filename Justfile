@@ -53,24 +53,19 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer (oci "stub") sign (artifacts "iso")
+dev: (build "--release" "") installer sign (artifacts "iso")
 
-# Build Rust packages with cargo (e.g., just build, just build --release, just build granola, just build --release granola)
+# Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [arg("release", long="release", value="--release")]
 [script]
 build release="" *pkgs:
     printf "{{ cyan }}Building Rust packages{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            if [ "$pkg" = "stub" ]; then
-                cargo +nightly-2026-07-31 build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
-            else
-                cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
-            fi
+            cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
         done
     else
         cargo build {{ release }} --target {{ arch }}-unknown-linux-musl
-        cargo +nightly-2026-07-31 build {{ release }} --target {{ arch }}-unknown-uefi --features uefi -p stub
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
@@ -151,7 +146,6 @@ oci *pkgs:
             installer) just installer --prod ;;
             cli)      just _build-oci muakctl cli/Dockerfile ;;
             tools)    just _build-oci tools tools/Dockerfile ;;
-            stub)     just _build-oci "stub" "core/stub/Dockerfile" ;;
             *)
                 dockerfile=""
                 for dir in core services tools pkgs; do
@@ -184,15 +178,10 @@ lint *pkgs: format
     printf "{{ cyan }}Running lints{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            if [ "$pkg" = "stub" ]; then
-                cargo +nightly-2026-07-31 clippy --all-targets --features uefi -p stub
-            else
-                cargo clippy --all-targets -p "$pkg"
-            fi
+            cargo clippy --all-targets -p "$pkg"
         done
     else
         cargo clippy --all-targets
-        cargo +nightly-2026-07-31 clippy --all-targets --features uefi -p stub
     fi
 
 # Run tests (e.g., just test or just test yuki koci)
