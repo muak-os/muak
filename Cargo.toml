@@ -3,8 +3,8 @@ members = [
     "cli",
     "e2e",
 
-    "core/granola",
-    "core/millefeuille",
+    "init/granola",
+    "init/millefeuille",
 
     "services/apid",
     "services/consoled",
@@ -64,7 +64,7 @@ config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 fatfs = { path = "libs/fatfs" }
-granola = { path = "core/granola" }
+granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }

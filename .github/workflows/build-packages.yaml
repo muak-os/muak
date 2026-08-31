@@ -5,7 +5,7 @@ on:
     branches: [master]
     paths:
       - "pkgs/**"
-      - "core/**"
+      - "init/**"
       - "services/**"
       - "tools/**"
       - "libs/**"
@@ -20,7 +20,7 @@ on:
   pull_request:
     paths:
       - "pkgs/**"
-      - "core/**"
+      - "init/**"
       - "services/**"
       - "tools/**"
       - "libs/**"
@@ -81,20 +81,20 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
             granola:
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/granola-macros/**'
             modd:
               - 'services/modd/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmod/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/granola-macros/**'
             networkd:
               - 'services/networkd/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/granola-macros/**'
@@ -102,7 +102,7 @@ jobs:
               - 'api/internal/network.proto'
             apid:
               - 'services/apid/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/pki/**'
@@ -111,7 +111,7 @@ jobs:
               - 'api/internal/network.proto'
             workloadd:
               - 'services/workloadd/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/btrfs/**'
@@ -120,13 +120,13 @@ jobs:
               - 'api/internal/network.proto'
             consoled:
               - 'services/consoled/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/granola-macros/**'
             provisiond:
               - 'services/provisiond/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/pki/**'
@@ -148,12 +148,12 @@ jobs:
               - 'tools/yuki/**'
             timed:
               - 'services/timed/**'
-              - 'core/granola/**'
+              - 'init/granola/**'
               - 'libs/kmsg/**'
               - 'libs/config/**'
               - 'libs/granola-macros/**'
             millefeuille:
-              - 'core/millefeuille/**'
+              - 'init/millefeuille/**'
               - 'libs/kmsg/**'
               - 'libs/kmod/**'
               - 'libs/btrfs/**'

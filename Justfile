@@ -155,7 +155,7 @@ oci *pkgs:
                     fi
                 done
                 if [ -z "$dockerfile" ]; then
-                    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in core/, services/, tools/, or pkgs/\n"
+                    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in init/, services/, tools/, or pkgs/\n"
                     exit 1
                 fi
                 just _build-oci "pkgs/$pkg" "$dockerfile"
