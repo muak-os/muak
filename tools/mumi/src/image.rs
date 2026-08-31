@@ -234,13 +234,13 @@ mod tests {
     }
 
     fn build_image(entries: &[Entry], datas: &[Vec<u8>]) -> Result<Image> {
-        let mut readers: Vec<&[u8]> = datas.iter().map(alloc::vec::Vec::as_slice).collect();
+        let mut readers: Vec<&[u8]> = datas.iter().map(Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
         Image::build(entries, &mut views, &config())
     }
 
     fn write_image(image: &Image, datas: &[Vec<u8>]) -> Vec<u8> {
-        let mut readers: Vec<&[u8]> = datas.iter().map(alloc::vec::Vec::as_slice).collect();
+        let mut readers: Vec<&[u8]> = datas.iter().map(Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
 
         let mut buf = Vec::new();
