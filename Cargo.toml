@@ -101,7 +101,7 @@ signature = "3.0"
 rsa = "0.10.0-rc.18"
 cms = "0.3.0-pre.2"
 aes = "0.9"
-argon2 = { version = "0.6.0-rc.8", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
+argon2 = { version = "0.6", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
 zeroize = "1.9"
 webpki-roots = "1.0"
 
@@ -140,11 +140,11 @@ rtnetlink = { version = "0.21", default-features = false, features = ["tokio_soc
 ## System/platform APIs
 libc = { version = "0.2", default-features = false, features = ["std"] }
 rustix = { version = "1.1", default-features = false, features = ["std", "fs", "mount", "linux_latest"] }
-uefi = "0.37"
+uefi = "0.40"
 
 ## Utilities
 object = { version = "0.39", default-features = false, features = ["read", "pe"] }
-uuid = { version = "1.25", default-features = false, features = ["v4", "v7"] }
+uuid = { version = "1.26", default-features = false, features = ["v4", "v7"] }
 
 ## Procedural macros
 syn = { version = "3.0", features = ["full"] }
