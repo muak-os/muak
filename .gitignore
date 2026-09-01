@@ -5,7 +5,8 @@ _out/
 target/
 
 !**/*.rs
-!**/Cargo.{toml,lock}
+!**/Cargo.toml
+!**/Cargo.lock
 
 !**/*.toml
 !**/*.yml
