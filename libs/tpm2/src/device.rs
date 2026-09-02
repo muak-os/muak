@@ -89,7 +89,7 @@ fn validate_response(response: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::io::{Error as IoError, ErrorKind, Result as IoResult};
-    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+    use std::io::{Seek as _, SeekFrom};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
