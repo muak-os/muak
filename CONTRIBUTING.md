@@ -4,15 +4,6 @@
 
 You need the following tools installed on your host system: `git`, `musl`, `rustup`, `just`, `cargo-nextest` and `docker` or `podman`
 
-Add the following targets:
-
-```sh
-rustup target add x86_64-unknown-linux-musl
-rustup component add rust-analyzer
-rustup target add x86_64-unknown-uefi --toolchain nightly
-rustup component add rust-analyzer --toolchain nightly
-```
-
 ## Quick Start
 
 Local QEMU development uses two addresses for the same registry:
@@ -63,7 +54,5 @@ TOOLS="localhost:5000/tools:latest" REGISTRY="localhost:5000" PUSH="true" just d
 ### ARM
 
 ```sh
-rustup target add aarch64-unknown-linux-musl
-rustup target add aarch64-unknown-uefi --toolchain nightly
 ARCH=aarch64 REGISTRY="localhost:5000" PUSH="true" just dev
 ```

@@ -1,6 +1,6 @@
 # Muak - A minimal, immutable, API-driven Linux distribution for running VMs
 #
-# Prerequisites: rustup with musl targets, docker/podman, git
+# Prerequisites: rustup, docker/podman, git
 # Run `just --list` for available recipes
 
 set positional-arguments := true
@@ -62,10 +62,10 @@ build release="" *pkgs:
     printf "{{ cyan }}Building Rust packages{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            cargo build {{ release }} --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            CARGO_BUILD_SBOM=true cargo build {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl -p "$pkg"
         done
     else
-        cargo build {{ release }} --target {{ arch }}-unknown-linux-musl
+        CARGO_BUILD_SBOM=true cargo build {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
@@ -170,7 +170,7 @@ oci *pkgs:
 # Run rustfmt
 format:
     @printf "{{ cyan }}Running formatting{{ reset }}\n"
-    cargo +nightly fmt
+    cargo fmt
 
 # Run clippy and rustfmt (e.g., just lint or just lint yuki koci)
 [script]
