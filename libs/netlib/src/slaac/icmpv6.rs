@@ -193,10 +193,8 @@ fn parse_rdnss_option(option: &[u8], ra: &mut RouterAdvertisement) {
     };
 
     ra.dns_lifetime = lifetime;
-    for address in addresses.chunks_exact(IPV6_ADDR_LEN) {
-        let mut bytes = [0_u8; IPV6_ADDR_LEN];
-        bytes.copy_from_slice(address);
-        ra.dns_servers.push(Ipv6Addr::from(bytes));
+    for address in addresses.as_chunks::<IPV6_ADDR_LEN>().0 {
+        ra.dns_servers.push(Ipv6Addr::from(*address));
     }
 }
 
