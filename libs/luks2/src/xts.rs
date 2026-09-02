@@ -66,18 +66,12 @@ fn xts_process(key: &[u8], tweak: &[u8; 16], data: &mut [u8], mode: Mode) -> Res
     let mut current_tweak = *tweak;
     cipher2.encrypt_block((&mut current_tweak).into());
 
-    for block in data.chunks_exact_mut(AES_BLOCK_SIZE) {
+    for block in data.as_chunks_mut::<AES_BLOCK_SIZE>().0 {
         xor_block(block, &current_tweak);
 
-        {
-            let aes_block: &mut [u8; 16] = block
-                .try_into()
-                .map_err(|_error| Luks2Error::InvalidField("invalid block length".into()))?;
-
-            match mode {
-                Mode::Encrypt => cipher1.encrypt_block(aes_block.into()),
-                Mode::Decrypt => cipher1.decrypt_block(aes_block.into()),
-            }
+        match mode {
+            Mode::Encrypt => cipher1.encrypt_block(block.into()),
+            Mode::Decrypt => cipher1.decrypt_block(block.into()),
         }
 
         xor_block(block, &current_tweak);

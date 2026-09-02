@@ -246,8 +246,6 @@ impl Metadata {
 
 #[cfg(test)]
 mod tests {
-    use base64ct::Encoding as _;
-
     use super::*;
 
     #[test]

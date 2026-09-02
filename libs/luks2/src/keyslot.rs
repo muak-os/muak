@@ -111,10 +111,10 @@ pub fn af_merge(data: &[u8], key_size: usize, stripes: u32) -> Result<Vec<u8>> {
 
 /// SHA-256 based diffusion function for anti-forensic splitting.
 fn af_diffuse(data: &mut [u8]) -> Result<()> {
-    let mut chunks = data.chunks_exact_mut(SHA256_LEN);
+    let (chunks, remainder) = data.as_chunks_mut::<SHA256_LEN>();
     let mut chunk_count = 0_usize;
 
-    for (index, chunk) in chunks.by_ref().enumerate() {
+    for (index, chunk) in chunks.iter_mut().enumerate() {
         let mut ctx = Context::new(&SHA256);
         let index = u32::try_from(index)
             .map_err(|_error| Luks2Error::InvalidField("too many AF chunks".into()))?;
@@ -128,8 +128,6 @@ fn af_diffuse(data: &mut [u8]) -> Result<()> {
         chunk.copy_from_slice(hash_prefix);
         chunk_count = chunk_count.saturating_add(1);
     }
-
-    let remainder = chunks.into_remainder();
     if let Some(remainder_len) = NonZeroUsize::new(remainder.len()) {
         let mut ctx = Context::new(&SHA256);
         let index = u32::try_from(chunk_count)

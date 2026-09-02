@@ -71,8 +71,6 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use base64ct::Encoding as _;
-
     use super::*;
     use crate::metadata::Digest;
 
