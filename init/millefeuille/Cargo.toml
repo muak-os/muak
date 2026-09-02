@@ -3,6 +3,7 @@ name = "millefeuille"
 description = "Muak stage 1 init process"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true

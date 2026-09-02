@@ -3,6 +3,7 @@ name = "koci"
 description = "OCI images management tool"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true

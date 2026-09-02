@@ -3,6 +3,7 @@ name = "ramune"
 description = "Packs arbitrary files into a compressed initramfs CPIO archive."
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true

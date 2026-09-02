@@ -3,6 +3,7 @@ name = "esp"
 description = "EFI System Partition manifest and renderers"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true

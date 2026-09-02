@@ -14,7 +14,7 @@ set script-interpreter := ["bash", "-euo", "pipefail"]
 # Global settings
 
 alpine_version := "3.24"
-rust_version := `grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml`
+rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "latest")
 tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:" + tag)

@@ -3,6 +3,7 @@ name = "granola"
 description = "Core gRPC APIs and shared service utilities"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true

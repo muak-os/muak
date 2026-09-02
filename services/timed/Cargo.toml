@@ -3,6 +3,7 @@ name = "timed"
 description = "NTP time synchronization daemon"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 license-file.workspace = true
 repository.workspace = true
 readme.workspace = true
