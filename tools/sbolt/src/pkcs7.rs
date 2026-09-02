@@ -333,7 +333,6 @@ fn wrap_signed_data_content_info(signed_data_der: &[u8]) -> Result<Vec<u8>> {
 mod tests {
     use cms::content_info::ContentInfo;
     use cms::signed_data::SignedData;
-    use der::Decode as _;
     use der::asn1::OctetString;
 
     use super::*;

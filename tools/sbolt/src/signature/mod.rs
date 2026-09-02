@@ -265,8 +265,8 @@ fn build_and_write_signature<W: Write>(
 mod tests {
     use cms::content_info::ContentInfo;
     use cms::signed_data::SignedData;
+    use der::Decode as _;
     use der::asn1::OctetString;
-    use der::{Decode as _, Encode as _};
     use object::pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC;
     use ring::digest::{Context, SHA256};
 
