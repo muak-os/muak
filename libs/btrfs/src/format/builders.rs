@@ -374,3 +374,189 @@ pub fn build_dev_extent(chunk_offset: u64, length: u64, chunk_tree_uuid: &uuid::
         .copy_from_slice(chunk_tree_uuid.as_bytes());
     de.to_vec()
 }
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn test_uuid() -> Uuid {
+        Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_DEAD_BEEF)
+    }
+
+    fn le64(data: &[u8], at: usize) -> u64 {
+        u64::from_le_bytes(
+            data.get(at..at.saturating_add(8))
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+    }
+
+    fn le16(data: &[u8], at: usize) -> u16 {
+        u16::from_le_bytes(
+            data.get(at..at.saturating_add(2))
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn root_item_defaults_match_mkfs_root_directory() {
+        // ARRANGE
+        let builder = RootItemBuilder::new();
+
+        // ACT
+        let item = builder.build();
+
+        // ASSERT
+        assert_eq!(u64::from_le_bytes(item.inode.generation), 1);
+        assert_eq!(u64::from_le_bytes(item.inode.size), 3);
+        assert_eq!(u64::from_le_bytes(item.inode.nbytes), 16_384);
+        assert_eq!(u32::from_le_bytes(item.inode.nlink), 1);
+        assert_eq!(u32::from_le_bytes(item.inode.mode), 0o040_755);
+        assert_eq!(u64::from_le_bytes(item.generation), 1);
+        assert_eq!(u64::from_le_bytes(item.generation_v2), 1);
+        assert_eq!(u64::from_le_bytes(item.bytes_used), 16_384);
+        assert_eq!(u32::from_le_bytes(item.refs), 1);
+        assert_eq!(u64::from_le_bytes(item.bytenr), 0);
+        assert_eq!(item.uuid, [0; 16]);
+    }
+
+    #[test]
+    fn root_item_builder_applies_all_setters() {
+        // ARRANGE
+        let uuid = test_uuid();
+        let builder = RootItemBuilder::new()
+            .generation(9)
+            .bytenr(0x20_0000)
+            .root_dirid(256)
+            .flags(0x40)
+            .uuid(&uuid)
+            .ctime(111)
+            .otime(222);
+
+        // ACT
+        let item = builder.build();
+
+        // ASSERT
+        assert_eq!(u64::from_le_bytes(item.generation), 9);
+        assert_eq!(u64::from_le_bytes(item.generation_v2), 9);
+        assert_eq!(u64::from_le_bytes(item.bytenr), 0x20_0000);
+        assert_eq!(u64::from_le_bytes(item.root_dirid), 256);
+        assert_eq!(u64::from_le_bytes(item.inode.flags), 0x40);
+        assert_eq!(item.uuid, *uuid.as_bytes());
+        assert_eq!(u64::from_le_bytes(item.ctime.sec), 111);
+        assert_eq!(u64::from_le_bytes(item.otime.sec), 222);
+    }
+
+    #[test]
+    fn inode_item_defaults_are_directory_inode() {
+        // ARRANGE
+        let builder = InodeItemBuilder::new();
+
+        // ACT
+        let item = builder.build();
+
+        // ASSERT
+        assert_eq!(u64::from_le_bytes(item.generation), 1);
+        assert_eq!(u32::from_le_bytes(item.nlink), 1);
+        assert_eq!(u32::from_le_bytes(item.mode), 0o040_755);
+        assert_eq!(u64::from_le_bytes(item.nbytes), 16_384);
+        assert_eq!(u64::from_le_bytes(item.atime.sec), 0);
+    }
+
+    #[test]
+    fn inode_item_timestamps_apply_to_all_four_times() {
+        // ARRANGE
+        let builder = InodeItemBuilder::new().generation(5).timestamps(777);
+
+        // ACT
+        let item = builder.build();
+
+        // ASSERT
+        assert_eq!(u64::from_le_bytes(item.generation), 5);
+        assert_eq!(u64::from_le_bytes(item.atime.sec), 777);
+        assert_eq!(u64::from_le_bytes(item.ctime.sec), 777);
+        assert_eq!(u64::from_le_bytes(item.mtime.sec), 777);
+        assert_eq!(u64::from_le_bytes(item.otime.sec), 777);
+    }
+
+    #[test]
+    fn inode_ref_appends_name_after_header() {
+        // ARRANGE
+        let name: &[u8] = b"..";
+
+        // ACT
+        let data = build_inode_ref(name).unwrap();
+
+        // ASSERT
+        assert_eq!(data.len(), 12);
+        assert_eq!(le64(&data, 0), 0);
+        assert_eq!(le16(&data, 8), 2);
+        assert_eq!(data.get(10..12), Some(b"..".as_slice()));
+    }
+
+    #[test]
+    fn inode_ref_rejects_names_longer_than_u16() {
+        // ARRANGE
+        let name = vec![b'a'; 65_536];
+
+        // ACT
+        let result = build_inode_ref(&name);
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::Mkfs(_))));
+    }
+
+    #[test]
+    fn dir_item_encodes_location_transid_and_name() {
+        // ARRANGE
+        let name: &[u8] = b"default";
+
+        // ACT
+        let data = build_dir_item(5, 132, name, 7).unwrap();
+
+        // ASSERT
+        assert_eq!(data.len(), 37);
+        assert_eq!(le64(&data, 0), 5);
+        assert_eq!(data.get(8), Some(&132));
+        assert_eq!(le64(&data, 9), u64::MAX);
+        assert_eq!(le64(&data, 17), 7);
+        assert_eq!(le16(&data, 25), 0);
+        assert_eq!(le16(&data, 27), 7);
+        assert_eq!(data.get(29), Some(&2));
+        assert_eq!(data.get(30..37), Some(b"default".as_slice()));
+    }
+
+    #[test]
+    fn dir_item_rejects_names_longer_than_u16() {
+        // ARRANGE
+        let name = vec![b'n'; 65_536];
+
+        // ACT
+        let result = build_dir_item(1, 1, &name, 1);
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::Mkfs(_))));
+    }
+
+    #[test]
+    fn dev_extent_encodes_chunk_tree_objectid_and_uuid() {
+        // ARRANGE
+        let chunk_uuid = test_uuid();
+
+        // ACT
+        let data = build_dev_extent(0x10_0000, 0x40_0000, &chunk_uuid);
+
+        // ASSERT
+        assert_eq!(data.len(), 48);
+        assert_eq!(le64(&data, 0), BTRFS_CHUNK_TREE_OBJECTID);
+        assert_eq!(le64(&data, 8), BTRFS_FIRST_CHUNK_TREE_OBJECTID);
+        assert_eq!(le64(&data, 16), 0x10_0000);
+        assert_eq!(le64(&data, 24), 0x40_0000);
+        assert_eq!(data.get(32..48), Some(chunk_uuid.as_bytes().as_slice()));
+    }
+}

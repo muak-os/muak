@@ -422,3 +422,99 @@ impl Default for BtrfsSuperBlock {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::mem::size_of;
+
+    use super::*;
+
+    #[test]
+    fn on_disk_struct_sizes_match_btrfs_wire_format() {
+        // ASSERT
+        assert_eq!(size_of::<BtrfsDiskKey>(), 17);
+        assert_eq!(size_of::<BtrfsItem>(), 25);
+        assert_eq!(size_of::<BtrfsHeader>(), 101);
+        assert_eq!(size_of::<BtrfsDevItem>(), 98);
+        assert_eq!(size_of::<BtrfsStripe>(), 32);
+        assert_eq!(size_of::<BtrfsChunk>(), 48);
+        assert_eq!(size_of::<BtrfsBlockGroupItem>(), 24);
+        assert_eq!(size_of::<BtrfsTimespec>(), 12);
+        assert_eq!(size_of::<BtrfsInodeItem>(), 160);
+        assert_eq!(size_of::<BtrfsRootItem>(), 439);
+        assert_eq!(size_of::<BtrfsInodeRef>(), 10);
+        assert_eq!(size_of::<BtrfsExtentItem>(), 24);
+        assert_eq!(size_of::<BtrfsDevExtent>(), 48);
+        assert_eq!(size_of::<BtrfsFreeSpaceInfo>(), 8);
+        assert_eq!(size_of::<BtrfsDevStatsItem>(), 40);
+        assert_eq!(size_of::<BtrfsDirItem>(), 30);
+    }
+
+    #[test]
+    fn superblock_serializes_exactly_4096_bytes() {
+        // ARRANGE
+        let superblock = BtrfsSuperBlock::new();
+
+        // ACT
+        let bytes = superblock.as_bytes();
+
+        // ASSERT
+        assert_eq!(bytes.len(), BTRFS_SUPER_INFO_SIZE);
+    }
+
+    #[test]
+    fn new_constructors_produce_zeroed_structures() {
+        // ARRANGE
+        let header = BtrfsHeader::new();
+        let dev_item = BtrfsDevItem::new();
+        let superblock = BtrfsSuperBlock::new();
+
+        // ACT
+        let header_bytes = header.as_bytes();
+        let dev_item_bytes = dev_item.as_bytes();
+        let superblock_bytes = superblock.as_bytes();
+
+        // ASSERT
+        assert!(header_bytes.iter().all(|&byte| byte == 0));
+        assert!(dev_item_bytes.iter().all(|&byte| byte == 0));
+        assert!(superblock_bytes.iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn disk_key_serializes_little_endian_fields() {
+        // ARRANGE
+        let mut key = BtrfsDiskKey {
+            objectid: [0; 8],
+            type_: 0,
+            offset: [0; 8],
+        };
+        key.objectid.copy_from_slice(&7_u64.to_le_bytes());
+        key.type_ = 84;
+        key.offset.copy_from_slice(&9_u64.to_le_bytes());
+
+        // ACT
+        let bytes = key.as_bytes();
+
+        // ASSERT
+        assert_eq!(bytes.get(0..8), Some(7_u64.to_le_bytes().as_slice()));
+        assert_eq!(bytes.get(8), Some(&84));
+        assert_eq!(bytes.get(9..17), Some(9_u64.to_le_bytes().as_slice()));
+    }
+
+    #[test]
+    fn to_vec_copies_serialized_bytes() {
+        // ARRANGE
+        let mut timespec = BtrfsTimespec {
+            sec: [0; 8],
+            nsec: [0; 4],
+        };
+        timespec.sec.copy_from_slice(&1_234_u64.to_le_bytes());
+
+        // ACT
+        let data = timespec.to_vec();
+
+        // ASSERT
+        assert_eq!(data.len(), 12);
+        assert_eq!(data.get(0..8), Some(1_234_u64.to_le_bytes().as_slice()));
+    }
+}

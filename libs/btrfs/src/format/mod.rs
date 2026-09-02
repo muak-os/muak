@@ -34,6 +34,7 @@ pub fn format(device: File, label: &str) -> Result<()> {
 
     ctx.make_btrfs()
         .map_err(|error| BtrfsError::Mkfs(error.to_string()))?;
+    ctx.sync_device()?;
 
     Ok(())
 }

@@ -91,3 +91,100 @@ impl Default for LeafBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEAF_CAPACITY: u32 = 16_283; // BTRFS_DEFAULT_NODESIZE - BTRFS_LEAF_DATA_OFFSET
+
+    fn item_key(item: &BtrfsItem) -> (u64, u8, u64) {
+        (
+            u64::from_le_bytes(item.key.objectid),
+            item.key.type_,
+            u64::from_le_bytes(item.key.offset),
+        )
+    }
+
+    #[test]
+    fn empty_leaf_builds_no_items() {
+        // ARRANGE
+        let builder = LeafBuilder::new();
+
+        // ACT
+        let (items, data) = builder.build().unwrap();
+
+        // ASSERT
+        assert!(items.is_empty());
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn single_item_places_data_at_leaf_tail() {
+        // ARRANGE
+        let mut builder = LeafBuilder::new();
+        builder.add_item(7, 84, 9, vec![1, 2, 3]);
+
+        // ACT
+        let (items, data) = builder.build().unwrap();
+
+        // ASSERT
+        let item = items.first().unwrap();
+        assert_eq!(item_key(item), (7, 84, 9));
+        assert_eq!(u32::from_le_bytes(item.size), 3);
+        assert_eq!(u32::from_le_bytes(item.offset), LEAF_CAPACITY - 3);
+        assert_eq!(data, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn items_are_sorted_by_objectid_type_offset() {
+        // ARRANGE
+        let mut builder = LeafBuilder::new();
+        builder.add_item(9, 1, 0, vec![1]);
+        builder.add_item(1, 1, 0, vec![2]);
+        builder.add_item(5, 84, 7, vec![3]);
+        builder.add_item(5, 12, 9, vec![4]);
+        builder.add_item(5, 84, 3, vec![5]);
+
+        // ACT
+        let (items, _) = builder.build().unwrap();
+
+        // ASSERT
+        let keys: Vec<_> = items.iter().map(item_key).collect();
+        assert_eq!(
+            keys,
+            vec![(1, 1, 0), (5, 12, 9), (5, 84, 3), (5, 84, 7), (9, 1, 0)]
+        );
+    }
+
+    #[test]
+    fn data_chunks_are_stacked_from_leaf_tail_backwards() {
+        // ARRANGE
+        let mut builder = LeafBuilder::new();
+        builder.add_item(1, 1, 0, vec![0xAA]);
+        builder.add_item(2, 1, 0, vec![0xBB, 0xCC]);
+
+        // ACT
+        let (items, data) = builder.build().unwrap();
+
+        // ASSERT
+        let first = items.first().unwrap();
+        let second = items.get(1).unwrap();
+        assert_eq!(u32::from_le_bytes(first.offset), LEAF_CAPACITY - 1);
+        assert_eq!(u32::from_le_bytes(second.offset), LEAF_CAPACITY - 3);
+        assert_eq!(data, vec![0xBB, 0xCC, 0xAA]);
+    }
+
+    #[test]
+    fn build_rejects_data_larger_than_leaf_capacity() {
+        // ARRANGE
+        let mut builder = LeafBuilder::new();
+        builder.add_item(1, 1, 0, vec![0_u8; 16_300]);
+
+        // ACT
+        let result = builder.build();
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::Mkfs(_))));
+    }
+}

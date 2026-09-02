@@ -901,3 +901,526 @@ impl TreeBuilder for RootTreeBuilder {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::super::chunk::{
+        BTRFS_BLOCK_GROUP_DATA, BTRFS_BLOCK_GROUP_DUP, BTRFS_BLOCK_GROUP_METADATA,
+        BTRFS_BLOCK_GROUP_SYSTEM,
+    };
+    use super::super::layout::{
+        BLK_BLOCK_GROUP, BLK_CSUM, BLK_DATA_RELOC, BLK_DEV, BLK_EXTENT, BLK_FREE_SPACE, BLK_FS,
+        BLK_ROOT, BLK_UUID, BTRFS_BLOCK_GROUP_TREE_OBJECTID, BTRFS_CHUNK_TREE_OBJECTID,
+        BTRFS_CSUM_TREE_OBJECTID, BTRFS_DATA_RELOC_TREE_OBJECTID, BTRFS_DEFAULT_NODESIZE_U64,
+        BTRFS_DEV_TREE_OBJECTID, BTRFS_EXTENT_TREE_OBJECTID, BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+        BTRFS_FREE_SPACE_TREE_OBJECTID, BTRFS_FS_TREE_OBJECTID, BTRFS_MKFS_DATA_GROUP_SIZE,
+        BTRFS_MKFS_SYSTEM_DUP_SIZE, BTRFS_ROOT_TREE_OBJECTID, BTRFS_UUID_TREE_OBJECTID,
+        all_tree_blocks,
+    };
+    use super::*;
+
+    const DEVICE_5G: u64 = 5_368_709_120;
+    const META_STRIPE: u64 = 268_435_456;
+    const META_BYTES_USED: u64 = 147_456;
+    const FS_UUID_OBJECTID: u64 = 0x0807_0605_0403_0201;
+    const FS_UUID_OFFSET: u64 = 0x100F_0E0D_0C0B_0A09;
+
+    struct Fixture {
+        layout: DiskLayout,
+        fsid: Uuid,
+        chunk_uuid: Uuid,
+        dev_uuid: Uuid,
+        fs_uuid: Uuid,
+    }
+
+    fn fixture() -> Fixture {
+        Fixture {
+            layout: DiskLayout::new(DEVICE_5G),
+            fsid: Uuid::from_u128(0x0A01),
+            chunk_uuid: Uuid::from_u128(0x0A02),
+            dev_uuid: Uuid::from_u128(0x0A03),
+            fs_uuid: Uuid::from_u128(0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10),
+        }
+    }
+
+    impl Fixture {
+        fn context(&self) -> TreeContext<'_> {
+            TreeContext::new(
+                &self.layout,
+                &self.fsid,
+                &self.chunk_uuid,
+                &self.dev_uuid,
+                &self.fs_uuid,
+                7,
+                DEVICE_5G,
+            )
+        }
+    }
+
+    fn le64(data: &[u8], at: usize) -> u64 {
+        u64::from_le_bytes(
+            data.get(at..at.saturating_add(8))
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+    }
+
+    fn item_key(item: &BtrfsItem) -> (u64, u8, u64) {
+        (
+            u64::from_le_bytes(item.key.objectid),
+            item.key.type_,
+            u64::from_le_bytes(item.key.offset),
+        )
+    }
+
+    fn item_size(item: &BtrfsItem) -> usize {
+        usize::try_from(u32::from_le_bytes(item.size)).unwrap()
+    }
+
+    fn keys_of(result: &TreeResult) -> Vec<(u64, u8, u64)> {
+        result.items.iter().map(item_key).collect()
+    }
+
+    /// Item payloads are stacked from the end of the leaf data backwards.
+    fn item_payload(result: &TreeResult, index: usize) -> &[u8] {
+        let start: usize = result
+            .items
+            .iter()
+            .skip(index.saturating_add(1))
+            .map(item_size)
+            .sum();
+        let end = start.saturating_add(item_size(result.items.get(index).unwrap()));
+        result.data.get(start..end).unwrap_or(&[])
+    }
+
+    #[test]
+    fn chunk_tree_contains_device_item_and_three_chunks() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = ChunkTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.logical_offset, fixture.layout.chunk_tree_logical());
+        assert_eq!(result.owner, BTRFS_CHUNK_TREE_OBJECTID);
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (1, BTRFS_DEV_ITEM_KEY, 1),
+                (
+                    BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+                    BTRFS_CHUNK_ITEM_KEY,
+                    fixture.layout.data_logical()
+                ),
+                (
+                    BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+                    BTRFS_CHUNK_ITEM_KEY,
+                    fixture.layout.sys_logical()
+                ),
+                (
+                    BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+                    BTRFS_CHUNK_ITEM_KEY,
+                    fixture.layout.meta_logical()
+                ),
+            ]
+        );
+        assert_eq!(result.data.len(), 98 + 80 + 112 + 112);
+
+        let dev_item = item_payload(&result, 0);
+        assert_eq!(le64(dev_item, 0), 1);
+        assert_eq!(le64(dev_item, 8), DEVICE_5G);
+        assert_eq!(le64(dev_item, 16), fixture.layout.dev_bytes_used());
+        assert_eq!(
+            dev_item.get(66..82),
+            Some(fixture.dev_uuid.as_bytes().as_slice())
+        );
+        assert_eq!(
+            dev_item.get(82..98),
+            Some(fixture.fsid.as_bytes().as_slice())
+        );
+
+        let data_chunk = item_payload(&result, 1);
+        assert_eq!(data_chunk.len(), 80);
+        assert_eq!(le64(data_chunk, 0), BTRFS_MKFS_DATA_GROUP_SIZE);
+        assert_eq!(le64(data_chunk, 24), BTRFS_BLOCK_GROUP_DATA);
+        assert_eq!(le64(data_chunk, 48), 1);
+        assert_eq!(le64(data_chunk, 56), fixture.layout.data_phys());
+    }
+
+    #[test]
+    fn dev_tree_contains_stats_and_five_dev_extents() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = DevTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_DEV_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_DEV));
+        assert_eq!(result.items.len(), 6);
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (0, BTRFS_PERSISTENT_ITEM_KEY, 1),
+                (1, BTRFS_DEV_EXTENT_KEY, fixture.layout.data_phys()),
+                (1, BTRFS_DEV_EXTENT_KEY, fixture.layout.sys_phys_0()),
+                (1, BTRFS_DEV_EXTENT_KEY, fixture.layout.sys_phys_1()),
+                (1, BTRFS_DEV_EXTENT_KEY, fixture.layout.meta_phys_0()),
+                (1, BTRFS_DEV_EXTENT_KEY, fixture.layout.meta_phys_1()),
+            ]
+        );
+
+        let extent = item_payload(&result, 1);
+        assert_eq!(extent.len(), 48);
+        assert_eq!(le64(extent, 0), 3);
+        assert_eq!(le64(extent, 8), 256);
+        assert_eq!(le64(extent, 16), fixture.layout.data_logical());
+        assert_eq!(le64(extent, 24), BTRFS_MKFS_DATA_GROUP_SIZE);
+        assert_eq!(
+            extent.get(32..48),
+            Some(fixture.chunk_uuid.as_bytes().as_slice())
+        );
+        assert!(item_payload(&result, 0).iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn extent_tree_records_all_ten_tree_blocks() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+        let blocks = all_tree_blocks(&fixture.layout);
+
+        // ACT
+        let result = ExtentTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_EXTENT_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_EXTENT));
+        assert_eq!(result.items.len(), 10);
+        for ((index, item), block) in result.items.iter().enumerate().zip(blocks.iter()) {
+            let (offset, owner) = *block;
+            assert_eq!(item_key(item).0, offset);
+            assert_eq!(item_key(item).1, BTRFS_METADATA_ITEM_KEY);
+            let payload = item_payload(&result, index);
+            assert_eq!(payload.len(), 33);
+            assert_eq!(le64(payload, 0), 1);
+            assert_eq!(le64(payload, 8), 7);
+            assert_eq!(le64(payload, 16), BTRFS_EXTENT_FLAG_TREE_BLOCK);
+            assert_eq!(payload.get(24), Some(&BTRFS_TREE_BLOCK_REF_KEY));
+            assert_eq!(le64(payload, 25), owner);
+        }
+    }
+
+    #[test]
+    fn block_group_tree_records_three_block_groups() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = BlockGroupTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_BLOCK_GROUP_TREE_OBJECTID);
+        assert_eq!(
+            result.logical_offset,
+            fixture.layout.meta_block(BLK_BLOCK_GROUP)
+        );
+        assert_eq!(result.items.len(), 3);
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (
+                    fixture.layout.data_logical(),
+                    BTRFS_BLOCK_GROUP_ITEM_KEY,
+                    BTRFS_MKFS_DATA_GROUP_SIZE
+                ),
+                (
+                    fixture.layout.sys_logical(),
+                    BTRFS_BLOCK_GROUP_ITEM_KEY,
+                    BTRFS_MKFS_SYSTEM_DUP_SIZE
+                ),
+                (
+                    fixture.layout.meta_logical(),
+                    BTRFS_BLOCK_GROUP_ITEM_KEY,
+                    META_STRIPE
+                ),
+            ]
+        );
+
+        let data_group = item_payload(&result, 0);
+        assert_eq!(le64(data_group, 0), 0);
+        assert_eq!(le64(data_group, 8), BTRFS_FIRST_CHUNK_TREE_OBJECTID);
+        assert_eq!(le64(data_group, 16), BTRFS_BLOCK_GROUP_DATA);
+
+        let system_group = item_payload(&result, 1);
+        assert_eq!(le64(system_group, 0), BTRFS_DEFAULT_NODESIZE_U64);
+        assert_eq!(
+            le64(system_group, 16),
+            BTRFS_BLOCK_GROUP_SYSTEM | BTRFS_BLOCK_GROUP_DUP
+        );
+
+        let meta_group = item_payload(&result, 2);
+        assert_eq!(le64(meta_group, 0), META_BYTES_USED);
+        assert_eq!(
+            le64(meta_group, 16),
+            BTRFS_BLOCK_GROUP_METADATA | BTRFS_BLOCK_GROUP_DUP
+        );
+    }
+
+    #[test]
+    fn free_space_tree_marks_only_unallocated_extents_free() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = FreeSpaceTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_FREE_SPACE_TREE_OBJECTID);
+        assert_eq!(
+            result.logical_offset,
+            fixture.layout.meta_block(BLK_FREE_SPACE)
+        );
+        assert_eq!(result.items.len(), 7);
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (
+                    fixture.layout.data_logical(),
+                    BTRFS_FREE_SPACE_INFO_KEY,
+                    BTRFS_MKFS_DATA_GROUP_SIZE
+                ),
+                (
+                    fixture.layout.data_logical(),
+                    BTRFS_FREE_SPACE_EXTENT_KEY,
+                    BTRFS_MKFS_DATA_GROUP_SIZE
+                ),
+                (
+                    fixture.layout.sys_logical(),
+                    BTRFS_FREE_SPACE_INFO_KEY,
+                    BTRFS_MKFS_SYSTEM_DUP_SIZE
+                ),
+                (
+                    fixture.layout.sys_logical(),
+                    BTRFS_FREE_SPACE_EXTENT_KEY,
+                    BTRFS_DEFAULT_NODESIZE_U64
+                ),
+                (
+                    fixture
+                        .layout
+                        .chunk_tree_logical()
+                        .saturating_add(BTRFS_DEFAULT_NODESIZE_U64),
+                    BTRFS_FREE_SPACE_EXTENT_KEY,
+                    BTRFS_MKFS_SYSTEM_DUP_SIZE
+                        .saturating_sub(BTRFS_DEFAULT_NODESIZE_U64.saturating_mul(2))
+                ),
+                (
+                    fixture.layout.meta_logical(),
+                    BTRFS_FREE_SPACE_INFO_KEY,
+                    META_STRIPE
+                ),
+                (
+                    fixture
+                        .layout
+                        .meta_logical()
+                        .saturating_add(META_BYTES_USED),
+                    BTRFS_FREE_SPACE_EXTENT_KEY,
+                    META_STRIPE.saturating_sub(META_BYTES_USED)
+                ),
+            ]
+        );
+        assert_eq!(item_payload(&result, 0).len(), 8);
+        assert_eq!(item_payload(&result, 2).len(), 8);
+        assert_eq!(item_payload(&result, 5).len(), 8);
+        assert!(item_payload(&result, 1).is_empty());
+        assert!(item_payload(&result, 3).is_empty());
+    }
+
+    #[test]
+    fn fs_tree_contains_default_directory_inode() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = FsTreeBuilder::new(100).build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_FS_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_FS));
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (256, BTRFS_INODE_ITEM_KEY, 0),
+                (256, BTRFS_INODE_REF_KEY, 256),
+            ]
+        );
+
+        let inode = item_payload(&result, 0);
+        assert_eq!(inode.len(), 160);
+        assert_eq!(le64(inode, 0), 7);
+        assert_eq!(le64(inode, 112), 100);
+        assert_eq!(le64(inode, 124), 100);
+        assert_eq!(le64(inode, 136), 100);
+        assert_eq!(le64(inode, 148), 100);
+
+        let inode_ref = item_payload(&result, 1);
+        assert_eq!(inode_ref.len(), 12);
+        assert_eq!(le64(inode_ref, 0), 0);
+        assert_eq!(inode_ref.get(10..12), Some(b"..".as_slice()));
+    }
+
+    #[test]
+    fn data_reloc_tree_mirrors_fs_tree_shape() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = DataRelocTreeBuilder::new(100).build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_DATA_RELOC_TREE_OBJECTID);
+        assert_eq!(
+            result.logical_offset,
+            fixture.layout.meta_block(BLK_DATA_RELOC)
+        );
+        assert_eq!(result.items.len(), 2);
+        assert_eq!(item_payload(&result, 0).len(), 160);
+        assert_eq!(item_payload(&result, 1).len(), 12);
+    }
+
+    #[test]
+    fn uuid_tree_maps_fs_uuid_to_fs_tree() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = UuidTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_UUID_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_UUID));
+        assert_eq!(
+            keys_of(&result),
+            vec![(FS_UUID_OBJECTID, BTRFS_UUID_KEY_SUBVOL, FS_UUID_OFFSET)]
+        );
+        let payload = item_payload(&result, 0);
+        assert_eq!(payload.len(), 8);
+        assert_eq!(le64(payload, 0), BTRFS_FS_TREE_OBJECTID);
+    }
+
+    #[test]
+    fn csum_tree_starts_out_empty() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = CsumTreeBuilder.build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_CSUM_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_CSUM));
+        assert!(result.items.is_empty());
+        assert!(result.data.is_empty());
+    }
+
+    #[test]
+    fn root_tree_contains_system_roots_fs_root_and_default_dir() {
+        // ARRANGE
+        let fixture = fixture();
+        let context = fixture.context();
+
+        // ACT
+        let result = RootTreeBuilder::new(100).build(&context).unwrap();
+
+        // ASSERT
+        assert_eq!(result.owner, BTRFS_ROOT_TREE_OBJECTID);
+        assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_ROOT));
+        assert_eq!(result.items.len(), 12);
+        assert_eq!(
+            keys_of(&result),
+            vec![
+                (BTRFS_EXTENT_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_DEV_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (
+                    BTRFS_FS_TREE_OBJECTID,
+                    BTRFS_INODE_REF_KEY,
+                    BTRFS_ROOT_TREE_DIR_OBJECTID
+                ),
+                (BTRFS_FS_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_ROOT_TREE_DIR_OBJECTID, BTRFS_INODE_ITEM_KEY, 0),
+                (
+                    BTRFS_ROOT_TREE_DIR_OBJECTID,
+                    BTRFS_INODE_REF_KEY,
+                    BTRFS_ROOT_TREE_DIR_OBJECTID
+                ),
+                (
+                    BTRFS_ROOT_TREE_DIR_OBJECTID,
+                    BTRFS_DIR_ITEM_KEY,
+                    0x8dbf_c2d2
+                ),
+                (BTRFS_CSUM_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_UUID_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_FREE_SPACE_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_BLOCK_GROUP_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+                (BTRFS_DATA_RELOC_TREE_OBJECTID, BTRFS_ROOT_ITEM_KEY, 0),
+            ]
+        );
+
+        let extent_root = item_payload(&result, 0);
+        assert_eq!(extent_root.len(), 439);
+        assert_eq!(
+            le64(extent_root, 176),
+            fixture.layout.meta_block(BLK_EXTENT)
+        );
+
+        let fs_root = item_payload(&result, 3);
+        assert_eq!(le64(fs_root, 160), 7);
+        assert_eq!(le64(fs_root, 176), fixture.layout.meta_block(BLK_FS));
+        assert_eq!(le64(fs_root, 64), 1_u64 << 31);
+        assert_eq!(
+            fs_root.get(247..263),
+            Some(fixture.fs_uuid.as_bytes().as_slice())
+        );
+        assert_eq!(le64(fs_root, 327), 100);
+        assert_eq!(le64(fs_root, 339), 100);
+
+        let reloc_root = item_payload(&result, 11);
+        assert_eq!(
+            le64(reloc_root, 176),
+            fixture.layout.meta_block(BLK_DATA_RELOC)
+        );
+        assert_eq!(reloc_root.get(247..263), Some([0_u8; 16].as_slice()));
+
+        let dir_item = item_payload(&result, 6);
+        assert_eq!(dir_item.len(), 37);
+        assert_eq!(le64(dir_item, 0), BTRFS_FS_TREE_OBJECTID);
+        assert_eq!(dir_item.get(8), Some(&BTRFS_ROOT_ITEM_KEY));
+        assert_eq!(le64(dir_item, 9), u64::MAX);
+        assert_eq!(dir_item.get(30..37), Some(b"default".as_slice()));
+    }
+
+    #[test]
+    fn tree_result_empty_has_no_items_or_data() {
+        // ACT
+        let result = TreeResult::empty(1_024, 5);
+
+        // ASSERT
+        assert_eq!(result.logical_offset, 1_024);
+        assert_eq!(result.owner, 5);
+        assert!(result.items.is_empty());
+        assert!(result.data.is_empty());
+    }
+}

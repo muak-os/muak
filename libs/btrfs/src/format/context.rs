@@ -438,8 +438,16 @@ impl MkfsContext {
 
         self.make_trees(now)?;
         self.make_superblock(&sys_chunk)?;
-        self.device.sync_all()?;
 
+        Ok(())
+    }
+
+    /// Flush all written data to the device.
+    ///
+    /// # Errors
+    /// Returns an error if the device cannot be synced.
+    pub fn sync_device(&mut self) -> Result<()> {
+        self.device.sync_all()?;
         Ok(())
     }
 }
@@ -457,4 +465,153 @@ fn copy_into(dest: &mut [u8], offset: usize, src: &[u8]) -> Result<()> {
 
 fn invalid_superblock_checksum_range() -> BtrfsError {
     BtrfsError::Mkfs("invalid superblock checksum range".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::OpenOptions;
+
+    use super::super::node::LeafBuilder;
+    use super::*;
+
+    const DEVICE_5G: u64 = 5_368_709_120;
+
+    fn dev_null() -> File {
+        OpenOptions::new().write(true).open("/dev/null").unwrap()
+    }
+
+    #[test]
+    fn superblock_offsets_match_mirror_positions() {
+        // ASSERT
+        assert_eq!(btrfs_sb_offset(0), 65_536);
+        assert_eq!(btrfs_sb_offset(1), 67_108_864);
+        assert_eq!(btrfs_sb_offset(2), 274_877_906_944);
+        assert_eq!(btrfs_sb_offset(9), 274_877_906_944);
+    }
+
+    #[test]
+    fn copy_into_writes_source_at_offset() {
+        // ARRANGE
+        let mut dest = [0_u8; 8];
+        let src = [1_u8, 2, 3];
+
+        // ACT
+        let result = copy_into(&mut dest, 2, &src);
+
+        // ASSERT
+        assert!(matches!(result, Ok(())));
+        assert_eq!(dest, [0, 0, 1, 2, 3, 0, 0, 0]);
+    }
+
+    #[test]
+    fn copy_into_rejects_overflowing_offset() {
+        // ARRANGE
+        let mut dest = [0_u8; 8];
+
+        // ACT
+        let result = copy_into(&mut dest, usize::MAX, &[1]);
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::Mkfs(_))));
+    }
+
+    #[test]
+    fn copy_into_rejects_destination_overrun() {
+        // ARRANGE
+        let mut dest = [0_u8; 4];
+
+        // ACT
+        let result = copy_into(&mut dest, 2, &[1, 2, 3]);
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::Mkfs(_))));
+    }
+
+    #[test]
+    fn build_node_places_header_items_data_and_checksum() {
+        // ARRANGE
+        let context = MkfsContext::new(dev_null(), DEVICE_5G, "test".to_owned());
+        let mut leaf = LeafBuilder::new();
+        leaf.add_item(1, 84, 0, vec![0xAB; 4]);
+        let (items, data) = leaf.build().unwrap();
+
+        // ACT
+        let node = context.build_node(123_456, 5, &items, &data).unwrap();
+
+        // ASSERT
+        assert_eq!(node.len(), 16_384);
+        assert_eq!(
+            u64::from_le_bytes(node.get(48..56).unwrap().try_into().unwrap()),
+            123_456
+        );
+        assert_eq!(
+            u64::from_le_bytes(node.get(56..64).unwrap().try_into().unwrap()),
+            0x0100_0000_0000_0001
+        );
+        assert_eq!(node.get(32..48), Some(context.fsid.as_bytes().as_slice()));
+        assert_eq!(
+            node.get(64..80),
+            Some(context.chunk_uuid.as_bytes().as_slice())
+        );
+        assert_eq!(
+            u64::from_le_bytes(node.get(80..88).unwrap().try_into().unwrap()),
+            1
+        );
+        assert_eq!(
+            u64::from_le_bytes(node.get(88..96).unwrap().try_into().unwrap()),
+            5
+        );
+        assert_eq!(
+            u32::from_le_bytes(node.get(96..100).unwrap().try_into().unwrap()),
+            1
+        );
+        assert_eq!(node.get(100), Some(&0));
+        assert_eq!(
+            u64::from_le_bytes(node.get(101..109).unwrap().try_into().unwrap()),
+            1
+        );
+        assert_eq!(node.get(109), Some(&84));
+        assert_eq!(node.get(16_380..16_384), Some([0xAB; 4].as_slice()));
+        assert_eq!(
+            node.get(0..4),
+            Some(compute_checksum(node.get(32..).unwrap()).as_slice())
+        );
+    }
+
+    #[test]
+    fn make_btrfs_writes_filesystem_to_device() {
+        // ARRANGE
+        let mut context = MkfsContext::new(dev_null(), DEVICE_5G, "muak".to_owned());
+
+        // ACT
+        let result = context.make_btrfs();
+
+        // ASSERT
+        assert!(matches!(result, Ok(())), "make_btrfs failed: {result:?}");
+    }
+
+    #[test]
+    fn make_btrfs_truncates_overlong_labels() {
+        // ARRANGE
+        let label = "x".repeat(300);
+        let mut context = MkfsContext::new(dev_null(), DEVICE_5G, label);
+
+        // ACT
+        let result = context.make_btrfs();
+
+        // ASSERT
+        assert!(matches!(result, Ok(())), "make_btrfs failed: {result:?}");
+    }
+
+    #[test]
+    fn make_btrfs_rejects_devices_below_minimum_size() {
+        // ARRANGE
+        let mut context = MkfsContext::new(dev_null(), 1_048_576, "small".to_owned());
+
+        // ACT
+        let result = context.make_btrfs();
+
+        // ASSERT
+        assert!(matches!(result, Err(BtrfsError::DeviceTooSmall { .. })));
+    }
 }

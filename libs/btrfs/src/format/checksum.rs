@@ -23,4 +23,40 @@ mod tests {
         // ASSERT
         assert_eq!(hash, 0x8dbf_c2d2);
     }
+
+    #[test]
+    fn btrfs_name_hash_of_empty_name_is_complement_of_seed() {
+        // ARRANGE
+        let name: &[u8] = b"";
+
+        // ACT
+        let hash = btrfs_name_hash(name);
+
+        // ASSERT
+        assert_eq!(hash, 0xFFFF_FFFE);
+    }
+
+    #[test]
+    fn compute_checksum_matches_crc32c_reference_vector() {
+        // ARRANGE
+        let data = b"123456789";
+
+        // ACT
+        let checksum = compute_checksum(data);
+
+        // ASSERT
+        assert_eq!(checksum, [0x83, 0x92, 0x06, 0xE3]);
+    }
+
+    #[test]
+    fn compute_checksum_of_empty_input_is_zero() {
+        // ARRANGE
+        let data: &[u8] = b"";
+
+        // ACT
+        let checksum = compute_checksum(data);
+
+        // ASSERT
+        assert_eq!(checksum, [0, 0, 0, 0]);
+    }
 }

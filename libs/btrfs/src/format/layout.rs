@@ -353,3 +353,162 @@ fn round_down(value: u64, align: u64) -> u64 {
 // Temporary chunk sizes used for layout calculation
 const BTRFS_MKFS_TEMP_SYSTEM_SIZE: u64 = 4 * 1024 * 1024;
 const BTRFS_MKFS_TEMP_META_SIZE: u64 = 8 * 1024 * 1024;
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BLK_BLOCK_GROUP, BLK_DEV, BLK_EXTENT, BLK_FS, BLK_ROOT, BTRFS_BLOCK_GROUP_TREE_OBJECTID,
+        BTRFS_CHUNK_TREE_OBJECTID, BTRFS_CSUM_TREE_OBJECTID, BTRFS_DATA_RELOC_TREE_OBJECTID,
+        BTRFS_DEV_TREE_OBJECTID, BTRFS_EXTENT_TREE_OBJECTID, BTRFS_FREE_SPACE_TREE_OBJECTID,
+        BTRFS_FS_TREE_OBJECTID, BTRFS_MKFS_RESERVED_SIZE, BTRFS_MKFS_SYSTEM_DUP_SIZE,
+        BTRFS_ROOT_TREE_OBJECTID, BTRFS_UUID_TREE_OBJECTID, DiskLayout, all_tree_blocks,
+        compute_data_logical_offset, compute_dup_meta_stripe_size, compute_meta_logical_offset,
+        compute_system_logical_offset,
+    };
+
+    const DEVICE_5G: u64 = 5_368_709_120;
+
+    #[test]
+    fn five_gib_device_uses_256mib_metadata_stripes() {
+        // ARRANGE
+        let device_size = DEVICE_5G;
+
+        // ACT
+        let stripe = compute_dup_meta_stripe_size(device_size);
+
+        // ASSERT
+        assert_eq!(stripe, 268_435_456);
+    }
+
+    #[test]
+    fn large_devices_cap_metadata_stripes_at_1gib() {
+        // ARRANGE
+        let device_size = 107_374_182_400_u64;
+
+        // ACT
+        let stripe = compute_dup_meta_stripe_size(device_size);
+
+        // ASSERT
+        assert_eq!(stripe, 1_073_741_824);
+    }
+
+    #[test]
+    fn small_devices_clamp_metadata_stripes_to_minimum() {
+        // ARRANGE
+        let hundred_mib = 104_857_600_u64;
+        let one_mib = 1_048_576_u64;
+
+        // ACT
+        let stripe_small = compute_dup_meta_stripe_size(hundred_mib);
+        let stripe_tiny = compute_dup_meta_stripe_size(one_mib);
+
+        // ASSERT
+        assert_eq!(stripe_small, 33_554_432);
+        assert_eq!(stripe_tiny, 33_554_432);
+    }
+
+    #[test]
+    fn chunk_offsets_follow_reserved_temp_then_final_order() {
+        // ASSERT
+        assert_eq!(compute_data_logical_offset(), 13_631_488);
+        assert_eq!(compute_system_logical_offset(), 22_020_096);
+        assert_eq!(compute_meta_logical_offset(), 30_408_704);
+    }
+
+    #[test]
+    fn layout_offsets_match_sequential_btrfs_progs_allocation() {
+        // ARRANGE
+        let layout = DiskLayout::new(DEVICE_5G);
+
+        // ACT + ASSERT
+        assert_eq!(layout.data_logical(), 13_631_488);
+        assert_eq!(layout.data_phys(), 13_631_488);
+        assert_eq!(layout.sys_logical(), 22_020_096);
+        assert_eq!(layout.sys_phys_0(), 22_020_096);
+        assert_eq!(layout.sys_phys_1(), 30_408_704);
+        assert_eq!(layout.meta_logical(), 30_408_704);
+        assert_eq!(layout.meta_stripe_size(), 268_435_456);
+        assert_eq!(layout.meta_phys_0(), 38_797_312);
+        assert_eq!(layout.meta_phys_1(), 307_232_768);
+        assert_eq!(layout.chunk_tree_logical(), 22_036_480);
+    }
+
+    #[test]
+    fn meta_blocks_are_sequential_nodesize_steps() {
+        // ARRANGE
+        let layout = DiskLayout::new(DEVICE_5G);
+
+        // ACT + ASSERT
+        assert_eq!(layout.meta_block(BLK_BLOCK_GROUP), 30_408_704);
+        assert_eq!(layout.meta_block(BLK_DEV), 30_425_088);
+        assert_eq!(layout.meta_block(BLK_FS), 30_441_472);
+        assert_eq!(layout.meta_block(BLK_EXTENT), 30_523_392);
+        assert_eq!(layout.meta_block(BLK_ROOT), 30_539_776);
+        assert_eq!(layout.meta_block(9), 0);
+    }
+
+    #[test]
+    fn all_tree_blocks_pair_offsets_with_owner_objectids() {
+        // ARRANGE
+        let layout = DiskLayout::new(DEVICE_5G);
+
+        // ACT
+        let blocks = all_tree_blocks(&layout);
+
+        // ASSERT
+        assert_eq!(blocks.len(), 10);
+        assert_eq!(
+            blocks,
+            [
+                (22_036_480, BTRFS_CHUNK_TREE_OBJECTID),
+                (30_408_704, BTRFS_BLOCK_GROUP_TREE_OBJECTID),
+                (30_425_088, BTRFS_DEV_TREE_OBJECTID),
+                (30_441_472, BTRFS_FS_TREE_OBJECTID),
+                (30_457_856, BTRFS_UUID_TREE_OBJECTID),
+                (30_474_240, BTRFS_CSUM_TREE_OBJECTID),
+                (30_490_624, BTRFS_DATA_RELOC_TREE_OBJECTID),
+                (30_507_008, BTRFS_FREE_SPACE_TREE_OBJECTID),
+                (30_523_392, BTRFS_EXTENT_TREE_OBJECTID),
+                (30_539_776, BTRFS_ROOT_TREE_OBJECTID),
+            ]
+        );
+    }
+
+    #[test]
+    fn logical_to_phys_maps_into_first_stripe() {
+        // ARRANGE
+        let layout = DiskLayout::new(DEVICE_5G);
+
+        // ACT + ASSERT
+        assert_eq!(
+            layout.sys_logical_to_phys(layout.sys_logical()),
+            layout.sys_phys_0()
+        );
+        assert_eq!(
+            layout.sys_logical_to_phys(layout.sys_logical().saturating_add(4_096)),
+            layout.sys_phys_0().saturating_add(4_096)
+        );
+        assert_eq!(
+            layout.meta_logical_to_phys(layout.meta_logical()),
+            layout.meta_phys_0()
+        );
+    }
+
+    #[test]
+    fn byte_accounting_matches_documented_allocation() {
+        // ARRANGE
+        let layout = DiskLayout::new(DEVICE_5G);
+
+        // ACT + ASSERT
+        assert_eq!(layout.dev_bytes_used(), 562_036_736);
+        assert_eq!(
+            layout.min_device_size(),
+            BTRFS_MKFS_RESERVED_SIZE
+                .saturating_add(8_388_608)
+                .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
+                .saturating_add(268_435_456_u64.saturating_mul(2))
+        );
+        assert_eq!(DiskLayout::total_bytes_used(), 163_840);
+        assert_eq!(DiskLayout::meta_bytes_used(), 147_456);
+    }
+}
