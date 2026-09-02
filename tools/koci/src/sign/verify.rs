@@ -59,7 +59,6 @@ pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> 
 
 #[cfg(test)]
 mod tests {
-    use base64ct::Encoding as _;
     use ring::rand::SystemRandom;
     use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
 
