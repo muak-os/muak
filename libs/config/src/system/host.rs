@@ -14,6 +14,8 @@ pub struct HostConfig {
     pub secureboot: bool,
     /// gRPC port for the provision daemon.
     pub port: u16,
+    /// Which clock to set the system time from.
+    pub clock: String,
     /// NTP server address for time synchronization.
     pub ntp: String,
 }

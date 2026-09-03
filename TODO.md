@@ -35,8 +35,6 @@
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
 - Deterministic simulation tests?
 
-- Support Hypervisor provided PTP time
-
 - Better code quality:
   - Fix all clippy warnings
   - Remove `ring` crate and use rust crypto project crates instead (especially in `sbolt`).

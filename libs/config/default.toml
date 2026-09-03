@@ -10,6 +10,7 @@ image = "ghcr.io/muak-os/installer:latest"
 extensions = []
 secureboot = true
 port = 50051
+# clock = "auto"
 ntp = "pool.ntp.org"
 
 [disk]

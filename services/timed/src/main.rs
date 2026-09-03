@@ -1,17 +1,21 @@
-//! timed - NTP time synchronization daemon.
+//! Time synchronization daemon.
 //!
-//! A small SNTP client that periodically synchronizes the system clock
-//! against a configured NTP server. Uses simple direct clock setting (no PLL).
+//! Sets the system clock from the configured source: the hypervisor clock
+//! when available (see `host.clock`), or SNTP against a configured NTP
+//! server. Uses simple direct clock setting (no PLL).
 
 extern crate alloc;
 
+mod hypervisor;
 mod ntp;
+mod source;
 
 use alloc::sync::Arc;
 use core::time::Duration;
 
 use anyhow::{Context as _, bail};
 use granola::Health;
+use source::Source;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Notify;
 use tokio::time::timeout;
@@ -27,19 +31,21 @@ const STEADY_STATE_INTERVAL: Duration = Duration::from_hours(1);
 async fn main(notifier: NotifyClient) -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
+    let source =
+        Source::from_config(&config::host().clock).context("Invalid host.clock configuration")?;
     let server = &config::host().ntp;
-    if server.is_empty() {
+    if source.needs_ntp() && server.is_empty() {
         bail!("host.ntp is not configured");
     }
-    println!("NTP server: {server}");
+    println!("Clock source: {source}");
 
     notifier.status("Initializing", Health::Healthy)?;
 
     let mut synced_once = false;
 
-    match ntp::sync(server).await {
-        Ok(offset) => {
-            println!("Initial time sync succeeded (offset: {offset:?})");
+    match source::sync(source, server).await {
+        Ok((used, offset)) => {
+            println!("Initial time sync succeeded via {used} (offset: {offset:?})");
             synced_once = true;
         }
         Err(e) => {
@@ -77,9 +83,9 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             break;
         }
 
-        match ntp::sync(server).await {
-            Ok(offset) => {
-                println!("Time sync succeeded (offset: {offset:?})");
+        match source::sync(source, server).await {
+            Ok((used, offset)) => {
+                println!("Time sync succeeded via {used} (offset: {offset:?})");
                 synced_once = true;
                 notifier.status("Synchronized", Health::Healthy)?;
             }

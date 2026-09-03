@@ -19,7 +19,7 @@ config = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "net", "time", "signal"] }
 
 # System APIs
-rustix = { workspace = true, features = ["time"] }
+rustix = { workspace = true, features = ["fs", "time"] }
 
 # Error handling
 anyhow = { workspace = true }

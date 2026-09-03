@@ -66,7 +66,12 @@ impl SystemConfig {
                 "host.port must be greater than 0".to_string(),
             ));
         }
-        if self.host.ntp.is_empty() {
+        if !matches!(self.host.clock.as_str(), "" | "auto" | "hypervisor" | "ntp") {
+            return Err(ConfigError::ValidationError(
+                "host.clock must be one of \"auto\", \"hypervisor\" or \"ntp\"".to_string(),
+            ));
+        }
+        if self.host.ntp.is_empty() && self.host.clock != "hypervisor" {
             return Err(ConfigError::ValidationError(
                 "host.ntp must be specified".to_string(),
             ));
@@ -343,6 +348,33 @@ image = "10.0.2.2:5000/installer:latest"
         let mut config = SystemConfig::default();
         config.host.port = 8080;
         config.host.ntp = String::new();
+
+        // ACT & ASSERT
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validation_accepts_hypervisor_clock_without_ntp() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.clock = "hypervisor".to_string();
+        config.host.ntp = String::new();
+
+        // ACT
+        let result = config.validate();
+
+        // ASSERT
+        assert!(
+            result.is_ok(),
+            "hypervisor clock must not require host.ntp: {result:?}"
+        );
+    }
+
+    #[test]
+    fn validation_failure_unknown_clock() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.clock = "ptp".to_string();
 
         // ACT & ASSERT
         assert!(config.validate().is_err());
