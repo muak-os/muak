@@ -76,13 +76,7 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let mut output = ports
-        .take_from(INITRAMFS, None)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| WizardError::BuildError("installer node has no output".into()))?
-        .1
-        .into_output()?;
+    let mut output = ports.output(INITRAMFS)?;
 
     pull::files(
         ctx.build.installer(),

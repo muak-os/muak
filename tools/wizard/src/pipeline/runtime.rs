@@ -66,82 +66,80 @@ impl Write for OutputWriter<'_> {
     }
 }
 
-/// A bound port endpoint: an input or output pipe end.
-pub(crate) enum Endpoint<'name, 'writer> {
-    Input(InputStream<'name>),
-    Output(OutputStream<'name, 'writer>),
-}
-
-impl<'name, 'writer> Endpoint<'name, 'writer> {
-    /// Single typed endpoint: the length-1 case of the vec conversions.
-    pub(crate) fn into_input(self) -> Result<InputStream<'name>> {
-        match self {
-            Endpoint::Input(input) => Ok(input),
-            Endpoint::Output(_) => Err(WizardError::BuildError(
-                "expected an input endpoint".to_owned(),
-            )),
-        }
-    }
-
-    /// Single typed endpoint: the length-1 case of the vec conversions.
-    pub(crate) fn into_output(self) -> Result<OutputStream<'name, 'writer>> {
-        match self {
-            Endpoint::Output(output) => Ok(output),
-            Endpoint::Input(_) => Err(WizardError::BuildError(
-                "expected an output endpoint".to_owned(),
-            )),
-        }
-    }
-
-    /// Converts every endpoint into an input handle.
-    pub(crate) fn into_inputs(
-        eps: impl IntoIterator<Item = Self>,
-    ) -> Result<Vec<InputStream<'name>>> {
-        eps.into_iter().map(Self::into_input).collect()
-    }
-
-    /// Converts every endpoint into an output handle.
-    pub(crate) fn into_outputs(
-        eps: impl IntoIterator<Item = Self>,
-    ) -> Result<Vec<OutputStream<'name, 'writer>>> {
-        eps.into_iter().map(Self::into_output).collect()
-    }
-}
-
-/// Node-local port endpoints in planner order.
-type BoundEndpoints<'name, 'writer> = Vec<(PortId, Endpoint<'name, 'writer>)>;
-
 /// The owned endpoints of one prepared node, addressed by the node module's port constants.
 pub(crate) struct NodePorts<'name, 'writer> {
-    pub(crate) endpoints: Vec<(PortId, Endpoint<'name, 'writer>)>,
+    inputs: Vec<(PortId, InputStream<'name>)>,
+    outputs: Vec<(PortId, OutputStream<'name, 'writer>)>,
 }
 
 impl<'name, 'writer> NodePorts<'name, 'writer> {
-    /// Fixed port, always bound.
-    pub(crate) fn take(&mut self, port: PortId) -> Result<Endpoint<'name, 'writer>> {
-        let index = self
-            .endpoints
+    /// Builds the node's endpoints in planner binding order.
+    pub(crate) fn new(
+        inputs: Vec<(PortId, InputStream<'name>)>,
+        outputs: Vec<(PortId, OutputStream<'name, 'writer>)>,
+    ) -> Self {
+        Self { inputs, outputs }
+    }
+
+    /// Takes the input handle bound to `port`.
+    pub(crate) fn input(&mut self, port: PortId) -> Result<InputStream<'name>> {
+        Self::take(&mut self.inputs, port)
+    }
+
+    /// Takes the output handle bound to `port`.
+    pub(crate) fn output(&mut self, port: PortId) -> Result<OutputStream<'name, 'writer>> {
+        Self::take(&mut self.outputs, port)
+    }
+
+    /// Takes the dynamic input ports from `first` onward, in planner order.
+    pub(crate) fn inputs_from(
+        &mut self,
+        first: PortId,
+        expected: Option<usize>,
+    ) -> Result<Vec<InputStream<'name>>> {
+        Self::take_from(&mut self.inputs, first, expected)
+            .map(|endpoints| endpoints.into_iter().map(|(_, input)| input).collect())
+    }
+
+    /// Takes the dynamic output ports from `first` onward, in planner order.
+    pub(crate) fn outputs_from(
+        &mut self,
+        first: PortId,
+        expected: Option<usize>,
+    ) -> Result<Vec<OutputStream<'name, 'writer>>> {
+        Self::take_from(&mut self.outputs, first, expected)
+            .map(|endpoints| endpoints.into_iter().map(|(_, output)| output).collect())
+    }
+
+    /// Takes the dynamic output ports from `first` onward, paired with their port.
+    pub(crate) fn output_pairs_from(
+        &mut self,
+        first: PortId,
+        expected: Option<usize>,
+    ) -> Result<Vec<(PortId, OutputStream<'name, 'writer>)>> {
+        Self::take_from(&mut self.outputs, first, expected)
+    }
+
+    fn take<T>(endpoints: &mut Vec<(PortId, T)>, port: PortId) -> Result<T> {
+        let index = endpoints
             .iter()
             .position(|endpoint| endpoint.0 == port)
             .ok_or_else(|| {
                 WizardError::BuildError(format!("missing endpoint for port {port:?}"))
             })?;
 
-        Ok(self.endpoints.remove(index).1)
+        Ok(endpoints.remove(index).1)
     }
 
-    /// Dynamic ports from `first` onward, in planner order. `None` takes every remaining endpoint.
-    pub(crate) fn take_from(
-        &mut self,
+    fn take_from<T>(
+        endpoints: &mut Vec<(PortId, T)>,
         first: PortId,
         expected: Option<usize>,
-    ) -> Result<Vec<(PortId, Endpoint<'name, 'writer>)>> {
-        let (taken, remaining): (
-            BoundEndpoints<'name, 'writer>,
-            BoundEndpoints<'name, 'writer>,
-        ) = core::mem::take(&mut self.endpoints)
-            .into_iter()
+    ) -> Result<Vec<(PortId, T)>> {
+        let (taken, remaining): (Vec<_>, Vec<_>) = endpoints
+            .drain(..)
             .partition(|endpoint| endpoint.0 >= first);
+        *endpoints = remaining;
         if let Some(expected) = expected
             && taken.len() != expected
         {
@@ -151,7 +149,6 @@ impl<'name, 'writer> NodePorts<'name, 'writer> {
                 expected,
             )));
         }
-        self.endpoints = remaining;
 
         Ok(taken)
     }

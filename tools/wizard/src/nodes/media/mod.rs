@@ -12,7 +12,7 @@ use crate::nodes::{NodeKind, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::node::PortId;
-use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts};
+use crate::pipeline::runtime::{InputStream, NodePorts};
 
 pub(crate) const MEDIA_UKI: PortId = PortId(0);
 pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
@@ -42,13 +42,8 @@ pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<D
 pub(crate) fn media_inputs<'name>(
     ports: &mut NodePorts<'name, '_>,
 ) -> Result<(InputStream<'name>, Vec<InputStream<'name>>)> {
-    let uki = ports.take(MEDIA_UKI)?.into_input()?;
-    let overlays = Endpoint::into_inputs(
-        ports
-            .take_from(MEDIA_OVERLAYS_FIRST, None)?
-            .into_iter()
-            .map(|(_, endpoint)| endpoint),
-    )?;
+    let uki = ports.input(MEDIA_UKI)?;
+    let overlays = ports.inputs_from(MEDIA_OVERLAYS_FIRST, None)?;
 
     Ok((uki, overlays))
 }

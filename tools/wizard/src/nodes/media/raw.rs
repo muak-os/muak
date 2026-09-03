@@ -73,7 +73,7 @@ fn run(
     readers_with_uki.push(&mut uki.reader);
     readers_with_uki.append(&mut esp_readers);
 
-    let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
+    let mut output = ports.output(MEDIA_OUTPUT)?;
     raw::build(
         &layout,
         &mut readers_with_uki,

@@ -57,9 +57,9 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     _ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let mut first = ports.take(CONCAT_FIRST)?.into_input()?;
-    let mut second = ports.take(CONCAT_SECOND)?.into_input()?;
-    let mut output = ports.take(CONCAT_OUTPUT)?.into_output()?;
+    let mut first = ports.input(CONCAT_FIRST)?;
+    let mut second = ports.input(CONCAT_SECOND)?;
+    let mut output = ports.output(CONCAT_OUTPUT)?;
 
     std::io::copy(&mut first.reader, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;

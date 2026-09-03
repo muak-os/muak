@@ -6,7 +6,7 @@ use crate::nodes::NodeKind;
 use crate::pipeline::context::TargetWriters;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{Node, StreamId};
-use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream, OutputWriter};
+use crate::pipeline::runtime::{InputStream, NodePorts, OutputStream, OutputWriter};
 use crate::stream::pipe::Pipe;
 
 /// A bound, owned node ready to run on its own scoped thread.
@@ -37,23 +37,18 @@ fn bind_node<'name, 'writer>(
     node: &Node,
     ports: &mut PortTable<'name, 'writer>,
 ) -> Result<PreparedNode<'name, 'writer>> {
-    let mut endpoints = Vec::with_capacity(node.inputs.len().saturating_add(node.outputs.len()));
+    let mut inputs = Vec::with_capacity(node.inputs.len());
+    let mut outputs = Vec::with_capacity(node.outputs.len());
     for binding in &node.inputs {
-        endpoints.push((
-            binding.port,
-            Endpoint::Input(ports.take_input(binding.stream)?),
-        ));
+        inputs.push((binding.port, ports.take_input(binding.stream)?));
     }
     for binding in &node.outputs {
-        endpoints.push((
-            binding.port,
-            Endpoint::Output(ports.take_output(binding.stream)?),
-        ));
+        outputs.push((binding.port, ports.take_output(binding.stream)?));
     }
 
     Ok(PreparedNode {
         kind: node.kind,
-        ports: NodePorts { endpoints },
+        ports: NodePorts::new(inputs, outputs),
     })
 }
 

@@ -12,7 +12,7 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts};
+use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const TAR_OUTPUT: PortId = PortId(0);
 pub(crate) const TAR_INPUTS_FIRST: PortId = PortId(1);
@@ -76,13 +76,8 @@ fn run(
         .overlay_assets()
         .ok_or_else(|| WizardError::BuildError("overlay tar has no overlay source".to_owned()))?;
 
-    let mut inputs = Endpoint::into_inputs(
-        ports
-            .take_from(TAR_INPUTS_FIRST, None)?
-            .into_iter()
-            .map(|(_, endpoint)| endpoint),
-    )?;
-    let mut output = ports.take(TAR_OUTPUT)?.into_output()?;
+    let mut inputs = ports.inputs_from(TAR_INPUTS_FIRST, None)?;
+    let mut output = ports.output(TAR_OUTPUT)?;
 
     let mut builder = Builder::new(&mut output.writer);
     for (asset, input) in assets.iter().zip(inputs.iter_mut()) {

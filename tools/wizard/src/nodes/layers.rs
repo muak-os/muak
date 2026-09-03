@@ -15,7 +15,7 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
+use crate::pipeline::runtime::{NodePorts, OutputStream};
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
 
@@ -84,12 +84,7 @@ pub(crate) fn run(
     let mut payloads = pull_payloads(&layers)?;
     let planned = measure(&mut payloads, &layers)?;
 
-    let mut outputs = Endpoint::into_outputs(
-        ports
-            .take_from(FIRST_OUTPUT, Some(planned.len()))?
-            .into_iter()
-            .map(|(_, endpoint)| endpoint),
-    )?;
+    let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(planned.len()))?;
 
     for ((payload, output), source) in planned.iter().zip(outputs.iter_mut()).zip(&payloads) {
         ensure_size_matches(payload, output)?;

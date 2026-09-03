@@ -72,13 +72,7 @@ fn run(
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let build = ctx.build;
-    let mut output = ports
-        .take_from(STUB, None)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| WizardError::BuildError("stub node has no output".into()))?
-        .1
-        .into_output()?;
+    let mut output = ports.output(STUB)?;
 
     pull::files(build.stub(), &build.arch(), None, |mut entry| {
         if entry.path == STUB_PATH {

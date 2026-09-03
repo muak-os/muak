@@ -76,11 +76,8 @@ fn run(
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let source = ctx.build.kernel().source();
-    let mut outputs: Vec<(PortId, OutputStream<'_, '_>)> = ports
-        .take_from(PortId(0), None)?
-        .into_iter()
-        .map(|(port, endpoint)| Ok((port, endpoint.into_output()?)))
-        .collect::<Result<_>>()?;
+    let mut outputs: Vec<(PortId, OutputStream<'_, '_>)> =
+        ports.output_pairs_from(PortId(0), None)?;
     let mut seen_cmdline = false;
 
     pull::files(source, &ctx.build.arch(), None, |entry| {

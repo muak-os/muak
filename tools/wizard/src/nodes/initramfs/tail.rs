@@ -13,7 +13,7 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts};
+use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
 pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
@@ -83,12 +83,7 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let mut inputs = Endpoint::into_inputs(
-        ports
-            .take_from(TAIL_INPUTS_FIRST, None)?
-            .into_iter()
-            .map(|(_, endpoint)| endpoint),
-    )?;
+    let mut inputs = ports.inputs_from(TAIL_INPUTS_FIRST, None)?;
 
     let mut pairs: Vec<(Entry, &mut dyn Read)> = Vec::with_capacity(inputs.len().saturating_add(1));
     for input in &mut inputs {
@@ -110,7 +105,7 @@ fn run(
         pairs.push((profile_entry(len), reader));
     }
 
-    let mut output = ports.take(TAIL_OUTPUT)?.into_output()?;
+    let mut output = ports.output(TAIL_OUTPUT)?;
     ramune::archive::cpio(&mut pairs, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 

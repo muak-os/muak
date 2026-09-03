@@ -16,7 +16,7 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
-use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
+use crate::pipeline::runtime::{NodePorts, OutputStream};
 
 pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 
@@ -75,12 +75,7 @@ fn run<'name, 'writer>(
         .build
         .overlay()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-    let mut outputs = Endpoint::into_outputs(
-        ports
-            .take_from(PULL_OUTPUTS_FIRST, None)?
-            .into_iter()
-            .map(|(_, endpoint)| endpoint),
-    )?;
+    let mut outputs = ports.outputs_from(PULL_OUTPUTS_FIRST, None)?;
     let files: Vec<(&'name str, &mut OutputStream<'name, 'writer>)> = outputs
         .iter_mut()
         .map(|output| (output.name, output))

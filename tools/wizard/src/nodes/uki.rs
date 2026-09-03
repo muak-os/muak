@@ -113,11 +113,11 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     _ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let mut stub = ports.take(UKI_STUB)?.into_input()?;
-    let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;
-    let mut kernel = ports.take(UKI_KERNEL)?.into_input()?;
-    let mut initramfs = ports.take(UKI_INITRAMFS)?.into_input()?;
-    let mut output = ports.take(UKI_OUTPUT)?.into_output()?;
+    let mut stub = ports.input(UKI_STUB)?;
+    let mut cmdline = ports.input(UKI_CMDLINE)?;
+    let mut kernel = ports.input(UKI_KERNEL)?;
+    let mut initramfs = ports.input(UKI_INITRAMFS)?;
+    let mut output = ports.output(UKI_OUTPUT)?;
 
     let probed = probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;

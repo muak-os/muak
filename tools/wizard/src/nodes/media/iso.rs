@@ -53,7 +53,7 @@ fn run(
         ));
     }
     let layout = media_layout(ctx, &uki, assets)?;
-    let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
+    let mut output = ports.output(MEDIA_OUTPUT)?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
     readers.push(&mut uki.reader);

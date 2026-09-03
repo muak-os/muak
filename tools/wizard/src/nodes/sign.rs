@@ -58,8 +58,8 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let mut input = ports.take(SIGN_INPUT)?.into_input()?;
-    let mut output = ports.take(SIGN_OUTPUT)?.into_output()?;
+    let mut input = ports.input(SIGN_INPUT)?;
+    let mut output = ports.output(SIGN_OUTPUT)?;
     let signing = ctx
         .signing
         .ok_or_else(|| WizardError::BuildError("sign node requires a signing pair".to_owned()))?;
