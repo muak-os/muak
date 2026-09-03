@@ -16,6 +16,7 @@ pub enum Health {
 
 impl Health {
     /// Returns the wire representation of this health value.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Healthy => "healthy",
@@ -39,14 +40,18 @@ impl FromStr for Health {
 }
 
 /// Client for sending notifications to the supervisor.
-pub struct NotifyClient {
+pub struct Notifier {
     socket: UnixDatagram,
     service_name: String,
     socket_path: String,
 }
 
-impl NotifyClient {
+impl Notifier {
     /// Creates a new notify client with default socket path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying datagram socket cannot be created.
     pub fn new(service_name: &str) -> Result<Self, io::Error> {
         Self::new_with_socket(service_name, DEFAULT_NOTIFY_SOCKET)
     }
@@ -62,6 +67,11 @@ impl NotifyClient {
     }
 
     /// Notifies supervisor that service is ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification cannot be delivered. Missing or
+    /// unresponsive supervisors are tolerated and do not produce an error.
     pub fn ready(&self) -> Result<(), io::Error> {
         let msg = format!(
             "SERVICE_NAME={}\nREADY={}",
@@ -72,6 +82,11 @@ impl NotifyClient {
     }
 
     /// Sends status message to supervisor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification cannot be delivered. Missing or
+    /// unresponsive supervisors are tolerated and do not produce an error.
     pub fn status(&self, message: &str, health: Health) -> Result<(), io::Error> {
         let msg = format!(
             "SERVICE_NAME={}\nSTATUS={}\nHEALTH={}",
@@ -83,12 +98,22 @@ impl NotifyClient {
     }
 
     /// Notifies supervisor that service is stopping.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification cannot be delivered. Missing or
+    /// unresponsive supervisors are tolerated and do not produce an error.
     pub fn stopping(&self, reason: &str) -> Result<(), io::Error> {
         let msg = format!("SERVICE_NAME={}\nSTOPPING={}", self.service_name, reason);
         self.send(msg.as_bytes())
     }
 
     /// Sends watchdog keepalive to supervisor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification cannot be delivered. Missing or
+    /// unresponsive supervisors are tolerated and do not produce an error.
     pub fn watchdog(&self) -> Result<(), io::Error> {
         let msg = format!("SERVICE_NAME={}\nWATCHDOG=1", self.service_name);
         self.send(msg.as_bytes())
@@ -112,26 +137,26 @@ mod tests {
 
     use super::*;
 
-    fn test_client_with_server(service: &str) -> (NotifyClient, UnixDatagram, TempDir) {
+    fn test_client_with_server(service: &str) -> (Notifier, UnixDatagram, TempDir) {
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("notify.sock");
         let server = UnixDatagram::bind(&socket_path).expect("Failed to bind");
-        let client =
-            NotifyClient::new_with_socket(service, socket_path.to_str().expect("valid path"))
-                .expect("Failed to create client");
+        let client = Notifier::new_with_socket(service, socket_path.to_str().expect("valid path"))
+            .expect("Failed to create client");
         (client, server, dir)
     }
 
     fn recv_str(socket: &UnixDatagram) -> String {
-        let mut buf = vec![0u8; 4096];
+        let mut buf = vec![0_u8; 4096];
         let (len, _) = socket.recv_from(&mut buf).expect("Failed to receive");
-        String::from_utf8(buf[..len].to_vec()).expect("Invalid UTF-8")
+        let bytes = buf.get(..len).expect("received length within buffer");
+        String::from_utf8(bytes.to_vec()).expect("Invalid UTF-8")
     }
 
     #[test]
     fn notify_client_new() {
         // ACT
-        let client = NotifyClient::new("test-service").expect("Failed to create client");
+        let client = Notifier::new("test-service").expect("Failed to create client");
 
         // ASSERT
         assert_eq!(client.service_name, "test-service");
@@ -141,7 +166,7 @@ mod tests {
     #[test]
     fn notify_client_new_with_custom_socket() {
         // ACT
-        let client = NotifyClient::new_with_socket("test-service", "/tmp/test.sock")
+        let client = Notifier::new_with_socket("test-service", "/tmp/test.sock")
             .expect("Failed to create client");
 
         // ASSERT
@@ -154,11 +179,13 @@ mod tests {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
+        let client = Notifier::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
         // ACT & ASSERT
-        assert!(client.ready().is_ok());
+        client
+            .ready()
+            .expect("ready should tolerate missing server");
     }
 
     #[test]
@@ -166,11 +193,13 @@ mod tests {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
+        let client = Notifier::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
         // ACT & ASSERT
-        assert!(client.status("Service is running", Health::Healthy).is_ok());
+        client
+            .status("Service is running", Health::Healthy)
+            .expect("status should tolerate missing server");
     }
 
     #[test]
@@ -178,11 +207,13 @@ mod tests {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
+        let client = Notifier::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
         // ACT & ASSERT
-        assert!(client.stopping("Shutting down gracefully").is_ok());
+        client
+            .stopping("Shutting down gracefully")
+            .expect("stopping should tolerate missing server");
     }
 
     #[test]
@@ -190,11 +221,13 @@ mod tests {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let socket_path = dir.path().join("nonexistent.sock");
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
+        let client = Notifier::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
         // ACT & ASSERT
-        assert!(client.watchdog().is_ok());
+        client
+            .watchdog()
+            .expect("watchdog should tolerate missing server");
     }
 
     #[test]
@@ -309,24 +342,22 @@ mod tests {
         perms.set_readonly(true);
         fs::set_permissions(&socket_path, perms).expect("Failed to set permissions");
 
-        let client = NotifyClient::new_with_socket("test-service", socket_path.to_str().unwrap())
+        let client = Notifier::new_with_socket("test-service", socket_path.to_str().unwrap())
             .expect("Failed to create client");
 
         // ACT
-        let result = client.watchdog();
-        fs::remove_file(&socket_path).ok();
-
-        // ASSERT
-        assert!(result.is_ok() || result.is_err());
+        drop(client.watchdog());
+        drop(fs::remove_file(&socket_path));
     }
 
     #[test]
     fn health_from_str_roundtrip() {
         // ACT & ASSERT
-        for h in [Health::Healthy, Health::Degraded, Health::Unhealthy] {
-            assert_eq!(h.as_str().parse::<Health>(), Ok(h));
+        for health in [Health::Healthy, Health::Degraded, Health::Unhealthy] {
+            assert_eq!(health.as_str().parse::<Health>(), Ok(health));
         }
-        assert!("unknown".parse::<Health>().is_err());
+        let unknown: Result<Health, ()> = "unknown".parse();
+        unknown.expect_err("unknown should not parse");
     }
 
     #[test]
@@ -337,9 +368,8 @@ mod tests {
 
         // ACT & ASSERT
         for name in ["service-dashes", "service.dots", "service_underscores"] {
-            let client =
-                NotifyClient::new_with_socket(name, socket_path.to_str().expect("valid path"))
-                    .expect("Failed to create client");
+            let client = Notifier::new_with_socket(name, socket_path.to_str().expect("valid path"))
+                .expect("Failed to create client");
             client.watchdog().expect("Failed to send");
             let msg = recv_str(&server);
             assert!(msg.starts_with(&format!("SERVICE_NAME={name}\n")));

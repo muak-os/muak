@@ -16,6 +16,7 @@ mod update;
 use std::path::Path;
 
 use anyhow::Context as _;
+use granola::runtime::{signal::shutdown, socket::socket};
 use tonic::transport::Server;
 
 #[granola::service("provisiond")]
@@ -29,7 +30,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
     }
 
-    let stream = tokio_stream::wrappers::UnixListenerStream::new(granola::socket()?);
+    let stream = tokio_stream::wrappers::UnixListenerStream::new(socket()?);
 
     notifier.ready()?;
 
@@ -38,7 +39,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .add_service(ipc::provision::service())
         .add_service(ipc::security::service())
         .add_service(ipc::version::service())
-        .serve_with_incoming_shutdown(stream, granola::shutdown_signal())
+        .serve_with_incoming_shutdown(stream, shutdown())
         .await?;
 
     Ok(())

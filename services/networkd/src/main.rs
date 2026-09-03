@@ -1,6 +1,7 @@
 //! Network daemon for Muak to manage network interfaces, DHCP & DNS.
 
-use granola::Health;
+use granola::runtime::notify::Health;
+use granola::runtime::signal::shutdown;
 use networkd::supervisor;
 
 #[granola::service("networkd")]
@@ -17,7 +18,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.ready()?;
 
-    granola::shutdown_signal().await;
+    shutdown().await;
 
     Ok(())
 }

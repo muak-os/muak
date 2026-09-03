@@ -8,7 +8,7 @@ mod uevent;
 use std::path::Path;
 
 use anyhow::Context as _;
-use granola::Health;
+use granola::runtime::notify::Health;
 use kmod::aliases::AliasDb;
 use kmod::deps::DepDb;
 use kmod::kernel::{ModuleLoader, load_module};

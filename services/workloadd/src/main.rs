@@ -14,7 +14,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use actor::start_vm_actor;
 use anyhow::{Context as _, Result};
 use config::InterfaceKind;
-use granola::Health;
+use granola::runtime::{notify::Health, signal::shutdown, socket::socket};
 use ipc::VmServiceImpl;
 use rustix::process::{WaitOptions, wait};
 use tokio::fs::create_dir_all;
@@ -82,7 +82,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let vm_handle = start_vm_actor(netlink_handle, bridge_name, kvm_available).await;
 
-    let stream = UnixListenerStream::new(granola::socket()?);
+    let stream = UnixListenerStream::new(socket()?);
 
     notifier.ready()?;
 
@@ -92,7 +92,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     let server = Server::builder()
         .add_service(proto::vm::vm_service_server::VmServiceServer::new(service))
-        .serve_with_incoming_shutdown(stream, granola::shutdown_signal());
+        .serve_with_incoming_shutdown(stream, shutdown());
 
     let sigchld_handle = tokio::spawn(async move {
         while sigchld.recv().await.is_some() {

@@ -12,7 +12,7 @@ pub struct ChildExit {
 }
 
 /// Abstraction over child-process reaping.
-pub trait ChildReaper {
+pub trait Reap {
     /// Registers a PID as belonging to a named supervised service.
     fn track(&mut self, pid: i32, name: String);
 
@@ -37,37 +37,8 @@ impl Reaper {
             known_pids: HashMap::new(),
         })
     }
-}
 
-impl ChildReaper for Reaper {
-    fn track(&mut self, pid: i32, name: String) {
-        self.known_pids.insert(pid, name);
-    }
-
-    async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
-        self.sigchld.recv().await;
-        self.reap_all()
-    }
-
-    fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
-        let mut service_exits = Vec::new();
-        let Some(any_child) = Pid::from_raw(-1) else {
-            return service_exits;
-        };
-
-        while let Ok(Some((child_pid, status))) = waitpid(Some(any_child), WaitOptions::NOHANG) {
-            let raw_pid = child_pid.as_raw_nonzero().get();
-            let Some(exit) = decode_wait_status(raw_pid, &status) else {
-                continue;
-            };
-            self.dispatch_exit(&mut service_exits, raw_pid, exit);
-        }
-
-        service_exits
-    }
-}
-
-impl Reaper {
+    /// Forwards a child exit to the supervisor when its PID is known.
     fn dispatch_exit(
         &mut self,
         service_exits: &mut Vec<(String, ChildExit)>,
@@ -85,9 +56,47 @@ impl Reaper {
             );
         }
     }
+
+    /// Decodes one terminated child and forwards it when it exited.
+    fn reap_child(
+        &mut self,
+        service_exits: &mut Vec<(String, ChildExit)>,
+        child: Pid,
+        status: WaitStatus,
+    ) {
+        let pid = child.as_raw_nonzero().get();
+        let Some(exit) = decode_wait_status(pid, status) else {
+            return;
+        };
+        self.dispatch_exit(service_exits, pid, exit);
+    }
 }
 
-fn decode_wait_status(pid: i32, status: &WaitStatus) -> Option<ChildExit> {
+impl Reap for Reaper {
+    fn track(&mut self, pid: i32, name: String) {
+        self.known_pids.insert(pid, name);
+    }
+
+    async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
+        self.sigchld.recv().await;
+        self.reap_all()
+    }
+
+    fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
+        let mut service_exits = Vec::new();
+        let Some(any_child) = Pid::from_raw(-1) else {
+            return service_exits;
+        };
+
+        while let Ok(Some((child, status))) = waitpid(Some(any_child), WaitOptions::NOHANG) {
+            self.reap_child(&mut service_exits, child, status);
+        }
+
+        service_exits
+    }
+}
+
+fn decode_wait_status(pid: i32, status: WaitStatus) -> Option<ChildExit> {
     if status.exited() {
         Some(ChildExit {
             pid,

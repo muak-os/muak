@@ -1,3 +1,5 @@
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -5,18 +7,18 @@ use super::proto::log::log_service_server::{LogService, LogServiceServer};
 use super::proto::log::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry as ProtoLogEntry, Stream,
 };
-use crate::supervisor::logger::{LogLevel, LogReader, LogStream};
+use crate::supervisor::logger::{LogEntry, LogLevel, LogReader, LogStream};
 
-pub fn service(reader: LogReader) -> LogServiceServer<LogServiceImpl> {
-    LogServiceServer::new(LogServiceImpl { reader })
+pub fn service(reader: LogReader) -> LogServiceServer<ServiceImpl> {
+    LogServiceServer::new(ServiceImpl { reader })
 }
 
-pub struct LogServiceImpl {
+pub struct ServiceImpl {
     reader: LogReader,
 }
 
 #[tonic::async_trait]
-impl LogService for LogServiceImpl {
+impl LogService for ServiceImpl {
     async fn get_logs(
         &self,
         request: Request<GetLogsRequest>,
@@ -29,7 +31,10 @@ impl LogService for LogServiceImpl {
             Some(req.service)
         };
 
-        let entries = self.reader.query(service, req.tail as usize).await;
+        let entries = self
+            .reader
+            .query(service, usize::try_from(req.tail).unwrap_or_default())
+            .await;
 
         let proto_entries: Vec<ProtoLogEntry> = entries.into_iter().map(to_proto_entry).collect();
 
@@ -57,8 +62,7 @@ impl LogService for LogServiceImpl {
             .await
             .ok_or_else(|| Status::internal("Failed to subscribe to log stream"))?;
 
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
-
+        let (tx, rx) = mpsc::channel(128);
         tokio::spawn(async move {
             loop {
                 match broadcast_rx.recv().await {
@@ -73,10 +77,10 @@ impl LogService for LogServiceImpl {
                             break; // Client disconnected.
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        kmsg::warn!("Log follower lagged, skipped {} entries", n);
+                    Err(RecvError::Lagged(count)) => {
+                        kmsg::warn!("Log follower lagged, skipped {count} entries");
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    Err(RecvError::Closed) => {
                         break;
                     }
                 }
@@ -87,7 +91,7 @@ impl LogService for LogServiceImpl {
     }
 }
 
-fn to_proto_entry(entry: crate::supervisor::logger::LogEntry) -> ProtoLogEntry {
+fn to_proto_entry(entry: LogEntry) -> ProtoLogEntry {
     ProtoLogEntry {
         timestamp: entry.timestamp_nanos,
         service: entry.service,
@@ -107,19 +111,24 @@ fn to_proto_entry(entry: crate::supervisor::logger::LogEntry) -> ProtoLogEntry {
 
 #[cfg(test)]
 mod tests {
-    use tokio_stream::StreamExt;
+    use tokio_stream::StreamExt as _;
     use tonic::Request;
 
     use super::*;
     use crate::supervisor::logger::{self, LogEntry, LogLevel, LogStream};
 
+    /// Appends a stdout info message for the `svc` test service.
+    fn append_message(writer: &logger::LogWriter, message: String) {
+        writer.append("svc", LogStream::Stdout, LogLevel::Info, message);
+    }
+
     fn make_entry(service: &str, stream: LogStream, message: &str, ts: u64) -> LogEntry {
         LogEntry {
             timestamp_nanos: ts,
-            service: service.to_string(),
+            service: service.to_owned(),
             stream,
             level: LogLevel::Info,
-            message: message.to_string(),
+            message: message.to_owned(),
         }
     }
 
@@ -135,8 +144,8 @@ mod tests {
         assert_eq!(proto.timestamp, 12345);
         assert_eq!(proto.service, "svc");
         assert_eq!(proto.message, "hello");
-        assert_eq!(proto.stream, Stream::Stdout as i32);
-        assert_eq!(proto.level, Level::Info as i32);
+        assert_eq!(proto.stream, i32::from(Stream::Stdout));
+        assert_eq!(proto.level, i32::from(Level::Info));
     }
 
     #[test]
@@ -148,7 +157,7 @@ mod tests {
         let proto = to_proto_entry(entry);
 
         // ASSERT
-        assert_eq!(proto.stream, Stream::Stderr as i32);
+        assert_eq!(proto.stream, i32::from(Stream::Stderr));
     }
 
     #[test]
@@ -165,7 +174,7 @@ mod tests {
             // ACT
             let entry = LogEntry {
                 timestamp_nanos: 0,
-                service: "svc".to_string(),
+                service: "svc".to_owned(),
                 stream: LogStream::Stdout,
                 level: internal,
                 message: String::new(),
@@ -173,7 +182,7 @@ mod tests {
             let proto = to_proto_entry(entry);
 
             // ASSERT
-            assert_eq!(proto.level, expected_proto as i32);
+            assert_eq!(proto.level, i32::from(expected_proto));
         }
     }
 
@@ -186,17 +195,17 @@ mod tests {
             "svc-a",
             LogStream::Stdout,
             LogLevel::Info,
-            "msg-a".to_string(),
+            "msg-a".to_owned(),
         );
         writer.append(
             "svc-b",
             LogStream::Stdout,
             LogLevel::Info,
-            "msg-b".to_string(),
+            "msg-b".to_owned(),
         );
         tokio::task::yield_now().await;
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(GetLogsRequest {
             service: String::new(),
             tail: 0,
@@ -219,19 +228,19 @@ mod tests {
             "svc-a",
             LogStream::Stdout,
             LogLevel::Info,
-            "from-a".to_string(),
+            "from-a".to_owned(),
         );
         writer.append(
             "svc-b",
             LogStream::Stdout,
             LogLevel::Info,
-            "from-b".to_string(),
+            "from-b".to_owned(),
         );
         tokio::task::yield_now().await;
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(GetLogsRequest {
-            service: "svc-a".to_string(),
+            service: "svc-a".to_owned(),
             tail: 0,
         });
 
@@ -241,8 +250,14 @@ mod tests {
         // ASSERT
         let entries = response.into_inner().entries;
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].service, "svc-a");
-        assert_eq!(entries[0].message, "from-a");
+        assert_eq!(
+            entries.first().map(|entry| entry.service.as_str()),
+            Some("svc-a")
+        );
+        assert_eq!(
+            entries.first().map(|entry| entry.message.as_str()),
+            Some("from-a")
+        );
     }
 
     #[tokio::test]
@@ -250,14 +265,12 @@ mod tests {
         // ARRANGE
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
-        for i in 0..5u32 {
-            writer.append("svc", LogStream::Stdout, LogLevel::Info, format!("msg{i}"));
-        }
+        (0..5_u32).for_each(|number| append_message(&writer, format!("msg{number}")));
         tokio::task::yield_now().await;
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(GetLogsRequest {
-            service: "svc".to_string(),
+            service: "svc".to_owned(),
             tail: 2,
         });
 
@@ -267,8 +280,14 @@ mod tests {
         // ASSERT
         let entries = response.into_inner().entries;
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].message, "msg3");
-        assert_eq!(entries[1].message, "msg4");
+        assert_eq!(
+            entries.first().map(|entry| entry.message.as_str()),
+            Some("msg3")
+        );
+        assert_eq!(
+            entries.get(1).map(|entry| entry.message.as_str()),
+            Some("msg4")
+        );
     }
 
     #[tokio::test]
@@ -277,7 +296,7 @@ mod tests {
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(FollowLogsRequest {
             service: String::new(),
         });
@@ -290,7 +309,7 @@ mod tests {
             "svc",
             LogStream::Stdout,
             LogLevel::Info,
-            "live-entry".to_string(),
+            "live-entry".to_owned(),
         );
 
         // ASSERT
@@ -308,9 +327,9 @@ mod tests {
         let (writer, reader, actor) = logger::create();
         tokio::spawn(actor.run());
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(FollowLogsRequest {
-            service: "wanted".to_string(),
+            service: "wanted".to_owned(),
         });
 
         // ACT
@@ -321,13 +340,13 @@ mod tests {
             "other",
             LogStream::Stdout,
             LogLevel::Info,
-            "ignored".to_string(),
+            "ignored".to_owned(),
         );
         writer.append(
             "wanted",
             LogStream::Stdout,
             LogLevel::Info,
-            "expected".to_string(),
+            "expected".to_owned(),
         );
 
         // ASSERT
@@ -346,7 +365,7 @@ mod tests {
         let (writer, reader, actor) = logger::create();
         let actor_handle = tokio::spawn(actor.run());
 
-        let svc = LogServiceImpl { reader };
+        let svc = ServiceImpl { reader };
         let request = Request::new(FollowLogsRequest {
             service: String::new(),
         });

@@ -1,5 +1,5 @@
 //! API Gateway Daemon entry point.
-
+use granola::runtime::signal::shutdown;
 use tokio::net::TcpListener;
 
 #[granola::service("apid")]
@@ -16,13 +16,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     kmsg::info!("API daemon ready, listening on {}", addr);
     notifier.ready()?;
 
-    apid::run(
-        &listener,
-        &tls_acceptor,
-        granola::shutdown_signal(),
-        args.maintenance_mode,
-    )
-    .await;
+    apid::run(&listener, &tls_acceptor, shutdown(), args.maintenance_mode).await;
 
     Ok(())
 }

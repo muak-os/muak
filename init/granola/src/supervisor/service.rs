@@ -15,31 +15,50 @@ pub struct Service {
 impl Service {
     /// Splits `command` into an argv vector, respecting single and double quotes.
     pub fn argv(&self) -> Vec<String> {
-        let mut args = Vec::new();
-        let mut current = String::new();
-        let mut in_quotes = false;
-        let mut quote_char = '"';
-        for c in self.command.chars() {
-            match c {
-                '"' | '\'' if !in_quotes => {
-                    in_quotes = true;
-                    quote_char = c;
-                }
-                c if in_quotes && c == quote_char => {
-                    in_quotes = false;
-                }
-                ' ' | '\t' if !in_quotes => {
-                    if !current.is_empty() {
-                        args.push(std::mem::take(&mut current));
-                    }
-                }
-                _ => current.push(c),
-            }
+        let mut builder = ArgvBuilder::default();
+        for ch in self.command.chars() {
+            builder.accept(ch);
         }
-        if !current.is_empty() {
-            args.push(current);
+        builder.flush();
+        builder.args
+    }
+}
+
+/// Incremental argv builder that tracks quote state.
+#[derive(Default)]
+struct ArgvBuilder {
+    args: Vec<String>,
+    current: String,
+    quote: Option<char>,
+}
+
+impl ArgvBuilder {
+    /// Accumulates one command character into the builder.
+    fn accept(&mut self, ch: char) {
+        match self.quote {
+            Some(opening) if ch == opening => self.quote = None,
+            Some(_) => self.current.push(ch),
+            None => self.accept_unquoted(ch),
         }
-        args
+    }
+
+    /// Accumulates one character while outside of a quoted section.
+    fn accept_unquoted(&mut self, ch: char) {
+        if ch == '"' || ch == '\'' {
+            self.quote = Some(ch);
+        } else if ch == ' ' || ch == '\t' {
+            self.flush();
+        } else {
+            self.current.push(ch);
+        }
+    }
+
+    /// Pushes the current word onto the argument list, if any.
+    fn flush(&mut self) {
+        if self.current.is_empty() {
+            return;
+        }
+        self.args.push(std::mem::take(&mut self.current));
     }
 }
 

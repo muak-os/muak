@@ -3,14 +3,14 @@ use tonic::{Request, Response, Status};
 use super::proto::process::process_service_server::{ProcessService, ProcessServiceServer};
 use super::proto::process::{ListProcessesRequest, ListProcessesResponse, ProcessInfo};
 
-pub fn service() -> ProcessServiceServer<ProcessServiceImpl> {
-    ProcessServiceServer::new(ProcessServiceImpl)
+pub fn service() -> ProcessServiceServer<ServiceImpl> {
+    ProcessServiceServer::new(ServiceImpl)
 }
 
-pub struct ProcessServiceImpl;
+pub struct ServiceImpl;
 
 #[tonic::async_trait]
-impl ProcessService for ProcessServiceImpl {
+impl ProcessService for ServiceImpl {
     async fn list_processes(
         &self,
         _request: Request<ListProcessesRequest>,
@@ -20,7 +20,7 @@ impl ProcessService for ProcessServiceImpl {
         let proc_dir = match tokio::fs::read_dir("/proc").await {
             Ok(dir) => dir,
             Err(e) => {
-                return Err(Status::internal(format!("Failed to read /proc: {}", e)));
+                return Err(Status::internal(format!("Failed to read /proc: {e}")));
             }
         };
 
@@ -41,18 +41,22 @@ impl ProcessService for ProcessServiceImpl {
 }
 
 async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
-    let cmdline_path = format!("/proc/{}/cmdline", pid);
+    let cmdline_path = format!("/proc/{pid}/cmdline");
     let cmdline = tokio::fs::read_to_string(&cmdline_path).await?;
 
     let parts: Vec<&str> = cmdline.trim_end_matches('\0').split('\0').collect();
-    let command = parts.first().map(|s| s.to_string()).unwrap_or_default();
-    let args: Vec<String> = parts.iter().skip(1).map(|s| s.to_string()).collect();
+    let command = parts
+        .first()
+        .copied()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let args: Vec<String> = parts.iter().skip(1).copied().map(str::to_owned).collect();
 
-    let stat_path = format!("/proc/{}/stat", pid);
+    let stat_path = format!("/proc/{pid}/stat");
     let stat = tokio::fs::read_to_string(&stat_path).await?;
     let status = parse_process_status(&stat);
 
-    let started_at = 0i64; // Would need to parse /proc/[pid]/stat properly for accurate time
+    let started_at = 0_i64; // Would need to parse /proc/[pid]/stat properly for accurate time
 
     Ok(ProcessInfo {
         pid,
@@ -65,7 +69,7 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
 
 fn parse_process_status(stat: &str) -> String {
     if let Some(close_paren) = stat.rfind(')')
-        && let Some(state_char) = stat.chars().nth(close_paren + 2)
+        && let Some(state_char) = stat.chars().nth(close_paren.saturating_add(2))
     {
         return match state_char {
             'R' => "running",
@@ -81,9 +85,9 @@ fn parse_process_status(stat: &str) -> String {
             'I' => "idle",
             _ => "unknown",
         }
-        .to_string();
+        .to_owned();
     }
-    "unknown".to_string()
+    "unknown".to_owned()
 }
 
 #[cfg(test)]

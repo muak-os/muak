@@ -1,14 +1,15 @@
 //! PID 1 supervisor for Muak.
 
+extern crate alloc;
+
 mod ipc;
 mod loader;
-mod runtime;
 mod supervisor;
 
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use supervisor::Supervisor;
 use supervisor::logger::LogReader;
 use tokio::net::UnixListener;
@@ -43,19 +44,20 @@ async fn main() -> Result<()> {
 
     tokio::spawn(actor.run());
 
-    supervisor::logger::kmsg(&writer);
+    supervisor::logger::sources::kmsg(&writer);
 
     let mut supervisor = Supervisor::new(services, writer)?;
 
-    tokio::spawn(async {
-        if let Err(e) = run_grpc_server(reader).await {
-            kmsg::error!("gRPC server error: {}", e);
-        }
-    });
+    tokio::spawn(grpc_server_task(reader));
 
-    supervisor.run().await?;
+    supervisor.run().await
+}
 
-    unreachable!("If we're here, something went very wrong")
+/// Logs gRPC server failures without taking the supervisor down.
+async fn grpc_server_task(reader: LogReader) {
+    if let Err(e) = run_grpc_server(reader).await {
+        kmsg::error!("gRPC server error: {e}");
+    }
 }
 
 /// Runs the gRPC server for internal service communication.

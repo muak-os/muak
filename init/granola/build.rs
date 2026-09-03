@@ -6,19 +6,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if PathBuf::from("../api").exists() {
         "../api"
     } else {
-        panic!("Could not find api directory. Expected at ../../api or ../api");
+        return Err("Could not find api directory. Expected at ../../api or ../api".into());
     };
 
-    println!("cargo:rerun-if-changed={}/process.proto", api_dir);
-    println!("cargo:rerun-if-changed={}/log.proto", api_dir);
+    println!("cargo:rerun-if-changed={api_dir}/process.proto");
+    println!("cargo:rerun-if-changed={api_dir}/log.proto");
 
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
         .compile_fds(protox::compile(
             [
-                format!("{}/process.proto", api_dir),
-                format!("{}/log.proto", api_dir),
+                format!("{api_dir}/process.proto"),
+                format!("{api_dir}/log.proto"),
             ],
             [api_dir],
         )?)?;

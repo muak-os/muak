@@ -1,10 +1,16 @@
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
+use granola::runtime::notify::Health;
 
+use super::Supervisor;
+use super::reaper::Reap;
 use super::service::ServiceStatus;
-use crate::runtime::Health;
+use super::spawner::Spawn;
+
+/// Maximum size of a notification datagram.
+const MAX_DATAGRAM_SIZE: usize = 4096;
 
 /// Processed notification ready for the supervisor to act on.
 pub enum ServiceNotification {
@@ -28,7 +34,7 @@ pub struct NotifyListener {
 impl NotifyListener {
     pub fn new(services_dir: &Path) -> Result<Self> {
         let socket_path = services_dir.join("granola-notify.sock");
-        let _ = std::fs::remove_file(&socket_path);
+        drop(std::fs::remove_file(&socket_path));
 
         let socket = UnixDatagram::bind(&socket_path).context("Failed to bind notify socket")?;
         socket
@@ -42,19 +48,68 @@ impl NotifyListener {
 
     /// Drains all pending notifications from the socket.
     pub fn poll(&self) -> Vec<ServiceNotification> {
+        let mut buf = [0_u8; MAX_DATAGRAM_SIZE];
         let mut notifications = Vec::new();
-        let mut buf = [0u8; 4096];
 
-        while let Ok((len, _)) = self.socket.recv_from(&mut buf) {
-            let Ok(text) = std::str::from_utf8(&buf[..len]) else {
-                continue;
-            };
-            if let Some(notification) = parse_notification(text) {
-                notifications.push(notification);
-            }
+        while let Ok((len, _)) = self.socket.recv_from(&mut buf)
+            && let Some(text) = buf
+                .get(..len)
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            && let Some(notification) = parse_notification(text)
+        {
+            notifications.push(notification);
         }
 
         notifications
+    }
+}
+
+/// Applies a single service notification to the corresponding service state.
+pub(super) fn apply<S: Spawn, R: Reap>(
+    supervisor: &mut Supervisor<S, R>,
+    notification: ServiceNotification,
+) {
+    match notification {
+        ServiceNotification::Ready { service_name } => {
+            apply_ready(supervisor, &service_name);
+        }
+        ServiceNotification::StatusUpdate {
+            service_name,
+            new_status,
+        } => {
+            apply_status_update(supervisor, &service_name, new_status);
+        }
+        ServiceNotification::Stopping { service_name } => {
+            apply_stopping(supervisor, &service_name);
+        }
+    }
+}
+
+/// Marks a service as ready, resetting its restart counter.
+fn apply_ready<S: Spawn, R: Reap>(supervisor: &mut Supervisor<S, R>, service_name: &str) {
+    let Some(state) = supervisor.services.get_mut(service_name) else {
+        kmsg::warn!("Notification from unknown service: {service_name}");
+        return;
+    };
+    state.status = ServiceStatus::Ready;
+    state.restart_count = 0;
+}
+
+/// Records a status update for a service.
+fn apply_status_update<S: Spawn, R: Reap>(
+    supervisor: &mut Supervisor<S, R>,
+    service_name: &str,
+    new_status: ServiceStatus,
+) {
+    if let Some(state) = supervisor.services.get_mut(service_name) {
+        state.status = new_status;
+    }
+}
+
+/// Marks a service as stopping.
+fn apply_stopping<S: Spawn, R: Reap>(supervisor: &mut Supervisor<S, R>, service_name: &str) {
+    if let Some(state) = supervisor.services.get_mut(service_name) {
+        state.status = ServiceStatus::Stopping;
     }
 }
 
@@ -68,18 +123,20 @@ fn parse_notification(text: &str) -> Option<ServiceNotification> {
     let mut is_watchdog = false;
 
     for line in text.lines() {
-        if let Some(v) = line.strip_prefix("SERVICE_NAME=") {
-            service_name = Some(v);
-        } else if let Some(v) = line.strip_prefix("READY=") {
-            ready_pid = v.parse().ok();
-        } else if let Some(v) = line.strip_prefix("STATUS=") {
-            status_msg = Some(v);
-        } else if let Some(v) = line.strip_prefix("HEALTH=") {
-            health = v.parse().ok();
-        } else if let Some(v) = line.strip_prefix("STOPPING=") {
-            stopping_reason = Some(v);
+        if let Some(name) = line.strip_prefix("SERVICE_NAME=") {
+            service_name = Some(name);
+        } else if let Some(pid_text) = line.strip_prefix("READY=") {
+            ready_pid = pid_text.parse().ok();
+        } else if let Some(status_text) = line.strip_prefix("STATUS=") {
+            status_msg = Some(status_text);
+        } else if let Some(health_text) = line.strip_prefix("HEALTH=") {
+            health = health_text.parse().ok();
+        } else if let Some(reason) = line.strip_prefix("STOPPING=") {
+            stopping_reason = Some(reason);
         } else if line == "WATCHDOG=1" {
             is_watchdog = true;
+        } else {
+            // Unknown fields are ignored for forward compatibility.
         }
     }
 
@@ -91,9 +148,9 @@ fn parse_notification(text: &str) -> Option<ServiceNotification> {
     }
 
     if let Some(msg) = status_msg {
-        let h = health.unwrap_or(Health::Healthy);
-        kmsg::info!("Service {} status: {} (health: {:?})", name, msg, h);
-        if h == Health::Degraded {
+        let health = health.unwrap_or(Health::Healthy);
+        kmsg::info!("Service {} status: {} (health: {:?})", name, msg, health);
+        if health == Health::Degraded {
             return Some(ServiceNotification::StatusUpdate {
                 service_name: name,
                 new_status: ServiceStatus::Degraded,

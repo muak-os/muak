@@ -68,9 +68,9 @@ fn generate_async(
         async fn __granola_service_main() -> ::anyhow::Result<()> {
             ::granola::kmsg::init(#service_name)?;
             ::granola::kmsg::info!(#start_msg);
-            let #notifier_ident = ::granola::NotifyClient::new(#service_name)?;
+            let #notifier_ident = ::granola::runtime::notify::Notifier::new(#service_name)?;
             let __result: ::anyhow::Result<()> = async { #body }.await;
-            let _ = #notifier_ident.stopping("Graceful shutdown");
+            drop(#notifier_ident.stopping("Graceful shutdown"));
             __result
         }
     }
@@ -96,9 +96,9 @@ fn generate_sync(
         fn __granola_service_main() -> ::anyhow::Result<()> {
             ::granola::kmsg::init(#service_name)?;
             ::granola::kmsg::info!(#start_msg);
-            let #notifier_ident = ::granola::NotifyClient::new(#service_name)?;
+            let #notifier_ident = ::granola::runtime::notify::Notifier::new(#service_name)?;
             let __result: ::anyhow::Result<()> = (|| { #body })();
-            let _ = #notifier_ident.stopping("Graceful shutdown");
+            drop(#notifier_ident.stopping("Graceful shutdown"));
             __result
         }
     }
@@ -109,7 +109,7 @@ fn extract_notifier_param(input: &mut ItemFn) -> Result<syn::Ident, syn::Error> 
     if input.sig.inputs.len() != 1 {
         return Err(syn::Error::new_spanned(
             &input.sig,
-            "#[granola::service] requires exactly one parameter: notifier: NotifyClient",
+            "#[granola::service] requires exactly one parameter: notifier: Notifier",
         ));
     }
 
@@ -151,7 +151,7 @@ mod tests {
     fn extract_notifier_from_valid_signature() {
         // ARRANGE
         let mut func: ItemFn =
-            syn::parse_str("async fn main(notifier: NotifyClient) -> Result<()> { Ok(()) }")
+            syn::parse_str("async fn main(notifier: Notifier) -> Result<()> { Ok(()) }")
                 .expect("parse");
 
         // ACT
@@ -216,7 +216,7 @@ mod tests {
         // ARRANGE
         let name: LitStr = syn::parse_str("\"testd\"").expect("parse");
         let func: ItemFn =
-            syn::parse_str("async fn main(notifier: NotifyClient) -> Result<()> { Ok(()) }")
+            syn::parse_str("async fn main(notifier: Notifier) -> Result<()> { Ok(()) }")
                 .expect("parse");
 
         // ACT
@@ -235,8 +235,7 @@ mod tests {
         // ARRANGE
         let name: LitStr = syn::parse_str("\"modd\"").expect("parse");
         let func: ItemFn =
-            syn::parse_str("fn main(notifier: NotifyClient) -> Result<()> { Ok(()) }")
-                .expect("parse");
+            syn::parse_str("fn main(notifier: Notifier) -> Result<()> { Ok(()) }").expect("parse");
 
         // ACT
         let output = generate(&name, func).expect("generate");

@@ -1,7 +1,7 @@
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
@@ -13,7 +13,7 @@ pub fn path(services_dir: &Path, name: &str) -> PathBuf {
 
 /// Pre-binds and listens on a UNIX stream socket.
 pub fn pre_bind(path: &Path) -> Result<OwnedFd> {
-    let _ = std::fs::remove_file(path);
+    drop(std::fs::remove_file(path));
 
     let fd = socket_with(
         AddressFamily::UNIX,

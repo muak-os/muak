@@ -10,7 +10,7 @@ mod tty;
 use core::time::Duration;
 
 use anyhow::Context as _;
-use granola::Health;
+use granola::runtime::notify::Health;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tokio::time::interval;

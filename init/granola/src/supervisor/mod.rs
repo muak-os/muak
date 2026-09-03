@@ -3,7 +3,7 @@ pub mod logger;
 mod notify;
 pub mod reaper;
 mod restart;
-mod service;
+pub(crate) mod service;
 mod socket;
 pub mod spawner;
 
@@ -11,13 +11,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use logger::LogWriter;
-use notify::{NotifyListener, ServiceNotification};
-use reaper::{ChildReaper, Reaper};
-pub use service::Service;
-use service::{ServiceState, ServiceStatus};
-use spawner::{ProcessSpawner, Spawner};
+use notify::NotifyListener;
+use reaper::{Reap, Reaper};
+use service::{Service, ServiceState, ServiceStatus};
+use spawner::{Spawn, Spawner};
 use tokio::signal::unix::{SignalKind, signal};
 
 const DEFAULT_SERVICES_DIR: &str = "/run/services";
@@ -44,7 +43,7 @@ impl Supervisor<Spawner, Reaper> {
     }
 }
 
-impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
+impl<S: Spawn, R: Reap> Supervisor<S, R> {
     pub fn with_backends(
         service_defs: Vec<Service>,
         logger: LogWriter,
@@ -79,17 +78,23 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
     }
 
     /// Main event loop. Runs until the system shuts down.
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! macro internals use a remainder when shuffling branch order"
+    )]
     pub async fn run(&mut self) -> Result<()> {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
 
-        self.start_ready_services()?;
+        self.start_ready_services();
 
         let mut tick = tokio::time::interval(Duration::from_millis(100));
         let mut sweep = tokio::time::interval(Duration::from_secs(5));
 
         loop {
             tokio::select! {
+                biased;
+
                 exits = self.reaper.wait_for_exits() => {
                     self.process_exits(exits);
                 }
@@ -103,8 +108,8 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
                 }
 
                 _ = tick.tick() => {
-                    self.process_notifications()?;
-                    self.process_pending_restarts()?;
+                    self.process_notifications();
+                    self.process_pending_restarts();
                 }
 
                 _ = sweep.tick() => {
@@ -121,62 +126,7 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
         }
     }
 
-    fn start_ready_services(&mut self) -> Result<()> {
-        for name in dependency::collect_startable(&self.services) {
-            if let Err(e) = self.spawn_service(&name) {
-                kmsg::error!("Failed to spawn service {}: {}", name, e);
-            }
-        }
-        Ok(())
-    }
-
-    fn spawn_service(&mut self, name: &str) -> Result<()> {
-        let state = self
-            .services
-            .get_mut(name)
-            .ok_or_else(|| anyhow!("Service not found: {}", name))?;
-
-        let result = self.spawner.spawn(state)?;
-        self.reaper.track(result.pid, name.to_string());
-        logger::capture(name, result.stdout, result.stderr, &self.logger);
-
-        Ok(())
-    }
-
-    fn process_notifications(&mut self) -> Result<()> {
-        for notification in self.notify_listener.poll() {
-            self.apply_notification(notification);
-        }
-
-        self.start_ready_services()
-    }
-
-    fn apply_notification(&mut self, notification: ServiceNotification) {
-        match notification {
-            ServiceNotification::Ready { service_name } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
-                    state.status = ServiceStatus::Ready;
-                    state.restart_count = 0;
-                } else {
-                    kmsg::warn!("Notification from unknown service: {}", service_name);
-                }
-            }
-            ServiceNotification::StatusUpdate {
-                service_name,
-                new_status,
-            } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
-                    state.status = new_status;
-                }
-            }
-            ServiceNotification::Stopping { service_name } => {
-                if let Some(state) = self.services.get_mut(&service_name) {
-                    state.status = ServiceStatus::Stopping;
-                }
-            }
-        }
-    }
-
+    /// Records a service exit and schedules a restart or failure as needed.
     fn handle_service_exit(
         &mut self,
         name: &str,
@@ -212,47 +162,79 @@ impl<S: ProcessSpawner, R: ChildReaper> Supervisor<S, R> {
         }
     }
 
-    fn process_pending_restarts(&mut self) -> Result<()> {
+    fn start_ready_services(&mut self) {
+        for name in dependency::collect_startable(&self.services) {
+            self.spawn_or_log(&name);
+        }
+    }
+
+    /// Spawns a service, logging (instead of propagating) spawn failures.
+    fn spawn_or_log(&mut self, name: &str) {
+        if let Err(e) = self.spawn_service(name) {
+            kmsg::error!("Failed to spawn service {name}: {e}");
+        }
+    }
+
+    fn spawn_service(&mut self, name: &str) -> Result<()> {
+        let state = self
+            .services
+            .get_mut(name)
+            .ok_or_else(|| anyhow!("Service not found: {name}"))?;
+
+        let result = self.spawner.spawn(state)?;
+        self.reaper.track(result.pid, name.to_owned());
+        logger::sources::capture(name, result.stdout, result.stderr, &self.logger);
+
+        Ok(())
+    }
+
+    fn process_notifications(&mut self) {
+        for notification in self.notify_listener.poll() {
+            notify::apply(self, notification);
+        }
+
+        self.start_ready_services();
+    }
+
+    fn process_pending_restarts(&mut self) {
         let services = &self.services;
         let due = self.restart_queue.take_due(|name| {
             services
                 .get(name)
-                .is_some_and(|s| dependency::are_satisfied(&s.service, services))
+                .is_some_and(|state| dependency::are_satisfied(&state.service, services))
         });
 
         for name in due {
-            if let Err(e) = self.spawn_service(&name) {
-                kmsg::error!("Failed to restart service {}: {}", name, e);
-            }
+            self.spawn_or_log(&name);
         }
-
-        Ok(())
     }
 
     /// Returns the current status of a service by name.
     #[cfg(test)]
     pub fn service_status(&self, name: &str) -> Option<&ServiceStatus> {
-        self.services.get(name).map(|s| &s.status)
+        self.services.get(name).map(|state| &state.status)
     }
 
     /// Returns the current PID of a service by name.
     #[cfg(test)]
     pub fn service_pid(&self, name: &str) -> Option<i32> {
-        self.services.get(name).and_then(|s| s.pid)
+        let state = self.services.get(name)?;
+        state.pid
     }
 
     /// Returns the restart count of a service by name.
     #[cfg(test)]
     pub fn service_restart_count(&self, name: &str) -> Option<u32> {
-        self.services.get(name).map(|s| s.restart_count)
+        self.services.get(name).map(|state| state.restart_count)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use alloc::collections::VecDeque;
+    use alloc::sync::Arc;
     use std::os::fd::OwnedFd;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     use anyhow::Result;
     use tempfile::TempDir;
@@ -260,9 +242,9 @@ mod tests {
 
     use super::*;
     use crate::supervisor::notify::ServiceNotification;
-    use crate::supervisor::reaper::{ChildExit, ChildReaper};
+    use crate::supervisor::reaper::{ChildExit, Reap};
     use crate::supervisor::service::ServiceStatus;
-    use crate::supervisor::spawner::{ProcessSpawner, SpawnResult};
+    use crate::supervisor::spawner::{Spawn, SpawnResult};
 
     struct FakeSpawner {
         next_pid: i32,
@@ -278,10 +260,10 @@ mod tests {
         }
     }
 
-    impl ProcessSpawner for FakeSpawner {
+    impl Spawn for FakeSpawner {
         fn spawn(&mut self, state: &mut service::ServiceState) -> Result<SpawnResult> {
             let pid = self.next_pid;
-            self.next_pid += 1;
+            self.next_pid = self.next_pid.saturating_add(1);
             self.spawned.push((state.service.name.clone(), pid));
 
             state.pid = Some(pid);
@@ -298,12 +280,10 @@ mod tests {
         }
     }
 
-    /// Shared state between the reaper and the test harness.
     struct FakeReaperInner {
         pending: VecDeque<(String, ChildExit)>,
     }
 
-    /// A handle for tests to inject exit events into a `FakeReaper`.
     struct ExitInjector {
         inner: Arc<Mutex<FakeReaperInner>>,
         notify: Arc<Notify>,
@@ -320,7 +300,7 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .pending
-                .push_back((name.to_string(), exit));
+                .push_back((name.to_owned(), exit));
             self.notify.notify_one();
         }
     }
@@ -344,17 +324,11 @@ mod tests {
         }
     }
 
-    impl ChildReaper for FakeReaper {
+    impl Reap for FakeReaper {
         fn track(&mut self, _pid: i32, _name: String) {}
 
         async fn wait_for_exits(&mut self) -> Vec<(String, ChildExit)> {
-            loop {
-                let exits = self.reap_all();
-                if !exits.is_empty() {
-                    return exits;
-                }
-                self.notify.notified().await;
-            }
+            wait_until_exit(self).await
         }
 
         fn reap_all(&mut self) -> Vec<(String, ChildExit)> {
@@ -363,11 +337,26 @@ mod tests {
         }
     }
 
-    fn make_service(name: &str, depends_on: Vec<&str>) -> Service {
+    fn respawn_all(sup: &mut Supervisor<FakeSpawner, FakeReaper>, due: Vec<String>) {
+        for name in due {
+            sup.spawn_service(&name).expect("spawn should succeed");
+        }
+    }
+
+    async fn wait_until_exit(reaper: &mut FakeReaper) -> Vec<(String, ChildExit)> {
+        let mut exits = reaper.reap_all();
+        while exits.is_empty() {
+            reaper.notify.notified().await;
+            exits = reaper.reap_all();
+        }
+        exits
+    }
+
+    fn make_service(name: &str, depends_on: &[&str]) -> Service {
         Service {
-            name: name.to_string(),
+            name: name.to_owned(),
             command: String::new(),
-            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
+            depends_on: depends_on.iter().copied().map(str::to_owned).collect(),
         }
     }
 
@@ -382,17 +371,30 @@ mod tests {
         Supervisor::with_backends(services, writer, spawner, reaper, dir.path())
     }
 
+    async fn exhaust_restart_attempts(
+        sup: &mut Supervisor<FakeSpawner, FakeReaper>,
+        injector: &ExitInjector,
+    ) {
+        for _ in 0..restart::MAX_RESTART_ATTEMPTS {
+            injector.inject("svc", Some(1));
+            let exits = sup.reaper.wait_for_exits().await;
+            sup.process_exits(exits);
+            let due = sup.restart_queue.take_due(|_| true);
+            respawn_all(sup, due);
+        }
+    }
+
     #[tokio::test]
     async fn services_with_no_deps_spawn_on_start() {
         // ARRANGE
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("alpha", vec![]), make_service("beta", vec![])];
+        let services = vec![make_service("alpha", &[]), make_service("beta", &[])];
 
         // ACT
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
-        sup.start_ready_services().expect("start");
+        sup.start_ready_services();
 
         // ASSERT
         assert_eq!(sup.service_status("alpha"), Some(&ServiceStatus::Starting));
@@ -407,14 +409,11 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![
-            make_service("dep", vec![]),
-            make_service("child", vec!["dep"]),
-        ];
+        let services = vec![make_service("dep", &[]), make_service("child", &["dep"])];
 
         // ACT
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
-        sup.start_ready_services().expect("start");
+        sup.start_ready_services();
 
         // ASSERT
         assert_eq!(sup.service_status("dep"), Some(&ServiceStatus::Starting));
@@ -429,7 +428,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
@@ -448,7 +447,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
@@ -467,24 +466,11 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        for _ in 0..restart::MAX_RESTART_ATTEMPTS {
-            injector.inject("svc", Some(1));
-            let exits = sup.reaper.wait_for_exits().await;
-            sup.process_exits(exits);
-            sup.restart_queue
-                .take_due(|_| true)
-                .into_iter()
-                .for_each(|name| {
-                    if let Err(e) = sup.spawn_service(&name) {
-                        panic!("spawn failed: {e}");
-                    }
-                });
-        }
-
+        exhaust_restart_attempts(&mut sup, &injector).await;
         injector.inject("svc", Some(1));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
@@ -499,20 +485,15 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![
-            make_service("dep", vec![]),
-            make_service("child", vec!["dep"]),
-        ];
+        let services = vec![make_service("dep", &[]), make_service("child", &["dep"])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ASSERT
         assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Pending));
 
         // ACT
-        if let Some(state) = sup.services.get_mut("dep") {
-            state.status = ServiceStatus::Ready;
-        }
-        sup.start_ready_services().expect("start");
+        sup.services.get_mut("dep").expect("dep exists").status = ServiceStatus::Ready;
+        sup.start_ready_services();
 
         // ASSERT
         assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Starting));
@@ -524,15 +505,18 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         sup.services.get_mut("svc").expect("svc").restart_count = 3;
 
         // ACT
-        sup.apply_notification(ServiceNotification::Ready {
-            service_name: "svc".to_string(),
-        });
+        notify::apply(
+            &mut sup,
+            ServiceNotification::Ready {
+                service_name: "svc".to_owned(),
+            },
+        );
 
         // ASSERT
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Ready));
@@ -548,9 +532,12 @@ mod tests {
         let mut sup = make_supervisor(vec![], spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.apply_notification(ServiceNotification::Ready {
-            service_name: "ghost".to_string(),
-        });
+        notify::apply(
+            &mut sup,
+            ServiceNotification::Ready {
+                service_name: "ghost".to_owned(),
+            },
+        );
     }
 
     #[tokio::test]
@@ -559,14 +546,17 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.apply_notification(ServiceNotification::StatusUpdate {
-            service_name: "svc".to_string(),
-            new_status: ServiceStatus::Degraded,
-        });
+        notify::apply(
+            &mut sup,
+            ServiceNotification::StatusUpdate {
+                service_name: "svc".to_owned(),
+                new_status: ServiceStatus::Degraded,
+            },
+        );
 
         // ASSERT
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Degraded));
@@ -578,13 +568,16 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.apply_notification(ServiceNotification::Stopping {
-            service_name: "svc".to_string(),
-        });
+        notify::apply(
+            &mut sup,
+            ServiceNotification::Stopping {
+                service_name: "svc".to_owned(),
+            },
+        );
 
         // ASSERT
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Stopping));
@@ -596,7 +589,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
@@ -613,7 +606,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, _injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
@@ -642,7 +635,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let (reaper, injector) = FakeReaper::new();
         let spawner = FakeSpawner::new();
-        let services = vec![make_service("svc", vec![])];
+        let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         injector.inject("svc", Some(1));
@@ -657,9 +650,7 @@ mod tests {
         let due = sup.restart_queue.take_due(|_| true);
 
         // ACT
-        for name in due {
-            sup.spawn_service(&name).expect("spawn");
-        }
+        respawn_all(&mut sup, due);
 
         // ASSERT
         let status = sup.service_status("svc").cloned();

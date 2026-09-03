@@ -14,7 +14,7 @@ use alloc::sync::Arc;
 use core::time::Duration;
 
 use anyhow::{Context as _, bail};
-use granola::Health;
+use granola::runtime::notify::Health;
 use source::Source;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Notify;

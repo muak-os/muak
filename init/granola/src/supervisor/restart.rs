@@ -6,6 +6,9 @@ const RESTART_DELAY: Duration = Duration::from_secs(1);
 pub const MAX_RESTART_ATTEMPTS: u32 = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
+/// Delay applied when a restart is due but its dependencies are not ready.
+const RESCHEDULE_DELAY: Duration = Duration::from_secs(1);
+
 /// A pending restart entry with a scheduled time.
 struct PendingRestart {
     name: String,
@@ -47,7 +50,7 @@ impl RestartQueue {
     /// Schedules a service for restart after the configured delay.
     pub fn schedule(&mut self, state: &mut ServiceState) {
         state.status = ServiceStatus::Pending;
-        state.restart_count += 1;
+        state.restart_count = state.restart_count.saturating_add(1);
         state.last_restart = Some(Instant::now());
 
         kmsg::info!(
@@ -60,7 +63,9 @@ impl RestartQueue {
 
         self.pending.push(PendingRestart {
             name: state.service.name.clone(),
-            due_at: Instant::now() + RESTART_DELAY,
+            due_at: Instant::now()
+                .checked_add(RESTART_DELAY)
+                .unwrap_or_else(Instant::now),
         });
     }
 
@@ -75,29 +80,43 @@ impl RestartQueue {
     }
 
     /// Returns the names of services whose restart delay has elapsed.
-    pub fn take_due(&mut self, deps_ready: impl Fn(&str) -> bool) -> Vec<String> {
+    pub fn take_due<F>(&mut self, deps_ready: F) -> Vec<String>
+    where
+        F: Fn(&str) -> bool,
+    {
         let now = Instant::now();
         let prev = std::mem::take(&mut self.pending);
         let mut ready = Vec::new();
 
         for restart in prev {
-            if now < restart.due_at {
-                self.pending.push(restart);
-                continue;
-            }
-
-            if !deps_ready(&restart.name) {
-                self.pending.push(PendingRestart {
-                    name: restart.name,
-                    due_at: now + Duration::from_secs(1),
-                });
-                continue;
-            }
-
-            ready.push(restart.name);
+            self.resolve_pending(restart, now, &deps_ready, &mut ready);
         }
 
         ready
+    }
+
+    /// Either re-queues a pending restart or collects it as ready to run.
+    fn resolve_pending<G>(
+        &mut self,
+        restart: PendingRestart,
+        now: Instant,
+        deps_ready: &G,
+        ready: &mut Vec<String>,
+    ) where
+        G: Fn(&str) -> bool,
+    {
+        if now < restart.due_at {
+            self.pending.push(restart);
+            return;
+        }
+        if !deps_ready(&restart.name) {
+            self.pending.push(PendingRestart {
+                name: restart.name,
+                due_at: now.checked_add(RESCHEDULE_DELAY).unwrap_or(now),
+            });
+            return;
+        }
+        ready.push(restart.name);
     }
 }
 
@@ -110,7 +129,7 @@ mod tests {
 
     fn make_state(status: ServiceStatus) -> ServiceState {
         let svc = Service {
-            name: "test-svc".to_string(),
+            name: "test-svc".to_owned(),
             command: String::new(),
             depends_on: vec![],
         };
@@ -182,7 +201,10 @@ mod tests {
         // ARRANGE
         let mut state = make_state(ServiceStatus::Failed);
         state.restart_count = MAX_RESTART_ATTEMPTS;
-        state.last_restart = Some(Instant::now() - RESTART_WINDOW - Duration::from_secs(1));
+        let long_ago = Instant::now()
+            .checked_sub(RESTART_WINDOW)
+            .and_then(|instant| instant.checked_sub(Duration::from_secs(1)));
+        state.last_restart = long_ago;
 
         // ACT & ASSERT
         assert!(RestartQueue::should_restart(&state, Some(1)));
@@ -217,7 +239,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(queue.pending.len(), 1);
-        assert_eq!(queue.pending[0].name, "test-svc");
+        assert_eq!(
+            queue.pending.first().map(|entry| entry.name.as_str()),
+            Some("test-svc")
+        );
     }
 
     #[test]
@@ -265,15 +290,17 @@ mod tests {
         // ARRANGE
         let mut queue = RestartQueue::new();
         queue.pending.push(PendingRestart {
-            name: "test-svc".to_string(),
-            due_at: Instant::now() - Duration::from_millis(1),
+            name: "test-svc".to_owned(),
+            due_at: Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .expect("valid instant"),
         });
 
         // ACT
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert_eq!(due, vec!["test-svc".to_string()]);
+        assert_eq!(due, vec!["test-svc".to_owned()]);
         assert!(queue.pending.is_empty());
     }
 
@@ -282,8 +309,10 @@ mod tests {
         // ARRANGE
         let mut queue = RestartQueue::new();
         queue.pending.push(PendingRestart {
-            name: "test-svc".to_string(),
-            due_at: Instant::now() - Duration::from_millis(1),
+            name: "test-svc".to_owned(),
+            due_at: Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .expect("valid instant"),
         });
 
         // ACT
