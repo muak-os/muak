@@ -149,12 +149,10 @@ mod tests {
         let cat_start = iso::SECTOR_SIZE * 21;
         let validation = bytes_at(&iso, cat_start..cat_start + 32);
         let sum: u32 = validation
-            .chunks_exact(2)
-            .map(|chunk| {
-                u32::from(u16::from_le_bytes(
-                    chunk.try_into().expect("chunk is 2 bytes"),
-                ))
-            })
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u32::from(u16::from_le_bytes(*chunk)))
             .sum();
         assert_eq!(
             sum.rem_euclid(0x10000),

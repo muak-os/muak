@@ -266,9 +266,11 @@ mod tests {
 
         // ASSERT
         let blob_start = usize::try_from(blob_offset).unwrap_or(0);
+        let img_bytes = img.as_slice();
+        let blob_bytes = blob.as_slice();
         assert_eq!(
-            &img[blob_start..blob_start + 4],
-            &blob[0..4],
+            img_bytes.get(blob_start..blob_start + 4),
+            blob_bytes.get(0..4),
             "blob payload must appear at its byte offset"
         );
         let mut cursor = Cursor::new(&img);
