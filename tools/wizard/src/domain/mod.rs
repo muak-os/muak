@@ -1,6 +1,7 @@
 //! Profile, release and resolution as the 3 layers of the domain resolution.
 
 pub mod identity;
+pub mod overlay;
 pub mod profile;
 pub mod release;
 pub mod resolution;

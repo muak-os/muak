@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::artifact::Artifact;
 use crate::domain::profile::Profile;
 use crate::error::{Result, WizardError};
+use crate::nodes::overlay::discovery::assets;
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
@@ -184,6 +185,11 @@ impl<'a> Request<'a> {
         }
 
         let resolution = resolver::plan(&self, profile)?;
+        let overlay_assets = match resolution.build().overlay() {
+            Some(overlay) => Some(assets(overlay)?),
+            None => None,
+        };
+        let resolution = resolution.with_overlay_assets(overlay_assets);
         let profile_bytes = profile.canonical_bytes()?;
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {

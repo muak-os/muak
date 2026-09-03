@@ -4,10 +4,10 @@ use std::io::Read;
 
 use miso::raw;
 
+use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
 use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
-use crate::nodes::overlay::discovery::{OverlayAsset, assets};
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId};
@@ -18,7 +18,6 @@ const ALIGN_1_MIB_BYTES: u64 = 1024 * 1024;
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies: media::dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
@@ -40,19 +39,16 @@ fn run(
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
     let (mut uki, mut overlays) = media_inputs(ports)?;
-    let assets = match ctx.build.overlay() {
-        Some(overlay) => assets(overlay)?,
-        None => Vec::new(),
-    };
-    let layout = media_layout(ctx, &uki, &assets)?;
+    let assets = ctx.build.overlay_assets().unwrap_or(&[]);
+    let layout = media_layout(ctx, &uki, assets)?;
 
     let mut esp_readers: Vec<&mut dyn Read> = Vec::new();
     let mut raw_blobs: Vec<raw::Blob> = Vec::new();
     let mut partition_start = ALIGN_1_MIB_BYTES;
     for (asset, input) in assets.iter().zip(overlays.iter_mut()) {
         match *asset {
-            OverlayAsset::EspFile { .. } => esp_readers.push(&mut input.reader),
-            OverlayAsset::RawBlob { offset, size, .. } => {
+            Asset::EspFile { .. } => esp_readers.push(&mut input.reader),
+            Asset::RawBlob { offset, size, .. } => {
                 let end = offset.saturating_add(size);
                 partition_start = partition_start.max(align_up(end, ALIGN_1_MIB_BYTES));
                 raw_blobs.push(raw::Blob {

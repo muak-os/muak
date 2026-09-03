@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub mod arch;
 pub mod error;
+pub mod guid;
 pub mod image;
 pub mod layout;
 pub mod path;

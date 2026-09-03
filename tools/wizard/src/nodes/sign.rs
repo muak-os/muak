@@ -5,7 +5,7 @@ use sbolt::signature;
 
 use crate::error::{Result, WizardError};
 use crate::nodes::uki;
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -17,18 +17,13 @@ pub(crate) const SIGN_OUTPUT: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
 
 /// The unsigned UKI stream from the Uki node.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
-    vec![Dependency::fixed(
-        NodeKind::Uki,
-        uki::UKI_OUTPUT,
-        SIGN_INPUT,
-    )]
+    vec![Dependency::new(NodeKind::Uki, uki::UKI_OUTPUT, SIGN_INPUT)]
 }
 
 /// The signed output size of the unsigned input.

@@ -6,7 +6,7 @@ use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::dependency::{Dependency, DependencyKind, validate};
+use crate::pipeline::dependency::{Dependency, validate};
 use crate::pipeline::graph::{Graph, NodeId, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
 
@@ -14,8 +14,8 @@ use crate::pipeline::normalize::normalize;
 ///
 /// # Errors
 ///
-/// Returns an error when a dependency is cyclic, a dynamic count cannot be
-/// fetched, or the built graph fails validation.
+/// Returns an error when a dependency is cyclic or the built graph fails
+/// validation.
 pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(ctx);
     for artifact in artifacts {
@@ -41,7 +41,6 @@ struct Planner<'a, 'data, 'sign, 'write> {
     graph: Graph,
     instances: HashMap<NodeKind, NodeId>,
     outputs: HashMap<(NodeKind, PortId), StreamId>,
-    counts: HashMap<NodeKind, usize>,
     states: HashMap<NodeKind, VisitState>,
 }
 
@@ -58,7 +57,6 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
             graph: Graph::new(),
             instances: HashMap::new(),
             outputs: HashMap::new(),
-            counts: HashMap::new(),
             states: HashMap::new(),
         }
     }
@@ -123,35 +121,9 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
     /// Binds one declared dependency: the producer's output stream (created
     /// on demand, shared with every consumer) to the consumer's input port.
     fn bind(&mut self, producer: NodeId, consumer: NodeId, dependency: &Dependency) -> Result<()> {
-        match dependency.kind {
-            DependencyKind::Fixed => {
-                let stream =
-                    self.output_stream(dependency.producer, dependency.producer_port, producer)?;
-                self.graph
-                    .bind_input(consumer, dependency.consumer_port, stream)?;
-            }
-            DependencyKind::Many => self.bind_many(producer, consumer, dependency)?,
-        }
-
-        Ok(())
-    }
-
-    /// Binds one stream per dynamic element, in canonical order.
-    fn bind_many(
-        &mut self,
-        producer: NodeId,
-        consumer: NodeId,
-        dependency: &Dependency,
-    ) -> Result<()> {
-        let count = self.dynamic_count(dependency.producer)?;
-        for index in 0..count {
-            let producer_port = PortId(dependency.producer_port.0.saturating_add(index));
-            let consumer_port = PortId(dependency.consumer_port.0.saturating_add(index));
-            let stream = self.output_stream(dependency.producer, producer_port, producer)?;
-            self.graph.bind_input(consumer, consumer_port, stream)?;
-        }
-
-        Ok(())
+        let stream = self.output_stream(dependency.producer, dependency.producer_port, producer)?;
+        self.graph
+            .bind_input(consumer, dependency.consumer_port, stream)
     }
 
     /// The shared stream for a producer output port, created once.
@@ -168,17 +140,6 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
         self.outputs.insert((kind, port), stream);
 
         Ok(stream)
-    }
-
-    /// The dynamic output count of a `Many` producer, fetched once.
-    fn dynamic_count(&mut self, kind: NodeKind) -> Result<usize> {
-        if let Some(count) = self.counts.get(&kind) {
-            return Ok(*count);
-        }
-        let count = nodes::output_count(kind, self.ctx)?;
-        self.counts.insert(kind, count);
-
-        Ok(count)
     }
 }
 

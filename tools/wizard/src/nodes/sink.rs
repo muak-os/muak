@@ -4,8 +4,8 @@ use std::io;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
+use crate::nodes::NodeDescriptor;
 use crate::nodes::NodeKind;
-use crate::nodes::{NodeDescriptor, no_dynamic_output_count};
 use crate::nodes::{initramfs, kernel, media, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -17,7 +17,6 @@ pub(crate) const SINK_INPUT: PortId = PortId(0);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
@@ -28,7 +27,7 @@ fn dependencies(kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependenc
         return Vec::new();
     };
     let (producer, producer_port) = artifact_source(artifact, ctx.signing.is_some());
-    vec![Dependency::fixed(producer, producer_port, SINK_INPUT)]
+    vec![Dependency::new(producer, producer_port, SINK_INPUT)]
 }
 
 /// Confirms the sink's input dependency is bound to a stream.

@@ -2,6 +2,7 @@
 
 use koci::arch::Arch;
 
+use super::overlay::Asset;
 use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};
 use crate::request::Platform;
 
@@ -23,6 +24,7 @@ pub struct ResolvedBuild {
     arch: Arch,
     extensions: Vec<Extension>,
     overlay: Option<Overlay>,
+    overlay_assets: Option<Vec<Asset>>,
     kernel: Kernel,
     installer: String,
     stub: String,
@@ -37,6 +39,7 @@ impl ResolvedBuild {
             arch,
             extensions: sources.extensions,
             overlay: sources.overlay,
+            overlay_assets: None,
             kernel: sources.kernel,
             installer: sources.installer,
             stub: sources.stub,
@@ -67,10 +70,31 @@ impl ResolvedBuild {
         &self.extensions
     }
 
+    /// Returns the number of initramfs payload layers this build contributes:
+    /// the kernel modules layer plus one payload per extension.
+    #[must_use]
+    pub fn payload_layer_count(&self) -> usize {
+        self.extensions.len().saturating_add(1)
+    }
+
     /// Returns the resolved overlay input when present.
     #[must_use]
     pub fn overlay(&self) -> Option<&Overlay> {
         self.overlay.as_ref()
+    }
+
+    /// Returns the discovered overlay assets when the build has an overlay.
+    #[must_use]
+    pub fn overlay_assets(&self) -> Option<&[Asset]> {
+        self.overlay_assets.as_deref()
+    }
+
+    /// Attaches the discovered overlay assets to the build.
+    #[must_use]
+    pub(crate) fn with_overlay_assets(mut self, assets: Option<Vec<Asset>>) -> Self {
+        self.overlay_assets = assets;
+
+        self
     }
 
     /// Returns the resolved kernel source.
@@ -139,6 +163,24 @@ impl Resolution {
     #[must_use]
     pub const fn build(&self) -> &ResolvedBuild {
         &self.build
+    }
+
+    /// Attaches the discovered overlay assets to the resolved build.
+    #[must_use]
+    pub(crate) fn with_overlay_assets(self, assets: Option<Vec<Asset>>) -> Self {
+        let Self {
+            profile_id,
+            release_id,
+            id,
+            build,
+        } = self;
+
+        Self {
+            profile_id,
+            release_id,
+            id,
+            build: build.with_overlay_assets(assets),
+        }
     }
 }
 

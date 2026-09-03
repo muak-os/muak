@@ -13,7 +13,7 @@ use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
 use crate::nodes::kernel;
 use crate::nodes::stub;
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -28,7 +28,6 @@ pub(crate) const UKI_OUTPUT: PortId = PortId(4);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
@@ -36,10 +35,10 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 /// Stub and initramfs from the installer and kernel and cmdline from their sources.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
-        Dependency::fixed(NodeKind::StubPull, stub::STUB, UKI_STUB),
-        Dependency::fixed(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
-        Dependency::fixed(NodeKind::KernelPull, kernel::CMDLINE, UKI_CMDLINE),
-        Dependency::fixed(
+        Dependency::new(NodeKind::StubPull, stub::STUB, UKI_STUB),
+        Dependency::new(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
+        Dependency::new(NodeKind::KernelPull, kernel::CMDLINE, UKI_CMDLINE),
+        Dependency::new(
             NodeKind::Concat,
             initramfs::concat::CONCAT_OUTPUT,
             UKI_INITRAMFS,

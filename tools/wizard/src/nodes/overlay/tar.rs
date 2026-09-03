@@ -2,10 +2,10 @@
 
 use tar::{Builder, Header};
 
+use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
-use crate::nodes::overlay::discovery::{OverlayAsset, assets};
 use crate::nodes::overlay::pull;
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -17,31 +17,36 @@ pub(crate) const TAR_INPUTS_FIRST: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
 
 /// One stream per overlay asset, in canonical (path-sorted) order.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
-    vec![Dependency::many(
-        NodeKind::OverlayPull,
-        pull::PULL_OUTPUTS_FIRST,
-        TAR_INPUTS_FIRST,
-    )]
+fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    let assets = ctx.build.overlay_assets().unwrap_or(&[]);
+    let mut dependencies = Vec::with_capacity(assets.len());
+    for index in 0..assets.len() {
+        dependencies.push(Dependency::new(
+            NodeKind::OverlayPull,
+            pull::PULL_OUTPUTS_FIRST.offset(index),
+            TAR_INPUTS_FIRST.offset(index),
+        ));
+    }
+
+    dependencies
 }
 
 /// tar size = headers + file data + padding per entry, plus the two zero trailer blocks.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let overlay = ctx
+    let assets = ctx
         .build
-        .overlay()
+        .overlay_assets()
         .ok_or_else(|| WizardError::BuildError("overlay tar has no overlay source".to_owned()))?;
-    let esp_sizes: Vec<u64> = assets(overlay)?
+    let esp_sizes: Vec<u64> = assets
         .iter()
         .filter_map(|asset| match *asset {
-            OverlayAsset::EspFile { size, .. } => Some(size),
-            OverlayAsset::RawBlob { .. } => None,
+            Asset::EspFile { size, .. } => Some(size),
+            Asset::RawBlob { .. } => None,
         })
         .collect();
     let tar = tar_total_size(&esp_sizes);
@@ -58,11 +63,10 @@ fn run(
     ports: &mut NodePorts<'_>,
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
-    let overlay = ctx
+    let assets = ctx
         .build
-        .overlay()
+        .overlay_assets()
         .ok_or_else(|| WizardError::BuildError("overlay tar has no overlay source".to_owned()))?;
-    let assets = assets(overlay)?;
 
     let mut inputs = Endpoint::into_inputs(
         ports
@@ -74,7 +78,7 @@ fn run(
 
     let mut builder = Builder::new(&mut output.writer);
     for (asset, input) in assets.iter().zip(inputs.iter_mut()) {
-        let OverlayAsset::EspFile { ref path, .. } = *asset else {
+        let Asset::EspFile { ref path, .. } = *asset else {
             continue;
         };
         let mut header = Header::new_gnu();

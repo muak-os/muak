@@ -19,7 +19,6 @@ pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count,
     preflight,
     run,
 };
@@ -98,16 +97,8 @@ pub(crate) fn run(
     Ok(NodeReport::Empty)
 }
 
-fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
-    ctx.build
-        .extensions()
-        .len()
-        .checked_add(1)
-        .ok_or_else(|| WizardError::BuildError("layer count overflow".to_owned()))
-}
-
 fn layer_specs(ctx: &BuildContext<'_, '_, '_>) -> Result<Vec<Layer>> {
-    let mut layers = Vec::with_capacity(ctx.build.extensions().len().saturating_add(1));
+    let mut layers = Vec::with_capacity(ctx.build.payload_layer_count());
     layers.push(kernel::module_layer(ctx)?);
     for extension in ctx.build.extensions() {
         layers.push(extension_layer(extension, ctx.build.arch()));

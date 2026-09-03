@@ -6,8 +6,8 @@ pub(crate) mod raw;
 use esp::FileMeta;
 use esp::layout::compute;
 
+use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
-use crate::nodes::overlay::discovery::OverlayAsset;
 use crate::nodes::{NodeKind, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -18,20 +18,22 @@ pub(crate) const MEDIA_UKI: PortId = PortId(0);
 pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
 pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(2);
 
-/// The UKI stream, plus overlay file streams when the profile has an overlay.
+/// The UKI stream, plus one stream per overlay asset when the build has overlay assets.
 pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     let uki = if ctx.signing.is_some() {
-        Dependency::fixed(NodeKind::Sign, sign::SIGN_OUTPUT, MEDIA_UKI)
+        Dependency::new(NodeKind::Sign, sign::SIGN_OUTPUT, MEDIA_UKI)
     } else {
-        Dependency::fixed(NodeKind::Uki, uki::UKI_OUTPUT, MEDIA_UKI)
+        Dependency::new(NodeKind::Uki, uki::UKI_OUTPUT, MEDIA_UKI)
     };
     let mut dependencies = vec![uki];
-    if ctx.build.overlay().is_some() {
-        dependencies.push(Dependency::many(
-            NodeKind::OverlayPull,
-            overlay::pull::PULL_OUTPUTS_FIRST,
-            MEDIA_OVERLAYS_FIRST,
-        ));
+    if let Some(assets) = ctx.build.overlay_assets() {
+        for index in 0..assets.len() {
+            dependencies.push(Dependency::new(
+                NodeKind::OverlayPull,
+                overlay::pull::PULL_OUTPUTS_FIRST.offset(index),
+                MEDIA_OVERLAYS_FIRST.offset(index),
+            ));
+        }
     }
 
     dependencies
@@ -54,7 +56,7 @@ pub(crate) fn media_inputs<'a>(
 pub(crate) fn media_layout<'a>(
     ctx: &BuildContext<'_, '_, '_>,
     uki: &InputStream<'a>,
-    assets: &'a [OverlayAsset],
+    assets: &'a [Asset],
 ) -> Result<esp::layout::Layout<'a>> {
     let mut file_metas = Vec::with_capacity(assets.len().saturating_add(1));
     file_metas.push(FileMeta::new(
@@ -62,7 +64,7 @@ pub(crate) fn media_layout<'a>(
         uki.size,
     ));
     for asset in assets {
-        if let OverlayAsset::EspFile { ref path, size } = *asset {
+        if let Asset::EspFile { ref path, size } = *asset {
             file_metas.push(FileMeta::new(path, size));
         }
     }

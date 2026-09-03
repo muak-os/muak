@@ -13,6 +13,14 @@ pub(crate) struct StreamId(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct PortId(pub(crate) usize);
 
+impl PortId {
+    /// The port `index` positions after this one, saturating.
+    #[must_use]
+    pub(crate) const fn offset(self, index: usize) -> Self {
+        Self(self.0.saturating_add(index))
+    }
+}
+
 /// Node-local port identity paired with the logical stream it carries.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PortBinding {

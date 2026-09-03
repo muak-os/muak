@@ -7,7 +7,7 @@ use koci::pull;
 use koci::pull::entries::MetadataEntry;
 
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -19,7 +19,6 @@ pub(crate) const INITRAMFS_PATH: &str = "initramfs.img";
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };

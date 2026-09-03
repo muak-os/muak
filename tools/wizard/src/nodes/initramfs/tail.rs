@@ -6,7 +6,7 @@ use ramune::Entry;
 
 use crate::error::{Result, WizardError};
 use crate::nodes::layers;
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -18,18 +18,22 @@ pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
 
-/// One layer payload stream per layer, in canonical source order.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
-    vec![Dependency::many(
-        NodeKind::LayerPayloads,
-        layers::FIRST_OUTPUT,
-        TAIL_INPUTS_FIRST,
-    )]
+/// One stream per initramfs payload layer, in canonical source order.
+fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+    let mut dependencies = Vec::with_capacity(ctx.build.payload_layer_count());
+    for index in 0..ctx.build.payload_layer_count() {
+        dependencies.push(Dependency::new(
+            NodeKind::LayerPayloads,
+            layers::FIRST_OUTPUT.offset(index),
+            TAIL_INPUTS_FIRST.offset(index),
+        ));
+    }
+
+    dependencies
 }
 
 /// Exact CPIO tail size from the named layer input streams plus the profile entry.

@@ -3,7 +3,7 @@
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs::tail;
 use crate::nodes::installer;
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -16,7 +16,6 @@ pub(crate) const CONCAT_OUTPUT: PortId = PortId(2);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
@@ -24,8 +23,8 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 /// The raw CPIO tail first, then the compressed installer base.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     vec![
-        Dependency::fixed(NodeKind::InitramfsTail, tail::TAIL_OUTPUT, CONCAT_FIRST),
-        Dependency::fixed(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_SECOND),
+        Dependency::new(NodeKind::InitramfsTail, tail::TAIL_OUTPUT, CONCAT_FIRST),
+        Dependency::new(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_SECOND),
     ]
 }
 

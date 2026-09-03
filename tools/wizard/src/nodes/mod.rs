@@ -13,7 +13,7 @@ pub(crate) mod stub;
 pub(crate) mod uki;
 
 use crate::artifact::Artifact;
-use crate::error::{Result, WizardError};
+use crate::error::Result;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -42,7 +42,6 @@ pub(crate) enum NodeKind {
 /// One node kind's full contract.
 pub(crate) struct NodeDescriptor {
     pub(crate) dependencies: fn(NodeKind, &BuildContext<'_, '_, '_>) -> Vec<Dependency>,
-    pub(crate) output_count: fn(&BuildContext<'_, '_, '_>) -> Result<usize>,
     pub(crate) preflight: fn(&mut Graph, NodeId, &BuildContext<'_, '_, '_>) -> Result<()>,
     pub(crate) run:
         fn(NodeKind, &mut NodePorts<'_>, &BuildContext<'_, '_, '_>) -> Result<NodeReport>,
@@ -71,18 +70,6 @@ pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
 /// Declared inputs of a planned kind, read from its descriptor.
 pub(crate) fn dependencies(kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
     (descriptor(kind).dependencies)(kind, ctx)
-}
-
-/// Dynamic output count of a producer kind, fetched once per plan.
-pub(crate) fn output_count(kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
-    (descriptor(kind).output_count)(ctx)
-}
-
-/// The shared `output_count` for kinds without a dynamic output range.
-pub(crate) fn no_dynamic_output_count(_ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
-    Err(WizardError::BuildError(
-        "node kind has no dynamic output count".to_owned(),
-    ))
 }
 
 #[cfg(test)]
@@ -154,7 +141,7 @@ mod tests {
             // ASSERT
             assert_eq!(
                 declared,
-                vec![Dependency::fixed(producer, port, sink::SINK_INPUT)],
+                vec![Dependency::new(producer, port, sink::SINK_INPUT)],
                 "wrong sink dependency for {artifact}"
             );
         }
@@ -187,7 +174,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             declared,
-            vec![Dependency::fixed(
+            vec![Dependency::new(
                 NodeKind::Sign,
                 sign::SIGN_OUTPUT,
                 sink::SINK_INPUT

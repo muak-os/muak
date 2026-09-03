@@ -3,47 +3,33 @@
 use crate::error::{Result, WizardError};
 use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::graph::{Graph, Node, PortBinding, PortId};
+use crate::pipeline::graph::{Graph, Node, PortId};
 
-/// One declared input of a node: a stream produced by `producer` on
+/// One declared input of a node: the stream produced by `producer` on
 /// `producer_port`, bound to the consumer's `consumer_port`.
+///
+/// Producers with dynamic arity are consumed through multiple declared
+/// dependencies, one per positional port, so every dependency is exactly
+/// one stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Dependency {
     pub(crate) producer: NodeKind,
     pub(crate) producer_port: PortId,
     pub(crate) consumer_port: PortId,
-    pub(crate) kind: DependencyKind,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DependencyKind {
-    /// Exactly one stream between the two ports.
-    Fixed,
-    /// One stream per element of the producer's dynamic output range.
-    Many,
 }
 
 impl Dependency {
-    /// Exactly one stream between the two ports.
+    /// One stream between the two ports.
     #[must_use]
-    pub(crate) fn fixed(producer: NodeKind, producer_port: PortId, consumer_port: PortId) -> Self {
+    pub(crate) const fn new(
+        producer: NodeKind,
+        producer_port: PortId,
+        consumer_port: PortId,
+    ) -> Self {
         Self {
             producer,
             producer_port,
             consumer_port,
-            kind: DependencyKind::Fixed,
-        }
-    }
-
-    /// One stream per dynamic element; the planner binds
-    /// `producer_first + i` to `consumer_first + i` for every `i`.
-    #[must_use]
-    pub(crate) fn many(producer: NodeKind, producer_first: PortId, consumer_first: PortId) -> Self {
-        Self {
-            producer,
-            producer_port: producer_first,
-            consumer_port: consumer_first,
-            kind: DependencyKind::Many,
         }
     }
 }
@@ -81,50 +67,40 @@ fn check_node_dependencies(
 ) -> Result<()> {
     for dependency in nodes::dependencies(node.kind, ctx) {
         let producer = find_node(graph, dependency.producer)?;
-        match dependency.kind {
-            DependencyKind::Fixed => check_fixed(producer, node, &dependency)?,
-            DependencyKind::Many => check_many(producer, node, &dependency)?,
-        }
+        check(producer, node, &dependency)?;
     }
 
     Ok(())
 }
 
-fn check_fixed(producer: &Node, node: &Node, dependency: &Dependency) -> Result<()> {
-    let output = producer.output(dependency.producer_port)?;
-    let input = node.input(dependency.consumer_port)?;
+/// Checks the declared stream binds the producer's output to the consumer's input.
+fn check(producer: &Node, node: &Node, dependency: &Dependency) -> Result<()> {
+    let Some(output) = producer
+        .outputs
+        .iter()
+        .find(|binding| binding.port == dependency.producer_port)
+    else {
+        return Err(WizardError::BuildError(format!(
+            "node {:?} dependency on {:?} has no producer output at port {:?}",
+            node.kind, dependency.producer, dependency.producer_port,
+        )));
+    };
+    let Some(input) = node
+        .inputs
+        .iter()
+        .find(|binding| binding.port == dependency.consumer_port)
+    else {
+        return Err(WizardError::BuildError(format!(
+            "node {:?} has no input at port {:?} for its dependency on {:?}",
+            node.kind, dependency.consumer_port, dependency.producer,
+        )));
+    };
 
-    if output != input {
+    if output.stream != input.stream {
         return Err(WizardError::BuildError(format!(
             "node {:?} dependency on {:?} port {:?} binds stream {input:?}, producer has {output:?}",
             node.kind, dependency.producer, dependency.producer_port,
         )));
-    }
-
-    Ok(())
-}
-
-fn check_many(producer: &Node, node: &Node, dependency: &Dependency) -> Result<()> {
-    let outputs = dynamic_bindings(&producer.outputs, dependency.producer_port);
-    let inputs = dynamic_bindings(&node.inputs, dependency.consumer_port);
-
-    if outputs.len() != inputs.len() {
-        return Err(WizardError::BuildError(format!(
-            "node {:?} dependency on {:?} count mismatch: {} != {}",
-            node.kind,
-            dependency.producer,
-            outputs.len(),
-            inputs.len(),
-        )));
-    }
-
-    for (output, input) in outputs.iter().zip(&inputs) {
-        if output.stream != input.stream {
-            return Err(WizardError::BuildError(format!(
-                "node {:?} dynamic dependency on {:?} stream mismatch: {:?} != {:?}",
-                node.kind, dependency.producer, output.stream, input.stream,
-            )));
-        }
     }
 
     Ok(())
@@ -138,20 +114,14 @@ fn find_node(graph: &Graph, kind: NodeKind) -> Result<&Node> {
         .ok_or_else(|| WizardError::BuildError(format!("missing producer node {kind:?}")))
 }
 
-/// Every binding at or after `first`, in planner (ascending) order.
-fn dynamic_bindings(bindings: &[PortBinding], first: PortId) -> Vec<&PortBinding> {
-    bindings
-        .iter()
-        .filter(|binding| binding.port >= first)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use koci::arch::Arch;
 
     use crate::artifact::Artifact;
+    use crate::domain::overlay::Asset;
     use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::Overlay;
     use crate::domain::resolution::{ResolvedBuild, Sources};
     use crate::nodes::NodeKind;
     use crate::nodes::kernel;
@@ -186,6 +156,37 @@ mod tests {
             writers: std::sync::Mutex::new(
                 crate::pipeline::context::TargetWriters::new(Vec::new()),
             ),
+        }
+    }
+
+    fn build_plan_with_assets(assets: Vec<Asset>) -> ResolvedBuild {
+        ResolvedBuild::new(
+            Platform::Metal,
+            "v1.0.0".to_owned(),
+            Arch::Amd64,
+            Sources {
+                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+                kernel: Kernel::new(
+                    "ghcr.io/muak-os/linux".to_owned(),
+                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+                ),
+                overlay: Some(Overlay::new(
+                    "board".to_owned(),
+                    "board".to_owned(),
+                    "ghcr.io/example/board:latest".to_owned(),
+                    Arch::Arm64,
+                )),
+                extensions: Vec::new(),
+            },
+        )
+        .with_overlay_assets(Some(assets))
+    }
+
+    fn esp_file(path: &str) -> Asset {
+        Asset::EspFile {
+            path: path.to_owned(),
+            size: 1,
         }
     }
 
@@ -240,7 +241,7 @@ mod tests {
         // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::KernelPull);
-        let other = graph.add_node(NodeKind::Concat);
+        let other = graph.add_node(NodeKind::InstallerPull);
         let consumer = graph.add_node(NodeKind::ArtifactSink {
             artifact: Artifact::Kernel,
         });
@@ -255,51 +256,63 @@ mod tests {
         let ctx = context(&build);
 
         // ACT
-        let result = validate(&graph, &ctx);
+        let error = validate(&graph, &ctx).expect_err("stream mismatch");
 
         // ASSERT
-        result.unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("binds stream"),
+            "unexpected error: {message}"
+        );
     }
 
     #[test]
     fn rejects_many_count_mismatch() {
         // ARRANGE
+        let build = build_plan_with_assets(vec![esp_file("config.txt"), esp_file("boot.efi")]);
         let mut graph = Graph::new();
         let pull = graph.add_node(NodeKind::OverlayPull);
         let tar = graph.add_node(NodeKind::OverlayTar);
         let stream = graph.add_output(pull, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), stream).expect("bind");
         graph.bind_input(tar, PortId(2), stream).expect("bind");
-        let build = build_plan();
         let ctx = context(&build);
 
         // ACT
-        let result = validate(&graph, &ctx);
+        let error = validate(&graph, &ctx).expect_err("count mismatch");
 
         // ASSERT
-        result.unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("has no producer output at port"),
+            "unexpected error: {message}"
+        );
     }
 
     #[test]
     fn rejects_many_stream_mismatch() {
         // ARRANGE
+        let build = build_plan_with_assets(vec![esp_file("config.txt"), esp_file("boot.efi")]);
         let mut graph = Graph::new();
         let pull = graph.add_node(NodeKind::OverlayPull);
-        let other = graph.add_node(NodeKind::Concat);
+        let other = graph.add_node(NodeKind::InstallerPull);
         let tar = graph.add_node(NodeKind::OverlayTar);
         let first = graph.add_output(pull, PortId(0)).expect("add output");
         let _second = graph.add_output(pull, PortId(1)).expect("add output");
         let wrong = graph.add_output(other, PortId(0)).expect("add output");
         graph.bind_input(tar, PortId(1), first).expect("bind");
         graph.bind_input(tar, PortId(2), wrong).expect("bind");
-        let build = build_plan();
         let ctx = context(&build);
 
         // ACT
-        let result = validate(&graph, &ctx);
+        let error = validate(&graph, &ctx).expect_err("stream mismatch");
 
         // ASSERT
-        result.unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("binds stream"),
+            "unexpected error: {message}"
+        );
     }
 
     #[test]

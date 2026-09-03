@@ -4,10 +4,10 @@ use std::io::Read;
 
 use miso::iso;
 
+use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
 use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
-use crate::nodes::overlay::discovery::{OverlayAsset, assets};
-use crate::nodes::{NodeDescriptor, NodeKind, no_dynamic_output_count};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::{Graph, NodeId};
@@ -15,7 +15,6 @@ use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies: media::dependencies,
-    output_count: no_dynamic_output_count,
     preflight,
     run,
 };
@@ -36,19 +35,16 @@ fn run(
     ctx: &BuildContext<'_, '_, '_>,
 ) -> Result<NodeReport> {
     let (mut uki, mut overlays) = media_inputs(ports)?;
-    let assets = match ctx.build.overlay() {
-        Some(overlay) => assets(overlay)?,
-        None => Vec::new(),
-    };
+    let assets = ctx.build.overlay_assets().unwrap_or(&[]);
     if assets
         .iter()
-        .any(|asset| matches!(asset, OverlayAsset::RawBlob { .. }))
+        .any(|asset| matches!(asset, Asset::RawBlob { .. }))
     {
         return Err(WizardError::BuildError(
             "raw blobs cannot be written to an ISO image".to_owned(),
         ));
     }
-    let layout = media_layout(ctx, &uki, &assets)?;
+    let layout = media_layout(ctx, &uki, assets)?;
     let mut output = ports.take(MEDIA_OUTPUT)?.into_output()?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));

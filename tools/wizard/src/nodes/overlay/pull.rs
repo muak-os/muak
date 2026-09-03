@@ -6,9 +6,9 @@ use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
 
+use crate::domain::overlay::entry_name;
 use crate::domain::resolution::Overlay;
 use crate::error::{Result, WizardError};
-use crate::nodes::overlay::discovery::{assets, entry_name};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
@@ -20,7 +20,6 @@ pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
-    output_count,
     preflight,
     run,
 };
@@ -30,13 +29,12 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
     Vec::new()
 }
 
-/// Sizes and names the overlay output streams from the asset listing.
+/// Sizes and names the overlay output streams from the discovered assets.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
-    let overlay = ctx
+    let assets = ctx
         .build
-        .overlay()
+        .overlay_assets()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-    let assets = assets(overlay)?;
 
     let bindings = graph
         .node(id)?
@@ -50,7 +48,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
             assets.len(),
         )));
     }
-    for (binding, asset) in bindings.iter().zip(&assets) {
+    for (binding, asset) in bindings.iter().zip(assets) {
         let stream = graph.stream_mut(binding.stream)?;
         stream.size = asset.size();
         asset.name().clone_into(&mut stream.name);
@@ -132,13 +130,4 @@ fn collect_first_error(handles: Vec<ScopedJoinHandle<'_, Result<()>>>) -> Option
     }
 
     error
-}
-
-fn output_count(ctx: &BuildContext<'_, '_, '_>) -> Result<usize> {
-    let overlay = ctx
-        .build
-        .overlay()
-        .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
-
-    Ok(assets(overlay)?.len())
 }
