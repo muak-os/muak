@@ -1,6 +1,7 @@
 //! Disk and partition size constants and type GUIDs.
 
-pub const SECTOR_SIZE: u64 = 512;
+pub(crate) use parttable::gpt::plan::SECTOR_SIZE;
+
 pub const MB: u64 = 1024 * 1024;
 pub const GB: u64 = 1024 * MB;
 

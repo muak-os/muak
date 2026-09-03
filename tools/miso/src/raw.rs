@@ -5,16 +5,22 @@ use std::io::{Read, Write};
 use esp::EFI_GUID;
 use esp::image;
 use esp::layout::Layout;
-use parttable::error::ParttableError;
-use parttable::error::Result as PlacementResult;
 use parttable::gpt;
 use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
+use parttable::gpt::plan;
+use parttable::gpt::plan::{ALIGN_1_MIB_BYTES, SECTOR_SIZE, smallest_disk};
 use parttable::gpt::table::Table;
 
 use crate::error::{MisoError, Result};
 
-const SECTOR_SIZE: u64 = 512;
-const ALIGN_1_MIB_BYTES: u64 = ALIGN_1_MIB_SECTORS.saturating_mul(SECTOR_SIZE);
+/// Fixed disk GUID baked into raw images so builds are reproducible.
+pub const IMAGE_DISK_GUID: [u8; 16] = [0xff; 16];
+
+/// Fixed partition GUID baked into raw images so builds are reproducible.
+pub const IMAGE_PARTITION_GUID: [u8; 16] = [0xaa; 16];
+
+/// The default zstd compression level used when compression is requested.
+pub const DEFAULT_ZSTD_LEVEL: i32 = 6;
 
 /// A raw boot blob written at a fixed byte offset before the partition table.
 pub struct Blob<'a> {
@@ -28,6 +34,9 @@ pub struct Blob<'a> {
 
 /// Builds a raw GPT disk image containing the ESP into any `Write` sink.
 ///
+/// The first partition starts at the smallest 1 MiB-aligned offset past the
+/// last blob (at least 1 MiB), so blobs never overlap the GPT or the ESP.
+///
 /// # Errors
 ///
 /// Returns an error if blob placement overlaps the GPT or another blob, ESP
@@ -37,15 +46,10 @@ pub fn build<'data, 'ctx, W: Write>(
     layout: &'ctx Layout<'data>,
     esp: &mut [&'data mut (dyn Read + 'data)],
     blobs: &mut [Blob<'data>],
-    partition_start: u64,
     out: &mut W,
     compression_level: Option<i32>,
 ) -> Result<()> {
-    let partition_start = if partition_start == 0 {
-        ALIGN_1_MIB_BYTES
-    } else {
-        partition_start
-    };
+    let partition_start = partition_start(blobs);
     validate_blobs(blobs, partition_start)?;
     let esp_size = layout.total_size;
 
@@ -65,6 +69,24 @@ pub fn build<'data, 'ctx, W: Write>(
     Ok(())
 }
 
+/// Returns the smallest 1 MiB-aligned partition start that sits past every blob.
+fn partition_start(blobs: &[Blob]) -> u64 {
+    let end = blobs
+        .iter()
+        .map(|blob| blob.offset.saturating_add(blob.size))
+        .max()
+        .unwrap_or(0);
+
+    end.next_multiple_of(ALIGN_1_MIB_BYTES)
+        .max(ALIGN_1_MIB_BYTES)
+}
+
+fn efi_request(start_lba: u64, esp_size: u64) -> PlacementRequest {
+    PlacementRequest::new(EFI_GUID, IMAGE_PARTITION_GUID, "EFI", Size::Bytes(esp_size))
+        .slot(Slot::Exact(1))
+        .start(Start::AtOrAfter(start_lba))
+}
+
 fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
     out: &mut W,
     esp_size: u64,
@@ -72,20 +94,17 @@ fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
     blobs: &mut [Blob],
     esp_builder: B,
 ) -> Result<()> {
-    let disk_sectors = layout_disk(esp_size, partition_start)?;
-
-    let mut table = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
     let start_lba = partition_start.div_ceil(SECTOR_SIZE);
-    let request = PlacementRequest {
-        slot: Slot::Exact(1),
-        start: Start::AtOrAfter(start_lba),
-        size: Size::Bytes(esp_size),
-        alignment_lba: ALIGN_1_MIB_SECTORS,
-        type_guid: EFI_GUID,
-        unique_guid: [0xAA; 16],
-        attributes: 0,
-        name: "EFI".to_owned(),
-    };
+    let request = efi_request(start_lba, esp_size);
+    let disk_sectors = smallest_disk(
+        ALIGN_1_MIB_SECTORS * 2,
+        SECTOR_SIZE,
+        ALIGN_1_MIB_SECTORS,
+        IMAGE_DISK_GUID,
+        &request,
+    )?;
+
+    let mut table = Table::create(disk_sectors, SECTOR_SIZE, IMAGE_DISK_GUID)?;
     let placement = request.place(&mut table, SECTOR_SIZE)?;
     let partition_offset = placement
         .partition
@@ -114,8 +133,7 @@ fn write<W: Write, B: FnOnce(&mut W) -> Result<()>>(
 }
 
 fn validate_blobs(blobs: &[Blob], partition_start: u64) -> Result<()> {
-    let gpt = Table::create(ALIGN_1_MIB_SECTORS * 2, SECTOR_SIZE, [0xff; 16])?;
-    let gpt_end = gpt.primary_gpt_size();
+    let gpt_end = plan::primary_gpt_size(SECTOR_SIZE);
     let mut prev_end = 0_u64;
     let mut sorted: Vec<&Blob> = blobs.iter().collect();
     sorted.sort_by_key(|blob| blob.offset);
@@ -158,46 +176,6 @@ fn write_zeros<W: Write>(writer: &mut W, count: u64) -> Result<()> {
     Ok(())
 }
 
-fn layout_disk(efi_image_bytes: u64, partition_start: u64) -> Result<u64> {
-    let start_lba = partition_start.div_ceil(SECTOR_SIZE);
-    let mut disk_sectors = ALIGN_1_MIB_SECTORS * 2;
-
-    loop {
-        let mut gpt = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
-        let request = PlacementRequest {
-            slot: Slot::Exact(1),
-            start: Start::AtOrAfter(start_lba),
-            size: Size::Bytes(efi_image_bytes),
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: EFI_GUID,
-            unique_guid: [0xAA; 16],
-            attributes: 0,
-            name: "EFI".to_owned(),
-        };
-        let placement = request.place(&mut gpt, SECTOR_SIZE).map(|_| ());
-
-        match try_layout(placement, disk_sectors)? {
-            Some(disk_sectors) => return Ok(disk_sectors),
-            None => {
-                disk_sectors =
-                    disk_sectors
-                        .checked_add(ALIGN_1_MIB_SECTORS)
-                        .ok_or(MisoError::Gpt(
-                            "raw disk sector count overflowed".to_owned(),
-                        ))?;
-            }
-        }
-    }
-}
-
-fn try_layout(placement: PlacementResult<()>, disk_sectors: u64) -> Result<Option<u64>> {
-    match placement {
-        Ok(()) => Ok(Some(disk_sectors)),
-        Err(ParttableError::InvalidPlacement(_)) => Ok(None),
-        Err(err) => Err(err.into()),
-    }
-}
-
 fn validate_compression_level(level: i32) -> Result<i32> {
     let range = zstd::compression_level_range();
 
@@ -214,110 +192,54 @@ fn validate_compression_level(level: i32) -> Result<i32> {
 
 #[cfg(test)]
 mod tests {
-    use esp::EFI_GUID;
-    use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
-    use parttable::gpt::table::Table;
+    use std::io::Cursor;
+
+    use esp::FileMeta;
+    use esp::arch::Arch;
+    use esp::layout::compute;
+    use parttable::gpt::io;
 
     use super::*;
     use crate::error::MisoError;
 
-    fn try_place_efi_partition(disk_sectors: u64, efi_image_bytes: u64) -> Result<()> {
-        let mut gpt = Table::create(disk_sectors, SECTOR_SIZE, [0xff; 16])?;
-        let request = PlacementRequest {
-            slot: Slot::Exact(1),
-            start: Start::FirstUsable,
-            size: Size::Bytes(efi_image_bytes),
-            alignment_lba: ALIGN_1_MIB_SECTORS,
-            type_guid: EFI_GUID,
-            unique_guid: [0xAA; 16],
-            attributes: 0,
-            name: "EFI".to_owned(),
-        };
+    #[test]
+    fn partition_start_defaults_to_one_mib() {
+        // ARRANGE / ACT
+        let start = partition_start(&[]);
 
-        request.place(&mut gpt, SECTOR_SIZE)?;
-
-        Ok(())
+        // ASSERT
+        assert_eq!(start, ALIGN_1_MIB_BYTES);
     }
 
     #[test]
-    fn layout_disk_grows_until_the_esp_fits() {
+    fn partition_start_aligns_past_the_last_blob() {
         // ARRANGE
-        let efi_image_bytes = 3 * 1024 * 1024;
+        let mut first_reader = Cursor::new(Vec::new());
+        let mut last_reader = Cursor::new(Vec::new());
+        let blobs = [
+            Blob {
+                offset: 32 * 1024,
+                size: 1024,
+                reader: &mut first_reader,
+            },
+            Blob {
+                offset: 2 * ALIGN_1_MIB_BYTES + 4096,
+                size: 512,
+                reader: &mut last_reader,
+            },
+        ];
 
         // ACT
-        let disk_sectors =
-            layout_disk(efi_image_bytes, ALIGN_1_MIB_BYTES).expect("layout_disk must succeed");
-        let previous_attempt =
-            try_place_efi_partition(disk_sectors - ALIGN_1_MIB_SECTORS, efi_image_bytes);
-        let successful_attempt = try_place_efi_partition(disk_sectors, efi_image_bytes);
+        let start = partition_start(&blobs);
 
         // ASSERT
-        assert!(
-            matches!(previous_attempt, Err(MisoError::Gpt(_))),
-            "previous disk size must be too small to fit the ESP"
-        );
-        successful_attempt.expect("returned disk size must fit the ESP");
-        assert!(disk_sectors > ALIGN_1_MIB_SECTORS * 2);
-        assert_eq!(disk_sectors.rem_euclid(ALIGN_1_MIB_SECTORS), 0);
-    }
-
-    #[test]
-    fn layout_result_returns_disk_size_when_partition_fits() {
-        // ARRANGE
-        let disk_sectors = ALIGN_1_MIB_SECTORS * 4;
-
-        // ACT
-        let result = try_layout(Ok(()), disk_sectors).expect("successful placement must work");
-
-        // ASSERT
-        assert_eq!(result, Some(disk_sectors));
-    }
-
-    #[test]
-    fn layout_result_retries_when_partition_does_not_fit() {
-        // ARRANGE
-        let disk_sectors = ALIGN_1_MIB_SECTORS * 2;
-
-        // ACT
-        let result = try_layout(
-            Err(ParttableError::InvalidPlacement(
-                "partition does not fit".to_owned(),
-            )),
-            disk_sectors,
-        )
-        .expect("invalid placement should trigger a retry");
-
-        // ASSERT
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn layout_result_propagates_unexpected_gpt_errors() {
-        // ARRANGE
-        let disk_sectors = ALIGN_1_MIB_SECTORS * 2;
-
-        // ACT
-        let err = try_layout(
-            Err(ParttableError::Gpt("corrupt header".to_owned())),
-            disk_sectors,
-        )
-        .expect_err("unexpected GPT errors must be propagated");
-
-        // ASSERT
-        assert!(matches!(err, MisoError::Gpt(_)));
-        assert!(err.to_string().contains("corrupt header"));
+        let last_end = 2 * ALIGN_1_MIB_BYTES + 4096 + 512;
+        assert_eq!(start, last_end.next_multiple_of(ALIGN_1_MIB_BYTES));
     }
 
     #[test]
     fn raw_blob_written_at_offset_and_partition_shifted() {
         // ARRANGE
-        use std::io::Cursor;
-
-        use esp::FileMeta;
-        use esp::arch::Arch;
-        use esp::layout::compute;
-        use parttable::gpt::io;
-
         let uki = vec![0xCC_u8; 1024];
         let uki_size = u64::try_from(uki.len()).unwrap_or(0);
         let mut uki_cursor = Cursor::new(uki);
@@ -338,17 +260,8 @@ mod tests {
         };
 
         // ACT
-        build(
-            &layout,
-            &mut readers,
-            &mut [raw_blob],
-            blob_offset
-                .saturating_add(u64::try_from(blob.len()).unwrap_or(0))
-                .next_multiple_of(ALIGN_1_MIB_BYTES),
-            &mut out,
-            None,
-        )
-        .expect("raw::build must succeed with a blob");
+        build(&layout, &mut readers, &mut [raw_blob], &mut out, None)
+            .expect("raw::build must succeed with a blob");
         let img = out.into_inner();
 
         // ASSERT
@@ -371,12 +284,6 @@ mod tests {
     #[test]
     fn raw_blob_overlapping_gpt_is_rejected() {
         // ARRANGE
-        use std::io::Cursor;
-
-        use esp::FileMeta;
-        use esp::arch::Arch;
-        use esp::layout::compute;
-
         let uki = vec![0xCC_u8; 1024];
         let uki_size = u64::try_from(uki.len()).unwrap_or(0);
         let mut uki_cursor = Cursor::new(uki);
@@ -394,14 +301,7 @@ mod tests {
         };
 
         // ACT
-        let result = build(
-            &layout,
-            &mut readers,
-            &mut [raw_blob],
-            ALIGN_1_MIB_BYTES,
-            &mut out,
-            None,
-        );
+        let result = build(&layout, &mut readers, &mut [raw_blob], &mut out, None);
 
         // ASSERT
         assert!(matches!(result, Err(MisoError::Gpt(_))));

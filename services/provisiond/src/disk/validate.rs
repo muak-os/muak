@@ -54,7 +54,7 @@ fn disk(disk_path: &str, force: bool) -> Result<()> {
         );
     }
 
-    if super::gpt::disk_is_non_empty(disk_path)? && !force {
+    if super::manage::disk_is_non_empty(disk_path)? && !force {
         bail!("Disk '{disk_path}' is not empty and will be overwritten. Use --force to continue.");
     }
 

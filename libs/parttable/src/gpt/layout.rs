@@ -101,6 +101,37 @@ impl PlacementRequest {
 
         Ok(Placement { number, partition })
     }
+
+    /// Creates a placement request with the project defaults.
+    #[must_use]
+    pub fn new(type_guid: [u8; 16], unique_guid: [u8; 16], name: &str, size: Size) -> Self {
+        Self {
+            slot: Slot::Auto,
+            start: Start::FirstUsable,
+            size,
+            alignment_lba: ALIGN_1_MIB_SECTORS,
+            type_guid,
+            unique_guid,
+            attributes: 0,
+            name: name.to_owned(),
+        }
+    }
+
+    /// Overrides the partition slot selection.
+    #[must_use]
+    pub fn slot(mut self, slot: Slot) -> Self {
+        self.slot = slot;
+
+        self
+    }
+
+    /// Overrides the partition start selection.
+    #[must_use]
+    pub fn start(mut self, start: Start) -> Self {
+        self.start = start;
+
+        self
+    }
 }
 
 fn resolve_start_anchor(table: &Table, start: Start) -> Result<u64> {
@@ -238,6 +269,31 @@ mod tests {
             attributes: 0,
             name: name.to_owned(),
         }
+    }
+
+    #[test]
+    fn request_defaults_to_auto_slot_and_first_usable() {
+        // ARRANGE / ACT
+        let request = PlacementRequest::new(EFI_GUID, [0xaa; 16], "EFI", Size::Bytes(1024 * 1024));
+
+        // ASSERT
+        assert_eq!(request.slot, Slot::Auto);
+        assert_eq!(request.start, Start::FirstUsable);
+        assert_eq!(request.alignment_lba, ALIGN_1_MIB_SECTORS);
+        assert_eq!(request.attributes, 0);
+        assert_eq!(request.name, "EFI");
+    }
+
+    #[test]
+    fn request_setters_override_slot_and_start() {
+        // ARRANGE / ACT
+        let request = PlacementRequest::new(EFI_GUID, [0xaa; 16], "EFI", Size::Bytes(1024 * 1024))
+            .slot(Slot::Exact(1))
+            .start(Start::AtOrAfter(ALIGN_1_MIB_SECTORS));
+
+        // ASSERT
+        assert_eq!(request.slot, Slot::Exact(1));
+        assert_eq!(request.start, Start::AtOrAfter(ALIGN_1_MIB_SECTORS));
     }
 
     #[test]

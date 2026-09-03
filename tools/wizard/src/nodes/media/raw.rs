@@ -15,9 +15,6 @@ use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
-/// 1 MiB alignment boundary in bytes.
-const ALIGN_1_MIB_BYTES: u64 = 1024 * 1024;
-
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies: media::dependencies,
     produces,
@@ -52,13 +49,10 @@ fn run(
 
     let mut esp_readers: Vec<&mut dyn Read> = Vec::new();
     let mut raw_blobs: Vec<raw::Blob> = Vec::new();
-    let mut partition_start = ALIGN_1_MIB_BYTES;
     for (asset, input) in assets.iter().zip(overlays.iter_mut()) {
         match *asset {
             Asset::EspFile { .. } => esp_readers.push(&mut input.reader),
             Asset::RawBlob { offset, size, .. } => {
-                let end = offset.saturating_add(size);
-                partition_start = partition_start.max(align_up(end, ALIGN_1_MIB_BYTES));
                 raw_blobs.push(raw::Blob {
                     offset,
                     size,
@@ -78,15 +72,10 @@ fn run(
         &layout,
         &mut readers_with_uki,
         &mut raw_blobs,
-        partition_start,
         &mut output.writer,
-        Some(6),
+        Some(raw::DEFAULT_ZSTD_LEVEL),
     )
     .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
     Ok(None)
-}
-
-fn align_up(value: u64, align: u64) -> u64 {
-    value.div_ceil(align).saturating_mul(align)
 }
