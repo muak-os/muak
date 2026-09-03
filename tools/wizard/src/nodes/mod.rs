@@ -19,39 +19,39 @@ use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
-/// What a node does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum NodeKind {
-    InstallerPull,
-    StubPull,
-    KernelPull,
-    LayerPayloads,
-    InitramfsTail,
-    Concat,
-    Uki,
-    Sign,
-    Iso,
-    Raw,
-    OverlayPull,
-    OverlayTar,
+/// Generates the `NodeKind` enum, its `ALL` table, and the descriptor dispatch from the single node registry.
+macro_rules! node_registry {
+    ( $( $kind:ident => $descriptor:path ),+ $(,)? ) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub(crate) enum NodeKind {
+            $( $kind, )+
+        }
+
+        impl NodeKind {
+            pub(crate) const ALL: &'static [NodeKind] = &[ $( NodeKind::$kind, )+ ];
+        }
+
+        pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
+            match kind {
+                $( NodeKind::$kind => &$descriptor, )+
+            }
+        }
+    };
 }
 
-impl NodeKind {
-    /// Every node kind, for produce-table scans. Keep in sync with the enum.
-    pub(crate) const ALL: [NodeKind; 12] = [
-        Self::InstallerPull,
-        Self::StubPull,
-        Self::KernelPull,
-        Self::LayerPayloads,
-        Self::InitramfsTail,
-        Self::Concat,
-        Self::Uki,
-        Self::Sign,
-        Self::Iso,
-        Self::Raw,
-        Self::OverlayPull,
-        Self::OverlayTar,
-    ];
+node_registry! {
+    InstallerPull => installer::DESCRIPTOR,
+    StubPull => stub::DESCRIPTOR,
+    KernelPull => kernel::DESCRIPTOR,
+    LayerPayloads => layers::DESCRIPTOR,
+    InitramfsTail => initramfs::tail::DESCRIPTOR,
+    Concat => initramfs::concat::DESCRIPTOR,
+    Uki => uki::DESCRIPTOR,
+    Sign => sign::DESCRIPTOR,
+    Iso => media::iso::DESCRIPTOR,
+    Raw => media::raw::DESCRIPTOR,
+    OverlayPull => overlay::pull::DESCRIPTOR,
+    OverlayTar => overlay::tar::DESCRIPTOR,
 }
 
 /// One node kind's full contract.
@@ -61,24 +61,6 @@ pub(crate) struct NodeDescriptor {
     pub(crate) preflight: fn(&mut Graph, NodeId, &BuildContext<'_, '_>) -> Result<()>,
     pub(crate) run:
         fn(NodeKind, &mut NodePorts<'_, '_>, &BuildContext<'_, '_>) -> Result<NodeReport>,
-}
-
-/// The kind → descriptor catalog.
-pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
-    match kind {
-        NodeKind::InstallerPull => &installer::DESCRIPTOR,
-        NodeKind::StubPull => &stub::DESCRIPTOR,
-        NodeKind::KernelPull => &kernel::DESCRIPTOR,
-        NodeKind::LayerPayloads => &layers::DESCRIPTOR,
-        NodeKind::InitramfsTail => &initramfs::tail::DESCRIPTOR,
-        NodeKind::Concat => &initramfs::concat::DESCRIPTOR,
-        NodeKind::Uki => &uki::DESCRIPTOR,
-        NodeKind::Sign => &sign::DESCRIPTOR,
-        NodeKind::Iso => &media::iso::DESCRIPTOR,
-        NodeKind::Raw => &media::raw::DESCRIPTOR,
-        NodeKind::OverlayPull => &overlay::pull::DESCRIPTOR,
-        NodeKind::OverlayTar => &overlay::tar::DESCRIPTOR,
-    }
 }
 
 /// Declared inputs of a planned kind, read from its descriptor.
