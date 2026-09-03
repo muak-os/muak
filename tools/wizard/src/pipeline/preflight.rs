@@ -11,7 +11,7 @@ use crate::pipeline::graph::Graph;
 ///
 /// Returns an error when a source metadata query or size computation fails,
 /// or when any stream ended up unnamed.
-pub(crate) fn preflight(graph: Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<Graph> {
+pub(crate) fn preflight(graph: Graph, ctx: &BuildContext<'_, '_>) -> Result<Graph> {
     let mut graph = graph;
 
     for id in graph.topological_order() {

@@ -4,6 +4,7 @@ use std::io::Read;
 
 use ramune::Entry;
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::layers;
 use crate::nodes::{NodeDescriptor, NodeKind};
@@ -18,12 +19,13 @@ pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// One stream per initramfs payload layer, in canonical source order.
-fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     let mut dependencies = Vec::with_capacity(ctx.build.payload_layer_count());
     for index in 0..ctx.build.payload_layer_count() {
         dependencies.push(Dependency::new(
@@ -36,8 +38,13 @@ fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependen
     dependencies
 }
 
+/// The CPIO tail is an internal initramfs member, never a requested artifact.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    Vec::new()
+}
+
 /// Exact CPIO tail size from the named layer input streams plus the profile entry.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
     for binding in graph.node(id)?.input_bindings() {
@@ -72,8 +79,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Streams one CPIO entry per layer input stream plus the profile entry in canonical order.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut inputs = Endpoint::into_inputs(
         ports

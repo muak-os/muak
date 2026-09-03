@@ -6,6 +6,7 @@ use koci::error::KociError;
 use koci::pull;
 use koci::pull::entries::MetadataEntry;
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
@@ -19,17 +20,23 @@ pub(crate) const STUB_PATH: &str = "stub.efi";
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+    Vec::new()
+}
+
+/// The stub is an internal input of the UKI, never a requested artifact.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 
 /// Exact tar-entry size via the koci metadata callback.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
     let mut sizes = HashMap::new();
@@ -60,8 +67,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Pulls the stub once and writes its PE binary to the output stream.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let build = ctx.build;
     let mut output = ports

@@ -6,6 +6,7 @@ use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
 
+use crate::artifact::Artifact;
 use crate::domain::overlay::entry_name;
 use crate::domain::resolution::Overlay;
 use crate::error::{Result, WizardError};
@@ -20,17 +21,23 @@ pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+    Vec::new()
+}
+
+/// Overlay assets are inputs of the tar and media nodes, never requested artifacts.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 
 /// Sizes and names the overlay output streams from the discovered assets.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let assets = ctx
         .build
         .overlay_assets()
@@ -58,10 +65,10 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 }
 
 /// Pulls the overlay source once per output stream, each on its own thread.
-fn run<'a>(
+fn run<'name, 'writer>(
     _kind: NodeKind,
-    ports: &mut NodePorts<'a>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'name, 'writer>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let overlay = ctx
         .build
@@ -73,7 +80,7 @@ fn run<'a>(
             .into_iter()
             .map(|(_, endpoint)| endpoint),
     )?;
-    let files: Vec<(&'a str, &mut OutputStream<'a>)> = outputs
+    let files: Vec<(&'name str, &mut OutputStream<'name, 'writer>)> = outputs
         .iter_mut()
         .map(|output| (output.name, output))
         .collect();
@@ -99,7 +106,7 @@ fn pull_into_output(
     arch: Arch,
     overlay: &Overlay,
     name: &str,
-    output: &mut OutputStream<'_>,
+    output: &mut OutputStream<'_, '_>,
 ) -> Result<()> {
     pull::files(source, &arch, None, |entry| {
         if let Some(found) = entry_name(overlay, &entry.path)

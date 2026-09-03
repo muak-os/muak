@@ -2,6 +2,7 @@
 
 use std::io::Write;
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
@@ -16,17 +17,23 @@ pub(crate) const FANOUT_OUTPUTS_FIRST: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// Fanout has no dependencies because they're created at normalization.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+    Vec::new()
+}
+
+/// Fanout branches are stamped at normalization, never through the table.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 
 /// Every fanout output copies the input stream's size and name.
-fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_>) -> Result<()> {
     let input = graph.node(id)?.input(FANOUT_INPUT)?;
     let source = graph.stream(input)?;
     let size = source.size;
@@ -47,8 +54,8 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
 
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    _ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    _ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut input = ports.take(FANOUT_INPUT)?.into_input()?;
     let mut outputs = Endpoint::into_outputs(
@@ -72,16 +79,14 @@ fn run(
 mod tests {
     use std::io::Read as _;
     use std::os::unix::net::UnixStream;
-    use std::sync::Mutex;
 
     use koci::arch::Arch;
 
     use super::*;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::{ResolvedBuild, Sources};
-    use crate::pipeline::context::TargetWriters;
     use crate::pipeline::graph::PortId;
-    use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
+    use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream, OutputWriter};
     use crate::request::Platform;
 
     #[test]
@@ -108,7 +113,7 @@ mod tests {
                     Endpoint::Output(OutputStream {
                         size: 6,
                         name: "left",
-                        writer: left_writer,
+                        writer: OutputWriter::Pipe(left_writer),
                     }),
                 ),
                 (
@@ -116,7 +121,7 @@ mod tests {
                     Endpoint::Output(OutputStream {
                         size: 6,
                         name: "right",
-                        writer: right_writer,
+                        writer: OutputWriter::Pipe(right_writer),
                     }),
                 ),
             ],
@@ -142,7 +147,6 @@ mod tests {
             build: &build,
             profile: b"",
             signing: None,
-            writers: Mutex::new(TargetWriters::new(Vec::new())),
         };
         run(NodeKind::Fanout, &mut ports, &ctx).expect("fanout run");
 

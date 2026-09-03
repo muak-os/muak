@@ -3,6 +3,7 @@
 use sbolt::keys::SigningPair;
 use sbolt::signature;
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::uki;
 use crate::nodes::{NodeDescriptor, NodeKind};
@@ -17,17 +18,26 @@ pub(crate) const SIGN_OUTPUT: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// The unsigned UKI stream from the Uki node.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     vec![Dependency::new(NodeKind::Uki, uki::UKI_OUTPUT, SIGN_INPUT)]
 }
 
+/// The signed UKI.
+fn produces(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    match ctx.signing {
+        Some(_) => vec![(SIGN_OUTPUT, Artifact::Uki)],
+        None => Vec::new(),
+    }
+}
+
 /// The signed output size of the unsigned input.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let input = graph.node(id)?.input(SIGN_INPUT)?;
     let unsigned = graph.stream(input)?.size;
     let signing = ctx
@@ -44,8 +54,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Streams the unsigned UKI through sbolt into the final output.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut input = ports.take(SIGN_INPUT)?.into_input()?;
     let mut output = ports.take(SIGN_OUTPUT)?.into_output()?;

@@ -39,7 +39,7 @@ impl Dependency {
 /// # Errors
 ///
 /// Returns an error on the first violation.
-pub(crate) fn validate(graph: &Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+pub(crate) fn validate(graph: &Graph, ctx: &BuildContext<'_, '_>) -> Result<()> {
     for node in graph.nodes() {
         check_node_dependencies(graph, node, ctx)?;
     }
@@ -60,11 +60,7 @@ pub(crate) fn validate(graph: &Graph, ctx: &BuildContext<'_, '_, '_>) -> Result<
     Ok(())
 }
 
-fn check_node_dependencies(
-    graph: &Graph,
-    node: &Node,
-    ctx: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
+fn check_node_dependencies(graph: &Graph, node: &Node, ctx: &BuildContext<'_, '_>) -> Result<()> {
     for dependency in nodes::dependencies(node.kind, ctx) {
         let producer = find_node(graph, dependency.producer)?;
         check(producer, node, &dependency)?;
@@ -118,13 +114,13 @@ fn find_node(graph: &Graph, kind: NodeKind) -> Result<&Node> {
 mod tests {
     use koci::arch::Arch;
 
-    use crate::artifact::Artifact;
     use crate::domain::overlay::Asset;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::Overlay;
     use crate::domain::resolution::{ResolvedBuild, Sources};
     use crate::nodes::NodeKind;
-    use crate::nodes::kernel;
+    use crate::nodes::initramfs::tail;
+    use crate::nodes::layers;
     use crate::pipeline::context::BuildContext;
     use crate::pipeline::dependency::validate;
     use crate::pipeline::graph::{Graph, PortId};
@@ -148,14 +144,11 @@ mod tests {
         )
     }
 
-    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_> {
         BuildContext {
             build,
             profile: b"",
             signing: None,
-            writers: std::sync::Mutex::new(
-                crate::pipeline::context::TargetWriters::new(Vec::new()),
-            ),
         }
     }
 
@@ -190,17 +183,22 @@ mod tests {
         }
     }
 
-    fn kernel_sink_graph() -> Graph {
-        // ARRANGE
+    fn tail_chain_graph() -> Graph {
         let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::KernelPull);
-        let consumer = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
-        let stream = graph
-            .add_output(producer, kernel::KERNEL)
+        let layer_payloads = graph.add_node(NodeKind::LayerPayloads);
+        let tail = graph.add_node(NodeKind::InitramfsTail);
+        let first = graph
+            .add_output(layer_payloads, layers::FIRST_OUTPUT)
             .expect("add output");
-        graph.bind_input(consumer, PortId(0), stream).expect("bind");
+        let second = graph
+            .add_output(layer_payloads, layers::FIRST_OUTPUT.offset(1))
+            .expect("add output");
+        graph
+            .bind_input(tail, tail::TAIL_INPUTS_FIRST, first)
+            .expect("bind");
+        graph
+            .bind_input(tail, tail::TAIL_INPUTS_FIRST.offset(1), second)
+            .expect("bind");
 
         graph
     }
@@ -208,7 +206,7 @@ mod tests {
     #[test]
     fn accepts_satisfied_dependencies() {
         // ARRANGE
-        let graph = kernel_sink_graph();
+        let graph = tail_chain_graph();
         let build = build_plan();
         let ctx = context(&build);
 
@@ -223,9 +221,7 @@ mod tests {
     fn rejects_missing_producer() {
         // ARRANGE
         let mut graph = Graph::new();
-        graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
+        graph.add_node(NodeKind::Uki);
         let build = build_plan();
         let ctx = context(&build);
 
@@ -240,17 +236,15 @@ mod tests {
     fn rejects_fixed_stream_mismatch() {
         // ARRANGE
         let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::KernelPull);
+        let layer_payloads = graph.add_node(NodeKind::LayerPayloads);
         let other = graph.add_node(NodeKind::InstallerPull);
-        let consumer = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
-        graph
-            .add_output(producer, kernel::KERNEL)
+        let tail = graph.add_node(NodeKind::InitramfsTail);
+        let _first = graph
+            .add_output(layer_payloads, layers::FIRST_OUTPUT)
             .expect("add output");
-        let other_stream = graph.add_output(other, PortId(0)).expect("add output");
+        let wrong = graph.add_output(other, PortId(0)).expect("add output");
         graph
-            .bind_input(consumer, PortId(0), other_stream)
+            .bind_input(tail, tail::TAIL_INPUTS_FIRST, wrong)
             .expect("bind");
         let build = build_plan();
         let ctx = context(&build);
@@ -318,8 +312,8 @@ mod tests {
     #[test]
     fn rejects_duplicate_node_instances() {
         // ARRANGE
-        let mut graph = kernel_sink_graph();
-        graph.add_node(NodeKind::KernelPull);
+        let mut graph = tail_chain_graph();
+        graph.add_node(NodeKind::LayerPayloads);
         let build = build_plan();
         let ctx = context(&build);
 

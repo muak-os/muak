@@ -1,5 +1,6 @@
 //! Concatenates two ordered initramfs members into one output.
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs::tail;
 use crate::nodes::installer;
@@ -16,20 +17,26 @@ pub(crate) const CONCAT_OUTPUT: PortId = PortId(2);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// The raw CPIO tail first, then the compressed installer base.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::new(NodeKind::InitramfsTail, tail::TAIL_OUTPUT, CONCAT_FIRST),
         Dependency::new(NodeKind::InstallerPull, installer::INITRAMFS, CONCAT_SECOND),
     ]
 }
 
+/// The concatenated initramfs image.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    vec![(CONCAT_OUTPUT, Artifact::Initramfs)]
+}
+
 /// Concat size = first input + second input.
-fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_>) -> Result<()> {
     let input_size = |port: PortId| -> Result<u64> {
         let sid = graph.node(id)?.input(port)?;
         Ok(graph.stream(sid)?.size)
@@ -46,8 +53,8 @@ fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_, '_>) -> 
 /// Emits the first input stream followed by the second into one output.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    _ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    _ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut first = ports.take(CONCAT_FIRST)?.into_input()?;
     let mut second = ports.take(CONCAT_SECOND)?.into_input()?;

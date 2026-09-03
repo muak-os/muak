@@ -1,24 +1,20 @@
 //! Build inputs shared by preflight and the node runners.
 
 use std::io::Write;
-use std::sync::Mutex;
 
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
 use crate::domain::resolution::ResolvedBuild;
 
-/// Build inputs, passed explicitly to preflight and runners.
-///
-/// The context is not part of the logical graph and never contains pipes.
-pub(crate) struct BuildContext<'data, 'sign, 'writers> {
+/// Build inputs, passed explicitly to planning, preflight, and runners.
+pub(crate) struct BuildContext<'data, 'sign> {
     pub(crate) build: &'data ResolvedBuild,
     pub(crate) profile: &'data [u8],
     pub(crate) signing: Option<&'sign SigningPair<'sign>>,
-    pub(crate) writers: Mutex<TargetWriters<'writers>>,
 }
 
-/// User artifact writers, consumed once each by their sink node.
+/// User artifact writers, consumed once each by their producing node at bind time.
 pub(crate) struct TargetWriters<'a> {
     slots: [Option<&'a mut (dyn Write + Send)>; Artifact::COUNT],
 }
@@ -40,6 +36,14 @@ impl<'a> TargetWriters<'a> {
             .get_mut(artifact.to_index())
             .and_then(Option::take)
     }
+
+    /// Whether a writer for `artifact` is still available, without taking it.
+    #[must_use]
+    pub(crate) fn available(&self, artifact: Artifact) -> bool {
+        self.slots
+            .get(artifact.to_index())
+            .is_some_and(Option::is_some)
+    }
 }
 
 fn fill_slots<'a>(
@@ -50,5 +54,59 @@ fn fill_slots<'a>(
         if let Some(slot) = slots.get_mut(artifact.to_index()) {
             *slot = Some(writer);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Sink;
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn takes_each_writer_once() {
+        // ARRANGE
+        let mut first = Sink;
+        let mut second = Sink;
+        let mut writers = TargetWriters::new(vec![
+            (Artifact::Kernel, &mut first),
+            (Artifact::Iso, &mut second),
+        ]);
+
+        // ACT
+        let kernel = writers.take(Artifact::Kernel);
+        let kernel_again = writers.take(Artifact::Kernel);
+        let iso = writers.take(Artifact::Iso);
+
+        // ASSERT
+        assert!(kernel.is_some(), "first take must yield the writer");
+        assert!(kernel_again.is_none(), "a writer must be taken only once");
+        assert!(iso.is_some(), "each artifact has its own slot");
+    }
+
+    #[test]
+    fn available_peeks_without_taking() {
+        // ARRANGE
+        let mut writer = Sink;
+        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
+
+        // ACT / ASSERT
+        assert!(writers.available(Artifact::Kernel), "peek before take");
+        assert!(
+            writers.take(Artifact::Kernel).is_some(),
+            "take after peek must yield the writer"
+        );
+        assert!(!writers.available(Artifact::Kernel), "peek after take");
+        assert!(!writers.available(Artifact::Uki), "absent slot");
     }
 }

@@ -2,6 +2,7 @@
 
 use tar::{Builder, Header};
 
+use crate::artifact::Artifact;
 use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
 use crate::nodes::overlay::pull;
@@ -17,12 +18,13 @@ pub(crate) const TAR_INPUTS_FIRST: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// One stream per overlay asset, in canonical (path-sorted) order.
-fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     let assets = ctx.build.overlay_assets().unwrap_or(&[]);
     let mut dependencies = Vec::with_capacity(assets.len());
     for index in 0..assets.len() {
@@ -36,8 +38,13 @@ fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependen
     dependencies
 }
 
+/// The overlay assets tar archive.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    vec![(TAR_OUTPUT, Artifact::Overlays)]
+}
+
 /// tar size = headers + file data + padding per entry, plus the two zero trailer blocks.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let assets = ctx
         .build
         .overlay_assets()
@@ -60,8 +67,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Emits one tar entry per overlay ESP file, skipping raw blobs.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let assets = ctx
         .build

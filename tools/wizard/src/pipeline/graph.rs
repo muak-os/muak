@@ -1,5 +1,6 @@
 //! Logical build graph types.
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
 use crate::pipeline::order;
@@ -71,7 +72,7 @@ impl Node {
     }
 }
 
-/// A logical byte flow with a fixed size, one producer, and one consumer.
+/// A logical byte flow with a fixed size, one producer, and one destination.
 #[derive(Clone, Debug)]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
@@ -79,6 +80,7 @@ pub(crate) struct Stream {
     pub(crate) size: u64,
     pub(crate) producer: NodeId,
     pub(crate) consumers: Vec<NodeId>,
+    pub(crate) artifact: Option<Artifact>,
 }
 
 /// The logical build DAG: nodes plus the streams between them.
@@ -117,6 +119,7 @@ impl Graph {
             size: 0,
             producer: node,
             consumers: Vec::new(),
+            artifact: None,
         });
         let node_ref = self.node_mut(node)?;
         if node_ref.outputs.iter().any(|binding| binding.port == port) {
@@ -236,15 +239,12 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifact::Artifact;
 
     fn simple_graph() -> Graph {
         // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::InstallerPull);
-        let consumer = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
+        let consumer = graph.add_node(NodeKind::Concat);
         let stream = graph.add_output(producer, PortId(0)).expect("add output");
         graph
             .bind_input(consumer, PortId(0), stream)
@@ -258,9 +258,7 @@ mod tests {
         // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::InstallerPull);
-        let consumer = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
+        let consumer = graph.add_node(NodeKind::Concat);
 
         // ACT
         let stream = graph.add_output(producer, PortId(0)).expect("add output");
@@ -399,5 +397,22 @@ mod tests {
 
         // ASSERT
         assert!(result.is_ok(), "named stream must pass assertion");
+    }
+
+    #[test]
+    fn new_streams_start_unstamped() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::InstallerPull);
+
+        // ACT
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+
+        // ASSERT
+        assert_eq!(
+            graph.stream(stream).expect("stream").artifact,
+            None,
+            "new streams must not be stamped as terminal artifacts"
+        );
     }
 }

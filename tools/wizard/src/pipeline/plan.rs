@@ -14,9 +14,9 @@ use crate::pipeline::normalize::normalize;
 ///
 /// # Errors
 ///
-/// Returns an error when a dependency is cyclic or the built graph fails
-/// validation.
-pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
+/// Returns an error when an artifact has no unique producer, a dependency is
+/// cyclic, or the built graph fails validation.
+pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(ctx);
     for artifact in artifacts {
         if *artifact == Artifact::Overlays && ctx.build.overlay().is_none() {
@@ -24,9 +24,9 @@ pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Re
                 "overlays requested but the profile has no overlay".to_owned(),
             ));
         }
-        planner.ensure(NodeKind::ArtifactSink {
-            artifact: *artifact,
-        })?;
+        let (producer, producer_port) = artifact_source(*artifact, ctx)?;
+        planner.ensure(producer)?;
+        planner.request(producer, producer_port, *artifact)?;
     }
     planner.bind_all()?;
     validate(&planner.graph, ctx)?;
@@ -35,9 +35,32 @@ pub(crate) fn plan(ctx: &BuildContext<'_, '_, '_>, artifacts: &[Artifact]) -> Re
     Ok(planner.graph)
 }
 
+fn artifact_source(artifact: Artifact, ctx: &BuildContext<'_, '_>) -> Result<(NodeKind, PortId)> {
+    let declarations = NodeKind::ALL
+        .iter()
+        .copied()
+        .flat_map(|kind| {
+            nodes::produces(kind, ctx)
+                .into_iter()
+                .map(move |(port, produced)| (kind, port, produced))
+        })
+        .filter(|&(.., produced)| produced == artifact);
+    let mut source = None;
+    for (kind, port, _) in declarations {
+        if source.is_some() {
+            return Err(WizardError::BuildError(format!(
+                "artifact {artifact} is produced by more than one node"
+            )));
+        }
+        source = Some((kind, port));
+    }
+
+    source.ok_or_else(|| WizardError::BuildError(format!("no node produces {artifact}")))
+}
+
 /// Depth-first instantiation of the dependency graph, with memoization.
-struct Planner<'a, 'data, 'sign, 'write> {
-    ctx: &'a BuildContext<'data, 'sign, 'write>,
+struct Planner<'a, 'data, 'sign> {
+    ctx: &'a BuildContext<'data, 'sign>,
     graph: Graph,
     instances: HashMap<NodeKind, NodeId>,
     outputs: HashMap<(NodeKind, PortId), StreamId>,
@@ -50,8 +73,8 @@ enum VisitState {
     Done,
 }
 
-impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
-    fn new(ctx: &'a BuildContext<'data, 'sign, 'write>) -> Self {
+impl<'a, 'data, 'sign> Planner<'a, 'data, 'sign> {
+    fn new(ctx: &'a BuildContext<'data, 'sign>) -> Self {
         Self {
             ctx,
             graph: Graph::new(),
@@ -93,6 +116,15 @@ impl<'a, 'data, 'sign, 'write> Planner<'a, 'data, 'sign, 'write> {
             let producer = self.instance(dependency.producer)?;
             self.bind(producer, consumer, &dependency)?;
         }
+
+        Ok(())
+    }
+
+    /// Stamps a producer output as the terminal stream of a requested artifact.
+    fn request(&mut self, kind: NodeKind, port: PortId, artifact: Artifact) -> Result<()> {
+        let producer = self.instance(kind)?;
+        let stream = self.output_stream(kind, port, producer)?;
+        self.graph.stream_mut(stream)?.artifact = Some(artifact);
 
         Ok(())
     }
@@ -152,13 +184,14 @@ mod tests {
     use super::*;
     use crate::domain::resolution::Extension;
     use crate::domain::resolution::Kernel;
+    use crate::domain::resolution::Overlay;
     use crate::domain::resolution::{ResolvedBuild, Sources};
+    use crate::nodes::kernel;
     use crate::nodes::uki;
-    use crate::pipeline::context::{BuildContext, TargetWriters};
+    use crate::pipeline::context::BuildContext;
     use crate::request::Platform;
 
     fn build_plan() -> ResolvedBuild {
-        // ARRANGE
         ResolvedBuild::new(
             Platform::Metal,
             "v1.0.0".to_owned(),
@@ -179,31 +212,39 @@ mod tests {
         )
     }
 
-    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
+    fn build_plan_with_overlay() -> ResolvedBuild {
+        ResolvedBuild::new(
+            Platform::Metal,
+            "v1.0.0".to_owned(),
+            Arch::Amd64,
+            Sources {
+                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+                kernel: Kernel::new(
+                    "ghcr.io/muak-os/linux".to_owned(),
+                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+                ),
+                overlay: Some(Overlay::new(
+                    "muak".to_owned(),
+                    "muak-os/overlays".to_owned(),
+                    "ghcr.io/muak-os/overlays:v1.0.0".to_owned(),
+                    Arch::Amd64,
+                )),
+                extensions: Vec::new(),
+            },
+        )
+    }
+
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_> {
         BuildContext {
             build,
             profile: b"",
             signing: None,
-            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
         }
     }
 
     fn kinds(graph: &Graph) -> Vec<NodeKind> {
         graph.nodes().iter().map(|node| node.kind).collect()
-    }
-
-    fn uki_sink(graph: &Graph) -> NodeId {
-        graph
-            .nodes()
-            .iter()
-            .find(|node| {
-                node.kind
-                    == NodeKind::ArtifactSink {
-                        artifact: Artifact::Uki,
-                    }
-            })
-            .expect("uki sink")
-            .id
     }
 
     fn count(graph: &Graph, kind: NodeKind) -> usize {
@@ -212,6 +253,38 @@ mod tests {
             .iter()
             .filter(|node| node.kind == kind)
             .count()
+    }
+
+    fn terminal(graph: &Graph, artifact: Artifact) -> (NodeKind, PortId) {
+        let stream = graph
+            .streams()
+            .iter()
+            .find(|stream| stream.artifact == Some(artifact))
+            .unwrap_or_else(|| panic!("no terminal stream for {artifact}"));
+        let producer = graph.node(stream.producer).expect("producer").kind;
+
+        (
+            producer,
+            graph
+                .node(stream.producer)
+                .expect("node")
+                .outputs
+                .iter()
+                .find(|binding| binding.stream == stream.id)
+                .expect("terminal port")
+                .port,
+        )
+    }
+
+    fn terminals(graph: &Graph) -> Vec<Artifact> {
+        let mut artifacts: Vec<_> = graph
+            .streams()
+            .iter()
+            .filter_map(|stream| stream.artifact)
+            .collect();
+        artifacts.sort();
+
+        artifacts
     }
 
     #[test]
@@ -224,26 +297,14 @@ mod tests {
         let graph = plan(&ctx, &[Artifact::Kernel, Artifact::Cmdline]).expect("plan");
 
         // ASSERT
-        assert_eq!(kinds(&graph).len(), 3);
-        assert_eq!(count(&graph, NodeKind::KernelPull), 1);
-        assert_eq!(count(&graph, NodeKind::InstallerPull), 0);
+        assert_eq!(kinds(&graph), vec![NodeKind::KernelPull]);
         assert_eq!(
-            count(
-                &graph,
-                NodeKind::ArtifactSink {
-                    artifact: Artifact::Kernel
-                }
-            ),
-            1
+            terminal(&graph, Artifact::Kernel),
+            (NodeKind::KernelPull, kernel::KERNEL)
         );
         assert_eq!(
-            count(
-                &graph,
-                NodeKind::ArtifactSink {
-                    artifact: Artifact::Cmdline
-                }
-            ),
-            1
+            terminal(&graph, Artifact::Cmdline),
+            (NodeKind::KernelPull, kernel::CMDLINE)
         );
         assert_eq!(count(&graph, NodeKind::Fanout), 0);
     }
@@ -264,23 +325,11 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::LayerPayloads), 1);
         assert_eq!(count(&graph, NodeKind::Fanout), 1);
         assert_eq!(
-            count(
-                &graph,
-                NodeKind::ArtifactSink {
-                    artifact: Artifact::Initramfs
-                }
-            ),
-            1
+            terminal(&graph, Artifact::Initramfs).0,
+            NodeKind::Fanout,
+            "the shared initramfs stream must end in a stamped fanout branch"
         );
-        assert_eq!(
-            count(
-                &graph,
-                NodeKind::ArtifactSink {
-                    artifact: Artifact::Uki
-                }
-            ),
-            1
-        );
+        assert_eq!(terminal(&graph, Artifact::Uki).0, NodeKind::Uki);
     }
 
     #[test]
@@ -331,7 +380,6 @@ mod tests {
             build: &build,
             profile: b"",
             signing: Some(&signing),
-            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
         };
 
         // ACT
@@ -340,14 +388,7 @@ mod tests {
         // ASSERT
         assert_eq!(count(&graph, NodeKind::Sign), 1);
         assert_eq!(count(&graph, NodeKind::Uki), 1);
-        let sink = uki_sink(&graph);
-        let input = graph
-            .node(sink)
-            .expect("sink")
-            .input(PortId(0))
-            .expect("sink input");
-        let producer = graph.stream(input).expect("stream").producer;
-        assert_eq!(graph.node(producer).expect("producer").kind, NodeKind::Sign);
+        assert_eq!(terminal(&graph, Artifact::Uki).0, NodeKind::Sign);
     }
 
     #[test]
@@ -399,5 +440,47 @@ mod tests {
         plan(&ctx, &[Artifact::Uki, Artifact::Raw]).expect("plan");
 
         // ASSERT
+    }
+
+    #[test]
+    fn every_artifact_plans_with_a_unique_terminal_stream() {
+        // ARRANGE
+        let build = build_plan_with_overlay();
+        let artifacts = [
+            Artifact::Kernel,
+            Artifact::Initramfs,
+            Artifact::Cmdline,
+            Artifact::Uki,
+            Artifact::Iso,
+            Artifact::Raw,
+            Artifact::Overlays,
+        ];
+        let ctx = context(&build);
+
+        // ACT
+        let graph = plan(&ctx, &artifacts).expect("plan");
+
+        // ASSERT
+        let mut stamped = terminals(&graph);
+        stamped.sort_unstable();
+        let mut requested = artifacts.to_vec();
+        requested.sort_unstable();
+        assert_eq!(
+            stamped, requested,
+            "every artifact needs one terminal stream"
+        );
+    }
+
+    #[test]
+    fn duplicate_artifacts_dedup_into_one_terminal_stream() {
+        // ARRANGE
+        let build = build_plan();
+        let ctx = context(&build);
+
+        // ACT
+        let graph = plan(&ctx, &[Artifact::Kernel, Artifact::Kernel]).expect("plan");
+
+        // ASSERT
+        assert_eq!(terminals(&graph), vec![Artifact::Kernel]);
     }
 }

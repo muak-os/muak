@@ -1,20 +1,29 @@
 //! Pipe allocation and generic binding of logical nodes into owned `PreparedNode` values.
 
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
+use crate::pipeline::context::TargetWriters;
 use crate::pipeline::graph::{Graph, Node, StreamId};
-use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream};
+use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream, OutputWriter};
 use crate::stream::pipe::Pipe;
 
 /// A bound, owned node ready to run on its own scoped thread.
-pub(crate) struct PreparedNode<'a> {
+pub(crate) struct PreparedNode<'name, 'writer> {
     pub(crate) kind: NodeKind,
-    pub(crate) ports: NodePorts<'a>,
+    pub(crate) ports: NodePorts<'name, 'writer>,
 }
 
-/// Binds the preflighted graph into owned `PreparedNode` values with pipe endpoints.
-pub(crate) fn bind_nodes(graph: &Graph) -> Result<Vec<PreparedNode<'_>>> {
-    let mut ports = allocate(graph)?;
+/// Binds the preflighted graph into owned `PreparedNode` values with pipe
+/// endpoints, fusing terminal artifact streams into the user's writers.
+pub(crate) fn bind_nodes<'name, 'writer>(
+    graph: &'name Graph,
+    writers: &mut TargetWriters<'writer>,
+) -> Result<Vec<PreparedNode<'name, 'writer>>> {
+    let mut ports = allocate(graph, writers)?;
     let mut nodes = Vec::with_capacity(graph.nodes().len());
 
     for node in graph.nodes() {
@@ -26,7 +35,10 @@ pub(crate) fn bind_nodes(graph: &Graph) -> Result<Vec<PreparedNode<'_>>> {
     Ok(nodes)
 }
 
-fn bind_node<'a>(node: &Node, ports: &mut PortTable<'a>) -> Result<PreparedNode<'a>> {
+fn bind_node<'name, 'writer>(
+    node: &Node,
+    ports: &mut PortTable<'name, 'writer>,
+) -> Result<PreparedNode<'name, 'writer>> {
     let mut endpoints = Vec::with_capacity(node.inputs.len().saturating_add(node.outputs.len()));
     for binding in &node.inputs {
         endpoints.push((
@@ -47,36 +59,73 @@ fn bind_node<'a>(node: &Node, ports: &mut PortTable<'a>) -> Result<PreparedNode<
     })
 }
 
-/// Creates one pipe per stream.
-fn allocate(graph: &Graph) -> Result<PortTable<'_>> {
-    let mut inputs = Vec::with_capacity(graph.streams().len());
-    let mut outputs = Vec::with_capacity(graph.streams().len());
+/// Creates one pipe per intermediate stream and one fused writer per terminal stream.
+fn allocate<'name, 'writer>(
+    graph: &'name Graph,
+    writers: &mut TargetWriters<'writer>,
+) -> Result<PortTable<'name, 'writer>> {
+    let mut table = PortTable::with_capacity(graph.streams().len());
     for stream in graph.streams() {
-        let (reader, writer) = Pipe::new("stream pipe")?.split();
-        inputs.push(Some(InputStream {
-            size: stream.size,
-            name: &stream.name,
-            reader,
-        }));
-        outputs.push(Some(OutputStream {
-            size: stream.size,
-            name: &stream.name,
-            writer,
+        let name = &stream.name;
+        if let Some(artifact) = stream.artifact {
+            let writer = writers
+                .take(artifact)
+                .ok_or_else(|| missing_writer(artifact))?;
+            table.push_target(name, stream.size, writer);
+        } else {
+            let (reader, writer) = Pipe::new("stream pipe")?.split();
+            table.push_pipe(name, stream.size, reader, writer);
+        }
+    }
+
+    Ok(table)
+}
+
+fn missing_writer(artifact: Artifact) -> WizardError {
+    WizardError::BuildError(format!("missing target writer for {artifact}"))
+}
+
+/// Construction-time ownership ledger for pipe and fused endpoints.
+struct PortTable<'name, 'writer> {
+    inputs: Vec<Option<InputStream<'name>>>,
+    outputs: Vec<Option<OutputStream<'name, 'writer>>>,
+}
+
+impl<'name, 'writer> PortTable<'name, 'writer> {
+    fn with_capacity(streams: usize) -> Self {
+        Self {
+            inputs: Vec::with_capacity(streams),
+            outputs: Vec::with_capacity(streams),
+        }
+    }
+
+    /// Records one piped stream: a readable input and a writable output.
+    fn push_pipe(&mut self, name: &'name str, size: u64, reader: UnixStream, writer: UnixStream) {
+        self.inputs.push(Some(InputStream { name, size, reader }));
+        self.outputs.push(Some(OutputStream {
+            name,
+            size,
+            writer: OutputWriter::Pipe(writer),
         }));
     }
 
-    Ok(PortTable { inputs, outputs })
-}
+    /// Records one fused terminal stream: no input, the user writer as output.
+    fn push_target(
+        &mut self,
+        name: &'name str,
+        size: u64,
+        writer: &'writer mut (dyn Write + Send),
+    ) {
+        self.inputs.push(None);
+        self.outputs.push(Some(OutputStream {
+            name,
+            size,
+            writer: OutputWriter::Target(writer),
+        }));
+    }
 
-/// Construction-time ownership ledger for pipe endpoints.
-struct PortTable<'a> {
-    inputs: Vec<Option<InputStream<'a>>>,
-    outputs: Vec<Option<OutputStream<'a>>>,
-}
-
-impl<'a> PortTable<'a> {
     /// Consumes the input endpoint of a stream, once.
-    fn take_input(&mut self, stream: StreamId) -> Result<InputStream<'a>> {
+    fn take_input(&mut self, stream: StreamId) -> Result<InputStream<'name>> {
         self.inputs
             .get_mut(stream.0)
             .and_then(Option::take)
@@ -86,7 +135,7 @@ impl<'a> PortTable<'a> {
     }
 
     /// Consumes the output endpoint of a stream, once.
-    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'a>> {
+    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'name, 'writer>> {
         self.outputs
             .get_mut(stream.0)
             .and_then(Option::take)
@@ -114,31 +163,42 @@ impl<'a> PortTable<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixStream;
+
     use super::*;
     use crate::artifact::Artifact;
-    use crate::nodes::NodeKind;
+    use crate::pipeline::context::TargetWriters;
     use crate::pipeline::graph::PortId;
+
+    fn piped_graph() -> Graph {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::Concat);
+        let consumer = graph.add_node(NodeKind::Uki);
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.bind_input(consumer, PortId(0), stream).expect("bind");
+
+        graph
+    }
 
     fn fused_graph() -> Graph {
         // ARRANGE
         let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::Concat);
-        let sink = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
+        let producer = graph.add_node(NodeKind::KernelPull);
         let stream = graph.add_output(producer, PortId(0)).expect("add output");
-        graph.bind_input(sink, PortId(0), stream).expect("bind");
+        graph.stream_mut(stream).expect("stream").artifact = Some(Artifact::Kernel);
 
         graph
     }
 
     #[test]
-    fn every_stream_allocates_a_pipe() {
+    fn every_intermediate_stream_allocates_a_pipe() {
         // ARRANGE
-        let graph = fused_graph();
+        let graph = piped_graph();
+        let mut writers = TargetWriters::new(Vec::new());
 
         // ACT
-        let table = allocate(&graph).expect("allocate");
+        let table = allocate(&graph, &mut writers).expect("allocate");
 
         // ASSERT
         let stream = graph.streams().iter().next().expect("stream");
@@ -147,26 +207,70 @@ mod tests {
     }
 
     #[test]
+    fn terminal_streams_fuse_into_the_target_writer() {
+        // ARRANGE
+        let graph = fused_graph();
+        let mut writer = Vec::new();
+        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
+
+        // ACT
+        let mut table = allocate(&graph, &mut writers).expect("allocate");
+
+        // ASSERT
+        let stream = graph.streams().iter().next().expect("stream");
+        assert!(
+            table.inputs.get(stream.id.0).expect("slot").is_none(),
+            "a fused stream must allocate no pipe input"
+        );
+        let output = table
+            .outputs
+            .get_mut(stream.id.0)
+            .expect("slot")
+            .take()
+            .expect("output");
+        match output.writer {
+            OutputWriter::Target(_) => {}
+            OutputWriter::Pipe(_) => panic!("terminal stream must hold the target writer"),
+        }
+        drop(output);
+        drop(writer);
+    }
+
+    #[test]
+    fn fused_binding_runs_bytes_through_the_target_writer() {
+        // ARRANGE
+        let graph = fused_graph();
+        let mut writer = Vec::new();
+        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
+        let (mut pipe_writer, mut pipe_reader) = UnixStream::pair().expect("pipe");
+
+        // ACT
+        let mut table = allocate(&graph, &mut writers).expect("allocate");
+        let mut output = table
+            .take_output(graph.streams().iter().next().expect("stream").id)
+            .expect("output");
+        pipe_writer.write_all(b"artifact bytes").expect("write");
+        drop(pipe_writer);
+        std::io::copy(&mut pipe_reader, &mut output.writer).expect("copy");
+        drop(output);
+
+        // ASSERT
+        assert_eq!(writer, b"artifact bytes");
+    }
+
+    #[test]
     fn stream_names_reach_endpoints() {
         // ARRANGE
         let mut graph = fused_graph();
         let stream_id = graph.streams().iter().next().expect("stream").id;
         graph.stream_mut(stream_id).expect("stream").name = "kernel".to_owned();
+        let mut writer = Vec::new();
+        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
 
         // ACT
-        let table = allocate(&graph).expect("allocate");
+        let table = allocate(&graph, &mut writers).expect("allocate");
 
         // ASSERT
-        assert_eq!(
-            table
-                .inputs
-                .get(stream_id.0)
-                .expect("slot")
-                .as_ref()
-                .expect("input")
-                .name,
-            "kernel"
-        );
         assert_eq!(
             table
                 .outputs

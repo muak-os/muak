@@ -5,6 +5,7 @@ use koci::error::KociError;
 use koci::pull;
 use koci::pull::entries::FileEntry;
 
+use crate::artifact::Artifact;
 use crate::domain::resolution::Extension;
 use crate::error::{Result, WizardError};
 use crate::nodes::kernel;
@@ -19,6 +20,7 @@ pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
@@ -34,16 +36,17 @@ pub(crate) struct Layer {
 }
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+    Vec::new()
+}
+
+/// Layer payloads are initramfs members, never requested artifacts.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 
 /// Pulls and measures every layer payload once, recording stream size and name.
-pub(crate) fn preflight(
-    graph: &mut Graph,
-    id: NodeId,
-    ctx: &BuildContext<'_, '_, '_>,
-) -> Result<()> {
+pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let layers = layer_specs(ctx)?;
     let mut payloads = pull_payloads(&layers)?;
     let planned = measure(&mut payloads, &layers)?;
@@ -73,8 +76,8 @@ pub(crate) fn preflight(
 /// Re-pulls and remeasures every layer payload, then streams it into its output stream.
 pub(crate) fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let layers = layer_specs(ctx)?;
     let mut payloads = pull_payloads(&layers)?;
@@ -97,7 +100,7 @@ pub(crate) fn run(
     Ok(NodeReport::Empty)
 }
 
-fn layer_specs(ctx: &BuildContext<'_, '_, '_>) -> Result<Vec<Layer>> {
+fn layer_specs(ctx: &BuildContext<'_, '_>) -> Result<Vec<Layer>> {
     let mut layers = Vec::with_capacity(ctx.build.payload_layer_count());
     layers.push(kernel::module_layer(ctx)?);
     for extension in ctx.build.extensions() {
@@ -131,7 +134,10 @@ fn stream_name(layer: &Layer, meta: &mumi::payload::Meta) -> String {
     )
 }
 
-fn ensure_size_matches(planned: &mumi::payload::Planned, output: &OutputStream<'_>) -> Result<()> {
+fn ensure_size_matches(
+    planned: &mumi::payload::Planned,
+    output: &OutputStream<'_, '_>,
+) -> Result<()> {
     if planned.size() != output.size {
         return Err(WizardError::BuildError(format!(
             "layer payload size drift: measured {} but promised {}",
@@ -208,7 +214,7 @@ fn build_config(file_contexts: Option<mumi::image::FileContexts>) -> mumi::image
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::runtime::OutputStream;
+    use crate::pipeline::runtime::{OutputStream, OutputWriter};
 
     fn planned(size: u64) -> mumi::payload::Planned {
         let mut payload = mumi::payload::Payload::new("muak-test/layer");
@@ -234,9 +240,13 @@ mod tests {
         .remove(0)
     }
 
-    fn output(name: &'static str, size: u64) -> OutputStream<'static> {
+    fn output(name: &'static str, size: u64) -> OutputStream<'static, 'static> {
         let (writer, _reader) = std::os::unix::net::UnixStream::pair().expect("pipe pair");
-        OutputStream { name, size, writer }
+        OutputStream {
+            name,
+            size,
+            writer: OutputWriter::Pipe(writer),
+        }
     }
 
     #[test]

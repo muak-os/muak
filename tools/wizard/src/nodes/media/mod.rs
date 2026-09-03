@@ -19,7 +19,7 @@ pub(crate) const MEDIA_OUTPUT: PortId = PortId(1);
 pub(crate) const MEDIA_OVERLAYS_FIRST: PortId = PortId(2);
 
 /// The UKI stream, plus one stream per overlay asset when the build has overlay assets.
-pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     let uki = if ctx.signing.is_some() {
         Dependency::new(NodeKind::Sign, sign::SIGN_OUTPUT, MEDIA_UKI)
     } else {
@@ -39,9 +39,9 @@ pub(crate) fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> V
     dependencies
 }
 
-pub(crate) fn media_inputs<'a>(
-    ports: &mut NodePorts<'a>,
-) -> Result<(InputStream<'a>, Vec<InputStream<'a>>)> {
+pub(crate) fn media_inputs<'name>(
+    ports: &mut NodePorts<'name, '_>,
+) -> Result<(InputStream<'name>, Vec<InputStream<'name>>)> {
     let uki = ports.take(MEDIA_UKI)?.into_input()?;
     let overlays = Endpoint::into_inputs(
         ports
@@ -54,7 +54,7 @@ pub(crate) fn media_inputs<'a>(
 }
 
 pub(crate) fn media_layout<'a>(
-    ctx: &BuildContext<'_, '_, '_>,
+    ctx: &BuildContext<'_, '_>,
     uki: &InputStream<'a>,
     assets: &'a [Asset],
 ) -> Result<esp::layout::Layout<'a>> {

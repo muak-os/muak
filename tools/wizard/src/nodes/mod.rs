@@ -8,7 +8,6 @@ pub(crate) mod layers;
 pub(crate) mod media;
 pub(crate) mod overlay;
 pub(crate) mod sign;
-pub(crate) mod sink;
 pub(crate) mod stub;
 pub(crate) mod uki;
 
@@ -17,7 +16,7 @@ use crate::error::Result;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId};
+use crate::pipeline::graph::{Graph, NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 /// What a node does.
@@ -35,16 +34,34 @@ pub(crate) enum NodeKind {
     Raw,
     OverlayPull,
     OverlayTar,
-    ArtifactSink { artifact: Artifact },
     Fanout,
+}
+
+impl NodeKind {
+    /// Every node kind, for produce-table scans. Keep in sync with the enum.
+    pub(crate) const ALL: [NodeKind; 12] = [
+        Self::InstallerPull,
+        Self::StubPull,
+        Self::KernelPull,
+        Self::LayerPayloads,
+        Self::InitramfsTail,
+        Self::Concat,
+        Self::Uki,
+        Self::Sign,
+        Self::Iso,
+        Self::Raw,
+        Self::OverlayPull,
+        Self::OverlayTar,
+    ];
 }
 
 /// One node kind's full contract.
 pub(crate) struct NodeDescriptor {
-    pub(crate) dependencies: fn(NodeKind, &BuildContext<'_, '_, '_>) -> Vec<Dependency>,
-    pub(crate) preflight: fn(&mut Graph, NodeId, &BuildContext<'_, '_, '_>) -> Result<()>,
+    pub(crate) dependencies: fn(NodeKind, &BuildContext<'_, '_>) -> Vec<Dependency>,
+    pub(crate) produces: fn(NodeKind, &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)>,
+    pub(crate) preflight: fn(&mut Graph, NodeId, &BuildContext<'_, '_>) -> Result<()>,
     pub(crate) run:
-        fn(NodeKind, &mut NodePorts<'_>, &BuildContext<'_, '_, '_>) -> Result<NodeReport>,
+        fn(NodeKind, &mut NodePorts<'_, '_>, &BuildContext<'_, '_>) -> Result<NodeReport>,
 }
 
 /// The kind → descriptor catalog.
@@ -63,13 +80,17 @@ pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
         NodeKind::OverlayPull => &overlay::pull::DESCRIPTOR,
         NodeKind::OverlayTar => &overlay::tar::DESCRIPTOR,
         NodeKind::Fanout => &fanout::DESCRIPTOR,
-        NodeKind::ArtifactSink { .. } => &sink::DESCRIPTOR,
     }
 }
 
 /// Declared inputs of a planned kind, read from its descriptor.
-pub(crate) fn dependencies(kind: NodeKind, ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+pub(crate) fn dependencies(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     (descriptor(kind).dependencies)(kind, ctx)
+}
+
+/// Declared artifact outputs of a planned kind: which port yields which artifact.
+pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    (descriptor(kind).produces)(kind, ctx)
 }
 
 #[cfg(test)]
@@ -81,7 +102,6 @@ mod tests {
     use super::*;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::{ResolvedBuild, Sources};
-    use crate::pipeline::context::TargetWriters;
     use crate::request::Platform;
 
     fn build_plan() -> ResolvedBuild {
@@ -102,53 +122,70 @@ mod tests {
         )
     }
 
-    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_, '_> {
+    fn context(build: &ResolvedBuild) -> BuildContext<'_, '_> {
         BuildContext {
             build,
             profile: b"",
             signing: None,
-            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
         }
     }
 
     #[test]
-    fn sink_dependencies_route_artifacts_through_the_descriptor_table() {
+    fn produces_declares_artifact_outputs_through_the_descriptor_table() {
         // ARRANGE
         let build = build_plan();
         let ctx = context(&build);
         let routes = [
-            (Artifact::Kernel, NodeKind::KernelPull, kernel::KERNEL),
-            (Artifact::Cmdline, NodeKind::KernelPull, kernel::CMDLINE),
+            (NodeKind::KernelPull, (kernel::KERNEL, Artifact::Kernel)),
+            (NodeKind::KernelPull, (kernel::CMDLINE, Artifact::Cmdline)),
             (
-                Artifact::Initramfs,
                 NodeKind::Concat,
-                initramfs::concat::CONCAT_OUTPUT,
+                (initramfs::concat::CONCAT_OUTPUT, Artifact::Initramfs),
             ),
-            (Artifact::Uki, NodeKind::Uki, uki::UKI_OUTPUT),
-            (Artifact::Iso, NodeKind::Iso, media::MEDIA_OUTPUT),
-            (Artifact::Raw, NodeKind::Raw, media::MEDIA_OUTPUT),
+            (NodeKind::Uki, (uki::UKI_OUTPUT, Artifact::Uki)),
+            (NodeKind::Iso, (media::MEDIA_OUTPUT, Artifact::Iso)),
+            (NodeKind::Raw, (media::MEDIA_OUTPUT, Artifact::Raw)),
             (
-                Artifact::Overlays,
                 NodeKind::OverlayTar,
-                overlay::tar::TAR_OUTPUT,
+                (overlay::tar::TAR_OUTPUT, Artifact::Overlays),
             ),
         ];
 
-        for (artifact, producer, port) in routes {
+        for (kind, (port, artifact)) in routes {
             // ACT
-            let declared = dependencies(NodeKind::ArtifactSink { artifact }, &ctx);
+            let declared = produces(kind, &ctx);
 
             // ASSERT
-            assert_eq!(
-                declared,
-                vec![Dependency::new(producer, port, sink::SINK_INPUT)],
-                "wrong sink dependency for {artifact}"
+            assert!(
+                declared.contains(&(port, artifact)),
+                "{kind:?} must declare {artifact} on port {port:?}"
             );
         }
     }
 
     #[test]
-    fn signed_uki_routes_the_sink_through_sign() {
+    fn unsigned_planning_produces_the_uki_from_the_uki_node_only() {
+        // ARRANGE
+        let build = build_plan();
+        let ctx = context(&build);
+
+        // ACT
+        let sources: Vec<_> = NodeKind::ALL
+            .iter()
+            .flat_map(|kind| produces(*kind, &ctx))
+            .filter(|&(_, artifact)| artifact == Artifact::Uki)
+            .collect();
+
+        // ASSERT
+        assert_eq!(
+            sources,
+            vec![(uki::UKI_OUTPUT, Artifact::Uki)],
+            "unsigned planning must route Uki through the Uki node only"
+        );
+    }
+
+    #[test]
+    fn signed_planning_produces_the_uki_from_the_sign_node_only() {
         // ARRANGE
         let build = build_plan();
         let (signer, certificate) = generate_pk("muak-test").expect("generate signing pair");
@@ -160,25 +197,20 @@ mod tests {
             build: &build,
             profile: b"",
             signing: Some(&signing),
-            writers: std::sync::Mutex::new(TargetWriters::new(Vec::new())),
         };
 
         // ACT
-        let declared = dependencies(
-            NodeKind::ArtifactSink {
-                artifact: Artifact::Uki,
-            },
-            &ctx,
-        );
+        let sources: Vec<_> = NodeKind::ALL
+            .iter()
+            .flat_map(|kind| produces(*kind, &ctx))
+            .filter(|&(_, artifact)| artifact == Artifact::Uki)
+            .collect();
 
         // ASSERT
         assert_eq!(
-            declared,
-            vec![Dependency::new(
-                NodeKind::Sign,
-                sign::SIGN_OUTPUT,
-                sink::SINK_INPUT
-            )]
+            sources,
+            vec![(sign::SIGN_OUTPUT, Artifact::Uki)],
+            "signed planning must route Uki through the Sign node only"
         );
     }
 }

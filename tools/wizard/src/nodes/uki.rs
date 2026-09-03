@@ -9,6 +9,7 @@ use yuki::probe;
 use yuki::write::{self, Input};
 
 use crate::SectionInfo;
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
 use crate::nodes::kernel;
@@ -28,12 +29,13 @@ pub(crate) const UKI_OUTPUT: PortId = PortId(4);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// Stub and initramfs from the installer and kernel and cmdline from their sources.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     vec![
         Dependency::new(NodeKind::StubPull, stub::STUB, UKI_STUB),
         Dependency::new(NodeKind::KernelPull, kernel::KERNEL, UKI_KERNEL),
@@ -46,6 +48,15 @@ fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Depende
     ]
 }
 
+/// The unsigned UKI.
+fn produces(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    if ctx.signing.is_some() {
+        Vec::new()
+    } else {
+        vec![(UKI_OUTPUT, Artifact::Uki)]
+    }
+}
+
 /// Lower bound on the UKI size in bytes; below this the ESP image cannot be formatted as FAT32.
 const MIN_UKI_BYTES: u64 = 32 << 20;
 
@@ -53,7 +64,7 @@ const MIN_UKI_BYTES: u64 = 32 << 20;
 const MAX_UKI_BYTES: u64 = 512 << 20;
 
 /// Probes the bounded stub header prefix and plans the UKI layout to get the size.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
     let mut prefix = Vec::new();
@@ -98,8 +109,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Builds the unsigned UKI from the live input streams.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    _ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    _ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut stub = ports.take(UKI_STUB)?.into_input()?;
     let mut cmdline = ports.take(UKI_CMDLINE)?.into_input()?;

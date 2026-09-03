@@ -6,6 +6,7 @@ use koci::error::KociError;
 use koci::pull;
 use koci::pull::entries::FileEntry;
 
+use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::layers::Layer;
 use crate::nodes::{NodeDescriptor, NodeKind};
@@ -20,17 +21,23 @@ pub(crate) const CMDLINE: PortId = PortId(1);
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
+    produces,
     preflight,
     run,
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_, '_>) -> Vec<Dependency> {
+fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
+/// The kernel image and the cmdline file.
+fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+    vec![(KERNEL, Artifact::Kernel), (CMDLINE, Artifact::Cmdline)]
+}
+
 /// Exact sizes of the kernel and cmdline entries via the koci metadata callback.
-fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let source = ctx.build.kernel().source();
 
     let mut sizes = std::collections::HashMap::new();
@@ -64,11 +71,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_, '_>) -> R
 /// Pulls the kernel package once and routes known files to their output streams.
 fn run(
     _kind: NodeKind,
-    ports: &mut NodePorts<'_>,
-    ctx: &BuildContext<'_, '_, '_>,
+    ports: &mut NodePorts<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let source = ctx.build.kernel().source();
-    let mut outputs: Vec<(PortId, OutputStream)> = ports
+    let mut outputs: Vec<(PortId, OutputStream<'_, '_>)> = ports
         .take_from(PortId(0), None)?
         .into_iter()
         .map(|(port, endpoint)| Ok((port, endpoint.into_output()?)))
@@ -87,7 +94,7 @@ fn run(
 fn route_entry(
     path: &str,
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputStream<'_>)],
+    outputs: &mut [(PortId, OutputStream<'_, '_>)],
     seen_cmdline: &mut bool,
 ) -> koci::error::Result<()> {
     match path {
@@ -107,7 +114,7 @@ fn route_entry(
 
 fn copy_optional(
     reader: &mut dyn Read,
-    outputs: &mut [(PortId, OutputStream<'_>)],
+    outputs: &mut [(PortId, OutputStream<'_, '_>)],
     port: PortId,
 ) -> std::io::Result<()> {
     let Some(index) = outputs.iter().position(|output| output.0 == port) else {
@@ -143,7 +150,7 @@ const MODULE_FILE_CONTEXTS: &[u8] = b"/lib/modules    system_u:object_r:modules_
 /// # Errors
 ///
 /// Returns an error when the embedded `SELinux` file contexts cannot be parsed.
-pub(crate) fn module_layer(ctx: &BuildContext<'_, '_, '_>) -> Result<Layer> {
+pub(crate) fn module_layer(ctx: &BuildContext<'_, '_>) -> Result<Layer> {
     Ok(Layer {
         name: MODULE_LAYER_NAME.to_owned(),
         source: ctx.build.kernel().source().to_owned(),

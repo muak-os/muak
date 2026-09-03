@@ -2,7 +2,6 @@
 
 use core::fmt;
 use std::io::Write;
-use std::sync::Mutex;
 
 use koci::arch::Arch;
 use sbolt::keys::SigningPair;
@@ -196,11 +195,11 @@ impl<'a> Request<'a> {
             build: resolution.build(),
             profile: &profile_bytes,
             signing: self.signing,
-            writers: Mutex::new(TargetWriters::new(self.targets)),
         };
+        let mut writers = TargetWriters::new(self.targets);
         let graph = plan(&ctx, &artifacts)?;
 
-        execute(graph, &ctx)
+        execute(graph, &ctx, &mut writers)
     }
 }
 

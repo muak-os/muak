@@ -11,15 +11,16 @@ use crate::pipeline::graph::{Graph, PortBinding, PortId, Stream};
 pub(crate) fn normalized(graph: &Graph) -> Result<()> {
     for stream in graph.streams() {
         let consumer_count = stream.consumers.len();
-        if consumer_count == 0 {
+        if consumer_count == 0 && stream.artifact.is_none() {
             return Err(WizardError::BuildError(format!(
                 "stream {:?} has no consumer",
                 stream.id
             )));
         }
-        if consumer_count > 1 {
+        let destinations = consumer_count.saturating_add(usize::from(stream.artifact.is_some()));
+        if destinations > 1 {
             return Err(WizardError::BuildError(format!(
-                "stream {:?} has {consumer_count} consumers",
+                "stream {:?} has {destinations} destinations",
                 stream.id
             )));
         }
@@ -94,12 +95,9 @@ mod tests {
     use crate::pipeline::validate::normalized;
 
     fn valid_graph() -> Graph {
-        // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::InstallerPull);
-        let consumer = graph.add_node(NodeKind::ArtifactSink {
-            artifact: Artifact::Kernel,
-        });
+        let consumer = graph.add_node(NodeKind::Concat);
         let stream = graph.add_output(producer, PortId(0)).expect("add output");
         graph.bind_input(consumer, PortId(0), stream).expect("bind");
 
@@ -119,7 +117,22 @@ mod tests {
     }
 
     #[test]
-    fn rejects_stream_without_consumer() {
+    fn accepts_a_pure_terminal_stream() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::KernelPull);
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.stream_mut(stream).expect("stream").artifact = Some(Artifact::Kernel);
+
+        // ACT
+        let result = normalized(&graph);
+
+        // ASSERT
+        result.expect("terminal stream");
+    }
+
+    #[test]
+    fn rejects_stream_without_destination() {
         // ARRANGE
         let mut graph = valid_graph();
         graph
@@ -134,14 +147,29 @@ mod tests {
     }
 
     #[test]
-    fn rejects_stream_with_multiple_consumers() {
+    fn rejects_stream_with_multiple_destinations() {
         // ARRANGE
         let mut graph = valid_graph();
-        let producer = graph.nodes().iter().next().expect("node").id;
+        let stream = graph.streams().iter().next().expect("stream").id;
+        graph.stream_mut(stream).expect("stream").artifact = Some(Artifact::Kernel);
+
+        // ACT
+        let result = normalized(&graph);
+
+        // ASSERT
+        result.unwrap_err();
+    }
+
+    #[test]
+    fn rejects_stream_with_multiple_consumers() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::InstallerPull);
+        let first = graph.add_node(NodeKind::Concat);
         let extra = graph.add_node(NodeKind::Uki);
-        let stream = graph.add_output(producer, PortId(1)).expect("add output");
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.bind_input(first, PortId(0), stream).expect("bind");
         graph.bind_input(extra, PortId(0), stream).expect("bind");
-        graph.bind_input(extra, PortId(1), stream).expect("bind");
 
         // ACT
         let result = normalized(&graph);

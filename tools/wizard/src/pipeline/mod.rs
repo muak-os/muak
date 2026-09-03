@@ -11,4 +11,5 @@ pub(crate) mod plan;
 pub(crate) mod preflight;
 pub(crate) mod prepare;
 pub(crate) mod runtime;
+pub(crate) mod terminate;
 pub(crate) mod validate;
