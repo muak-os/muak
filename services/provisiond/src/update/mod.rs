@@ -17,6 +17,7 @@ use sbolt::efi::{secure_boot, setup_mode};
 use sbolt::keys::hierarchy::Bundle;
 use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 use tokio::sync::mpsc;
+use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
@@ -130,11 +131,11 @@ pub async fn prepare(
             });
 
         let request = Request::new(version, Platform::Metal)
-            .uki(&mut uki_file)
+            .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
-            .kernel(&mut kernel_file)
+            .artifact(Artifact::Kernel, &mut kernel_file)
             .context("set kernel target")?
-            .initramfs(&mut initramfs_file)
+            .artifact(Artifact::Initramfs, &mut initramfs_file)
             .context("set initramfs target")?;
 
         let request = match pair.as_ref() {

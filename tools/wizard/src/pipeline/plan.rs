@@ -6,8 +6,9 @@ use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::{self, NodeKind};
 use crate::pipeline::context::BuildContext;
-use crate::pipeline::dependency::{Dependency, validate};
-use crate::pipeline::graph::{Graph, NodeId, PortId, StreamId};
+use crate::pipeline::dependency::Dependency;
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId, StreamId};
 use crate::pipeline::normalize::normalize;
 
 /// Builds the logical DAG for the requested artifacts and normalizes it.
@@ -15,7 +16,7 @@ use crate::pipeline::normalize::normalize;
 /// # Errors
 ///
 /// Returns an error when an artifact has no unique producer, a dependency is
-/// cyclic, or the built graph fails validation.
+/// cyclic, or the built graph fails normalization.
 pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(ctx);
     for artifact in artifacts {
@@ -29,7 +30,6 @@ pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result
         planner.request(producer, producer_port, *artifact)?;
     }
     planner.bind_all()?;
-    validate(&planner.graph, ctx)?;
     normalize(&mut planner.graph)?;
 
     Ok(planner.graph)
@@ -185,7 +185,7 @@ mod tests {
     use crate::domain::resolution::Extension;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::Overlay;
-    use crate::domain::resolution::{ResolvedBuild, Sources};
+    use crate::domain::resolution::ResolvedBuild;
     use crate::nodes::kernel;
     use crate::nodes::uki;
     use crate::pipeline::context::BuildContext;
@@ -196,19 +196,19 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Sources {
-                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
-                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
-                kernel: Kernel::new(
-                    "ghcr.io/muak-os/linux".to_owned(),
-                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
-                ),
-                overlay: None,
-                extensions: vec![Extension::new(
-                    "muak-os/qemu".to_owned(),
-                    "ghcr.io/muak-os/qemu:v1.0.0".to_owned(),
-                )],
-            },
+            Kernel::new(
+                "ghcr.io/muak-os/linux".to_owned(),
+                "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            None,
+            vec![Extension::new(
+                "muak-os/qemu".to_owned(),
+                "ghcr.io/muak-os/qemu:v1.0.0".to_owned(),
+            )],
         )
     }
 
@@ -217,21 +217,21 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Sources {
-                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
-                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
-                kernel: Kernel::new(
-                    "ghcr.io/muak-os/linux".to_owned(),
-                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
-                ),
-                overlay: Some(Overlay::new(
-                    "muak".to_owned(),
-                    "muak-os/overlays".to_owned(),
-                    "ghcr.io/muak-os/overlays:v1.0.0".to_owned(),
-                    Arch::Amd64,
-                )),
-                extensions: Vec::new(),
-            },
+            Kernel::new(
+                "ghcr.io/muak-os/linux".to_owned(),
+                "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            Some(Overlay::new(
+                "muak".to_owned(),
+                "muak-os/overlays".to_owned(),
+                "ghcr.io/muak-os/overlays:v1.0.0".to_owned(),
+                Arch::Amd64,
+            )),
+            Vec::new(),
         )
     }
 
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn every_artifact_combo_plans_and_validates() {
+    fn every_artifact_combo_plans_and_normalizes() {
         // ARRANGE
         let build = build_plan();
         let ctx = context(&build);

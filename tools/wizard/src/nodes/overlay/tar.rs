@@ -10,7 +10,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
 
 pub(crate) const TAR_OUTPUT: PortId = PortId(0);
@@ -103,7 +104,7 @@ fn run(
         .finish()
         .map_err(|e| WizardError::BuildError(format!("finish overlay tar: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 fn tar_total_size(files: &[u64]) -> u64 {

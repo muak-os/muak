@@ -12,7 +12,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const STUB: PortId = PortId(0);
@@ -87,5 +88,5 @@ fn run(
     })
     .map_err(|e| WizardError::BuildError(format!("pull stub files: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }

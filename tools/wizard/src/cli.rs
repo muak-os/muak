@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use wizard::artifact::Artifact;
@@ -49,18 +49,6 @@ pub fn run() -> i32 {
     run_with(std::env::args_os())
 }
 
-struct BuildArgs {
-    profile: PathBuf,
-    artifacts: Vec<String>,
-    version: String,
-    registry: String,
-    arch: Arch,
-    platform: String,
-    output_dir: PathBuf,
-    signing_key: Option<PathBuf>,
-    signing_cert: Option<PathBuf>,
-}
-
 #[derive(Debug, Parser)]
 #[command(name = "wizard")]
 #[command(about = "Build Muak boot artifacts")]
@@ -89,37 +77,41 @@ enum Command {
         #[arg(long, value_parser = wizard::arch::parse)]
         arch: Arch,
 
-        #[arg(long)]
-        platform: String,
+        #[arg(long, value_parser = parse_platform)]
+        platform: Platform,
     },
-    Build {
-        #[arg(short, long)]
-        profile: PathBuf,
+    Build(BuildArgs),
+}
 
-        #[arg(long, num_args(1..))]
-        artifacts: Vec<String>,
+/// Arguments of the build subcommand.
+#[derive(Debug, Args)]
+struct BuildArgs {
+    #[arg(short, long)]
+    profile: PathBuf,
 
-        #[arg(long)]
-        version: String,
+    #[arg(long, num_args(1..), value_parser = parse_artifact)]
+    artifacts: Vec<Artifact>,
 
-        #[arg(long)]
-        registry: String,
+    #[arg(long)]
+    version: String,
 
-        #[arg(long, value_parser = wizard::arch::parse)]
-        arch: Arch,
+    #[arg(long)]
+    registry: String,
 
-        #[arg(long)]
-        platform: String,
+    #[arg(long, value_parser = wizard::arch::parse)]
+    arch: Arch,
 
-        #[arg(short, long, default_value = ".")]
-        output_dir: PathBuf,
+    #[arg(long, value_parser = parse_platform)]
+    platform: Platform,
 
-        #[arg(long)]
-        signing_key: Option<PathBuf>,
+    #[arg(short, long, default_value = ".")]
+    output_dir: PathBuf,
 
-        #[arg(long)]
-        signing_cert: Option<PathBuf>,
-    },
+    #[arg(long, requires = "signing_cert")]
+    signing_key: Option<PathBuf>,
+
+    #[arg(long, requires = "signing_key")]
+    signing_cert: Option<PathBuf>,
 }
 
 fn parse_platform(input: &str) -> Result<Platform> {
@@ -153,31 +145,8 @@ fn run_command(command: Command) -> Result<()> {
             registry,
             arch,
             platform,
-        } => run_resolve(&profile, &version, &registry, arch, &platform),
-        Command::Build {
-            profile,
-            artifacts,
-            version,
-            registry,
-            arch,
-            platform,
-            output_dir,
-            signing_key,
-            signing_cert,
-        } => {
-            let args = BuildArgs {
-                profile,
-                artifacts,
-                version,
-                registry,
-                arch,
-                platform,
-                output_dir,
-                signing_key,
-                signing_cert,
-            };
-            run_build(&args)
-        }
+        } => run_resolve(&profile, &version, &registry, arch, platform),
+        Command::Build(args) => run_build(&args),
     }
 }
 
@@ -194,7 +163,7 @@ fn run_resolve(
     version: &str,
     registry: &str,
     arch: Arch,
-    platform: &str,
+    platform: Platform,
 ) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
@@ -203,7 +172,7 @@ fn run_resolve(
         cache_dir: None,
         registry: registry.to_owned(),
     })?;
-    let request = Request::new(version, parse_platform(platform)?).arch(arch);
+    let request = Request::new(version, platform).arch(arch);
     let resolved = resolver::plan(&request, &profile)?;
 
     println!("profile id: {}", resolved.profile_id());
@@ -231,20 +200,8 @@ fn run_resolve(
 }
 
 fn run_build(args: &BuildArgs) -> Result<()> {
-    let platform = parse_platform(&args.platform)?;
-
-    let artifacts: Vec<Artifact> = args
-        .artifacts
-        .iter()
-        .map(|name| parse_artifact(name))
-        .collect::<Result<_>>()?;
-
-    if artifacts.is_empty() {
+    if args.artifacts.is_empty() {
         bail!("at least one artifact must be specified");
-    }
-
-    if args.signing_key.is_some() != args.signing_cert.is_some() {
-        bail!("--signing-key and --signing-cert must be provided together");
     }
 
     let cache_dir = std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache/muak/koci"));
@@ -253,41 +210,34 @@ fn run_build(args: &BuildArgs) -> Result<()> {
         registry: args.registry.clone(),
     })?;
 
-    let profile = build_profile(&args.profile)?;
+    let bytes = std::fs::read(&args.profile)
+        .with_context(|| format!("read profile {}", args.profile.display()))?;
+    let profile = Profile::from_toml(&bytes)?;
 
     let owned_pair = match (args.signing_key.as_ref(), args.signing_cert.as_ref()) {
-        (Some(key_path), Some(cert_path)) => {
-            let signer = load_signer_from_pem(key_path)?;
-            let cert = load_certificate_from_pem(cert_path)?;
-            Some((signer, cert))
-        }
-        (None, None) => None,
-        _ => bail!("--signing-key and --signing-cert must be provided together"),
+        (Some(key_path), Some(cert_path)) => Some((
+            load_signer_from_pem(key_path)?,
+            load_certificate_from_pem(cert_path)?,
+        )),
+        _ => None,
     };
-
-    let signing = match owned_pair {
-        Some((ref signer, ref cert)) => Some(SigningPair {
-            signer,
-            certificate: cert,
-        }),
-        None => None,
-    };
+    let signing = owned_pair.as_ref().map(|pair| SigningPair {
+        signer: &pair.0,
+        certificate: &pair.1,
+    });
 
     let mut files: Vec<(Artifact, File)> = Vec::new();
-    for &artifact in &artifacts {
+    for &artifact in &args.artifacts {
         let output_path = args.output_dir.join(artifact.filename());
         let file = File::create(&output_path)
             .with_context(|| format!("create output file {}", output_path.display()))?;
         files.push((artifact, file));
     }
 
-    let mut request = Request::new(&args.version, platform).arch(args.arch);
-    let mut remaining: &mut [(Artifact, File)] = &mut files;
-    while let Some((first, rest)) = remaining.split_first_mut() {
-        let artifact = first.0;
-        let file: &mut (dyn std::io::Write + Send) = &mut first.1;
-        request = request.artifact(artifact, file)?;
-        remaining = rest;
+    let mut request = Request::new(&args.version, args.platform).arch(args.arch);
+    for pair in &mut files {
+        let writer: &mut (dyn std::io::Write + Send) = &mut pair.1;
+        request = request.artifact(pair.0, writer)?;
     }
 
     let request = match signing {
@@ -297,18 +247,11 @@ fn run_build(args: &BuildArgs) -> Result<()> {
 
     let _meta = request.build(&profile).context("build artifacts")?;
 
-    for &artifact in &artifacts {
+    for &artifact in &args.artifacts {
         let path = args.output_dir.join(artifact.filename());
         let size = fs::metadata(&path).map_or(0, |meta| meta.len());
         println!("Successfully built {} ({} B)", path.display(), size);
     }
 
     Ok(())
-}
-
-fn build_profile(profile_path: &Path) -> Result<Profile> {
-    let bytes = std::fs::read(profile_path)
-        .with_context(|| format!("read profile {}", profile_path.display()))?;
-
-    Ok(Profile::from_toml(&bytes)?)
 }

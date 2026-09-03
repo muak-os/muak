@@ -8,7 +8,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const CONCAT_FIRST: PortId = PortId(0);
@@ -65,5 +66,5 @@ fn run(
     std::io::copy(&mut second.reader, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("concat stream: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }

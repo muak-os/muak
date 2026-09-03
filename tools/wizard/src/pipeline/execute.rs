@@ -8,17 +8,12 @@ use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::graph::Graph;
 use crate::pipeline::preflight;
 use crate::pipeline::prepare::{PreparedNode, bind_nodes};
-use crate::pipeline::terminate::terminate;
-use crate::pipeline::validate;
 use crate::{Metadata, SectionInfo};
 
-/// Per-node result collected when the node's thread is joined.
-pub(crate) enum NodeReport {
-    Empty,
-    Uki(Vec<SectionInfo>),
-}
+/// What a node reports on success: PE sections when it produced any.
+pub(crate) type NodeReport = Option<Vec<SectionInfo>>;
 
-/// Validates, gates, preflights, and executes the normalized graph.
+/// Preflights and executes the normalized graph.
 ///
 /// # Errors
 ///
@@ -28,8 +23,6 @@ pub(crate) fn execute(
     ctx: &BuildContext<'_, '_>,
     writers: &mut TargetWriters<'_>,
 ) -> Result<Metadata> {
-    validate::normalized(&graph)?;
-    terminate(&graph, writers)?;
     let graph = preflight::preflight(graph, ctx)?;
 
     execute_blocking(&graph, ctx, writers)
@@ -66,8 +59,8 @@ fn join_all(joins: Vec<thread::ScopedJoinHandle<'_, Result<NodeReport>>>) -> Res
 
     for join in joins {
         match join.join() {
-            Ok(Ok(NodeReport::Uki(sections))) => report.sections.extend(sections),
-            Ok(Ok(NodeReport::Empty)) => {}
+            Ok(Ok(Some(sections))) => report.sections.extend(sections),
+            Ok(Ok(None)) => {}
             Ok(Err(error)) => {
                 first_error.get_or_insert(error);
             }

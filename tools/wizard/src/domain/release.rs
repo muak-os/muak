@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::identity::{RELEASE_API_VERSION, ReleaseManifestId};
-use crate::domain::{canonical_toml, non_empty};
+use crate::domain::{canonical_toml, non_empty, non_empty_option};
 use crate::error::{Result, WizardError};
 
 /// TODO: replace this with published OCI release manifest.
@@ -98,13 +98,13 @@ pub struct Manifest {
     api_version: String,
     name: String,
     version: String,
-    installer: Image,
-    stub: Image,
-    kernel: Image,
+    installer: Entry,
+    stub: Entry,
+    kernel: Entry,
     #[serde(default)]
-    extensions: Vec<Extension>,
+    extensions: Vec<Entry>,
     #[serde(default)]
-    overlays: Vec<Overlay>,
+    overlays: Vec<Entry>,
 }
 
 impl Manifest {
@@ -139,31 +139,31 @@ impl Manifest {
 
     /// Returns the installer image entry.
     #[must_use]
-    pub const fn installer(&self) -> &Image {
+    pub const fn installer(&self) -> &Entry {
         &self.installer
     }
 
     /// Returns the stub image entry.
     #[must_use]
-    pub const fn stub(&self) -> &Image {
+    pub const fn stub(&self) -> &Entry {
         &self.stub
     }
 
     /// Returns the kernel image entry.
     #[must_use]
-    pub const fn kernel(&self) -> &Image {
+    pub const fn kernel(&self) -> &Entry {
         &self.kernel
     }
 
     /// Returns the available extensions.
     #[must_use]
-    pub fn extensions(&self) -> &[Extension] {
+    pub fn extensions(&self) -> &[Entry] {
         &self.extensions
     }
 
     /// Returns the available overlays.
     #[must_use]
-    pub fn overlays(&self) -> &[Overlay] {
+    pub fn overlays(&self) -> &[Entry] {
         &self.overlays
     }
 
@@ -198,20 +198,16 @@ impl Manifest {
     ///
     /// TODO: remove when the manifest is published to OCI.
     fn with_version(&self, version: &str) -> Result<Self> {
-        fn set_tag(entry: &mut String, version: &str) {
-            version.clone_into(entry);
-        }
-
         let mut manifest = self.clone();
         version.clone_into(&mut manifest.version);
-        set_tag(&mut manifest.installer.tag, version);
-        set_tag(&mut manifest.stub.tag, version);
-        set_tag(&mut manifest.kernel.tag, version);
+        manifest.installer.set_tag(version);
+        manifest.stub.set_tag(version);
+        manifest.kernel.set_tag(version);
         for entry in &mut manifest.extensions {
-            set_tag(&mut entry.tag, version);
+            entry.set_tag(version);
         }
         for entry in &mut manifest.overlays {
-            set_tag(&mut entry.tag, version);
+            entry.set_tag(version);
         }
 
         manifest.validate()?;
@@ -223,7 +219,8 @@ impl Manifest {
     ///
     /// # Errors
     ///
-    /// Returns an error when the API version is unsupported.
+    /// Returns an error when the API version is unsupported or a named entry
+    /// is missing its name.
     fn validate(&self) -> Result<()> {
         if self.api_version != RELEASE_API_VERSION {
             return Err(WizardError::ProfileValidation(format!(
@@ -231,15 +228,24 @@ impl Manifest {
                 self.api_version
             )));
         }
+        let mut named = self.extensions.iter().chain(&self.overlays);
+        if named.any(|entry| entry.name().is_none()) {
+            return Err(WizardError::ProfileValidation(
+                "named manifest entry must have a name".to_owned(),
+            ));
+        }
 
         Ok(())
     }
 }
 
-/// A source image entry with a repository path and a mutable tag.
+/// One source image entry: an optional short name, a logical identity, and the
+/// repository path and tag it resolves to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Image {
+pub struct Entry {
+    #[serde(default, deserialize_with = "non_empty_option")]
+    name: Option<String>,
     #[serde(deserialize_with = "non_empty")]
     source: String,
     #[serde(deserialize_with = "non_empty")]
@@ -248,51 +254,11 @@ pub struct Image {
     tag: String,
 }
 
-impl Image {
-    /// Returns the logical source identity.
+impl Entry {
+    /// Returns the entry's short name, when it declares one.
     #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-
-    /// Returns the repository path relative to the registry prefix.
-    #[must_use]
-    pub fn repository(&self) -> &str {
-        &self.repository
-    }
-
-    /// Returns the mutable tag.
-    #[must_use]
-    pub fn tag(&self) -> &str {
-        &self.tag
-    }
-
-    /// Returns the registry-qualified OCI reference for this image entry.
-    #[must_use]
-    pub fn reference(&self, registry: &str) -> String {
-        format!("{registry}/{}:{}", self.repository, self.tag)
-    }
-}
-
-/// A named extension image entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Extension {
-    #[serde(deserialize_with = "non_empty")]
-    name: String,
-    #[serde(deserialize_with = "non_empty")]
-    source: String,
-    #[serde(deserialize_with = "non_empty")]
-    repository: String,
-    #[serde(deserialize_with = "non_empty")]
-    tag: String,
-}
-
-impl Extension {
-    /// Returns the short extension name.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     /// Returns the logical source identity.
@@ -313,56 +279,15 @@ impl Extension {
         &self.tag
     }
 
-    /// Returns the registry-qualified OCI reference for this extension entry.
+    /// Returns the registry-qualified OCI reference for this entry.
     #[must_use]
     pub fn reference(&self, registry: &str) -> String {
         format!("{registry}/{}:{}", self.repository, self.tag)
     }
-}
 
-/// A named overlay image entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Overlay {
-    #[serde(deserialize_with = "non_empty")]
-    name: String,
-    #[serde(deserialize_with = "non_empty")]
-    source: String,
-    #[serde(deserialize_with = "non_empty")]
-    repository: String,
-    #[serde(deserialize_with = "non_empty")]
-    tag: String,
-}
-
-impl Overlay {
-    /// Returns the overlay name used as the image path prefix.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Returns the logical source identity.
-    #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-
-    /// Returns the repository path relative to the registry prefix.
-    #[must_use]
-    pub fn repository(&self) -> &str {
-        &self.repository
-    }
-
-    /// Returns the mutable tag.
-    #[must_use]
-    pub fn tag(&self) -> &str {
-        &self.tag
-    }
-
-    /// Returns the registry-qualified OCI reference for this overlay entry.
-    #[must_use]
-    pub fn reference(&self, registry: &str) -> String {
-        format!("{registry}/{}:{}", self.repository, self.tag)
+    /// Overwrites the entry's tag with `version`.
+    fn set_tag(&mut self, version: &str) {
+        version.clone_into(&mut self.tag);
     }
 }
 
@@ -481,10 +406,13 @@ tag = "v1.0.0"
         assert_eq!(manifest.installer().source(), "muak-os/installer");
         assert_eq!(manifest.stub().source(), "muak-os/stub");
         assert_eq!(manifest.kernel().tag(), "v1.0.0");
-        assert_eq!(manifest.extensions().first().expect("ext").name(), "qemu");
+        assert_eq!(
+            manifest.extensions().first().expect("ext").name(),
+            Some("qemu")
+        );
         assert_eq!(
             manifest.overlays().first().expect("overlay").name(),
-            "rpi_generic"
+            Some("rpi_generic")
         );
     }
 
@@ -506,8 +434,8 @@ tag = "v1.0.0"
     fn manifest_id_ignores_entry_order() {
         // ARRANGE
         let mut manifest = Manifest::from_toml(MANIFEST.as_bytes()).expect("parse");
-        manifest.extensions.push(Extension {
-            name: "b".into(),
+        manifest.extensions.push(Entry {
+            name: Some("b".into()),
             source: "muak-os/b".into(),
             repository: "pkgs/b".into(),
             tag: "v1.0.0".into(),

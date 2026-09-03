@@ -61,7 +61,7 @@ impl<'a> Request<'a> {
         self
     }
 
-    /// Binds an artifact kind to an output writer.
+    /// Sets the output writer for an artifact kind.
     ///
     /// # Errors
     ///
@@ -75,69 +75,6 @@ impl<'a> Request<'a> {
         self.targets.push((kind, writer));
 
         Ok(self)
-    }
-
-    /// Sets the output writer for the kernel image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a kernel target was already set.
-    pub fn kernel(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Kernel, writer)
-    }
-
-    /// Sets the output writer for the initial RAM filesystem image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when an initramfs target was already set.
-    pub fn initramfs(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Initramfs, writer)
-    }
-
-    /// Sets the output writer for the kernel command-line file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a cmdline target was already set.
-    pub fn cmdline(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Cmdline, writer)
-    }
-
-    /// Sets the output writer for the unified kernel image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a UKI target was already set.
-    pub fn uki(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Uki, writer)
-    }
-
-    /// Sets the output writer for the ISO 9660 bootable image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when an ISO target was already set.
-    pub fn iso(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Iso, writer)
-    }
-
-    /// Sets the output writer for the raw disk image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a raw target was already set.
-    pub fn raw(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Raw, writer)
-    }
-
-    /// Sets the output writer for the overlays tarball.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when an overlays target was already set.
-    pub fn overlays(self, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
-        self.artifact(Artifact::Overlays, writer)
     }
 
     /// Returns the requested version.
@@ -183,12 +120,12 @@ impl<'a> Request<'a> {
             ));
         }
 
-        let resolution = resolver::plan(&self, profile)?;
+        let mut resolution = resolver::plan(&self, profile)?;
         let overlay_assets = match resolution.build().overlay() {
             Some(overlay) => Some(assets(overlay)?),
             None => None,
         };
-        let resolution = resolution.with_overlay_assets(overlay_assets);
+        resolution.set_overlay_assets(overlay_assets);
         let profile_bytes = profile.canonical_bytes()?;
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {
@@ -265,9 +202,9 @@ mod tests {
 
         // ACT
         let result = Request::new("v1.0.0", Platform::Metal)
-            .kernel(&mut buf1)
+            .artifact(Artifact::Kernel, &mut buf1)
             .expect("first kernel")
-            .kernel(&mut buf2);
+            .artifact(Artifact::Kernel, &mut buf2);
 
         // ASSERT
         result.unwrap_err();
@@ -282,9 +219,9 @@ mod tests {
         // ACT
         let request = Request::new("v1.0.0", Platform::Metal)
             .arch(Arch::Amd64)
-            .kernel(&mut kernel_buf)
+            .artifact(Artifact::Kernel, &mut kernel_buf)
             .expect("kernel")
-            .iso(&mut iso_buf)
+            .artifact(Artifact::Iso, &mut iso_buf)
             .expect("iso");
 
         // ASSERT

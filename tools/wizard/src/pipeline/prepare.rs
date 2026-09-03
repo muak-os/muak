@@ -7,7 +7,8 @@ use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
 use crate::pipeline::context::TargetWriters;
-use crate::pipeline::graph::{Graph, Node, StreamId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{Node, StreamId};
 use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream, OutputWriter};
 use crate::stream::pipe::Pipe;
 
@@ -168,7 +169,7 @@ mod tests {
     use super::*;
     use crate::artifact::Artifact;
     use crate::pipeline::context::TargetWriters;
-    use crate::pipeline::graph::PortId;
+    use crate::pipeline::node::PortId;
 
     fn piped_graph() -> Graph {
         // ARRANGE

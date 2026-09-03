@@ -11,7 +11,7 @@ use crate::error::{Result, WizardError};
 use crate::nodes::{NodeKind, overlay, sign, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
-use crate::pipeline::graph::PortId;
+use crate::pipeline::node::PortId;
 use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts};
 
 pub(crate) const MEDIA_UKI: PortId = PortId(0);

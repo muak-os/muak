@@ -11,7 +11,8 @@ use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
@@ -63,5 +64,5 @@ fn run(
     iso::build(&layout, &mut readers, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }

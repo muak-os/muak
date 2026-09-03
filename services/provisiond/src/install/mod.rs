@@ -13,6 +13,7 @@ use sbolt::efi::{enroll, setup_mode};
 use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
+use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
@@ -195,19 +196,16 @@ async fn build_and_deploy_efi(
     )?;
 
     let (mut overlay_r, mut overlay_w) = if has_overlay {
-        let (r, w) = UnixStream::pair()?;
-        (Some(r), Some(w))
+        let (reader, writer) = UnixStream::pair()?;
+        (Some(reader), Some(writer))
     } else {
         (None, None)
     };
 
     let esp_root = PathBuf::from(efi::MOUNT_POINT);
-    let demux = match overlay_r.take() {
-        Some(mut reader) => Some(tokio::task::spawn_blocking(move || {
-            efi::extract_tar(&esp_root, &mut reader)
-        })),
-        None => None,
-    };
+    let demux = overlay_r
+        .take()
+        .map(|mut reader| tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut reader)));
 
     let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
@@ -215,9 +213,10 @@ async fn build_and_deploy_efi(
             certificate: &hierarchy.db.certificate,
         });
 
-        let mut request = Request::new(version, Platform::Metal).uki(&mut uki_file)?;
+        let mut request =
+            Request::new(version, Platform::Metal).artifact(Artifact::Uki, &mut uki_file)?;
         if let Some(writer) = overlay_w.as_mut() {
-            request = request.overlays(writer)?;
+            request = request.artifact(Artifact::Overlays, writer)?;
         }
 
         let request = match pair.as_ref() {

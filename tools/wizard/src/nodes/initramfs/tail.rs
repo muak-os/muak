@@ -11,7 +11,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
 
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
@@ -113,7 +114,7 @@ fn run(
     ramune::archive::cpio(&mut pairs, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 #[must_use]

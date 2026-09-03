@@ -11,7 +11,8 @@ use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 /// 1 MiB alignment boundary in bytes.
@@ -83,7 +84,7 @@ fn run(
     )
     .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 fn align_up(value: u64, align: u64) -> u64 {

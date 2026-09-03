@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::nodes;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::Graph;
+use crate::pipeline::node::NodeId;
 
 /// Attaches the final size and name to every stream in the normalized graph.
 ///
@@ -14,10 +15,10 @@ use crate::pipeline::graph::Graph;
 pub(crate) fn preflight(graph: Graph, ctx: &BuildContext<'_, '_>) -> Result<Graph> {
     let mut graph = graph;
 
-    for id in graph.topological_order() {
-        let kind = graph.node(id)?.kind;
+    for index in 0..graph.nodes().len() {
+        let kind = graph.node(NodeId(index))?.kind;
         let node = nodes::descriptor(kind);
-        (node.preflight)(&mut graph, id, ctx)?;
+        (node.preflight)(&mut graph, NodeId(index), ctx)?;
     }
 
     graph.assert_named()?;

@@ -8,7 +8,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts};
 use crate::stream;
 
@@ -72,7 +73,7 @@ fn run(
     stream::fanout::copy_to_all(&mut input.reader, &mut sinks)
         .map_err(|e| WizardError::BuildError(format!("fanout stream: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -84,8 +85,8 @@ mod tests {
 
     use super::*;
     use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::{ResolvedBuild, Sources};
-    use crate::pipeline::graph::PortId;
+    use crate::domain::resolution::ResolvedBuild;
+    use crate::pipeline::node::PortId;
     use crate::pipeline::runtime::{Endpoint, InputStream, NodePorts, OutputStream, OutputWriter};
     use crate::request::Platform;
 
@@ -132,16 +133,16 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Sources {
-                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
-                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
-                kernel: Kernel::new(
-                    "ghcr.io/muak-os/linux".to_owned(),
-                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
-                ),
-                overlay: None,
-                extensions: Vec::new(),
-            },
+            Kernel::new(
+                "ghcr.io/muak-os/linux".to_owned(),
+                "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            None,
+            Vec::new(),
         );
         let ctx = BuildContext {
             build: &build,

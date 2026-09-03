@@ -6,16 +6,6 @@ use super::overlay::Asset;
 use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};
 use crate::request::Platform;
 
-/// The resolved OCI sources and their selected inputs for one build.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Sources {
-    pub(crate) stub: String,
-    pub(crate) installer: String,
-    pub(crate) kernel: Kernel,
-    pub(crate) overlay: Option<Overlay>,
-    pub(crate) extensions: Vec<Extension>,
-}
-
 /// The resolved build inputs produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedBuild {
@@ -32,18 +22,35 @@ pub struct ResolvedBuild {
 
 impl ResolvedBuild {
     #[must_use]
-    pub(crate) fn new(platform: Platform, version: String, arch: Arch, sources: Sources) -> Self {
+    pub(crate) fn new(platform: Platform, version: String, arch: Arch, kernel: Kernel) -> Self {
         Self {
             platform,
             version,
             arch,
-            extensions: sources.extensions,
-            overlay: sources.overlay,
+            extensions: Vec::new(),
+            overlay: None,
             overlay_assets: None,
-            kernel: sources.kernel,
-            installer: sources.installer,
-            stub: sources.stub,
+            kernel,
+            installer: String::new(),
+            stub: String::new(),
         }
+    }
+
+    /// Attaches the resolved OCI sources to the build.
+    #[must_use]
+    pub(crate) fn with_sources(
+        mut self,
+        stub: String,
+        installer: String,
+        overlay: Option<Overlay>,
+        extensions: Vec<Extension>,
+    ) -> Self {
+        self.stub = stub;
+        self.installer = installer;
+        self.overlay = overlay;
+        self.extensions = extensions;
+
+        self
     }
 
     /// Returns the resolved platform for the build.
@@ -90,11 +97,8 @@ impl ResolvedBuild {
     }
 
     /// Attaches the discovered overlay assets to the build.
-    #[must_use]
-    pub(crate) fn with_overlay_assets(mut self, assets: Option<Vec<Asset>>) -> Self {
+    pub(crate) fn set_overlay_assets(&mut self, assets: Option<Vec<Asset>>) {
         self.overlay_assets = assets;
-
-        self
     }
 
     /// Returns the resolved kernel source.
@@ -166,21 +170,8 @@ impl Resolution {
     }
 
     /// Attaches the discovered overlay assets to the resolved build.
-    #[must_use]
-    pub(crate) fn with_overlay_assets(self, assets: Option<Vec<Asset>>) -> Self {
-        let Self {
-            profile_id,
-            release_id,
-            id,
-            build,
-        } = self;
-
-        Self {
-            profile_id,
-            release_id,
-            id,
-            build: build.with_overlay_assets(assets),
-        }
+    pub(crate) fn set_overlay_assets(&mut self, assets: Option<Vec<Asset>>) {
+        self.build.set_overlay_assets(assets);
     }
 }
 
@@ -309,16 +300,16 @@ mod tests {
             Platform::Metal,
             manifest.version().to_owned(),
             Arch::Amd64,
-            Sources {
-                stub: "ghcr.io/muak-os/stub:latest".into(),
-                installer: "ghcr.io/muak-os/installer:latest".into(),
-                kernel: Kernel::new(
-                    "muak-os/linux".into(),
-                    "ghcr.io/muak-os/linux:latest".into(),
-                ),
-                overlay: None,
-                extensions: vec![],
-            },
+            Kernel::new(
+                "muak-os/linux".into(),
+                "ghcr.io/muak-os/linux:latest".into(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:latest".into(),
+            "ghcr.io/muak-os/installer:latest".into(),
+            None,
+            vec![],
         );
         let resolution = Resolution::new(
             profile.profile_id().expect("profile id"),

@@ -1,87 +1,8 @@
-//! Logical build graph types.
+//! Logical build graph.
 
-use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
-use crate::pipeline::order;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct NodeId(pub(crate) usize);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct StreamId(pub(crate) usize);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct PortId(pub(crate) usize);
-
-impl PortId {
-    /// The port `index` positions after this one, saturating.
-    #[must_use]
-    pub(crate) const fn offset(self, index: usize) -> Self {
-        Self(self.0.saturating_add(index))
-    }
-}
-
-/// Node-local port identity paired with the logical stream it carries.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PortBinding {
-    pub(crate) port: PortId,
-    pub(crate) stream: StreamId,
-}
-
-/// A logical operation consuming and/or producing streams.
-#[derive(Clone, Debug)]
-pub(crate) struct Node {
-    pub(crate) id: NodeId,
-    pub(crate) kind: NodeKind,
-    pub(crate) inputs: Vec<PortBinding>,
-    pub(crate) outputs: Vec<PortBinding>,
-}
-
-impl Node {
-    /// Stream bound to a fixed input port.
-    pub(crate) fn input(&self, port: PortId) -> Result<StreamId> {
-        self.inputs
-            .iter()
-            .find(|binding| binding.port == port)
-            .map(|binding| binding.stream)
-            .ok_or_else(|| {
-                WizardError::BuildError(format!("node {:?} has no input port {port:?}", self.id))
-            })
-    }
-
-    /// Stream bound to a fixed output port.
-    pub(crate) fn output(&self, port: PortId) -> Result<StreamId> {
-        self.outputs
-            .iter()
-            .find(|binding| binding.port == port)
-            .map(|binding| binding.stream)
-            .ok_or_else(|| {
-                WizardError::BuildError(format!("node {:?} has no output port {port:?}", self.id))
-            })
-    }
-
-    /// Every port-to-stream input binding, for generic binding and dynamic ports.
-    pub(crate) fn input_bindings(&self) -> impl Iterator<Item = &PortBinding> {
-        self.inputs.iter()
-    }
-
-    /// Every port-to-stream output binding, for generic binding and dynamic ports.
-    pub(crate) fn output_bindings(&self) -> impl Iterator<Item = &PortBinding> {
-        self.outputs.iter()
-    }
-}
-
-/// A logical byte flow with a fixed size, one producer, and one destination.
-#[derive(Clone, Debug)]
-pub(crate) struct Stream {
-    pub(crate) id: StreamId,
-    pub(crate) name: String,
-    pub(crate) size: u64,
-    pub(crate) producer: NodeId,
-    pub(crate) consumers: Vec<NodeId>,
-    pub(crate) artifact: Option<Artifact>,
-}
+use crate::pipeline::node::{Node, NodeId, PortBinding, PortId, Stream, StreamId};
 
 /// The logical build DAG: nodes plus the streams between them.
 #[derive(Clone, Debug, Default)]
@@ -205,10 +126,58 @@ impl Graph {
         &self.streams
     }
 
-    /// Deterministic producer-before-consumer order (Kahn's algorithm).
-    #[must_use]
-    pub(crate) fn topological_order(&self) -> Vec<NodeId> {
-        order::topological(&self.nodes, &self.streams)
+    /// Moves `node` to directly after `anchor`, remapping every node id, and returns the node's new id.
+    pub(crate) fn reposition_after(&mut self, node: NodeId, anchor: NodeId) -> Result<NodeId> {
+        let mut order: Vec<usize> = (0..self.nodes.len()).collect();
+        order.retain(|index| *index != node.0);
+        let anchor_index = order
+            .iter()
+            .position(|index| *index == anchor.0)
+            .ok_or_else(|| WizardError::BuildError(format!("missing anchor node {anchor:?}")))?;
+        order.insert(anchor_index.saturating_add(1), node.0);
+
+        self.apply_order(&order, node.0)
+    }
+
+    /// Reorders nodes to `order` and remaps every stored node id.
+    fn apply_order(&mut self, order: &[usize], moved: usize) -> Result<NodeId> {
+        let broken = || {
+            WizardError::BuildError("node reposition order must be a full permutation".to_owned())
+        };
+        let old_nodes = core::mem::take(&mut self.nodes);
+        let mut new_nodes = Vec::with_capacity(old_nodes.len());
+        for old_index in order {
+            let node = old_nodes.get(*old_index).ok_or_else(broken)?;
+            new_nodes.push(node.clone());
+        }
+        for (index, node) in new_nodes.iter_mut().enumerate() {
+            node.id = NodeId(index);
+        }
+        self.nodes = new_nodes;
+        let new_id = |id: usize| -> Result<NodeId> {
+            Ok(NodeId(
+                order
+                    .iter()
+                    .position(|index| *index == id)
+                    .ok_or_else(broken)?,
+            ))
+        };
+        for stream in &mut self.streams {
+            stream.producer = new_id(stream.producer.0)?;
+        }
+        for consumer in self
+            .streams
+            .iter_mut()
+            .flat_map(|stream| &mut stream.consumers)
+        {
+            *consumer = new_id(consumer.0)?;
+        }
+        let moved_new = order
+            .iter()
+            .position(|index| *index == moved)
+            .ok_or_else(broken)?;
+
+        Ok(NodeId(moved_new))
     }
 
     /// Rejects any stream whose producer did not name it during preflight.
@@ -347,30 +316,57 @@ mod tests {
     }
 
     #[test]
-    fn topological_order_places_producers_first() {
+    fn reposition_after_moves_a_node_and_remaps_ids() {
         // ARRANGE
         let mut graph = Graph::new();
-        let installer_node = graph.add_node(NodeKind::InstallerPull);
-        let tail = graph.add_node(NodeKind::InitramfsTail);
-        let concat = graph.add_node(NodeKind::Concat);
-        let base = graph
-            .add_output(installer_node, PortId(0))
-            .expect("add output");
-        let tail_stream = graph.add_output(tail, PortId(0)).expect("add output");
-        graph.bind_input(concat, PortId(0), base).expect("bind");
-        graph
-            .bind_input(concat, PortId(1), tail_stream)
-            .expect("bind");
-        graph.add_output(concat, PortId(2)).expect("add output");
+        let producer = graph.add_node(NodeKind::InstallerPull);
+        let first = graph.add_node(NodeKind::Concat);
+        let second = graph.add_node(NodeKind::Uki);
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.bind_input(first, PortId(0), stream).expect("bind");
+        graph.bind_input(second, PortId(0), stream).expect("bind");
 
         // ACT
-        let order = graph.topological_order();
+        let moved = graph
+            .reposition_after(second, producer)
+            .expect("reposition");
 
         // ASSERT
-        let index = |id: NodeId| order.iter().position(|item| *item == id).expect("in order");
-        assert!(index(installer_node) < index(concat));
-        assert!(index(tail) < index(concat));
-        assert_eq!(order.len(), 3);
+        assert_eq!(moved, NodeId(1));
+        let kinds: Vec<_> = graph.nodes().iter().map(|node| node.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![NodeKind::InstallerPull, NodeKind::Uki, NodeKind::Concat]
+        );
+        let stream = graph.stream(stream).expect("stream");
+        assert_eq!(stream.producer, NodeId(0));
+        assert_eq!(
+            stream.consumers,
+            vec![NodeId(2), NodeId(1)],
+            "consumer order may change, but every binding must be preserved"
+        );
+        for consumer in &stream.consumers {
+            let node = graph.node(*consumer).expect("node");
+            assert_eq!(node.id, *consumer, "node ids must match their index");
+            assert_eq!(
+                node.input(PortId(0)).expect("input"),
+                stream.id,
+                "bindings must survive the remap"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_reposition_after_a_missing_anchor() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let node = graph.add_node(NodeKind::InstallerPull);
+
+        // ACT
+        let result = graph.reposition_after(node, NodeId(99));
+
+        // ASSERT
+        result.unwrap_err();
     }
 
     #[test]

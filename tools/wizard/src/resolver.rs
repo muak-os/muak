@@ -6,7 +6,7 @@ use crate::config;
 use crate::domain::identity::ResolutionId;
 use crate::domain::profile::{Profile, normalize_extension_name};
 use crate::domain::release::{Manifest, manifest_for_version};
-use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild, Sources};
+use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild};
 use crate::error::{Result, WizardError};
 use crate::request::Request;
 
@@ -39,14 +39,9 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
         request.platform(),
         manifest.version().to_owned(),
         arch,
-        Sources {
-            stub,
-            installer,
-            kernel,
-            overlay,
-            extensions,
-        },
-    );
+        kernel,
+    )
+    .with_sources(stub, installer, overlay, extensions);
     let resolution_id = ResolutionId::compute(
         &profile_id,
         &release_id,
@@ -133,7 +128,7 @@ fn match_overlay(
     let entry = manifest
         .overlays()
         .iter()
-        .find(|entry| entry.source() == spec.source() && entry.name() == spec.name())
+        .find(|entry| entry.source() == spec.source() && entry.name() == Some(spec.name()))
         .ok_or_else(|| {
             WizardError::SourceResolution(format!(
                 "manifest '{}' does not contain overlay '{}/{}'",

@@ -13,7 +13,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
@@ -97,7 +98,7 @@ pub(crate) fn run(
             .map_err(|e| WizardError::BuildError(format!("stream layer payload: {e}")))?;
     }
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 fn layer_specs(ctx: &BuildContext<'_, '_>) -> Result<Vec<Layer>> {

@@ -36,14 +36,6 @@ impl<'a> TargetWriters<'a> {
             .get_mut(artifact.to_index())
             .and_then(Option::take)
     }
-
-    /// Whether a writer for `artifact` is still available, without taking it.
-    #[must_use]
-    pub(crate) fn available(&self, artifact: Artifact) -> bool {
-        self.slots
-            .get(artifact.to_index())
-            .is_some_and(Option::is_some)
-    }
 }
 
 fn fill_slots<'a>(
@@ -92,21 +84,5 @@ mod tests {
         assert!(kernel.is_some(), "first take must yield the writer");
         assert!(kernel_again.is_none(), "a writer must be taken only once");
         assert!(iso.is_some(), "each artifact has its own slot");
-    }
-
-    #[test]
-    fn available_peeks_without_taking() {
-        // ARRANGE
-        let mut writer = Sink;
-        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
-
-        // ACT / ASSERT
-        assert!(writers.available(Artifact::Kernel), "peek before take");
-        assert!(
-            writers.take(Artifact::Kernel).is_some(),
-            "take after peek must yield the writer"
-        );
-        assert!(!writers.available(Artifact::Kernel), "peek after take");
-        assert!(!writers.available(Artifact::Uki), "absent slot");
     }
 }

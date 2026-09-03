@@ -16,7 +16,8 @@ use crate::error::Result;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
 /// What a node does.
@@ -101,7 +102,7 @@ mod tests {
 
     use super::*;
     use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::{ResolvedBuild, Sources};
+    use crate::domain::resolution::ResolvedBuild;
     use crate::request::Platform;
 
     fn build_plan() -> ResolvedBuild {
@@ -109,16 +110,16 @@ mod tests {
             Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
-            Sources {
-                stub: "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
-                installer: "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
-                kernel: Kernel::new(
-                    "ghcr.io/muak-os/linux".to_owned(),
-                    "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
-                ),
-                overlay: None,
-                extensions: Vec::new(),
-            },
+            Kernel::new(
+                "ghcr.io/muak-os/linux".to_owned(),
+                "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            None,
+            Vec::new(),
         )
     }
 

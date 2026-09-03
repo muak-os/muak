@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
 
 use crate::error::{Result, WizardError};
-use crate::pipeline::graph::PortId;
+use crate::pipeline::node::PortId;
 
 /// A live input pipe end with the stream's fixed size.
 pub(crate) struct InputStream<'a> {

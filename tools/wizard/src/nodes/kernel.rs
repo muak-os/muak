@@ -13,7 +13,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{NodePorts, OutputStream};
 
 pub(crate) const KERNEL: PortId = PortId(0);
@@ -87,7 +88,7 @@ fn run(
     })
     .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;
 
-    Ok(NodeReport::Empty)
+    Ok(None)
 }
 
 /// Routes one kernel entry, requiring `cmdline` before `vmlinuz`.

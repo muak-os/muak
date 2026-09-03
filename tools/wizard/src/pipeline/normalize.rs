@@ -4,7 +4,8 @@ use crate::artifact::Artifact;
 use crate::error::Result;
 use crate::nodes::NodeKind;
 use crate::nodes::fanout::{FANOUT_INPUT, FANOUT_OUTPUTS_FIRST};
-use crate::pipeline::graph::{Graph, NodeId, PortId, StreamId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId, StreamId};
 
 /// Ensures every stream has exactly one destination.
 ///
@@ -15,16 +16,16 @@ pub(crate) fn normalize(graph: &mut Graph) -> Result<()> {
     let stream_count = graph.streams().len();
     for stream_index in 0..stream_count {
         let stream_id = StreamId(stream_index);
-        let destinations = destinations(graph, stream_id)?;
-        if destinations <= 1 {
+        if destinations(graph, stream_id)? <= 1 {
             continue;
         }
         let artifact = graph.stream(stream_id)?.artifact;
+        let producer = graph.stream(stream_id)?.producer;
         let fanout = graph.add_node(NodeKind::Fanout);
         graph.bind_input(fanout, FANOUT_INPUT, stream_id)?;
-        let node_count = graph.nodes().len();
+        let fanout = graph.reposition_after(fanout, producer)?;
         let mut output_index = 0;
-        for index in (0..node_count).filter(|index| *index != fanout.0) {
+        for index in (0..graph.nodes().len()).filter(|index| *index != fanout.0) {
             rebind_consumers(graph, NodeId(index), stream_id, fanout, &mut output_index)?;
         }
         stamp_terminal_branch(graph, stream_id, fanout, output_index, artifact)?;
@@ -86,7 +87,8 @@ fn rebind_consumers(
 mod tests {
     use crate::artifact::Artifact;
     use crate::nodes::NodeKind;
-    use crate::pipeline::graph::{Graph, PortId};
+    use crate::pipeline::graph::Graph;
+    use crate::pipeline::node::PortId;
     use crate::pipeline::normalize::normalize;
 
     fn multi_destination_graph() -> Graph {
@@ -169,6 +171,27 @@ mod tests {
             graph.stream(stream).expect("stream").consumers,
             vec![consumer]
         );
+    }
+
+    #[test]
+    fn normalized_node_ids_stay_producer_first() {
+        // ARRANGE
+        let mut graph = multi_destination_graph();
+
+        // ACT
+        normalize(&mut graph).expect("normalize");
+
+        // ASSERT
+        for stream in graph.streams() {
+            assert!(
+                stream
+                    .consumers
+                    .iter()
+                    .all(|consumer| stream.producer.0 < consumer.0),
+                "producer {:?} must precede all its consumers",
+                stream.producer
+            );
+        }
     }
 
     #[test]

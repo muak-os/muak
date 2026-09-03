@@ -14,7 +14,8 @@ use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
-use crate::pipeline::graph::{Graph, NodeId, PortId};
+use crate::pipeline::graph::Graph;
+use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{Endpoint, NodePorts, OutputStream};
 
 pub(crate) const PULL_OUTPUTS_FIRST: PortId = PortId(0);
@@ -98,7 +99,7 @@ fn run<'name, 'writer>(
         error = collect_first_error(handles);
     });
 
-    error.map_or(Ok(NodeReport::Empty), Err)
+    error.map_or(Ok(None), Err)
 }
 
 fn pull_into_output(
