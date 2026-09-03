@@ -328,7 +328,7 @@ mod tests {
             section.name.starts_with(b".cmdline") || section.name.starts_with(b".initrd")
         }) {
             let chars = section.characteristics.get(LE);
-            assert!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE == 0);
+            assert_eq!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE, 0);
         }
     }
 
