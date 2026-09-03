@@ -1,6 +1,5 @@
 //! Build pipeline node runners.
 
-pub(crate) mod fanout;
 pub(crate) mod initramfs;
 pub(crate) mod installer;
 pub(crate) mod kernel;
@@ -35,7 +34,6 @@ pub(crate) enum NodeKind {
     Raw,
     OverlayPull,
     OverlayTar,
-    Fanout,
 }
 
 impl NodeKind {
@@ -80,7 +78,6 @@ pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
         NodeKind::Raw => &media::raw::DESCRIPTOR,
         NodeKind::OverlayPull => &overlay::pull::DESCRIPTOR,
         NodeKind::OverlayTar => &overlay::tar::DESCRIPTOR,
-        NodeKind::Fanout => &fanout::DESCRIPTOR,
     }
 }
 

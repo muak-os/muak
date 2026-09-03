@@ -6,7 +6,7 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::NodeId;
 
-/// Attaches the final size and name to every stream in the normalized graph.
+/// Attaches the final size and name to every stream in the planned graph.
 ///
 /// # Errors
 ///

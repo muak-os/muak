@@ -1,8 +1,5 @@
 //! Pipe allocation and generic binding of logical nodes into owned `PreparedNode` values.
 
-use std::io::Write;
-use std::os::unix::net::UnixStream;
-
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::NodeKind;
@@ -60,7 +57,7 @@ fn bind_node<'name, 'writer>(
     })
 }
 
-/// Creates one pipe per intermediate stream and one fused writer per terminal stream.
+/// Creates one pipe per intermediate stream destination and one fused writer per terminal stream.
 fn allocate<'name, 'writer>(
     graph: &'name Graph,
     writers: &mut TargetWriters<'writer>,
@@ -68,15 +65,43 @@ fn allocate<'name, 'writer>(
     let mut table = PortTable::with_capacity(graph.streams().len());
     for stream in graph.streams() {
         let name = &stream.name;
+        let mut sinks = Vec::new();
+        let mut readers = Vec::new();
+        for _ in &stream.consumers {
+            let (reader, writer) = Pipe::new("stream pipe")?.split();
+            sinks.push(OutputWriter::Pipe(writer));
+            readers.push(Some(InputStream {
+                name,
+                size: stream.size,
+                reader,
+            }));
+        }
         if let Some(artifact) = stream.artifact {
             let writer = writers
                 .take(artifact)
                 .ok_or_else(|| missing_writer(artifact))?;
-            table.push_target(name, stream.size, writer);
-        } else {
-            let (reader, writer) = Pipe::new("stream pipe")?.split();
-            table.push_pipe(name, stream.size, reader, writer);
+            sinks.push(OutputWriter::Target(writer));
         }
+        let writer = match sinks.pop() {
+            Some(single) if sinks.is_empty() => single,
+            Some(last) => {
+                sinks.push(last);
+                OutputWriter::Fanout(sinks)
+            }
+            None => {
+                return Err(WizardError::BuildError(format!(
+                    "stream {name} has no destination"
+                )));
+            }
+        };
+        table.push_stream(
+            readers,
+            OutputStream {
+                name,
+                size: stream.size,
+                writer,
+            },
+        );
     }
 
     Ok(table)
@@ -88,7 +113,7 @@ fn missing_writer(artifact: Artifact) -> WizardError {
 
 /// Construction-time ownership ledger for pipe and fused endpoints.
 struct PortTable<'name, 'writer> {
-    inputs: Vec<Option<InputStream<'name>>>,
+    inputs: Vec<Vec<Option<InputStream<'name>>>>,
     outputs: Vec<Option<OutputStream<'name, 'writer>>>,
 }
 
@@ -100,42 +125,25 @@ impl<'name, 'writer> PortTable<'name, 'writer> {
         }
     }
 
-    /// Records one piped stream: a readable input and a writable output.
-    fn push_pipe(&mut self, name: &'name str, size: u64, reader: UnixStream, writer: UnixStream) {
-        self.inputs.push(Some(InputStream { name, size, reader }));
-        self.outputs.push(Some(OutputStream {
-            name,
-            size,
-            writer: OutputWriter::Pipe(writer),
-        }));
-    }
-
-    /// Records one fused terminal stream: no input, the user writer as output.
-    fn push_target(
+    fn push_stream(
         &mut self,
-        name: &'name str,
-        size: u64,
-        writer: &'writer mut (dyn Write + Send),
+        readers: Vec<Option<InputStream<'name>>>,
+        output: OutputStream<'name, 'writer>,
     ) {
-        self.inputs.push(None);
-        self.outputs.push(Some(OutputStream {
-            name,
-            size,
-            writer: OutputWriter::Target(writer),
-        }));
+        self.inputs.push(readers);
+        self.outputs.push(Some(output));
     }
 
-    /// Consumes the input endpoint of a stream, once.
     fn take_input(&mut self, stream: StreamId) -> Result<InputStream<'name>> {
         self.inputs
             .get_mut(stream.0)
-            .and_then(Option::take)
+            .and_then(Vec::pop)
+            .flatten()
             .ok_or_else(|| {
                 WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
             })
     }
 
-    /// Consumes the output endpoint of a stream, once.
     fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'name, 'writer>> {
         self.outputs
             .get_mut(stream.0)
@@ -145,12 +153,15 @@ impl<'name, 'writer> PortTable<'name, 'writer> {
             })
     }
 
-    /// Rejects unconsumed or duplicate endpoints before any node starts.
     fn assert_empty(self) -> Result<()> {
-        if let Some(index) = self.inputs.iter().position(Option::is_some) {
-            return Err(WizardError::BuildError(format!(
-                "unconsumed endpoint for stream {index}"
-            )));
+        if self
+            .inputs
+            .iter()
+            .any(|slots| slots.iter().any(Option::is_some))
+        {
+            return Err(WizardError::BuildError(
+                "unconsumed stream input endpoint".to_owned(),
+            ));
         }
         if let Some(index) = self.outputs.iter().position(Option::is_some) {
             return Err(WizardError::BuildError(format!(
@@ -164,6 +175,7 @@ impl<'name, 'writer> PortTable<'name, 'writer> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read as _, Write as _};
     use std::os::unix::net::UnixStream;
 
     use super::*;
@@ -172,7 +184,6 @@ mod tests {
     use crate::pipeline::node::PortId;
 
     fn piped_graph() -> Graph {
-        // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::Concat);
         let consumer = graph.add_node(NodeKind::Uki);
@@ -183,7 +194,6 @@ mod tests {
     }
 
     fn fused_graph() -> Graph {
-        // ARRANGE
         let mut graph = Graph::new();
         let producer = graph.add_node(NodeKind::KernelPull);
         let stream = graph.add_output(producer, PortId(0)).expect("add output");
@@ -203,8 +213,82 @@ mod tests {
 
         // ASSERT
         let stream = graph.streams().iter().next().expect("stream");
-        assert!(table.inputs.get(stream.id.0).expect("slot").is_some());
+        assert_eq!(
+            table
+                .inputs
+                .get(stream.id.0)
+                .expect("slot")
+                .iter()
+                .filter(|slot| slot.is_some())
+                .count(),
+            1,
+            "one reader slot per consumer"
+        );
         assert!(table.outputs.get(stream.id.0).expect("slot").is_some());
+    }
+
+    #[test]
+    fn multi_destination_stream_gets_a_fanout_output_and_one_reader_per_consumer() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::KernelPull);
+        let first = graph.add_node(NodeKind::Concat);
+        let second = graph.add_node(NodeKind::Uki);
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.bind_input(first, PortId(0), stream).expect("bind");
+        graph.bind_input(second, PortId(0), stream).expect("bind");
+        let mut writers = TargetWriters::new(Vec::new());
+
+        // ACT
+        let mut table = allocate(&graph, &mut writers).expect("allocate");
+
+        // ASSERT
+        let output = table.take_output(stream).expect("fanout output");
+        assert!(matches!(output.writer, OutputWriter::Fanout(_)));
+        table.take_input(stream).expect("first reader");
+        table.take_input(stream).expect("second reader");
+        assert!(
+            table.take_input(stream).is_err(),
+            "only one reader per consumer"
+        );
+    }
+
+    #[test]
+    fn fanout_writer_replicates_bytes_to_every_sink() {
+        // ARRANGE
+        let mut graph = Graph::new();
+        let producer = graph.add_node(NodeKind::KernelPull);
+        let first = graph.add_node(NodeKind::Concat);
+        let second = graph.add_node(NodeKind::Uki);
+        let stream = graph.add_output(producer, PortId(0)).expect("add output");
+        graph.bind_input(first, PortId(0), stream).expect("bind");
+        graph.bind_input(second, PortId(0), stream).expect("bind");
+        let mut writers = TargetWriters::new(Vec::new());
+        let mut table = allocate(&graph, &mut writers).expect("allocate");
+        let mut first_reader = table.take_input(stream).expect("first reader");
+        let mut second_reader = table.take_input(stream).expect("second reader");
+        let mut output = table.take_output(stream).expect("fanout output");
+
+        // ACT
+        output
+            .writer
+            .write_all(b"replicated")
+            .expect("fanout write");
+        drop(output);
+
+        // ASSERT
+        let mut first = Vec::new();
+        first_reader
+            .reader
+            .read_to_end(&mut first)
+            .expect("read first");
+        let mut second = Vec::new();
+        second_reader
+            .reader
+            .read_to_end(&mut second)
+            .expect("read second");
+        assert_eq!(first, b"replicated");
+        assert_eq!(second, b"replicated");
     }
 
     #[test]
@@ -220,7 +304,7 @@ mod tests {
         // ASSERT
         let stream = graph.streams().iter().next().expect("stream");
         assert!(
-            table.inputs.get(stream.id.0).expect("slot").is_none(),
+            table.inputs.get(stream.id.0).expect("slot").is_empty(),
             "a fused stream must allocate no pipe input"
         );
         let output = table
@@ -231,7 +315,9 @@ mod tests {
             .expect("output");
         match output.writer {
             OutputWriter::Target(_) => {}
-            OutputWriter::Pipe(_) => panic!("terminal stream must hold the target writer"),
+            OutputWriter::Pipe(_) | OutputWriter::Fanout(_) => {
+                panic!("terminal stream must hold the target writer")
+            }
         }
         drop(output);
         drop(writer);

@@ -77,7 +77,6 @@ pub(crate) struct Stream {
     pub(crate) id: StreamId,
     pub(crate) name: String,
     pub(crate) size: u64,
-    pub(crate) producer: NodeId,
     pub(crate) consumers: Vec<NodeId>,
     pub(crate) artifact: Option<Artifact>,
 }

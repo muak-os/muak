@@ -38,7 +38,6 @@ impl Graph {
             id,
             name: String::new(),
             size: 0,
-            producer: node,
             consumers: Vec::new(),
             artifact: None,
         });
@@ -72,30 +71,6 @@ impl Graph {
         Ok(())
     }
 
-    /// Rebinds an input port of `node` from `old` to `new` (normalization).
-    pub(crate) fn rebind_input(
-        &mut self,
-        node: NodeId,
-        old: StreamId,
-        new: StreamId,
-    ) -> Result<()> {
-        let binding = self
-            .node_mut(node)?
-            .inputs
-            .iter_mut()
-            .find(|binding| binding.stream == old)
-            .ok_or_else(|| {
-                WizardError::BuildError(format!("node {node:?} has no input stream {old:?}"))
-            })?;
-        binding.stream = new;
-        self.stream_mut(old)?
-            .consumers
-            .retain(|consumer| *consumer != node);
-        self.stream_mut(new)?.consumers.push(node);
-
-        Ok(())
-    }
-
     /// Returns the node with the given id.
     pub(crate) fn node(&self, id: NodeId) -> Result<&Node> {
         Self::get(&self.nodes, "node", id.0)
@@ -124,60 +99,6 @@ impl Graph {
     /// Returns every stream, in id order.
     pub(crate) fn streams(&self) -> &[Stream] {
         &self.streams
-    }
-
-    /// Moves `node` to directly after `anchor`, remapping every node id, and returns the node's new id.
-    pub(crate) fn reposition_after(&mut self, node: NodeId, anchor: NodeId) -> Result<NodeId> {
-        let mut order: Vec<usize> = (0..self.nodes.len()).collect();
-        order.retain(|index| *index != node.0);
-        let anchor_index = order
-            .iter()
-            .position(|index| *index == anchor.0)
-            .ok_or_else(|| WizardError::BuildError(format!("missing anchor node {anchor:?}")))?;
-        order.insert(anchor_index.saturating_add(1), node.0);
-
-        self.apply_order(&order, node.0)
-    }
-
-    /// Reorders nodes to `order` and remaps every stored node id.
-    fn apply_order(&mut self, order: &[usize], moved: usize) -> Result<NodeId> {
-        let broken = || {
-            WizardError::BuildError("node reposition order must be a full permutation".to_owned())
-        };
-        let old_nodes = core::mem::take(&mut self.nodes);
-        let mut new_nodes = Vec::with_capacity(old_nodes.len());
-        for old_index in order {
-            let node = old_nodes.get(*old_index).ok_or_else(broken)?;
-            new_nodes.push(node.clone());
-        }
-        for (index, node) in new_nodes.iter_mut().enumerate() {
-            node.id = NodeId(index);
-        }
-        self.nodes = new_nodes;
-        let new_id = |id: usize| -> Result<NodeId> {
-            Ok(NodeId(
-                order
-                    .iter()
-                    .position(|index| *index == id)
-                    .ok_or_else(broken)?,
-            ))
-        };
-        for stream in &mut self.streams {
-            stream.producer = new_id(stream.producer.0)?;
-        }
-        for consumer in self
-            .streams
-            .iter_mut()
-            .flat_map(|stream| &mut stream.consumers)
-        {
-            *consumer = new_id(consumer.0)?;
-        }
-        let moved_new = order
-            .iter()
-            .position(|index| *index == moved)
-            .ok_or_else(broken)?;
-
-        Ok(NodeId(moved_new))
     }
 
     /// Rejects any stream whose producer did not name it during preflight.
@@ -252,7 +173,6 @@ mod tests {
                 .expect("input"),
             stream
         );
-        assert_eq!(graph.stream(stream).expect("stream").producer, producer);
         assert_eq!(
             graph.stream(stream).expect("stream").consumers,
             vec![consumer]
@@ -285,88 +205,6 @@ mod tests {
 
         // ASSERT
         duplicate.unwrap_err();
-    }
-
-    #[test]
-    fn rebinds_input_stream() {
-        // ARRANGE
-        let mut graph = simple_graph();
-        let stream = graph.streams().iter().next().expect("stream").id;
-        let producer = graph.stream(stream).expect("stream").producer;
-        let consumer = graph
-            .stream(stream)
-            .expect("stream")
-            .consumers
-            .first()
-            .copied()
-            .expect("consumer");
-        let replacement = graph.add_output(producer, PortId(1)).expect("add output");
-
-        // ACT
-        graph
-            .rebind_input(consumer, stream, replacement)
-            .expect("rebind");
-
-        // ASSERT
-        assert_eq!(graph.stream(stream).expect("stream").consumers, Vec::new());
-        assert_eq!(
-            graph.stream(replacement).expect("stream").consumers,
-            vec![consumer]
-        );
-    }
-
-    #[test]
-    fn reposition_after_moves_a_node_and_remaps_ids() {
-        // ARRANGE
-        let mut graph = Graph::new();
-        let producer = graph.add_node(NodeKind::InstallerPull);
-        let first = graph.add_node(NodeKind::Concat);
-        let second = graph.add_node(NodeKind::Uki);
-        let stream = graph.add_output(producer, PortId(0)).expect("add output");
-        graph.bind_input(first, PortId(0), stream).expect("bind");
-        graph.bind_input(second, PortId(0), stream).expect("bind");
-
-        // ACT
-        let moved = graph
-            .reposition_after(second, producer)
-            .expect("reposition");
-
-        // ASSERT
-        assert_eq!(moved, NodeId(1));
-        let kinds: Vec<_> = graph.nodes().iter().map(|node| node.kind).collect();
-        assert_eq!(
-            kinds,
-            vec![NodeKind::InstallerPull, NodeKind::Uki, NodeKind::Concat]
-        );
-        let stream = graph.stream(stream).expect("stream");
-        assert_eq!(stream.producer, NodeId(0));
-        assert_eq!(
-            stream.consumers,
-            vec![NodeId(2), NodeId(1)],
-            "consumer order may change, but every binding must be preserved"
-        );
-        for consumer in &stream.consumers {
-            let node = graph.node(*consumer).expect("node");
-            assert_eq!(node.id, *consumer, "node ids must match their index");
-            assert_eq!(
-                node.input(PortId(0)).expect("input"),
-                stream.id,
-                "bindings must survive the remap"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_reposition_after_a_missing_anchor() {
-        // ARRANGE
-        let mut graph = Graph::new();
-        let node = graph.add_node(NodeKind::InstallerPull);
-
-        // ACT
-        let result = graph.reposition_after(node, NodeId(99));
-
-        // ASSERT
-        result.unwrap_err();
     }
 
     #[test]

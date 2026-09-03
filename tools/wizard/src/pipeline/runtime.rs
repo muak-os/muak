@@ -26,11 +26,32 @@ pub(crate) enum OutputWriter<'writer> {
     Pipe(UnixStream),
     /// User writer consuming the stream's bytes.
     Target(&'writer mut (dyn Write + Send)),
+    /// Every chunk written to all sinks, preserving backpressure.
+    Fanout(Vec<OutputWriter<'writer>>),
+}
+
+impl<'writer> OutputWriter<'writer> {
+    fn write_all_sinks(sinks: &mut [OutputWriter<'writer>], buf: &[u8]) -> io::Result<usize> {
+        for sink in sinks {
+            sink.write_all(buf)?;
+        }
+
+        Ok(buf.len())
+    }
+
+    fn flush_sinks(sinks: &mut [OutputWriter<'writer>]) -> io::Result<()> {
+        for sink in sinks {
+            sink.flush()?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Write for OutputWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match *self {
+            Self::Fanout(ref mut sinks) => Self::write_all_sinks(sinks, buf),
             Self::Pipe(ref mut writer) => writer.write(buf),
             Self::Target(ref mut writer) => writer.write(buf),
         }
@@ -38,6 +59,7 @@ impl Write for OutputWriter<'_> {
 
     fn flush(&mut self) -> io::Result<()> {
         match *self {
+            Self::Fanout(ref mut sinks) => Self::flush_sinks(sinks),
             Self::Pipe(ref mut writer) => writer.flush(),
             Self::Target(ref mut writer) => writer.flush(),
         }

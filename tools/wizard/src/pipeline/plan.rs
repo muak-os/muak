@@ -9,14 +9,13 @@ use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId, StreamId};
-use crate::pipeline::normalize::normalize;
 
-/// Builds the logical DAG for the requested artifacts and normalizes it.
+/// Builds the logical DAG for the requested artifacts.
 ///
 /// # Errors
 ///
-/// Returns an error when an artifact has no unique producer, a dependency is
-/// cyclic, or the built graph fails normalization.
+/// Returns an error when an artifact has no unique producer or a dependency
+/// is cyclic.
 pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
     let mut planner = Planner::new(ctx);
     for artifact in artifacts {
@@ -30,7 +29,6 @@ pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result
         planner.request(producer, producer_port, *artifact)?;
     }
     planner.bind_all()?;
-    normalize(&mut planner.graph)?;
 
     Ok(planner.graph)
 }
@@ -261,14 +259,19 @@ mod tests {
             .iter()
             .find(|stream| stream.artifact == Some(artifact))
             .unwrap_or_else(|| panic!("no terminal stream for {artifact}"));
-        let producer = graph.node(stream.producer).expect("producer").kind;
+        let node = graph
+            .nodes()
+            .iter()
+            .find(|node| {
+                node.outputs
+                    .iter()
+                    .any(|binding| binding.stream == stream.id)
+            })
+            .expect("producer node");
 
         (
-            producer,
-            graph
-                .node(stream.producer)
-                .expect("node")
-                .outputs
+            node.kind,
+            node.outputs
                 .iter()
                 .find(|binding| binding.stream == stream.id)
                 .expect("terminal port")
@@ -306,11 +309,10 @@ mod tests {
             terminal(&graph, Artifact::Cmdline),
             (NodeKind::KernelPull, kernel::CMDLINE)
         );
-        assert_eq!(count(&graph, NodeKind::Fanout), 0);
     }
 
     #[test]
-    fn initramfs_and_uki_fanout_the_complete_initramfs() {
+    fn initramfs_and_uki_share_the_complete_initramfs_stream() {
         // ARRANGE
         let build = build_plan();
         let ctx = context(&build);
@@ -323,11 +325,10 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::Concat), 1);
         assert_eq!(count(&graph, NodeKind::InitramfsTail), 1);
         assert_eq!(count(&graph, NodeKind::LayerPayloads), 1);
-        assert_eq!(count(&graph, NodeKind::Fanout), 1);
         assert_eq!(
             terminal(&graph, Artifact::Initramfs).0,
-            NodeKind::Fanout,
-            "the shared initramfs stream must end in a stamped fanout branch"
+            NodeKind::Concat,
+            "the shared initramfs stream must carry the stamp"
         );
         assert_eq!(terminal(&graph, Artifact::Uki).0, NodeKind::Uki);
     }
@@ -345,7 +346,6 @@ mod tests {
         assert_eq!(count(&graph, NodeKind::Uki), 1);
         assert_eq!(count(&graph, NodeKind::Iso), 1);
         assert_eq!(count(&graph, NodeKind::Raw), 1);
-        assert_eq!(count(&graph, NodeKind::Fanout), 1);
         assert_eq!(count(&graph, NodeKind::OverlayPull), 0);
     }
 
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn every_artifact_combo_plans_and_normalizes() {
+    fn every_artifact_combo_plans() {
         // ARRANGE
         let build = build_plan();
         let ctx = context(&build);

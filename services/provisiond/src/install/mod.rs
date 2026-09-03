@@ -203,9 +203,9 @@ async fn build_and_deploy_efi(
     };
 
     let esp_root = PathBuf::from(efi::MOUNT_POINT);
-    let demux = overlay_r
-        .take()
-        .map(|mut reader| tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut reader)));
+    let demux = overlay_r.take().map(|mut reader| {
+        tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut reader))
+    });
 
     let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
