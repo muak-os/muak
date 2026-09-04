@@ -39,7 +39,6 @@ rtnetlink = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }
-libc = { workspace = true }
 
 # Utilities
 uuid = { workspace = true }

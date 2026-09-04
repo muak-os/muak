@@ -2884,7 +2884,6 @@ dependencies = [
  "config",
  "granola",
  "kmsg",
- "libc",
  "netlib",
  "prost",
  "protox",

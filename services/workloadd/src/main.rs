@@ -117,15 +117,10 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
 /// Sets this process as a child sub reaper to reap orphaned VM processes.
 fn set_child_subreaper() -> Result<()> {
-    // SAFETY: prctl with known constants and no pointers, syscall is safe.
-    let result = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
-    if result != 0 {
-        anyhow::bail!(
-            "Failed to set child subreaper: {}",
-            std::io::Error::last_os_error()
-        );
-    }
+    rustix::process::set_child_subreaper(None)
+        .map_err(|e| anyhow::anyhow!("Failed to set child subreaper: {e}"))?;
     println!("Set as child subreaper");
+
     Ok(())
 }
 
