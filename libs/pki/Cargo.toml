@@ -12,15 +12,15 @@ categories.workspace = true
 
 [dependencies]
 # Cryptography
-x509-cert = { workspace = true }
-der = { workspace = true }
-spki = { workspace = true }
 base16ct = { workspace = true }
 const-oid = { workspace = true }
+der = { workspace = true }
 getrandom = { workspace = true }
 p256 = { workspace = true }
 sha2 = { workspace = true }
 signature = { workspace = true }
+spki = { workspace = true }
+x509-cert = { workspace = true }
 zeroize = { workspace = true }
 
 # Error handling

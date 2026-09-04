@@ -13,8 +13,8 @@ categories.workspace = true
 [dependencies]
 # Cryptography
 aes = { workspace = true }
-base16ct = { workspace = true }
 argon2 = { workspace = true }
+base16ct = { workspace = true }
 getrandom = { workspace = true }
 pbkdf2 = { workspace = true }
 sha2 = { workspace = true }

@@ -16,14 +16,14 @@ linux = ["dep:rustix"]
 
 [dependencies]
 # Cryptography
-getrandom = { workspace = true }
-sha2 = { workspace = true }
-rsa = { workspace = true }
-x509-cert = { workspace = true }
-der = { workspace = true }
-spki = { workspace = true }
-signature = { workspace = true }
 cms = { workspace = true }
+der = { workspace = true }
+getrandom = { workspace = true }
+rsa = { workspace = true }
+sha2 = { workspace = true }
+signature = { workspace = true }
+spki = { workspace = true }
+x509-cert = { workspace = true }
 zeroize = { workspace = true }
 
 # Encoding

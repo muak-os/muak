@@ -28,9 +28,9 @@ tar = { workspace = true }
 # Cryptography
 getrandom = { workspace = true }
 p256 = { workspace = true }
+rustls = { workspace = true }
 sha2 = { workspace = true }
 signature = { workspace = true }
-rustls = { workspace = true }
 webpki-roots = { workspace = true }
 
 # Encoding
