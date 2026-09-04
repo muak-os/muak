@@ -3,7 +3,6 @@
 use core::str::FromStr as _;
 use core::time::Duration;
 
-use der::Decode as _;
 use signature::Keypair as _;
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::Certificate;
