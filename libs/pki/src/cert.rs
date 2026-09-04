@@ -3,6 +3,7 @@
 use core::str::FromStr as _;
 use core::time::Duration;
 
+use base16ct::lower::encode_string;
 use der::Encode as _;
 use sha2::{Digest as _, Sha256};
 use x509_cert::Certificate;
@@ -12,7 +13,6 @@ use x509_cert::serial_number::SerialNumber;
 use x509_cert::time::Validity;
 
 use crate::error::{PkiError, Result};
-use crate::hex::encode_lower;
 use crate::key::{Signature, Signer};
 use crate::profile::{MuakCa, MuakServer};
 use crate::serial::{generate as generate_serial, signer_spki};
@@ -78,7 +78,7 @@ pub fn compute_fingerprint(cert: &Certificate) -> Result<String> {
     cert.to_der()
         .map(|cert_der| {
             let digest = Sha256::digest(&cert_der);
-            encode_lower(digest.as_ref())
+            encode_string(digest.as_ref())
         })
         .map_err(PkiError::from)
 }

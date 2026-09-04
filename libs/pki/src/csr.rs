@@ -3,6 +3,7 @@
 use core::str::FromStr as _;
 use core::time::Duration;
 
+use base16ct::lower::encode_string;
 use der::{DecodePem as _, Encode as _, EncodePem as _, pem::LineEnding};
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
 use sha2::{Digest as _, Sha256};
@@ -16,7 +17,6 @@ use x509_cert::time::Validity;
 
 use crate::cert::{self, CERT_VALIDITY_SECS};
 use crate::error::{PkiError, Result};
-use crate::hex::encode_lower;
 use crate::key::{Signature, Signer};
 use crate::pem::{encode_pkcs8, load_signer};
 use crate::profile::MuakClient;
@@ -98,7 +98,7 @@ pub fn compute_fingerprint(csr_pem: &str) -> Result<String> {
     let spki_der = csr.info.public_key.to_der()?;
     let digest = Sha256::digest(&spki_der);
 
-    Ok(encode_lower(digest.as_ref()))
+    Ok(encode_string(digest.as_ref()))
 }
 
 fn build_csr(subject: Name, signer: &Signer) -> Result<CertReq> {

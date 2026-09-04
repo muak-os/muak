@@ -5,7 +5,7 @@ use core::time::Duration;
 
 use der::Decode as _;
 use signature::Keypair as _;
-use spki::{EncodePublicKey as _, SubjectPublicKeyInfoOwned};
+use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::Certificate;
 use x509_cert::builder::{Builder as _, CertificateBuilder};
 use x509_cert::name::Name;
@@ -124,10 +124,8 @@ fn generate_serial() -> Result<SerialNumber> {
 }
 
 fn get_spki_from_signer(signer: &rsa2048::Signer) -> Result<SubjectPublicKeyInfoOwned> {
-    let verifying_key = signer.verifying_key();
-    let der = verifying_key.to_public_key_der()?;
-
-    Ok(SubjectPublicKeyInfoOwned::from_der(der.as_bytes())?)
+    SubjectPublicKeyInfoOwned::from_key(&signer.verifying_key())
+        .map_err(|e| SboltError::CertificateCreation(format!("SPKI encoding failed: {e}")))
 }
 
 #[cfg(test)]

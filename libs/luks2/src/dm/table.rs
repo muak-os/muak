@@ -78,17 +78,7 @@ fn table_params_string(params: &CryptParams<'_>, key_hex: &str) -> String {
 }
 
 fn hex_encode(data: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut hex = String::with_capacity(data.len().saturating_mul(2));
-    for &byte in data {
-        let high = HEX.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
-        let low = HEX.get(usize::from(byte & 0x0f)).copied().unwrap_or(b'0');
-        hex.push(char::from(high));
-        hex.push(char::from(low));
-    }
-
-    hex
+    base16ct::lower::encode_string(data)
 }
 
 fn write_bytes(buffer: &mut [u8], offset: usize, src: &[u8]) -> Result<()> {

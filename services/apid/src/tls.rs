@@ -5,8 +5,8 @@ extern crate alloc;
 use alloc::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use base16ct::lower::encode_string;
 use pki::cert;
-use pki::hex;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
@@ -125,7 +125,7 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 /// Extracts SHA256 fingerprint from a DER-encoded certificate.
 #[must_use]
 pub fn extract_fingerprint(cert_der: &[u8]) -> String {
-    hex::encode_lower(Sha256::digest(cert_der).as_ref())
+    encode_string(Sha256::digest(cert_der).as_ref())
 }
 
 #[cfg(test)]

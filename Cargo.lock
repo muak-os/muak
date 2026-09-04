@@ -89,6 +89,7 @@ name = "apid"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
+ "base16ct",
  "config",
  "granola",
  "http-body-util",
@@ -1051,6 +1052,7 @@ name = "koci"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
+ "base16ct",
  "base64ct",
  "clap",
  "flate2",
@@ -1183,6 +1185,7 @@ version = "1.0.0-beta"
 dependencies = [
  "aes",
  "argon2",
+ "base16ct",
  "base64ct",
  "getrandom 0.4.3",
  "hmac",
@@ -1301,6 +1304,7 @@ name = "muakctl"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
+ "base16ct",
  "base64ct",
  "clap",
  "config",
@@ -1614,6 +1618,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 name = "pki"
 version = "1.0.0-beta"
 dependencies = [
+ "base16ct",
  "const-oid",
  "der",
  "getrandom 0.4.3",

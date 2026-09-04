@@ -413,7 +413,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("Failed to decode private key from PEM")
+                .contains("Failed to parse ECDSA P-256 private key")
         );
     }
 

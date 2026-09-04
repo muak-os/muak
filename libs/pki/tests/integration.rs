@@ -14,7 +14,6 @@ mod tests {
     use pki::{
         cert, csr,
         error::{PkiError, Result},
-        hex,
         key::{Signature, Signer},
         pem,
         profile::{MuakCa, MuakClient, MuakServer},
@@ -538,29 +537,5 @@ mod tests {
         // ASSERT
         let _der_error = der_result.unwrap_err();
         let _signer_error = signer_result.map(|_| ()).unwrap_err();
-    }
-
-    #[test]
-    fn util_to_hex_encodes_lowercase_hex() {
-        // ARRANGE
-        let bytes = [0x00, 0xab, 0xff];
-
-        // ACT
-        let hex = hex::encode_lower(&bytes);
-
-        // ASSERT
-        assert_eq!(hex, "00abff");
-    }
-
-    #[test]
-    fn util_to_hex_handles_all_nibbles() {
-        // ARRANGE
-        let bytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef];
-
-        // ACT
-        let hex = hex::encode_lower(&bytes);
-
-        // ASSERT
-        assert_eq!(hex, "0123456789abcdef");
     }
 }

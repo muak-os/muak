@@ -9,8 +9,10 @@ use getrandom::SysRng;
 use koci::arch;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::Generate as _;
-use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, EncodePrivateKey as _};
-use p256::elliptic_curve::sec1::ToSec1Point as _;
+use p256::elliptic_curve::pkcs8::LineEnding;
+use p256::elliptic_curve::pkcs8::{
+    DecodePrivateKey as _, EncodePrivateKey as _, EncodePublicKey as _,
+};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 use tar::{Builder, Header};
@@ -25,31 +27,20 @@ pub(crate) struct TestKeys {
 pub(crate) fn generate_test_keys() -> Result<TestKeys, Box<dyn Error>> {
     let key = SigningKey::try_generate_from_rng(&mut SysRng)
         .map_err(|_error| IoError::other("failed to generate ECDSA test key"))?;
-    let pkcs8 = key
-        .to_pkcs8_der()
-        .map_err(|_error| IoError::other("failed to encode ECDSA test key"))?;
 
-    let private_key_pem = format!(
-        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-        Base64::encode_string(pkcs8.as_bytes())
-    );
-    let public_key_pem = format!(
-        "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-        Base64::encode_string(&build_p256_spki(&public_key_bytes(&key)))
-    );
+    let private_key_pem = key
+        .to_pkcs8_pem(LineEnding::LF)
+        .map_err(|_error| IoError::other("failed to encode ECDSA test key"))?
+        .to_string();
+    let public_key_pem = key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .map_err(|_error| IoError::other("failed to encode ECDSA test public key"))?;
 
     Ok(TestKeys {
         private_key_pem,
         public_key_pem,
     })
-}
-
-fn public_key_bytes(key: &SigningKey) -> Vec<u8> {
-    key.verifying_key()
-        .as_affine()
-        .to_sec1_point(false)
-        .as_bytes()
-        .to_vec()
 }
 
 pub(crate) fn manifest_json(
@@ -190,7 +181,10 @@ pub(crate) fn layer_archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dy
 
 #[must_use]
 pub(crate) fn sha256_digest(bytes: &[u8]) -> String {
-    format!("sha256:{}", hex_encode(Sha256::digest(bytes).as_ref()))
+    format!(
+        "sha256:{}",
+        base16ct::lower::encode_string(Sha256::digest(bytes).as_ref())
+    )
 }
 
 fn manifest_signing_digest(manifest_json: &str) -> Result<String, Box<dyn Error>> {
@@ -262,56 +256,4 @@ fn sort_keys(value: &mut Value) {
             sort_keys(value);
         }
     }
-}
-
-fn build_p256_spki(public_key: &[u8]) -> Vec<u8> {
-    let algorithm: &[u8] = &[
-        0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86,
-        0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
-    ];
-    let bit_string_len = public_key
-        .len()
-        .checked_add(1)
-        .expect("test public key length must fit DER bit string length");
-    let content_len = algorithm
-        .len()
-        .checked_add(2)
-        .and_then(|length| length.checked_add(bit_string_len))
-        .expect("test public key length must fit DER content length");
-    let capacity = content_len
-        .checked_add(2)
-        .expect("test public key length must fit DER capacity");
-    let mut der = Vec::with_capacity(capacity);
-    der.push(0x30);
-    der.push(u8::try_from(content_len).expect("test DER content length must fit one byte"));
-    der.extend_from_slice(algorithm);
-    der.push(0x03);
-    der.push(u8::try_from(bit_string_len).expect("test DER bit string length must fit one byte"));
-    der.push(0x00);
-    der.extend_from_slice(public_key);
-    der
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let capacity = bytes
-        .len()
-        .checked_mul(2)
-        .expect("test digest length must fit hex output capacity");
-    let mut encoded = String::with_capacity(capacity);
-    for &byte in bytes {
-        let high = HEX
-            .get(usize::from(byte >> 4))
-            .copied()
-            .expect("high nibble index must be within hex table");
-        let low = HEX
-            .get(usize::from(byte & 0x0f))
-            .copied()
-            .expect("low nibble index must be within hex table");
-        encoded.push(char::from(high));
-        encoded.push(char::from(low));
-    }
-
-    encoded
 }

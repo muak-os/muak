@@ -36,6 +36,7 @@ webpki-roots = { workspace = true }
 # Encoding
 serde = { workspace = true }
 serde_json = { workspace = true }
+base16ct = { workspace = true }
 base64ct = { workspace = true }
 
 # Error handling

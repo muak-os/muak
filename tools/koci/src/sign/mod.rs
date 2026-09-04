@@ -13,9 +13,8 @@ use crate::image::{ImageReference, OciManifest};
 use crate::registry::auth::fetch_auth_token;
 use crate::registry::http::{HttpClient, build_client, put};
 use crate::runtime;
-use crate::sign::key::parse_pem_private_key;
+use crate::sign::verify::parse_pem_private_key;
 
-pub(crate) mod key;
 pub(crate) mod verify;
 
 /// Annotation key used to store the image signature.

@@ -36,7 +36,7 @@ impl StreamingDigest {
     /// Finalize and verify the digest matches the expected value.
     pub(crate) fn verify(self) -> Result<()> {
         let hash = self.context.finalize();
-        let actual = hex_encode(hash.as_ref());
+        let actual = base16ct::lower::encode_string(hash.as_ref());
 
         if actual != self.expected {
             return Err(KociError::DigestMismatch {
@@ -52,21 +52,7 @@ impl StreamingDigest {
 
 /// Compute the SHA-256 hex digest of the given bytes.
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
-    hex_encode(Sha256::digest(data).as_ref())
-}
-
-/// Encode bytes as a lowercase hex string.
-pub(crate) fn hex_encode(bytes: &[u8]) -> String {
-    let mut encoded = String::new();
-    for &byte in bytes {
-        encoded.push(hex_digit(byte >> 4));
-        encoded.push(hex_digit(byte & 0x0f));
-    }
-    encoded
-}
-
-fn hex_digit(nibble: u8) -> char {
-    char::from_digit(u32::from(nibble), 16).unwrap_or('0')
+    base16ct::lower::encode_string(Sha256::digest(data).as_ref())
 }
 
 #[cfg(test)]

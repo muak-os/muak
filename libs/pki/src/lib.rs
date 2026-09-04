@@ -8,7 +8,6 @@
 pub mod cert;
 pub mod csr;
 pub mod error;
-pub mod hex;
 pub mod key;
 pub mod pem;
 pub mod profile;

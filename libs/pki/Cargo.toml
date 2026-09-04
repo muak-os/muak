@@ -15,6 +15,7 @@ categories.workspace = true
 x509-cert = { workspace = true }
 der = { workspace = true }
 spki = { workspace = true }
+base16ct = { workspace = true }
 const-oid = { workspace = true }
 getrandom = { workspace = true }
 p256 = { workspace = true }

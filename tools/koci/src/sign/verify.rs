@@ -1,13 +1,31 @@
-//! OCI manifest signature verification.
+//! OCI manifest signature verification and PEM key parsing.
 
 use base64ct::{Base64Url, Encoding as _};
-use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
+use p256::ecdsa::{Signature as EcdsaSignature, SigningKey, VerifyingKey};
+use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, DecodePublicKey as _};
 use serde_json::Value;
 use signature::Verifier as _;
 
 use crate::error::{KociError, Result};
-use crate::sign::key::parse_pem_public_key;
 use crate::sign::{SIG_ANNOTATION, manifest_signing_payload};
+
+/// Parse a PKCS#8 PEM-encoded ECDSA P-256 private key.
+pub(crate) fn parse_pem_private_key(pem: &str) -> Result<SigningKey> {
+    SigningKey::from_pkcs8_pem(pem).map_err(|error| {
+        KociError::SignatureVerificationFailed(format!(
+            "Failed to parse ECDSA P-256 private key (must be PKCS#8 '-----BEGIN PRIVATE KEY-----'): {error}"
+        ))
+    })
+}
+
+/// Parse a PEM-encoded ECDSA P-256 public key.
+pub(crate) fn parse_pem_public_key(pem: &str) -> Result<VerifyingKey> {
+    VerifyingKey::from_public_key_pem(pem).map_err(|error| {
+        KociError::SignatureVerificationFailed(format!(
+            "Failed to parse ECDSA P-256 public key (must be '-----BEGIN PUBLIC KEY-----' SPKI): {error}"
+        ))
+    })
+}
 
 /// Check the `SIG_ANNOTATION` annotation on the manifest against the provided public key.
 pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> Result<()> {
@@ -42,13 +60,7 @@ pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> 
         ))
     })?;
 
-    let pubkey_der = parse_pem_public_key(pem)?;
-
-    let verifying_key = VerifyingKey::from_sec1_bytes(&pubkey_der).map_err(|error| {
-        KociError::SignatureVerificationFailed(format!(
-            "Failed to parse ECDSA P-256 public key (expected uncompressed SEC1 point): {error}"
-        ))
-    })?;
+    let verifying_key = parse_pem_public_key(pem)?;
     let signature = EcdsaSignature::from_der(&sig_bytes).map_err(|error| {
         KociError::SignatureVerificationFailed(format!(
             "Failed to decode ASN.1 DER signature annotation: {error}"
@@ -68,9 +80,11 @@ pub(crate) fn check_signature(manifest_json: &str, pubkey_pem: Option<&str>) -> 
 
 #[cfg(test)]
 mod tests {
+    use base64ct::Base64;
     use getrandom::SysRng;
     use p256::ecdsa::SigningKey;
     use p256::elliptic_curve::Generate as _;
+    use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _, LineEnding};
     use p256::elliptic_curve::sec1::ToSec1Point as _;
 
     use super::*;
@@ -87,42 +101,10 @@ mod tests {
         base64ct::Base64Url::encode_string(signature.to_der().as_ref())
     }
 
-    /// Builds a minimal `SubjectPublicKeyInfo` DER wrapping a raw P-256 uncompressed public key.
-    fn build_p256_spki(pub_raw: &[u8]) -> Vec<u8> {
-        let algorithm: &[u8] = &[
-            0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
-            0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
-        ];
-        let bit_string_len = pub_raw
-            .len()
-            .checked_add(1)
-            .expect("test public key length must fit DER bit string length");
-        let content_len = algorithm
-            .len()
-            .checked_add(2)
-            .and_then(|length| length.checked_add(bit_string_len))
-            .expect("test public key length must fit DER content length");
-        let mut der = Vec::new();
-        der.push(0x30);
-        der.push(u8::try_from(content_len).expect("test DER content length must fit one byte"));
-        der.extend_from_slice(algorithm);
-        der.push(0x03);
-        der.push(
-            u8::try_from(bit_string_len).expect("test DER bit string length must fit one byte"),
-        );
-        der.push(0x00);
-        der.extend_from_slice(pub_raw);
-        der
-    }
-
     fn public_key_pem(key: &SigningKey) -> String {
-        let point = key.verifying_key().as_affine().to_sec1_point(false);
-        let spki = build_p256_spki(point.as_bytes());
-
-        format!(
-            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-            base64ct::Base64::encode_string(&spki)
-        )
+        key.verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .expect("encode public key PEM")
     }
 
     #[tokio::test]
@@ -271,6 +253,145 @@ mod tests {
         .expect_err("verification should fail");
 
         // ASSERT
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+    #[test]
+    fn parse_pem_public_key_parses_spki() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDS8kndtUxfYwqGcX2Dw2spTvR44\nt/4lr1W4h75GrFa0zqJwfH9v9oLH5Er0joEKk29+Dya7ZHXDGRiDGoJeYw==\n-----END PUBLIC KEY-----\n";
+
+        // ACT
+        let verifying_key = parse_pem_public_key(pem).expect("parse PEM public key");
+        let point = verifying_key.as_affine().to_sec1_point(false);
+
+        // ASSERT
+        assert_eq!(
+            point.as_bytes().len(),
+            65,
+            "expected 65-byte uncompressed point"
+        );
+        assert_eq!(
+            point.as_bytes().first(),
+            Some(&0x04),
+            "expected uncompressed point prefix 0x04"
+        );
+    }
+
+    #[test]
+    fn parse_pem_empty() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n";
+
+        // ACT & ASSERT
+        parse_pem_public_key(pem).expect_err("public key parsing should fail");
+    }
+
+    #[test]
+    fn parse_pem_no_markers() {
+        // ARRANGE
+        let input = "not a pem file";
+
+        // ACT
+        let result = parse_pem_public_key(input);
+
+        // ASSERT
+        result.expect_err("public key parsing should fail");
+    }
+
+    #[test]
+    fn parse_pem_public_key_rejects_short_spki() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n";
+
+        // ACT
+        let error = parse_pem_public_key(pem).expect_err("public key parsing should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_public_key_rejects_compressed_point() {
+        // ARRANGE
+        let mut spki = vec![0_u8; 26 + 65];
+        *spki
+            .get_mut(26)
+            .expect("SPKI test fixture has point prefix") = 0x02;
+        let pem = format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
+            Base64::encode_string(&spki)
+        );
+
+        // ACT
+        let error = parse_pem_public_key(&pem).expect_err("public key parsing should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_public_key_rejects_invalid_base64() {
+        // ARRANGE
+        let pem = "-----BEGIN PUBLIC KEY-----\n!!!\n-----END PUBLIC KEY-----\n";
+
+        // ACT
+        let error = parse_pem_public_key(pem).expect_err("public key parsing should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+    fn generate_private_key_pem() -> String {
+        let key = SigningKey::try_generate_from_rng(&mut SysRng).expect("generate private key");
+        key.to_pkcs8_pem(LineEnding::LF)
+            .expect("encode private key PEM")
+            .to_string()
+    }
+
+    #[test]
+    fn parse_pem_private_key_accepts_valid_pkcs8() {
+        // ARRANGE
+        let pem = generate_private_key_pem();
+
+        // ACT
+        let key = parse_pem_private_key(&pem).expect("private key parsing should succeed");
+
+        // ASSERT
+        assert!(
+            !key.verifying_key()
+                .as_affine()
+                .to_sec1_point(false)
+                .as_bytes()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_missing_pem_block() {
+        // ARRANGE / ACT
+        let error =
+            parse_pem_private_key("not a pem file").expect_err("private key parsing should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_invalid_pkcs8_bytes() {
+        // ARRANGE
+        let pem = "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgc=\n-----END PRIVATE KEY-----\n";
+
+        // ACT / ASSERT
+        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
+        assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
+    }
+
+    #[test]
+    fn parse_pem_private_key_rejects_invalid_base64() {
+        // ARRANGE
+        let pem = "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----\n";
+
+        // ACT / ASSERT
+        let error = parse_pem_private_key(pem).expect_err("private key parsing should fail");
         assert!(matches!(error, KociError::SignatureVerificationFailed(_)));
     }
 }
