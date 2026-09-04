@@ -16,7 +16,7 @@ aes = { workspace = true }
 base16ct = { workspace = true }
 argon2 = { workspace = true }
 getrandom = { workspace = true }
-hmac = { workspace = true }
+pbkdf2 = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
 zeroize = { workspace = true }

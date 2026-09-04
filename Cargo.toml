@@ -104,11 +104,11 @@ aes = "0.9"
 argon2 = { version = "0.6", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
 p256 = "0.14.0"
 getrandom = { version = "0.4", features = ["sys_rng"] }
-hmac = "0.13"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 sha2 = "0.11"
 subtle = "2.6"
 zeroize = "1.9"
-base16ct = "1.0"
+base16ct = { version = "1.0", features = ["alloc"] }
 base64ct = { version = "1.8", features = ["std"] }
 const-oid = "0.10"
 webpki-roots = "1.0"

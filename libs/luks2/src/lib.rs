@@ -11,7 +11,6 @@ mod error;
 mod header;
 mod keyslot;
 mod metadata;
-mod pbkdf2;
 mod xts;
 
 use error::{Luks2Error as Error, Result};

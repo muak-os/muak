@@ -1,15 +1,15 @@
 //! LUKS2 volume key digest creation and verification.
 
-use core::num::NonZeroU32;
-
 use base64ct::{Base64, Encoding as _};
+use pbkdf2::pbkdf2_hmac_array;
+use sha2::Sha256;
 use subtle::ConstantTimeEq as _;
 
 use crate::error::{Luks2Error as Error, Result};
 use crate::metadata::Digest;
-use crate::pbkdf2;
 
 const DIGEST_ITERATIONS: u32 = 1_000;
+const DIGEST_LEN: usize = 32;
 const SALT_LEN: usize = 32;
 
 /// Creates a new PBKDF2-SHA256 digest of the volume key.
@@ -18,9 +18,8 @@ pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> 
     getrandom::fill(&mut salt)
         .map_err(|_error| Error::InvalidField("random generation failed".into()))?;
 
-    let iterations = NonZeroU32::new(DIGEST_ITERATIONS)
-        .ok_or_else(|| Error::InvalidField("invalid iteration count".into()))?;
-    let digest_value = pbkdf2::derive(volume_key, &salt, iterations)?;
+    let digest_value: [u8; DIGEST_LEN] =
+        pbkdf2_hmac_array::<Sha256, DIGEST_LEN>(volume_key, &salt, DIGEST_ITERATIONS);
 
     Ok(Digest {
         r#type: "pbkdf2".to_owned(),
@@ -51,10 +50,8 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
     let salt = Base64::decode_vec(&digest.salt)?;
     let expected = Base64::decode_vec(&digest.value)?;
 
-    let iterations = NonZeroU32::new(digest.iterations)
-        .ok_or_else(|| Error::InvalidField("invalid iteration count".into()))?;
-
-    let computed = pbkdf2::derive(volume_key, &salt, iterations)?;
+    let computed: [u8; DIGEST_LEN] =
+        pbkdf2_hmac_array::<Sha256, DIGEST_LEN>(volume_key, &salt, digest.iterations);
 
     Ok(computed.as_slice().ct_eq(&expected).into())
 }

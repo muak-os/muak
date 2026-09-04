@@ -532,7 +532,6 @@ dependencies = [
  "anyhow",
  "config",
  "tempfile",
- "thiserror 2.0.20",
  "tokio",
 ]
 
@@ -1188,7 +1187,7 @@ dependencies = [
  "base16ct",
  "base64ct",
  "getrandom 0.4.3",
- "hmac",
+ "pbkdf2",
  "rustix",
  "serde",
  "serde_json",
@@ -1296,7 +1295,6 @@ dependencies = [
  "granola",
  "kmod",
  "rustix",
- "zstd",
 ]
 
 [[package]]
@@ -1524,6 +1522,16 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pbkdf2"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
+dependencies = [
+ "digest",
+ "hmac",
+]
 
 [[package]]
 name = "pem-rfc7468"
