@@ -15,98 +15,94 @@ use crate::supervisor::state::NetworkState;
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;
 
-impl<N: Ops> NetworkSupervisor<N> {
-    pub(super) async fn discover_interfaces(&mut self) -> Result<()> {
-        kmsg::info!("Discovering ethernet interfaces");
-        self.state.transition(NetworkState::Initializing)?;
-        self.publish_state();
+/// Discovers Ethernet interfaces and spawns actors for each of them.
+pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) -> Result<()> {
+    kmsg::info!("Discovering ethernet interfaces");
+    supervisor.state.transition(NetworkState::Initializing)?;
+    supervisor.publish_state();
 
-        let mut discovered = self.ops.discover_ethernet().await?;
-        if discovered.is_empty() {
-            self.state.transition(NetworkState::Degraded)?;
-            self.publish_state();
-            bail!("no ethernet interfaces found");
-        }
+    let mut discovered = supervisor.ops.discover_ethernet().await?;
+    if discovered.is_empty() {
+        supervisor.state.transition(NetworkState::Degraded)?;
+        supervisor.publish_state();
+        bail!("no ethernet interfaces found");
+    }
 
-        let timeout = Duration::from_secs(CARRIER_TIMEOUT_SECS);
-        let carrier_states = self.probe_all_for_carrier(&discovered, timeout).await;
+    let pairs: Vec<(u32, &str)> = discovered
+        .iter()
+        .map(|iface| (iface.index, iface.name.as_str()))
+        .collect();
+    let carrier_states = supervisor
+        .ops
+        .probe_carriers(&pairs, Duration::from_secs(CARRIER_TIMEOUT_SECS))
+        .await;
 
-        let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
-        if !any_carrier {
-            self.state.transition(NetworkState::Degraded)?;
-            self.publish_state();
-            bail!(
-                "no carrier detected on any interface after {CARRIER_TIMEOUT_SECS}s - check cable connections"
-            );
-        }
-
-        for iface in &mut discovered {
-            iface.link_state = carrier_link_state(carrier_states.get(&iface.index));
-        }
-
-        self.spawn_interface_actors(&discovered);
-        self.select_primary_interface(&discovered)?;
-
-        self.state.transition(NetworkState::Operational)?;
-        self.sync_and_publish();
-        kmsg::info!(
-            "Discovered {} interfaces, primary={:?}",
-            discovered.len(),
-            self.state.primary
+    let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
+    if !any_carrier {
+        supervisor.state.transition(NetworkState::Degraded)?;
+        supervisor.publish_state();
+        bail!(
+            "no carrier detected on any interface after {CARRIER_TIMEOUT_SECS}s - check cable connections"
         );
-
-        Ok(())
     }
 
-    async fn probe_all_for_carrier(
-        &self,
-        interfaces: &[Ethernet],
-        timeout: Duration,
-    ) -> std::collections::HashMap<u32, bool> {
-        let pairs: Vec<(u32, &str)> = interfaces
-            .iter()
-            .map(|i| (i.index, i.name.as_str()))
-            .collect();
-
-        self.ops.probe_carriers(&pairs, timeout).await
+    for iface in &mut discovered {
+        iface.link_state = carrier_link_state(carrier_states.get(&iface.index));
     }
 
-    fn spawn_interface_actors(&mut self, discovered: &[Ethernet]) {
-        for iface in discovered {
-            let snapshot = Snapshot {
-                name: iface.name.clone(),
-                state: Lifecycle::Discovered,
-                index: iface.index,
-                mac: iface.mac_address,
-                link: iface.link_state.clone(),
-                ip: None,
-                lease: None,
-                dhcp_state: None,
-                ipv6: None,
-                l3_owner: iface.name.clone(),
-            };
-            self.spawn_interface_actor(snapshot);
-        }
+    spawn_interface_actors(supervisor, &discovered);
+    select_primary_interface(supervisor, &discovered)?;
+
+    supervisor.state.transition(NetworkState::Operational)?;
+    supervisor.sync_and_publish();
+    kmsg::info!(
+        "Discovered {} interfaces, primary={:?}",
+        discovered.len(),
+        supervisor.state.primary
+    );
+
+    Ok(())
+}
+
+fn spawn_interface_actors<N: Ops>(supervisor: &mut NetworkSupervisor<N>, discovered: &[Ethernet]) {
+    for iface in discovered {
+        let snapshot = Snapshot {
+            name: iface.name.clone(),
+            state: Lifecycle::Discovered,
+            index: iface.index,
+            mac: iface.mac_address,
+            link: iface.link_state.clone(),
+            ip: None,
+            lease: None,
+            dhcp_state: None,
+            ipv6: None,
+            l3_owner: iface.name.clone(),
+        };
+        supervisor.spawn_interface_actor(snapshot);
     }
+}
 
-    fn select_primary_interface(&mut self, discovered: &[Ethernet]) -> Result<()> {
-        let primary = Selector::select_primary(discovered)
-            .ok_or_else(|| anyhow::anyhow!("select_primary_interface called with empty list"))?;
+fn select_primary_interface<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    discovered: &[Ethernet],
+) -> Result<()> {
+    let primary = Selector::select_primary(discovered)
+        .ok_or_else(|| anyhow::anyhow!("select_primary_interface called with empty list"))?;
 
-        self.state.primary = Some(primary.name.clone());
+    supervisor.state.primary = Some(primary.name.clone());
 
-        let backups = Selector::select_backups(discovered, &primary.name);
-        self.state.backups = backups.iter().map(|i| i.name.clone()).collect();
+    let backups = Selector::select_backups(discovered, &primary.name);
+    supervisor.state.backups = backups.iter().map(|i| i.name.clone()).collect();
 
-        kmsg::info!(
-            "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
-            primary.name,
-            primary.link_state,
-            if primary.has_carrier() { "yes" } else { "no" },
-            self.state.backups
-        );
-        Ok(())
-    }
+    kmsg::info!(
+        "Selected primary: {} (state: {}, carrier: {}), backups: {:?}",
+        primary.name,
+        primary.link_state,
+        if primary.has_carrier() { "yes" } else { "no" },
+        supervisor.state.backups
+    );
+
+    Ok(())
 }
 
 fn carrier_link_state(has_carrier: Option<&bool>) -> State {

@@ -20,10 +20,7 @@ async fn wait_for_ipv4_addr(mock: &MockNetlinkOps, index: u32, address: Ipv4Addr
 
     // ACT
     let result = timeout(timeout_duration, async {
-        loop {
-            if mock.ipv4_addrs(index).contains(&(address, prefix)) {
-                return;
-            }
+        while !mock.ipv4_addrs(index).contains(&(address, prefix)) {
             sleep(Duration::from_millis(10)).await;
         }
     })
@@ -40,10 +37,7 @@ async fn wait_for_ipv6_addr(mock: &MockNetlinkOps, index: u32, address: Ipv6Addr
 
     // ACT
     let result = timeout(timeout_duration, async {
-        loop {
-            if mock.ipv6_addrs(index).contains(&(address, prefix)) {
-                return;
-            }
+        while !mock.ipv6_addrs(index).contains(&(address, prefix)) {
             sleep(Duration::from_millis(10)).await;
         }
     })

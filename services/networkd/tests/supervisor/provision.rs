@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use super::MockNetlinkOps;
+use super::config_bridge;
 
 fn config_static_ipv4() -> Arc<config::NetworkConfig> {
     let mut cfg = config::NetworkConfig::default();
@@ -120,37 +121,6 @@ fn config_none() -> Arc<config::NetworkConfig> {
         ipv4: None,
         ipv6: None,
         bridge: None,
-    });
-    Arc::new(cfg)
-}
-
-fn config_bridge() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
-    cfg.dns.clear();
-    cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
-        name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
-            dhcp: false,
-            addresses: vec![config::Cidr4 {
-                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
-                prefix: 24,
-            }],
-            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
-        }),
-        ipv6: None,
-        bridge: None,
-    });
-    cfg.interfaces.push(config::InterfaceConfig {
-        name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
-        ipv4: None,
-        ipv6: None,
-        bridge: Some(config::BridgeConfig {
-            port: vec!["auto".to_owned()],
-            stp: true,
-        }),
     });
     Arc::new(cfg)
 }

@@ -35,10 +35,6 @@
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
 - Deterministic simulation tests?
 
-- Better code quality:
-  - Fix all clippy warnings
-  - Consolidate crypto code instead of duplicating (maybe in a single crate?)
-
 - Enchance `workloadd`:
   - Allow ISO images for VMS
   - Rework commands to be pass through to the hypervisor

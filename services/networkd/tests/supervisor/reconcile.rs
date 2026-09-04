@@ -3,6 +3,8 @@
 use alloc::sync::Arc;
 use core::time::Duration;
 
+use netlib::interface::Name;
+use netlib::monitor::Event;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -267,5 +269,114 @@ async fn reconcile_named_missing_interface_is_non_fatal() {
     assert!(
         result.is_ok(),
         "reconcile should log and continue on missing interface"
+    );
+}
+
+/// Verifies reconcile re-applies bridge configuration for a discovered bridge actor.
+#[tokio::test]
+async fn reconcile_refreshes_unconfigured_bridge() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+    let br0_index = mock.add_link("br0", [0xBB; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        Some(event_rx),
+        config_bridge(),
+        Resolver::default(),
+    )
+    .expect("start failed");
+    handle.initialize_with_retry().await.expect("init failed");
+    assert_eq!(mock.ensure_bridge_calls(), 0, "no bridge should exist yet");
+
+    // ACT — announce the bridge so the supervisor spawns an actor for it, then reconcile
+    event_tx
+        .send(Event::Added {
+            name: Name::new("br0").expect("valid bridge name"),
+            index: br0_index,
+            mac: [0xBB; 6],
+        })
+        .await
+        .expect("send failed");
+    sleep(Duration::from_millis(200)).await;
+
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    assert_eq!(
+        mock.ensure_bridge_calls(),
+        1,
+        "unconfigured bridge should be refreshed"
+    );
+    assert_eq!(
+        link_index(&mock, "br0"),
+        Some(br0_index),
+        "bridge index should be unchanged"
+    );
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        Some(br0_index),
+        "port should be attached to the bridge"
+    );
+}
+
+/// Verifies reconcile skips a bridge actor that is already configured.
+#[tokio::test]
+async fn reconcile_skips_configured_bridge() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+    let br0_index = mock.add_link("br0", [0xBB; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        Some(event_rx),
+        config_bridge(),
+        Resolver::default(),
+    )
+    .expect("start failed");
+    handle.initialize_with_retry().await.expect("init failed");
+
+    // Announce the bridge and reconcile once so the bridge actor reaches `Configured`.
+    event_tx
+        .send(Event::Added {
+            name: Name::new("br0").expect("valid bridge name"),
+            index: br0_index,
+            mac: [0xBB; 6],
+        })
+        .await
+        .expect("send failed");
+    sleep(Duration::from_millis(200)).await;
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+    let ensure_calls = mock.ensure_bridge_calls();
+    assert_eq!(
+        ensure_calls, 1,
+        "first reconcile should configure the bridge"
+    );
+
+    // ACT
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    assert_eq!(
+        mock.ensure_bridge_calls(),
+        ensure_calls,
+        "configured bridge should be skipped"
+    );
+    assert_eq!(
+        link_index(&mock, "br0"),
+        Some(br0_index),
+        "bridge index should be unchanged"
+    );
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        Some(br0_index),
+        "port should remain attached to the bridge"
     );
 }

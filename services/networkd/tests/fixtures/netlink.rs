@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use alloc::sync::Arc;
+use core::future::Future;
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::collections::{HashMap, HashSet};
@@ -25,6 +26,7 @@ pub(crate) struct MockInner {
     pub(crate) ipv6_addrs: HashMap<u32, HashSet<(Ipv6Addr, u8)>>,
     pub(crate) default_routes_v4: HashSet<Ipv4Addr>,
     pub(crate) default_routes_v6: HashSet<Ipv6Addr>,
+    pub(crate) ensure_bridge_calls: u32,
 }
 
 /// Describes one mock link and its optional master bridge.
@@ -53,12 +55,22 @@ impl MockNetlinkOps {
         }
     }
 
+    /// Locks the inner state, tolerating a poisoned mutex.
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, MockInner> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Returns how many times `ensure_bridge` has been invoked.
+    #[must_use]
+    pub fn ensure_bridge_calls(&self) -> u32 {
+        self.lock().ensure_bridge_calls
+    }
+
     /// Adds a link with a deterministic index.
     pub fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.lock();
         let index = state.next_index;
         state.next_index = state.next_index.saturating_add(1);
         state.links.insert(
@@ -75,222 +87,195 @@ impl MockNetlinkOps {
 }
 
 impl link::Ops for MockNetlinkOps {
-    async fn exists(&self, name: &str) -> link::Result<bool> {
-        Ok(self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .links
-            .contains_key(name))
+    fn exists(&self, name: &str) -> impl Future<Output = link::Result<bool>> {
+        std::future::ready(Ok(self.lock().links.contains_key(name)))
     }
 
-    async fn index(&self, name: &str) -> link::Result<u32> {
-        self.state
+    fn index(&self, name: &str) -> impl Future<Output = link::Result<u32>> {
+        let result = self
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .get(name)
             .map(|link| link.index)
-            .ok_or_else(|| Failure::NotFound(name.to_owned()))
+            .ok_or_else(|| Failure::NotFound(name.to_owned()));
+        std::future::ready(result)
     }
 
-    async fn ensure_up(&self, name: &str) -> link::Result<u32> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let link = state
-            .links
-            .get_mut(name)
-            .ok_or_else(|| Failure::NotFound(name.to_owned()))?;
-        link.up = true;
-        Ok(link.index)
+    fn ensure_up(&self, name: &str) -> impl Future<Output = link::Result<u32>> {
+        let result = match self.lock().links.get_mut(name) {
+            Some(link) => {
+                link.up = true;
+                Ok(link.index)
+            }
+            None => Err(Failure::NotFound(name.to_owned())),
+        };
+        std::future::ready(result)
     }
 
-    async fn bring_up(&self, index: u32) -> link::Result<()> {
+    fn bring_up(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self
-            .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
             .find(|link| link.index == index)
         {
             link.up = true;
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn bring_down(&self, index: u32) -> link::Result<()> {
+    fn bring_down(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self
-            .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
             .find(|link| link.index == index)
         {
             link.up = false;
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn set_master(&self, slave_index: u32, master_index: u32) -> link::Result<()> {
+    fn set_master(
+        &self,
+        slave_index: u32,
+        master_index: u32,
+    ) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self
-            .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .links
             .values_mut()
             .find(|link| link.index == slave_index)
         {
             link.master_index = Some(master_index);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn delete(&self, index: u32) -> link::Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {
+        let mut state = self.lock();
         state.links.retain(|_, link| link.index != index);
         state.ipv4_addrs.remove(&index);
         state.ipv6_addrs.remove(&index);
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn probe_carriers(
+    fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         _timeout: Duration,
-    ) -> HashMap<u32, bool> {
-        let state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        interfaces
+    ) -> impl Future<Output = HashMap<u32, bool>> {
+        let state = self.lock();
+        let result = interfaces
             .iter()
             .map(|&(index, name)| (index, state.links.get(name).is_some_and(|link| link.up)))
-            .collect()
+            .collect();
+        std::future::ready(result)
     }
 }
 
 impl address::Ops for MockNetlinkOps {
-    async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn ensure_ipv4(
+        &self,
+        index: u32,
+        ip: Ipv4Addr,
+        prefix: u8,
+    ) -> impl Future<Output = address::Result<()>> {
+        self.lock()
             .ipv4_addrs
             .entry(index)
             .or_default()
             .insert((ip, prefix));
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn find_ipv4(&self, index: u32) -> address::Result<Option<(Ipv4Addr, u8)>> {
-        Ok(self
-            .state
+    fn find_ipv4(
+        &self,
+        index: u32,
+    ) -> impl Future<Output = address::Result<Option<(Ipv4Addr, u8)>>> {
+        let result = self
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv4_addrs
             .get(&index)
-            .and_then(|addrs| addrs.iter().next().copied()))
+            .and_then(|addrs| addrs.iter().next().copied());
+        std::future::ready(Ok(result))
     }
 
-    async fn has_ipv4(&self, index: u32) -> address::Result<bool> {
-        Ok(self
-            .state
+    fn has_ipv4(&self, index: u32) -> impl Future<Output = address::Result<bool>> {
+        let result = self
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ipv4_addrs
             .get(&index)
-            .is_some_and(|addrs| !addrs.is_empty()))
+            .is_some_and(|addrs| !addrs.is_empty());
+        std::future::ready(Ok(result))
     }
 
     async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.ensure_ipv4(index, ip, prefix).await
     }
 
-    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> address::Result<()> {
-        if let Some(addrs) = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .ipv4_addrs
-            .get_mut(&index)
-        {
+    fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> impl Future<Output = address::Result<()>> {
+        if let Some(addrs) = self.lock().ipv4_addrs.get_mut(&index) {
             addrs.retain(|&(addr, _)| addr != ip);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn ensure_ipv6(&self, index: u32, ip: Ipv6Addr, prefix: u8) -> address::Result<()> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn ensure_ipv6(
+        &self,
+        index: u32,
+        ip: Ipv6Addr,
+        prefix: u8,
+    ) -> impl Future<Output = address::Result<()>> {
+        self.lock()
             .ipv6_addrs
             .entry(index)
             .or_default()
             .insert((ip, prefix));
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> address::Result<()> {
-        if let Some(addrs) = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .ipv6_addrs
-            .get_mut(&index)
-        {
+    fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> impl Future<Output = address::Result<()>> {
+        if let Some(addrs) = self.lock().ipv6_addrs.get_mut(&index) {
             addrs.retain(|&(addr, _)| addr != ip);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 }
 
 impl route::Ops for MockNetlinkOps {
-    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> route::Result<()> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .default_routes_v4
-            .insert(gateway);
-        Ok(())
+    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = route::Result<()>> {
+        self.lock().default_routes_v4.insert(gateway);
+        std::future::ready(Ok(()))
     }
 
-    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .default_routes_v6
-            .insert(gateway);
-        Ok(())
+    fn ensure_default_route_v6(
+        &self,
+        gateway: Ipv6Addr,
+    ) -> impl Future<Output = route::Result<()>> {
+        self.lock().default_routes_v6.insert(gateway);
+        std::future::ready(Ok(()))
     }
 
-    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .default_routes_v6
-            .remove(&gateway);
-        Ok(())
+    fn remove_default_route_v6(
+        &self,
+        gateway: Ipv6Addr,
+    ) -> impl Future<Output = route::Result<()>> {
+        self.lock().default_routes_v6.remove(&gateway);
+        std::future::ready(Ok(()))
     }
 }
 
 impl bridge::Ops for MockNetlinkOps {
-    async fn ensure_bridge(
+    fn ensure_bridge(
         &self,
         bridge_name: &str,
         physical_iface: &str,
         _gateway: Option<Ipv4Addr>,
         _stp: bool,
-    ) -> bridge::Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    ) -> impl Future<Output = bridge::Result<()>> {
+        let mut state = self.lock();
+        state.ensure_bridge_calls = state.ensure_bridge_calls.saturating_add(1);
         let bridge_index = if let Some(link) = state.links.get(bridge_name) {
             link.index
         } else {
@@ -311,7 +296,7 @@ impl bridge::Ops for MockNetlinkOps {
         if let Some(link) = state.links.get_mut(physical_iface) {
             link.master_index = Some(bridge_index);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
     async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> bridge::Result<()> {
@@ -327,27 +312,28 @@ impl bridge::Ops for MockNetlinkOps {
 }
 
 impl interface::Ops for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> interface::Result<Vec<Ethernet>> {
-        let state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    fn discover_ethernet(&self) -> impl Future<Output = interface::Result<Vec<Ethernet>>> {
+        let state = self.lock();
         let mut links: Vec<_> = state.links.iter().collect();
         links.sort_by(|left, right| left.0.cmp(right.0));
-        let mut interfaces = Vec::with_capacity(links.len());
-        for (name, link) in links {
-            interfaces.push(Ethernet::new(
-                Name::new(name.clone())?,
-                link.index,
-                link.mac,
-                link_state_kind(link.up),
-            ));
-        }
-        Ok(interfaces)
+        let interfaces = links
+            .into_iter()
+            .map(|(name, link)| {
+                Name::new(name.clone())
+                    .map_err(Into::into)
+                    .map(|name| to_ethernet(name, link))
+            })
+            .collect();
+        std::future::ready(interfaces)
     }
 }
 
 impl netlink::Ops for MockNetlinkOps {}
+
+/// Builds an `Ethernet` snapshot from a mock link.
+fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
+    Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
+}
 
 /// Returns the link state for the requested carrier flag.
 fn link_state_kind(up: bool) -> State {

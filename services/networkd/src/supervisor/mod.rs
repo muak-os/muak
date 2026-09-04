@@ -74,8 +74,8 @@ impl<N: Ops> NetworkSupervisor<N> {
         kmsg::info!("Initializing network");
 
         self.reset().await;
-        self.discover_interfaces().await?;
-        self.provision_interfaces().await;
+        discovery::interfaces(self).await?;
+        provision::interfaces(self).await;
 
         self.state.transition(NetworkState::Ready)?;
         self.publish_state();
@@ -100,7 +100,7 @@ impl<N: Ops> NetworkSupervisor<N> {
                 drop(reply.send(result));
             }
             SupervisorCommand::Reconcile { reply } => {
-                self.reconcile().await;
+                reconcile::run(self).await;
                 let _sent = reply.send(());
             }
         }
@@ -317,9 +317,9 @@ async fn supervisor_loop<N: Ops>(
 
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
-            SupervisorEvent::Netlink(event) => supervisor.handle_event(event).await,
+            SupervisorEvent::Netlink(event) => dispatch::handle_event(&mut supervisor, event).await,
             SupervisorEvent::PrimaryChanged => supervisor.flush_dns(),
-            SupervisorEvent::ReconcileTick => supervisor.reconcile().await,
+            SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
     }
 }

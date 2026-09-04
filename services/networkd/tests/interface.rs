@@ -16,6 +16,7 @@ mod interface {
 }
 
 use alloc::sync::Arc;
+use core::future::Future;
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::collections::{HashMap, HashSet};
@@ -39,6 +40,7 @@ use networkd::interface::commands::Command;
 use networkd::interface::snapshot::Snapshot;
 use networkd::interface::state::Lifecycle;
 use tokio::net::UdpSocket;
+use tokio::sync::watch;
 use tokio::time::timeout;
 
 #[derive(Clone, Default)]
@@ -174,149 +176,178 @@ fn link_state_kind(up: bool) -> State {
 }
 
 impl link::Ops for MockNetlinkOps {
-    async fn exists(&self, name: &str) -> link::Result<bool> {
-        Ok(self.lock().links.contains_key(name))
+    fn exists(&self, name: &str) -> impl Future<Output = link::Result<bool>> {
+        std::future::ready(Ok(self.lock().links.contains_key(name)))
     }
 
-    async fn index(&self, name: &str) -> link::Result<u32> {
-        self.lock()
+    fn index(&self, name: &str) -> impl Future<Output = link::Result<u32>> {
+        let result = self
+            .lock()
             .links
             .get(name)
             .map(|link| link.index)
-            .ok_or_else(|| Failure::NotFound(name.to_owned()))
+            .ok_or_else(|| Failure::NotFound(name.to_owned()));
+        std::future::ready(result)
     }
 
-    async fn ensure_up(&self, name: &str) -> link::Result<u32> {
-        let mut state = self.lock();
-        let link = state
-            .links
-            .get_mut(name)
-            .ok_or_else(|| Failure::NotFound(name.to_owned()))?;
-        link.up = true;
-        Ok(link.index)
+    fn ensure_up(&self, name: &str) -> impl Future<Output = link::Result<u32>> {
+        let result = match self.lock().links.get_mut(name) {
+            Some(link) => {
+                link.up = true;
+                Ok(link.index)
+            }
+            None => Err(Failure::NotFound(name.to_owned())),
+        };
+        std::future::ready(result)
     }
 
-    async fn bring_up(&self, index: u32) -> link::Result<()> {
+    fn bring_up(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = true;
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn bring_down(&self, index: u32) -> link::Result<()> {
+    fn bring_down(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self.lock().link_by_index_mut(index) {
             link.up = false;
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn set_master(&self, slave_index: u32, master_index: u32) -> link::Result<()> {
+    fn set_master(
+        &self,
+        slave_index: u32,
+        master_index: u32,
+    ) -> impl Future<Output = link::Result<()>> {
         if let Some(link) = self.lock().link_by_index_mut(slave_index) {
             link.master_index = Some(master_index);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn delete(&self, index: u32) -> link::Result<()> {
+    fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         let mut state = self.lock();
         state.links.retain(|_, link| link.index != index);
         state.ipv4_addrs.remove(&index);
         state.ipv6_addrs.remove(&index);
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn probe_carriers(
+    fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         _timeout: Duration,
-    ) -> HashMap<u32, bool> {
+    ) -> impl Future<Output = HashMap<u32, bool>> {
         let state = self.lock();
-        interfaces
+        let result = interfaces
             .iter()
             .map(|&(idx, name)| (idx, state.links.get(name).is_some_and(|link| link.up)))
-            .collect()
+            .collect();
+        std::future::ready(result)
     }
 }
 
 impl address::Ops for MockNetlinkOps {
-    async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
+    fn ensure_ipv4(
+        &self,
+        index: u32,
+        ip: Ipv4Addr,
+        prefix: u8,
+    ) -> impl Future<Output = address::Result<()>> {
         self.lock()
             .ipv4_addrs
             .entry(index)
             .or_default()
             .insert((ip, prefix));
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn find_ipv4(&self, index: u32) -> address::Result<Option<(Ipv4Addr, u8)>> {
-        Ok(self
+    fn find_ipv4(
+        &self,
+        index: u32,
+    ) -> impl Future<Output = address::Result<Option<(Ipv4Addr, u8)>>> {
+        let result = self
             .lock()
             .ipv4_addrs
             .get(&index)
-            .and_then(|addrs| addrs.iter().next().copied()))
+            .and_then(|addrs| addrs.iter().next().copied());
+        std::future::ready(Ok(result))
     }
 
-    async fn has_ipv4(&self, index: u32) -> address::Result<bool> {
-        Ok(self
+    fn has_ipv4(&self, index: u32) -> impl Future<Output = address::Result<bool>> {
+        let result = self
             .lock()
             .ipv4_addrs
             .get(&index)
-            .is_some_and(|addrs| !addrs.is_empty()))
+            .is_some_and(|addrs| !addrs.is_empty());
+        std::future::ready(Ok(result))
     }
 
     async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> address::Result<()> {
         self.ensure_ipv4(index, ip, prefix).await
     }
 
-    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> address::Result<()> {
+    fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> impl Future<Output = address::Result<()>> {
         if let Some(set) = self.lock().ipv4_addrs.get_mut(&index) {
             set.retain(|&(addr, _)| addr != ip);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn ensure_ipv6(&self, index: u32, ip: Ipv6Addr, prefix: u8) -> address::Result<()> {
+    fn ensure_ipv6(
+        &self,
+        index: u32,
+        ip: Ipv6Addr,
+        prefix: u8,
+    ) -> impl Future<Output = address::Result<()>> {
         self.lock()
             .ipv6_addrs
             .entry(index)
             .or_default()
             .insert((ip, prefix));
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> address::Result<()> {
+    fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> impl Future<Output = address::Result<()>> {
         if let Some(set) = self.lock().ipv6_addrs.get_mut(&index) {
             set.retain(|&(addr, _)| addr != ip);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 }
 
 impl route::Ops for MockNetlinkOps {
-    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> route::Result<()> {
+    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v4.insert(gateway);
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
+    fn ensure_default_route_v6(
+        &self,
+        gateway: Ipv6Addr,
+    ) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v6.insert(gateway);
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn remove_default_route_v6(&self, gateway: Ipv6Addr) -> route::Result<()> {
+    fn remove_default_route_v6(
+        &self,
+        gateway: Ipv6Addr,
+    ) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v6.remove(&gateway);
-        Ok(())
+        std::future::ready(Ok(()))
     }
 }
 
 impl bridge::Ops for MockNetlinkOps {
-    async fn ensure_bridge(
+    fn ensure_bridge(
         &self,
         bridge_name: &str,
         _physical_iface: &str,
         _gateway: Option<Ipv4Addr>,
         _stp: bool,
-    ) -> bridge::Result<()> {
+    ) -> impl Future<Output = bridge::Result<()>> {
         let mut state = self.lock();
         let index = state.next_index;
         state.next_index = state.next_index.saturating_add(1);
@@ -329,10 +360,14 @@ impl bridge::Ops for MockNetlinkOps {
                 master_index: None,
             },
         );
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> bridge::Result<()> {
+    fn attach_to_bridge(
+        &self,
+        iface_name: &str,
+        bridge_name: &str,
+    ) -> impl Future<Output = bridge::Result<()>> {
         let bridge_index = self
             .lock()
             .links
@@ -341,26 +376,30 @@ impl bridge::Ops for MockNetlinkOps {
         if let Some(link) = self.lock().links.get_mut(iface_name) {
             link.master_index = Some(bridge_index);
         }
-        Ok(())
+        std::future::ready(Ok(()))
     }
 }
 
 impl net_iface::Ops for MockNetlinkOps {
-    async fn discover_ethernet(&self) -> net_iface::Result<Vec<Ethernet>> {
+    fn discover_ethernet(&self) -> impl Future<Output = net_iface::Result<Vec<Ethernet>>> {
         let state = self.lock();
         let mut links: Vec<_> = state.links.iter().collect();
         links.sort_by(|left, right| left.0.cmp(right.0));
-        let mut out = Vec::with_capacity(links.len());
-        for (name, link) in links {
-            out.push(Ethernet::new(
-                Name::new(name.clone())?,
-                link.index,
-                link.mac,
-                link_state_kind(link.up),
-            ));
-        }
-        Ok(out)
+        let interfaces = links
+            .into_iter()
+            .map(|(name, link)| {
+                Name::new(name.clone())
+                    .map_err(Into::into)
+                    .map(|name| to_ethernet(name, link))
+            })
+            .collect();
+        std::future::ready(interfaces)
     }
+}
+
+/// Builds an `Ethernet` snapshot from a mock link.
+fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
+    Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
 }
 
 impl netlink::Ops for MockNetlinkOps {}
@@ -384,17 +423,24 @@ fn make_snapshot(name: Name, index: u32, mac: [u8; 6]) -> Snapshot {
     }
 }
 
-async fn wait_for_state(handle: &ActorHandle, expected: Lifecycle) {
-    let mut rx = handle.state_rx.clone();
-    let timeout_duration = Duration::from_secs(5);
-    let reached = timeout(timeout_duration, async {
-        while rx.borrow().state != expected {
-            if rx.changed().await.is_err() {
-                return false;
-            }
+/// Waits until the interface actor reaches the expected lifecycle state.
+async fn state_reached(mut rx: watch::Receiver<Arc<Snapshot>>, expected: Lifecycle) -> bool {
+    loop {
+        if rx.borrow().state == expected {
+            return true;
         }
-        true
-    })
+        if rx.changed().await.is_err() {
+            return false;
+        }
+    }
+}
+
+async fn wait_for_state(handle: &ActorHandle, expected: Lifecycle) {
+    let timeout_duration = Duration::from_secs(5);
+    let reached = timeout(
+        timeout_duration,
+        state_reached(handle.state_rx.clone(), expected.clone()),
+    )
     .await
     .unwrap_or(false);
     assert!(
@@ -404,18 +450,22 @@ async fn wait_for_state(handle: &ActorHandle, expected: Lifecycle) {
     );
 }
 
-async fn wait_for_ipv6(handle: &ActorHandle) {
-    let mut rx = handle.state_rx.clone();
-    let timeout_duration = Duration::from_secs(5);
-    let reached = timeout(timeout_duration, async {
-        while rx.borrow().ipv6.is_none() {
-            if rx.changed().await.is_err() {
-                return false;
-            }
+/// Waits until the interface actor has an IPv6 configuration.
+async fn ipv6_assigned(mut rx: watch::Receiver<Arc<Snapshot>>) -> bool {
+    loop {
+        if rx.borrow().ipv6.is_some() {
+            return true;
         }
-        true
-    })
-    .await
-    .unwrap_or(false);
+        if rx.changed().await.is_err() {
+            return false;
+        }
+    }
+}
+
+async fn wait_for_ipv6(handle: &ActorHandle) {
+    let timeout_duration = Duration::from_secs(5);
+    let reached = timeout(timeout_duration, ipv6_assigned(handle.state_rx.clone()))
+        .await
+        .unwrap_or(false);
     assert!(reached, "timed out waiting for ipv6 config");
 }

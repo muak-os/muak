@@ -36,8 +36,8 @@ pub trait DhcpConnector: Clone + Send + Sync + 'static {
 pub struct SystemDhcpConnector;
 
 impl DhcpConnector for SystemDhcpConnector {
-    async fn create_raw(&self, interface: &str) -> Result<Socket> {
-        Ok(Socket::open(interface)?)
+    fn create_raw(&self, interface: &str) -> impl Future<Output = Result<Socket>> + Send {
+        std::future::ready(Socket::open(interface).map_err(Into::into))
     }
 
     async fn create_unicast(&self, interface: &str, src_ip: Ipv4Addr) -> Result<UdpSocket> {

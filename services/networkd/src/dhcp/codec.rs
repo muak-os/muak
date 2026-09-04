@@ -120,9 +120,12 @@ pub(crate) fn parse_options(options_bytes: &[u8]) -> ParsedOptions {
                     .map(|octets| Ipv4Addr::from(*octets));
             }
             option::DNS_SERVER if length >= 4 && length.is_multiple_of(4) => {
-                parsed
-                    .dns_servers
-                    .extend(data.chunks_exact(4).filter_map(ipv4_from_chunk));
+                parsed.dns_servers.extend(
+                    data.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .filter_map(|chunk| ipv4_from_chunk(chunk)),
+                );
             }
             option::LEASE_TIME if length == 4 => {
                 parsed.lease_time = data

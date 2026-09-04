@@ -70,10 +70,11 @@ mod tests {
         let filter = create_icmpv6_filter();
 
         // ASSERT
-        for icmp_type in [0_u8, 1, 128, 129, 133, 135, 136] {
-            if icmp_type == ICMPV6_ROUTER_ADVERTISEMENT {
-                continue;
-            }
+        let icmp_types = [0_u8, 1, 128, 129, 133, 135, 136];
+        for icmp_type in icmp_types
+            .into_iter()
+            .filter(|icmp| *icmp != ICMPV6_ROUTER_ADVERTISEMENT)
+        {
             let idx = usize::from(icmp_type);
             let word = filter.data.get(idx >> 5).copied().unwrap_or(0);
             let bit = word & (1 << (idx & 31));
@@ -85,17 +86,15 @@ mod tests {
     fn create_icmpv6_filter_initial_all_blocked() {
         // ARRANGE / ACT
         let filter = create_icmpv6_filter();
-        let mut pass_count = 0;
-        for word_idx in 0..8 {
-            for bit_idx in 0..32 {
-                let word = filter.data.get(word_idx).copied().unwrap_or(0);
-                if word & (1 << bit_idx) == 0 {
-                    pass_count += 1;
-                }
-            }
-        }
 
         // ASSERT
+        let pass_count = (0..256)
+            .filter(|&i| {
+                let word = filter.data.get(i >> 5).copied().unwrap_or(0);
+                word & (1 << (i & 31)) == 0
+            })
+            .count();
+
         assert_eq!(pass_count, 1, "only RA type should pass");
     }
 

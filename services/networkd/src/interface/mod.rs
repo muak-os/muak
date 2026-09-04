@@ -96,15 +96,14 @@ impl<N: Ops> Actor<N> {
     /// Runs the full DHCP re-acquisition when the lease expires.
     async fn dispatch<C: DhcpConnector>(&mut self, cmd: Command, connector: &C) {
         match cmd {
-            Command::ConfigureDhcp { mode } => self.apply_dhcp(mode, connector).await,
+            Command::ConfigureDhcp { mode } => dhcp::apply(self, mode, connector).await,
             Command::ConfigureStaticIpv4 {
                 mode,
                 index,
                 addresses,
                 gateway,
             } => {
-                self.apply_static_ipv4(index, &addresses, gateway, mode)
-                    .await;
+                r#static::apply_ipv4(self, index, &addresses, gateway, mode).await;
             }
             Command::ConfigureStaticIpv6 {
                 mode,
@@ -112,19 +111,18 @@ impl<N: Ops> Actor<N> {
                 addresses,
                 gateway,
             } => {
-                self.apply_static_ipv6(index, &addresses, gateway, mode)
-                    .await;
+                r#static::apply_ipv6(self, index, &addresses, gateway, mode).await;
             }
             Command::ConfigureBridge {
                 bridge_name,
                 stp,
                 reply,
             } => {
-                drop(reply.send(self.configure_bridge(&bridge_name, stp).await));
+                drop(reply.send(bridge::configure(self, &bridge_name, stp).await));
             }
-            Command::ConfigureSlaac { mode } => self.apply_slaac(mode).await,
-            Command::LinkUp => self.on_link_up(connector).await,
-            Command::LinkDown => self.on_link_down(),
+            Command::ConfigureSlaac { mode } => slaac::apply(self, mode).await,
+            Command::LinkUp => link::up(self, connector).await,
+            Command::LinkDown => link::down(self),
             Command::Shutdown => {
                 kmsg::info!("Actor shutting down for {}", self.snapshot.name);
                 self.dhcp = None;
@@ -133,15 +131,15 @@ impl<N: Ops> Actor<N> {
         }
     }
 
-    async fn on_expire<C: DhcpConnector>(&mut self, connector: &C) {
-        if let Err(error) = self.do_full_dora(connector).await {
-            kmsg::warn!("DHCP re-acquire failed for {}: {error}", self.snapshot.name);
-        }
-    }
-
     fn rehydrate_runtime_state(&mut self) {
         if let Some(lease) = self.snapshot.lease.as_ref() {
             self.timers.arm(lease);
+        }
+    }
+
+    async fn on_expire<C: DhcpConnector>(&mut self, connector: &C) {
+        if let Err(error) = dhcp::do_full_dora(self, connector).await {
+            kmsg::warn!("DHCP re-acquire failed for {}: {error}", self.snapshot.name);
         }
     }
 
@@ -191,10 +189,10 @@ async fn actor_loop<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &
 
         match event {
             ActorEvent::Command(cmd) => actor.dispatch(cmd, connector).await,
-            ActorEvent::DhcpLease(lease) => actor.on_dhcp_acquired(lease).await,
-            ActorEvent::Slaac(event) => actor.handle_slaac_event(event).await,
-            ActorEvent::Renew => actor.renew_lease(connector).await,
-            ActorEvent::Rebind => actor.rebind_lease(connector).await,
+            ActorEvent::DhcpLease(lease) => dhcp::acquired(actor, lease).await,
+            ActorEvent::Slaac(event) => slaac::handle_event(actor, event).await,
+            ActorEvent::Renew => dhcp::renew_lease(actor, connector).await,
+            ActorEvent::Rebind => dhcp::rebind_lease(actor, connector).await,
             ActorEvent::Expire => actor.on_expire(connector).await,
         }
     }
