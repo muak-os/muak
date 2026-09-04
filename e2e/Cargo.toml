@@ -16,7 +16,6 @@ tokio = { workspace = true, features = ["process", "net", "time", "io-util"] }
 
 # Error handling
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 # Filesystem
 tempfile = { workspace = true }

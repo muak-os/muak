@@ -11,9 +11,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# Compression
-zstd = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
 
